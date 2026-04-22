@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Bun
+.bun/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Runtime outputs (if we ever write them here, belongs in a bundle's state/ instead)
+*.jsonl.tmp

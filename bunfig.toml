@@ -1,0 +1,14 @@
+# Bun runtime + test configuration.
+# Matches the Claude Code reference where possible.
+
+[test]
+preload = []
+root = "."
+coverage = false
+
+[install]
+# Prefer exact versions; re-run `bun install` after changing deps.
+exact = false
+
+[install.lockfile]
+save = true

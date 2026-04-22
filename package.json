@@ -1,0 +1,26 @@
+{
+  "name": "sovereign-ai-harness",
+  "version": "0.0.1",
+  "description": "Sovereign AI agent runtime — Claude-Code-style harness with Hermes-pattern learning layer.",
+  "private": true,
+  "type": "module",
+  "module": "src/main.ts",
+  "scripts": {
+    "chat": "bun src/main.ts",
+    "test": "bun test",
+    "lint": "biome check src tests",
+    "format": "biome format --write src tests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.45.0",
+    "@commander-js/extra-typings": "^12.1.0",
+    "chalk": "^5.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.6.0"
+  }
+}
