@@ -9,11 +9,13 @@ import type { LLMProvider, ProviderRequest } from './types.js';
 
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
+  readonly apiKey: string;
 
-  constructor(private readonly config: { apiKey: string }) {
+  constructor(config: { apiKey: string }) {
     if (!config.apiKey) {
       throw new Error('AnthropicProvider requires apiKey');
     }
+    this.apiKey = config.apiKey;
   }
 
   // biome-ignore lint/correctness/useYield: Phase 0 stub; functional in Phase 1.

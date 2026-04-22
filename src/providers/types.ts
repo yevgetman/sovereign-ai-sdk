@@ -4,12 +4,7 @@
 // Source of pattern: Claude Code src/providers/ (inferred — see
 // harness-build-plan.md § 0.4).
 
-import type {
-  AssistantMessage,
-  Message,
-  StreamEvent,
-  SystemSegment,
-} from '../core/types.js';
+import type { AssistantMessage, Message, StreamEvent, SystemSegment } from '../core/types.js';
 
 export type ToolSchema = {
   name: string;
@@ -17,10 +12,7 @@ export type ToolSchema = {
   input_schema: unknown; // JSONSchema
 };
 
-export type ToolChoice =
-  | { type: 'auto' }
-  | { type: 'any' }
-  | { type: 'tool'; name: string };
+export type ToolChoice = { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
 
 export type ProviderRequest = {
   model: string;

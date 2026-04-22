@@ -4,9 +4,6 @@
 
 export async function runRepl(opts: { bundlePath: string }): Promise<void> {
   process.stdout.write(
-    `sovereign-ai-harness — Phase 0 scaffold\n` +
-      `bundle: ${opts.bundlePath}\n` +
-      `\n` +
-      `REPL not yet implemented. See ~/code/sovereign-ai-docs/harness/docs/runtime-scaffold-plan.md § Phase 1.\n`,
+    `sovereign-ai-harness — Phase 0 scaffold\nbundle: ${opts.bundlePath}\n\nREPL not yet implemented. See ~/code/sovereign-ai-docs/harness/docs/runtime-scaffold-plan.md § Phase 1.\n`,
   );
 }

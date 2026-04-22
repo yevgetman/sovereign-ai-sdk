@@ -2,7 +2,6 @@
 # Matches the Claude Code reference where possible.
 
 [test]
-preload = []
 root = "."
 coverage = false
 

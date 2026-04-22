@@ -36,11 +36,14 @@ describe('buildTool — fail-closed defaults', () => {
 
   test('checkPermissions defaults to allow', async () => {
     const tool = buildTool(minimalDef);
-    const result = await tool.checkPermissions({}, {
-      cwd: '',
-      bundleRoot: '',
-      sessionId: '',
-    });
+    const result = await tool.checkPermissions(
+      {},
+      {
+        cwd: '',
+        bundleRoot: '',
+        sessionId: '',
+      },
+    );
     expect(result.behavior).toBe('allow');
   });
 

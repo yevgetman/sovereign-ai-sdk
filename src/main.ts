@@ -10,11 +10,9 @@ const VERSION = '0.0.1';
 
 function resolveBundlePath(cliArg: string | undefined): string {
   if (cliArg) return cliArg;
-  const env = process.env['HARNESS_BUNDLE'];
+  const env = process.env.HARNESS_BUNDLE;
   if (env) return env;
-  throw new Error(
-    'No bundle path provided. Pass --bundle <path> or set HARNESS_BUNDLE env var.',
-  );
+  throw new Error('No bundle path provided. Pass --bundle <path> or set HARNESS_BUNDLE env var.');
 }
 
 async function main(argv: string[]): Promise<void> {

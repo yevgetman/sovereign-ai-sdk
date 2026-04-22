@@ -4,8 +4,8 @@
 // This is the Sovereign AI-specific interface to the docs repo or a
 // client's extracted bundle.
 
-import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Bundle, BundleIndex } from './types.js';

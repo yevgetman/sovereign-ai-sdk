@@ -7,9 +7,8 @@
 
 import type { Message, QueryParams, StreamEvent, Terminal } from './types.js';
 
-export async function* query(
-  params: QueryParams,
-): AsyncGenerator<StreamEvent | Message, Terminal> {
+// biome-ignore lint/correctness/useYield: Phase 0 scaffold — yields come in Phase 1 when the provider call lands.
+export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
   // Phase 0: signature only. Provider calls come in Phase 1.
   // The while loop shape is preserved so Phase 2 can slot tool handling in.
   const { provider: _provider, messages: _messages, maxTurns = 5 } = params;

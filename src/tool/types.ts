@@ -16,9 +16,7 @@ export type PermissionResult = {
   reason?: string;
 };
 
-export type ValidationResult =
-  | { ok: true }
-  | { ok: false; reason: string };
+export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
 export type ToolContext = {
   cwd: string;
@@ -45,11 +43,7 @@ export type ToolDef<I, O, P = void> = {
   outputSchema?: z.ZodType<O>;
 
   /** Main execution path. */
-  call: (
-    input: I,
-    ctx: ToolContext,
-    onProgress?: (p: P) => void,
-  ) => Promise<ToolResult<O>>;
+  call: (input: I, ctx: ToolContext, onProgress?: (p: P) => void) => Promise<ToolResult<O>>;
 
   // Overridable; all have fail-closed defaults in buildTool().
   isEnabled?: () => boolean;
