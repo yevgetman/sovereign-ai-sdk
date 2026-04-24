@@ -1,24 +1,57 @@
-// The turn loop — async generator yielding typed events. Phase 0 scaffold:
-// signature is locked in, body is minimal. Phase 1 makes the provider call
-// actually happen. Phase 2 adds tool-use handling. Phase 10 adds compaction.
+// The turn loop — async generator yielding typed events. Phase 1: a single
+// turn. Stream provider events through verbatim, capture the assistant
+// message, return `completed` when there's no tool_use. Phase 2 will wrap
+// this in a while-loop that splices tool execution and continuation turns
+// between streams.
 //
 // Source of pattern: Claude Code src/query.ts (lesson: core loop shape is a
 // one-way door; use async generator from day one).
 
-import type { Message, QueryParams, StreamEvent, Terminal } from './types.js';
+import type { AssistantMessage, Message, QueryParams, StreamEvent, Terminal } from './types.js';
 
-// biome-ignore lint/correctness/useYield: Phase 0 scaffold — yields come in Phase 1 when the provider call lands.
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
-  // Phase 0: signature only. Provider calls come in Phase 1.
-  // The while loop shape is preserved so Phase 2 can slot tool handling in.
-  const { provider: _provider, messages: _messages, maxTurns = 5 } = params;
-  const turns = 0;
-  while (turns < maxTurns) {
-    // Phase 1 will:
-    //   for await (const event of provider.stream({ ... })) yield event;
-    // Phase 2 will:
-    //   if (assistant has tool_use) yield* runTools(...); else return completed.
-    return { reason: 'completed' };
+  const { provider, model, messages, systemPrompt, maxTokens, temperature, signal } = params;
+  // maxTurns is reserved for Phase 2 (tool-use continuation). Unused in Phase 1.
+
+  if (signal?.aborted) return { reason: 'interrupted' };
+
+  let assistant: AssistantMessage | undefined;
+
+  try {
+    for await (const event of provider.stream({
+      model,
+      system: systemPrompt,
+      messages,
+      maxTokens,
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(signal ? { signal } : {}),
+    })) {
+      if (event.type === 'assistant_message') {
+        assistant = event.message;
+      }
+      yield event;
+    }
+  } catch (err) {
+    if (signal?.aborted) return { reason: 'interrupted' };
+    return { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
   }
-  return { reason: 'max_turns' };
+
+  if (!assistant) {
+    return {
+      reason: 'error',
+      error: new Error('provider stream ended without an assistant_message'),
+    };
+  }
+
+  const hasToolUse = assistant.content.some((b) => b.type === 'tool_use');
+  if (hasToolUse) {
+    // Phase 2 will execute the tools and loop back for a continuation turn.
+    // Phase 1 bails explicitly so a surprise tool_use doesn't silently stall.
+    return {
+      reason: 'error',
+      error: new Error('tool_use encountered but Phase 2 tool handling not yet implemented'),
+    };
+  }
+
+  return { reason: 'completed' };
 }

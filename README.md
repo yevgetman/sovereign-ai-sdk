@@ -6,16 +6,20 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-Phase 0 scaffold. Not yet functional — types are defined, provider interface is defined, `buildTool()` factory with fail-closed defaults is in place. No LLM call yet. `bun run chat --version` prints the version and exits.
+**Phase 1 complete (2026-04-24)** — minimal streaming REPL against Anthropic. `bun run chat --bundle <path>` loads the bundle's `index.yaml` + `state/CONTEXT.md` + memory files into a cacheable system prompt, opens a readline prompt, and streams assistant tokens live from `@anthropic-ai/sdk`. Multi-turn history is kept in memory within a session; Ctrl-C during streaming aborts the current request without closing the REPL; `/quit`, `/exit`, `/q`, or Ctrl-D exits. No tools yet (Phase 2), no persistence (Phase 3.5), no UI polish (Phase 16.7).
 
-See [`sovereign-ai-docs/harness/docs/runtime-scaffold-plan.md`](../sovereign-ai-docs/harness/docs/runtime-scaffold-plan.md) for the full phased plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
+See [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 
-## Usage (once functional)
+## Usage
 
 ```bash
 bun install
+export ANTHROPIC_API_KEY=sk-ant-...
 bun run chat --bundle ~/code/sovereign-ai-docs
+# or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
+
+Flags: `--model <name>` (default `claude-opus-4-7`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env).
 
 ## Development
 
