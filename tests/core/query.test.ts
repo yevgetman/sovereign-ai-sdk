@@ -96,7 +96,7 @@ describe('query() — Phase 2 turn loop', () => {
     const provider = scriptedTurns([completedEvents]);
     const gen = query({
       provider,
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-4-6',
       messages: [{ role: 'user', content: [{ type: 'text', text: "what's 2+2?" }] }],
       systemPrompt: [],
       maxTokens: 256,
@@ -118,7 +118,7 @@ describe('query() — Phase 2 turn loop', () => {
     const provider = scriptedTurns(toolUseThenFinishTurns);
     const gen = query({
       provider,
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-4-6',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'say hello' }] }],
       systemPrompt: [],
       tools: [makeEchoTool()],
@@ -152,7 +152,7 @@ describe('query() — Phase 2 turn loop', () => {
     const provider = scriptedTurns([firstTurn]);
     const gen = query({
       provider,
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-4-6',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
       systemPrompt: [],
       maxTokens: 256,
@@ -187,7 +187,7 @@ describe('query() — Phase 2 turn loop', () => {
     const provider = scriptedTurns(keepCallingTurns);
     const gen = query({
       provider,
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-4-6',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
       systemPrompt: [],
       tools: [makeEchoTool()],
@@ -212,7 +212,7 @@ describe('query() — Phase 2 turn loop', () => {
     const provider = scriptedTurns([completedEvents]);
     const gen = query({
       provider,
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-4-6',
       messages: [],
       systemPrompt: [],
       maxTokens: 256,
@@ -233,7 +233,7 @@ describe('query() — Phase 2 turn loop', () => {
     };
     const gen = query({
       provider,
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-4-6',
       messages: [],
       systemPrompt: [],
       maxTokens: 256,

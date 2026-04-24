@@ -8,7 +8,7 @@
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
 
 const VERSION = '0.0.1';
-const DEFAULT_MODEL = 'claude-opus-4-7';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 4096;
 
 function resolveBundlePath(cliArg: string | undefined): string {
