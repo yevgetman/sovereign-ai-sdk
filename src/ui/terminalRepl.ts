@@ -20,6 +20,9 @@ import { loadBundle } from '../bundle/loader.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { AssistantMessage, Message, Terminal } from '../core/types.js';
+import { buildCanUseTool } from '../permissions/canUseTool.js';
+import { buildReadlineAsker } from '../permissions/prompt.js';
+import type { PermissionMode } from '../permissions/types.js';
 import { AnthropicProvider } from '../providers/anthropic.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { ToolContext } from '../tool/types.js';
@@ -28,6 +31,7 @@ export type ReplOpts = {
   bundlePath: string;
   model: string;
   maxTokens: number;
+  permissionMode: PermissionMode;
   apiKey: string;
 };
 
@@ -67,6 +71,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     rl.close();
   });
 
+  const alwaysAllow = new Set<string>();
+  const ask = buildReadlineAsker(rl);
+  const canUseTool = buildCanUseTool({
+    mode: opts.permissionMode,
+    ask,
+    alwaysAllow,
+  });
+
   writeBanner(
     opts,
     bundle.state.context !== null,
@@ -94,7 +106,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         model: opts.model,
         messages: history,
         systemPrompt,
-        ...(toolPool.length > 0 ? { tools: toolPool, toolContext } : {}),
+        ...(toolPool.length > 0 ? { tools: toolPool, toolContext, canUseTool } : {}),
         maxTokens: opts.maxTokens,
         signal: streamController.signal,
       });
@@ -168,12 +180,15 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 }
 
 function writeBanner(opts: ReplOpts, haveContext: boolean, toolNames: string[]): void {
+  const modeNote =
+    opts.permissionMode === 'bypass' ? chalk.red(' (every tool runs WITHOUT prompting)') : '';
   const lines = [
     chalk.bold('sovereign-ai-harness'),
     chalk.gray(`  bundle: ${opts.bundlePath}`),
     chalk.gray(`  model:  ${opts.model}`),
     chalk.gray(`  context.md: ${haveContext ? 'loaded' : 'not found (prompt will be minimal)'}`),
     chalk.gray(`  tools:  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}`),
+    chalk.gray(`  perms:  ${opts.permissionMode}${modeNote}`),
     chalk.gray('  exit:   /quit, /exit, /q, or Ctrl-D'),
     chalk.gray('  Ctrl-C during streaming interrupts the response'),
   ];

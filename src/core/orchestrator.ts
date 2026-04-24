@@ -1,17 +1,19 @@
-// Tool orchestration. Phase 2: `runTools` looks up each tool_use block in
+// Tool orchestration. Phase 3: `runTools` looks up each tool_use block in
 // the provided tool pool, validates its input via the tool's zod schema,
-// dispatches sequentially, and yields a single user message with one
-// tool_result block per input block (in the same order). A thrown error,
-// validation failure, or unknown-tool name becomes is_error=true on that
+// asks the permission decider if one is provided, and then dispatches
+// sequentially. Yields a single user message with one tool_result block
+// per input block (in the same order). A thrown error, validation failure,
+// unknown-tool name, or permission denial becomes is_error=true on that
 // block's tool_result — the outer turn loop never throws from here.
 //
-// Sequential execution is deliberate in Phase 2. Phase 4 restructures for
+// Sequential execution is deliberate in Phase 2/3. Phase 4 restructures for
 // path-scoped concurrency via `isConcurrencySafe(input)`. The interface
 // yields an AsyncGenerator today so Phase 4 can yield intermediate batches
 // without changing the caller shape (Invariant #5 — one pipe).
 //
 // Source of pattern: Claude Code src/services/tools/toolOrchestration.ts.
 
+import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { BashTool, formatBashOutput, isBashError } from '../tools/BashTool.js';
 import type { ContentBlock, Message, UserMessage } from './types.js';
@@ -30,12 +32,13 @@ export async function* runTools(
   blocks: ToolUseBlock[],
   ctx: ToolContext,
   tools: Tool<unknown, unknown>[],
+  canUseTool?: CanUseTool,
 ): AsyncGenerator<Message, void> {
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const resultBlocks: ToolResultBlock[] = [];
 
   for (const block of blocks) {
-    resultBlocks.push(await executeOne(block, ctx, toolsByName));
+    resultBlocks.push(await executeOne(block, ctx, toolsByName, canUseTool));
   }
 
   const userMessage: UserMessage = {
@@ -49,6 +52,7 @@ async function executeOne(
   block: ToolUseBlock,
   ctx: ToolContext,
   toolsByName: Map<string, Tool<unknown, unknown>>,
+  canUseTool?: CanUseTool,
 ): Promise<ToolResultBlock> {
   const tool = toolsByName.get(block.name);
   if (!tool) {
@@ -68,6 +72,19 @@ async function executeOne(
       content: `input validation failed: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
       is_error: true,
     };
+  }
+
+  if (canUseTool) {
+    const perm = await canUseTool(tool, parsed.data, ctx);
+    if (perm.behavior === 'deny') {
+      return {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: perm.reason ? `permission denied: ${perm.reason}` : 'permission denied',
+        is_error: true,
+      };
+    }
+    // Phase 3 ignores perm.updatedInput; Phase 7 will re-validate and swap.
   }
 
   try {

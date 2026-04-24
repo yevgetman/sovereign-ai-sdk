@@ -1,15 +1,18 @@
 #!/usr/bin/env bun
 // CLI entry. Commander parses flags; dispatches to terminalRepl.
 //
-// Phase 1 scope: `chat` command launches a streaming REPL against Anthropic.
-// Accepts --bundle (or HARNESS_BUNDLE env), --model, --max-tokens. Reads
-// ANTHROPIC_API_KEY from env. No tools, no persistence — Phase 2+ adds those.
+// Phase 3 scope: `chat` subcommand (the default) launches a streaming REPL
+// against Anthropic with tools and permission gating. Accepts --bundle (or
+// HARNESS_BUNDLE env), --model, --max-tokens, --permission-mode. Reads
+// ANTHROPIC_API_KEY from env.
 
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
+import type { PermissionMode } from './permissions/types.js';
 
 const VERSION = '0.0.1';
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_PERMISSION_MODE: PermissionMode = 'ask';
 
 function resolveBundlePath(cliArg: string | undefined): string {
   if (cliArg) return cliArg;
@@ -34,6 +37,11 @@ function parsePositiveInt(raw: string): number {
   return n;
 }
 
+function parsePermissionMode(raw: string): PermissionMode {
+  if (raw === 'ask' || raw === 'bypass') return raw;
+  throw new InvalidArgumentError("must be 'ask' or 'bypass'");
+}
+
 async function main(argv: string[]): Promise<void> {
   const program = new Command()
     .name('sovereign')
@@ -46,6 +54,12 @@ async function main(argv: string[]): Promise<void> {
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
     .option('-m, --model <name>', 'model name', DEFAULT_MODEL)
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
+    .option(
+      '--permission-mode <mode>',
+      "tool permissions: 'ask' prompts before each tool call, 'bypass' runs every tool without asking",
+      parsePermissionMode,
+      DEFAULT_PERMISSION_MODE,
+    )
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const apiKey = resolveApiKey();
@@ -54,6 +68,7 @@ async function main(argv: string[]): Promise<void> {
         bundlePath,
         model: opts.model,
         maxTokens: opts.maxTokens,
+        permissionMode: opts.permissionMode,
         apiKey,
       });
     });

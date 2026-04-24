@@ -6,9 +6,11 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 2 complete (2026-04-24)** — streaming REPL with the first tool wired through a full `buildTool()` → registry → orchestrator → `query()` loop. `BashTool` is the first capability: the model can run arbitrary bash commands and see combined stdout/stderr + exit code in its context. Tool results flow back as a user message with `tool_result` content blocks (Anthropic-native shape). No permission prompts yet — Phase 3 adds those. Sequential execution only — Phase 4 adds path-scoped concurrency. The `toolContext` plumbing (`cwd`, `bundleRoot`, `sessionId`, optional `signal`) is in place for every future tool.
+**Phase 3 complete (2026-04-24)** — permission prompts around every tool dispatch. The orchestrator calls `canUseTool()` before `tool.call()`; denials flow back as `is_error` tool_result blocks. CLI flag `--permission-mode ask | bypass` (default `ask`); in `ask` mode, every `tool_use` block hits an interactive y/N/always prompt backed by the REPL's readline. "Always" approvals cache for the session (keyed by tool name — Phase 7 replaces with rule-based matching). BashTool now returns `ask` for every invocation. Latent Phase 2 bug fixed in passing: `query()` now propagates its `AbortSignal` into the tool context so Ctrl-C reaches long-running subprocesses and in-flight permission prompts, not just the model stream.
 
-**Phase 1 (complete 2026-04-24)** remains the baseline: streaming-only REPL against Anthropic, in-memory history, Ctrl-C-aborts-stream, `/quit` or Ctrl-D to exit.
+**Phase 2 (complete 2026-04-24)** — streaming REPL with the first tool wired through a full `buildTool()` → registry → orchestrator → `query()` loop. `BashTool` is the first capability: the model can run arbitrary bash commands and see combined stdout/stderr + exit code in its context. Tool results flow back as a user message with `tool_result` content blocks (Anthropic-native shape).
+
+**Phase 1 (complete 2026-04-24)** — baseline streaming REPL against Anthropic, in-memory history, Ctrl-C-aborts-stream, `/quit` or Ctrl-D to exit.
 
 See [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 
@@ -21,7 +23,22 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--model <name>` (default `claude-sonnet-4-6`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env).
+Flags: `--model <name>` (default `claude-sonnet-4-6`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`).
+
+### Permission prompts (Phase 3)
+
+In the default `ask` mode, every tool invocation asks:
+
+```
+[permission] Bash ls src/
+  allow? [y]es / [N]o / [a]lways:
+```
+
+- **`y`** — allow this one invocation, tool runs.
+- **`n`** (or Enter) — deny; the tool_result flows back to the model with `is_error: true` and reason `"user denied"`, so the model sees the refusal and can adapt.
+- **`a`** — allow this and every subsequent call to the same tool in the current session (crude first-pass; Phase 7 will replace with input-aware rule matching).
+
+Run with `--permission-mode bypass` to skip all prompts (useful for scripted smoke tests or when you trust the model fully). The banner shows the active mode at startup; `bypass` renders in red as a visible warning.
 
 ### Global `sovereign` command (dev-mode)
 
@@ -65,7 +82,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults | 0 |
 | `src/tools/` | Individual tool implementations | 2+ |
 | `src/providers/` | LLM provider adapters (Anthropic, later OpenAI / Ollama) | 1 Anthropic, 5 others |
-| `src/permissions/` | Permission middleware | 3 |
+| `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
 | `src/context/` | System context, CLAUDE.md hierarchy, memoization | 6 |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader | 9 |

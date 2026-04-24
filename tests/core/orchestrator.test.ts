@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { runTools } from '../../src/core/orchestrator.js';
 import type { ContentBlock } from '../../src/core/types.js';
+import type { CanUseTool } from '../../src/permissions/types.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
 
@@ -43,9 +44,10 @@ function makeThrowingTool(): Tool<unknown, unknown> {
 async function collectResults(
   blocks: UseBlock[],
   tools: Tool<unknown, unknown>[],
+  canUseTool?: CanUseTool,
 ): Promise<ResultBlock[]> {
   const out: ResultBlock[] = [];
-  for await (const msg of runTools(blocks, ctx, tools)) {
+  for await (const msg of runTools(blocks, ctx, tools, canUseTool)) {
     if (msg.role === 'user') {
       for (const b of msg.content) {
         if (b.type === 'tool_result') out.push(b);
@@ -100,6 +102,38 @@ describe('runTools', () => {
     expect(called).toBe(false);
     expect(results[0]?.is_error).toBe(true);
     expect(results[0]?.content).toContain('validation');
+  });
+
+  test('permission deny produces is_error tool_result and skips call()', async () => {
+    let called = false;
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'echo',
+      inputSchema: z.object({ text: z.string() }),
+      async call() {
+        called = true;
+        return { data: 'nope' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+
+    const denyAll: CanUseTool = async () => ({ behavior: 'deny', reason: 'policy' });
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'a1', name: 'Echo', input: { text: 'x' } }];
+    const results = await collectResults(blocks, [tool], denyAll);
+
+    expect(called).toBe(false);
+    expect(results[0]?.is_error).toBe(true);
+    expect(results[0]?.content).toContain('permission denied');
+    expect(results[0]?.content).toContain('policy');
+  });
+
+  test('permission allow passes through to tool.call()', async () => {
+    const allowAll: CanUseTool = async () => ({ behavior: 'allow' });
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'a1', name: 'Echo', input: { text: 'go' } },
+    ];
+    const results = await collectResults(blocks, [makeEchoTool()], allowAll);
+    expect(results[0]?.is_error).toBeUndefined();
+    expect(results[0]?.content).toContain('go');
   });
 
   test('preserves ordering across multiple tool_use blocks', async () => {

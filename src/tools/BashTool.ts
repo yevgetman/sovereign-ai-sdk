@@ -2,8 +2,10 @@
 // stdout+stderr, returns combined output. Non-zero exit → is_error on the
 // tool_result; tool code itself does not throw for non-zero exits.
 //
-// Phase 2 scope: no permission checks (fail-closed defaults ask for every
-// use — Phase 3 adds interactive prompts). Not marked read-only, not
+// Phase 3 scope: `checkPermissions` returns 'ask' for every invocation so
+// the orchestrator prompts the human. Phase 7 replaces this with input-aware
+// rule-based logic (e.g. safe-listing read-only commands via a regex, plus
+// the full rule engine from Claude Code). Not marked read-only, not
 // concurrency-safe. The orchestrator runs tools sequentially so
 // isConcurrencySafe doesn't matter yet.
 //
@@ -48,6 +50,9 @@ export const BashTool = buildTool<Input, Output>({
   description: () =>
     'Run a bash command. Returns combined stdout and stderr plus the exit code. Set `expect_token` to require a completion sentinel on stdout.',
   inputSchema,
+  // Bash is arbitrary-code execution. Ask for every invocation until Phase 7
+  // lands input-aware rules.
+  checkPermissions: async () => ({ behavior: 'ask' }),
   async call(input, ctx) {
     return runBash(input, ctx);
   },

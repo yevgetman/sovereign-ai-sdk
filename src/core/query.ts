@@ -44,6 +44,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
   const toolPool: Tool<unknown, unknown>[] = tools ?? [];
   const toolCtx: ToolContext | undefined = params.toolContext;
+  const canUseTool = params.canUseTool;
   const history: Message[] = [...messages];
 
   for (let turn = 0; turn < maxTurns; turn++) {
@@ -102,12 +103,18 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       };
     }
 
+    // Propagate the query-level signal into the tool context so long-running
+    // tools (BashTool's subprocess) and permission prompts can abort on
+    // Ctrl-C. Phase 2 omitted this — latent until Phase 3 made it observable.
+    const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
+
     try {
-      for await (const msg of runTools(toolUseBlocks, toolCtx, toolPool)) {
+      for await (const msg of runTools(toolUseBlocks, turnCtx, toolPool, canUseTool)) {
         history.push(msg);
         yield msg;
       }
     } catch (err) {
+      if (signal?.aborted) return { reason: 'interrupted' };
       return { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
     }
   }
