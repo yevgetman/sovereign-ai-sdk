@@ -100,6 +100,8 @@ async function main(argv: string[]): Promise<void> {
       parsePermissionMode,
       DEFAULT_PERMISSION_MODE,
     )
+    .option('--resume <id>', 'resume a prior session by its UUID')
+    .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const apiKey = resolveApiKey();
@@ -110,6 +112,8 @@ async function main(argv: string[]): Promise<void> {
         maxTokens: opts.maxTokens,
         permissionMode: opts.permissionMode,
         apiKey,
+        ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
+        ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
       });
     });
 

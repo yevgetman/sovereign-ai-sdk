@@ -1,0 +1,220 @@
+// sessionDb tests — everything runs in-memory (`path: ':memory:'`) so we
+// never touch the filesystem. Each test opens its own DB to keep state
+// isolated.
+
+import { describe, expect, test } from 'bun:test';
+import { SessionDb } from '../../src/agent/sessionDb.js';
+import type { ContentBlock, SystemSegment } from '../../src/core/types.js';
+
+function openMem(): SessionDb {
+  return SessionDb.open({ path: ':memory:' });
+}
+
+const textBlock = (t: string): ContentBlock => ({ type: 'text', text: t });
+
+describe('SessionDb.open', () => {
+  test('applies schema on first open', () => {
+    const db = openMem();
+    // If schema were not applied, createSession would throw on missing table.
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    expect(id.length).toBeGreaterThan(0);
+    db.close();
+  });
+
+  test('reopening against same in-memory handle would reset — expected; each test opens fresh', () => {
+    const a = openMem();
+    a.createSession({ model: 'm', provider: 'p' });
+    a.close();
+    const b = openMem();
+    // Fresh in-memory DB — no sessions from the previous handle leak through.
+    expect(b.getSession('nonexistent')).toBeNull();
+    b.close();
+  });
+});
+
+describe('createSession + getSession', () => {
+  test('returns a UUID and stores every field', () => {
+    const db = openMem();
+    const sysPrompt: SystemSegment[] = [
+      { text: 'system a', cacheable: true },
+      { text: 'system b', cacheable: false },
+    ];
+    const id = db.createSession({
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      platform: 'cli',
+      title: 'pilot session',
+      systemPrompt: sysPrompt,
+      metadata: { bundleRoot: '/tmp/bundle', note: 42 },
+    });
+    const session = db.getSession(id);
+    expect(session).not.toBeNull();
+    expect(session?.model).toBe('claude-sonnet-4-6');
+    expect(session?.provider).toBe('anthropic');
+    expect(session?.platform).toBe('cli');
+    expect(session?.title).toBe('pilot session');
+    expect(session?.systemPrompt).toEqual(sysPrompt);
+    expect(session?.metadata).toEqual({ bundleRoot: '/tmp/bundle', note: 42 });
+    expect(session?.schemaVersion).toBe(1);
+    expect(session?.parentSessionId).toBeNull();
+    db.close();
+  });
+
+  test("default platform is 'cli' and metadata defaults to empty object", () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    const session = db.getSession(id);
+    expect(session?.platform).toBe('cli');
+    expect(session?.metadata).toEqual({});
+    db.close();
+  });
+
+  test('getSession returns null for an unknown id', () => {
+    const db = openMem();
+    expect(db.getSession('no-such-id')).toBeNull();
+    db.close();
+  });
+});
+
+describe('saveMessage + loadMessages', () => {
+  test('roundtrips content blocks in insertion order', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    db.saveMessage(id, { role: 'user', content: [textBlock('first')] });
+    db.saveMessage(id, { role: 'assistant', content: [textBlock('second')] });
+    db.saveMessage(id, { role: 'user', content: [textBlock('third')] });
+    const loaded = db.loadMessages(id);
+    expect(loaded).toHaveLength(3);
+    expect(loaded[0]?.role).toBe('user');
+    expect(loaded[1]?.role).toBe('assistant');
+    expect(loaded[2]?.role).toBe('user');
+    expect((loaded[0]?.content[0] as { text: string }).text).toBe('first');
+    expect((loaded[1]?.content[0] as { text: string }).text).toBe('second');
+    expect((loaded[2]?.content[0] as { text: string }).text).toBe('third');
+    db.close();
+  });
+
+  test('preserves complex content (tool_use + tool_result blocks)', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    const mixed: ContentBlock[] = [
+      { type: 'text', text: 'checking' },
+      { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls' } },
+    ];
+    db.saveMessage(id, { role: 'assistant', content: mixed });
+    db.saveMessage(id, {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_1',
+          content: 'exit_code: 0\n--- stdout ---\nfile1',
+        },
+      ],
+    });
+    const loaded = db.loadMessages(id);
+    expect(loaded[0]?.content).toEqual(mixed);
+    const resultBlock = loaded[1]?.content[0] as { type: string; tool_use_id: string };
+    expect(resultBlock.type).toBe('tool_result');
+    expect(resultBlock.tool_use_id).toBe('toolu_1');
+    db.close();
+  });
+
+  test('messages from different sessions do not cross-pollute', () => {
+    const db = openMem();
+    const a = db.createSession({ model: 'm', provider: 'p' });
+    const b = db.createSession({ model: 'm', provider: 'p' });
+    db.saveMessage(a, { role: 'user', content: [textBlock('for-a')] });
+    db.saveMessage(b, { role: 'user', content: [textBlock('for-b')] });
+    expect(db.loadMessages(a)).toHaveLength(1);
+    expect(db.loadMessages(b)).toHaveLength(1);
+    expect((db.loadMessages(a)[0]?.content[0] as { text: string }).text).toBe('for-a');
+    db.close();
+  });
+
+  test('saveMessage bumps sessions.last_updated', async () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    const before = db.getSession(id)?.lastUpdated ?? 0;
+    // Tiny delay so Date.now() advances on coarse clocks.
+    await new Promise((r) => setTimeout(r, 5));
+    db.saveMessage(id, { role: 'user', content: [textBlock('ping')] });
+    const after = db.getSession(id)?.lastUpdated ?? 0;
+    expect(after).toBeGreaterThan(before);
+    db.close();
+  });
+});
+
+describe('getSystemPrompt', () => {
+  test('returns what was stored verbatim (Invariant #4 storage guarantee)', () => {
+    const db = openMem();
+    const sys: SystemSegment[] = [
+      { text: 'segment-one with "quotes" and \n newlines', cacheable: true },
+      { text: 'segment-two', cacheable: false },
+    ];
+    const id = db.createSession({ model: 'm', provider: 'p', systemPrompt: sys });
+    expect(db.getSystemPrompt(id)).toEqual(sys);
+    db.close();
+  });
+
+  test('returns null when no system prompt was provided', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    expect(db.getSystemPrompt(id)).toBeNull();
+    db.close();
+  });
+});
+
+describe('search (FTS5)', () => {
+  test('finds messages whose content contains the query term', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    db.saveMessage(id, { role: 'user', content: [textBlock('the quick brown fox')] });
+    db.saveMessage(id, { role: 'assistant', content: [textBlock('jumped over lazy dog')] });
+    db.saveMessage(id, { role: 'user', content: [textBlock('totally unrelated coffee')] });
+
+    const foxHits = db.search('fox');
+    expect(foxHits).toHaveLength(1);
+    expect((foxHits[0]?.content[0] as { text: string }).text).toContain('fox');
+
+    const coffeeHits = db.search('coffee');
+    expect(coffeeHits).toHaveLength(1);
+    db.close();
+  });
+
+  test('scopes by sessionId when provided', () => {
+    const db = openMem();
+    const a = db.createSession({ model: 'm', provider: 'p' });
+    const b = db.createSession({ model: 'm', provider: 'p' });
+    db.saveMessage(a, { role: 'user', content: [textBlock('cerulean sky')] });
+    db.saveMessage(b, { role: 'user', content: [textBlock('cerulean sea')] });
+
+    const scoped = db.search('cerulean', { sessionId: a });
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]?.sessionId).toBe(a);
+
+    const all = db.search('cerulean');
+    expect(all).toHaveLength(2);
+    db.close();
+  });
+
+  test('respects the limit option', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    for (let i = 0; i < 5; i++) {
+      db.saveMessage(id, { role: 'user', content: [textBlock(`needle line ${i}`)] });
+    }
+    const hits = db.search('needle', { limit: 2 });
+    expect(hits).toHaveLength(2);
+    db.close();
+  });
+});
+
+describe('schema versioning', () => {
+  test('new DB reports schema_version = 1 via sessions.schemaVersion', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    expect(db.getSession(id)?.schemaVersion).toBe(1);
+    db.close();
+  });
+});

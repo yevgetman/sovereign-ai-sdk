@@ -6,9 +6,11 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 3 complete (2026-04-24)** — permission prompts around every tool dispatch. The orchestrator calls `canUseTool()` before `tool.call()`; denials flow back as `is_error` tool_result blocks. CLI flag `--permission-mode ask | bypass` (default `ask`); in `ask` mode, every `tool_use` block hits an interactive y/N/always prompt backed by the REPL's readline. "Always" approvals cache for the session (keyed by tool name — Phase 7 replaces with rule-based matching). BashTool now returns `ask` for every invocation. Latent Phase 2 bug fixed in passing: `query()` now propagates its `AbortSignal` into the tool context so Ctrl-C reaches long-running subprocesses and in-flight permission prompts, not just the model stream.
+**Phase 3.5 complete (2026-04-24)** — conversations persist across runs. SQLite (via `bun:sqlite`) + WAL + FTS5 at `~/.harness/sessions.db` by default; schema-versioned migrations framework in place. Every user / assistant / tool_result message is saved as it's produced. `--resume <uuid>` hydrates history and the *frozen system prompt* from the stored session (storage-side of Invariant #4 — Phase 6 enforces actually-reuse-it). Bundle-mismatch on resume is rejected with a clear error. Jittered retry wrapper (20–150ms × up to 15) + `wal_checkpoint(TRUNCATE)` every 50 writes — prepared for Phase 16/17 multi-writer contention. Zero new npm dependencies.
 
-**Phase 2 (complete 2026-04-24)** — streaming REPL with the first tool wired through a full `buildTool()` → registry → orchestrator → `query()` loop. `BashTool` is the first capability: the model can run arbitrary bash commands and see combined stdout/stderr + exit code in its context. Tool results flow back as a user message with `tool_result` content blocks (Anthropic-native shape).
+**Phase 3 (complete 2026-04-24)** — permission prompts around every tool dispatch. The orchestrator calls `canUseTool()` before `tool.call()`; denials flow back as `is_error` tool_result blocks. CLI flag `--permission-mode ask | bypass` (default `ask`); "always" approvals cache for the session, keyed by tool name (Phase 7 replaces with rule-based matching). Latent Phase 2 bug fixed in passing: `query()` now propagates its `AbortSignal` into the tool context.
+
+**Phase 2 (complete 2026-04-24)** — streaming REPL with the first tool wired through a full `buildTool()` → registry → orchestrator → `query()` loop. `BashTool` is the first capability. Tool results flow back as a user message with `tool_result` content blocks (Anthropic-native shape).
 
 **Phase 1 (complete 2026-04-24)** — baseline streaming REPL against Anthropic, in-memory history, Ctrl-C-aborts-stream, `/quit` or Ctrl-D to exit.
 
@@ -23,7 +25,19 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--model <name>` (default `claude-sonnet-4-6`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`).
+Flags: `--model <name>` (default `claude-sonnet-4-6`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`).
+
+### Session persistence (Phase 3.5)
+
+Every turn is saved to `~/.harness/sessions.db` as it happens. When the REPL exits (cleanly or otherwise), the last line of output shows you the resume command:
+
+```
+to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
+```
+
+Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation — later phases (6) hook warm-cache behaviour on top. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
+
+Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) keep the upgrade path cheap when Phase 8 adds cost columns. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
 
 ### Permission prompts (Phase 3)
 
@@ -83,6 +97,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/tools/` | Individual tool implementations | 2+ |
 | `src/providers/` | LLM provider adapters (Anthropic, later OpenAI / Ollama) | 1 Anthropic, 5 others |
 | `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
+| `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
 | `src/context/` | System context, CLAUDE.md hierarchy, memoization | 6 |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader | 9 |

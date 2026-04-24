@@ -1,11 +1,11 @@
 // Terminal REPL. Readline-based prompt loop that streams model output as
-// text deltas arrive. In-memory multi-turn history; the model sees every
-// prior user/assistant message so follow-up questions ("what did I just
-// ask?") resolve coherently.
+// text deltas arrive. Multi-turn history is now persisted (Phase 3.5) via
+// the session DB; in-memory history mirrors what the DB knows so the model
+// sees every prior user/assistant message.
 //
-// Phase 2: tools are assembled from the registry and wired into query().
-// Tool invocations render as a dim inline hint so the user sees what's
-// happening; pretty rendering lands Phase 16.7.
+// Phase 3.5: every turn is saved to ~/.harness/sessions.db (overridable
+// via --db). `--resume <id>` rehydrates history and the frozen system
+// prompt from the stored session instead of rebuilding from the bundle.
 //
 // Ctrl-C semantics:
 //   - during streaming: abort the in-flight request, drop back to prompt
@@ -13,13 +13,14 @@
 //
 // Exit commands: `/quit`, `/exit`, `/q`, Ctrl-D.
 
-import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
+import { SessionDb } from '../agent/sessionDb.js';
 import { loadBundle } from '../bundle/loader.js';
+import type { Bundle } from '../bundle/types.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
-import type { AssistantMessage, Message, Terminal } from '../core/types.js';
+import type { AssistantMessage, Message, SystemSegment, Terminal } from '../core/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
@@ -33,6 +34,11 @@ export type ReplOpts = {
   maxTokens: number;
   permissionMode: PermissionMode;
   apiKey: string;
+  /** Resume an existing session by UUID. Validates the bundle matches what
+   *  was stored at session creation; refuses otherwise. */
+  resumeId?: string;
+  /** Override the default DB path (~/.harness/sessions.db). */
+  dbPath?: string;
 };
 
 const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
@@ -40,9 +46,10 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
   const provider = new AnthropicProvider({ apiKey: opts.apiKey });
-  const systemPrompt = buildSystemSegments(bundle);
-  const history: Message[] = [];
-  const sessionId = randomUUID();
+
+  const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
+  const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(db, opts, bundle);
+
   const toolContext: ToolContext = {
     cwd: process.cwd(),
     bundleRoot: bundle.root,
@@ -83,6 +90,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     opts,
     bundle.state.context !== null,
     toolPool.map((t) => t.name),
+    sessionId,
+    resumed,
   );
 
   while (!closed) {
@@ -92,7 +101,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     if (trimmed === '') continue;
     if (EXIT_COMMANDS.has(trimmed)) break;
 
-    history.push({ role: 'user', content: [{ type: 'text', text: trimmed }] });
+    const userMessage: Message = { role: 'user', content: [{ type: 'text', text: trimmed }] };
+    history.push(userMessage);
+    db.saveMessage(sessionId, { role: 'user', content: userMessage.content });
 
     process.stdout.write(chalk.gray('\nharness> '));
 
@@ -123,6 +134,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // Message branch — ev is a tool_result carrier yielded between turns.
         if ('role' in ev) {
           if (ev.role === 'user') {
+            db.saveMessage(sessionId, { role: 'user', content: ev.content });
             const errs = ev.content.filter(
               (b) => b.type === 'tool_result' && b.is_error === true,
             ).length;
@@ -142,6 +154,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         }
         if (ev.type === 'assistant_message') {
           latestAssistant = ev.message;
+          db.saveMessage(sessionId, { role: 'assistant', content: ev.message.content });
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
               const preview = previewToolInput(block.input);
@@ -176,12 +189,23 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
 
   rl.close();
+  db.close();
   process.stdout.write(chalk.gray('\ngoodbye.\n'));
+  process.stdout.write(
+    chalk.gray(`to resume: sovereign chat --resume ${sessionId} --bundle ${opts.bundlePath}\n`),
+  );
 }
 
-function writeBanner(opts: ReplOpts, haveContext: boolean, toolNames: string[]): void {
+function writeBanner(
+  opts: ReplOpts,
+  haveContext: boolean,
+  toolNames: string[],
+  sessionId: string,
+  resumed: boolean,
+): void {
   const modeNote =
     opts.permissionMode === 'bypass' ? chalk.red(' (every tool runs WITHOUT prompting)') : '';
+  const sessionLabel = resumed ? `resumed ${sessionId}` : `new ${sessionId}`;
   const lines = [
     chalk.bold('sovereign-ai-harness'),
     chalk.gray(`  bundle: ${opts.bundlePath}`),
@@ -189,10 +213,58 @@ function writeBanner(opts: ReplOpts, haveContext: boolean, toolNames: string[]):
     chalk.gray(`  context.md: ${haveContext ? 'loaded' : 'not found (prompt will be minimal)'}`),
     chalk.gray(`  tools:  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}`),
     chalk.gray(`  perms:  ${opts.permissionMode}${modeNote}`),
+    chalk.gray(`  session: ${sessionLabel}`),
     chalk.gray('  exit:   /quit, /exit, /q, or Ctrl-D'),
     chalk.gray('  Ctrl-C during streaming interrupts the response'),
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
+}
+
+type SessionOpen = {
+  sessionId: string;
+  systemPrompt: SystemSegment[];
+  history: Message[];
+  resumed: boolean;
+};
+
+function openOrResumeSession(db: SessionDb, opts: ReplOpts, bundle: Bundle): SessionOpen {
+  if (opts.resumeId === undefined) {
+    const systemPrompt = buildSystemSegments(bundle);
+    const sessionId = db.createSession({
+      model: opts.model,
+      provider: 'anthropic',
+      platform: 'cli',
+      systemPrompt,
+      metadata: { bundleRoot: bundle.root },
+    });
+    return { sessionId, systemPrompt, history: [], resumed: false };
+  }
+
+  const session = db.getSession(opts.resumeId);
+  if (!session) {
+    throw new Error(`no session with id ${opts.resumeId}`);
+  }
+  const storedBundleRoot = (session.metadata as { bundleRoot?: string }).bundleRoot;
+  if (storedBundleRoot !== undefined && storedBundleRoot !== bundle.root) {
+    throw new Error(
+      `session ${opts.resumeId} was created against bundle ${storedBundleRoot}; ` +
+        `current --bundle is ${bundle.root}. Pass --bundle ${storedBundleRoot} to resume.`,
+    );
+  }
+  if (session.systemPrompt === null) {
+    throw new Error(`session ${opts.resumeId} has no stored system prompt — cannot resume`);
+  }
+  const storedMessages = db.loadMessages(opts.resumeId);
+  const history: Message[] = storedMessages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+  return {
+    sessionId: opts.resumeId,
+    systemPrompt: session.systemPrompt,
+    history,
+    resumed: true,
+  };
 }
 
 function previewToolInput(input: unknown): string {
