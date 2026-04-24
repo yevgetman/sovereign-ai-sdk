@@ -16,12 +16,35 @@ See [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereig
 
 ```bash
 bun install
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...   # or drop it in .env at the repo root
 bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
 Flags: `--model <name>` (default `claude-sonnet-4-6`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env).
+
+### Global `sovereign` command (dev-mode)
+
+Install once, invoke from anywhere — mirrors how `claude` is invoked for Claude Code:
+
+```bash
+cd ~/code/sovereign-ai-harness
+bun link         # registers the package AND installs the `sovereign` binary on PATH
+```
+
+Then from any directory:
+
+```bash
+sovereign chat --bundle ~/code/sovereign-ai-docs
+# or set HARNESS_BUNDLE once in your shell rc:
+#   export HARNESS_BUNDLE=~/code/sovereign-ai-docs
+# and just:
+sovereign chat
+```
+
+The symlink points at `./src/main.ts` so edits under `src/` take effect on the next invocation — no rebuild step. For production (client installs) use `bun build --compile` to produce a standalone binary instead; see [`agent-harness.md § deployment-topology`](../sovereign-ai-docs/business/architecture/agent-harness.md#deployment-topology).
+
+To uninstall: `bun unlink` from the repo root, or `rm ~/.bun/bin/sovereign`.
 
 ## Development
 

@@ -36,7 +36,7 @@ function parsePositiveInt(raw: string): number {
 
 async function main(argv: string[]): Promise<void> {
   const program = new Command()
-    .name('harness')
+    .name('sovereign')
     .description('Sovereign AI agent runtime')
     .version(VERSION);
 
