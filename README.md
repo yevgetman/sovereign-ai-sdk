@@ -6,7 +6,9 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 1 complete (2026-04-24)** — minimal streaming REPL against Anthropic. `bun run chat --bundle <path>` loads the bundle's `index.yaml` + `state/CONTEXT.md` + memory files into a cacheable system prompt, opens a readline prompt, and streams assistant tokens live from `@anthropic-ai/sdk`. Multi-turn history is kept in memory within a session; Ctrl-C during streaming aborts the current request without closing the REPL; `/quit`, `/exit`, `/q`, or Ctrl-D exits. No tools yet (Phase 2), no persistence (Phase 3.5), no UI polish (Phase 16.7).
+**Phase 2 complete (2026-04-24)** — streaming REPL with the first tool wired through a full `buildTool()` → registry → orchestrator → `query()` loop. `BashTool` is the first capability: the model can run arbitrary bash commands and see combined stdout/stderr + exit code in its context. Tool results flow back as a user message with `tool_result` content blocks (Anthropic-native shape). No permission prompts yet — Phase 3 adds those. Sequential execution only — Phase 4 adds path-scoped concurrency. The `toolContext` plumbing (`cwd`, `bundleRoot`, `sessionId`, optional `signal`) is in place for every future tool.
+
+**Phase 1 (complete 2026-04-24)** remains the baseline: streaming-only REPL against Anthropic, in-memory history, Ctrl-C-aborts-stream, `/quit` or Ctrl-D to exit.
 
 See [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 

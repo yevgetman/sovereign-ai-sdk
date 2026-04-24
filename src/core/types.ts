@@ -52,9 +52,11 @@ export type QueryParams = {
   messages: Message[];
   systemPrompt: SystemSegment[];
   tools?: import('../tool/types.js').Tool<unknown, unknown>[];
+  /** Context passed to every tool invocation. Required when `tools` is set. */
+  toolContext?: import('../tool/types.js').ToolContext;
   maxTokens: number;
   temperature?: number;
-  /** Maximum recursion depth for sub-agents. Default 5. */
+  /** Maximum turns for tool-use continuation. Default 10. */
   maxTurns?: number;
   /** AbortSignal for interruption. */
   signal?: AbortSignal;

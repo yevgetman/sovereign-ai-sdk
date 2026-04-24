@@ -48,7 +48,7 @@ When in doubt, read the corresponding section in `~/Desktop/agent-harness-design
 
 ## Phases — where we are
 
-Phase 1 complete (2026-04-24). Current phase: **Phase 2** (first tool + tool loop). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+Phase 2 complete (2026-04-24). Current phase: **Phase 3** (permission prompts, `ask`/`bypass` modes). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.

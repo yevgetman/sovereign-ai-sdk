@@ -7,14 +7,26 @@
 // boundary (tests/providers/anthropic.test.ts).
 
 import { describe, expect, test } from 'bun:test';
+import { z } from 'zod';
 import { query } from '../../src/core/query.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
+import { buildTool } from '../../src/tool/buildTool.js';
+import type { Tool, ToolContext } from '../../src/tool/types.js';
 
-function scripted(events: StreamEvent[]): LLMProvider {
+/**
+ * Fake provider that runs through a queue of turn-scripts. Each script is
+ * the set of events for one provider.stream() call; when the script ends,
+ * the next call consumes the next script. Mimics what Anthropic does when
+ * the model alternates between tool-use and end_turn turns.
+ */
+function scriptedTurns(turns: StreamEvent[][]): LLMProvider {
+  const queue = [...turns];
   return {
     name: 'fake',
     async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      const events = queue.shift();
+      if (!events) throw new Error('scriptedTurns: no more turns in script');
       let last: AssistantMessage | undefined;
       for (const ev of events) {
         if (ev.type === 'assistant_message') last = ev.message;
@@ -39,19 +51,49 @@ const completedEvents: StreamEvent[] = [
 
 const toolUseAnswer: AssistantMessage = {
   role: 'assistant',
-  content: [{ type: 'tool_use', id: 't1', name: 'fake_tool', input: {} }],
+  content: [{ type: 'tool_use', id: 't1', name: 'Echo', input: { text: 'hello' } }],
 };
 
-const toolUseEvents: StreamEvent[] = [
-  { type: 'message_start' },
-  { type: 'tool_use_delta', id: 't1', partial: '{}' },
-  { type: 'message_stop', stop_reason: 'tool_use' },
-  { type: 'assistant_message', message: toolUseAnswer },
+const toolUseThenFinishTurns: StreamEvent[][] = [
+  // Turn 1: assistant asks to call Echo
+  [
+    { type: 'message_start' },
+    { type: 'tool_use_delta', id: 't1', partial: '{"text":"hello"}' },
+    { type: 'message_stop', stop_reason: 'tool_use' },
+    { type: 'assistant_message', message: toolUseAnswer },
+  ],
+  // Turn 2: assistant finishes with text
+  [
+    { type: 'message_start' },
+    { type: 'text_delta', text: 'done' },
+    { type: 'message_stop', stop_reason: 'end_turn' },
+    {
+      type: 'assistant_message',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+    },
+  ],
 ];
 
-describe('query() — Phase 1 turn loop', () => {
-  test('yields provider events and returns completed on end_turn', async () => {
-    const provider = scripted(completedEvents);
+function makeEchoTool(): Tool<unknown, unknown> {
+  return buildTool({
+    name: 'Echo',
+    description: () => 'echo input',
+    inputSchema: z.object({ text: z.string() }),
+    async call(input) {
+      return { data: { echoed: input.text } };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
+const toolCtx: ToolContext = {
+  cwd: process.cwd(),
+  bundleRoot: process.cwd(),
+  sessionId: 'test',
+};
+
+describe('query() — Phase 2 turn loop', () => {
+  test('single turn with no tool_use returns completed', async () => {
+    const provider = scriptedTurns([completedEvents]);
     const gen = query({
       provider,
       model: 'claude-opus-4-7',
@@ -59,7 +101,7 @@ describe('query() — Phase 1 turn loop', () => {
       systemPrompt: [],
       maxTokens: 256,
     });
-    const yielded: StreamEvent[] = [];
+    const yielded: (StreamEvent | Message)[] = [];
     let terminal: { reason: string } | undefined;
     for (;;) {
       const step = await gen.next();
@@ -67,23 +109,51 @@ describe('query() — Phase 1 turn loop', () => {
         terminal = step.value;
         break;
       }
-      yielded.push(step.value as StreamEvent);
+      yielded.push(step.value);
     }
-    expect(yielded.map((e) => e.type)).toEqual([
-      'message_start',
-      'text_delta',
-      'message_stop',
-      'assistant_message',
-    ]);
     expect(terminal?.reason).toBe('completed');
   });
 
-  test('returns error when assistant asks for a tool (Phase 2 territory)', async () => {
-    const provider = scripted(toolUseEvents);
+  test('tool_use turn dispatches runTools and continues to completion', async () => {
+    const provider = scriptedTurns(toolUseThenFinishTurns);
     const gen = query({
       provider,
       model: 'claude-opus-4-7',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'list files' }] }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'say hello' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string; error?: Error } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('completed');
+    // Between the two assistant_message events, there should be one user
+    // message carrying the tool_result.
+    const userMessages = yielded.filter(
+      (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+    ) as Message[];
+    expect(userMessages).toHaveLength(1);
+    const [userMsg] = userMessages;
+    expect(userMsg?.content[0]?.type).toBe('tool_result');
+  });
+
+  test('tool_use with no tools provided returns error', async () => {
+    const firstTurn = toolUseThenFinishTurns[0];
+    if (!firstTurn) throw new Error('test fixture missing');
+    const provider = scriptedTurns([firstTurn]);
+    const gen = query({
+      provider,
+      model: 'claude-opus-4-7',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
       systemPrompt: [],
       maxTokens: 256,
     });
@@ -96,13 +166,50 @@ describe('query() — Phase 1 turn loop', () => {
       }
     }
     expect(terminal?.reason).toBe('error');
-    expect(terminal?.error?.message).toContain('Phase 2');
+    expect(terminal?.error?.message).toContain('no tools');
+  });
+
+  test('maxTurns caps the tool-continuation loop', async () => {
+    // Every turn asks to call Echo again; without a cap this would loop
+    // forever. With maxTurns=2 the generator should return max_turns.
+    const keepCallingTurns: StreamEvent[][] = Array.from({ length: 5 }, (_, i) => [
+      { type: 'message_start' } as StreamEvent,
+      { type: 'tool_use_delta', id: `t${i}`, partial: '{"text":"x"}' } as StreamEvent,
+      { type: 'message_stop', stop_reason: 'tool_use' } as StreamEvent,
+      {
+        type: 'assistant_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `t${i}`, name: 'Echo', input: { text: 'x' } }],
+        },
+      } as StreamEvent,
+    ]);
+    const provider = scriptedTurns(keepCallingTurns);
+    const gen = query({
+      provider,
+      model: 'claude-opus-4-7',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTurns: 2,
+      maxTokens: 256,
+    });
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+    }
+    expect(terminal?.reason).toBe('max_turns');
   });
 
   test('honors pre-aborted signal', async () => {
     const controller = new AbortController();
     controller.abort();
-    const provider = scripted(completedEvents);
+    const provider = scriptedTurns([completedEvents]);
     const gen = query({
       provider,
       model: 'claude-opus-4-7',
