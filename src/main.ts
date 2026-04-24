@@ -6,8 +6,48 @@
 // HARNESS_BUNDLE env), --model, --max-tokens, --permission-mode. Reads
 // ANTHROPIC_API_KEY from env.
 
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
 import type { PermissionMode } from './permissions/types.js';
+
+/**
+ * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`
+ * from the CWD, but when `sovereign` runs as a globally-linked binary the
+ * CWD is usually the caller's project, not this repo. Shell-exported values
+ * and CWD-based `.env` still win (this loader only fills unset keys).
+ *
+ * `realpathSync` resolves the bun-link symlink chain so we find the .env in
+ * the actual checkout, not somewhere under ~/.bun/install/.
+ */
+function loadPackageEnv(): void {
+  try {
+    const realMain = realpathSync(fileURLToPath(import.meta.url));
+    const envPath = join(dirname(dirname(realMain)), '.env');
+    if (!existsSync(envPath)) return;
+    for (const rawLine of readFileSync(envPath, 'utf8').split('\n')) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq === -1) continue;
+      const key = line.slice(0, eq).trim();
+      let value = line.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (process.env[key] === undefined) process.env[key] = value;
+    }
+  } catch {
+    // realpath or read failures: silently skip. resolveApiKey() will throw
+    // with a clear message if ANTHROPIC_API_KEY is still unset.
+  }
+}
+
+loadPackageEnv();
 
 const VERSION = '0.0.1';
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
