@@ -51,7 +51,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/mcp/` | MCP client | 12 |
 | `src/bundle/` | Harness-bundle loader (Sovereign AI specific) | 0 skeleton |
 | `src/memory/` | MEMORY.md / USER.md injection (Hermes pattern) | 6 |
-| `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 2 |
+| `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.2 |
 | `src/review/` | Background review loop (Hermes pattern) | 13 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5 |
 | `src/config/` | Settings loader (user / project / local precedence) | 0 |
