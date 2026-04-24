@@ -16,6 +16,64 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 See [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 
+## Install on a new machine
+
+Full setup from zero — no prior Bun install, no repos cloned, no key.
+
+### Prerequisites
+
+| Tool | Needed for |
+|---|---|
+| **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
+| **Git + SSH to GitHub** | Cloning the private repos. |
+| **Anthropic API key** | Model access. One per user — don't share. |
+| **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
+
+Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your shell (or `source` your rc) so `~/.bun/bin` ends up on PATH. The repos are private, so the owner has to grant collaborator access on `sovereign-ai-harness` (and on `sovereign-ai-docs` if you want the docs bundle — which is the default bundle). Get an API key at `console.anthropic.com`.
+
+### Steps
+
+```bash
+# 1. Clone both repos
+git clone git@github.com:yevgetman/sovereign-ai-harness.git ~/code/sovereign-ai-harness
+git clone git@github.com:yevgetman/sovereign-ai-docs.git   ~/code/sovereign-ai-docs
+
+# 2. Install deps + register the global `sovereign` binary
+cd ~/code/sovereign-ai-harness
+bun install
+bun link     # creates ~/.bun/bin/sovereign → this repo's src/main.ts
+
+# 3. Drop your API key into .env (gitignored; auto-loaded from repo root)
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+
+# 4. Run from anywhere
+sovereign chat --bundle ~/code/sovereign-ai-docs
+```
+
+That's the whole setup — three commands, a key, a bundle path.
+
+### What ports vs. what doesn't
+
+**Comes with the repos:** runtime code, tests, ADRs, business docs, CLAUDE.md rules, decisions digest, status pages — every committed file.
+
+**Does not port:**
+- `~/.harness/sessions.db` — your conversation history lives under `$HOME`, not the repo. A new machine starts with an empty DB. `scp` the file across if you want a snapshot; usually not worth it.
+- `.env` — gitignored by design. Every user brings their own API key.
+- The `sovereign-ai-ops` repo (macOS launchd cron for feed / CHANGELOG / audit) — **not required to run the harness.** Clone it only if nightly summaries matter.
+
+### Optional extras
+
+- **Contributing docs changes** — `cd ~/code/sovereign-ai-docs && npm install && npm run install-hooks` turns on the pre-commit cascade + linter.
+- **Skip `--bundle` every call** — `export HARNESS_BUNDLE=~/code/sovereign-ai-docs` in your shell rc.
+- **Different model** — `sovereign chat -m claude-opus-4-7` (default is Sonnet 4.6 — see `state/memory/decisions-made.md` in the docs repo for the v0.x cost calculus).
+
+### Gotchas
+
+1. **`~/.bun/bin` must be on PATH.** The Bun installer edits your shell rc; a running shell won't see the change until it's reopened or `source`'d.
+2. **No `.bun-version` pin yet.** Any Bun 1.2+ has worked in practice; very old Bun versions may have different `bun:sqlite` APIs.
+3. **`bun link` is dev-mode, not a production binary.** The symlink points at the live `src/main.ts` — code edits take effect on the next invocation, no rebuild. Production client installs use `bun build --compile` to produce a standalone binary per [ADR H-0003](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) + [agent-harness § deployment-topology](../sovereign-ai-docs/business/architecture/agent-harness.md#deployment-topology).
+4. **Node is a soft dep.** Pure runtime users don't need Node at all. It's only for the docs-repo toolchain (lint, cascade, Notion sync).
+
 ## Usage
 
 ```bash
