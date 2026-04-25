@@ -55,8 +55,10 @@ describe('createSession + getSession', () => {
     expect(session?.title).toBe('pilot session');
     expect(session?.systemPrompt).toEqual(sysPrompt);
     expect(session?.metadata).toEqual({ bundleRoot: '/tmp/bundle', note: 42 });
-    expect(session?.schemaVersion).toBe(1);
+    expect(session?.schemaVersion).toBe(2);
     expect(session?.parentSessionId).toBeNull();
+    expect(session?.inputTokens).toBe(0);
+    expect(session?.estimatedCostUsd).toBe(0);
     db.close();
   });
 
@@ -210,11 +212,42 @@ describe('search (FTS5)', () => {
   });
 });
 
-describe('schema versioning', () => {
-  test('new DB reports schema_version = 1 via sessions.schemaVersion', () => {
+describe('cost accounting', () => {
+  test('recordTokenUsage accumulates token lanes and estimated cost', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(1);
+    db.recordTokenUsage(
+      id,
+      {
+        inputTokens: 10,
+        outputTokens: 20,
+        cacheCreationInputTokens: 30,
+        cacheReadInputTokens: 40,
+      },
+      0.001,
+    );
+    db.recordTokenUsage(id, { inputTokens: 1, outputTokens: 2 }, 0.002);
+
+    const cost = db.getSessionCost(id);
+    expect(cost).toEqual({
+      inputTokens: 11,
+      outputTokens: 22,
+      cacheCreationInputTokens: 30,
+      cacheReadInputTokens: 40,
+      estimatedCostUsd: 0.003,
+    });
+    const session = db.getSession(id);
+    expect(session?.inputTokens).toBe(11);
+    expect(session?.estimatedCostUsd).toBe(0.003);
+    db.close();
+  });
+});
+
+describe('schema versioning', () => {
+  test('new DB reports schema_version = 2 via sessions.schemaVersion', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    expect(db.getSession(id)?.schemaVersion).toBe(2);
     db.close();
   });
 });

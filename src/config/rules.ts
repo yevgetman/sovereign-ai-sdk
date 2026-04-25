@@ -76,9 +76,15 @@ export function wildcardMatches(
 
 function wildcardToRegExpSource(pattern: string, flavor: WildcardFlavor): string {
   let source = '';
-  for (const ch of pattern) {
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i] ?? '';
     if (ch === '*') {
-      source += flavor === 'shell' ? '\\S*' : '.*';
+      if (pattern[i + 1] === '*') {
+        source += '.*';
+        i++;
+      } else {
+        source += flavor === 'shell' ? '\\S*' : '.*';
+      }
     } else if (ch === '?') {
       source += flavor === 'shell' ? '\\S' : '.';
     } else {

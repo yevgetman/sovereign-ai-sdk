@@ -3,13 +3,12 @@
 // multi-writer contention (CLI + cron + gateway in Phases 16/17).
 //
 // Phase 3.5 scope: schema v1 (sessions + messages + FTS + triggers).
+// Phase 8: schema v2 adds session-level token/cost accounting for /cost.
 // Storage-side of Invariant #4 — the `sessions.system_prompt` column
 // holds the frozen prompt verbatim; Phase 6 enforces the actually-reuse-it
 // behavior (cache-hit discipline).
 //
 // Explicit non-goals for Phase 3.5:
-//   • cost columns (input_tokens / cached_tokens / estimated_cost_usd) —
-//     added by migration when Phase 8's /cost slash command lands
 //   • retention / cleanup — sessions grow unbounded in v0.x
 //   • per-tenant scoping — Phase 15 profile system + $HARNESS_HOME
 //
@@ -26,11 +25,11 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { ContentBlock, SystemSegment } from '../core/types.js';
+import type { ContentBlock, SystemSegment, TokenUsage } from '../core/types.js';
 
 export const DEFAULT_DB_PATH = join(homedir(), '.harness', 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 type Migration = { from: number; to: number; sql: string };
 
@@ -82,6 +81,17 @@ const MIGRATIONS: Migration[] = [
         INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
         INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
       END;
+    `,
+  },
+  {
+    from: 1,
+    to: 2,
+    sql: `
+      ALTER TABLE sessions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN cache_read_input_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN estimated_cost_usd REAL NOT NULL DEFAULT 0;
     `,
   },
 ];
@@ -141,6 +151,19 @@ export type Session = {
   systemPrompt: SystemSegment[] | null;
   schemaVersion: number;
   metadata: Record<string, unknown>;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  estimatedCostUsd: number;
+};
+
+export type SessionCost = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  estimatedCostUsd: number;
 };
 
 export type SearchOpts = {
@@ -243,12 +266,55 @@ export class SessionDb {
       .query<SessionRow, [string]>(
         `SELECT session_id, parent_session_id, model, provider, platform,
                 created_at, last_updated, title, system_prompt,
-                schema_version, metadata
+                schema_version, metadata,
+                input_tokens, output_tokens, cache_creation_input_tokens,
+                cache_read_input_tokens, estimated_cost_usd
          FROM sessions WHERE session_id = ?`,
       )
       .get(sessionId);
     if (!row) return null;
     return rowToSession(row);
+  }
+
+  recordTokenUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void {
+    const input = usage.inputTokens ?? 0;
+    const output = usage.outputTokens ?? 0;
+    const cacheCreation = usage.cacheCreationInputTokens ?? 0;
+    const cacheRead = usage.cacheReadInputTokens ?? 0;
+    const now = Date.now() / 1000;
+    this.writeWithRetry(() => {
+      this.db.run(
+        `UPDATE sessions
+         SET input_tokens = input_tokens + ?,
+             output_tokens = output_tokens + ?,
+             cache_creation_input_tokens = cache_creation_input_tokens + ?,
+             cache_read_input_tokens = cache_read_input_tokens + ?,
+             estimated_cost_usd = estimated_cost_usd + ?,
+             last_updated = ?
+         WHERE session_id = ?`,
+        [input, output, cacheCreation, cacheRead, estimatedCostUsd, now, sessionId],
+      );
+    });
+  }
+
+  getSessionCost(sessionId: string): SessionCost {
+    const row = this.db
+      .query<CostRow, [string]>(
+        `SELECT input_tokens, output_tokens, cache_creation_input_tokens,
+                cache_read_input_tokens, estimated_cost_usd
+         FROM sessions WHERE session_id = ?`,
+      )
+      .get(sessionId);
+    if (!row) {
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        estimatedCostUsd: 0,
+      };
+    }
+    return rowToCost(row);
   }
 
   getSystemPrompt(sessionId: string): SystemSegment[] | null {
@@ -344,6 +410,19 @@ type SessionRow = {
   system_prompt: string | null;
   schema_version: number;
   metadata: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  estimated_cost_usd: number;
+};
+
+type CostRow = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  estimated_cost_usd: number;
 };
 
 function rowToMessage(row: StoredRow): StoredMessage {
@@ -373,6 +452,17 @@ function rowToSession(row: SessionRow): Session {
       row.system_prompt === null ? null : (JSON.parse(row.system_prompt) as SystemSegment[]),
     schemaVersion: row.schema_version,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
+    ...rowToCost(row),
+  };
+}
+
+function rowToCost(row: CostRow): SessionCost {
+  return {
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cacheCreationInputTokens: row.cache_creation_input_tokens,
+    cacheReadInputTokens: row.cache_read_input_tokens,
+    estimatedCostUsd: row.estimated_cost_usd,
   };
 }
 

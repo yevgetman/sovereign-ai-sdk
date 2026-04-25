@@ -66,4 +66,10 @@ describe('permission rule matching helpers', () => {
     expect(wildcardMatches('git *', 'git status', { flavor: 'shell' })).toBe(true);
     expect(wildcardMatches('git *', 'git push --force', { flavor: 'shell' })).toBe(false);
   });
+
+  test('double-star shell wildcard can cross whitespace for scoped commands', () => {
+    expect(wildcardMatches('git commit **', 'git commit -m "phase 8"', { flavor: 'shell' })).toBe(
+      true,
+    );
+  });
 });

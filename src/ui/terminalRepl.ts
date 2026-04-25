@@ -18,7 +18,11 @@ import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadBundle } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
+import { COMMAND_REGISTRY, dispatchSlashCommand } from '../commands/registry.js';
+import { buildToolScope } from '../commands/toolScope.js';
+import type { CommandContext, PromptCommand } from '../commands/types.js';
 import { resolveHarnessHome } from '../config/paths.js';
+import { parsePermissionRules } from '../config/rules.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../config/settings.js';
 import { expandContextReferences } from '../context/references.js';
 import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
@@ -35,6 +39,7 @@ import { createDefaultMemoryManager } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
+import { estimateCostUsd } from '../providers/pricing.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { ToolContext } from '../tool/types.js';
@@ -78,6 +83,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     opts.providerName ?? storedProvider,
     opts.model ?? resumeSession?.model,
   );
+  const providerName = String(resolved.metadata.provider);
+  let activeModel = resolved.model;
   const provider = resolved.transport;
   const preliminaryToolContext: ToolContext = {
     cwd: process.cwd(),
@@ -137,6 +144,20 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     recordAlwaysAllow: (rule) =>
       appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
   });
+  const commandContext = (): CommandContext => ({
+    sessionId,
+    providerName,
+    model: activeModel,
+    setModel: (model) => {
+      activeModel = model;
+    },
+    clearHistory: () => {
+      history.length = 0;
+    },
+    getCost: () => db.getSessionCost(sessionId),
+    tools: toolPool,
+    registry: COMMAND_REGISTRY,
+  });
 
   writeBanner(
     opts,
@@ -156,8 +177,26 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     if (trimmed === '') continue;
     if (EXIT_COMMANDS.has(trimmed)) break;
 
+    if (trimmed.startsWith('/')) {
+      const result = await dispatchSlashCommand(trimmed, commandContext());
+      if (result.kind === 'local' || result.kind === 'unknown') {
+        process.stdout.write(chalk.gray('\nharness> '));
+        process.stdout.write(`${result.output}\n`);
+        continue;
+      }
+      await runModelTurn(result.content, result.command);
+      continue;
+    }
+
     const enrichedInput = await expandContextReferences(trimmed, { cwd: process.cwd() });
-    const userMessage: Message = { role: 'user', content: [{ type: 'text', text: enrichedInput }] };
+    await runModelTurn([{ type: 'text', text: enrichedInput }]);
+  }
+
+  async function runModelTurn(
+    userContent: Message['content'],
+    command?: PromptCommand,
+  ): Promise<void> {
+    const userMessage: Message = { role: 'user', content: userContent };
     history.push(userMessage);
     db.saveMessage(sessionId, { role: 'user', content: userMessage.content });
 
@@ -169,12 +208,19 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     let latestUsage: TokenUsage | undefined;
 
     try {
+      const scoped = command ? scopedToolsForCommand(command) : undefined;
       const gen = query({
         provider,
-        model: resolved.model,
+        model: activeModel,
         messages: history,
         systemPrompt,
-        ...(toolPool.length > 0 ? { tools: toolPool, toolContext, canUseTool } : {}),
+        ...((scoped?.tools ?? toolPool).length > 0
+          ? {
+              tools: scoped?.tools ?? toolPool,
+              toolContext,
+              canUseTool: scoped?.canUseTool ?? canUseTool,
+            }
+          : {}),
         maxTokens: opts.maxTokens,
         signal: streamController.signal,
         cacheEnabled: opts.noCache !== true,
@@ -234,6 +280,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
     process.stdout.write('\n');
     if (latestUsage) {
+      const cost = estimateCostUsd(providerName, activeModel, latestUsage);
+      db.recordTokenUsage(sessionId, latestUsage, cost);
       process.stdout.write(chalk.gray(`${formatUsage(latestUsage)}\n`));
     }
 
@@ -251,6 +299,33 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     } else if (terminal?.reason === 'max_turns') {
       process.stderr.write(chalk.yellow('\n[max turns reached]\n'));
     }
+  }
+
+  function scopedToolsForCommand(command: PromptCommand): {
+    tools: typeof toolPool;
+    canUseTool: typeof canUseTool;
+  } {
+    if (!command.allowedTools || command.allowedTools.length === 0) {
+      return { tools: toolPool, canUseTool };
+    }
+    const commandAllowLayer = {
+      source: `command:/${command.name}`,
+      rules: parsePermissionRules('allow', command.allowedTools),
+    };
+    const scopedCanUseTool = buildCanUseTool({
+      mode: permissionMode,
+      ask,
+      alwaysAllow,
+      ruleLayers: [...permissionSettings.layers, commandAllowLayer],
+      recordAlwaysAllow: (rule) =>
+        appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
+    });
+    const scoped = buildToolScope({
+      allowedTools: command.allowedTools,
+      tools: toolPool,
+      canUseTool: scopedCanUseTool,
+    });
+    return { tools: scoped.tools, canUseTool: scoped.canUseTool };
   }
 
   rl.close();

@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 8 complete (2026-04-25)** — slash commands and session cost accounting. The REPL now dispatches `/help`, `/clear`, `/cost`, `/model <name>`, and prompt-backed `/commit` through `src/commands/`. Prompt commands temporarily narrow the visible tool pool and permission surface; `/commit` can use only scoped git status/diff/add/commit Bash operations. The session DB migrated to schema version 2 with token and estimated-cost columns, and each provider turn records input/output/cache token usage plus a price-table estimate used by `/cost`.
+
 **Phase 7 complete (2026-04-25)** — rule-based permissions. The runtime now loads layered permission settings from `$HARNESS_HOME/settings.json`, `<cwd>/.harness/settings.json`, and `<cwd>/.harness/settings.local.json` with local > project > user precedence. Rules support `allow` / `deny` / `ask` entries such as `Bash(git *)`, `Read(*.ts)`, `Write(notes.md)`, `Edit`, or `mcp__server`, with matching delegated to each tool. Deny rules win within a layer, allow rules skip prompts, ask rules force a prompt, and mode fallthrough is `default` / `ask` / `bypass`. "Always" approvals now persist a specific allow rule into project-local settings instead of allowing a whole tool by name. Permission `updatedInput` is revalidated and honored before tool execution.
 
 **Phase 6.7 complete (2026-04-25)** — context references and subdirectory hint loading. User turns now expand `@file:path`, `@file:"path with spaces"`, `@file:path:10-20`, `@folder:path`, `@diff`, `@staged`, and `@url:https://...` before the provider call, with sensitive-path blocks for SSH/AWS/GPG/Kube material, shell rc files, sudoers, and `/etc/passwd`/`/etc/shadow`. Tool results for newly touched directories append nearby safe `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` hints instead of mutating the frozen system prompt.
@@ -124,7 +126,7 @@ to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
 
 Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation. Anthropic prompt-cache markers are applied to cacheable system segments and the last three messages unless `--no-cache` is set. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
 
-Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) keep the upgrade path cheap when Phase 8 adds cost columns. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
+Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) upgraded sessions to schema version 2 for token and estimated-cost accounting. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
 
 ### Bounded memory (Phase 6.5)
 
@@ -184,6 +186,18 @@ When permission fallthrough reaches a prompt, the REPL asks:
 - **`a`** — allow this specific command/path pattern for the current project by appending a rule to `.harness/settings.local.json`.
 
 Run with `--permission-mode bypass` to allow permission fallthrough without prompts (explicit deny and ask rules still apply). The banner shows the active mode and how many settings files were loaded.
+
+### Slash commands (Phase 8)
+
+Lines beginning with `/` are handled locally before normal model turns:
+
+| Command | Behavior |
+|---|---|
+| `/help` | Lists registered slash commands and aliases. |
+| `/clear` | Clears in-memory conversation history for the current session. |
+| `/cost` | Shows session token totals and estimated USD cost recorded in SQLite. |
+| `/model <name>` | Switches the active model for subsequent turns. |
+| `/commit` | Runs a prompt command asking the model to stage, message, and commit changes. Its tool scope is narrowed to git status/diff/add/commit Bash operations for that turn. |
 
 ### Global `sovereign` command (dev-mode)
 
