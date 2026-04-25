@@ -63,4 +63,6 @@ export type QueryParams = {
   /** Permission decider invoked before every tool dispatch. When omitted,
    * tools run without gating (Phase 2 default; tests and bypass-mode REPL). */
   canUseTool?: import('../permissions/types.js').CanUseTool;
+  /** Provider prompt-cache markers. Defaults to enabled; --no-cache disables. */
+  cacheEnabled?: boolean;
 };

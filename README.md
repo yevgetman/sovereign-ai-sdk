@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 6 complete (2026-04-25)** — context assembly, prompt-cache boundaries, and injection defense. New sessions freeze a static-to-dynamic system prompt: base instructions, available tools, bundle context/memory, runtime facts, and local user/project context. Runtime facts capture OS, shell, cwd, date, git status, recent commits, and recent branches once per session; `--resume` reuses the stored system prompt verbatim. Local context discovery merges `~/.harness/CONTEXT.md` first, then `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` from filesystem root to cwd. Suspicious or oversized context files are blocked/truncated before inclusion. Anthropic now applies `system_and_3` cache markers to cacheable system segments plus the last three messages; `--no-cache` disables provider cache markers for testing.
+
 **Phase 5.5 complete (2026-04-25)** — provider hardening. `resolveProvider()` is now the single entrypoint for Anthropic, OpenAI, OpenRouter, and Ollama. API-key providers use a persistent credential-pool metadata file at `~/.harness/credentials.json` (status/cooldown/usage only — no raw keys). A cross-session rate guard writes `~/.harness/rate_limits/<provider>.json` after 429s so other sessions pause or fail fast instead of amplifying retries. Auxiliary clients (`compression`, `title`, `web-extract`) resolve through the cheap fallback chain OpenRouter → Anthropic Haiku → OpenAI mini → local Ollama.
 
 **Phase 5 complete (2026-04-25)** — multi-provider core. The CLI accepts `--provider anthropic|openai|openrouter|ollama`; `--model` overrides provider/config defaults. Anthropic keeps native prompt-cache markers, OpenAI/OpenRouter flatten system segments into a system message, and Ollama speaks `/api/chat`. All providers normalize back into the same internal `StreamEvent` + content-block message shape, so `query()`, the tool loop, permissions, and session persistence remain provider-agnostic.
@@ -90,7 +92,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`).
+Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing).
 
 Provider defaults can also live in `~/.harness/config.json`:
 
@@ -113,7 +115,7 @@ Every turn is saved to `~/.harness/sessions.db` as it happens. When the REPL exi
 to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
 ```
 
-Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation — later phases (6) hook warm-cache behaviour on top. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
+Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation. Anthropic prompt-cache markers are applied to cacheable system segments and the last three messages unless `--no-cache` is set. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
 
 Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) keep the upgrade path cheap when Phase 8 adds cost columns. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
 
@@ -170,13 +172,13 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 
 | Directory | Purpose | Phase |
 |---|---|---|
+| `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense | 6 |
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob | 2 Bash, 4 file & search |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
-| `src/context/` | System context, CLAUDE.md hierarchy, memoization | 6 |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader | 9 |
 | `src/compact/` | Context-window compaction | 10 |

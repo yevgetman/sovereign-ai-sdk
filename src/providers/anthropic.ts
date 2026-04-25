@@ -61,14 +61,14 @@ export class AnthropicProvider
   }
 
   buildKwargs(req: ProviderRequest): Anthropic.MessageCreateParams {
-    const system = systemToSdk(req.system);
+    const system = systemToSdk(req.system, req.cacheEnabled !== false);
     const tools = this.toProviderTools(req.tools);
     return {
       model: req.model,
       max_tokens: req.maxTokens,
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(system !== undefined ? { system } : {}),
-      messages: this.toProviderMessages(req.messages),
+      messages: messagesToSdk(req.messages, req.cacheEnabled !== false),
       ...(tools !== undefined ? { tools } : {}),
       stream: true,
     };
@@ -204,24 +204,55 @@ function mapStopReason(sr: string): StopReason {
   }
 }
 
-function systemToSdk(segments: SystemSegment[]): string | TextBlockParam[] | undefined {
+export function systemToSdk(
+  segments: SystemSegment[],
+  cacheEnabled = true,
+): string | TextBlockParam[] | undefined {
   if (segments.length === 0) return undefined;
-  if (!segments.some((s) => s.cacheable)) {
+  const cacheBoundary = cacheEnabled ? findLastCacheableSegment(segments) : -1;
+  if (cacheBoundary === -1) {
     return segments.map((s) => s.text).join('\n\n');
   }
   return segments.map(
-    (s): TextBlockParam =>
-      s.cacheable
+    (s, index): TextBlockParam =>
+      index === cacheBoundary
         ? { type: 'text', text: s.text, cache_control: { type: 'ephemeral' } }
         : { type: 'text', text: s.text },
   );
 }
 
-function messagesToSdk(messages: Message[]): MessageParam[] {
-  return messages.map((m) => ({
+function findLastCacheableSegment(segments: SystemSegment[]): number {
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i]?.cacheable) return i;
+  }
+  return -1;
+}
+
+export function messagesToSdk(messages: Message[], cacheEnabled = true): MessageParam[] {
+  const cacheFrom = Math.max(0, messages.length - 3);
+  return messages.map((m, index) => ({
     role: m.role,
-    content: m.content.map(blockToSdk),
+    content: withOptionalCacheMarker(m.content.map(blockToSdk), cacheEnabled && index >= cacheFrom),
   }));
+}
+
+function withOptionalCacheMarker(
+  blocks: ContentBlockParam[],
+  shouldCache: boolean,
+): ContentBlockParam[] {
+  if (!shouldCache || blocks.length === 0) return blocks;
+  const marked = [...blocks];
+  for (let i = marked.length - 1; i >= 0; i--) {
+    const block = marked[i];
+    if (!block || !isCacheableMessageBlock(block)) continue;
+    marked[i] = { ...block, cache_control: { type: 'ephemeral' } } as ContentBlockParam;
+    return marked;
+  }
+  return blocks;
+}
+
+function isCacheableMessageBlock(block: ContentBlockParam): boolean {
+  return block.type === 'text' || block.type === 'tool_result';
 }
 
 function blockToSdk(block: ContentBlock): ContentBlockParam {

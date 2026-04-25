@@ -37,6 +37,17 @@ function scriptedTurns(turns: StreamEvent[][]): LLMProvider {
   };
 }
 
+function capturingProvider(onRequest: (req: ProviderRequest) => void): LLMProvider {
+  return {
+    name: 'capture',
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      onRequest(req);
+      for (const ev of completedEvents) yield ev;
+      return completedAnswer;
+    },
+  };
+}
+
 const completedAnswer: AssistantMessage = {
   role: 'assistant',
   content: [{ type: 'text', text: '4' }],
@@ -112,6 +123,23 @@ describe('query() — Phase 2 turn loop', () => {
       yielded.push(step.value);
     }
     expect(terminal?.reason).toBe('completed');
+  });
+
+  test('passes cacheEnabled through to provider requests', async () => {
+    const seen: ProviderRequest[] = [];
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(req)),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      cacheEnabled: false,
+    });
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+    }
+    expect(seen[0]?.cacheEnabled).toBe(false);
   });
 
   test('tool_use turn dispatches runTools and continues to completion', async () => {

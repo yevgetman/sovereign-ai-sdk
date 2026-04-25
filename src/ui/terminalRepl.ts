@@ -39,6 +39,8 @@ export type ReplOpts = {
   resumeId?: string;
   /** Override the default DB path (~/.harness/sessions.db). */
   dbPath?: string;
+  /** Disable provider prompt-cache markers for deterministic smoke tests. */
+  noCache?: boolean;
 };
 
 const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
@@ -56,11 +58,18 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     opts.model ?? resumeSession?.model,
   );
   const provider = resolved.transport;
+  const preliminaryToolContext: ToolContext = {
+    cwd: process.cwd(),
+    bundleRoot: bundle.root,
+    sessionId: opts.resumeId ?? 'pending',
+  };
+  const preliminaryToolPool = assembleToolPool(preliminaryToolContext);
   const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(
     db,
     opts,
     bundle,
     resolved,
+    preliminaryToolPool,
   );
 
   const toolContext: ToolContext = {
@@ -68,7 +77,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     bundleRoot: bundle.root,
     sessionId,
   };
-  const toolPool = assembleToolPool(toolContext);
+  const toolPool = preliminaryToolPool;
 
   const rl = createInterface({
     input: process.stdin,
@@ -134,6 +143,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...(toolPool.length > 0 ? { tools: toolPool, toolContext, canUseTool } : {}),
         maxTokens: opts.maxTokens,
         signal: streamController.signal,
+        cacheEnabled: opts.noCache !== true,
       });
 
       for (;;) {
@@ -228,6 +238,7 @@ function writeBanner(
     chalk.gray(`  model:  ${resolved.model}`),
     chalk.gray(`  context.md: ${haveContext ? 'loaded' : 'not found (prompt will be minimal)'}`),
     chalk.gray(`  tools:  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}`),
+    chalk.gray(`  cache:  ${opts.noCache === true ? 'off' : 'on'}`),
     chalk.gray(`  perms:  ${opts.permissionMode}${modeNote}`),
     chalk.gray(`  session: ${sessionLabel}`),
     chalk.gray('  exit:   /quit, /exit, /q, or Ctrl-D'),
@@ -248,9 +259,15 @@ function openOrResumeSession(
   opts: ReplOpts,
   bundle: Bundle,
   resolved: ResolvedProvider,
+  tools: import('../tool/types.js').Tool<unknown, unknown>[],
 ): SessionOpen {
   if (opts.resumeId === undefined) {
-    const systemPrompt = buildSystemSegments(bundle);
+    const systemPrompt = buildSystemSegments({
+      bundle,
+      tools,
+      cwd: process.cwd(),
+      cacheEnabled: opts.noCache !== true,
+    });
     const sessionId = db.createSession({
       model: resolved.model,
       provider: String(resolved.metadata.provider),

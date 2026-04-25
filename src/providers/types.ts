@@ -25,6 +25,7 @@ export type ProviderRequest = {
   temperature?: number;
   thinking?: { budgetTokens?: number };
   signal?: AbortSignal;
+  cacheEnabled?: boolean;
 };
 
 export interface LLMProvider {

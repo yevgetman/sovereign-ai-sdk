@@ -10,7 +10,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RawMessageStreamEvent } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import { translateAnthropicStream } from '../../src/providers/anthropic.js';
+import {
+  messagesToSdk,
+  systemToSdk,
+  translateAnthropicStream,
+} from '../../src/providers/anthropic.js';
 
 async function loadFixture(name: string): Promise<RawMessageStreamEvent[]> {
   const path = join(process.cwd(), 'fixtures', name);
@@ -82,5 +86,47 @@ describe('translateAnthropicStream', () => {
     // message_stop + assistant_message with whatever blocks finalized.
     expect(collected.map((e) => e.type)).toEqual(['message_stop', 'assistant_message']);
     expect(returned?.content).toEqual([]);
+  });
+});
+
+describe('Anthropic prompt caching conversion', () => {
+  test('marks one cacheable system boundary with ephemeral cache_control', () => {
+    const system = systemToSdk([
+      { text: 'base', cacheable: true },
+      { text: 'tools', cacheable: true },
+      { text: 'runtime', cacheable: false },
+    ]);
+    expect(Array.isArray(system)).toBe(true);
+    const blocks = system as unknown as Array<Record<string, unknown>>;
+    expect(blocks[0]?.cache_control).toBeUndefined();
+    expect(blocks[1]?.cache_control).toEqual({ type: 'ephemeral' });
+    expect(blocks[2]?.cache_control).toBeUndefined();
+  });
+
+  test('cache disabled flattens system segments to plain text', () => {
+    const system = systemToSdk([{ text: 'base', cacheable: true }], false);
+    expect(system).toBe('base');
+  });
+
+  test('marks the last three messages when cache is enabled', () => {
+    const messages = messagesToSdk([
+      { role: 'user', content: [{ type: 'text', text: 'one' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'two' }] },
+      { role: 'user', content: [{ type: 'text', text: 'three' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'four' }] },
+    ]) as unknown as Array<{ content: Array<Record<string, unknown>> }>;
+
+    expect(messages[0]?.content[0]?.cache_control).toBeUndefined();
+    expect(messages[1]?.content[0]?.cache_control).toEqual({ type: 'ephemeral' });
+    expect(messages[2]?.content[0]?.cache_control).toEqual({ type: 'ephemeral' });
+    expect(messages[3]?.content[0]?.cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  test('does not mark messages when cache is disabled', () => {
+    const messages = messagesToSdk(
+      [{ role: 'user', content: [{ type: 'text', text: 'one' }] }],
+      false,
+    ) as unknown as Array<{ content: Array<Record<string, unknown>> }>;
+    expect(messages[0]?.content[0]?.cache_control).toBeUndefined();
   });
 });

@@ -40,6 +40,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     temperature,
     maxTurns = DEFAULT_MAX_TURNS,
     signal,
+    cacheEnabled = true,
   } = params;
 
   const toolPool: Tool<unknown, unknown>[] = tools ?? [];
@@ -61,6 +62,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         maxTokens,
         ...(temperature !== undefined ? { temperature } : {}),
         ...(signal ? { signal } : {}),
+        cacheEnabled,
       })) {
         if (event.type === 'assistant_message') {
           assistant = event.message;

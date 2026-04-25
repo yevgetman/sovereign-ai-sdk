@@ -48,7 +48,7 @@ When in doubt, read the corresponding section in `~/Desktop/agent-harness-design
 
 ## Phases — where we are
 
-Phase 5.5 complete (2026-04-25). Current phase: **Phase 6** (context assembly, caching, and injection defense). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+Phase 6 complete (2026-04-25). Current phase: **Phase 6.5** (bounded memory surfaces). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.

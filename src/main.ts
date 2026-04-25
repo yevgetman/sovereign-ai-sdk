@@ -3,7 +3,8 @@
 //
 // Phase 5 scope: `chat` subcommand (the default) launches a streaming REPL
 // against a resolved provider. Accepts --provider, --bundle (or
-// HARNESS_BUNDLE env), --model, --max-tokens, and --permission-mode.
+// HARNESS_BUNDLE env), --model, --max-tokens, --permission-mode, and
+// --no-cache.
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -93,6 +94,7 @@ async function main(argv: string[]): Promise<void> {
     )
     .option('--resume <id>', 'resume a prior session by its UUID')
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
+    .option('--no-cache', 'disable provider prompt-cache markers for this session')
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
@@ -104,6 +106,7 @@ async function main(argv: string[]): Promise<void> {
         permissionMode: opts.permissionMode,
         ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
         ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
+        ...(opts.cache === false ? { noCache: true } : {}),
       });
     });
 
