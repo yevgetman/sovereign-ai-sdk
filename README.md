@@ -6,7 +6,11 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 4 complete (2026-04-24)** — the tool ecosystem and concurrency-safe batching. Five new tools land alongside Bash: `FileRead` (line-numbered output, offset/limit paging), `FileWrite` (overwrite, parent-dir-must-exist), `FileEdit` (unique-match string replace + `replace_all`), `Grep` (ripgrep shell-out with content/files-with-matches/count modes), `Glob` (`Bun.Glob` file pattern match). `BashTool.isConcurrencySafe(input)` is now allowlist-driven — `cat`, `grep`, `find`, `head`, `tail`, `wc`, `ls`, `pwd`, `echo` and friends report safe; anything else (or any command substitution / process substitution) reports unsafe. The orchestrator partitions the per-turn `tool_use` blocks into contiguous concurrent / serial runs, splits each concurrent run into path-conflict-free sub-batches (two reads of the same file go parallel; a read-and-write or two writes on overlapping paths serialize), executes each sub-batch via `Promise.all` capped at 10, and re-inserts results in the **original** tool-call order regardless of completion order. Per-tool result rendering moved from the BashTool special-case in the orchestrator to a `Tool.renderResult` method — the orchestrator no longer knows about individual tools' output shapes. `patchSchemasAgainstAvailable()` runs unconditionally on every assembly; Phase 4 ships it as a no-op pass with the structure ready for Phase 12 (MCP) and Phase 13 (sub-agents) to use.
+**Phase 5.5 complete (2026-04-25)** — provider hardening. `resolveProvider()` is now the single entrypoint for Anthropic, OpenAI, OpenRouter, and Ollama. API-key providers use a persistent credential-pool metadata file at `~/.harness/credentials.json` (status/cooldown/usage only — no raw keys). A cross-session rate guard writes `~/.harness/rate_limits/<provider>.json` after 429s so other sessions pause or fail fast instead of amplifying retries. Auxiliary clients (`compression`, `title`, `web-extract`) resolve through the cheap fallback chain OpenRouter → Anthropic Haiku → OpenAI mini → local Ollama.
+
+**Phase 5 complete (2026-04-25)** — multi-provider core. The CLI accepts `--provider anthropic|openai|openrouter|ollama`; `--model` overrides provider/config defaults. Anthropic keeps native prompt-cache markers, OpenAI/OpenRouter flatten system segments into a system message, and Ollama speaks `/api/chat`. All providers normalize back into the same internal `StreamEvent` + content-block message shape, so `query()`, the tool loop, permissions, and session persistence remain provider-agnostic.
+
+**Phase 4 complete (2026-04-24)** — the tool ecosystem and concurrency-safe batching. Five new tools land alongside Bash: `FileRead` (line-numbered output, offset/limit paging), `FileWrite` (overwrite, parent-dir-must-exist), `FileEdit` (unique-match string replace + `replace_all`), `Grep` (ripgrep shell-out with content/files-with-matches/count modes), `Glob` (`Bun.Glob` file pattern match). The orchestrator partitions per-turn `tool_use` blocks into contiguous concurrent / serial runs, splits concurrent runs into path-conflict-free sub-batches, caps batches at 10, and re-inserts results in original tool-call order.
 
 **Phase 3.5 complete (2026-04-24)** — conversations persist across runs. SQLite (via `bun:sqlite`) + WAL + FTS5 at `~/.harness/sessions.db` by default; schema-versioned migrations framework in place. Every user / assistant / tool_result message is saved as it's produced. `--resume <uuid>` hydrates history and the *frozen system prompt* from the stored session (storage-side of Invariant #4 — Phase 6 enforces actually-reuse-it). Bundle-mismatch on resume is rejected with a clear error. Jittered retry wrapper (20–150ms × up to 15) + `wal_checkpoint(TRUNCATE)` every 50 writes — prepared for Phase 16/17 multi-writer contention. Zero new npm dependencies.
 
@@ -28,7 +32,7 @@ Full setup from zero — no prior Bun install, no repos cloned, no key.
 |---|---|
 | **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
 | **Git + SSH to GitHub** | Cloning the private repos. |
-| **Anthropic API key** | Model access. One per user — don't share. |
+| **Provider API key** | Anthropic/OpenAI/OpenRouter access, depending on provider. Ollama can run local without a key. |
 | **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
 
 Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your shell (or `source` your rc) so `~/.bun/bin` ends up on PATH. The repos are private, so the owner has to grant collaborator access on `sovereign-ai-harness` (and on `sovereign-ai-docs` if you want the docs bundle — which is the default bundle). Get an API key at `console.anthropic.com`.
@@ -45,7 +49,7 @@ cd ~/code/sovereign-ai-harness
 bun install
 bun link     # creates ~/.bun/bin/sovereign → this repo's src/main.ts
 
-# 3. Drop your API key into .env (gitignored; auto-loaded from repo root)
+# 3. Drop your provider key into .env (gitignored; auto-loaded from repo root)
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
 # 4. Run from anywhere
@@ -68,6 +72,7 @@ That's the whole setup — three commands, a key, a bundle path.
 - **Contributing docs changes** — `cd ~/code/sovereign-ai-docs && npm install && npm run install-hooks` turns on the pre-commit cascade + linter.
 - **Skip `--bundle` every call** — `export HARNESS_BUNDLE=~/code/sovereign-ai-docs` in your shell rc.
 - **Different model** — `sovereign chat -m claude-opus-4-7` (default is Sonnet 4.6 — see `state/memory/decisions-made.md` in the docs repo for the v0.x cost calculus).
+- **Different provider** — `sovereign chat --provider openai -m gpt-4o-mini`, `sovereign chat --provider ollama -m qwen2.5:3b`, or `sovereign chat --provider openrouter -m anthropic/claude-haiku-latest`.
 
 ### Gotchas
 
@@ -85,7 +90,20 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--model <name>` (default `claude-sonnet-4-6`), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`).
+Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`).
+
+Provider defaults can also live in `~/.harness/config.json`:
+
+```json
+{
+  "defaultProvider": "anthropic",
+  "providers": {
+    "anthropic": { "model": "claude-sonnet-4-6" },
+    "openai": { "apiKey": "sk-...", "model": "gpt-4o-mini" },
+    "ollama": { "baseUrl": "http://localhost:11434", "model": "qwen2.5:3b" }
+  }
+}
+```
 
 ### Session persistence (Phase 3.5)
 
@@ -155,7 +173,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob | 2 Bash, 4 file & search |
-| `src/providers/` | LLM provider adapters (Anthropic, later OpenAI / Ollama) | 1 Anthropic, 5 others |
+| `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
 | `src/context/` | System context, CLAUDE.md hierarchy, memoization | 6 |
@@ -169,7 +187,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.2 |
 | `src/review/` | Background review loop (Hermes pattern) | 13 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5 |
-| `src/config/` | Settings loader (user / project / local precedence) | 0 |
+| `src/config/` | `~/.harness/config.json` settings schema/loader | 5 |
 | `src/ui/` | Terminal REPL (plain readline Phase 1, Ink Phase 14) | 0 stub |
 
 Empty directories are deliberate — they mark future phase landing zones.

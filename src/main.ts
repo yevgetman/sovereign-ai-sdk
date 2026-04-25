@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 // CLI entry. Commander parses flags; dispatches to terminalRepl.
 //
-// Phase 3 scope: `chat` subcommand (the default) launches a streaming REPL
-// against Anthropic with tools and permission gating. Accepts --bundle (or
-// HARNESS_BUNDLE env), --model, --max-tokens, --permission-mode. Reads
-// ANTHROPIC_API_KEY from env.
+// Phase 5 scope: `chat` subcommand (the default) launches a streaming REPL
+// against a resolved provider. Accepts --provider, --bundle (or
+// HARNESS_BUNDLE env), --model, --max-tokens, and --permission-mode.
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -50,7 +49,6 @@ function loadPackageEnv(): void {
 loadPackageEnv();
 
 const VERSION = '0.0.1';
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 4096;
 const DEFAULT_PERMISSION_MODE: PermissionMode = 'ask';
 
@@ -59,14 +57,6 @@ function resolveBundlePath(cliArg: string | undefined): string {
   const env = process.env.HARNESS_BUNDLE;
   if (env) return env;
   throw new Error('No bundle path provided. Pass --bundle <path> or set HARNESS_BUNDLE env var.');
-}
-
-function resolveApiKey(): string {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    throw new Error('ANTHROPIC_API_KEY env var is required for the Anthropic provider.');
-  }
-  return key;
 }
 
 function parsePositiveInt(raw: string): number {
@@ -92,7 +82,8 @@ async function main(argv: string[]): Promise<void> {
     .command('chat', { isDefault: true })
     .description('Start an interactive chat session against a harness bundle')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('-m, --model <name>', 'model name', DEFAULT_MODEL)
+    .option('-p, --provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
       '--permission-mode <mode>',
@@ -104,14 +95,13 @@ async function main(argv: string[]): Promise<void> {
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
-      const apiKey = resolveApiKey();
       const { runRepl } = await import('./ui/terminalRepl.js');
       await runRepl({
         bundlePath,
-        model: opts.model,
+        ...(opts.provider !== undefined ? { providerName: opts.provider } : {}),
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
         maxTokens: opts.maxTokens,
         permissionMode: opts.permissionMode,
-        apiKey,
         ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
         ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
       });

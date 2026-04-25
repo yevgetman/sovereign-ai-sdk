@@ -25,15 +25,19 @@ import type {
   StreamEvent,
   SystemSegment,
 } from '../core/types.js';
-import type { LLMProvider, ProviderRequest, ToolSchema } from './types.js';
+import type { ProviderRequest, ToolSchema, Transport } from './types.js';
 
 type WipBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; thinking: string; signature: string }
   | { kind: 'tool_use'; id: string; name: string; json: string };
 
-export class AnthropicProvider implements LLMProvider {
+export class AnthropicProvider
+  implements
+    Transport<MessageParam, Anthropic.Tool, Anthropic.MessageCreateParams, RawMessageStreamEvent>
+{
   readonly name = 'anthropic';
+  readonly apiMode = 'anthropic';
   readonly apiKey: string;
   private readonly client: Anthropic;
 
@@ -48,25 +52,41 @@ export class AnthropicProvider implements LLMProvider {
     });
   }
 
-  async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-    const system = systemToSdk(req.system);
-    const messages = messagesToSdk(req.messages);
-    const tools = req.tools ? toolsToSdk(req.tools) : undefined;
+  toProviderMessages(messages: Message[]): MessageParam[] {
+    return messagesToSdk(messages);
+  }
 
+  toProviderTools(tools?: ToolSchema[]): Anthropic.Tool[] | undefined {
+    return tools ? toolsToSdk(tools) : undefined;
+  }
+
+  buildKwargs(req: ProviderRequest): Anthropic.MessageCreateParams {
+    const system = systemToSdk(req.system);
+    const tools = this.toProviderTools(req.tools);
+    return {
+      model: req.model,
+      max_tokens: req.maxTokens,
+      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      ...(system !== undefined ? { system } : {}),
+      messages: this.toProviderMessages(req.messages),
+      ...(tools !== undefined ? { tools } : {}),
+      stream: true,
+    };
+  }
+
+  async *normalizeResponse(
+    raw: AsyncIterable<RawMessageStreamEvent>,
+  ): AsyncGenerator<StreamEvent, AssistantMessage> {
+    return yield* translateAnthropicStream(raw);
+  }
+
+  async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
     const sdkStream = (await this.client.messages.create(
-      {
-        model: req.model,
-        max_tokens: req.maxTokens,
-        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        ...(system !== undefined ? { system } : {}),
-        messages,
-        ...(tools !== undefined ? { tools } : {}),
-        stream: true,
-      },
+      this.buildKwargs(req),
       req.signal ? { signal: req.signal } : {},
     )) as unknown as AsyncIterable<RawMessageStreamEvent>;
 
-    return yield* translateAnthropicStream(sdkStream);
+    return yield* this.normalizeResponse(sdkStream);
   }
 }
 

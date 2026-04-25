@@ -1,0 +1,59 @@
+// Small built-in model registry. Resolver uses this for defaults and context
+// lengths until config-driven/provider-discovered registries become necessary.
+
+export type ProviderRegistryEntry = {
+  provider: string;
+  apiMode: 'anthropic' | 'openai' | 'ollama';
+  defaultModel: string;
+  defaultBaseUrl: string;
+  authEnvVar?: string;
+  contextLength: number;
+};
+
+export const PROVIDER_REGISTRY: Record<string, ProviderRegistryEntry> = {
+  anthropic: {
+    provider: 'anthropic',
+    apiMode: 'anthropic',
+    defaultModel: 'claude-sonnet-4-6',
+    defaultBaseUrl: 'https://api.anthropic.com',
+    authEnvVar: 'ANTHROPIC_API_KEY',
+    contextLength: 200_000,
+  },
+  openai: {
+    provider: 'openai',
+    apiMode: 'openai',
+    defaultModel: 'gpt-4o-mini',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    authEnvVar: 'OPENAI_API_KEY',
+    contextLength: 128_000,
+  },
+  openrouter: {
+    provider: 'openrouter',
+    apiMode: 'openai',
+    defaultModel: 'anthropic/claude-haiku-latest',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    authEnvVar: 'OPENROUTER_API_KEY',
+    contextLength: 200_000,
+  },
+  ollama: {
+    provider: 'ollama',
+    apiMode: 'ollama',
+    defaultModel: 'qwen2.5:3b',
+    defaultBaseUrl: 'http://localhost:11434',
+    contextLength: 32_768,
+  },
+};
+
+const MODEL_CONTEXT: Record<string, number> = {
+  'claude-sonnet-4-6': 200_000,
+  'claude-opus-4-7': 200_000,
+  'claude-haiku-latest': 200_000,
+  'anthropic/claude-haiku-latest': 200_000,
+  'gpt-4o-mini': 128_000,
+  'gpt-4o': 128_000,
+  'qwen2.5:3b': 32_768,
+};
+
+export function contextLengthFor(provider: string, model: string): number {
+  return MODEL_CONTEXT[model] ?? PROVIDER_REGISTRY[provider]?.contextLength ?? 32_768;
+}

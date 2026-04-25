@@ -24,16 +24,16 @@ import type { AssistantMessage, Message, SystemSegment, Terminal } from '../core
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
-import { AnthropicProvider } from '../providers/anthropic.js';
+import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { ToolContext } from '../tool/types.js';
 
 export type ReplOpts = {
   bundlePath: string;
-  model: string;
+  providerName?: string;
+  model?: string;
   maxTokens: number;
   permissionMode: PermissionMode;
-  apiKey: string;
   /** Resume an existing session by UUID. Validates the bundle matches what
    *  was stored at session creation; refuses otherwise. */
   resumeId?: string;
@@ -45,10 +45,23 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
-  const provider = new AnthropicProvider({ apiKey: opts.apiKey });
-
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
-  const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(db, opts, bundle);
+  const resumeSession =
+    opts.resumeId !== undefined ? (db.getSession(opts.resumeId) ?? undefined) : undefined;
+  const storedProvider = resumeSession
+    ? ((resumeSession.metadata as { provider?: string }).provider ?? resumeSession.provider)
+    : undefined;
+  const resolved = resolveProvider(
+    opts.providerName ?? storedProvider,
+    opts.model ?? resumeSession?.model,
+  );
+  const provider = resolved.transport;
+  const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(
+    db,
+    opts,
+    bundle,
+    resolved,
+  );
 
   const toolContext: ToolContext = {
     cwd: process.cwd(),
@@ -88,6 +101,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
   writeBanner(
     opts,
+    resolved,
     bundle.state.context !== null,
     toolPool.map((t) => t.name),
     sessionId,
@@ -114,7 +128,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     try {
       const gen = query({
         provider,
-        model: opts.model,
+        model: resolved.model,
         messages: history,
         systemPrompt,
         ...(toolPool.length > 0 ? { tools: toolPool, toolContext, canUseTool } : {}),
@@ -198,6 +212,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
 function writeBanner(
   opts: ReplOpts,
+  resolved: ResolvedProvider,
   haveContext: boolean,
   toolNames: string[],
   sessionId: string,
@@ -209,7 +224,8 @@ function writeBanner(
   const lines = [
     chalk.bold('sovereign-ai-harness'),
     chalk.gray(`  bundle: ${opts.bundlePath}`),
-    chalk.gray(`  model:  ${opts.model}`),
+    chalk.gray(`  provider: ${String(resolved.metadata.provider)} (${resolved.baseUrl})`),
+    chalk.gray(`  model:  ${resolved.model}`),
     chalk.gray(`  context.md: ${haveContext ? 'loaded' : 'not found (prompt will be minimal)'}`),
     chalk.gray(`  tools:  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}`),
     chalk.gray(`  perms:  ${opts.permissionMode}${modeNote}`),
@@ -227,15 +243,25 @@ type SessionOpen = {
   resumed: boolean;
 };
 
-function openOrResumeSession(db: SessionDb, opts: ReplOpts, bundle: Bundle): SessionOpen {
+function openOrResumeSession(
+  db: SessionDb,
+  opts: ReplOpts,
+  bundle: Bundle,
+  resolved: ResolvedProvider,
+): SessionOpen {
   if (opts.resumeId === undefined) {
     const systemPrompt = buildSystemSegments(bundle);
     const sessionId = db.createSession({
-      model: opts.model,
-      provider: 'anthropic',
+      model: resolved.model,
+      provider: String(resolved.metadata.provider),
       platform: 'cli',
       systemPrompt,
-      metadata: { bundleRoot: bundle.root },
+      metadata: {
+        bundleRoot: bundle.root,
+        provider: resolved.metadata.provider,
+        baseUrl: resolved.baseUrl,
+        contextLength: resolved.contextLength,
+      },
     });
     return { sessionId, systemPrompt, history: [], resumed: false };
   }
