@@ -12,10 +12,12 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type {
   ContentBlockParam,
+  MessageDeltaUsage,
   MessageParam,
   RawContentBlockStartEvent,
   RawMessageStreamEvent,
   TextBlockParam,
+  Usage,
 } from '@anthropic-ai/sdk/resources/messages/messages';
 import type {
   AssistantMessage,
@@ -24,6 +26,7 @@ import type {
   StopReason,
   StreamEvent,
   SystemSegment,
+  TokenUsage,
 } from '../core/types.js';
 import type { ProviderRequest, ToolSchema, Transport } from './types.js';
 
@@ -106,6 +109,7 @@ export async function* translateAnthropicStream(
     switch (event.type) {
       case 'message_start': {
         yield { type: 'message_start' };
+        yield { type: 'usage_delta', usage: usageToInternal(event.message.usage) };
         break;
       }
       case 'content_block_start': {
@@ -142,6 +146,7 @@ export async function* translateAnthropicStream(
       case 'message_delta': {
         const sr = event.delta.stop_reason;
         if (sr) stopReason = mapStopReason(sr);
+        yield { type: 'usage_delta', usage: usageToInternal(event.usage) };
         break;
       }
       case 'message_stop': {
@@ -202,6 +207,19 @@ function mapStopReason(sr: string): StopReason {
     default:
       return 'error';
   }
+}
+
+function usageToInternal(usage: Partial<Usage | MessageDeltaUsage>): TokenUsage {
+  return {
+    ...(typeof usage.input_tokens === 'number' ? { inputTokens: usage.input_tokens } : {}),
+    ...(typeof usage.output_tokens === 'number' ? { outputTokens: usage.output_tokens } : {}),
+    ...(typeof usage.cache_creation_input_tokens === 'number'
+      ? { cacheCreationInputTokens: usage.cache_creation_input_tokens }
+      : {}),
+    ...(typeof usage.cache_read_input_tokens === 'number'
+      ? { cacheReadInputTokens: usage.cache_read_input_tokens }
+      : {}),
+  };
 }
 
 export function systemToSdk(

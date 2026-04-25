@@ -23,11 +23,19 @@ export type Message = UserMessage | AssistantMessage;
 
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error';
 
+export type TokenUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+};
+
 export type StreamEvent =
   | { type: 'message_start' }
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
   | { type: 'tool_use_delta'; id: string; partial: unknown }
+  | { type: 'usage_delta'; usage: TokenUsage }
   | { type: 'message_stop'; stop_reason: StopReason }
   | { type: 'assistant_message'; message: AssistantMessage };
 

@@ -20,7 +20,13 @@ import { loadBundle } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
-import type { AssistantMessage, Message, SystemSegment, Terminal } from '../core/types.js';
+import type {
+  AssistantMessage,
+  Message,
+  SystemSegment,
+  Terminal,
+  TokenUsage,
+} from '../core/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
@@ -133,6 +139,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     streamController = new AbortController();
     let latestAssistant: AssistantMessage | undefined;
     let terminal: Terminal | undefined;
+    let latestUsage: TokenUsage | undefined;
 
     try {
       const gen = query({
@@ -188,6 +195,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             }
           }
         }
+        if (ev.type === 'usage_delta') {
+          latestUsage = ev.usage;
+        }
         // message_start, thinking_delta, tool_use_delta, message_stop: silent.
       }
     } finally {
@@ -195,6 +205,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     }
 
     process.stdout.write('\n');
+    if (latestUsage) {
+      process.stdout.write(chalk.gray(`${formatUsage(latestUsage)}\n`));
+    }
 
     // Sync REPL history with what query() actually processed. query() works
     // on a copy internally; the pushes we did before the generator started
@@ -326,4 +339,16 @@ function previewToolInput(input: unknown): string {
 function truncatePreview(s: string): string {
   const clean = s.replace(/\s+/g, ' ').trim();
   return clean.length > 60 ? `${clean.slice(0, 57)}...` : clean;
+}
+
+function formatUsage(usage: TokenUsage): string {
+  const parts = [
+    ['input', usage.inputTokens],
+    ['output', usage.outputTokens],
+    ['cache_write', usage.cacheCreationInputTokens],
+    ['cache_read', usage.cacheReadInputTokens],
+  ]
+    .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+    .map(([label, value]) => `${label}=${value}`);
+  return parts.length > 0 ? `[usage: ${parts.join(', ')}]` : '[usage: unavailable]';
 }

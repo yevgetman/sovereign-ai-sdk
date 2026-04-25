@@ -47,13 +47,21 @@ describe('translateAnthropicStream', () => {
 
     expect(yielded.map((e) => e.type)).toEqual([
       'message_start',
+      'usage_delta',
       'text_delta',
       'text_delta',
       'text_delta',
       'text_delta',
+      'usage_delta',
       'message_stop',
       'assistant_message',
     ]);
+
+    const usageEvents = yielded.filter(
+      (e): e is Extract<StreamEvent, { type: 'usage_delta' }> => e.type === 'usage_delta',
+    );
+    expect(usageEvents[0]?.usage.inputTokens).toBe(12);
+    expect(usageEvents[1]?.usage.outputTokens).toBe(8);
 
     const deltas = yielded
       .filter((e): e is Extract<StreamEvent, { type: 'text_delta' }> => e.type === 'text_delta')
