@@ -21,6 +21,7 @@ import { FileReadTool } from '../tools/FileReadTool.js';
 import { FileWriteTool } from '../tools/FileWriteTool.js';
 import { GlobTool } from '../tools/GlobTool.js';
 import { GrepTool } from '../tools/GrepTool.js';
+import { MemoryTool } from '../tools/MemoryTool.js';
 import type { Tool, ToolContext } from './types.js';
 
 const REGISTERED_TOOLS = [
@@ -30,6 +31,7 @@ const REGISTERED_TOOLS = [
   FileEditTool,
   GrepTool,
   GlobTool,
+  MemoryTool,
 ] as unknown as Tool<unknown, unknown>[];
 
 /**

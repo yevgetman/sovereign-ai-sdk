@@ -16,6 +16,7 @@
 // path-scoped serialization mirrors hermes-reverse-engineering.md §2.6.
 
 import { isAbsolute, resolve } from 'node:path';
+import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { ContentBlock, Message, UserMessage } from './types.js';
@@ -321,7 +322,8 @@ async function executeOne(
 
   try {
     const result = await tool.call(parsed.data, ctx);
-    return formatToolResult(tool, block.id, result.data);
+    const formatted = formatToolResult(tool, block.id, result.data);
+    return maybeAppendHints(tool.name, parsed.data, ctx, formatted);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
@@ -331,6 +333,25 @@ async function executeOne(
       is_error: true,
     };
   }
+}
+
+function maybeAppendHints(
+  toolName: string,
+  input: unknown,
+  ctx: ToolContext,
+  block: ToolResultBlock,
+): ToolResultBlock {
+  if (!ctx.subdirectoryHintState || block.is_error === true) return block;
+  return {
+    ...block,
+    content: appendSubdirectoryHints({
+      toolName,
+      input,
+      content: block.content,
+      cwd: ctx.cwd,
+      state: ctx.subdirectoryHintState,
+    }),
+  };
 }
 
 function formatToolResult(

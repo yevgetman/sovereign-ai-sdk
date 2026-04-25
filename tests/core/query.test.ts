@@ -48,6 +48,26 @@ function capturingProvider(onRequest: (req: ProviderRequest) => void): LLMProvid
   };
 }
 
+function oneToolThenDoneProvider(onRequest: (req: ProviderRequest) => void): LLMProvider {
+  let calls = 0;
+  return {
+    name: 'capture-tool-loop',
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      onRequest(req);
+      calls++;
+      if (calls === 1) {
+        const assistant = toolUseAnswer;
+        yield { type: 'message_start' };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        yield { type: 'assistant_message', message: assistant };
+        return assistant;
+      }
+      for (const ev of completedEvents) yield ev;
+      return completedAnswer;
+    },
+  };
+}
+
 const completedAnswer: AssistantMessage = {
   role: 'assistant',
   content: [{ type: 'text', text: '4' }],
@@ -140,6 +160,43 @@ describe('query() — Phase 2 turn loop', () => {
       if (step.done) break;
     }
     expect(seen[0]?.cacheEnabled).toBe(false);
+  });
+
+  test('injects memory snapshot once into the latest user message', async () => {
+    const seen: ProviderRequest[] = [];
+    let prefetches = 0;
+    const gen = query({
+      provider: oneToolThenDoneProvider((req) => seen.push(req)),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'remembered turn' }] }],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+      memoryManager: {
+        async prefetchSnapshot() {
+          prefetches++;
+          return '<memory-context>prefers terse</memory-context>';
+        },
+        async syncTurn() {},
+        async onMemoryWrite() {},
+        async onDelegation() {},
+      },
+    });
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+    }
+    expect(prefetches).toBe(1);
+    const firstTurn = seen[0]?.messages[0];
+    expect(firstTurn?.role).toBe('user');
+    expect(firstTurn?.content[0]?.type).toBe('text');
+    if (firstTurn?.content[0]?.type === 'text') {
+      expect(firstTurn.content[0].text).toContain('prefers terse');
+      expect(firstTurn.content[0].text).toContain('remembered turn');
+    }
+    const secondTurn = seen[1];
+    expect(secondTurn?.messages.filter((message) => message.role === 'user')).toHaveLength(2);
   });
 
   test('tool_use turn dispatches runTools and continues to completion', async () => {

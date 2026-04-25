@@ -2,9 +2,13 @@
 
 The agent runtime for Sovereign AI. A Claude-Code-style harness (TypeScript on Bun, async-generator turn loop, `Tool<I,O>` factory with fail-closed defaults, content-block messages) with a Hermes-pattern learning layer on top (persistent memory, trajectory capture, background review).
 
-This is **runtime code**. The business data it operates against lives in a separate repo: `~/code/sovereign-ai-docs/`. This repo reads that one as a *harness bundle* — it never writes to business-scope files, only to the tier-3 `state/` content (memory, trajectories, session log, artefacts).
+This is **runtime code**. The business data it operates against lives in a separate repo: `~/code/sovereign-ai-docs/`. This repo reads that one as a *harness bundle* and never writes to business-scope files; runtime state lives under `$HARNESS_HOME` (default `~/.harness`) unless a later phase introduces explicit bundle-state writers.
 
 ## Status
+
+**Phase 6.7 complete (2026-04-25)** — context references and subdirectory hint loading. User turns now expand `@file:path`, `@file:"path with spaces"`, `@file:path:10-20`, `@folder:path`, `@diff`, `@staged`, and `@url:https://...` before the provider call, with sensitive-path blocks for SSH/AWS/GPG/Kube material, shell rc files, sudoers, and `/etc/passwd`/`/etc/shadow`. Tool results for newly touched directories append nearby safe `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` hints instead of mutating the frozen system prompt.
+
+**Phase 6.5 complete (2026-04-25)** — bounded memory surfaces. `$HARNESS_HOME/memory/USER.md` (1,375 chars) and `$HARNESS_HOME/memory/MEMORY.md` (2,200 chars) are read once per user turn, fenced as recalled context in the user message, and never spliced into the system prompt. The `memory` tool supports explicit `view` and `replace`; over-cap writes fail with a consolidation error rather than truncating. A memory-provider abstraction is in place and rejects more than one external non-builtin provider.
 
 **Phase 6 complete (2026-04-25)** — context assembly, prompt-cache boundaries, and injection defense. New sessions freeze a static-to-dynamic system prompt: base instructions, available tools, bundle context/memory, runtime facts, and local user/project context. Runtime facts capture OS, shell, cwd, date, git status, recent commits, and recent branches once per session; `--resume` reuses the stored system prompt verbatim. Local context discovery merges `~/.harness/CONTEXT.md` first, then `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` from filesystem root to cwd. Suspicious or oversized context files are blocked/truncated before inclusion. Anthropic now applies `system_and_3` cache markers to cacheable system segments plus the last three messages; `--no-cache` disables provider cache markers for testing.
 
@@ -66,6 +70,7 @@ That's the whole setup — three commands, a key, a bundle path.
 
 **Does not port:**
 - `~/.harness/sessions.db` — your conversation history lives under `$HOME`, not the repo. A new machine starts with an empty DB. `scp` the file across if you want a snapshot; usually not worth it.
+- `~/.harness/memory/` — bounded `USER.md` / `MEMORY.md` files are local runtime memory. Copy them intentionally if you want the same remembered preferences or notes on another machine.
 - `.env` — gitignored by design. Every user brings their own API key.
 - The `sovereign-ai-ops` repo (macOS launchd cron for feed / CHANGELOG / audit) — **not required to run the harness.** Clone it only if nightly summaries matter.
 
@@ -118,6 +123,29 @@ to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
 Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation. Anthropic prompt-cache markers are applied to cacheable system segments and the last three messages unless `--no-cache` is set. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
 
 Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) keep the upgrade path cheap when Phase 8 adds cost columns. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
+
+### Bounded memory (Phase 6.5)
+
+Memory lives under `$HARNESS_HOME/memory/` (`~/.harness/memory/` by default):
+
+- `USER.md` stores durable user preferences and profile facts, capped at 1,375 characters.
+- `MEMORY.md` stores agent/project notes, capped at 2,200 characters.
+
+The model sees these files as fenced recalled context prepended to the current user message. The frozen system prompt and stored session system prompt are not changed. Use the `memory` tool to `view` current files or `replace` one whole file with a consolidated version; writes over the cap return an error instead of truncating.
+
+### Context references (Phase 6.7)
+
+Prompt text can include inline references:
+
+```text
+Review @file:src/main.ts and @diff
+Summarize @file:"docs/file with spaces.md"
+Inspect lines @file:src/core/query.ts:40-90
+Map @folder:src/context
+Quote @url:https://example.com/doc
+```
+
+References expand before the provider call into bounded fenced blocks. Sensitive paths such as `~/.ssh/*`, `~/.aws/*`, `~/.gnupg/*`, `~/.kube/*`, shell rc files, sudoers, and `/etc/passwd`/`/etc/shadow` are blocked. When a tool touches a new directory, nearby safe `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` files are appended to that tool result once per session.
 
 ### Permission prompts (Phase 3)
 
@@ -172,10 +200,10 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 
 | Directory | Purpose | Phase |
 |---|---|---|
-| `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense | 6 |
+| `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
-| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob | 2 Bash, 4 file & search |
+| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool | 2 Bash, 4 file & search, 6.5 memory |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
@@ -185,11 +213,11 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/hooks/` | Shell-out lifecycle hooks | 11 |
 | `src/mcp/` | MCP client | 12 |
 | `src/bundle/` | Harness-bundle loader (Sovereign AI specific) | 0 skeleton |
-| `src/memory/` | MEMORY.md / USER.md injection (Hermes pattern) | 6 |
+| `src/memory/` | Bounded MEMORY.md / USER.md store, provider ABC, user-message memory injection | 6.5 |
 | `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.2 |
 | `src/review/` | Background review loop (Hermes pattern) | 13 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5 |
-| `src/config/` | `~/.harness/config.json` settings schema/loader | 5 |
+| `src/config/` | `~/.harness/config.json` settings schema/loader and `$HARNESS_HOME` path helpers | 5, 6.5 |
 | `src/ui/` | Terminal REPL (plain readline Phase 1, Ink Phase 14) | 0 stub |
 
 Empty directories are deliberate — they mark future phase landing zones.

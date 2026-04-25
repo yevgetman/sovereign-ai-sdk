@@ -14,6 +14,7 @@
 // Source of pattern: Claude Code src/query.ts (lesson: core loop shape is
 // a one-way door; use async generator from day one).
 
+import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { runTools } from './orchestrator.js';
 import type {
@@ -46,7 +47,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   const toolPool: Tool<unknown, unknown>[] = tools ?? [];
   const toolCtx: ToolContext | undefined = params.toolContext;
   const canUseTool = params.canUseTool;
-  const history: Message[] = [...messages];
+  const originalUserText = latestUserText(messages);
+  const history: Message[] = params.memoryManager
+    ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
+    : [...messages];
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) return { reason: 'interrupted' };
@@ -86,6 +90,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     const toolUseBlocks = assistant.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
 
     if (toolUseBlocks.length === 0) {
+      if (params.memoryManager && originalUserText !== undefined) {
+        await params.memoryManager.syncTurn(originalUserText, assistantText(assistant));
+      }
       return { reason: 'completed' };
     }
 
@@ -122,6 +129,23 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   }
 
   return { reason: 'max_turns' };
+}
+
+function latestUserText(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== 'user') continue;
+    const text = message.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+function assistantText(message: AssistantMessage): string {
+  return message.content
+    .filter((block) => block.type === 'text')
+    .map((block) => (block.type === 'text' ? block.text : ''))
+    .join('\n');
 }
 
 function toToolSchemas(

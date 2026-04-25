@@ -73,4 +73,6 @@ export type QueryParams = {
   canUseTool?: import('../permissions/types.js').CanUseTool;
   /** Provider prompt-cache markers. Defaults to enabled; --no-cache disables. */
   cacheEnabled?: boolean;
+  /** Optional bounded-memory manager; injects a fenced snapshot once per user turn. */
+  memoryManager?: import('../memory/provider.js').MemoryRuntime;
 };

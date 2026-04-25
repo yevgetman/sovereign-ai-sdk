@@ -22,7 +22,10 @@ export type ToolContext = {
   cwd: string;
   bundleRoot: string;
   sessionId: string;
+  harnessHome?: string;
   signal?: AbortSignal;
+  memoryManager?: import('../memory/provider.js').MemoryRuntime;
+  subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
 };
 
 export type ToolResult<T> = {

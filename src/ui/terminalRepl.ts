@@ -18,6 +18,9 @@ import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadBundle } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
+import { resolveHarnessHome } from '../config/paths.js';
+import { expandContextReferences } from '../context/references.js';
+import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type {
@@ -27,6 +30,7 @@ import type {
   Terminal,
   TokenUsage,
 } from '../core/types.js';
+import { createDefaultMemoryManager } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
@@ -53,6 +57,11 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
+  const harnessHome = resolveHarnessHome();
+  const memoryManager = createDefaultMemoryManager(harnessHome);
+  await memoryManager.initialize();
+  await memoryManager.onSessionStart();
+  const subdirectoryHintState = createSubdirectoryHintState();
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
   const resumeSession =
     opts.resumeId !== undefined ? (db.getSession(opts.resumeId) ?? undefined) : undefined;
@@ -68,6 +77,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     cwd: process.cwd(),
     bundleRoot: bundle.root,
     sessionId: opts.resumeId ?? 'pending',
+    harnessHome,
+    memoryManager,
+    subdirectoryHintState,
   };
   const preliminaryToolPool = assembleToolPool(preliminaryToolContext);
   const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(
@@ -82,6 +94,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     cwd: process.cwd(),
     bundleRoot: bundle.root,
     sessionId,
+    harnessHome,
+    memoryManager,
+    subdirectoryHintState,
   };
   const toolPool = preliminaryToolPool;
 
@@ -130,7 +145,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     if (trimmed === '') continue;
     if (EXIT_COMMANDS.has(trimmed)) break;
 
-    const userMessage: Message = { role: 'user', content: [{ type: 'text', text: trimmed }] };
+    const enrichedInput = await expandContextReferences(trimmed, { cwd: process.cwd() });
+    const userMessage: Message = { role: 'user', content: [{ type: 'text', text: enrichedInput }] };
     history.push(userMessage);
     db.saveMessage(sessionId, { role: 'user', content: userMessage.content });
 
@@ -151,6 +167,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         maxTokens: opts.maxTokens,
         signal: streamController.signal,
         cacheEnabled: opts.noCache !== true,
+        memoryManager,
       });
 
       for (;;) {
@@ -226,6 +243,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
 
   rl.close();
+  await memoryManager.onSessionEnd(sessionId);
+  await memoryManager.shutdown();
   db.close();
   process.stdout.write(chalk.gray('\ngoodbye.\n'));
   process.stdout.write(
