@@ -2,7 +2,12 @@
 // fast so the test suite stays under a second.
 
 import { describe, expect, test } from 'bun:test';
-import { BashTool, formatBashOutput, isBashError } from '../../src/tools/BashTool.js';
+import {
+  BashTool,
+  formatBashOutput,
+  isBashError,
+  isReadOnlyBashCommand,
+} from '../../src/tools/BashTool.js';
 
 const ctx = {
   cwd: process.cwd(),
@@ -67,12 +72,76 @@ describe('BashTool', () => {
     expect(formatted).toContain('hello');
   });
 
-  test('fail-closed defaults inherited from buildTool', () => {
-    // Sanity: Phase 0 defaults carry through — isReadOnly and
-    // isConcurrencySafe stay false until a phase turns them on.
-    expect(BashTool.isReadOnly({ command: 'echo 1' })).toBe(false);
-    expect(BashTool.isConcurrencySafe({ command: 'echo 1' })).toBe(false);
+  test('Phase 4: isReadOnly + isConcurrencySafe driven by allowlist; defaults still false for non-allowlisted', () => {
+    // Allowlisted command — concurrency-safe.
+    expect(BashTool.isReadOnly({ command: 'echo 1' })).toBe(true);
+    expect(BashTool.isConcurrencySafe({ command: 'echo 1' })).toBe(true);
+    // Off-allowlist — fail-closed to false.
+    expect(BashTool.isReadOnly({ command: 'rm -rf /tmp/foo' })).toBe(false);
+    expect(BashTool.isConcurrencySafe({ command: 'rm -rf /tmp/foo' })).toBe(false);
     expect(BashTool.isDestructive({ command: 'echo 1' })).toBe(false);
     expect(BashTool.shouldDefer).toBe(false);
+  });
+
+  test('Phase 4: renderResult formats the bash output and propagates is_error on non-zero exit', async () => {
+    const ok = await BashTool.call({ command: 'echo hello' }, ctx);
+    const okRendered = BashTool.renderResult?.(ok.data);
+    expect(okRendered?.content).toContain('hello');
+    expect(okRendered?.content).toContain('exit_code: 0');
+    expect(okRendered?.isError).toBe(false);
+
+    const fail = await BashTool.call({ command: 'exit 7' }, ctx);
+    const failRendered = BashTool.renderResult?.(fail.data);
+    expect(failRendered?.content).toContain('exit_code: 7');
+    expect(failRendered?.isError).toBe(true);
+  });
+});
+
+describe('isReadOnlyBashCommand', () => {
+  test('single allowlisted commands are read-only', () => {
+    for (const cmd of [
+      'ls',
+      'pwd',
+      'cat /etc/hosts',
+      'echo "hello world"',
+      'find . -name "*.ts"',
+    ]) {
+      expect(isReadOnlyBashCommand(cmd)).toBe(true);
+    }
+  });
+
+  test('off-allowlist commands are not read-only', () => {
+    for (const cmd of ['rm -rf foo', 'mv a b', 'cp x y', 'touch z', 'unknown_binary --flag']) {
+      expect(isReadOnlyBashCommand(cmd)).toBe(false);
+    }
+  });
+
+  test('chains of read-only commands stay safe across | && || ;', () => {
+    expect(isReadOnlyBashCommand('cat foo.txt | grep bar | wc -l')).toBe(true);
+    expect(isReadOnlyBashCommand('ls && pwd')).toBe(true);
+    expect(isReadOnlyBashCommand('ls; pwd; whoami')).toBe(true);
+    expect(isReadOnlyBashCommand('ls || echo nothing')).toBe(true);
+  });
+
+  test('a single unsafe segment poisons the whole chain', () => {
+    expect(isReadOnlyBashCommand('cat foo.txt | rm -rf /')).toBe(false);
+    expect(isReadOnlyBashCommand('ls && touch newfile')).toBe(false);
+  });
+
+  test('command substitution is rejected outright (cannot inspect inner)', () => {
+    expect(isReadOnlyBashCommand('echo $(rm -rf /)')).toBe(false);
+    expect(isReadOnlyBashCommand('echo `rm -rf /`')).toBe(false);
+    expect(isReadOnlyBashCommand('cat <(rm -rf /)')).toBe(false);
+    expect(isReadOnlyBashCommand('cat >(rm -rf /)')).toBe(false);
+  });
+
+  test('leading env-var assignment is skipped before resolving the real command', () => {
+    expect(isReadOnlyBashCommand('LC_ALL=C grep foo bar.txt')).toBe(true);
+    expect(isReadOnlyBashCommand('LC_ALL=C rm -rf /')).toBe(false);
+  });
+
+  test('path-prefixed binaries are conservatively rejected', () => {
+    expect(isReadOnlyBashCommand('/usr/bin/cat foo.txt')).toBe(false);
+    expect(isReadOnlyBashCommand('./script.sh')).toBe(false);
   });
 });

@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 4 complete (2026-04-24)** — the tool ecosystem and concurrency-safe batching. Five new tools land alongside Bash: `FileRead` (line-numbered output, offset/limit paging), `FileWrite` (overwrite, parent-dir-must-exist), `FileEdit` (unique-match string replace + `replace_all`), `Grep` (ripgrep shell-out with content/files-with-matches/count modes), `Glob` (`Bun.Glob` file pattern match). `BashTool.isConcurrencySafe(input)` is now allowlist-driven — `cat`, `grep`, `find`, `head`, `tail`, `wc`, `ls`, `pwd`, `echo` and friends report safe; anything else (or any command substitution / process substitution) reports unsafe. The orchestrator partitions the per-turn `tool_use` blocks into contiguous concurrent / serial runs, splits each concurrent run into path-conflict-free sub-batches (two reads of the same file go parallel; a read-and-write or two writes on overlapping paths serialize), executes each sub-batch via `Promise.all` capped at 10, and re-inserts results in the **original** tool-call order regardless of completion order. Per-tool result rendering moved from the BashTool special-case in the orchestrator to a `Tool.renderResult` method — the orchestrator no longer knows about individual tools' output shapes. `patchSchemasAgainstAvailable()` runs unconditionally on every assembly; Phase 4 ships it as a no-op pass with the structure ready for Phase 12 (MCP) and Phase 13 (sub-agents) to use.
+
 **Phase 3.5 complete (2026-04-24)** — conversations persist across runs. SQLite (via `bun:sqlite`) + WAL + FTS5 at `~/.harness/sessions.db` by default; schema-versioned migrations framework in place. Every user / assistant / tool_result message is saved as it's produced. `--resume <uuid>` hydrates history and the *frozen system prompt* from the stored session (storage-side of Invariant #4 — Phase 6 enforces actually-reuse-it). Bundle-mismatch on resume is rejected with a clear error. Jittered retry wrapper (20–150ms × up to 15) + `wal_checkpoint(TRUNCATE)` every 50 writes — prepared for Phase 16/17 multi-writer contention. Zero new npm dependencies.
 
 **Phase 3 (complete 2026-04-24)** — permission prompts around every tool dispatch. The orchestrator calls `canUseTool()` before `tool.call()`; denials flow back as `is_error` tool_result blocks. CLI flag `--permission-mode ask | bypass` (default `ask`); "always" approvals cache for the session, keyed by tool name (Phase 7 replaces with rule-based matching). Latent Phase 2 bug fixed in passing: `query()` now propagates its `AbortSignal` into the tool context.
@@ -150,9 +152,9 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 
 | Directory | Purpose | Phase |
 |---|---|---|
-| `src/core/` | Async-generator turn loop, content-block types | 0 scaffold, 1 functional |
-| `src/tool/` | `Tool<I,O>` factory with fail-closed defaults | 0 |
-| `src/tools/` | Individual tool implementations | 2+ |
+| `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
+| `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
+| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob | 2 Bash, 4 file & search |
 | `src/providers/` | LLM provider adapters (Anthropic, later OpenAI / Ollama) | 1 Anthropic, 5 others |
 | `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |

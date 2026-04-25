@@ -148,10 +148,11 @@ function describeToStatic(tool: Tool<unknown, unknown>): string {
 }
 
 /**
- * Minimal zod→JSON-Schema conversion for Phase 2. Enough to describe the
- * tools we ship (object with scalar/number/string/optional fields). Phase
- * 5.5 or 9.5 will swap in a proper library (`zod-to-json-schema`) when we
- * have a tool with nested unions or refinements.
+ * Minimal zod→JSON-Schema conversion. Covers what the harness's own tools
+ * need: object/string/number/boolean/array/enum/literal, optional &
+ * default unwrapping, and `.describe()` propagation. Phase 5.5 or 9.5
+ * will swap in a proper library (`zod-to-json-schema`) when a tool needs
+ * nested unions or refinements.
  */
 function zodToJsonSchemaShallow(schema: unknown): unknown {
   // biome-ignore lint/suspicious/noExplicitAny: pragmatic introspection
@@ -159,6 +160,19 @@ function zodToJsonSchemaShallow(schema: unknown): unknown {
   if (!s || typeof s !== 'object') return { type: 'object' };
   const def = s._def;
   if (!def) return { type: 'object' };
+
+  // Unwrap wrappers; the wrapped type's description, if any, wins. The
+  // wrapper's own description (set on the optional/default shell) is
+  // grafted onto the unwrapped result so `field.describe('...').optional()`
+  // and `field.optional().describe('...')` both work.
+  if (def.typeName === 'ZodOptional' || def.typeName === 'ZodDefault') {
+    const inner = zodToJsonSchemaShallow(def.innerType);
+    return def.description && typeof inner === 'object' && inner
+      ? { ...(inner as object), description: def.description }
+      : inner;
+  }
+
+  let result: Record<string, unknown> = {};
   if (def.typeName === 'ZodObject') {
     const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
     const properties: Record<string, unknown> = {};
@@ -168,18 +182,31 @@ function zodToJsonSchemaShallow(schema: unknown): unknown {
       properties[key] = zodToJsonSchemaShallow(field);
       if (!field.isOptional?.()) required.push(key);
     }
-    return {
+    result = {
       type: 'object',
       properties,
       ...(required.length > 0 ? { required } : {}),
     };
+  } else if (def.typeName === 'ZodString') {
+    result = { type: 'string' };
+  } else if (def.typeName === 'ZodNumber') {
+    result = { type: 'number' };
+  } else if (def.typeName === 'ZodBoolean') {
+    result = { type: 'boolean' };
+  } else if (def.typeName === 'ZodArray') {
+    result = { type: 'array', items: zodToJsonSchemaShallow(def.type) };
+  } else if (def.typeName === 'ZodEnum') {
+    result = { type: 'string', enum: def.values };
+  } else if (def.typeName === 'ZodLiteral') {
+    // JSON-Schema `const` form. Anthropic accepts it; OpenAI tolerates it.
+    result = { const: def.value };
+  } else if (def.typeName === 'ZodNullable') {
+    const inner = zodToJsonSchemaShallow(def.innerType);
+    return inner;
   }
-  if (def.typeName === 'ZodOptional') return zodToJsonSchemaShallow(def.innerType);
-  if (def.typeName === 'ZodString') return { type: 'string' };
-  if (def.typeName === 'ZodNumber') return { type: 'number' };
-  if (def.typeName === 'ZodBoolean') return { type: 'boolean' };
-  if (def.typeName === 'ZodArray') {
-    return { type: 'array', items: zodToJsonSchemaShallow(def.type) };
+
+  if (def.description && !('description' in result)) {
+    result.description = def.description;
   }
-  return {};
+  return result;
 }

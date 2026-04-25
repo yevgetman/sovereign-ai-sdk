@@ -5,9 +5,12 @@
 // Phase 3 scope: `checkPermissions` returns 'ask' for every invocation so
 // the orchestrator prompts the human. Phase 7 replaces this with input-aware
 // rule-based logic (e.g. safe-listing read-only commands via a regex, plus
-// the full rule engine from Claude Code). Not marked read-only, not
-// concurrency-safe. The orchestrator runs tools sequentially so
-// isConcurrencySafe doesn't matter yet.
+// the full rule engine from Claude Code).
+//
+// Phase 4: `isConcurrencySafe(input)` inspects the command and returns true
+// only when every shell segment's leading command is in BASH_READ_COMMANDS
+// and there's no command/process substitution to hide unsafe sub-commands.
+// `renderResult` formats the bash output into the string the model sees.
 //
 // Fry pattern: optional `expectToken` — if provided, the final stdout line
 // must contain the token or the result is marked is_error. Useful when
@@ -20,6 +23,35 @@
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext } from '../tool/types.js';
+
+/** Bash commands deemed read-only and safe to run in parallel with other
+ *  read-only operations. Anything not on this list is treated as a writer
+ *  (the fail-closed default). Phase 7 may extend the recognition surface
+ *  via the full rule engine. */
+const BASH_READ_COMMANDS = new Set<string>([
+  'ls',
+  'cat',
+  'grep',
+  'find',
+  'head',
+  'tail',
+  'wc',
+  'file',
+  'stat',
+  'echo',
+  'pwd',
+  'which',
+  'date',
+  'env',
+  'true',
+  'false',
+  'whoami',
+  'hostname',
+  'uname',
+  'id',
+  'tree',
+  'rg',
+]);
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -53,10 +85,45 @@ export const BashTool = buildTool<Input, Output>({
   // Bash is arbitrary-code execution. Ask for every invocation until Phase 7
   // lands input-aware rules.
   checkPermissions: async () => ({ behavior: 'ask' }),
+  isReadOnly: (input) => isReadOnlyBashCommand(input.command),
+  isConcurrencySafe: (input) => isReadOnlyBashCommand(input.command),
+  renderResult: (out) => ({
+    content: formatBashOutput(out),
+    isError: isBashError(out),
+  }),
   async call(input, ctx) {
     return runBash(input, ctx);
   },
 });
+
+/**
+ * Return true when every shell segment in `command` starts with a token
+ * that's in `BASH_READ_COMMANDS`. Conservative: any command/process
+ * substitution (`$(...)`, backticks, `<(...)`, `>(...)`) returns false
+ * because the inner command isn't being inspected. Leading env-var
+ * assignments (`LC_ALL=C grep ...`) are skipped before resolving the real
+ * command word. Path-prefixed binaries (`/usr/bin/cat`) return false —
+ * Phase 7 may relax this once the rule engine can resolve PATH lookups.
+ */
+export function isReadOnlyBashCommand(command: string): boolean {
+  if (/\$\(|`|<\(|>\(/.test(command)) return false;
+
+  const segments = command.split(/\|\||&&|;|\|/);
+  for (const raw of segments) {
+    const seg = raw.trim();
+    if (seg.length === 0) return false;
+    const tokens = seg.split(/\s+/);
+    let cursor = 0;
+    while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
+      cursor++;
+    }
+    const cmd = tokens[cursor];
+    if (!cmd) return false;
+    if (cmd.startsWith('-') || cmd.includes('/')) return false;
+    if (!BASH_READ_COMMANDS.has(cmd)) return false;
+  }
+  return true;
+}
 
 async function runBash(input: Input, ctx: ToolContext): Promise<{ data: Output }> {
   const timeoutMs = input.timeout_ms ?? DEFAULT_TIMEOUT_MS;

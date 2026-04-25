@@ -45,6 +45,19 @@ export type ToolDef<I, O, P = void> = {
   /** Main execution path. */
   call: (input: I, ctx: ToolContext, onProgress?: (p: P) => void) => Promise<ToolResult<O>>;
 
+  /** Per-tool result renderer. The orchestrator turns the tool's structured
+   * output into a `tool_result` block via this when present. Without it,
+   * falls back to JSON-stringification of `call()`'s `data`. Set `isError`
+   * to mark the tool_result as `is_error: true` (e.g. non-zero bash exit). */
+  renderResult?: (output: O) => { content: string; isError?: boolean };
+
+  /** Path-scoped concurrency hint. Returns the absolute or cwd-relative
+   * paths the call will read or write. When set, the orchestrator detects
+   * overlaps within a concurrent batch and serializes a write against any
+   * other access to the same path(s). Tools that don't touch the
+   * filesystem (Bash with arbitrary commands, etc.) omit this. */
+  affectedPaths?: (input: I) => string[];
+
   // Overridable; all have fail-closed defaults in buildTool().
   isEnabled?: () => boolean;
   isReadOnly?: (input: I) => boolean;
