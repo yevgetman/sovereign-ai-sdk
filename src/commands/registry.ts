@@ -66,7 +66,7 @@ export const COMMANDS: SlashCommand[] = [
   },
 ];
 
-export const COMMAND_REGISTRY = buildRegistry(COMMANDS);
+export const COMMAND_REGISTRY = buildCommandRegistry(COMMANDS);
 
 export async function dispatchSlashCommand(
   rawInput: string,
@@ -109,11 +109,13 @@ export function parseSlashCommand(input: string): { name: string; args: string }
   };
 }
 
-function buildRegistry(commands: SlashCommand[]): Map<string, SlashCommand> {
+export function buildCommandRegistry(commands: SlashCommand[]): Map<string, SlashCommand> {
   const registry = new Map<string, SlashCommand>();
   for (const command of commands) {
-    registry.set(command.name, command);
-    for (const alias of command.aliases ?? []) registry.set(alias, command);
+    if (!registry.has(command.name)) registry.set(command.name, command);
+    for (const alias of command.aliases ?? []) {
+      if (!registry.has(alias)) registry.set(alias, command);
+    }
   }
   return registry;
 }

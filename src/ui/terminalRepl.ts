@@ -18,7 +18,7 @@ import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadBundle } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
-import { COMMAND_REGISTRY, dispatchSlashCommand } from '../commands/registry.js';
+import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
 import { buildToolScope } from '../commands/toolScope.js';
 import type { CommandContext, PromptCommand } from '../commands/types.js';
 import { resolveHarnessHome } from '../config/paths.js';
@@ -41,6 +41,9 @@ import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
+import { buildSkillCommands } from '../skills/commands.js';
+import { loadSkills } from '../skills/loader.js';
+import type { SkillRegistry } from '../skills/types.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { ToolContext } from '../tool/types.js';
 
@@ -73,6 +76,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   await memoryManager.initialize();
   await memoryManager.onSessionStart();
   const subdirectoryHintState = createSubdirectoryHintState();
+  const skills = await loadSkills({
+    harnessHome,
+    cwd: process.cwd(),
+    bundleRoot: bundle.root,
+    warn: (message) => process.stderr.write(chalk.yellow(`[skill] ${message}\n`)),
+  });
+  const commandRegistry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skills)]);
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
   const resumeSession =
     opts.resumeId !== undefined ? (db.getSession(opts.resumeId) ?? undefined) : undefined;
@@ -93,6 +103,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     harnessHome,
     memoryManager,
     subdirectoryHintState,
+    skills,
   };
   const preliminaryToolPool = assembleToolPool(preliminaryToolContext);
   const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(
@@ -101,6 +112,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     bundle,
     resolved,
     preliminaryToolPool,
+    skills,
   );
 
   const toolContext: ToolContext = {
@@ -110,8 +122,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     harnessHome,
     memoryManager,
     subdirectoryHintState,
+    skills,
   };
-  const toolPool = preliminaryToolPool;
+  const toolPool = assembleToolPool(toolContext);
 
   const rl = createInterface({
     input: process.stdin,
@@ -146,6 +159,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   });
   const commandContext = (): CommandContext => ({
     sessionId,
+    cwd: process.cwd(),
     providerName,
     model: activeModel,
     setModel: (model) => {
@@ -156,7 +170,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     },
     getCost: () => db.getSessionCost(sessionId),
     tools: toolPool,
-    registry: COMMAND_REGISTRY,
+    registry: commandRegistry,
   });
 
   writeBanner(
@@ -385,11 +399,13 @@ function openOrResumeSession(
   bundle: Bundle,
   resolved: ResolvedProvider,
   tools: import('../tool/types.js').Tool<unknown, unknown>[],
+  skills: SkillRegistry,
 ): SessionOpen {
   if (opts.resumeId === undefined) {
     const systemPrompt = buildSystemSegments({
       bundle,
       tools,
+      skills: skills.skills,
       cwd: process.cwd(),
       cacheEnabled: opts.noCache !== true,
     });

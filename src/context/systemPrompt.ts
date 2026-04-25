@@ -3,6 +3,7 @@
 
 import type { Bundle } from '../bundle/types.js';
 import type { SystemSegment } from '../core/types.js';
+import type { Skill } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 import { formatSystemContext, getSystemContext } from './system.js';
@@ -11,6 +12,7 @@ import { formatUserContext, getUserContext } from './user.js';
 export type BuildSystemSegmentsOptions = {
   bundle?: Bundle;
   tools?: Tool<unknown, unknown>[];
+  skills?: Skill[];
   cwd?: string;
   now?: Date;
   homeDir?: string;
@@ -40,6 +42,9 @@ export function buildSystemSegments(
   const toolText = formatTools(options.tools ?? []);
   if (toolText) segments.push({ text: toolText, cacheable: cacheEnabled });
 
+  const skillText = formatSkillsIndex(options.skills ?? []);
+  if (skillText) segments.push({ text: skillText, cacheable: cacheEnabled });
+
   if (options.bundle) {
     segments.push(...formatBundleSegments(options.bundle, cacheEnabled));
   }
@@ -68,6 +73,20 @@ export function formatTools(tools: Tool<unknown, unknown>[]): string {
     return `- ${tool.name}: ${description}`;
   });
   return ['<available-tools>', ...lines, '</available-tools>'].join('\n');
+}
+
+export function formatSkillsIndex(skills: Skill[]): string {
+  if (skills.length === 0) return '';
+  const lines = [
+    '<available-skills>',
+    'Invoke skills by slash command (for example /simplify path) or with SkillTool when a user request matches whenToUse.',
+  ];
+  for (const skill of [...skills].sort((a, b) => a.name.localeCompare(b.name))) {
+    const when = skill.whenToUse.trim() ? ` Use when: ${skill.whenToUse.trim()}` : '';
+    lines.push(`- ${skill.name}: ${skill.description.trim()}${when}`);
+  }
+  lines.push('</available-skills>');
+  return lines.join('\n');
 }
 
 function formatBundleSegments(bundle: Bundle, cacheEnabled: boolean): SystemSegment[] {

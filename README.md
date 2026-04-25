@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 9 complete (2026-04-25)** — skills MVP. Markdown files under `<cwd>/.harness/skills/`, `$HARNESS_HOME/skills/`, and `<bundle>/skills/` now load as skills with YAML frontmatter (`name`, `description`, `allowedTools`, `whenToUse`). Skills register as prompt slash commands, appear in the frozen system-prompt skills index, and can also be activated by the model through `SkillTool`. Skill bodies support `{{args}}` substitution and bounded `` `!shell` `` interpolation. Phase 9.5 still owns progressive disclosure, skill guards, and agent-authored skills.
+
 **Phase 8 complete (2026-04-25)** — slash commands and session cost accounting. The REPL now dispatches `/help`, `/clear`, `/cost`, `/model <name>`, and prompt-backed `/commit` through `src/commands/`. Prompt commands temporarily narrow the visible tool pool and permission surface; `/commit` can use only scoped git status/diff/add/commit Bash operations. The session DB migrated to schema version 2 with token and estimated-cost columns, and each provider turn records input/output/cache token usage plus a price-table estimate used by `/cost`.
 
 **Phase 7 complete (2026-04-25)** — rule-based permissions. The runtime now loads layered permission settings from `$HARNESS_HOME/settings.json`, `<cwd>/.harness/settings.json`, and `<cwd>/.harness/settings.local.json` with local > project > user precedence. Rules support `allow` / `deny` / `ask` entries such as `Bash(git *)`, `Read(*.ts)`, `Write(notes.md)`, `Edit`, or `mcp__server`, with matching delegated to each tool. Deny rules win within a layer, allow rules skip prompts, ask rules force a prompt, and mode fallthrough is `default` / `ask` / `bypass`. "Always" approvals now persist a specific allow rule into project-local settings instead of allowing a whole tool by name. Permission `updatedInput` is revalidated and honored before tool execution.
@@ -199,6 +201,28 @@ Lines beginning with `/` are handled locally before normal model turns:
 | `/model <name>` | Switches the active model for subsequent turns. |
 | `/commit` | Runs a prompt command asking the model to stage, message, and commit changes. Its tool scope is narrowed to git status/diff/add/commit Bash operations for that turn. |
 
+### Skills (Phase 9)
+
+Drop markdown skill files in any of these locations:
+
+- `<cwd>/.harness/skills/` — project-local skills, highest precedence.
+- `$HARNESS_HOME/skills/` — user-wide skills.
+- `<bundle>/skills/` — bundled skills.
+
+Skill file format:
+
+```md
+---
+name: simplify
+description: Review changed code for reuse and quality
+allowedTools: [Bash(git status **), Read, Edit]
+whenToUse: User asks to simplify or clean up code
+---
+Review {{args}} for reuse and quality.
+```
+
+Each skill registers as a slash command (`/simplify src/main.ts`) and is listed in the system prompt so the model can invoke `SkillTool` when the request matches `whenToUse`. Prompt-command invocation scopes the turn to the skill's `allowedTools`; model-invoked `SkillTool` returns the expanded skill body as a tool result.
+
 ### Global `sovereign` command (dev-mode)
 
 Install once, invoke from anywhere — mirrors how `claude` is invoked for Claude Code:
@@ -240,12 +264,12 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
-| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool | 2 Bash, 4 file & search, 6.5 memory |
+| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + SkillTool | 2 Bash, 4 file & search, 6.5 memory, 9 skills |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules) | 3, 7 |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8 |
-| `src/skills/` | Markdown-plus-frontmatter skill loader | 9 |
+| `src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, slash-command adapter | 9 |
 | `src/compact/` | Context-window compaction | 10 |
 | `src/hooks/` | Shell-out lifecycle hooks | 11 |
 | `src/mcp/` | MCP client | 12 |

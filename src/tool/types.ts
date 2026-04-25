@@ -26,6 +26,7 @@ export type ToolContext = {
   signal?: AbortSignal;
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
   subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
+  skills?: import('../skills/types.js').SkillRegistry;
 };
 
 export type ToolResult<T> = {

@@ -22,7 +22,10 @@ import { FileWriteTool } from '../tools/FileWriteTool.js';
 import { GlobTool } from '../tools/GlobTool.js';
 import { GrepTool } from '../tools/GrepTool.js';
 import { MemoryTool } from '../tools/MemoryTool.js';
+import { SkillTool } from '../tools/SkillTool.js';
 import type { Tool, ToolContext } from './types.js';
+
+const SKILL_TOOL = SkillTool as unknown as Tool<unknown, unknown>;
 
 const REGISTERED_TOOLS = [
   BashTool,
@@ -40,8 +43,12 @@ const REGISTERED_TOOLS = [
  * phases (MCP tools filter by server liveness, skills filter by activation
  * hints, permission modes hide `ask`-only tools in bypass mode, etc.).
  */
-export function assembleToolPool(_ctx: ToolContext): Tool<unknown, unknown>[] {
-  const enabled = REGISTERED_TOOLS.filter((t) => t.isEnabled());
+export function assembleToolPool(ctx: ToolContext): Tool<unknown, unknown>[] {
+  const base =
+    ctx.skills && ctx.skills.skills.length > 0
+      ? [...REGISTERED_TOOLS, SKILL_TOOL]
+      : REGISTERED_TOOLS;
+  const enabled = base.filter((t) => t.isEnabled());
   const patched = patchSchemasAgainstAvailable(enabled);
   return [...patched].sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -1,16 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  COMMANDS,
   COMMAND_REGISTRY,
+  buildCommandRegistry,
   dispatchSlashCommand,
   parseSlashCommand,
 } from '../../src/commands/registry.js';
 import type { CommandContext } from '../../src/commands/types.js';
+import { buildSkillCommands } from '../../src/skills/commands.js';
+import type { Skill, SkillRegistry } from '../../src/skills/types.js';
 
 function makeCtx(): CommandContext {
   let model = 'claude-sonnet-4-6';
   let cleared = false;
   return {
     sessionId: 'session-1',
+    cwd: process.cwd(),
     providerName: 'anthropic',
     get model() {
       return model;
@@ -86,6 +91,32 @@ describe('slash command registry', () => {
     expect(result.content[0]?.type).toBe('text');
     expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
       'include tests',
+    );
+  });
+
+  test('loaded skills register as prompt commands', async () => {
+    const skill: Skill = {
+      name: 'simplify',
+      description: 'Review code for reuse and quality',
+      whenToUse: 'User asks to simplify code',
+      allowedTools: ['Read', 'Edit'],
+      path: '/tmp/simplify.md',
+      realpath: '/tmp/simplify.md',
+      source: 'project',
+      body: 'Simplify {{args}}.',
+    };
+    const skills: SkillRegistry = {
+      skills: [skill],
+      byName: new Map([[skill.name, skill]]),
+    };
+    const registry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skills)]);
+    const ctx = { ...makeCtx(), registry };
+    const result = await dispatchSlashCommand('/simplify src/main.ts', ctx);
+    expect(result.kind).toBe('prompt');
+    if (result.kind !== 'prompt') return;
+    expect(result.command.allowedTools).toEqual(['Read', 'Edit']);
+    expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
+      'src/main.ts',
     );
   });
 });

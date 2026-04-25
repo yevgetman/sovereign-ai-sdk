@@ -7,6 +7,7 @@ import type { Tool } from '../tool/types.js';
 
 export type CommandContext = {
   sessionId: string;
+  cwd: string;
   providerName: string;
   model: string;
   setModel: (model: string) => void;
