@@ -51,7 +51,7 @@ loadPackageEnv();
 
 const VERSION = '0.0.1';
 const DEFAULT_MAX_TOKENS = 4096;
-const DEFAULT_PERMISSION_MODE: PermissionMode = 'ask';
+const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
 
 function resolveBundlePath(cliArg: string | undefined): string {
   if (cliArg) return cliArg;
@@ -69,8 +69,8 @@ function parsePositiveInt(raw: string): number {
 }
 
 function parsePermissionMode(raw: string): PermissionMode {
-  if (raw === 'ask' || raw === 'bypass') return raw;
-  throw new InvalidArgumentError("must be 'ask' or 'bypass'");
+  if (raw === 'default' || raw === 'ask' || raw === 'bypass') return raw;
+  throw new InvalidArgumentError("must be 'default', 'ask', or 'bypass'");
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -88,7 +88,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
       '--permission-mode <mode>',
-      "tool permissions: 'ask' prompts before each tool call, 'bypass' runs every tool without asking",
+      "tool permissions: 'default' honors rules/tool checks, 'ask' prompts on fallthrough, 'bypass' allows on fallthrough",
       parsePermissionMode,
       DEFAULT_PERMISSION_MODE,
     )

@@ -143,6 +143,42 @@ describe('runTools', () => {
     expect(results[0]?.content).toContain('go');
   });
 
+  test('permission updatedInput is revalidated and passed to tool.call()', async () => {
+    const rewrite: CanUseTool = async () => ({
+      behavior: 'allow',
+      updatedInput: { text: 'rewritten' },
+    });
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'a1', name: 'Echo', input: { text: 'original' } },
+    ];
+    const results = await collectResults(blocks, [makeEchoTool()], rewrite);
+    expect(results[0]?.is_error).toBeUndefined();
+    expect(results[0]?.content).toContain('rewritten');
+    expect(results[0]?.content).not.toContain('original');
+  });
+
+  test('invalid permission updatedInput surfaces as validation error and skips call()', async () => {
+    let called = false;
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'echo',
+      inputSchema: z.object({ text: z.string() }),
+      async call() {
+        called = true;
+        return { data: 'nope' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    const rewriteBadly: CanUseTool = async () => ({
+      behavior: 'allow',
+      updatedInput: { text: 42 },
+    });
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'a1', name: 'Echo', input: { text: 'x' } }];
+    const results = await collectResults(blocks, [tool], rewriteBadly);
+    expect(called).toBe(false);
+    expect(results[0]?.is_error).toBe(true);
+    expect(results[0]?.content).toContain('permission-updated input validation failed');
+  });
+
   test('preserves ordering across multiple tool_use blocks', async () => {
     const blocks: UseBlock[] = [
       { type: 'tool_use', id: 'a1', name: 'Echo', input: { text: 'first' } },

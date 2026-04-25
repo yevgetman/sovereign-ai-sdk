@@ -7,6 +7,7 @@ import {
   formatBashOutput,
   isBashError,
   isReadOnlyBashCommand,
+  matchesBashPermissionPattern,
 } from '../../src/tools/BashTool.js';
 
 const ctx = {
@@ -143,5 +144,18 @@ describe('isReadOnlyBashCommand', () => {
   test('path-prefixed binaries are conservatively rejected', () => {
     expect(isReadOnlyBashCommand('/usr/bin/cat foo.txt')).toBe(false);
     expect(isReadOnlyBashCommand('./script.sh')).toBe(false);
+  });
+});
+
+describe('matchesBashPermissionPattern', () => {
+  test('matches every command segment against token-bounded wildcard patterns', () => {
+    expect(matchesBashPermissionPattern('git status', 'git *')).toBe(true);
+    expect(matchesBashPermissionPattern('git status && git diff', 'git *')).toBe(true);
+    expect(matchesBashPermissionPattern('git push --force', 'git *')).toBe(false);
+  });
+
+  test('skips leading env assignments and rejects command substitution', () => {
+    expect(matchesBashPermissionPattern('LC_ALL=C grep foo file.txt', 'grep * *')).toBe(true);
+    expect(matchesBashPermissionPattern('echo $(rm -rf /)', 'echo *')).toBe(false);
   });
 });

@@ -5,6 +5,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
   pattern: z.string().describe('Glob pattern, e.g. "src/**/*.ts" or "*.md".'),
@@ -32,6 +33,8 @@ export const GlobTool = buildTool<Input, Output>({
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   checkPermissions: async () => ({ behavior: 'allow' }),
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesPathPermissionPattern(input.path ?? input.pattern, pattern),
   renderResult: (out) => ({
     content:
       out.paths.length === 0

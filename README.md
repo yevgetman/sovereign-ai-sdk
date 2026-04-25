@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 7 complete (2026-04-25)** — rule-based permissions. The runtime now loads layered permission settings from `$HARNESS_HOME/settings.json`, `<cwd>/.harness/settings.json`, and `<cwd>/.harness/settings.local.json` with local > project > user precedence. Rules support `allow` / `deny` / `ask` entries such as `Bash(git *)`, `Read(*.ts)`, `Write(notes.md)`, `Edit`, or `mcp__server`, with matching delegated to each tool. Deny rules win within a layer, allow rules skip prompts, ask rules force a prompt, and mode fallthrough is `default` / `ask` / `bypass`. "Always" approvals now persist a specific allow rule into project-local settings instead of allowing a whole tool by name. Permission `updatedInput` is revalidated and honored before tool execution.
+
 **Phase 6.7 complete (2026-04-25)** — context references and subdirectory hint loading. User turns now expand `@file:path`, `@file:"path with spaces"`, `@file:path:10-20`, `@folder:path`, `@diff`, `@staged`, and `@url:https://...` before the provider call, with sensitive-path blocks for SSH/AWS/GPG/Kube material, shell rc files, sudoers, and `/etc/passwd`/`/etc/shadow`. Tool results for newly touched directories append nearby safe `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` hints instead of mutating the frozen system prompt.
 
 **Phase 6.5 complete (2026-04-25)** — bounded memory surfaces. `$HARNESS_HOME/memory/USER.md` (1,375 chars) and `$HARNESS_HOME/memory/MEMORY.md` (2,200 chars) are read once per user turn, fenced as recalled context in the user message, and never spliced into the system prompt. The `memory` tool supports explicit `view` and `replace`; over-cap writes fail with a consolidation error rather than truncating. A memory-provider abstraction is in place and rejects more than one external non-builtin provider.
@@ -20,7 +22,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 **Phase 3.5 complete (2026-04-24)** — conversations persist across runs. SQLite (via `bun:sqlite`) + WAL + FTS5 at `~/.harness/sessions.db` by default; schema-versioned migrations framework in place. Every user / assistant / tool_result message is saved as it's produced. `--resume <uuid>` hydrates history and the *frozen system prompt* from the stored session (storage-side of Invariant #4 — Phase 6 enforces actually-reuse-it). Bundle-mismatch on resume is rejected with a clear error. Jittered retry wrapper (20–150ms × up to 15) + `wal_checkpoint(TRUNCATE)` every 50 writes — prepared for Phase 16/17 multi-writer contention. Zero new npm dependencies.
 
-**Phase 3 (complete 2026-04-24)** — permission prompts around every tool dispatch. The orchestrator calls `canUseTool()` before `tool.call()`; denials flow back as `is_error` tool_result blocks. CLI flag `--permission-mode ask | bypass` (default `ask`); "always" approvals cache for the session, keyed by tool name (Phase 7 replaces with rule-based matching). Latent Phase 2 bug fixed in passing: `query()` now propagates its `AbortSignal` into the tool context.
+**Phase 3 (complete 2026-04-24)** — permission prompts around every tool dispatch. The orchestrator calls `canUseTool()` before `tool.call()`; denials flow back as `is_error` tool_result blocks. Latent Phase 2 bug fixed in passing: `query()` now propagates its `AbortSignal` into the tool context. Phase 7 replaced the original coarse tool-name "always" cache with rule-based matching.
 
 **Phase 2 (complete 2026-04-24)** — streaming REPL with the first tool wired through a full `buildTool()` → registry → orchestrator → `query()` loop. `BashTool` is the first capability. Tool results flow back as a user message with `tool_result` content blocks (Anthropic-native shape).
 
@@ -97,7 +99,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <ask|bypass>` (default `ask`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing).
+Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing).
 
 Provider defaults can also live in `~/.harness/config.json`:
 
@@ -147,9 +149,30 @@ Quote @url:https://example.com/doc
 
 References expand before the provider call into bounded fenced blocks. Sensitive paths such as `~/.ssh/*`, `~/.aws/*`, `~/.gnupg/*`, `~/.kube/*`, shell rc files, sudoers, and `/etc/passwd`/`/etc/shadow` are blocked. When a tool touches a new directory, nearby safe `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` files are appended to that tool result once per session.
 
-### Permission prompts (Phase 3)
+### Permission rules (Phase 7)
 
-In the default `ask` mode, every tool invocation asks:
+Permission settings are read from three locations, highest precedence first:
+
+1. `<cwd>/.harness/settings.local.json` — project-local and usually gitignored; "always" approvals are appended here.
+2. `<cwd>/.harness/settings.json` — project-shared settings.
+3. `$HARNESS_HOME/settings.json` — user-wide settings.
+
+Example:
+
+```json
+{
+  "permissionMode": "default",
+  "permissions": {
+    "allow": ["Bash(git *)", "Read(*.ts)", "Write(notes.md)"],
+    "deny": ["Bash(rm *)"],
+    "ask": ["Edit"]
+  }
+}
+```
+
+Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and `Edit` map to `FileRead`, `FileWrite`, and `FileEdit`; native tool names also work. Deny rules are checked first within a layer, then allow, then ask. Layers are strict-precedence: a local allow can override a user-wide deny for the same operation.
+
+When permission fallthrough reaches a prompt, the REPL asks:
 
 ```
 [permission] Bash ls src/
@@ -158,9 +181,9 @@ In the default `ask` mode, every tool invocation asks:
 
 - **`y`** — allow this one invocation, tool runs.
 - **`n`** (or Enter) — deny; the tool_result flows back to the model with `is_error: true` and reason `"user denied"`, so the model sees the refusal and can adapt.
-- **`a`** — allow this and every subsequent call to the same tool in the current session (crude first-pass; Phase 7 will replace with input-aware rule matching).
+- **`a`** — allow this specific command/path pattern for the current project by appending a rule to `.harness/settings.local.json`.
 
-Run with `--permission-mode bypass` to skip all prompts (useful for scripted smoke tests or when you trust the model fully). The banner shows the active mode at startup; `bypass` renders in red as a visible warning.
+Run with `--permission-mode bypass` to allow permission fallthrough without prompts (explicit deny and ask rules still apply). The banner shows the active mode and how many settings files were loaded.
 
 ### Global `sovereign` command (dev-mode)
 
@@ -205,7 +228,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool | 2 Bash, 4 file & search, 6.5 memory |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
-| `src/permissions/` | Permission middleware (ask/bypass modes, always-cache) | 3 |
+| `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules) | 3, 7 |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader | 9 |
@@ -217,7 +240,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.2 |
 | `src/review/` | Background review loop (Hermes pattern) | 13 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5 |
-| `src/config/` | `~/.harness/config.json` settings schema/loader and `$HARNESS_HOME` path helpers | 5, 6.5 |
+| `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
 | `src/ui/` | Terminal REPL (plain readline Phase 1, Ink Phase 14) | 0 stub |
 
 Empty directories are deliberate — they mark future phase landing zones.

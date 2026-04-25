@@ -95,4 +95,12 @@ describe('FileReadTool', () => {
     const result = await FileReadTool.checkPermissions({ path: '/tmp/x' }, makeCtx('/tmp'));
     expect(result.behavior).toBe('allow');
   });
+
+  test('preparePermissionMatcher supports aliases and nested path globs', async () => {
+    expect(FileReadTool.aliases).toContain('Read');
+    const matcher = await FileReadTool.preparePermissionMatcher?.({ path: 'src/index.ts' });
+    expect(matcher?.('*.ts')).toBe(true);
+    expect(matcher?.('index.ts')).toBe(true);
+    expect(matcher?.('*.md')).toBe(false);
+  });
 });

@@ -275,10 +275,10 @@ function safeIsReadOnly(tool: Tool<unknown, unknown>, input: unknown): boolean {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Per-block dispatch — unchanged from Phase 3 except the result formatter
-// is now generic. A thrown error, validation failure, unknown-tool name,
-// or permission denial becomes is_error=true on that block's tool_result.
-// The outer turn loop never throws from here.
+// Per-block dispatch. A thrown error, validation failure, unknown-tool
+// name, permission denial, or invalid permission-updated input becomes
+// is_error=true on that block's tool_result. The outer turn loop never
+// throws from here.
 // ──────────────────────────────────────────────────────────────────────
 
 async function executeOne(
@@ -307,6 +307,7 @@ async function executeOne(
     };
   }
 
+  let callInput = parsed.data;
   if (canUseTool) {
     const perm = await canUseTool(tool, parsed.data, ctx);
     if (perm.behavior === 'deny') {
@@ -317,13 +318,24 @@ async function executeOne(
         is_error: true,
       };
     }
-    // Phase 3 ignores perm.updatedInput; Phase 7 will re-validate and swap.
+    if (perm.updatedInput !== undefined) {
+      const updated = tool.inputSchema.safeParse(perm.updatedInput);
+      if (!updated.success) {
+        return {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: `permission-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          is_error: true,
+        };
+      }
+      callInput = updated.data;
+    }
   }
 
   try {
-    const result = await tool.call(parsed.data, ctx);
+    const result = await tool.call(callInput, ctx);
     const formatted = formatToolResult(tool, block.id, result.data);
-    return maybeAppendHints(tool.name, parsed.data, ctx, formatted);
+    return maybeAppendHints(tool.name, callInput, ctx, formatted);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

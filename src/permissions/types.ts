@@ -5,9 +5,10 @@
 
 import type { PermissionResult, Tool, ToolContext } from '../tool/types.js';
 
-/** Top-level policy for the session. Phase 3 scope — Phase 7 adds rule-based
- * modes; Phase 11 adds hook-intercept modes. */
-export type PermissionMode = 'ask' | 'bypass';
+/** Top-level policy for the session. `default` honours tool self-checks
+ * after rule evaluation; `ask` prompts on fallthrough; `bypass` allows on
+ * fallthrough. Explicit deny rules still win in every mode. */
+export type PermissionMode = 'default' | 'ask' | 'bypass';
 
 /** User's response to an interactive prompt. */
 export type AskResponse = 'allow' | 'always' | 'deny';
@@ -30,8 +31,7 @@ export type ResolvedPermissionResult = {
   reason?: string;
 };
 
-/** The function the orchestrator calls before each tool dispatch. Phase 3
- * ignores updatedInput; Phase 7 honours it. */
+/** The function the orchestrator calls before each tool dispatch. */
 export type CanUseTool = (
   tool: Tool<unknown, unknown>,
   input: unknown,

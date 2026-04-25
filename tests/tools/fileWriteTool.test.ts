@@ -79,4 +79,15 @@ describe('FileWriteTool', () => {
     );
     expect(result.behavior).toBe('ask');
   });
+
+  test('preparePermissionMatcher supports aliases and path globs', async () => {
+    expect(FileWriteTool.aliases).toContain('Write');
+    const matcher = await FileWriteTool.preparePermissionMatcher?.({
+      path: 'notes/output.md',
+      content: 'x',
+    });
+    expect(matcher?.('*.md')).toBe(true);
+    expect(matcher?.('output.md')).toBe(true);
+    expect(matcher?.('*.ts')).toBe(false);
+  });
 });

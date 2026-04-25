@@ -17,3 +17,4 @@ dist/
 
 # Runtime outputs (if we ever write them here, belongs in a bundle's state/ instead)
 *.jsonl.tmp
+.harness/settings.local.json

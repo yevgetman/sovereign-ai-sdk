@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext } from '../tool/types.js';
+import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
@@ -55,6 +56,9 @@ export const GrepTool = buildTool<Input, Output>({
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   checkPermissions: async () => ({ behavior: 'allow' }),
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesPathPermissionPattern(input.path ?? '.', pattern) ||
+    matchesPathPermissionPattern(input.glob ?? input.pattern, pattern),
   renderResult: (out) => ({
     content:
       out.matches.length === 0

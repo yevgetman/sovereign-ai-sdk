@@ -21,6 +21,7 @@
 // harness-build-plan.md § 2 and fry-analysis.md § A2.
 
 import { z } from 'zod';
+import { wildcardMatches } from '../config/rules.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext } from '../tool/types.js';
 
@@ -87,6 +88,8 @@ export const BashTool = buildTool<Input, Output>({
   checkPermissions: async () => ({ behavior: 'ask' }),
   isReadOnly: (input) => isReadOnlyBashCommand(input.command),
   isConcurrencySafe: (input) => isReadOnlyBashCommand(input.command),
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesBashPermissionPattern(input.command, pattern),
   renderResult: (out) => ({
     content: formatBashOutput(out),
     isError: isBashError(out),
@@ -123,6 +126,33 @@ export function isReadOnlyBashCommand(command: string): boolean {
     if (!BASH_READ_COMMANDS.has(cmd)) return false;
   }
   return true;
+}
+
+/**
+ * Permission-rule matcher for Bash(command-pattern). Each shell segment
+ * split by `&&`, `||`, or `;` must match the pattern. Wildcards are
+ * token-bounded (`*` does not cross whitespace), so `git *` matches
+ * `git status` but not `git push --force`.
+ */
+export function matchesBashPermissionPattern(command: string, pattern: string): boolean {
+  if (/\$\(|`|<\(|>\(/.test(command)) return false;
+  const segments = command.split(/\|\||&&|;/);
+  if (segments.length === 0) return false;
+  for (const raw of segments) {
+    const segment = normalizeShellSegment(raw);
+    if (segment.length === 0) return false;
+    if (!wildcardMatches(pattern, segment, { flavor: 'shell' })) return false;
+  }
+  return true;
+}
+
+function normalizeShellSegment(raw: string): string {
+  const tokens = raw.trim().split(/\s+/).filter(Boolean);
+  let cursor = 0;
+  while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
+    cursor++;
+  }
+  return tokens.slice(cursor).join(' ');
 }
 
 async function runBash(input: Input, ctx: ToolContext): Promise<{ data: Output }> {

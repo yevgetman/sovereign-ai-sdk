@@ -11,6 +11,7 @@ import {
   replaceMemoryFile,
 } from '../memory/bounded.js';
 import { buildTool } from '../tool/buildTool.js';
+import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
   action: z.enum(['view', 'replace']).describe('view reads memory; replace overwrites one file.'),
@@ -36,6 +37,8 @@ export const MemoryTool = buildTool<Input, Output>({
   isReadOnly: (input) => input.action === 'view',
   isConcurrencySafe: (input) => input.action === 'view',
   checkPermissions: async (input) => ({ behavior: input.action === 'view' ? 'allow' : 'ask' }),
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesPathPermissionPattern(optionalFile(input.file) ?? 'memory', pattern),
   affectedPaths: (input) => {
     const file = optionalFile(input.file);
     return file ? [`memory/${file}`] : ['memory'];

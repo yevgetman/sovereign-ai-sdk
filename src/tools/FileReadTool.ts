@@ -12,6 +12,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 /** Hard cap on how many bytes the tool will read in a single call. Files
  *  larger than this cap fail with a clear message asking the model to use
@@ -47,6 +48,7 @@ type Output = {
 
 export const FileReadTool = buildTool<Input, Output>({
   name: 'FileRead',
+  aliases: ['Read'],
   description: () =>
     'Read a UTF-8 text file. Returns content with `cat -n`-style line numbers. Use offset/limit to page through large files.',
   inputSchema,
@@ -54,6 +56,8 @@ export const FileReadTool = buildTool<Input, Output>({
   isConcurrencySafe: () => true,
   checkPermissions: async () => ({ behavior: 'allow' }),
   affectedPaths: (input) => [input.path],
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesPathPermissionPattern(input.path, pattern),
   renderResult: (out) => ({ content: renderFileRead(out) }),
   async call(input, ctx) {
     const abs = isAbsolute(input.path) ? input.path : resolve(ctx.cwd, input.path);

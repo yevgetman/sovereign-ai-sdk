@@ -12,6 +12,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
   path: z.string().describe('Absolute path, or cwd-relative path, to the file to edit.'),
@@ -36,6 +37,7 @@ type Output = {
 
 export const FileEditTool = buildTool<Input, Output>({
   name: 'FileEdit',
+  aliases: ['Edit'],
   description: () =>
     'Replace a substring in a file. Defaults to unique-match: old_string must appear exactly once. Set replace_all to rename every occurrence.',
   inputSchema,
@@ -43,6 +45,8 @@ export const FileEditTool = buildTool<Input, Output>({
   isConcurrencySafe: () => true, // path-overlap detection serializes
   affectedPaths: (input) => [input.path],
   checkPermissions: async () => ({ behavior: 'ask' }),
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesPathPermissionPattern(input.path, pattern),
   renderResult: (out) => ({
     content: `${out.path}: ${out.replacements} replacement${out.replacements === 1 ? '' : 's'}`,
   }),

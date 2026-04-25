@@ -19,6 +19,7 @@ import { SessionDb } from '../agent/sessionDb.js';
 import { loadBundle } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { resolveHarnessHome } from '../config/paths.js';
+import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../config/settings.js';
 import { expandContextReferences } from '../context/references.js';
 import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
 import { query } from '../core/query.js';
@@ -58,6 +59,11 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
   const harnessHome = resolveHarnessHome();
+  const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
+  const permissionMode =
+    opts.permissionMode === 'default' && permissionSettings.mode !== 'default'
+      ? permissionSettings.mode
+      : opts.permissionMode;
   const memoryManager = createDefaultMemoryManager(harnessHome);
   await memoryManager.initialize();
   await memoryManager.onSessionStart();
@@ -124,13 +130,18 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const alwaysAllow = new Set<string>();
   const ask = buildReadlineAsker(rl);
   const canUseTool = buildCanUseTool({
-    mode: opts.permissionMode,
+    mode: permissionMode,
     ask,
     alwaysAllow,
+    ruleLayers: permissionSettings.layers,
+    recordAlwaysAllow: (rule) =>
+      appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
   });
 
   writeBanner(
     opts,
+    permissionMode,
+    permissionSettings.sources,
     resolved,
     bundle.state.context !== null,
     toolPool.map((t) => t.name),
@@ -254,6 +265,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
 function writeBanner(
   opts: ReplOpts,
+  permissionMode: PermissionMode,
+  permissionSources: string[],
   resolved: ResolvedProvider,
   haveContext: boolean,
   toolNames: string[],
@@ -261,8 +274,10 @@ function writeBanner(
   resumed: boolean,
 ): void {
   const modeNote =
-    opts.permissionMode === 'bypass' ? chalk.red(' (every tool runs WITHOUT prompting)') : '';
+    permissionMode === 'bypass' ? chalk.red(' (fallthrough runs WITHOUT prompting)') : '';
   const sessionLabel = resumed ? `resumed ${sessionId}` : `new ${sessionId}`;
+  const configuredMode =
+    permissionMode === opts.permissionMode ? permissionMode : `${permissionMode} (from settings)`;
   const lines = [
     chalk.bold('sovereign-ai-harness'),
     chalk.gray(`  bundle: ${opts.bundlePath}`),
@@ -271,7 +286,10 @@ function writeBanner(
     chalk.gray(`  context.md: ${haveContext ? 'loaded' : 'not found (prompt will be minimal)'}`),
     chalk.gray(`  tools:  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}`),
     chalk.gray(`  cache:  ${opts.noCache === true ? 'off' : 'on'}`),
-    chalk.gray(`  perms:  ${opts.permissionMode}${modeNote}`),
+    chalk.gray(`  perms:  ${configuredMode}${modeNote}`),
+    chalk.gray(
+      `  rules:  ${permissionSources.length > 0 ? `${permissionSources.length} settings file(s)` : 'none'}`,
+    ),
     chalk.gray(`  session: ${sessionLabel}`),
     chalk.gray('  exit:   /quit, /exit, /q, or Ctrl-D'),
     chalk.gray('  Ctrl-C during streaming interrupts the response'),

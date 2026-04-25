@@ -8,6 +8,7 @@ import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
   path: z.string().describe('Absolute path, or cwd-relative path, to the file to write.'),
@@ -25,6 +26,7 @@ type Output = {
 
 export const FileWriteTool = buildTool<Input, Output>({
   name: 'FileWrite',
+  aliases: ['Write'],
   description: () =>
     'Write content to a file, overwriting any existing file. Parent directory must already exist.',
   inputSchema,
@@ -35,6 +37,8 @@ export const FileWriteTool = buildTool<Input, Output>({
   isConcurrencySafe: () => true,
   affectedPaths: (input) => [input.path],
   checkPermissions: async () => ({ behavior: 'ask' }),
+  preparePermissionMatcher: async (input) => (pattern) =>
+    matchesPathPermissionPattern(input.path, pattern),
   renderResult: (out) => ({
     content: out.created
       ? `created ${out.path} (${out.bytesWritten} bytes)`

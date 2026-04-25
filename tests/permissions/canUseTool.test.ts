@@ -1,5 +1,6 @@
 // canUseTool decider tests — fake tools + scripted asker so we cover every
-// branch (bypass, always-cache, self-check passthrough, ask→allow/always/deny).
+// branch (bypass, rule matching, always-cache, self-check passthrough,
+// ask→allow/always/deny).
 
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
@@ -19,6 +20,25 @@ function makeTool(checkPermissions?: () => Promise<PermissionResult>): Tool<unkn
     name: 'Probe',
     description: () => 'probe',
     inputSchema: z.object({ note: z.string().optional() }),
+    async call() {
+      return { data: 'ok' };
+    },
+  };
+  if (checkPermissions) def.checkPermissions = checkPermissions;
+  return buildTool(def) as unknown as Tool<unknown, unknown>;
+}
+
+function makePathTool(checkPermissions?: () => Promise<PermissionResult>): Tool<unknown, unknown> {
+  const inputSchema = z.object({ path: z.string() });
+  const def: Parameters<typeof buildTool<z.infer<typeof inputSchema>, string>>[0] = {
+    name: 'FileWrite',
+    aliases: ['Write'],
+    description: () => 'write',
+    inputSchema,
+    preparePermissionMatcher: async (input) => (pattern) =>
+      pattern === '*' ||
+      pattern === input.path ||
+      (pattern === '*.txt' && input.path.endsWith('.txt')),
     async call() {
       return { data: 'ok' };
     },
@@ -61,6 +81,75 @@ describe('buildCanUseTool', () => {
     expect(result.behavior).toBe('allow');
     expect(selfCheckCalled).toBe(false);
     expect(asker.calls).toBe(0);
+  });
+
+  test('deny rule blocks even in bypass mode', async () => {
+    let selfCheckCalled = false;
+    const tool = makePathTool(async () => {
+      selfCheckCalled = true;
+      return { behavior: 'allow' };
+    });
+    const asker = scriptAsker([]);
+    const canUseTool = buildCanUseTool({
+      mode: 'bypass',
+      ask: asker.ask,
+      alwaysAllow: new Set(),
+      ruleLayers: [
+        {
+          source: 'project',
+          rules: [{ behavior: 'deny', tool: 'Write', content: '*.txt', raw: 'Write(*.txt)' }],
+        },
+      ],
+    });
+    const result = await canUseTool(tool, { path: 'blocked.txt' }, ctx);
+    expect(result.behavior).toBe('deny');
+    expect(result.reason).toContain('Write(*.txt)');
+    expect(selfCheckCalled).toBe(false);
+    expect(asker.calls).toBe(0);
+  });
+
+  test('higher-precedence layer can allow over a lower-precedence deny', async () => {
+    const tool = makePathTool(async () => ({ behavior: 'ask' }));
+    const asker = scriptAsker([]);
+    const canUseTool = buildCanUseTool({
+      mode: 'ask',
+      ask: asker.ask,
+      alwaysAllow: new Set(),
+      ruleLayers: [
+        {
+          source: 'local',
+          rules: [{ behavior: 'allow', tool: 'Write', content: 'ok.txt', raw: 'Write(ok.txt)' }],
+        },
+        {
+          source: 'user',
+          rules: [{ behavior: 'deny', tool: 'Write', content: '*.txt', raw: 'Write(*.txt)' }],
+        },
+      ],
+    });
+    const result = await canUseTool(tool, { path: 'ok.txt' }, ctx);
+    expect(result.behavior).toBe('allow');
+    expect(asker.calls).toBe(0);
+  });
+
+  test('ask rule forces a prompt even when the tool self-check allows', async () => {
+    const tool = makePathTool(async () => ({ behavior: 'allow' }));
+    const asker = scriptAsker(['deny']);
+    const canUseTool = buildCanUseTool({
+      mode: 'default',
+      ask: asker.ask,
+      alwaysAllow: new Set(),
+      ruleLayers: [
+        {
+          source: 'project',
+          rules: [
+            { behavior: 'ask', tool: 'Write', content: 'review.txt', raw: 'Write(review.txt)' },
+          ],
+        },
+      ],
+    });
+    const result = await canUseTool(tool, { path: 'review.txt' }, ctx);
+    expect(result.behavior).toBe('deny');
+    expect(asker.calls).toBe(1);
   });
 
   test('always-cache short-circuits both self-check and asker', async () => {
@@ -137,21 +226,26 @@ describe('buildCanUseTool', () => {
   });
 
   test("self-check 'ask' + user says always → allow AND tool added to cache", async () => {
-    const tool = makeTool(async () => ({ behavior: 'ask' }));
+    const tool = makePathTool(async () => ({ behavior: 'ask' }));
     const asker = scriptAsker(['always']);
     const cache = new Set<string>();
+    const persisted: string[] = [];
     const canUseTool = buildCanUseTool({
       mode: 'ask',
       ask: asker.ask,
       alwaysAllow: cache,
+      recordAlwaysAllow: (rule) => {
+        persisted.push(rule);
+      },
     });
-    const result = await canUseTool(tool, {}, ctx);
+    const result = await canUseTool(tool, { path: 'always.txt' }, ctx);
     expect(result.behavior).toBe('allow');
-    expect(cache.has('Probe')).toBe(true);
+    expect(cache.has('FileWrite(always.txt)')).toBe(true);
+    expect(persisted).toEqual(['FileWrite(always.txt)']);
   });
 
   test('second call after always skips the asker', async () => {
-    const tool = makeTool(async () => ({ behavior: 'ask' }));
+    const tool = makePathTool(async () => ({ behavior: 'ask' }));
     const asker = scriptAsker(['always']);
     const cache = new Set<string>();
     const canUseTool = buildCanUseTool({
@@ -159,8 +253,8 @@ describe('buildCanUseTool', () => {
       ask: asker.ask,
       alwaysAllow: cache,
     });
-    await canUseTool(tool, { note: 'first' }, ctx);
-    const second = await canUseTool(tool, { note: 'second' }, ctx);
+    await canUseTool(tool, { path: 'same.txt' }, ctx);
+    const second = await canUseTool(tool, { path: 'same.txt' }, ctx);
     expect(second.behavior).toBe('allow');
     expect(asker.calls).toBe(1);
   });

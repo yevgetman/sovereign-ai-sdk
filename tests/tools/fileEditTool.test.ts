@@ -114,4 +114,16 @@ describe('FileEditTool', () => {
     expect(FileEditTool.isConcurrencySafe(input)).toBe(true);
     expect(FileEditTool.affectedPaths?.(input)).toEqual(['/tmp/x']);
   });
+
+  test('preparePermissionMatcher supports aliases and path globs', async () => {
+    expect(FileEditTool.aliases).toContain('Edit');
+    const matcher = await FileEditTool.preparePermissionMatcher?.({
+      path: 'src/app.ts',
+      old_string: 'a',
+      new_string: 'b',
+    });
+    expect(matcher?.('*.ts')).toBe(true);
+    expect(matcher?.('app.ts')).toBe(true);
+    expect(matcher?.('*.md')).toBe(false);
+  });
 });
