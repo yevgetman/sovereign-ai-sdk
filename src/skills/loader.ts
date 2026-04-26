@@ -4,10 +4,33 @@
 
 import { existsSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import type { Skill, SkillExpansionOptions, SkillRegistry, SkillSource } from './types.js';
+import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
+import type {
+  Skill,
+  SkillExpansionOptions,
+  SkillHarnessMetadata,
+  SkillRegistry,
+  SkillSource,
+  SkillTrustTier,
+} from './types.js';
+
+const MetadataHarnessSchema = z
+  .object({
+    requires_toolsets: z.array(z.string()).default([]),
+    requires_tools: z.array(z.string()).default([]),
+    fallback_for_toolsets: z.array(z.string()).default([]),
+    fallback_for_tools: z.array(z.string()).default([]),
+  })
+  .default({});
+
+const MetadataSchema = z
+  .object({
+    harness: MetadataHarnessSchema,
+  })
+  .default({});
 
 const SkillFrontmatterSchema = z
   .object({
@@ -15,10 +38,11 @@ const SkillFrontmatterSchema = z
     description: z.string().min(1),
     allowedTools: z.array(z.string()).default([]),
     whenToUse: z.string().default(''),
+    metadata: MetadataSchema,
   })
   .passthrough();
 
-const SHELL_INTERPOLATION_RE = /`!([^`]+)`/g;
+const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_TIMEOUT_MS = 10_000;
 const SHELL_OUTPUT_CAP = 16 * 1024;
 
@@ -29,13 +53,40 @@ export type LoadSkillsOptions = {
   warn?: (message: string) => void;
 };
 
-type SkillRoot = { source: SkillSource; path: string };
+type SkillClassification = {
+  source: SkillSource;
+  trustTier: SkillTrustTier;
+};
+
+type SkillRoot = SkillClassification & {
+  path: string;
+  classify?: (file: string) => SkillClassification;
+};
 
 export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry> {
   const roots: SkillRoot[] = [
-    { source: 'project', path: join(opts.cwd, '.harness', 'skills') },
-    { source: 'user', path: join(opts.harnessHome, 'skills') },
-    { source: 'bundle', path: join(opts.bundleRoot, 'skills') },
+    {
+      source: 'project',
+      trustTier: 'trusted',
+      path: join(opts.cwd, '.harness', 'skills'),
+    },
+    {
+      source: 'user',
+      trustTier: 'trusted',
+      path: join(opts.harnessHome, 'skills'),
+      classify: (file) => classifyUserSkill(file, join(opts.harnessHome, 'skills')),
+    },
+    { source: 'bundle', trustTier: 'builtin', path: join(opts.bundleRoot, 'skills') },
+    {
+      source: 'bundle',
+      trustTier: 'trusted',
+      path: join(opts.bundleRoot, 'harness', 'skills-trusted'),
+    },
+    {
+      source: 'community',
+      trustTier: 'community',
+      path: join(opts.bundleRoot, 'skills-community'),
+    },
   ];
 
   const seenRealpaths = new Set<string>();
@@ -54,7 +105,8 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       if (seenRealpaths.has(rp)) continue;
       seenRealpaths.add(rp);
 
-      const loaded = await loadSkillFile(file, rp, root.source, opts.warn);
+      const classification = root.classify?.(file) ?? root;
+      const loaded = await loadSkillFile(file, rp, classification, opts.warn);
       if (!loaded) continue;
       if (byName.has(loaded.name)) {
         opts.warn?.(`skill skipped (${file}): duplicate skill name '${loaded.name}'`);
@@ -73,22 +125,62 @@ export async function expandSkillPrompt(
   skill: Skill,
   opts: SkillExpansionOptions,
 ): Promise<string> {
-  const withArgs = skill.body.replace(/\{\{\s*args\s*\}\}/g, opts.args ?? '');
-  return interpolateShellCommands(withArgs, opts.cwd);
+  return expandSkillText(skill, skill.body, opts);
+}
+
+export async function expandSkillText(
+  skill: Skill,
+  text: string,
+  opts: SkillExpansionOptions,
+): Promise<string> {
+  const withVariables = text
+    .replace(/\{\{\s*args\s*\}\}/g, opts.args ?? '')
+    .replace(/\$\{HARNESS_SKILL_DIR\}/g, skill.dir)
+    .replace(/\$\{HARNESS_SESSION_ID\}/g, opts.sessionId ?? '');
+  return interpolateShellCommands(withVariables, skill.dir);
 }
 
 export async function reloadSkill(skill: Skill, warn?: (message: string) => void): Promise<Skill> {
-  return (await loadSkillFile(skill.path, skill.realpath, skill.source, warn)) ?? skill;
+  const loaded = await loadSkillFile(
+    skill.path,
+    skill.realpath,
+    { source: skill.source, trustTier: skill.trustTier },
+    warn,
+  );
+  if (!loaded) throw new Error(`skill '${skill.name}' could not be reloaded`);
+  return loaded;
+}
+
+export async function loadSkillFromPath(
+  path: string,
+  classification: SkillClassification,
+  warn?: (message: string) => void,
+): Promise<Skill | null> {
+  try {
+    return await loadSkillFile(path, await realpath(path), classification, warn);
+  } catch (err) {
+    warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
+    return null;
+  }
 }
 
 async function loadSkillFile(
   path: string,
   rp: string,
-  source: SkillSource,
+  classification: SkillClassification,
   warn?: (message: string) => void,
 ): Promise<Skill | null> {
   try {
     const raw = await readFile(path, 'utf8');
+    const guard = await guardSkillLoad({
+      path,
+      raw,
+      trustTier: classification.trustTier,
+    });
+    if (guard.action === 'block') {
+      warn?.(`skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
+      return null;
+    }
     const parsed = parseMarkdownFrontmatter(raw);
     const frontmatter = SkillFrontmatterSchema.parse(parsed.frontmatter);
     return {
@@ -98,13 +190,41 @@ async function loadSkillFile(
       allowedTools: frontmatter.allowedTools,
       path,
       realpath: rp,
-      source,
+      dir: dirname(path),
+      source: classification.source,
+      trustTier: classification.trustTier,
+      metadata: {
+        harness: normalizeHarnessMetadata(frontmatter.metadata.harness),
+      },
+      guard,
       body: parsed.body.trim(),
     };
   } catch (err) {
     warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
     return null;
   }
+}
+
+function classifyUserSkill(file: string, root: string): SkillClassification {
+  const firstSegment = relative(root, file).split(sep)[0];
+  if (firstSegment === 'agent-created') {
+    return { source: 'agent-created', trustTier: 'agent-created' };
+  }
+  if (firstSegment === 'trusted' || firstSegment === basename(file)) {
+    return { source: 'user', trustTier: 'trusted' };
+  }
+  return { source: 'community', trustTier: 'community' };
+}
+
+function normalizeHarnessMetadata(
+  raw: z.infer<typeof MetadataHarnessSchema>,
+): SkillHarnessMetadata {
+  return {
+    requiresToolsets: raw.requires_toolsets,
+    requiresTools: raw.requires_tools,
+    fallbackForToolsets: raw.fallback_for_toolsets,
+    fallbackForTools: raw.fallback_for_tools,
+  };
 }
 
 function parseMarkdownFrontmatter(raw: string): { frontmatter: unknown; body: string } {
@@ -125,6 +245,13 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
 
 async function walk(dir: string, out: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
+  const directorySkill = entries.find(
+    (entry) => entry.isFile() && entry.name.toLowerCase() === 'skill.md',
+  );
+  if (directorySkill) {
+    out.push(join(dir, directorySkill.name));
+    return;
+  }
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -143,7 +270,7 @@ async function interpolateShellCommands(body: string, cwd: string): Promise<stri
   let out = body;
   for (const match of matches) {
     const full = match[0];
-    const command = match[1]?.trim();
+    const command = (match[1] ?? match[2])?.trim();
     if (!command) continue;
     const replacement = await runInterpolationCommand(command, cwd);
     out = out.replace(full, replacement);
@@ -167,11 +294,11 @@ async function runInterpolationCommand(command: string, cwd: string): Promise<st
       proc.exited,
     ]);
     if (exitCode !== 0) {
-      return `[shell interpolation failed: ${command}\nexit_code: ${exitCode}\n${stderr.trimEnd()}]`;
+      return `[inline-shell error: ${command}\nexit_code: ${exitCode}\n${stderr.trimEnd()}]`;
     }
     return truncateShellOutput(stdout.trimEnd());
   } catch (err) {
-    return `[shell interpolation failed: ${command}\n${errorMessage(err)}]`;
+    return `[inline-shell error: ${command}\n${errorMessage(err)}]`;
   } finally {
     clearTimeout(timer);
   }

@@ -77,16 +77,11 @@ export function formatTools(tools: Tool<unknown, unknown>[]): string {
 
 export function formatSkillsIndex(skills: Skill[]): string {
   if (skills.length === 0) return '';
-  const lines = [
-    '<available-skills>',
-    'Invoke skills by slash command (for example /simplify path) or with SkillTool when a user request matches whenToUse.',
-  ];
-  for (const skill of [...skills].sort((a, b) => a.name.localeCompare(b.name))) {
-    const when = skill.whenToUse.trim() ? ` Use when: ${skill.whenToUse.trim()}` : '';
-    lines.push(`- ${skill.name}: ${skill.description.trim()}${when}`);
-  }
-  lines.push('</available-skills>');
-  return lines.join('\n');
+  return [
+    '<skills>',
+    'Use skills_list at the start of each task to see available skills. Use skill_view to inspect full skill bodies or reference files before following a skill.',
+    '</skills>',
+  ].join('\n');
 }
 
 function formatBundleSegments(bundle: Bundle, cacheEnabled: boolean): SystemSegment[] {

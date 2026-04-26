@@ -27,6 +27,8 @@ export type ToolContext = {
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
   subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
   skills?: import('../skills/types.js').SkillRegistry;
+  activeToolNames?: string[];
+  activeToolsets?: string[];
 };
 
 export type ToolResult<T> = {

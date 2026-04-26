@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type { Bundle } from '../../src/bundle/types.js';
 import {
@@ -54,7 +54,18 @@ function makeSkill(): Skill {
     allowedTools: ['Read', 'Edit'],
     path: '/tmp/simplify.md',
     realpath: '/tmp/simplify.md',
+    dir: dirname('/tmp/simplify.md'),
     source: 'project',
+    trustTier: 'trusted',
+    metadata: {
+      harness: {
+        requiresToolsets: [],
+        requiresTools: [],
+        fallbackForToolsets: [],
+        fallbackForTools: [],
+      },
+    },
+    guard: { action: 'allow', findings: [] },
     body: 'Simplify {{args}}.',
   };
 }
@@ -89,7 +100,7 @@ describe('buildSystemSegments', () => {
       expect(segments.length).toBeGreaterThanOrEqual(6);
       expect(segments[0]?.cacheable).toBe(true);
       expect(segments.some((segment) => segment.text.includes('<available-tools>'))).toBe(true);
-      expect(segments.some((segment) => segment.text.includes('<available-skills>'))).toBe(true);
+      expect(segments.some((segment) => segment.text.includes('<skills>'))).toBe(true);
       expect(segments.some((segment) => segment.text.includes('<bundle-context>'))).toBe(true);
       expect(segments.some((segment) => segment.text.includes('prefer concise answers'))).toBe(
         true,
@@ -127,9 +138,9 @@ describe('formatTools', () => {
 });
 
 describe('formatSkillsIndex', () => {
-  test('renders available skills and whenToUse hints', () => {
+  test('renders progressive disclosure reminder without skill names', () => {
     const text = formatSkillsIndex([makeSkill()]);
-    expect(text).toContain('- simplify: Review code for reuse and quality');
-    expect(text).toContain('Use when: User asks to simplify code');
+    expect(text).toContain('Use skills_list at the start of each task');
+    expect(text).not.toContain('simplify');
   });
 });

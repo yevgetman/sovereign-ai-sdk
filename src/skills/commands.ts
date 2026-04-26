@@ -19,7 +19,11 @@ function skillToCommand(skill: Skill): PromptCommand {
     getPromptForCommand: async (args, ctx): Promise<ContentBlock[]> => [
       {
         type: 'text',
-        text: await expandSkillPrompt(await reloadSkill(skill), { args, cwd: ctx.cwd }),
+        text: await expandSkillPrompt(await reloadSkill(skill), {
+          args,
+          cwd: ctx.cwd,
+          sessionId: ctx.sessionId,
+        }),
       },
     ],
   };

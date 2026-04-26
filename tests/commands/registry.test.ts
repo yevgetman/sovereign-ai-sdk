@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import {
   COMMANDS,
   COMMAND_REGISTRY,
@@ -9,6 +12,15 @@ import {
 import type { CommandContext } from '../../src/commands/types.js';
 import { buildSkillCommands } from '../../src/skills/commands.js';
 import type { Skill, SkillRegistry } from '../../src/skills/types.js';
+
+async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), 'sovereign-command-registry-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function makeCtx(): CommandContext {
   let model = 'claude-sonnet-4-6';
@@ -95,28 +107,54 @@ describe('slash command registry', () => {
   });
 
   test('loaded skills register as prompt commands', async () => {
-    const skill: Skill = {
-      name: 'simplify',
-      description: 'Review code for reuse and quality',
-      whenToUse: 'User asks to simplify code',
-      allowedTools: ['Read', 'Edit'],
-      path: '/tmp/simplify.md',
-      realpath: '/tmp/simplify.md',
-      source: 'project',
-      body: 'Simplify {{args}}.',
-    };
-    const skills: SkillRegistry = {
-      skills: [skill],
-      byName: new Map([[skill.name, skill]]),
-    };
-    const registry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skills)]);
-    const ctx = { ...makeCtx(), registry };
-    const result = await dispatchSlashCommand('/simplify src/main.ts', ctx);
-    expect(result.kind).toBe('prompt');
-    if (result.kind !== 'prompt') return;
-    expect(result.command.allowedTools).toEqual(['Read', 'Edit']);
-    expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
-      'src/main.ts',
-    );
+    await withTmp(async (dir) => {
+      const skillPath = join(dir, 'simplify.md');
+      mkdirSync(dirname(skillPath), { recursive: true });
+      writeFileSync(
+        skillPath,
+        `---
+name: simplify
+description: Review code for reuse and quality
+allowedTools: [Read, Edit]
+whenToUse: User asks to simplify code
+---
+Simplify {{args}}.
+`,
+      );
+      const skill: Skill = {
+        name: 'simplify',
+        description: 'Review code for reuse and quality',
+        whenToUse: 'User asks to simplify code',
+        allowedTools: ['Read', 'Edit'],
+        path: skillPath,
+        realpath: skillPath,
+        dir: dirname(skillPath),
+        source: 'project',
+        trustTier: 'trusted',
+        metadata: {
+          harness: {
+            requiresToolsets: [],
+            requiresTools: [],
+            fallbackForToolsets: [],
+            fallbackForTools: [],
+          },
+        },
+        guard: { action: 'allow', findings: [] },
+        body: 'Simplify {{args}}.',
+      };
+      const skills: SkillRegistry = {
+        skills: [skill],
+        byName: new Map([[skill.name, skill]]),
+      };
+      const registry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skills)]);
+      const ctx = { ...makeCtx(), cwd: dir, registry };
+      const result = await dispatchSlashCommand('/simplify src/main.ts', ctx);
+      expect(result.kind).toBe('prompt');
+      if (result.kind !== 'prompt') return;
+      expect(result.command.allowedTools).toEqual(['Read', 'Edit']);
+      expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
+        'src/main.ts',
+      );
+    });
   });
 });

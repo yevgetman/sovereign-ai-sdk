@@ -26,7 +26,16 @@ export const SkillTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
-  checkPermissions: async () => ({ behavior: 'allow' }),
+  checkPermissions: async (input, ctx) => {
+    const skill = ctx.skills?.byName.get(input.skill);
+    if (skill?.guard.action === 'ask') {
+      return {
+        behavior: 'ask',
+        reason: `skill '${skill.name}' requires approval because the skill guard found critical patterns`,
+      };
+    }
+    return { behavior: 'allow' };
+  },
   async call(input, ctx) {
     const skill = ctx.skills?.byName.get(input.skill);
     if (!skill) {
@@ -34,7 +43,11 @@ export const SkillTool = buildTool<Input, Output>({
       throw new Error(`unknown skill '${input.skill}'. Available skills: ${available}`);
     }
     const current = await reloadSkill(skill);
-    const prompt = await expandSkillPrompt(current, { args: input.args ?? '', cwd: ctx.cwd });
+    const prompt = await expandSkillPrompt(current, {
+      args: input.args ?? '',
+      cwd: ctx.cwd,
+      sessionId: ctx.sessionId,
+    });
     return {
       data: {
         skill: current.name,

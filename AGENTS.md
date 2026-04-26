@@ -48,7 +48,7 @@ When in doubt, read the corresponding section in `~/Desktop/agent-harness-design
 
 ## Phases — where we are
 
-Phases 0 through 9 complete (2026-04-25). Next phase: **Phase 9.5** (skills production upgrade). Do not start Phase 9.5 unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+Phases 0 through 9.5 complete (2026-04-25). Next phase: **Phase 10** (context-window compaction). Do not start Phase 10 unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.

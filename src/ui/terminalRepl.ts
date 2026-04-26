@@ -44,6 +44,7 @@ import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
+import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { ToolContext } from '../tool/types.js';
 
@@ -76,13 +77,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   await memoryManager.initialize();
   await memoryManager.onSessionStart();
   const subdirectoryHintState = createSubdirectoryHintState();
-  const skills = await loadSkills({
+  const loadedSkills = await loadSkills({
     harnessHome,
     cwd: process.cwd(),
     bundleRoot: bundle.root,
     warn: (message) => process.stderr.write(chalk.yellow(`[skill] ${message}\n`)),
   });
-  const commandRegistry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skills)]);
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
   const resumeSession =
     opts.resumeId !== undefined ? (db.getSession(opts.resumeId) ?? undefined) : undefined;
@@ -103,15 +103,26 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     harnessHome,
     memoryManager,
     subdirectoryHintState,
-    skills,
+    skills: loadedSkills,
   };
   const preliminaryToolPool = assembleToolPool(preliminaryToolContext);
+  const activeToolNames = preliminaryToolPool.map((tool) => tool.name);
+  const activeToolsets = inferActiveToolsets(activeToolNames);
+  const skills = filterSkillRegistry(loadedSkills, activeToolsets, activeToolNames);
+  const commandRegistry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skills)]);
+  const finalPreliminaryToolContext: ToolContext = {
+    ...preliminaryToolContext,
+    skills,
+    activeToolNames,
+    activeToolsets,
+  };
+  const finalPreliminaryToolPool = assembleToolPool(finalPreliminaryToolContext);
   const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(
     db,
     opts,
     bundle,
     resolved,
-    preliminaryToolPool,
+    finalPreliminaryToolPool,
     skills,
   );
 
@@ -123,6 +134,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     memoryManager,
     subdirectoryHintState,
     skills,
+    activeToolNames,
+    activeToolsets,
   };
   const toolPool = assembleToolPool(toolContext);
 
