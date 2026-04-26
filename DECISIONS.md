@@ -19,3 +19,9 @@ Reasoning: the phase log was useful but made the README harder to scan for new d
 The repo now has `docs/architecture.md` and `docs/extending.md` before Phase 11 starts.
 
 Reasoning: phases 0-10 established the core contracts. Hooks, MCP, sub-agents, review, and routing will be easier to implement consistently if the existing extension surfaces are explicit first.
+
+## 2026-04-26 - Split Operator Usage From README
+
+The repo now has `docs/usage.md` for day-to-day runtime operation. The README keeps quick-start commands and links to the full guide.
+
+Reasoning: install, architecture, development, and operator behavior were competing for space in the README. A dedicated usage guide makes common workflows easier to find without losing detail.

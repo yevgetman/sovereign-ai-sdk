@@ -10,7 +10,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 Next phase: **Phase 11 - hooks**. Do not start it unless explicitly requested.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
+See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 
 ## Install on a new machine
 
@@ -72,7 +72,7 @@ That's the whole setup — three commands, a key, a bundle path.
 3. **`bun link` is dev-mode, not a production binary.** The symlink points at the live `src/main.ts` — code edits take effect on the next invocation, no rebuild. Production client installs use `bun build --compile` to produce a standalone binary per [ADR H-0003](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) + [agent-harness § deployment-topology](../sovereign-ai-docs/business/architecture/agent-harness.md#deployment-topology).
 4. **Node is a soft dep.** Pure runtime users don't need Node at all. It's only for the docs-repo toolchain (lint, cascade, Notion sync).
 
-## Usage
+## Quick usage
 
 ```bash
 bun install
@@ -83,142 +83,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 
 Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `4096`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing).
 
-Provider defaults can also live in `~/.harness/config.json`:
-
-```json
-{
-  "defaultProvider": "anthropic",
-  "providers": {
-    "anthropic": { "model": "claude-sonnet-4-6" },
-    "openai": { "apiKey": "sk-...", "model": "gpt-4o-mini" },
-    "ollama": { "baseUrl": "http://localhost:11434", "model": "qwen2.5:3b" }
-  }
-}
-```
-
-### Session persistence (Phase 3.5)
-
-Every turn is saved to `~/.harness/sessions.db` as it happens. When the REPL exits (cleanly or otherwise), the last line of output shows you the resume command:
-
-```
-to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
-```
-
-Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation. Anthropic prompt-cache markers are applied to cacheable system segments and the last three messages unless `--no-cache` is set. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
-
-Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) upgraded sessions to schema version 3 for token/cost accounting plus compaction lineage. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
-
-### Bounded memory (Phase 6.5)
-
-Memory lives under `$HARNESS_HOME/memory/` (`~/.harness/memory/` by default):
-
-- `USER.md` stores durable user preferences and profile facts, capped at 1,375 characters.
-- `MEMORY.md` stores agent/project notes, capped at 2,200 characters.
-
-The model sees these files as fenced recalled context prepended to the current user message. The frozen system prompt and stored session system prompt are not changed. Use the `memory` tool to `view` current files or `replace` one whole file with a consolidated version; writes over the cap return an error instead of truncating.
-
-### Context references (Phase 6.7)
-
-Prompt text can include inline references:
-
-```text
-Review @file:src/main.ts and @diff
-Summarize @file:"docs/file with spaces.md"
-Inspect lines @file:src/core/query.ts:40-90
-Map @folder:src/context
-Quote @url:https://example.com/doc
-```
-
-References expand before the provider call into bounded fenced blocks. Sensitive paths such as `~/.ssh/*`, `~/.aws/*`, `~/.gnupg/*`, `~/.kube/*`, shell rc files, sudoers, and `/etc/passwd`/`/etc/shadow` are blocked. When a tool touches a new directory, nearby safe `AGENTS.md`, `CONTEXT.md`, and `.cursorrules` files are appended to that tool result once per session.
-
-### Permission rules (Phase 7)
-
-Permission settings are read from three locations, highest precedence first:
-
-1. `<cwd>/.harness/settings.local.json` — project-local and usually gitignored; "always" approvals are appended here.
-2. `<cwd>/.harness/settings.json` — project-shared settings.
-3. `$HARNESS_HOME/settings.json` — user-wide settings.
-
-Example:
-
-```json
-{
-  "permissionMode": "default",
-  "permissions": {
-    "allow": ["Bash(git *)", "Read(*.ts)", "Write(notes.md)"],
-    "deny": ["Bash(rm *)"],
-    "ask": ["Edit"]
-  }
-}
-```
-
-Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and `Edit` map to `FileRead`, `FileWrite`, and `FileEdit`; native tool names also work. Deny rules are checked first within a layer, then allow, then ask. Layers are strict-precedence: a local allow can override a user-wide deny for the same operation.
-
-When permission fallthrough reaches a prompt, the REPL asks:
-
-```
-[permission] Bash ls src/
-  allow? [y]es / [N]o / [a]lways:
-```
-
-- **`y`** — allow this one invocation, tool runs.
-- **`n`** (or Enter) — deny; the tool_result flows back to the model with `is_error: true` and reason `"user denied"`, so the model sees the refusal and can adapt.
-- **`a`** — allow this specific command/path pattern for the current project by appending a rule to `.harness/settings.local.json`.
-
-Run with `--permission-mode bypass` to allow permission fallthrough without prompts (explicit deny and ask rules still apply). The banner shows the active mode and how many settings files were loaded.
-
-### Slash commands (Phase 8)
-
-Lines beginning with `/` are handled locally before normal model turns:
-
-| Command | Behavior |
-|---|---|
-| `/help` | Lists registered slash commands and aliases. |
-| `/clear` | Clears in-memory conversation history for the current session. |
-| `/cost` | Shows session token totals and estimated USD cost recorded in SQLite. |
-| `/compact` | Compresses older history into a guarded handoff summary, creates a child session, and switches to it. |
-| `/rollback` | Switches back to the parent session after compaction. |
-| `/model <name>` | Switches the active model for subsequent turns. |
-| `/commit` | Runs a prompt command asking the model to stage, message, and commit changes. Its tool scope is narrowed to git status/diff/add/commit Bash operations for that turn. |
-
-### Context compaction (Phase 10)
-
-`/compact` runs a four-stage compression pipeline: old oversized tool results are pruned to one-line summaries, the split point is aligned so assistant `tool_use` / user `tool_result` pairs stay together, the recent tail is protected by a token budget, and an auxiliary compression model merges any prior handoff summary with older transcript state.
-
-The new child session keeps the same provider/model/platform/system prompt and points at the parent through `sessions.parent_session_id`. The first child message is a guarded assistant handoff summary that explicitly says it is not active instructions; preserved tail messages follow verbatim. `/rollback` switches the active REPL back to the parent session.
-
-### Skills (Phase 9 / 9.5)
-
-Drop markdown skill files in any of these locations:
-
-- `<cwd>/.harness/skills/` — project-local skills, highest precedence.
-- `$HARNESS_HOME/skills/` — user-wide skills.
-- `$HARNESS_HOME/skills/agent-created/<name>/SKILL.md` — skills written by `skill_manage`.
-- `<bundle>/skills/` — bundled skills.
-- `<bundle>/harness/skills-trusted/` — trusted bundled skills.
-- `<bundle>/skills-community/` — guarded community skills.
-
-Skill file format:
-
-```md
----
-name: simplify
-description: Review changed code for reuse and quality
-allowedTools: [Bash(git status **), Read, Edit]
-whenToUse: User asks to simplify or clean up code
-metadata:
-  harness:
-    requires_toolsets: [filesystem]
-    fallback_for_tools: []
----
-Review {{args}} for reuse and quality.
-```
-
-Each visible skill registers as a slash command (`/simplify src/main.ts`). The system prompt no longer inlines the full skill index; the model uses `skills_list({query})` to discover visible skills and `skill_view({name, path?})` to inspect the full body or a reference file under that skill directory. Prompt-command invocation scopes the turn to the skill's `allowedTools`; model-invoked `SkillTool` returns the expanded skill body as a tool result.
-
-Visibility gates are optional and live under `metadata.harness`: `requires_toolsets`, `requires_tools`, `fallback_for_toolsets`, and `fallback_for_tools`. Trust tiers apply guard scanning before a skill loads: builtin skills allow all findings, trusted skills block critical findings, community skills block medium/critical findings, and agent-created critical content is rejected by `skill_manage`.
-
-Skill bodies and reference files support `{{args}}`, `${HARNESS_SKILL_DIR}`, `${HARNESS_SESSION_ID}`, and inline shell interpolation with the `!`-prefixed backtick syntax. Inline shell runs in the skill directory; failures become `[inline-shell error: ...]` text instead of crashing the loader.
+See [`docs/usage.md`](docs/usage.md) for provider configuration, resume, context references, permissions, slash commands, memory, skills, compaction, common workflows, and troubleshooting.
 
 ### Global `sovereign` command (dev-mode)
 
