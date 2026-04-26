@@ -4,6 +4,7 @@
 //
 // Phase 3.5 scope: schema v1 (sessions + messages + FTS + triggers).
 // Phase 8: schema v2 adds session-level token/cost accounting for /cost.
+// Phase 10: schema v3 adds immutable compaction lineage and separate compaction cost lanes.
 // Storage-side of Invariant #4 — the `sessions.system_prompt` column
 // holds the frozen prompt verbatim; Phase 6 enforces the actually-reuse-it
 // behavior (cache-hit discipline).
@@ -29,7 +30,7 @@ import type { ContentBlock, SystemSegment, TokenUsage } from '../core/types.js';
 
 export const DEFAULT_DB_PATH = join(homedir(), '.harness', 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 type Migration = { from: number; to: number; sql: string };
 
@@ -94,6 +95,23 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE sessions ADD COLUMN estimated_cost_usd REAL NOT NULL DEFAULT 0;
     `,
   },
+  {
+    from: 2,
+    to: 3,
+    sql: `
+      ALTER TABLE sessions ADD COLUMN compaction_input_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN compaction_output_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN estimated_compaction_cost_usd REAL NOT NULL DEFAULT 0;
+
+      CREATE TABLE session_compactions (
+        parent_session_id TEXT NOT NULL REFERENCES sessions(session_id),
+        child_session_id TEXT NOT NULL REFERENCES sessions(session_id),
+        created_at REAL NOT NULL,
+        PRIMARY KEY (parent_session_id, child_session_id)
+      );
+      CREATE INDEX idx_session_compactions_parent ON session_compactions(parent_session_id, created_at);
+    `,
+  },
 ];
 
 // Retry + checkpoint tuning. Match Hermes within reason; tune under load
@@ -156,6 +174,9 @@ export type Session = {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   estimatedCostUsd: number;
+  compactionInputTokens: number;
+  compactionOutputTokens: number;
+  estimatedCompactionCostUsd: number;
 };
 
 export type SessionCost = {
@@ -164,6 +185,15 @@ export type SessionCost = {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   estimatedCostUsd: number;
+  compactionInputTokens: number;
+  compactionOutputTokens: number;
+  estimatedCompactionCostUsd: number;
+};
+
+export type SessionCompaction = {
+  parentSessionId: string;
+  childSessionId: string;
+  createdAt: number;
 };
 
 export type SearchOpts = {
@@ -268,7 +298,9 @@ export class SessionDb {
                 created_at, last_updated, title, system_prompt,
                 schema_version, metadata,
                 input_tokens, output_tokens, cache_creation_input_tokens,
-                cache_read_input_tokens, estimated_cost_usd
+                cache_read_input_tokens, estimated_cost_usd,
+                compaction_input_tokens, compaction_output_tokens,
+                estimated_compaction_cost_usd
          FROM sessions WHERE session_id = ?`,
       )
       .get(sessionId);
@@ -297,11 +329,54 @@ export class SessionDb {
     });
   }
 
+  recordCompactionUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void {
+    const input = usage.inputTokens ?? 0;
+    const output = usage.outputTokens ?? 0;
+    const now = Date.now() / 1000;
+    this.writeWithRetry(() => {
+      this.db.run(
+        `UPDATE sessions
+         SET compaction_input_tokens = compaction_input_tokens + ?,
+             compaction_output_tokens = compaction_output_tokens + ?,
+             estimated_compaction_cost_usd = estimated_compaction_cost_usd + ?,
+             last_updated = ?
+         WHERE session_id = ?`,
+        [input, output, estimatedCostUsd, now, sessionId],
+      );
+    });
+  }
+
+  recordCompactionLineage(parentSessionId: string, childSessionId: string): void {
+    const now = Date.now() / 1000;
+    this.writeWithRetry(() => {
+      this.db.run(
+        `INSERT INTO session_compactions (parent_session_id, child_session_id, created_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(parent_session_id, child_session_id) DO NOTHING`,
+        [parentSessionId, childSessionId, now],
+      );
+    });
+  }
+
+  getCompactionsForParent(parentSessionId: string): SessionCompaction[] {
+    const rows = this.db
+      .query<CompactionRow, [string]>(
+        `SELECT parent_session_id, child_session_id, created_at
+         FROM session_compactions
+         WHERE parent_session_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(parentSessionId);
+    return rows.map(rowToCompaction);
+  }
+
   getSessionCost(sessionId: string): SessionCost {
     const row = this.db
       .query<CostRow, [string]>(
         `SELECT input_tokens, output_tokens, cache_creation_input_tokens,
-                cache_read_input_tokens, estimated_cost_usd
+                cache_read_input_tokens, estimated_cost_usd,
+                compaction_input_tokens, compaction_output_tokens,
+                estimated_compaction_cost_usd
          FROM sessions WHERE session_id = ?`,
       )
       .get(sessionId);
@@ -312,6 +387,9 @@ export class SessionDb {
         cacheCreationInputTokens: 0,
         cacheReadInputTokens: 0,
         estimatedCostUsd: 0,
+        compactionInputTokens: 0,
+        compactionOutputTokens: 0,
+        estimatedCompactionCostUsd: 0,
       };
     }
     return rowToCost(row);
@@ -415,6 +493,9 @@ type SessionRow = {
   cache_creation_input_tokens: number;
   cache_read_input_tokens: number;
   estimated_cost_usd: number;
+  compaction_input_tokens: number;
+  compaction_output_tokens: number;
+  estimated_compaction_cost_usd: number;
 };
 
 type CostRow = {
@@ -423,6 +504,15 @@ type CostRow = {
   cache_creation_input_tokens: number;
   cache_read_input_tokens: number;
   estimated_cost_usd: number;
+  compaction_input_tokens: number;
+  compaction_output_tokens: number;
+  estimated_compaction_cost_usd: number;
+};
+
+type CompactionRow = {
+  parent_session_id: string;
+  child_session_id: string;
+  created_at: number;
 };
 
 function rowToMessage(row: StoredRow): StoredMessage {
@@ -463,6 +553,17 @@ function rowToCost(row: CostRow): SessionCost {
     cacheCreationInputTokens: row.cache_creation_input_tokens,
     cacheReadInputTokens: row.cache_read_input_tokens,
     estimatedCostUsd: row.estimated_cost_usd,
+    compactionInputTokens: row.compaction_input_tokens,
+    compactionOutputTokens: row.compaction_output_tokens,
+    estimatedCompactionCostUsd: row.estimated_compaction_cost_usd,
+  };
+}
+
+function rowToCompaction(row: CompactionRow): SessionCompaction {
+  return {
+    parentSessionId: row.parent_session_id,
+    childSessionId: row.child_session_id,
+    createdAt: row.created_at,
   };
 }
 

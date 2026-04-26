@@ -58,3 +58,19 @@ export function isBillingExhausted(err: unknown): boolean {
 export function isRateLimited(err: unknown): err is ProviderHttpError {
   return err instanceof ProviderHttpError && err.status === 429;
 }
+
+export function isContextOverflowError(err: unknown): boolean {
+  if (err instanceof ProviderHttpError && err.status === 413) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('context length') ||
+    lower.includes('context window') ||
+    lower.includes('context limit') ||
+    lower.includes('context_length_exceeded') ||
+    lower.includes('maximum context') ||
+    lower.includes('max context') ||
+    lower.includes('prompt is too long') ||
+    lower.includes('too many tokens')
+  );
+}

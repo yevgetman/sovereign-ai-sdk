@@ -26,15 +26,31 @@ const PRICE_TABLE: Record<string, TokenPricesPerMillion> = {
     cacheCreationInput: 18.75,
     cacheReadInput: 1.5,
   },
-  'anthropic:claude-haiku-latest': {
+  'anthropic:claude-haiku-4-5-20251001': {
+    input: 1,
+    output: 5,
+    cacheCreationInput: 1.25,
+    cacheReadInput: 0.1,
+  },
+  'anthropic:claude-3-5-haiku-latest': {
     input: 0.8,
     output: 4,
     cacheCreationInput: 1,
     cacheReadInput: 0.08,
   },
-  'openrouter:anthropic/claude-haiku-latest': {
+  'anthropic:claude-3-5-haiku-20241022': {
     input: 0.8,
     output: 4,
+    cacheCreationInput: 1,
+    cacheReadInput: 0.08,
+  },
+  'openrouter:anthropic/claude-3.5-haiku': {
+    input: 0.8,
+    output: 4,
+  },
+  'openrouter:anthropic/claude-haiku-4.5': {
+    input: 1,
+    output: 5,
   },
   'openai:gpt-4o-mini': {
     input: 0.15,

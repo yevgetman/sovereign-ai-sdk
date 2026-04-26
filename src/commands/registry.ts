@@ -30,6 +30,30 @@ export const COMMANDS: SlashCommand[] = [
   },
   {
     type: 'local',
+    name: 'compact',
+    description: 'Compress this conversation into a new child session with rollback lineage.',
+    call: async (_args, ctx) => {
+      const result = await ctx.compact();
+      const aux = result.usedAuxiliary
+        ? `aux=${result.auxiliaryProvider ?? 'unknown'}/${result.auxiliaryModel ?? 'unknown'}`
+        : 'aux=fallback';
+      return [
+        `compacted session: ${result.parentSessionId} -> ${result.newSessionId}`,
+        `messages compacted: ${result.compactedMessages}`,
+        `estimated tokens: ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}`,
+        aux,
+        'rollback: /rollback',
+      ].join('\n');
+    },
+  },
+  {
+    type: 'local',
+    name: 'rollback',
+    description: 'Switch back to the parent session after /compact.',
+    call: async (_args, ctx) => ctx.rollback(),
+  },
+  {
+    type: 'local',
     name: 'model',
     description: 'Switch the active model for the next turn.',
     usage: '/model <name>',
@@ -139,11 +163,15 @@ function formatCost(ctx: CommandContext): string {
     cost.inputTokens +
     cost.outputTokens +
     cost.cacheCreationInputTokens +
-    cost.cacheReadInputTokens;
+    cost.cacheReadInputTokens +
+    cost.compactionInputTokens +
+    cost.compactionOutputTokens;
+  const estimatedTotalCost = cost.estimatedCostUsd + cost.estimatedCompactionCostUsd;
   return [
     `session: ${ctx.sessionId}`,
     `provider/model: ${ctx.providerName} / ${ctx.model}`,
     `tokens: total=${totalTokens}, input=${cost.inputTokens}, output=${cost.outputTokens}, cache_write=${cost.cacheCreationInputTokens}, cache_read=${cost.cacheReadInputTokens}`,
-    `estimated cost: ${formatUsd(cost.estimatedCostUsd)}`,
+    `compaction tokens: input=${cost.compactionInputTokens}, output=${cost.compactionOutputTokens}`,
+    `estimated cost: ${formatUsd(estimatedTotalCost)} (chat ${formatUsd(cost.estimatedCostUsd)}, compaction ${formatUsd(cost.estimatedCompactionCostUsd)})`,
   ].join('\n');
 }

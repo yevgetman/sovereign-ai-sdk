@@ -21,6 +21,7 @@ import type { Bundle } from '../bundle/types.js';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
 import { buildToolScope } from '../commands/toolScope.js';
 import type { CommandContext, PromptCommand } from '../commands/types.js';
+import { compactSession, shouldCompactProactively } from '../compact/compactor.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import { parsePermissionRules } from '../config/rules.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../config/settings.js';
@@ -28,6 +29,7 @@ import { expandContextReferences } from '../context/references.js';
 import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
+import { estimateMessageTokens } from '../core/tokenEstimate.js';
 import type {
   AssistantMessage,
   Message,
@@ -39,6 +41,7 @@ import { createDefaultMemoryManager } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
+import { isContextOverflowError } from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import { buildSkillCommands } from '../skills/commands.js';
@@ -117,19 +120,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     activeToolsets,
   };
   const finalPreliminaryToolPool = assembleToolPool(finalPreliminaryToolContext);
-  const { sessionId, systemPrompt, history, resumed } = openOrResumeSession(
-    db,
-    opts,
-    bundle,
-    resolved,
-    finalPreliminaryToolPool,
-    skills,
-  );
+  const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
+  let activeSessionId = opened.sessionId;
+  const { systemPrompt, history, resumed } = opened;
 
   const toolContext: ToolContext = {
     cwd: process.cwd(),
     bundleRoot: bundle.root,
-    sessionId,
+    sessionId: activeSessionId,
     harnessHome,
     memoryManager,
     subdirectoryHintState,
@@ -171,7 +169,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
   });
   const commandContext = (): CommandContext => ({
-    sessionId,
+    sessionId: activeSessionId,
     cwd: process.cwd(),
     providerName,
     model: activeModel,
@@ -181,7 +179,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     clearHistory: () => {
       history.length = 0;
     },
-    getCost: () => db.getSessionCost(sessionId),
+    getCost: () => db.getSessionCost(activeSessionId),
+    compact: compactNow,
+    rollback: rollbackNow,
     tools: toolPool,
     registry: commandRegistry,
   });
@@ -193,7 +193,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     resolved,
     bundle.state.context !== null,
     toolPool.map((t) => t.name),
-    sessionId,
+    activeSessionId,
     resumed,
   );
 
@@ -222,10 +222,33 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   async function runModelTurn(
     userContent: Message['content'],
     command?: PromptCommand,
+    retry: { skipUserSave?: boolean; retriedAfterCompact?: boolean } = {},
   ): Promise<void> {
-    const userMessage: Message = { role: 'user', content: userContent };
-    history.push(userMessage);
-    db.saveMessage(sessionId, { role: 'user', content: userMessage.content });
+    if (retry.skipUserSave !== true) {
+      const userMessage: Message = { role: 'user', content: userContent };
+      history.push(userMessage);
+      db.saveMessage(activeSessionId, {
+        role: 'user',
+        content: userMessage.content,
+        tokenCount: estimateMessageTokens(userMessage),
+      });
+    }
+
+    if (
+      shouldCompactProactively({
+        messages: history,
+        systemPrompt,
+        contextLength: resolved.contextLength,
+      })
+    ) {
+      process.stderr.write(chalk.yellow('\n[compact] context threshold exceeded; compacting\n'));
+      const result = await compactNow();
+      process.stderr.write(
+        chalk.yellow(
+          `[compact] ${result.parentSessionId} -> ${result.newSessionId}; estimated tokens ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}\n`,
+        ),
+      );
+    }
 
     process.stdout.write(chalk.gray('\nharness> '));
 
@@ -266,7 +289,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // Message branch — ev is a tool_result carrier yielded between turns.
         if ('role' in ev) {
           if (ev.role === 'user') {
-            db.saveMessage(sessionId, { role: 'user', content: ev.content });
+            db.saveMessage(activeSessionId, {
+              role: 'user',
+              content: ev.content,
+              tokenCount: estimateMessageTokens(ev),
+            });
             const errs = ev.content.filter(
               (b) => b.type === 'tool_result' && b.is_error === true,
             ).length;
@@ -286,7 +313,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         }
         if (ev.type === 'assistant_message') {
           latestAssistant = ev.message;
-          db.saveMessage(sessionId, { role: 'assistant', content: ev.message.content });
+          db.saveMessage(activeSessionId, {
+            role: 'assistant',
+            content: ev.message.content,
+            tokenCount: estimateMessageTokens(ev.message),
+          });
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
               const preview = previewToolInput(block.input);
@@ -308,7 +339,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     process.stdout.write('\n');
     if (latestUsage) {
       const cost = estimateCostUsd(providerName, activeModel, latestUsage);
-      db.recordTokenUsage(sessionId, latestUsage, cost);
+      db.recordTokenUsage(activeSessionId, latestUsage, cost);
       process.stdout.write(chalk.gray(`${formatUsage(latestUsage)}\n`));
     }
 
@@ -319,6 +350,26 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
     if (terminal?.reason === 'error') {
       const msg = terminal.error?.message ?? 'unknown error';
+      if (
+        terminal.error &&
+        isContextOverflowError(terminal.error) &&
+        retry.retriedAfterCompact !== true
+      ) {
+        process.stderr.write(
+          chalk.yellow('\n[compact] context overflow; compacting and retrying once\n'),
+        );
+        const result = await compactNow();
+        process.stderr.write(
+          chalk.yellow(
+            `[compact] ${result.parentSessionId} -> ${result.newSessionId}; estimated tokens ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}\n`,
+          ),
+        );
+        await runModelTurn(userContent, command, {
+          skipUserSave: true,
+          retriedAfterCompact: true,
+        });
+        return;
+      }
       process.stderr.write(chalk.red(`\n[error] ${msg}\n`));
       if (!latestAssistant) history.pop();
     } else if (terminal?.reason === 'interrupted') {
@@ -326,6 +377,46 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     } else if (terminal?.reason === 'max_turns') {
       process.stderr.write(chalk.yellow('\n[max turns reached]\n'));
     }
+  }
+
+  async function compactNow() {
+    const result = await compactSession({
+      db,
+      sessionId: activeSessionId,
+      model: activeModel,
+      providerName,
+      systemPrompt,
+      history,
+      warn: (message) => process.stderr.write(chalk.yellow(`[compact] ${message}\n`)),
+    });
+    activeSessionId = result.newSessionId;
+    toolContext.sessionId = activeSessionId;
+    history.length = 0;
+    history.push(
+      { role: 'assistant', content: [{ type: 'text', text: result.summary }] },
+      ...result.tail,
+    );
+    return result;
+  }
+
+  async function rollbackNow(): Promise<string> {
+    const session = db.getSession(activeSessionId);
+    if (!session) return `cannot rollback: current session ${activeSessionId} was not found`;
+    if (session.parentSessionId === null) {
+      return `cannot rollback: session ${activeSessionId} has no parent session`;
+    }
+    const parent = db.getSession(session.parentSessionId);
+    if (!parent) return `cannot rollback: parent session ${session.parentSessionId} was not found`;
+    activeSessionId = parent.sessionId;
+    activeModel = parent.model;
+    toolContext.sessionId = activeSessionId;
+    const restored = db.loadMessages(activeSessionId).map((message) => ({
+      role: message.role,
+      content: message.content,
+    })) as Message[];
+    history.length = 0;
+    history.push(...restored);
+    return `rolled back to parent session ${activeSessionId}; restored ${restored.length} messages`;
   }
 
   function scopedToolsForCommand(command: PromptCommand): {
@@ -356,12 +447,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
 
   rl.close();
-  await memoryManager.onSessionEnd(sessionId);
+  await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
   db.close();
   process.stdout.write(chalk.gray('\ngoodbye.\n'));
   process.stdout.write(
-    chalk.gray(`to resume: sovereign chat --resume ${sessionId} --bundle ${opts.bundlePath}\n`),
+    chalk.gray(
+      `to resume: sovereign chat --resume ${activeSessionId} --bundle ${opts.bundlePath}\n`,
+    ),
   );
 }
 

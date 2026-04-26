@@ -6,7 +6,9 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 9.5 complete (2026-04-25)** — skills production upgrade. The system prompt now carries only a progressive-disclosure reminder; models discover skills through `skills_list` and inspect bodies/reference files through `skill_view`. Skills support visibility gates (`metadata.harness.requires_*` / `fallback_for_*`), trust-tier guard scanning for third-party content, `${HARNESS_SKILL_DIR}` / `${HARNESS_SESSION_ID}` substitutions, `!` inline-shell interpolation, and an agent-created skill writer via `skill_manage` under `$HARNESS_HOME/skills/agent-created/`. Phase 10 is next: context-window compaction.
+**Phase 10 complete (2026-04-26)** — context-window compaction. The REPL now supports `/compact`, creates a child session with `parent_session_id`, writes a guarded handoff summary plus the preserved tail into the child, and leaves parent messages intact for `/rollback`. Schema version 3 records lineage, estimated message tokens, and separate compaction cost lanes. The REPL proactively compacts above 50% of the model context window and retries once after provider context-overflow errors.
+
+**Phase 9.5 complete (2026-04-25)** — skills production upgrade. The system prompt now carries only a progressive-disclosure reminder; models discover skills through `skills_list` and inspect bodies/reference files through `skill_view`. Skills support visibility gates (`metadata.harness.requires_*` / `fallback_for_*`), trust-tier guard scanning for third-party content, `${HARNESS_SKILL_DIR}` / `${HARNESS_SESSION_ID}` substitutions, `!` inline-shell interpolation, and an agent-created skill writer via `skill_manage` under `$HARNESS_HOME/skills/agent-created/`.
 
 **Phase 9 complete (2026-04-25)** — skills MVP. Markdown files under `<cwd>/.harness/skills/`, `$HARNESS_HOME/skills/`, and `<bundle>/skills/` load as skills with YAML frontmatter (`name`, `description`, `allowedTools`, `whenToUse`). Skills register as prompt slash commands and can be activated by the model through `SkillTool`. Skill bodies support `{{args}}` substitution.
 
@@ -87,7 +89,7 @@ That's the whole setup — three commands, a key, a bundle path.
 - **Contributing docs changes** — `cd ~/code/sovereign-ai-docs && npm install && npm run install-hooks` turns on the pre-commit cascade + linter.
 - **Skip `--bundle` every call** — `export HARNESS_BUNDLE=~/code/sovereign-ai-docs` in your shell rc.
 - **Different model** — `sovereign chat -m claude-opus-4-7` (default is Sonnet 4.6 — see `state/memory/decisions-made.md` in the docs repo for the v0.x cost calculus).
-- **Different provider** — `sovereign chat --provider openai -m gpt-4o-mini`, `sovereign chat --provider ollama -m qwen2.5:3b`, or `sovereign chat --provider openrouter -m anthropic/claude-haiku-latest`.
+- **Different provider** — `sovereign chat --provider openai -m gpt-4o-mini`, `sovereign chat --provider ollama -m qwen2.5:3b`, or `sovereign chat --provider openrouter -m anthropic/claude-haiku-4.5`.
 
 ### Gotchas
 
@@ -130,7 +132,7 @@ to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
 
 Resuming rehydrates the in-memory history from the DB and reuses the *exact* system prompt segments that were frozen at session creation. Anthropic prompt-cache markers are applied to cacheable system segments and the last three messages unless `--no-cache` is set. Bundle path is validated on resume; using a different `--bundle` than the session was created against is rejected with a clear message rather than silently re-framing the conversation.
 
-Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) upgraded sessions to schema version 2 for token and estimated-cost accounting. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
+Under the hood: SQLite (via `bun:sqlite`, no npm deps) + WAL journaling + FTS5 virtual table for search + ai/ad/au triggers for index maintenance. Schema-versioned migrations (`state_meta` singleton) upgraded sessions to schema version 3 for token/cost accounting plus compaction lineage. A jittered-retry wrapper (20–150ms × 15 attempts) plus WAL checkpoint every 50 writes are in place for Phase 16/17 multi-writer contention.
 
 ### Bounded memory (Phase 6.5)
 
@@ -200,8 +202,16 @@ Lines beginning with `/` are handled locally before normal model turns:
 | `/help` | Lists registered slash commands and aliases. |
 | `/clear` | Clears in-memory conversation history for the current session. |
 | `/cost` | Shows session token totals and estimated USD cost recorded in SQLite. |
+| `/compact` | Compresses older history into a guarded handoff summary, creates a child session, and switches to it. |
+| `/rollback` | Switches back to the parent session after compaction. |
 | `/model <name>` | Switches the active model for subsequent turns. |
 | `/commit` | Runs a prompt command asking the model to stage, message, and commit changes. Its tool scope is narrowed to git status/diff/add/commit Bash operations for that turn. |
+
+### Context compaction (Phase 10)
+
+`/compact` runs a four-stage compression pipeline: old oversized tool results are pruned to one-line summaries, the split point is aligned so assistant `tool_use` / user `tool_result` pairs stay together, the recent tail is protected by a token budget, and an auxiliary compression model merges any prior handoff summary with older transcript state.
+
+The new child session keeps the same provider/model/platform/system prompt and points at the parent through `sessions.parent_session_id`. The first child message is a guarded assistant handoff summary that explicitly says it is not active instructions; preserved tail messages follow verbatim. `/rollback` switches the active REPL back to the parent session.
 
 ### Skills (Phase 9 / 9.5)
 
@@ -280,8 +290,8 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + skill tools | 2 Bash, 4 file & search, 6.5 memory, 9/9.5 skills |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules) | 3, 7 |
-| `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper | 3.5 |
-| `src/commands/` | Slash commands (local / local-jsx / prompt) | 8 |
+| `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10 |
+| `src/commands/` | Slash commands (local / local-jsx / prompt) | 8, 10 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
 | `src/compact/` | Context-window compaction | 10 |
 | `src/hooks/` | Shell-out lifecycle hooks | 11 |

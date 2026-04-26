@@ -55,10 +55,12 @@ describe('createSession + getSession', () => {
     expect(session?.title).toBe('pilot session');
     expect(session?.systemPrompt).toEqual(sysPrompt);
     expect(session?.metadata).toEqual({ bundleRoot: '/tmp/bundle', note: 42 });
-    expect(session?.schemaVersion).toBe(2);
+    expect(session?.schemaVersion).toBe(3);
     expect(session?.parentSessionId).toBeNull();
     expect(session?.inputTokens).toBe(0);
     expect(session?.estimatedCostUsd).toBe(0);
+    expect(session?.compactionInputTokens).toBe(0);
+    expect(session?.estimatedCompactionCostUsd).toBe(0);
     db.close();
   });
 
@@ -235,19 +237,57 @@ describe('cost accounting', () => {
       cacheCreationInputTokens: 30,
       cacheReadInputTokens: 40,
       estimatedCostUsd: 0.003,
+      compactionInputTokens: 0,
+      compactionOutputTokens: 0,
+      estimatedCompactionCostUsd: 0,
     });
     const session = db.getSession(id);
     expect(session?.inputTokens).toBe(11);
     expect(session?.estimatedCostUsd).toBe(0.003);
     db.close();
   });
+
+  test('recordCompactionUsage accumulates separate compaction lanes', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    db.recordCompactionUsage(id, { inputTokens: 100, outputTokens: 20 }, 0.004);
+    db.recordCompactionUsage(id, { inputTokens: 10 }, 0.001);
+
+    const cost = db.getSessionCost(id);
+    expect(cost.compactionInputTokens).toBe(110);
+    expect(cost.compactionOutputTokens).toBe(20);
+    expect(cost.estimatedCompactionCostUsd).toBe(0.005);
+    const session = db.getSession(id);
+    expect(session?.compactionInputTokens).toBe(110);
+    expect(session?.estimatedCompactionCostUsd).toBe(0.005);
+    db.close();
+  });
+
+  test('recordCompactionLineage records child links without mutating parent session', () => {
+    const db = openMem();
+    const parent = db.createSession({ model: 'm', provider: 'p' });
+    const child = db.createSession({ model: 'm', provider: 'p', parentSessionId: parent });
+    db.saveMessage(parent, { role: 'user', content: [textBlock('keep me')] });
+    const before = db.getSession(parent)?.lastUpdated;
+    db.recordCompactionLineage(parent, child);
+
+    const session = db.getSession(parent);
+    expect(session?.lastUpdated).toBe(before);
+    const links = db.getCompactionsForParent(parent);
+    expect(links).toHaveLength(1);
+    expect(links[0]?.childSessionId).toBe(child);
+    expect(links[0]?.createdAt).toBeGreaterThan(0);
+    expect(db.loadMessages(parent)).toHaveLength(1);
+    expect(db.getSession(child)?.parentSessionId).toBe(parent);
+    db.close();
+  });
 });
 
 describe('schema versioning', () => {
-  test('new DB reports schema_version = 2 via sessions.schemaVersion', () => {
+  test('new DB reports schema_version = 3 via sessions.schemaVersion', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(2);
+    expect(db.getSession(id)?.schemaVersion).toBe(3);
     db.close();
   });
 });

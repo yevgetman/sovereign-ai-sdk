@@ -2,6 +2,7 @@
 // future surface (TUI, Telegram, Slack) should render from these shapes.
 
 import type { SessionCost } from '../agent/sessionDb.js';
+import type { CompactResult } from '../compact/compactor.js';
 import type { ContentBlock } from '../core/types.js';
 import type { Tool } from '../tool/types.js';
 
@@ -13,6 +14,8 @@ export type CommandContext = {
   setModel: (model: string) => void;
   clearHistory: () => void;
   getCost: () => SessionCost;
+  compact: () => Promise<CompactResult>;
+  rollback: () => Promise<string>;
   tools: Tool<unknown, unknown>[];
   registry: CommandRegistry;
 };

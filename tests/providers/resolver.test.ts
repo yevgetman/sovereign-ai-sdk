@@ -56,7 +56,7 @@ describe('resolveProvider', () => {
           openrouter: {
             apiKey: 'sk-router',
             baseUrl: 'https://router.example/v1',
-            model: 'anthropic/claude-haiku-latest',
+            model: 'anthropic/claude-haiku-4.5',
           },
         },
       },

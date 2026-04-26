@@ -44,7 +44,21 @@ function makeCtx(): CommandContext {
       cacheCreationInputTokens: 30,
       cacheReadInputTokens: 40,
       estimatedCostUsd: 0.0123,
+      compactionInputTokens: 0,
+      compactionOutputTokens: 0,
+      estimatedCompactionCostUsd: 0,
     }),
+    compact: async () => ({
+      parentSessionId: 'session-1',
+      newSessionId: 'session-2',
+      summary: 'summary',
+      tail: [],
+      compactedMessages: 3,
+      estimatedBeforeTokens: 1200,
+      estimatedAfterTokens: 300,
+      usedAuxiliary: false,
+    }),
+    rollback: async () => 'rolled back to parent session session-1',
     tools: [],
     registry: COMMAND_REGISTRY,
     get cleared() {
@@ -92,6 +106,17 @@ describe('slash command registry', () => {
     if (result.kind !== 'local') throw new Error('expected local command result');
     expect(result.output).toContain('total=100');
     expect(result.output).toContain('$0.01');
+  });
+
+  test('/compact and /rollback delegate to session callbacks', async () => {
+    const compact = await dispatchSlashCommand('/compact', makeCtx());
+    if (compact.kind !== 'local') throw new Error('expected local command result');
+    expect(compact.output).toContain('session-1 -> session-2');
+    expect(compact.output).toContain('aux=fallback');
+
+    const rollback = await dispatchSlashCommand('/rollback', makeCtx());
+    if (rollback.kind !== 'local') throw new Error('expected local command result');
+    expect(rollback.output).toContain('rolled back');
   });
 
   test('/commit is a prompt command with git-only Bash scope', async () => {

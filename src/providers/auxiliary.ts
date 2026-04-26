@@ -12,20 +12,20 @@ export type AuxiliaryPurpose = 'compression' | 'title' | 'web-extract';
 
 const AUXILIARY_CHAINS: Record<AuxiliaryPurpose, Array<[string, string]>> = {
   compression: [
-    ['openrouter', 'anthropic/claude-haiku-latest'],
-    ['anthropic', 'claude-haiku-latest'],
+    ['openrouter', 'anthropic/claude-haiku-4.5'],
+    ['anthropic', 'claude-haiku-4-5-20251001'],
     ['openai', 'gpt-4o-mini'],
     ['ollama', 'qwen2.5:3b'],
   ],
   title: [
-    ['openrouter', 'anthropic/claude-haiku-latest'],
-    ['anthropic', 'claude-haiku-latest'],
+    ['openrouter', 'anthropic/claude-haiku-4.5'],
+    ['anthropic', 'claude-haiku-4-5-20251001'],
     ['openai', 'gpt-4o-mini'],
     ['ollama', 'qwen2.5:3b'],
   ],
   'web-extract': [
-    ['openrouter', 'anthropic/claude-haiku-latest'],
-    ['anthropic', 'claude-haiku-latest'],
+    ['openrouter', 'anthropic/claude-haiku-4.5'],
+    ['anthropic', 'claude-haiku-4-5-20251001'],
     ['openai', 'gpt-4o-mini'],
     ['ollama', 'qwen2.5:3b'],
   ],
