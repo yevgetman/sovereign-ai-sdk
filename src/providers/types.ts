@@ -7,14 +7,17 @@
 
 import type { AssistantMessage, Message, StreamEvent, SystemSegment } from '../core/types.js';
 
+/** Provider-neutral JSON-schema-ish tool description published to model APIs. */
 export type ToolSchema = {
   name: string;
   description: string;
   input_schema: unknown; // JSONSchema
 };
 
+/** Provider-neutral request for automatic, forced-any, or named-tool selection. */
 export type ToolChoice = { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
 
+/** Internal provider request; adapters translate this to provider wire formats. */
 export type ProviderRequest = {
   model: string;
   system: SystemSegment[];
@@ -28,6 +31,7 @@ export type ProviderRequest = {
   cacheEnabled?: boolean;
 };
 
+/** Minimal interface the core turn loop needs from any model provider. */
 export interface LLMProvider {
   readonly name: string;
   stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage>;
@@ -37,6 +41,7 @@ export type ApiMode = 'anthropic' | 'openai' | 'ollama';
 
 export type AuthType = 'api_key' | 'oauth' | 'bedrock_sig_v4' | 'none';
 
+/** Optional richer adapter contract for providers with explicit translation hooks. */
 export interface Transport<
   ProviderMessage = unknown,
   ProviderTool = unknown,

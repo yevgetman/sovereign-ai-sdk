@@ -54,6 +54,7 @@ export type SystemSegment = {
   cacheable: boolean;
 };
 
+/** Runtime inputs for one async-generator query loop. */
 export type QueryParams = {
   provider: import('../providers/types.js').LLMProvider;
   model: string;

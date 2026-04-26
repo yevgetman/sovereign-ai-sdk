@@ -6,6 +6,7 @@ import type { CompactResult } from '../compact/compactor.js';
 import type { ContentBlock } from '../core/types.js';
 import type { Tool } from '../tool/types.js';
 
+/** Runtime services exposed to slash command handlers. */
 export type CommandContext = {
   sessionId: string;
   cwd: string;
@@ -20,6 +21,7 @@ export type CommandContext = {
   registry: CommandRegistry;
 };
 
+/** Slash command that runs locally and returns display text. */
 export type LocalCommand = {
   type: 'local';
   name: string;
@@ -29,6 +31,7 @@ export type LocalCommand = {
   call: (args: string, ctx: CommandContext) => Promise<string>;
 };
 
+/** Slash command that becomes a model turn, optionally with narrowed tools. */
 export type PromptCommand = {
   type: 'prompt';
   name: string;
@@ -39,6 +42,7 @@ export type PromptCommand = {
   getPromptForCommand: (args: string, ctx: CommandContext) => Promise<ContentBlock[]>;
 };
 
+/** Future rendered local command surface; kept distinct from plain text commands. */
 export type LocalJSXCommand = {
   type: 'local-jsx';
   name: string;
@@ -48,10 +52,13 @@ export type LocalJSXCommand = {
   call: (args: string, ctx: CommandContext) => Promise<unknown>;
 };
 
+/** Any command registered in the slash-command registry. */
 export type SlashCommand = LocalCommand | PromptCommand | LocalJSXCommand;
 
+/** Name and alias lookup map for slash commands. */
 export type CommandRegistry = ReadonlyMap<string, SlashCommand>;
 
+/** Normalized dispatch result consumed by the REPL. */
 export type CommandDispatchResult =
   | { kind: 'local'; output: string }
   | { kind: 'prompt'; command: PromptCommand; content: ContentBlock[] }

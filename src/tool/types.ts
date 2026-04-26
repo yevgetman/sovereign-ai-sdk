@@ -8,16 +8,20 @@
 
 import type { z } from 'zod';
 
+/** Permission outcome requested by a tool or the orchestration permission layer. */
 export type PermissionBehavior = 'allow' | 'deny' | 'ask';
 
+/** Permission decision; `updatedInput` lets checks normalize input before execution. */
 export type PermissionResult = {
   behavior: PermissionBehavior;
   updatedInput?: unknown;
   reason?: string;
 };
 
+/** Result returned by optional tool-specific validation. */
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
+/** Per-invocation runtime context passed to every tool call. */
 export type ToolContext = {
   cwd: string;
   bundleRoot: string;
@@ -31,6 +35,7 @@ export type ToolContext = {
   activeToolsets?: string[];
 };
 
+/** Structured tool output plus optional transcript messages injected after the result. */
 export type ToolResult<T> = {
   data: T;
   /** Messages spliced into the transcript after this tool's result. Used by
@@ -39,6 +44,7 @@ export type ToolResult<T> = {
   newMessages?: import('../core/types.js').Message[];
 };
 
+/** Definition accepted by `buildTool()` before fail-closed defaults are applied. */
 export type ToolDef<I, O, P = void> = {
   name: string;
   aliases?: string[];
@@ -88,6 +94,7 @@ export type ToolDef<I, O, P = void> = {
   mcpInfo?: { serverName: string; toolName: string };
 };
 
+/** Fully-normalized tool contract used by registry, permissions, and orchestration. */
 export type Tool<I, O, P = void> = Required<
   Pick<
     ToolDef<I, O, P>,

@@ -19,8 +19,10 @@ import { OllamaProvider } from './ollama.js';
 import { OpenAIProvider } from './openai.js';
 import type { AuthType, ProviderRequest, ToolSchema, Transport } from './types.js';
 
+/** Call-site purpose used for auxiliary fallback and provider metadata. */
 export type ProviderPurpose = 'main' | 'auxiliary' | 'compression' | 'title' | 'web-extract';
 
+/** Provider, client metadata, and selected model returned by `resolveProvider()`. */
 export type ResolvedProvider = {
   transport: Transport;
   client: unknown;
@@ -31,6 +33,7 @@ export type ResolvedProvider = {
   metadata: Record<string, unknown>;
 };
 
+/** Optional inputs for resolving providers in tests, CLI, and future surfaces. */
 export type ResolveProviderOpts = {
   purpose?: ProviderPurpose;
   settings?: Settings;
@@ -47,6 +50,7 @@ type SelectedCredential = {
   authType: AuthType;
 };
 
+/** Resolve config, credentials, rate guards, transport, model, and context length. */
 export function resolveProvider(
   name?: string,
   model?: string,

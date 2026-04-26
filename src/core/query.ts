@@ -30,6 +30,7 @@ const DEFAULT_MAX_TURNS = 10;
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
 
+/** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
   const {
     provider,

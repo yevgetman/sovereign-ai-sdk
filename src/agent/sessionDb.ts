@@ -122,11 +122,13 @@ const JITTER_MIN_MS = 20;
 const JITTER_MAX_MS = 150;
 const WAL_CHECKPOINT_EVERY = 50;
 
+/** Options for opening the SQLite session database. */
 export type OpenDbOpts = {
   /** Filesystem path; ':memory:' for tests. Default DEFAULT_DB_PATH. */
   path?: string;
 };
 
+/** Required fields for creating a persisted session row. */
 export type CreateSessionInput = {
   model: string;
   provider: string;
@@ -138,6 +140,7 @@ export type CreateSessionInput = {
   metadata?: Record<string, unknown>;
 };
 
+/** Message payload persisted into the session transcript. */
 export type SaveMessageInput = {
   role: 'user' | 'assistant';
   content: ContentBlock[];
@@ -146,6 +149,7 @@ export type SaveMessageInput = {
   tokenCount?: number;
 };
 
+/** Message row loaded from SQLite and decoded into runtime content blocks. */
 export type StoredMessage = {
   id: number;
   sessionId: string;
@@ -157,6 +161,7 @@ export type StoredMessage = {
   createdAt: number;
 };
 
+/** Session row loaded from SQLite, including usage and compaction counters. */
 export type Session = {
   sessionId: string;
   parentSessionId: string | null;
