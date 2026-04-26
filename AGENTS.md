@@ -60,6 +60,10 @@ Each phase should:
 
 Run `bun run lint` and `bun run test` before every commit. Commit atomically — one logical change per commit. This matches the rule in `sovereign-ai-docs/CLAUDE.md`.
 
+## Testing log
+
+Append an entry to `docs/testing-log.md` whenever harness testing is performed, whether automated (`bun run test`, lint/typecheck gates, targeted unit tests) or semantic/manual (CLI checks, REPL smoke tests, provider/tool behavior checks). Record the scope, environment, commands, manual coverage, result, and any regressions or follow-ups.
+
 ## Commit and push
 
 Same rule as the docs repo: autonomous add / commit / push after every working change. Push target is `origin/master` once the remote is configured.
