@@ -26,7 +26,14 @@ Source tests:
 ## 1. Interrupted Tool-Use Persistence Can Corrupt Sessions
 
 - Priority: P0
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: `query()` now emits synthetic `is_error` tool-result messages for every
+  pending `tool_use` block when tools are unavailable, tool context is missing,
+  tool orchestration fails, or the turn is interrupted during tool dispatch.
+  The REPL also now appends every assistant/tool-result message yielded during a
+  turn into live in-memory history, instead of keeping only the final assistant
+  message. This keeps live and resumed transcripts aligned with provider
+  message invariants.
 - Evidence: In the website test, an inspection turn launched three concurrent
   Bash reads. After overlapping permission prompts stalled the REPL, Ctrl-C
   interrupted the turn. The assistant `tool_use` blocks were persisted without
@@ -322,4 +329,3 @@ Source tests:
 - Test ideas:
   - Command-scope tests for generated `git status` without `cd`.
   - Negative tests for `cd /tmp && rm -rf ...` or unrelated chained commands.
-

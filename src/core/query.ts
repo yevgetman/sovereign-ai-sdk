@@ -98,6 +98,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
 
     if (toolPool.length === 0) {
+      const msg = synthesizeToolResultMessage(
+        toolUseBlocks,
+        'tool call could not run: no tools were provided',
+      );
+      history.push(msg);
+      yield msg;
       return {
         reason: 'error',
         error: new Error(
@@ -107,6 +113,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
 
     if (!toolCtx) {
+      const msg = synthesizeToolResultMessage(
+        toolUseBlocks,
+        'tool call could not run: no toolContext was provided',
+      );
+      history.push(msg);
+      yield msg;
       return {
         reason: 'error',
         error: new Error('tool_use encountered but no toolContext was passed in QueryParams'),
@@ -124,7 +136,22 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         yield msg;
       }
     } catch (err) {
-      if (signal?.aborted) return { reason: 'interrupted' };
+      if (signal?.aborted) {
+        const msg = synthesizeToolResultMessage(
+          toolUseBlocks,
+          'tool call interrupted before a result was available',
+        );
+        history.push(msg);
+        yield msg;
+        return { reason: 'interrupted' };
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      const msg = synthesizeToolResultMessage(
+        toolUseBlocks,
+        `tool orchestration failed before a result was available: ${message}`,
+      );
+      history.push(msg);
+      yield msg;
       return { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
     }
   }
@@ -147,6 +174,18 @@ function assistantText(message: AssistantMessage): string {
     .filter((block) => block.type === 'text')
     .map((block) => (block.type === 'text' ? block.text : ''))
     .join('\n');
+}
+
+function synthesizeToolResultMessage(blocks: ToolUseBlock[], content: string): Message {
+  return {
+    role: 'user',
+    content: blocks.map((block) => ({
+      type: 'tool_result' as const,
+      tool_use_id: block.id,
+      content,
+      is_error: true,
+    })),
+  };
 }
 
 function toToolSchemas(

@@ -242,6 +242,7 @@ describe('query() — Phase 2 turn loop', () => {
       systemPrompt: [],
       maxTokens: 256,
     });
+    const yielded: (StreamEvent | Message)[] = [];
     let terminal: { reason: string; error?: Error } | undefined;
     for (;;) {
       const step = await gen.next();
@@ -249,9 +250,66 @@ describe('query() — Phase 2 turn loop', () => {
         terminal = step.value;
         break;
       }
+      yielded.push(step.value);
     }
     expect(terminal?.reason).toBe('error');
     expect(terminal?.error?.message).toContain('no tools');
+    const toolResults = yielded.filter(
+      (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+    ) as Message[];
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0]?.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 't1',
+        content: 'tool call could not run: no tools were provided',
+        is_error: true,
+      },
+    ]);
+  });
+
+  test('interrupted tool dispatch yields error tool_result blocks before stopping', async () => {
+    const firstTurn = toolUseThenFinishTurns[0];
+    if (!firstTurn) throw new Error('test fixture missing');
+    const provider = scriptedTurns([firstTurn]);
+    const controller = new AbortController();
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+      signal: controller.signal,
+      canUseTool: async () => {
+        controller.abort();
+        throw new Error('prompt aborted');
+      },
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string; error?: Error } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('interrupted');
+    const toolResults = yielded.filter(
+      (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+    ) as Message[];
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0]?.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 't1',
+        content: 'tool call interrupted before a result was available',
+        is_error: true,
+      },
+    ]);
   });
 
   test('maxTurns caps the tool-continuation loop', async () => {

@@ -256,6 +256,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     let latestAssistant: AssistantMessage | undefined;
     let terminal: Terminal | undefined;
     let latestUsage: TokenUsage | undefined;
+    const turnMessages: Message[] = [];
 
     try {
       const scoped = command ? scopedToolsForCommand(command) : undefined;
@@ -289,6 +290,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // Message branch — ev is a tool_result carrier yielded between turns.
         if ('role' in ev) {
           if (ev.role === 'user') {
+            turnMessages.push(ev);
             db.saveMessage(activeSessionId, {
               role: 'user',
               content: ev.content,
@@ -313,6 +315,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         }
         if (ev.type === 'assistant_message') {
           latestAssistant = ev.message;
+          turnMessages.push(ev.message);
           db.saveMessage(activeSessionId, {
             role: 'assistant',
             content: ev.message.content,
@@ -346,7 +349,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     // Sync REPL history with what query() actually processed. query() works
     // on a copy internally; the pushes we did before the generator started
     // (just the user message) are the only ones already in our `history`.
-    if (latestAssistant) history.push(latestAssistant);
+    history.push(...turnMessages);
 
     if (terminal?.reason === 'error') {
       const msg = terminal.error?.message ?? 'unknown error';
