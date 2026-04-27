@@ -17,6 +17,59 @@ Use newest-first ordering.
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Real-World Website Build Harness Test
+
+- Scope: Real-world use-case REPL test where the harness built a simple static website from imperfect, iterative human-style prompts. The test exercised multi-turn file creation and revision, vague design feedback, responsive/mobile feedback, JavaScript feature addition, self-inspection, late rename/copy changes, external validation, recovery from harness errors, and final artifact verification.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Bundle: `/Users/julie/code/sovereign-ai-docs`
+  - Website workspace: `/Users/julie/code/harness-website-test-2026-04-27`
+  - `HARNESS_HOME`: `/tmp/sovereign-website-home.nbBFWB`
+  - Session DB: `/Users/julie/code/harness-website-test-2026-04-27/sessions.db`
+  - Provider/model: `anthropic / claude-sonnet-4-6`
+  - Harness session: `594bea1a-3a7f-42e4-86bf-c10430d80573`
+  - Screenshots: `/tmp/harness-website-desktop.png`, `/tmp/harness-website-mobile.png`
+- Commands:
+  - `HARNESS_HOME=/tmp/sovereign-website-home.nbBFWB bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-test-2026-04-27/sessions.db --permission-mode ask --no-cache`
+  - `HARNESS_HOME=/tmp/sovereign-website-home.nbBFWB bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-test-2026-04-27/sessions.db --resume 594bea1a-3a7f-42e4-86bf-c10430d80573 --permission-mode ask --no-cache --max-tokens 12000`
+  - `node --check estimator.js`
+  - `python3 -m http.server 4177`
+  - `curl -fsS http://127.0.0.1:4177/`
+  - `curl -fsS -I http://127.0.0.1:4177/style.css`
+  - `curl -fsS -I http://127.0.0.1:4177/estimator.js`
+  - `playwright screenshot --full-page --viewport-size=1440,1000 http://127.0.0.1:4177/ /tmp/harness-website-desktop.png`
+  - `playwright screenshot --full-page --viewport-size=390,844 http://127.0.0.1:4177/ /tmp/harness-website-mobile.png`
+  - `sqlite3 sessions.db "select session_id,model,provider,input_tokens,output_tokens,round(estimated_cost_usd,4),schema_version from sessions; select count(*) from messages;"`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - Prompted the harness with vague real-user input: "make me a simple website for a bike repair shop. keep it tasteful. put it in this folder".
+  - Iterated with imperfect feedback: make it feel like a real local business, polish it without making it startup-y, improve phone behavior, add a small JavaScript quote/service estimator, inspect and fix obvious issues, then rename the shop to `Beacon Bike Works`.
+  - The harness created `index.html`, `style.css`, and `estimator.js` under `/Users/julie/code/harness-website-test-2026-04-27`.
+  - Verified the final site opens through a local static server and returns HTTP 200 for the page, CSS, and JS.
+  - Captured desktop and mobile screenshots; both rendered nonblank and the mobile page was usable with the hero no longer taking over the viewport.
+  - Verified final rename with no `Ironclad` remnants and prominent `Beacon Bike Works` title/footer/about copy.
+  - Verified `node --check estimator.js` after the harness fixed JavaScript string-escaping errors.
+  - Queried SQLite: session `594bea1a-3a7f-42e4-86bf-c10430d80573`, 101 persisted messages, estimated chat cost `$1.5981`.
+- Result:
+  - Passed with intervention. The harness produced a usable static website with responsive styling, realistic local-business copy, a vanilla JS estimator, and final requested rename.
+  - Passed. External HTTP checks returned 200 for `/`, `style.css`, and `estimator.js`.
+  - Passed. `node --check estimator.js` succeeded after the harness corrected apostrophe escaping defects.
+  - Passed. Playwright desktop and mobile screenshots rendered the page correctly.
+  - Passed. `bun run lint` checked 99 files with no fixes applied.
+  - Passed. `bun run test` reported 232 passing tests, 0 failures, and 600 assertions across 37 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - Default `maxTokens=4096` was too low for this realistic website-building flow. The model repeatedly started a large CSS rewrite but hit `max_tokens` before issuing the write. Resuming with `--max-tokens 12000` unblocked the workflow.
+  - The harness initially attempted `FileWrite` with a `~` path and got a tool error, then recovered by writing relative paths. Path normalization for user-home-style paths would improve first-pass reliability.
+  - An inspection turn launched three concurrent Bash reads, causing overlapping permission prompts. After answering, the REPL stopped making progress until Ctrl-C.
+  - Interrupting that stuck concurrent tool-permission turn persisted assistant `tool_use` blocks without matching `tool_result` blocks. Subsequent provider calls, including resumed sessions, failed with Anthropic 400 until `/clear` was run in-memory. This is a serious recovery/persistence bug.
+  - `/clear` recovers the live REPL enough to continue, but it does not repair the bad persisted transcript; resuming later reloads the malformed history and fails again until `/clear` is run after resume.
+  - The harness did not run `node --check` before first claiming completion. External validation found a real `estimator.js` syntax error caused by unescaped apostrophes inside single-quoted strings. After being given the validator error, the harness fixed the issue through several `FileEdit` calls and repeated `node --check`.
+  - The JavaScript fix turn hit `max_turns` before a final natural-language summary, even though the last `node --check` passed. Long repair loops may need a better turn budget or summarization behavior.
+  - The simple anchor parser flagged `href="#"` on the logo and the external Google Fonts stylesheet as non-local references. These were not treated as broken site references for this test.
+
 ## 2026-04-27 - Date Testing Log Filename
 
 - Scope: Documentation maintenance to rename `docs/testing-log.md` to `docs/testing-log-2026-04-27.md` and update all repo references.
