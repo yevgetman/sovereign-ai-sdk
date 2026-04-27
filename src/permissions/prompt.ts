@@ -24,7 +24,7 @@ export function parseAskResponse(raw: string): AskResponse | undefined {
  * to deny (safer default — the user hit enter without thinking).
  */
 export function buildReadlineAsker(rl: ReadlineInterface): AskUser {
-  return async ({ toolName, preview, reason, signal }) => {
+  return serializeAskUser(async ({ toolName, preview, reason, signal }) => {
     const summary = preview ? ` ${chalk.bold(preview)}` : '';
     const reasonLine = reason ? chalk.gray(` — ${reason}`) : '';
     process.stdout.write(chalk.yellow(`\n[permission] ${toolName}${summary}${reasonLine}\n`));
@@ -34,6 +34,27 @@ export function buildReadlineAsker(rl: ReadlineInterface): AskUser {
       const parsed = parseAskResponse(raw);
       if (parsed !== undefined) return parsed;
       process.stdout.write(chalk.red('  please enter y, n, or a\n'));
+    }
+  });
+}
+
+/** Serialize interactive permission prompts so concurrent tool batches do
+ * not print multiple readline questions at once. Tool execution can still
+ * run concurrently after each permission decision resolves. */
+export function serializeAskUser(ask: AskUser): AskUser {
+  let tail: Promise<void> = Promise.resolve();
+  return async (opts) => {
+    const previous = tail;
+    let release!: () => void;
+    tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      if (opts.signal?.aborted) throw new Error('permission prompt aborted');
+      return await ask(opts);
+    } finally {
+      release();
     }
   };
 }

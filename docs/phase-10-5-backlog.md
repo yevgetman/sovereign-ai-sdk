@@ -80,7 +80,11 @@ Source tests:
 ## 2. Concurrent Permission Prompts Can Overlap And Stall The REPL
 
 - Priority: P0
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: `buildReadlineAsker()` now wraps the underlying prompt callback in a
+  serialized `AskUser` queue. Concurrent tool batches can still execute their
+  allowed calls in parallel, but human permission questions are presented and
+  answered one at a time.
 - Evidence: In the website test, three concurrent Bash reads caused three
   permission prompts to print at once. After answering, the REPL stopped making
   progress until Ctrl-C.

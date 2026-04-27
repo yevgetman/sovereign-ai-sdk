@@ -2,7 +2,11 @@
 // thin and exercised by the canUseTool tests via a scripted asker.
 
 import { describe, expect, test } from 'bun:test';
-import { parseAskResponse, previewToolInput } from '../../src/permissions/prompt.js';
+import {
+  parseAskResponse,
+  previewToolInput,
+  serializeAskUser,
+} from '../../src/permissions/prompt.js';
 
 describe('parseAskResponse', () => {
   test('y/yes → allow', () => {
@@ -57,5 +61,33 @@ describe('previewToolInput', () => {
   test('returns empty string for null/undefined', () => {
     expect(previewToolInput(null)).toBe('');
     expect(previewToolInput(undefined)).toBe('');
+  });
+});
+
+describe('serializeAskUser', () => {
+  test('queues concurrent asks so only one prompt runs at a time', async () => {
+    const order: string[] = [];
+    const releases: (() => void)[] = [];
+    const ask = serializeAskUser(async ({ toolName }) => {
+      order.push(`start:${toolName}`);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      order.push(`end:${toolName}`);
+      return 'allow';
+    });
+
+    const first = ask({ toolName: 'A', preview: '' });
+    const second = ask({ toolName: 'B', preview: '' });
+
+    await Promise.resolve();
+    expect(order).toEqual(['start:A']);
+
+    releases[0]?.();
+    await expect(first).resolves.toBe('allow');
+    await Promise.resolve();
+    expect(order).toEqual(['start:A', 'end:A', 'start:B']);
+
+    releases[1]?.();
+    await expect(second).resolves.toBe('allow');
+    expect(order).toEqual(['start:A', 'end:A', 'start:B', 'end:B']);
   });
 });
