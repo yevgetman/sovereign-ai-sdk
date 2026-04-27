@@ -155,7 +155,15 @@ Source tests:
 ## 4. Default `maxTokens` Is Too Low For Real Coding/Web Work
 
 - Priority: P1
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: The CLI default `--max-tokens` budget is now 12000. Provider
+  `message_stop` events with `stop_reason: max_tokens` produce a distinct
+  terminal reason, and the REPL prints resume guidance with a higher suggested
+  budget. If a max-token stop includes tool-use blocks, the turn loop now emits
+  synthetic `is_error` tool-results before stopping so the transcript remains
+  valid. The static system prompt also tells the model to prefer direct
+  `FileWrite`/`FileEdit` calls and smaller patches over chat-visible full-file
+  rewrites.
 - Evidence: The website test repeatedly hit `max_tokens` while the model was
   drafting a large CSS rewrite. It often emitted no tool call before stopping.
   Resuming the same session with `--max-tokens 12000` allowed the workflow to

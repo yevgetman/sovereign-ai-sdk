@@ -349,6 +349,78 @@ describe('query() — Phase 2 turn loop', () => {
     expect(terminal?.reason).toBe('max_turns');
   });
 
+  test('max_tokens stop returns a distinct terminal reason', async () => {
+    const partialAnswer: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'partial replacement file...' }],
+    };
+    const provider = scriptedTurns([
+      [
+        { type: 'message_start' },
+        { type: 'text_delta', text: 'partial replacement file...' },
+        { type: 'message_stop', stop_reason: 'max_tokens' },
+        { type: 'assistant_message', message: partialAnswer },
+      ],
+    ]);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'rewrite the site' }] }],
+      systemPrompt: [],
+      maxTokens: 256,
+    });
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+    }
+    expect(terminal?.reason).toBe('max_tokens');
+  });
+
+  test('max_tokens with tool_use emits synthetic tool_result before stopping', async () => {
+    const provider = scriptedTurns([
+      [
+        { type: 'message_start' },
+        { type: 'message_stop', stop_reason: 'max_tokens' },
+        { type: 'assistant_message', message: toolUseAnswer },
+      ],
+    ]);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'run a tool' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('max_tokens');
+    const toolResults = yielded.filter(
+      (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+    ) as Message[];
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0]?.content[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 't1',
+      content:
+        'tool call was not executed because the assistant response hit max_tokens before completing the turn',
+      is_error: true,
+    });
+  });
+
   test('honors pre-aborted signal', async () => {
     const controller = new AbortController();
     controller.abort();

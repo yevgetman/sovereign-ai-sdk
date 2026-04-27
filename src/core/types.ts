@@ -40,7 +40,7 @@ export type StreamEvent =
   | { type: 'assistant_message'; message: AssistantMessage };
 
 export type Terminal = {
-  reason: 'completed' | 'max_turns' | 'error' | 'interrupted';
+  reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted';
   error?: Error;
 };
 

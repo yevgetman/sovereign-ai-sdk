@@ -19,6 +19,28 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Max-Token Recovery And Large-Edit Guidance
+
+- Scope: Phase-10.5 backlog item 4, improving default output budget, provider `max_tokens` recovery, and large file-edit behavior guidance.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/core/query.test.ts tests/ui/terminalMessages.test.ts tests/context/systemPrompt.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. This change is covered by focused query, terminal-message, and system-prompt unit tests.
+- Result:
+  - Passed. Focused tests reported 17 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 105 files with no fixes applied.
+  - Passed. `bun run test` reported 242 passing tests, 0 failures, and 643 assertions across 40 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+  - No live website replay was run for this item; the repeatable eval is tracked separately in backlog item 8.
+
 ## 2026-04-27 - Durable Clear And Transcript Repair
 
 - Scope: Phase-10.5 backlog item 3, making `/clear` a durable recovery path and adding resume/rollback repair for legacy orphaned `tool_use` transcripts.

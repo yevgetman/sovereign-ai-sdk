@@ -22,6 +22,7 @@ import type {
   ContentBlock,
   Message,
   QueryParams,
+  StopReason,
   StreamEvent,
   Terminal,
 } from './types.js';
@@ -57,6 +58,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     if (signal?.aborted) return { reason: 'interrupted' };
 
     let assistant: AssistantMessage | undefined;
+    let stopReason: StopReason | undefined;
 
     try {
       for await (const event of provider.stream({
@@ -71,6 +73,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       })) {
         if (event.type === 'assistant_message') {
           assistant = event.message;
+        }
+        if (event.type === 'message_stop') {
+          stopReason = event.stop_reason;
         }
         yield event;
       }
@@ -89,6 +94,18 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     history.push(assistant);
 
     const toolUseBlocks = assistant.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+
+    if (stopReason === 'max_tokens') {
+      if (toolUseBlocks.length > 0) {
+        const msg = synthesizeToolResultMessage(
+          toolUseBlocks,
+          'tool call was not executed because the assistant response hit max_tokens before completing the turn',
+        );
+        history.push(msg);
+        yield msg;
+      }
+      return { reason: 'max_tokens' };
+    }
 
     if (toolUseBlocks.length === 0) {
       if (params.memoryManager && originalUserText !== undefined) {

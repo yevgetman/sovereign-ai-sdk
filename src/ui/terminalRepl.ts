@@ -52,6 +52,7 @@ import type { SkillRegistry } from '../skills/types.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { ToolContext } from '../tool/types.js';
+import { formatMaxTokensWarning } from './terminalMessages.js';
 
 export type ReplOpts = {
   bundlePath: string;
@@ -377,6 +378,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       if (!latestAssistant) history.pop();
     } else if (terminal?.reason === 'interrupted') {
       process.stderr.write(chalk.yellow('\n[interrupted]\n'));
+    } else if (terminal?.reason === 'max_tokens') {
+      process.stderr.write(
+        chalk.yellow(
+          `\n${formatMaxTokensWarning({
+            maxTokens: opts.maxTokens,
+            sessionId: activeSessionId,
+            bundlePath: opts.bundlePath,
+          })}\n`,
+        ),
+      );
     } else if (terminal?.reason === 'max_turns') {
       process.stderr.write(chalk.yellow('\n[max turns reached]\n'));
     }

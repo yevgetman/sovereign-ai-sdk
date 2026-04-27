@@ -105,6 +105,11 @@ describe('buildSystemSegments', () => {
       expect(segments.some((segment) => segment.text.includes('prefer concise answers'))).toBe(
         true,
       );
+      expect(
+        segments.some((segment) =>
+          segment.text.includes('prefer direct tool writes or small targeted'),
+        ),
+      ).toBe(true);
 
       const runtime = segments.find((segment) => segment.text.includes('<runtime-context>'));
       expect(runtime?.cacheable).toBe(false);

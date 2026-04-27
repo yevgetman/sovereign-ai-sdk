@@ -50,7 +50,7 @@ function loadPackageEnv(): void {
 loadPackageEnv();
 
 const VERSION = '0.0.1';
-const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_MAX_TOKENS = 12000;
 const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
 
 function resolveBundlePath(cliArg: string | undefined): string {
