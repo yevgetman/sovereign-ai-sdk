@@ -17,6 +17,24 @@ Use newest-first ordering.
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Agent Boot Path Refresh
+
+- Scope: Documentation-only maintenance for `AGENTS.md` and `CLAUDE.md` boot paths, replacing stale Desktop/root planning-doc paths with the current docs-repo locations.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+- Manual / REPL coverage:
+  - None. This changed agent-session instructions only.
+- Result:
+  - Passed. `bun run lint` checked 99 files with no fixes applied.
+  - Passed. `bun run test` reported 232 passing tests, 0 failures, and 600 assertions across 37 files.
+- Regressions / follow-ups:
+  - No regressions found.
+  - No live REPL smoke was run because no runtime behavior changed.
+
 ## 2026-04-27 - Runtime Plan Resequencing Docs
 
 - Scope: Runtime-local documentation alignment with `sovereign-ai-docs` `harness-build-plan@5` and the maturity-first remaining build order.

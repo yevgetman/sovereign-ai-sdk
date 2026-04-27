@@ -8,9 +8,9 @@ If you need business context (what Sovereign AI is, what the harness does, why),
 
 1. This file.
 2. `README.md`.
-3. `~/code/sovereign-ai-docs/harness/docs/runtime-scaffold-plan.md` — the phase plan this repo implements.
-4. `~/Desktop/harness-build-plan.md` — the reference phased plan (Claude Code style).
-5. `~/Desktop/agent-harness-design-lessons.md` — 12 unifying design principles.
+3. `~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md` — the Phase-0/1 scaffold contract this repo was seeded against.
+4. `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — the canonical remaining phased plan.
+5. `~/code/sovereign-ai-docs/harness/docs/reference/agent-harness-design-lessons.md` — unifying design principles and Claude Code reference lessons.
 6. `~/code/claude-code/src/` — the architectural reference. Look up specific patterns there when a design question comes up.
 
 ## Tech stack
@@ -23,7 +23,7 @@ If you need business context (what Sovereign AI is, what the harness does, why),
 
 ## Design principles — don't relitigate
 
-Per ADR H-0003 and the three desktop summary documents, these are locked:
+Per ADR H-0003 and the docs-repo planning/reference documents, these are locked:
 
 1. **Async-generator turn loop.** `async function* query(): AsyncGenerator<StreamEvent | Message, Terminal>` from day one. Never collapse to Promise-returning.
 2. **Content-block internal messages.** `Message` carries an array of `ContentBlock`s (text / thinking / tool_use / tool_result / image). Providers translate at the boundary.
@@ -35,7 +35,7 @@ Per ADR H-0003 and the three desktop summary documents, these are locked:
 8. **Sub-agents are recursion.** An `AgentTool` calls `query()` with a filtered context. No parallel execution engine.
 9. **Bundle-as-data contract.** Runtime reads `<bundle>/business/` + `<bundle>/harness/schemas/`, writes `<bundle>/state/`. Never writes to tier-1 or tier-2 content.
 
-When in doubt, read the corresponding section in `~/Desktop/agent-harness-design-lessons.md`.
+When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harness/docs/reference/agent-harness-design-lessons.md`.
 
 ## Repo conventions
 
@@ -48,7 +48,7 @@ When in doubt, read the corresponding section in `~/Desktop/agent-harness-design
 
 ## Phases — where we are
 
-Phases 0 through 10 complete (2026-04-26). Next phase: **Phase 11** (hooks). Do not start Phase 11 unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+Phases 0 through 10 complete (2026-04-26). Next phase: **Phase 10.5** (soak, evals, and traceability). Do not start Phase 10.5 or any later phase unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.
