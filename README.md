@@ -8,9 +8,11 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 **Phase 10 complete (2026-04-26)** - context-window compaction. The REPL supports `/compact` and `/rollback`, stores parent-child session lineage, records separate compaction usage/cost lanes, proactively compacts above 50% of the model context window, and retries once after provider context-overflow errors.
 
-Next phase: **Phase 11 - hooks**. Do not start it unless explicitly requested.
+Next phase: **Phase 10.5 - soak, evals, and traceability**. The canonical v5 build plan now prioritizes private-harness maturity: local-model routing hardening, profile isolation, sub-agent/task parallelism, trajectory capture, and reviewed self-learning before optional external channel/API surfaces.
 
-See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`docs/testing-log.md`](docs/testing-log.md) for test and regression history, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full 28-phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
+Phase 11 hooks remains later in that plan. Do not start any future implementation phase unless explicitly requested.
+
+See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`docs/testing-log.md`](docs/testing-log.md) for test and regression history, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full maturity-first phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 
 ## Install on a new machine
 
@@ -137,11 +139,11 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/mcp/` | MCP client | 12 |
 | `src/bundle/` | Harness-bundle loader (Sovereign AI specific) | 0 skeleton |
 | `src/memory/` | Bounded MEMORY.md / USER.md store, provider ABC, user-message memory injection | 6.5 |
-| `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.2 |
-| `src/review/` | Background review loop (Hermes pattern) | 13 |
-| `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5 |
+| `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.1 |
+| `src/review/` | Background review loop (Hermes pattern) | 13.3 |
+| `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5, 10.6 |
 | `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
-| `src/ui/` | Terminal REPL (plain readline Phase 1, Ink Phase 14) | 0 stub |
+| `src/ui/` | Terminal REPL and future local daemon/TUI surfaces | 0 stub, 1, 16.0/16.7 |
 
 Empty directories are deliberate — they mark future phase landing zones.
 
