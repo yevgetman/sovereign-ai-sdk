@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_URL_BYTES = 128 * 1024;
@@ -83,7 +84,9 @@ function fileReference(raw: string, options: ReferenceOptions & { cwd: string })
     const lines = text.split('\n');
     text = lines.slice(parsed.range.start - 1, parsed.range.end).join('\n');
   }
-  return fence(`referenced-file path="${escapeAttr(real)}"`, text, languageForPath(real));
+  const screened = screenContextFile(real, text);
+  if (!screened.ok) return blockPlaceholder(real, screened.reason);
+  return fence(`referenced-file path="${escapeAttr(real)}"`, screened.text, languageForPath(real));
 }
 
 function folderReference(raw: string, options: ReferenceOptions & { cwd: string }): string {

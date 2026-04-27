@@ -325,7 +325,12 @@ Source tests:
 ## 9. `@file` Context References Need Injection Screening/Fencing
 
 - Priority: P2
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: `@file` expansion now runs referenced content through the shared
+  context-file injection screener before fencing it. Suspicious files and files
+  containing blocked invisible Unicode are replaced with the standard blocked
+  placeholder, while oversized content is truncated before being inserted into
+  the existing `referenced-file` fence.
 - Evidence: Boundary REPL test loaded `@file:./suspicious.md` containing obvious
   prompt-injection language. The content was included in user-turn context. The
   model ignored it, but context-reference expansion did not appear to block or

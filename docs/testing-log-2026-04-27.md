@@ -19,6 +19,27 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Context Reference Injection Screening
+
+- Scope: Phase-10.5 backlog item 9, screening `@file` context-reference content through the same injection-defense path as local context files.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/context/references.test.ts tests/context/injectionDefense.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests cover suspicious referenced-file bodies, invisible Unicode blocking, oversized content truncation, and existing reference expansion behavior.
+- Result:
+  - Passed. Focused context-reference/injection tests reported 12 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 110 files with no fixes applied.
+  - Passed. `bun run test` reported 260 passing tests, 0 failures, and 695 assertions across 43 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Repeatable Website Build Eval
 
 - Scope: Phase-10.5 backlog item 8, codifying the real-world website run into a repeatable fixture-backed eval and artifact validator.
