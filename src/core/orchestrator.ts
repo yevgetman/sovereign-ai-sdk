@@ -15,10 +15,10 @@
 // Source of pattern: Claude Code src/services/tools/toolOrchestration.ts;
 // path-scoped serialization mirrors hermes-reverse-engineering.md §2.6.
 
-import { isAbsolute, resolve } from 'node:path';
 import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import { resolveToolPath } from '../tools/pathUtils.js';
 import type { ContentBlock, Message, UserMessage } from './types.js';
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
@@ -252,7 +252,7 @@ function getAffectedPaths(tool: Tool<unknown, unknown>, input: unknown, cwd: str
   if (!tool.affectedPaths) return [];
   try {
     const raw = tool.affectedPaths(input);
-    return raw.map((p) => (isAbsolute(p) ? p : resolve(cwd, p)));
+    return raw.map((p) => resolveToolPath(p, cwd));
   } catch {
     return [];
   }

@@ -4,8 +4,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
 import { FileEditTool } from '../../src/tools/FileEditTool.js';
 
@@ -20,6 +20,19 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function withHomeTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(homedir(), '.sovereign-fileedit-home-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function asHomePath(path: string): string {
+  return `~/${relative(homedir(), path)}`;
 }
 
 describe('FileEditTool', () => {
@@ -58,6 +71,19 @@ describe('FileEditTool', () => {
       );
       expect(result.data.replacements).toBe(3);
       expect(readFileSync(p, 'utf8')).toBe('bar bar bar');
+    });
+  });
+
+  test('expands leading ~/ paths before editing', async () => {
+    await withHomeTmp(async (dir) => {
+      const p = join(dir, 'home-edit.txt');
+      writeFileSync(p, 'before');
+      const result = await FileEditTool.call(
+        { path: asHomePath(p), old_string: 'before', new_string: 'after' },
+        makeCtx('/tmp'),
+      );
+      expect(result.data.path).toBe(p);
+      expect(readFileSync(p, 'utf8')).toBe('after');
     });
   });
 

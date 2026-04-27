@@ -3,8 +3,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
 import { FileWriteTool } from '../../src/tools/FileWriteTool.js';
 
@@ -19,6 +19,19 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function withHomeTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(homedir(), '.sovereign-filewrite-home-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function asHomePath(path: string): string {
+  return `~/${relative(homedir(), path)}`;
 }
 
 describe('FileWriteTool', () => {
@@ -43,6 +56,18 @@ describe('FileWriteTool', () => {
       expect(readFileSync(p, 'utf8')).toBe('new');
       const rendered = FileWriteTool.renderResult?.(result.data);
       expect(rendered?.content).toContain('wrote 3 bytes');
+    });
+  });
+
+  test('expands leading ~/ paths before writing', async () => {
+    await withHomeTmp(async (dir) => {
+      const p = join(dir, 'home-write.txt');
+      const result = await FileWriteTool.call(
+        { path: asHomePath(p), content: 'from home shorthand' },
+        makeCtx('/tmp'),
+      );
+      expect(result.data.path).toBe(p);
+      expect(readFileSync(p, 'utf8')).toBe('from home shorthand');
     });
   });
 

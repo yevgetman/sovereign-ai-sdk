@@ -9,13 +9,13 @@
 // (widen old_string, switch to replace_all, etc.).
 
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
-  path: z.string().describe('Absolute path, or cwd-relative path, to the file to edit.'),
+  path: z.string().describe('Absolute path, ~/ path, or cwd-relative path, to the file to edit.'),
   old_string: z
     .string()
     .describe(
@@ -51,7 +51,7 @@ export const FileEditTool = buildTool<Input, Output>({
     content: `${out.path}: ${out.replacements} replacement${out.replacements === 1 ? '' : 's'}`,
   }),
   async call(input, ctx) {
-    const abs = isAbsolute(input.path) ? input.path : resolve(ctx.cwd, input.path);
+    const abs = resolveToolPath(input.path, ctx.cwd);
     if (!existsSync(abs)) {
       throw new Error(`file does not exist: ${abs}`);
     }

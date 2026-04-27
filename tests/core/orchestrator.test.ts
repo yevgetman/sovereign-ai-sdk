@@ -5,6 +5,7 @@
 // order-preserving result re-insertion, and the per-tool renderResult.
 
 import { describe, expect, test } from 'bun:test';
+import { homedir } from 'node:os';
 import { z } from 'zod';
 import {
   CONCURRENT_CAP,
@@ -423,6 +424,15 @@ describe('splitByPathOverlap', () => {
     const items = [
       { block: block('a', 'Writer', 'sub/x'), index: 0 },
       { block: block('b', 'Writer', '/tmp/sub/x'), index: 1 },
+    ];
+    const out = splitByPathOverlap(items, tools, '/tmp');
+    expect(out).toHaveLength(2);
+  });
+
+  test('home shorthand paths are expanded before overlap check', () => {
+    const items = [
+      { block: block('a', 'Writer', '~/same'), index: 0 },
+      { block: block('b', 'Writer', `${homedir()}/same`), index: 1 },
     ];
     const out = splitByPathOverlap(items, tools, '/tmp');
     expect(out).toHaveLength(2);

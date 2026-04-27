@@ -11,13 +11,17 @@
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext } from '../tool/types.js';
+import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
 const inputSchema = z.object({
   pattern: z.string().describe('Regular expression to search for (ripgrep syntax).'),
-  path: z.string().optional().describe('Directory or file to search (default: cwd).'),
+  path: z
+    .string()
+    .optional()
+    .describe('Directory or file to search; accepts absolute, ~/, or cwd-relative paths.'),
   glob: z
     .string()
     .optional()
@@ -81,7 +85,7 @@ async function runGrep(input: Input, ctx: ToolContext): Promise<{ data: Output }
   if (input.show_line_numbers && mode === 'content') args.push('--line-number');
   if (input.glob) args.push('--glob', input.glob);
   args.push('--', input.pattern);
-  if (input.path) args.push(input.path);
+  if (input.path) args.push(resolveToolPath(input.path, ctx.cwd));
 
   let proc: ReturnType<typeof Bun.spawn>;
   try {

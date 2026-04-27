@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { wildcardMatches } from '../config/rules.js';
+import { expandHomePath } from './pathUtils.js';
 
 export function matchesPathPermissionPattern(path: string, pattern: string): boolean {
   const normalizedPath = normalizePath(path);
@@ -15,7 +16,7 @@ export function matchesPathPermissionPattern(path: string, pattern: string): boo
 }
 
 function normalizePath(path: string): string {
-  return path.replace(/\\/g, '/');
+  return expandHomePath(path).replace(/\\/g, '/');
 }
 
 function stripDotSlash(path: string): string {

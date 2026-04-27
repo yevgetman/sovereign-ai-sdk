@@ -3,8 +3,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
 import { GrepTool } from '../../src/tools/GrepTool.js';
 
@@ -31,6 +31,19 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function withHomeTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(homedir(), '.sovereign-grep-home-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function asHomePath(path: string): string {
+  return `~/${relative(homedir(), path)}`;
 }
 
 const dscribe = RG_AVAILABLE ? describe : describe.skip;
@@ -129,6 +142,17 @@ dscribe('GrepTool', () => {
       const result = await GrepTool.call({ pattern: 'inside', path: 'sub' }, makeCtx(dir));
       expect(result.data.matches.length).toBeGreaterThan(0);
       expect(result.data.matches.join('\n')).toContain('inside');
+    });
+  });
+
+  test('expands leading ~/ paths before searching', async () => {
+    await withHomeTmp(async (dir) => {
+      writeFileSync(join(dir, 'home.txt'), 'home-needle\n');
+      const result = await GrepTool.call(
+        { pattern: 'home-needle', path: asHomePath(dir) },
+        makeCtx('/tmp'),
+      );
+      expect(result.data.matches.join('\n')).toContain('home-needle');
     });
   });
 });

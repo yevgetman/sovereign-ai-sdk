@@ -2,8 +2,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
 import { GlobTool } from '../../src/tools/GlobTool.js';
 
@@ -18,6 +18,19 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function withHomeTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(homedir(), '.sovereign-glob-home-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function asHomePath(path: string): string {
+  return `~/${relative(homedir(), path)}`;
 }
 
 describe('GlobTool', () => {
@@ -52,6 +65,17 @@ describe('GlobTool', () => {
       writeFileSync(join(dir, 'z.txt'), ''); // outside
       const result = await GlobTool.call({ pattern: '*.txt', path: 'sub' }, makeCtx(dir));
       expect(result.data.paths.sort()).toEqual(['x.txt', 'y.txt']);
+    });
+  });
+
+  test('expands leading ~/ path roots before scanning', async () => {
+    await withHomeTmp(async (dir) => {
+      writeFileSync(join(dir, 'home.txt'), '');
+      const result = await GlobTool.call(
+        { pattern: '*.txt', path: asHomePath(dir) },
+        makeCtx('/tmp'),
+      );
+      expect(result.data.paths).toEqual(['home.txt']);
     });
   });
 

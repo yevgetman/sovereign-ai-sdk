@@ -2,14 +2,17 @@
 // `Bun.Glob` (no shell-out, no extra dependency). Read-only and
 // concurrency-safe; results sorted lexicographically for determinism.
 
-import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
   pattern: z.string().describe('Glob pattern, e.g. "src/**/*.ts" or "*.md".'),
-  path: z.string().optional().describe('Directory to scan (default: cwd).'),
+  path: z
+    .string()
+    .optional()
+    .describe('Directory to scan; accepts absolute, ~/, or cwd-relative paths. Default: cwd.'),
   head_limit: z
     .number()
     .int()
@@ -44,11 +47,7 @@ export const GlobTool = buildTool<Input, Output>({
           : out.paths.join('\n'),
   }),
   async call(input, ctx) {
-    const baseDir = input.path
-      ? isAbsolute(input.path)
-        ? input.path
-        : resolve(ctx.cwd, input.path)
-      : ctx.cwd;
+    const baseDir = input.path ? resolveToolPath(input.path, ctx.cwd) : ctx.cwd;
     const glob = new Bun.Glob(input.pattern);
     const found: string[] = [];
     let truncated = false;

@@ -5,13 +5,14 @@
 // session's working directory don't prompt.
 
 import { existsSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const inputSchema = z.object({
-  path: z.string().describe('Absolute path, or cwd-relative path, to the file to write.'),
+  path: z.string().describe('Absolute path, ~/ path, or cwd-relative path, to the file to write.'),
   content: z.string().describe('Full file contents. Overwrites any existing file at the path.'),
 });
 
@@ -45,7 +46,7 @@ export const FileWriteTool = buildTool<Input, Output>({
       : `wrote ${out.bytesWritten} bytes to ${out.path}`,
   }),
   async call(input, ctx) {
-    const abs = isAbsolute(input.path) ? input.path : resolve(ctx.cwd, input.path);
+    const abs = resolveToolPath(input.path, ctx.cwd);
     const parentDir = dirname(abs);
     if (!existsSync(parentDir)) {
       throw new Error(`parent directory does not exist: ${parentDir}`);

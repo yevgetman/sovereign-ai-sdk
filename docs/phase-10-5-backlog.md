@@ -199,7 +199,12 @@ Source tests:
 ## 5. Filesystem Tools Do Not Normalize `~` Paths
 
 - Priority: P2
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: Added shared tool path normalization that expands leading `~` and `~/`
+  to the current user's home directory. `FileRead`, `FileWrite`, `FileEdit`,
+  `Grep`, and `Glob` now use the normalized path for filesystem access.
+  Permission path matching and orchestrator path-overlap checks also normalize
+  leading home shorthands, while non-leading `~` remains literal.
 - Evidence: The harness initially tried `FileWrite` with
   `~/code/harness-website-test-2026-04-27/index.html`, got a tool error, then
   recovered by writing relative paths.

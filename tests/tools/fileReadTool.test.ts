@@ -3,8 +3,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
 import { FileReadTool } from '../../src/tools/FileReadTool.js';
 
@@ -19,6 +19,19 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function withHomeTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(homedir(), '.sovereign-fileread-home-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function asHomePath(path: string): string {
+  return `~/${relative(homedir(), path)}`;
 }
 
 describe('FileReadTool', () => {
@@ -55,6 +68,16 @@ describe('FileReadTool', () => {
       const result = await FileReadTool.call({ path: 'sub/r.txt' }, makeCtx(dir));
       expect(result.data.lines).toEqual(['rel']);
       expect(result.data.path).toBe(join(dir, 'sub', 'r.txt'));
+    });
+  });
+
+  test('expands leading ~/ paths before reading', async () => {
+    await withHomeTmp(async (dir) => {
+      const p = join(dir, 'home-read.txt');
+      writeFileSync(p, 'home');
+      const result = await FileReadTool.call({ path: asHomePath(p) }, makeCtx('/tmp'));
+      expect(result.data.path).toBe(p);
+      expect(result.data.lines).toEqual(['home']);
     });
   });
 

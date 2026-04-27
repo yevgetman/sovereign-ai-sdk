@@ -9,9 +9,9 @@
 // appears.
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 /** Hard cap on how many bytes the tool will read in a single call. Files
@@ -20,7 +20,7 @@ import { matchesPathPermissionPattern } from './permissionMatchers.js';
 const MAX_BYTES = 1024 * 1024;
 
 const inputSchema = z.object({
-  path: z.string().describe('Absolute path, or cwd-relative path, to the file.'),
+  path: z.string().describe('Absolute path, ~/ path, or cwd-relative path, to the file.'),
   offset: z
     .number()
     .int()
@@ -60,7 +60,7 @@ export const FileReadTool = buildTool<Input, Output>({
     matchesPathPermissionPattern(input.path, pattern),
   renderResult: (out) => ({ content: renderFileRead(out) }),
   async call(input, ctx) {
-    const abs = isAbsolute(input.path) ? input.path : resolve(ctx.cwd, input.path);
+    const abs = resolveToolPath(input.path, ctx.cwd);
     if (!existsSync(abs)) {
       throw new Error(`file does not exist: ${abs}`);
     }

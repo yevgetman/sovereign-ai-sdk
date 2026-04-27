@@ -19,6 +19,28 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Filesystem Home Path Normalization
+
+- Scope: Phase-10.5 backlog item 5, expanding leading `~` paths consistently across filesystem tools, permission matching, and path-overlap checks.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/tools/pathUtils.test.ts tests/tools/permissionMatchers.test.ts tests/tools/fileReadTool.test.ts tests/tools/fileWriteTool.test.ts tests/tools/fileEditTool.test.ts tests/tools/globTool.test.ts tests/tools/grepTool.test.ts tests/core/orchestrator.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests exercised real `~/` file reads, writes, edits, glob scans, ripgrep searches, permission matching, and path-overlap serialization.
+- Result:
+  - Passed. Focused tests reported 77 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 108 files with no fixes applied after formatting two long test calls.
+  - Passed. `bun run test` reported 252 passing tests, 0 failures, and 662 assertions across 42 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+  - Non-leading `~` and `~other` remain literal by design.
+
 ## 2026-04-27 - Max-Token Recovery And Large-Edit Guidance
 
 - Scope: Phase-10.5 backlog item 4, improving default output budget, provider `max_tokens` recovery, and large file-edit behavior guidance.
