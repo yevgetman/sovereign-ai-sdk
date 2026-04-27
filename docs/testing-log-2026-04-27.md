@@ -4,6 +4,8 @@ Append to this log whenever harness testing is performed, including automated te
 
 Use newest-first ordering.
 
+Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](phase-10-5-backlog.md).
+
 ## Entry Format
 
 ```markdown
