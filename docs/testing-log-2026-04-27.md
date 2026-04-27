@@ -4,7 +4,9 @@ Append to this log whenever harness testing is performed, including automated te
 
 Use newest-first ordering.
 
-Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](phase-10-5-backlog.md).
+Implementation backlogs from these findings live in
+[`phase-10-5-backlog.md`](phase-10-5-backlog.md) and
+[`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md).
 
 ## Entry Format
 
@@ -18,6 +20,57 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Result:
 - Regressions / follow-ups:
 ```
+
+## 2026-04-27 - Post-Fix Real-World Website REPL Retest
+
+- Scope: Real-world REPL retest after closing the Phase-10.5 backlog. The test repeated the imperfect website-building workflow with a new static site under `~/code`, then validated the produced artifact externally and checked session transcript integrity.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Bundle: `/Users/julie/code/sovereign-ai-docs`
+  - Website workspace: `/Users/julie/code/harness-website-retest-2026-04-27-183331`
+  - `HARNESS_HOME`: `/tmp/sovereign-website-retest-home.xTzuDY`
+  - Session DB: `/Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db`
+  - Anthropic session: `765ac708-6a92-457c-a116-c4b131362bf2`
+  - Ollama fallback session: `19077fe8-bbab-4410-a128-8a6421a7684b`
+  - Screenshots: `/tmp/harness-retest-desktop.png`, `/tmp/harness-retest-mobile.png`
+- Commands:
+  - `script -q /Users/julie/code/harness-website-retest-2026-04-27-183331/repl-transcript.txt env HARNESS_HOME=/tmp/sovereign-website-retest-home.xTzuDY bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db --permission-mode ask --no-cache`
+  - `ollama serve`
+  - `ollama list`
+  - `script -q /Users/julie/code/harness-website-retest-2026-04-27-183331/repl-transcript-ollama.txt env HARNESS_HOME=/tmp/sovereign-website-retest-home.xTzuDY bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --provider ollama --model dolphin-llama3:latest --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db --permission-mode ask --no-cache --max-tokens 4096`
+  - `python3 -m http.server 4181`
+  - `curl -fsS -D - http://127.0.0.1:4181/ -o /tmp/harness-retest-index.html`
+  - `curl -fsS -I http://127.0.0.1:4181/style.css`
+  - `curl -fsS -I http://127.0.0.1:4181/chooser.js`
+  - `npx --yes playwright screenshot --full-page --viewport-size=1440,1000 http://127.0.0.1:4181/ /tmp/harness-retest-desktop.png`
+  - `npx --yes playwright screenshot --full-page --viewport-size=390,844 http://127.0.0.1:4181/ /tmp/harness-retest-mobile.png`
+  - `sqlite3 /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db "pragma wal_checkpoint(full); select ..."`
+  - Direct Bun/SQLite transcript scan for assistant `tool_use` blocks missing immediate next-message `tool_result` blocks.
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - Prompted the harness with imperfect user language: "make me a small tasteful website for a neighborhood plant shop called Moss & Main... put it in ~/code/... keep it simple but make it feel like a real local shop, not a startup landing page."
+  - Followed with vague revision feedback: "it still sounds a little like brochure copy... add a small workshops/classes area, make sure it works well on phones, and add a tiny javascript plant-care chooser or estimator."
+  - Approved write/edit prompts one at a time under `--permission-mode ask`.
+  - Ran `/cost` and `/quit` after provider errors.
+  - Tried an Ollama fallback session against `dolphin-llama3:latest` after the Anthropic account hit a billing error.
+- Result:
+  - Partially passed with provider limitation. The Anthropic session created a usable static site shell with `index.html` and `style.css`, successfully wrote to `~/code/...` paths, skipped prompts for read-only Bash/FileRead calls, and serialized write/edit permission prompts without overlap or stall.
+  - Passed. The first turn completed under the new default token budget without `max_tokens`.
+  - Passed. `/cost` after the Anthropic provider error reported 61,953 total tokens and `$0.19` estimated chat cost.
+  - Passed. Transcript integrity scan reported `missing_tool_results=0` for both sessions, including after provider errors.
+  - Passed. Local server returned HTTP 200 for `/` and `style.css`.
+  - Passed. Desktop and mobile screenshots rendered nonblank; the mobile layout was usable and did not have obvious overlap.
+  - Failed artifact validation. `index.html` references `chooser.js`, but `chooser.js` was never written because the provider failed before the planned JavaScript write. `curl -I /chooser.js` returned HTTP 404.
+  - Failed provider continuation. Anthropic returned a low-credit error during the second turn after partial file edits.
+  - Failed local fallback. Ollama started, but `dolphin-llama3:latest` rejected the first request because the model does not support tools.
+  - Passed. `bun run lint` checked 110 files with no fixes applied.
+  - Passed. `bun run test` reported 261 passing tests, 0 failures, and 700 assertions across 43 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regression found in the Phase-10.5 fixes for home-path normalization, serialized permission prompts, read-only prompt skipping, max-token recovery, or transcript validity.
+  - New candidate improvements are recorded in [`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md): provider/model preflight, clearer partial-artifact warnings after provider failures, a static-site validator helper, unsupported Ollama tool-model handling, stale max-token docs, pasted slash-command handling, and optional terminal transcript capture.
 
 ## 2026-04-27 - Phase-10.5 Backlog Final Validation
 
