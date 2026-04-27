@@ -128,9 +128,11 @@ describe('slash command registry', () => {
     expect(result.command.allowedTools).toContain('Bash(git status)');
     expect(result.command.allowedTools).toContain('Bash(git commit **)');
     expect(result.content[0]?.type).toBe('text');
-    expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
-      'include tests',
-    );
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
+    expect(text).toContain(process.cwd());
+    expect(text).toContain('Do not use cd');
+    expect(text).toContain('Use only direct git status, git diff, git add, and git commit');
+    expect(text).toContain('include tests');
   });
 
   test('loaded skills register as prompt commands', async () => {

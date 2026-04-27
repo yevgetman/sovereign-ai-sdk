@@ -75,12 +75,12 @@ export const COMMANDS: SlashCommand[] = [
       'Bash(git add **)',
       'Bash(git commit **)',
     ],
-    getPromptForCommand: async (args) => {
+    getPromptForCommand: async (args, ctx) => {
       const extra = args.trim() ? ` Additional user instruction: ${args.trim()}` : '';
       return [
         {
           type: 'text',
-          text: `Stage the relevant changes, write a concise commit message that explains why, and commit. Use only git status, git diff, git add, and git commit operations.${extra}`,
+          text: `Stage the relevant changes, write a concise commit message that explains why, and commit from the current working directory: ${ctx.cwd}. The shell already starts in that directory. Do not use cd, pushd, git -C, subshells, pipes, or chained commands. Use only direct git status, git diff, git add, and git commit operations.${extra}`,
         },
       ];
     },

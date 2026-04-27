@@ -352,7 +352,13 @@ Source tests:
 ## 10. `/commit` Prompt Scope Is Too Brittle Around `cd`
 
 - Priority: P3
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: The `/commit` prompt now includes the active cwd, states that the shell
+  already starts there, and explicitly forbids `cd`, `pushd`, `git -C`,
+  subshells, pipes, and chained commands. The slash-command scope remains
+  narrow: direct `git status`, `git diff`, `git add`, and `git commit`
+  operations are allowed, while `cd ... && git status` and unrelated chains are
+  denied by command-scope tests.
 - Evidence: Boundary REPL test ran `/commit dry run...`; the prompt command
   generated `cd /tmp/... && git status`, which was denied because scoped Bash
   rules allowed `git status` but not `cd ... && git status`.

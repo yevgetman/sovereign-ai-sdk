@@ -52,4 +52,23 @@ describe('buildToolScope', () => {
     );
     expect(commit.behavior).toBe('allow');
   });
+
+  test('scoped Bash rules deny cd-prefixed and chained commands', async () => {
+    const base: CanUseTool = async () => ({ behavior: 'allow' });
+    const scoped = buildToolScope({
+      allowedTools: ['Bash(git status)', 'Bash(git status **)'],
+      tools: [bashTool],
+      canUseTool: base,
+    });
+
+    const cdStatus = await scoped.canUseTool(bashTool, { command: 'cd /tmp && git status' }, ctx);
+    expect(cdStatus.behavior).toBe('deny');
+
+    const chained = await scoped.canUseTool(
+      bashTool,
+      { command: 'git status && rm -rf /tmp/nope' },
+      ctx,
+    );
+    expect(chained.behavior).toBe('deny');
+  });
 });
