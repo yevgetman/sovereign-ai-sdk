@@ -264,7 +264,14 @@ Source tests:
 ## 7. Ask-Mode Read-Only Friction
 
 - Priority: P3
-- Status: open
+- Status: complete (2026-04-27)
+- Decision: `ask` mode should still honor tool self-checks. Explicit ask/deny
+  rules remain authoritative, but calls that a tool can prove are read-only may
+  run without prompting.
+- Fix: `BashTool.checkPermissions` now returns `allow` for commands already
+  classified as read-only/concurrency-safe by `isReadOnlyBashCommand`; mutating
+  or opaque Bash commands still return `ask`. Permission tests confirm explicit
+  ask rules still force a human prompt for read-only Bash.
 - Evidence: `pwd && ls` prompted under `--permission-mode ask`. This is safe,
   but noisy. The model later described it as if no prompt had been needed; the
   observed behavior is the source of truth.

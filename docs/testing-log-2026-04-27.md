@@ -19,6 +19,28 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Ask-Mode Read-Only Bash Friction
+
+- Scope: Phase-10.5 backlog item 7, allowing provably read-only Bash commands to skip prompts in ask mode while preserving explicit ask/deny rules.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/tools/bashTool.test.ts tests/permissions/canUseTool.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests cover Bash self-check behavior, ask-mode prompt skipping, and explicit ask-rule override behavior.
+- Result:
+  - Passed. Focused Bash/permission tests reported 33 passing tests and 0 failures before the generic test cast; the targeted permission rerun reported 14 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 108 files with no fixes applied.
+  - Passed. `bun run test` reported 255 passing tests, 0 failures, and 671 assertions across 42 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+  - The Bash read-only classifier remains conservative: path-prefixed binaries, command substitution, and off-allowlist commands still prompt.
+
 ## 2026-04-27 - Cheap Completion Validation Guidance
 
 - Scope: Phase-10.5 backlog item 6, adding generic model guidance to run cheap validators before claiming code/web work is complete.

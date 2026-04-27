@@ -8,12 +8,14 @@ import { buildCanUseTool } from '../../src/permissions/canUseTool.js';
 import type { AskResponse, AskUser, PermissionResult } from '../../src/permissions/types.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
+import { BashTool } from '../../src/tools/BashTool.js';
 
 const ctx: ToolContext = {
   cwd: process.cwd(),
   bundleRoot: process.cwd(),
   sessionId: 'test',
 };
+const bashTool = BashTool as unknown as Tool<unknown, unknown>;
 
 function makeTool(checkPermissions?: () => Promise<PermissionResult>): Tool<unknown, unknown> {
   const def: Parameters<typeof buildTool>[0] = {
@@ -183,6 +185,36 @@ describe('buildCanUseTool', () => {
     expect(result.behavior).toBe('allow');
     expect(result.reason).toBe('preapproved');
     expect(asker.calls).toBe(0);
+  });
+
+  test('ask mode allows read-only Bash self-checks without prompting', async () => {
+    const asker = scriptAsker([]);
+    const canUseTool = buildCanUseTool({
+      mode: 'ask',
+      ask: asker.ask,
+      alwaysAllow: new Set(),
+    });
+    const result = await canUseTool(bashTool, { command: 'pwd && ls' }, ctx);
+    expect(result.behavior).toBe('allow');
+    expect(asker.calls).toBe(0);
+  });
+
+  test('explicit ask rules still force prompts for read-only Bash', async () => {
+    const asker = scriptAsker(['deny']);
+    const canUseTool = buildCanUseTool({
+      mode: 'ask',
+      ask: asker.ask,
+      alwaysAllow: new Set(),
+      ruleLayers: [
+        {
+          source: 'project',
+          rules: [{ behavior: 'ask', tool: 'Bash', content: '*', raw: 'Bash(*)' }],
+        },
+      ],
+    });
+    const result = await canUseTool(bashTool, { command: 'pwd && ls' }, ctx);
+    expect(result.behavior).toBe('deny');
+    expect(asker.calls).toBe(1);
   });
 
   test("self-check 'deny' returns deny without prompting", async () => {

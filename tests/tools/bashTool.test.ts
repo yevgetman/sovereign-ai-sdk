@@ -84,6 +84,13 @@ describe('BashTool', () => {
     expect(BashTool.shouldDefer).toBe(false);
   });
 
+  test('checkPermissions allows read-only commands and asks for mutating commands', async () => {
+    const readOnly = await BashTool.checkPermissions({ command: 'pwd && ls' }, ctx);
+    expect(readOnly.behavior).toBe('allow');
+    const mutating = await BashTool.checkPermissions({ command: 'printf x > file' }, ctx);
+    expect(mutating.behavior).toBe('ask');
+  });
+
   test('Phase 4: renderResult formats the bash output and propagates is_error on non-zero exit', async () => {
     const ok = await BashTool.call({ command: 'echo hello' }, ctx);
     const okRendered = BashTool.renderResult?.(ok.data);
