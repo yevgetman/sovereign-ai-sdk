@@ -115,7 +115,13 @@ Source tests:
 ## 3. `/clear` Does Not Repair Persisted Malformed History
 
 - Priority: P1
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: `/clear` now creates a fresh child session with the current frozen system
+  prompt, model/provider metadata, and empty history while preserving the parent
+  session for debugging and `/rollback`. Resume and rollback also pass loaded
+  transcripts through a provider-safety repair view that synthesizes missing
+  `is_error` tool-result blocks after orphaned `tool_use` messages so legacy
+  malformed sessions can continue without provider 400s.
 - Evidence: `/clear` recovered the live REPL after the malformed tool-use
   transcript, but resuming the same session reloaded the invalid persisted
   history and produced the same Anthropic 400 until `/clear` was run again.

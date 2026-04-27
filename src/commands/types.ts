@@ -13,7 +13,7 @@ export type CommandContext = {
   providerName: string;
   model: string;
   setModel: (model: string) => void;
-  clearHistory: () => void;
+  clearHistory: () => string;
   getCost: () => SessionCost;
   compact: () => Promise<CompactResult>;
   rollback: () => Promise<string>;

@@ -16,6 +16,7 @@
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
+import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { loadBundle } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
@@ -30,6 +31,7 @@ import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import { estimateMessageTokens } from '../core/tokenEstimate.js';
+import { repairMissingToolResults } from '../core/transcriptRepair.js';
 import type {
   AssistantMessage,
   Message,
@@ -176,9 +178,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     setModel: (model) => {
       activeModel = model;
     },
-    clearHistory: () => {
-      history.length = 0;
-    },
+    clearHistory: clearNow,
     getCost: () => db.getSessionCost(activeSessionId),
     compact: compactNow,
     rollback: rollbackNow,
@@ -413,13 +413,44 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     activeSessionId = parent.sessionId;
     activeModel = parent.model;
     toolContext.sessionId = activeSessionId;
-    const restored = db.loadMessages(activeSessionId).map((message) => ({
+    const rawRestored = db.loadMessages(activeSessionId).map((message) => ({
       role: message.role,
       content: message.content,
     })) as Message[];
+    const { messages: restored, insertedToolResults } = repairMissingToolResults(rawRestored);
+    if (insertedToolResults > 0) {
+      process.stderr.write(
+        chalk.yellow(
+          `[repair] synthesized ${insertedToolResults} missing tool_result block(s) while rolling back to ${activeSessionId}\n`,
+        ),
+      );
+    }
     history.length = 0;
     history.push(...restored);
     return `rolled back to parent session ${activeSessionId}; restored ${restored.length} messages`;
+  }
+
+  function clearNow(): string {
+    const result = createClearedChildSession(db, {
+      parentSessionId: activeSessionId,
+      model: activeModel,
+      provider: providerName,
+      systemPrompt,
+      metadata: {
+        bundleRoot: bundle.root,
+        provider: providerName,
+        baseUrl: resolved.baseUrl,
+        contextLength: resolved.contextLength,
+      },
+    });
+    activeSessionId = result.newSessionId;
+    toolContext.sessionId = activeSessionId;
+    history.length = 0;
+    return [
+      `conversation history cleared into child session ${result.newSessionId}`,
+      `parent session preserved: ${result.parentSessionId}`,
+      'rollback: /rollback',
+    ].join('\n');
   }
 
   function scopedToolsForCommand(command: PromptCommand): {
@@ -548,10 +579,18 @@ function openOrResumeSession(
     throw new Error(`session ${opts.resumeId} has no stored system prompt — cannot resume`);
   }
   const storedMessages = db.loadMessages(opts.resumeId);
-  const history: Message[] = storedMessages.map((m) => ({
+  const rawHistory: Message[] = storedMessages.map((m) => ({
     role: m.role,
     content: m.content,
   }));
+  const { messages: history, insertedToolResults } = repairMissingToolResults(rawHistory);
+  if (insertedToolResults > 0) {
+    process.stderr.write(
+      chalk.yellow(
+        `[repair] synthesized ${insertedToolResults} missing tool_result block(s) while loading session ${opts.resumeId}\n`,
+      ),
+    );
+  }
   return {
     sessionId: opts.resumeId,
     systemPrompt: session.systemPrompt,

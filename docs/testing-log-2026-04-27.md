@@ -19,6 +19,28 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Durable Clear And Transcript Repair
+
+- Scope: Phase-10.5 backlog item 3, making `/clear` a durable recovery path and adding resume/rollback repair for legacy orphaned `tool_use` transcripts.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/core/transcriptRepair.test.ts tests/agent/sessionRecovery.test.ts tests/commands/registry.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. This change is covered by focused unit tests for transcript repair, cleared child-session creation, and `/clear` command dispatch.
+- Result:
+  - Passed. Focused tests reported 12 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 103 files with no fixes applied.
+  - Passed. `bun run test` reported 238 passing tests, 0 failures, and 631 assertions across 39 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+  - The original malformed parent transcript remains raw in SQLite for debugging; the provider-safe repair is applied at load time.
+
 ## 2026-04-27 - Real-World Website Build Harness Test
 
 - Scope: Real-world use-case REPL test where the harness built a simple static website from imperfect, iterative human-style prompts. The test exercised multi-turn file creation and revision, vague design feedback, responsive/mobile feedback, JavaScript feature addition, self-inspection, late rename/copy changes, external validation, recovery from harness errors, and final artifact verification.

@@ -37,6 +37,7 @@ function makeCtx(): CommandContext {
     },
     clearHistory: () => {
       cleared = true;
+      return 'conversation history cleared into child session session-2';
     },
     getCost: () => ({
       inputTokens: 10,
@@ -99,6 +100,7 @@ describe('slash command registry', () => {
     const result = await dispatchSlashCommand('/clear', ctx);
     if (result.kind !== 'local') throw new Error('expected local command result');
     expect(ctx.cleared).toBe(true);
+    expect(result.output).toContain('child session');
   });
 
   test('/cost formats token and dollar totals', async () => {

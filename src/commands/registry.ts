@@ -16,11 +16,8 @@ export const COMMANDS: SlashCommand[] = [
   {
     type: 'local',
     name: 'clear',
-    description: 'Clear in-memory conversation history for the current session.',
-    call: async (_args, ctx) => {
-      ctx.clearHistory();
-      return 'conversation history cleared';
-    },
+    description: 'Clear conversation history by starting a fresh child session.',
+    call: async (_args, ctx) => ctx.clearHistory(),
   },
   {
     type: 'local',
