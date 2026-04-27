@@ -62,7 +62,7 @@ Run `bun run lint` and `bun run test` before every commit. Commit atomically —
 
 ## Testing log
 
-Append an entry to `docs/testing-log.md` whenever harness testing is performed, whether automated (`bun run test`, lint/typecheck gates, targeted unit tests) or semantic/manual (CLI checks, REPL smoke tests, provider/tool behavior checks). Record the scope, environment, commands, manual coverage, result, and any regressions or follow-ups.
+Append an entry to `docs/testing-log-2026-04-27.md` whenever harness testing is performed, whether automated (`bun run test`, lint/typecheck gates, targeted unit tests) or semantic/manual (CLI checks, REPL smoke tests, provider/tool behavior checks). Record the scope, environment, commands, manual coverage, result, and any regressions or follow-ups.
 
 ## Commit and push
 
