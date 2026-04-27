@@ -230,7 +230,13 @@ Source tests:
 ## 6. Add Cheap Completion Validation For Code/Web Artifacts
 
 - Priority: P2
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: The static system prompt now tells the model to run cheap local
+  validators before claiming code or web artifacts are complete, with generic
+  examples for JavaScript (`node --check`), TypeScript/Bun (`bun run typecheck`
+  or targeted tests), and static websites (local server or reference checks).
+  It also instructs the model to report clearly when no suitable validator or
+  runtime is available.
 - Evidence: The harness claimed the website was ready before running
   `node --check estimator.js`. External validation found a syntax error caused
   by unescaped apostrophes inside single-quoted strings. After receiving the

@@ -19,6 +19,28 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Cheap Completion Validation Guidance
+
+- Scope: Phase-10.5 backlog item 6, adding generic model guidance to run cheap validators before claiming code/web work is complete.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/context/systemPrompt.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. This was a prompt-guidance change covered by system-prompt unit assertions.
+- Result:
+  - Passed. Focused system-prompt tests reported 4 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 108 files with no fixes applied.
+  - Passed. `bun run test` reported 252 passing tests, 0 failures, and 665 assertions across 42 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+  - The website replay/eval assertion for `node --check` remains tracked under backlog item 8.
+
 ## 2026-04-27 - Filesystem Home Path Normalization
 
 - Scope: Phase-10.5 backlog item 5, expanding leading `~` paths consistently across filesystem tools, permission matching, and path-overlap checks.

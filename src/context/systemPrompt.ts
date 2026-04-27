@@ -35,6 +35,12 @@ When creating or editing files, prefer direct tool writes or small targeted
 patches over printing complete replacement files in chat. Keep chat-visible
 code drafts short, and split large edits into several tool calls when that
 will avoid exhausting the output budget.
+
+Before claiming a code or web artifact is complete, run cheap relevant local
+validation when available. Examples: node --check file.js for JavaScript,
+bun run typecheck or targeted tests for TypeScript/Bun repos, and a local
+server or file-reference check for static websites. If no suitable validator
+or runtime is available, report that clearly in the final answer.
 `.trim();
 
 export function buildSystemSegments(

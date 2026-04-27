@@ -110,6 +110,11 @@ describe('buildSystemSegments', () => {
           segment.text.includes('prefer direct tool writes or small targeted'),
         ),
       ).toBe(true);
+      expect(segments.some((segment) => segment.text.includes('node --check file.js'))).toBe(true);
+      expect(segments.some((segment) => segment.text.includes('bun run typecheck'))).toBe(true);
+      expect(segments.some((segment) => segment.text.includes('If no suitable validator'))).toBe(
+        true,
+      );
 
       const runtime = segments.find((segment) => segment.text.includes('<runtime-context>'));
       expect(runtime?.cacheable).toBe(false);
