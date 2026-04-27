@@ -293,7 +293,14 @@ Source tests:
 ## 8. Convert Website Build Into A Repeatable Eval
 
 - Priority: P2
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: Added `src/evals/websiteBuildEval.ts` plus `bun run eval:website`.
+  The eval replays the imperfect website prompt sequence through a deterministic
+  fixture builder, creates a disposable workspace, validates required files,
+  runs `node --check estimator.js`, starts a local static server and checks
+  `GET /`, verifies local references, verifies the late rename to Beacon Bike
+  Works, and writes `website-eval-result.json` with prompt, command,
+  session/cost/token, and check metadata.
 - Evidence: The website test found several issues not covered by unit tests:
   default token limits, malformed interrupt persistence, missing JS validation,
   path normalization, and ask-mode friction.

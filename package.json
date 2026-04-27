@@ -10,6 +10,7 @@
   },
   "scripts": {
     "chat": "bun src/main.ts",
+    "eval:website": "bun src/evals/websiteBuildEval.ts",
     "test": "bun test",
     "lint": "biome check src tests",
     "format": "biome format --write src tests",

@@ -19,6 +19,30 @@ Implementation backlog from these findings lives in [`phase-10-5-backlog.md`](ph
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Repeatable Website Build Eval
+
+- Scope: Phase-10.5 backlog item 8, codifying the real-world website run into a repeatable fixture-backed eval and artifact validator.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/evals/websiteBuildEval.test.ts`
+  - `bun run eval:website`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. The eval uses a deterministic fixture builder for repeatability rather than a live provider session.
+- Result:
+  - Passed. Focused eval tests reported 2 passing tests and 0 failures.
+  - Passed. `bun run eval:website` created a temp website workspace and wrote `website-eval-result.json`.
+  - Passed. `bun run lint` checked 110 files with no fixes applied.
+  - Passed. `bun run test` reported 257 passing tests, 0 failures, and 686 assertions across 43 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+  - The eval currently uses a fixture builder; a future provider-fixture or local-model mode can replace the builder while keeping the same artifact checks.
+
 ## 2026-04-27 - Ask-Mode Read-Only Bash Friction
 
 - Scope: Phase-10.5 backlog item 7, allowing provably read-only Bash commands to skip prompts in ask mode while preserving explicit ask/deny rules.
