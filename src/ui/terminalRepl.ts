@@ -269,7 +269,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   );
 
   while (!closed) {
-    const input = await question(chalk.cyan('\nyou> ')).catch(() => null);
+    const input = await question(chalk.cyan('\n> ')).catch(() => null);
     if (input === null) break;
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
