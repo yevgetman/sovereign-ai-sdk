@@ -1,5 +1,9 @@
 # Changelog
 
+## Cross-Repo Sync Queue - 2026-04-28
+
+Added `notify-docs.yml` GitHub Action (H-0009). On push to master, if CHANGELOG.md, DECISIONS.md, or README.md changed, the workflow appends a structured entry to the docs repo's `state/feed/harness-sync-queue.md`. Agent sessions on the docs repo process pending entries during boot.
+
 ## Qwen Amendment Phases A+B Complete - 2026-04-28
 
 Two production-hardening patterns from the Qwen Code analysis integrated as targeted deepenings of completed phases.
