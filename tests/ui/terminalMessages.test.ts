@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { formatMaxTokensWarning, suggestHigherMaxTokens } from '../../src/ui/terminalMessages.js';
+import {
+  formatMaxTokensWarning,
+  formatPartialMutationWarning,
+  suggestHigherMaxTokens,
+} from '../../src/ui/terminalMessages.js';
 
 describe('terminal max-token messages', () => {
   test('suggestHigherMaxTokens rounds a larger budget to the next thousand', () => {
@@ -19,5 +23,16 @@ describe('terminal max-token messages', () => {
     expect(warning).toContain("--bundle '/tmp/path with spaces/bundle'");
     expect(warning).toContain('--max-tokens 18000');
     expect(warning).toContain('FileWrite/FileEdit');
+  });
+
+  test('formatPartialMutationWarning lists unique touched paths', () => {
+    const warning = formatPartialMutationWarning({
+      paths: ['/tmp/b.txt', '/tmp/a.txt', '/tmp/a.txt'],
+    });
+
+    expect(warning).toContain('[partial changes]');
+    expect(warning).toContain('Validate the workspace');
+    expect(warning).toContain('- /tmp/a.txt');
+    expect(warning).toContain('- /tmp/b.txt');
   });
 });

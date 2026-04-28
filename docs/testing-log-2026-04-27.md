@@ -21,6 +21,27 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Partial Artifact Warning
+
+- Scope: Post Phase-10.5 backlog item 2, warning when a provider error happens after successful mutating tool calls in the same turn.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/ui/terminalMessages.test.ts tests/core/query.test.ts tests/core/orchestrator.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests cover the warning formatter; existing query/orchestrator tests cover tool-result sequencing used by the tracker.
+- Result:
+  - Passed. Focused UI/core tests reported 42 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 112 files with no fixes applied.
+  - Passed. `bun run test` reported 265 passing tests, 0 failures, and 713 assertions across 44 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Provider Health Preflight
 
 - Scope: Post Phase-10.5 backlog item 1, adding startup provider preflight and clearer billing/credential classification before real work begins.

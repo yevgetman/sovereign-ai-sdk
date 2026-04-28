@@ -76,7 +76,11 @@ Source test:
 ## 2. Partial Artifact Warning After Provider Failure
 
 - Priority: P1
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: The REPL now tracks successful mutating tool results during each turn.
+  If the provider later fails in that same turn, it prints a partial-changes
+  warning with the touched paths so the user knows to validate the workspace
+  before relying on generated artifacts.
 - Evidence: The Anthropic session wrote an updated `index.html` and edited
   `style.css`, then the provider failed before the planned `chooser.js` write.
   External validation found:

@@ -34,6 +34,7 @@ import { estimateMessageTokens } from '../core/tokenEstimate.js';
 import { repairMissingToolResults } from '../core/transcriptRepair.js';
 import type {
   AssistantMessage,
+  ContentBlock,
   Message,
   SystemSegment,
   Terminal,
@@ -52,8 +53,9 @@ import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { assembleToolPool } from '../tool/registry.js';
-import type { ToolContext } from '../tool/types.js';
-import { formatMaxTokensWarning } from './terminalMessages.js';
+import type { Tool, ToolContext } from '../tool/types.js';
+import { resolveToolPath } from '../tools/pathUtils.js';
+import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
 
 export type ReplOpts = {
   bundlePath: string;
@@ -270,9 +272,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     let terminal: Terminal | undefined;
     let latestUsage: TokenUsage | undefined;
     const turnMessages: Message[] = [];
+    const mutatingToolUses = new Map<string, { name: string; paths: string[] }>();
+    const completedMutationPaths = new Set<string>();
+    let toolsForTurn = toolPool;
 
     try {
       const scoped = command ? scopedToolsForCommand(command) : undefined;
+      toolsForTurn = scoped?.tools ?? toolPool;
       const gen = query({
         provider,
         model: activeModel,
@@ -303,6 +309,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // Message branch — ev is a tool_result carrier yielded between turns.
         if ('role' in ev) {
           if (ev.role === 'user') {
+            for (const block of ev.content) {
+              if (block.type !== 'tool_result' || block.is_error === true) continue;
+              const mutation = mutatingToolUses.get(block.tool_use_id);
+              if (!mutation) continue;
+              for (const path of mutation.paths) completedMutationPaths.add(path);
+            }
             turnMessages.push(ev);
             db.saveMessage(activeSessionId, {
               role: 'user',
@@ -336,6 +348,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           });
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
+              const mutation = mutationEffect(block, toolsForTurn, toolContext.cwd);
+              if (mutation) mutatingToolUses.set(block.id, mutation);
               const preview = previewToolInput(block.input);
               process.stdout.write(
                 chalk.gray(`\n[tool: ${block.name}${preview ? ` ${preview}` : ''}]`),
@@ -387,6 +401,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         return;
       }
       process.stderr.write(chalk.red(`\n[error] ${msg}\n`));
+      if (completedMutationPaths.size > 0) {
+        process.stderr.write(
+          chalk.yellow(
+            `\n${formatPartialMutationWarning({ paths: [...completedMutationPaths] })}\n`,
+          ),
+        );
+      }
       if (!latestAssistant) history.pop();
     } else if (terminal?.reason === 'interrupted') {
       process.stderr.write(chalk.yellow('\n[interrupted]\n'));
@@ -633,6 +654,20 @@ function previewToolInput(input: unknown): string {
   } catch {
     return '';
   }
+}
+
+function mutationEffect(
+  block: Extract<ContentBlock, { type: 'tool_use' }>,
+  tools: Tool<unknown, unknown>[],
+  cwd: string,
+): { name: string; paths: string[] } | null {
+  const tool = tools.find((candidate) => candidate.name === block.name);
+  if (!tool) return null;
+  if (tool.isReadOnly(block.input)) return null;
+  const rawPaths = tool.affectedPaths?.(block.input) ?? [];
+  const paths = rawPaths.map((path) => resolveToolPath(path, cwd));
+  if (paths.length === 0) return null;
+  return { name: block.name, paths };
 }
 
 function truncatePreview(s: string): string {

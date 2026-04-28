@@ -6,6 +6,10 @@ export type MaxTokensWarningInput = {
   bundlePath: string;
 };
 
+export type PartialMutationWarningInput = {
+  paths: string[];
+};
+
 export function formatMaxTokensWarning(input: MaxTokensWarningInput): string {
   const suggested = suggestHigherMaxTokens(input.maxTokens);
   return [
@@ -18,6 +22,18 @@ export function formatMaxTokensWarning(input: MaxTokensWarningInput): string {
 
 export function suggestHigherMaxTokens(current: number): number {
   return Math.ceil((current * 1.5) / 1000) * 1000;
+}
+
+export function formatPartialMutationWarning(input: PartialMutationWarningInput): string {
+  const paths = [...new Set(input.paths)].sort();
+  const shown = paths.slice(0, 8);
+  const hidden = paths.length - shown.length;
+  return [
+    '[partial changes] provider failed after mutating tool calls completed.',
+    'Validate the workspace before relying on the artifact. Touched paths:',
+    ...shown.map((path) => `- ${path}`),
+    ...(hidden > 0 ? [`- ... ${hidden} more`] : []),
+  ].join('\n');
 }
 
 function quoteShellArg(value: string): string {
