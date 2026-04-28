@@ -66,6 +66,7 @@ sovereign chat --no-cache
 User-level config lives at `~/.harness/config.json` (override with `HARNESS_CONFIG`). Read or write it without hand-editing JSON:
 
 ```bash
+sovereign config                                 # interactive picker (TTY only)
 sovereign config show                            # full config, secrets redacted
 sovereign config path                            # resolved file path
 sovereign config get defaultProvider
@@ -74,6 +75,8 @@ sovereign config set providers.ollama.model qwen2.5:7b
 sovereign config set microcompaction.enabled false
 sovereign config unset microcompaction.enabled
 ```
+
+Bare `sovereign config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `q` or Esc to quit. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; Phase 16.7 will replace it with the Ink-based TUI.)
 
 The same verbs work in-session via `/config`:
 

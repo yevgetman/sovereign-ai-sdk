@@ -146,7 +146,13 @@ async function main(argv: string[]): Promise<void> {
       });
     });
 
-  const configCmd = program.command('config').description('Read or write user-level config');
+  const configCmd = program
+    .command('config')
+    .description('Read or write user-level config (no args opens an interactive picker)')
+    .action(async () => {
+      const { runConfigMenu } = await import('./ui/configMenu.js');
+      await runConfigMenu();
+    });
 
   configCmd
     .command('show')
