@@ -10,6 +10,17 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
+import {
+  formatValue,
+  getAt,
+  parseValueLiteral,
+  readConfig,
+  redactSecrets,
+  resolveConfigPath,
+  setAt,
+  unsetAt,
+  writeConfig,
+} from './config/store.js';
 import type { PermissionMode } from './permissions/types.js';
 
 /**
@@ -133,6 +144,52 @@ async function main(argv: string[]): Promise<void> {
         preflight: opts.preflight !== false,
         ...(opts.transcript !== undefined ? { transcriptPath: opts.transcript } : {}),
       });
+    });
+
+  const configCmd = program.command('config').description('Read or write user-level config');
+
+  configCmd
+    .command('show')
+    .description('Print the current config (secrets redacted)')
+    .action(() => {
+      const settings = readConfig();
+      process.stdout.write(`${JSON.stringify(redactSecrets(settings), null, 2)}\n`);
+    });
+
+  configCmd
+    .command('path')
+    .description('Print the resolved config file path')
+    .action(() => {
+      process.stdout.write(`${resolveConfigPath()}\n`);
+    });
+
+  configCmd
+    .command('get <dotpath>')
+    .description('Print the value at the given dot-path (secrets redacted)')
+    .action((dotpath: string) => {
+      const settings = readConfig();
+      const value = getAt(redactSecrets(settings), dotpath);
+      process.stdout.write(`${formatValue(value)}\n`);
+    });
+
+  configCmd
+    .command('set <dotpath> <value>')
+    .description('Set a value at the given dot-path; literals are auto-parsed')
+    .action((dotpath: string, raw: string) => {
+      const current = readConfig();
+      const next = setAt(current, dotpath, parseValueLiteral(raw));
+      writeConfig(next);
+      process.stdout.write(`set ${dotpath}\n`);
+    });
+
+  configCmd
+    .command('unset <dotpath>')
+    .description('Remove the value at the given dot-path')
+    .action((dotpath: string) => {
+      const current = readConfig();
+      const next = unsetAt(current, dotpath);
+      writeConfig(next);
+      process.stdout.write(`unset ${dotpath}\n`);
     });
 
   await program.parseAsync(argv);

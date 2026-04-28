@@ -61,6 +61,31 @@ sovereign chat --permission-mode ask
 sovereign chat --no-cache
 ```
 
+## Config Command
+
+User-level config lives at `~/.harness/config.json` (override with `HARNESS_CONFIG`). Read or write it without hand-editing JSON:
+
+```bash
+sovereign config show                            # full config, secrets redacted
+sovereign config path                            # resolved file path
+sovereign config get defaultProvider
+sovereign config set defaultProvider ollama
+sovereign config set providers.ollama.model qwen2.5:7b
+sovereign config set microcompaction.enabled false
+sovereign config unset microcompaction.enabled
+```
+
+The same verbs work in-session via `/config`:
+
+```text
+/config show
+/config get defaultProvider
+/config set providers.ollama.model qwen2.5:7b
+/config unset microcompaction.enabled
+```
+
+Every write is validated against the settings schema before touching disk; rejected changes leave the file untouched. `apiKey`, `apiKeys`, and credential entries are redacted in `show` and `get` output.
+
 ## Provider Configuration
 
 Provider defaults can live in `~/.harness/config.json`:
@@ -144,6 +169,7 @@ Lines beginning with `/` are handled locally before normal model turns.
 | `/compact` | Compress older history into a guarded handoff summary and switch to a child session. |
 | `/rollback` | Switch back to the parent session after compaction. |
 | `/model <name>` | Switch the active model for later turns. |
+| `/config [...]` | View or change durable config (`show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`). |
 | `/commit` | Ask the model to stage and commit changes with git-only Bash scope. |
 
 Examples:
