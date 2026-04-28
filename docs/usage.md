@@ -30,7 +30,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. |
 | `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, or `ollama`. |
 | `--model <name>` | Model override for the selected provider. |
-| `--max-tokens <n>` | Max output tokens per provider turn. Default: `4096`. |
+| `--max-tokens <n>` | Max output tokens per provider turn. Default: `12000`. |
 | `--permission-mode <mode>` | Tool permission mode: `default`, `ask`, or `bypass`. |
 | `--resume <uuid>` | Resume a stored session. |
 | `--db <path>` | Override the session DB path. Default: `~/.harness/sessions.db`. |

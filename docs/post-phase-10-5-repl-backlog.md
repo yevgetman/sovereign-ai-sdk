@@ -162,7 +162,10 @@ Source test:
 ## 5. Stale `--max-tokens` Documentation
 
 - Priority: P3
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: Updated `README.md` and `docs/usage.md` to document the current
+  `12000` default, and added a docs-default regression test that reads
+  `src/main.ts` and asserts those two user-facing docs contain the same value.
 - Evidence: `src/main.ts` now sets `DEFAULT_MAX_TOKENS = 12000`, but
   `README.md` and `docs/usage.md` still say the default is `4096`.
 - Impact: Users may apply unnecessary CLI overrides or misunderstand the

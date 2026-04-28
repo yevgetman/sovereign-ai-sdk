@@ -21,6 +21,29 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Max Tokens Documentation Default
+
+- Scope: Post Phase-10.5 backlog item 5, aligning the documented
+  `--max-tokens` default with the CLI default and adding a regression check.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/docsDefaults.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. This is a documentation sync change with a focused docs-default test.
+- Result:
+  - Passed. Focused docs-default test reported 1 passing test and 0 failures.
+  - Passed. `bun run lint` checked 115 files with no fixes applied.
+  - Passed. `bun run test` reported 272 passing tests, 0 failures, and 736
+    assertions across 46 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Ollama Tool Support Preflight
 
 - Scope: Post Phase-10.5 backlog item 4, failing unsupported Ollama tool models
