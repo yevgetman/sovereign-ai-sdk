@@ -30,32 +30,49 @@ function pct(num: number, denom: number): string {
   return `${((num / denom) * 100).toFixed(1)}%`;
 }
 
+const ESC = String.fromCharCode(27);
+const ANSI_RE = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
+const visibleWidth = (s: string): number => s.replace(ANSI_RE, '').length;
+
+function boxify(lines: string[], padding = 2): string[] {
+  const innerWidth = Math.max(...lines.map(visibleWidth));
+  const horiz = '─'.repeat(innerWidth + padding * 2);
+  const top = chalk.gray(`╭${horiz}╮`);
+  const bottom = chalk.gray(`╰${horiz}╯`);
+  const pad = ' '.repeat(padding);
+  const out = [top];
+  for (const line of lines) {
+    const fill = ' '.repeat(innerWidth - visibleWidth(line));
+    out.push(`${chalk.gray('│')}${pad}${line}${fill}${pad}${chalk.gray('│')}`);
+  }
+  out.push(bottom);
+  return out;
+}
+
 export function renderSessionSummary(m: SessionMetrics): string {
   const wallMs = m.endedAtMs - m.startedAtMs;
   const successRate = pct(m.toolOk, m.toolCalls);
   const apiPct = pct(m.apiTimeMs, wallMs);
   const toolPct = pct(m.toolTimeMs, wallMs);
 
-  const lines: string[] = [];
-  lines.push('');
-  lines.push(chalk.cyan('Agent powering down. Goodbye!'));
-  lines.push('');
-  lines.push(chalk.bold('Interaction Summary'));
-  lines.push(`${chalk.gray('Session ID:')}    ${chalk.bold(m.sessionId)}`);
-  lines.push(
+  const body: string[] = [];
+  body.push(chalk.cyan('Agent powering down. Goodbye!'));
+  body.push('');
+  body.push(chalk.bold('Interaction Summary'));
+  body.push(`${chalk.gray('Session ID:')}    ${chalk.bold(m.sessionId)}`);
+  body.push(
     `${chalk.gray('Tool Calls:')}    ${chalk.bold(String(m.toolCalls))} ${chalk.gray('(')} ${chalk.green(`✓ ${m.toolOk}`)} ${chalk.gray('·')} ${chalk.red(`✗ ${m.toolErr}`)} ${chalk.gray(')')}`,
   );
-  lines.push(`${chalk.gray('Success Rate:')}  ${chalk.yellow(successRate)}`);
-  lines.push('');
-  lines.push(chalk.bold('Performance'));
-  lines.push(`${chalk.gray('Wall Time:')}     ${chalk.bold(formatDuration(wallMs))}`);
-  lines.push(`${chalk.gray('Agent Active:')}  ${chalk.bold(formatDuration(m.agentActiveMs))}`);
-  lines.push(
+  body.push(`${chalk.gray('Success Rate:')}  ${chalk.yellow(successRate)}`);
+  body.push('');
+  body.push(chalk.bold('Performance'));
+  body.push(`${chalk.gray('Wall Time:')}     ${chalk.bold(formatDuration(wallMs))}`);
+  body.push(`${chalk.gray('Agent Active:')}  ${chalk.bold(formatDuration(m.agentActiveMs))}`);
+  body.push(
     `  ${chalk.gray('» API Time:')}   ${formatDuration(m.apiTimeMs)} ${chalk.gray(`(${apiPct})`)}`,
   );
-  lines.push(
+  body.push(
     `  ${chalk.gray('» Tool Time:')}  ${formatDuration(m.toolTimeMs)} ${chalk.gray(`(${toolPct})`)}`,
   );
-  lines.push('');
-  return lines.join('\n');
+  return ['', ...boxify(body), ''].join('\n');
 }
