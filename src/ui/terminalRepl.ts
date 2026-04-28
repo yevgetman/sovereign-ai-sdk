@@ -57,6 +57,8 @@ import type { Tool, ToolContext } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
 import { MarkdownStream } from './markdownStream.js';
 import { createQueuedQuestion } from './queuedQuestion.js';
+import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
+import { renderSplash } from './splash.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
 import { createTranscriptLogger } from './transcript.js';
 
@@ -173,6 +175,17 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
   let activeSessionId = opened.sessionId;
   const { systemPrompt, history, resumed } = opened;
+  const metrics: Omit<SessionMetrics, 'endedAtMs'> = {
+    sessionId: activeSessionId,
+    startedAtMs: Date.now(),
+    agentActiveMs: 0,
+    apiTimeMs: 0,
+    toolTimeMs: 0,
+    toolCalls: 0,
+    toolOk: 0,
+    toolErr: 0,
+  };
+  const toolStartTimes = new Map<string, number>();
   transcript?.record({
     type: 'session_start',
     sessionId: activeSessionId,
@@ -341,6 +354,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
     streamController = new AbortController();
     const mdStream = new MarkdownStream(process.stdout);
+    const turnStartedAt = Date.now();
+    const turnToolTimeBaseline = metrics.toolTimeMs;
     let latestAssistant: AssistantMessage | undefined;
     let terminal: Terminal | undefined;
     let latestUsage: TokenUsage | undefined;
@@ -383,7 +398,17 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         if ('role' in ev) {
           if (ev.role === 'user') {
             for (const block of ev.content) {
-              if (block.type !== 'tool_result' || block.is_error === true) continue;
+              if (block.type !== 'tool_result') continue;
+              const startedAt = toolStartTimes.get(block.tool_use_id);
+              if (startedAt !== undefined) {
+                metrics.toolTimeMs += Date.now() - startedAt;
+                toolStartTimes.delete(block.tool_use_id);
+              }
+              if (block.is_error === true) {
+                metrics.toolErr++;
+                continue;
+              }
+              metrics.toolOk++;
               const mutation = mutatingToolUses.get(block.tool_use_id);
               if (!mutation) continue;
               for (const path of mutation.paths) completedMutationPaths.add(path);
@@ -421,6 +446,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           });
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
+              metrics.toolCalls++;
+              toolStartTimes.set(block.id, Date.now());
               const mutation = mutationEffect(block, toolsForTurn, toolContext.cwd);
               if (mutation) mutatingToolUses.set(block.id, mutation);
               const preview = previewToolInput(block.input);
@@ -445,6 +472,10 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     } finally {
       streamController = null;
       mdStream.flush();
+      const turnElapsed = Date.now() - turnStartedAt;
+      const turnToolTime = metrics.toolTimeMs - turnToolTimeBaseline;
+      metrics.agentActiveMs += turnElapsed;
+      metrics.apiTimeMs += Math.max(0, turnElapsed - turnToolTime);
     }
 
     process.stdout.write('\n');
@@ -619,7 +650,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
   db.close();
-  process.stdout.write(chalk.gray('\ngoodbye.\n'));
+  process.stdout.write(
+    renderSessionSummary({
+      ...metrics,
+      sessionId: activeSessionId,
+      endedAtMs: Date.now(),
+    }),
+  );
   process.stdout.write(
     chalk.gray(
       `to resume: sovereign chat --resume ${activeSessionId} --bundle ${opts.bundlePath}\n`,
@@ -630,35 +667,36 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 function writeBanner(
   opts: ReplOpts,
   permissionMode: PermissionMode,
-  permissionSources: string[],
+  _permissionSources: string[],
   resolved: ResolvedProvider,
-  haveContext: boolean,
+  _haveContext: boolean,
   toolNames: string[],
   sessionId: string,
   resumed: boolean,
 ): void {
+  const providerName = String(resolved.metadata.provider);
+  const authLabel =
+    providerName === 'ollama' ? chalk.gray('local (no key)') : chalk.gray('API Key');
   const modeNote =
     permissionMode === 'bypass' ? chalk.red(' (fallthrough runs WITHOUT prompting)') : '';
-  const sessionLabel = resumed ? `resumed ${sessionId}` : `new ${sessionId}`;
+  const sessionLabel = resumed
+    ? `resumed ${sessionId.slice(0, 8)}`
+    : `new ${sessionId.slice(0, 8)}`;
   const configuredMode =
     permissionMode === opts.permissionMode ? permissionMode : `${permissionMode} (from settings)`;
-  const lines = [
-    chalk.bold('sovereign-ai-harness'),
-    chalk.gray(`  bundle: ${opts.bundlePath}`),
-    chalk.gray(`  provider: ${String(resolved.metadata.provider)} (${resolved.baseUrl})`),
-    chalk.gray(`  model:  ${resolved.model}`),
-    chalk.gray(`  context.md: ${haveContext ? 'loaded' : 'not found (prompt will be minimal)'}`),
-    chalk.gray(`  tools:  ${toolNames.length > 0 ? toolNames.join(', ') : 'none'}`),
-    chalk.gray(`  cache:  ${opts.noCache === true ? 'off' : 'on'}`),
-    chalk.gray(`  perms:  ${configuredMode}${modeNote}`),
-    chalk.gray(
-      `  rules:  ${permissionSources.length > 0 ? `${permissionSources.length} settings file(s)` : 'none'}`,
-    ),
-    chalk.gray(`  session: ${sessionLabel}`),
-    chalk.gray('  exit:   /quit, /exit, /q, or Ctrl-D'),
-    chalk.gray('  Ctrl-C during streaming interrupts the response'),
-  ];
-  process.stdout.write(`${lines.join('\n')}\n`);
+  const splash = renderSplash({
+    providerLabel: providerName,
+    authLabel,
+    model: resolved.model,
+    bundlePath: opts.bundlePath,
+    permissionMode: configuredMode,
+    permissionModeNote: modeNote,
+    toolCount: toolNames.length,
+    cacheOn: opts.noCache !== true,
+    sessionLabel,
+    exitHint: '/quit or Ctrl-D to exit',
+  });
+  process.stdout.write(`${splash}\n`);
 }
 
 type SessionOpen = {
