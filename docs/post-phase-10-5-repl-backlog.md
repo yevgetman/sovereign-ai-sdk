@@ -137,7 +137,12 @@ Source test:
 ## 4. Unsupported Ollama Tool Models Need Early Handling
 
 - Priority: P2
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: Ollama sessions with visible tools now run a startup tool-call preflight
+  after the tool pool is assembled and before opening a session. The probe sends
+  a tiny no-op tool schema, drains the response, and classifies unsupported-tool
+  provider errors as a harness-level model capability failure with guidance to
+  choose a tool-capable model or start a no-tools conversational session.
 - Evidence: `dolphin-llama3:latest` was listed locally, but Ollama rejected the
   request because the model does not support tools. The harness had already
   created a session and displayed the normal tool-enabled banner.

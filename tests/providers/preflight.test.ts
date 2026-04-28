@@ -6,6 +6,7 @@ import { ProviderHttpError } from '../../src/providers/errors.js';
 import {
   classifyProviderPreflightError,
   preflightProvider,
+  preflightToolCalling,
 } from '../../src/providers/preflight.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 
@@ -66,5 +67,43 @@ describe('preflightProvider', () => {
 
     expect(result.ok).toBe(false);
     expect(result.ok === false ? result.kind : '').toBe('credential');
+  });
+
+  test('tool preflight publishes a no-op tool schema', async () => {
+    let seen: ProviderRequest | undefined;
+    const ok = provider(async function* (req) {
+      seen = req;
+      const assistant: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'OK' }],
+      };
+      yield { type: 'assistant_message', message: assistant };
+      return assistant;
+    });
+
+    const result = await preflightToolCalling({
+      provider: ok,
+      providerName: 'ollama',
+      model: 'tool-model',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(seen?.tools?.[0]?.name).toBe('preflight_noop');
+  });
+
+  test('classifies unsupported tool models clearly', () => {
+    const result = classifyProviderPreflightError(
+      'ollama',
+      'dolphin-llama3:latest',
+      new ProviderHttpError(
+        'ollama',
+        400,
+        'registry.ollama.ai/library/dolphin-llama3:latest does not support tools',
+      ),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false ? result.kind : '').toBe('tool_support');
+    expect(result.ok === false ? result.message : '').toContain('does not support tool calls');
   });
 });
