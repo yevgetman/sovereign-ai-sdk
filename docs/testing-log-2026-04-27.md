@@ -21,6 +21,36 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-28 - Default Anthropic API Smoke Retry
+
+- Scope: Quick live harness API smoke after reloading Anthropic credits, using
+  the current default Anthropic model `claude-haiku-4-5-20251001`.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+  - `HARNESS_HOME`: `/tmp/sovereign-api-smoke-retry-20260428/home`
+  - Session DB: `/tmp/sovereign-api-smoke-retry-20260428/sessions.db`
+  - Transcript: `/tmp/sovereign-api-smoke-retry-20260428/trace.jsonl`
+  - Session: `7e1a3117-04a1-4292-b4f1-388ec5525079`
+- Commands:
+  - `printf 'Reply exactly API_OK and do not use tools.\n/quit\n' | env HARNESS_HOME=/tmp/sovereign-api-smoke-retry-20260428/home bun src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-api-smoke-retry-20260428/sessions.db --permission-mode ask --no-cache --transcript /tmp/sovereign-api-smoke-retry-20260428/trace.jsonl`
+  - `cat /tmp/sovereign-api-smoke-retry-20260428/trace.jsonl`
+- Manual / REPL coverage:
+  - Verified the CLI resolves the default provider/model and opens a live
+    Anthropic-backed REPL session.
+  - Sent a single no-tool sentinel prompt and queued `/quit` through stdin.
+  - Verified the assistant returned exactly `API_OK`.
+  - Verified transcript capture recorded `session_start`, `user_input`, and
+    `session_end`.
+- Result:
+  - Passed. Startup provider preflight succeeded for
+    `claude-haiku-4-5-20251001`.
+  - Passed. The live provider turn returned `API_OK`.
+  - Passed. Usage was reported as `input=17314`, `output=6`,
+    `cache_write=0`, and `cache_read=0`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-28 - Default Anthropic API Smoke
 
 - Scope: Quick live harness API smoke using the current default Anthropic model
