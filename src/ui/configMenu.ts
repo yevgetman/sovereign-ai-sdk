@@ -9,6 +9,7 @@
 
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
+import type { Settings } from '../config/schema.js';
 import {
   formatValue,
   getAt,
@@ -27,11 +28,20 @@ type Field = {
   hint?: string;
   secret?: boolean;
   /** When set, Enter shows a small choice picker; the last entry is
-   *  always "type custom value..." which falls through to readline. */
-  choices?: string[];
+   *  always "type custom value..." which falls through to readline.
+   *  May be a function so choices can depend on other settings (e.g.
+   *  defaultModel scoped by defaultProvider). */
+  choices?: string[] | ((settings: Settings) => string[]);
 };
 
 const CUSTOM_SENTINEL = '↪ type custom value…';
+
+const PROVIDER_MODELS: Record<string, string[]> = {
+  anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7'],
+  ollama: ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'],
+  openai: ['gpt-4o-mini', 'gpt-4o'],
+  openrouter: ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
+};
 
 const FIELDS: Field[] = [
   {
@@ -42,21 +52,38 @@ const FIELDS: Field[] = [
   {
     path: 'defaultModel',
     label: 'defaultModel',
-    choices: ['claude-haiku-4-5-20251001', 'qwen2.5:7b'],
+    hint: 'scoped by defaultProvider',
+    choices: (settings) => PROVIDER_MODELS[settings.defaultProvider ?? 'anthropic'] ?? [],
   },
   {
     path: 'permissionMode',
     label: 'permissionMode',
     choices: ['default', 'ask', 'bypass'],
   },
-  { path: 'providers.anthropic.model', label: 'providers.anthropic.model' },
+  {
+    path: 'providers.anthropic.model',
+    label: 'providers.anthropic.model',
+    choices: PROVIDER_MODELS.anthropic,
+  },
   { path: 'providers.anthropic.apiKey', label: 'providers.anthropic.apiKey', secret: true },
-  { path: 'providers.openai.model', label: 'providers.openai.model' },
+  {
+    path: 'providers.openai.model',
+    label: 'providers.openai.model',
+    choices: PROVIDER_MODELS.openai,
+  },
   { path: 'providers.openai.baseUrl', label: 'providers.openai.baseUrl' },
   { path: 'providers.openai.apiKey', label: 'providers.openai.apiKey', secret: true },
-  { path: 'providers.openrouter.model', label: 'providers.openrouter.model' },
+  {
+    path: 'providers.openrouter.model',
+    label: 'providers.openrouter.model',
+    choices: PROVIDER_MODELS.openrouter,
+  },
   { path: 'providers.openrouter.apiKey', label: 'providers.openrouter.apiKey', secret: true },
-  { path: 'providers.ollama.model', label: 'providers.ollama.model' },
+  {
+    path: 'providers.ollama.model',
+    label: 'providers.ollama.model',
+    choices: PROVIDER_MODELS.ollama,
+  },
   {
     path: 'providers.ollama.baseUrl',
     label: 'providers.ollama.baseUrl',
@@ -134,7 +161,7 @@ function render(state: ViewState): void {
   } else {
     lines.push('');
   }
-  const footer = chalk.gray('↑/↓ navigate · enter edit · u unset · q quit');
+  const footer = chalk.gray('↑/↓ navigate · enter edit · u unset · q quit and save');
   process.stdout.write(`${lines.join('\n')}\n${footer}\n`);
 }
 
@@ -161,11 +188,17 @@ async function promptValue(field: Field, currentRaw: unknown): Promise<string | 
   }
 }
 
+function resolveChoices(field: Field, settings: Settings): string[] {
+  if (!field.choices) return [];
+  return typeof field.choices === 'function' ? field.choices(settings) : field.choices;
+}
+
 async function pickFromChoices(
   field: Field,
   currentRaw: unknown,
+  settings: Settings,
 ): Promise<string | null | typeof CUSTOM_SENTINEL> {
-  const choices = field.choices ?? [];
+  const choices = resolveChoices(field, settings);
   const all = [...choices, CUSTOM_SENTINEL];
   const currentStr = typeof currentRaw === 'string' ? currentRaw : '';
   let selected = Math.max(0, all.indexOf(currentStr));
@@ -275,8 +308,9 @@ export async function runConfigMenu(): Promise<void> {
         const current = readConfig();
         const raw = field.secret ? undefined : getAt(current, field.path);
         let chosen: string | null = null;
-        if (field.choices && field.choices.length > 0) {
-          const picked = await pickFromChoices(field, raw);
+        const choices = resolveChoices(field, current);
+        if (choices.length > 0) {
+          const picked = await pickFromChoices(field, raw, current);
           if (picked === null) {
             state.status = 'cancelled';
             state.statusKind = 'info';
