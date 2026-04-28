@@ -112,6 +112,7 @@ describe('buildSystemSegments', () => {
       ).toBe(true);
       expect(segments.some((segment) => segment.text.includes('node --check file.js'))).toBe(true);
       expect(segments.some((segment) => segment.text.includes('bun run typecheck'))).toBe(true);
+      expect(segments.some((segment) => segment.text.includes('StaticSiteValidate'))).toBe(true);
       expect(segments.some((segment) => segment.text.includes('If no suitable validator'))).toBe(
         true,
       );

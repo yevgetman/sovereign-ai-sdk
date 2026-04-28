@@ -39,8 +39,9 @@ will avoid exhausting the output budget.
 Before claiming a code or web artifact is complete, run cheap relevant local
 validation when available. Examples: node --check file.js for JavaScript,
 bun run typecheck or targeted tests for TypeScript/Bun repos, and a local
-server or file-reference check for static websites. If no suitable validator
-or runtime is available, report that clearly in the final answer.
+server or file-reference check for static websites. Prefer StaticSiteValidate
+when validating simple static website artifacts. If no suitable validator or
+runtime is available, report that clearly in the final answer.
 `.trim();
 
 export function buildSystemSegments(

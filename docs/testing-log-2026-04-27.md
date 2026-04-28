@@ -21,6 +21,27 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Static Site Validator Tool
+
+- Scope: Post Phase-10.5 backlog item 3, adding a read-only static-site validation helper for website artifacts.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/tools/staticSiteValidateTool.test.ts tests/context/systemPrompt.test.ts tests/tool/buildTool.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests cover successful static-site validation, missing local references, JavaScript syntax failures, and read-only permission behavior.
+- Result:
+  - Passed. Focused static-site/system/tool tests reported 16 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 114 files with no fixes applied after formatting the new tool and tests.
+  - Passed. `bun run test` reported 269 passing tests, 0 failures, and 727 assertions across 45 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Partial Artifact Warning
 
 - Scope: Post Phase-10.5 backlog item 2, warning when a provider error happens after successful mutating tool calls in the same turn.

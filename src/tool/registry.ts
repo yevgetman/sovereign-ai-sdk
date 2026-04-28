@@ -26,6 +26,7 @@ import { SkillManageTool } from '../tools/SkillManageTool.js';
 import { SkillTool } from '../tools/SkillTool.js';
 import { SkillsListTool } from '../tools/SkillsListTool.js';
 import { SkillsViewTool } from '../tools/SkillsViewTool.js';
+import { StaticSiteValidateTool } from '../tools/StaticSiteValidateTool.js';
 import type { Tool, ToolContext } from './types.js';
 
 const REGISTERED_TOOLS = [
@@ -40,6 +41,7 @@ const REGISTERED_TOOLS = [
   SkillsViewTool,
   SkillManageTool,
   SkillTool,
+  StaticSiteValidateTool,
 ] as unknown as Tool<unknown, unknown>[];
 
 /**

@@ -109,7 +109,13 @@ Source test:
 ## 3. Static-Site / Artifact Validation Helper
 
 - Priority: P2
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: Added a read-only `StaticSiteValidate` tool. It validates a static site
+  directory without shelling out from the model: entry HTML exists, local
+  `href`/`src` references resolve, referenced local JavaScript passes
+  `node --check` when enabled, and the entry page returns HTTP 200 from a
+  temporary Bun static server. System guidance now tells the model to prefer
+  this tool for simple static website artifacts.
 - Evidence: The model used ad hoc `python3 -c` Bash checks that required human
   approval, while the decisive outside validation was a local-reference check
   plus HTTP checks. That validation caught the missing `chooser.js`.
