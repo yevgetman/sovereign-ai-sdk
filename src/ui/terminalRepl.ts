@@ -286,7 +286,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           kind: result.kind,
           output: result.output,
         });
-        process.stdout.write(chalk.gray('\nharness> '));
+        process.stdout.write('\n');
         process.stdout.write(`${result.output}\n`);
         continue;
       }
@@ -336,7 +336,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       );
     }
 
-    process.stdout.write(chalk.gray('\nharness> '));
+    process.stdout.write('\n');
 
     streamController = new AbortController();
     let latestAssistant: AssistantMessage | undefined;
@@ -398,7 +398,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             if (errs > 0) {
               process.stdout.write(chalk.gray(`\n[${errs} tool error${errs === 1 ? '' : 's'}]`));
             }
-            process.stdout.write(chalk.gray('\nharness> '));
+            process.stdout.write('\n');
           }
           continue;
         }
