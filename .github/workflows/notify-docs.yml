@@ -93,43 +93,39 @@ jobs:
           git clone --depth 1 "https://x-access-token:${DOCS_REPO_TOKEN}@github.com/yevgetman/sovereign-ai-docs.git" /tmp/docs-repo
 
           queue_file="/tmp/docs-repo/state/feed/harness-sync-queue.md"
+          entry_file="/tmp/queue_entry.md"
 
-          # Build the entry.
-          entry="## ${COMMIT_DATE} — ${COMMIT_MSG}
-
-- **source_commit:** ${COMMIT_SHA}
-- **changed_files:** ${CHANGED_FILES}
-- **test_count:** ${TEST_COUNT}"
+          # Build the entry into a temp file line-by-line. Heredocs and
+          # multi-line strings with leading "- " break YAML block scalars,
+          # so we use explicit echo/printf calls instead.
+          printf '%s\n' "## ${COMMIT_DATE} — ${COMMIT_MSG}" "" > "$entry_file"
+          printf '%s\n' "- **source_commit:** ${COMMIT_SHA}" >> "$entry_file"
+          printf '%s\n' "- **changed_files:** ${CHANGED_FILES}" >> "$entry_file"
+          printf '%s\n' "- **test_count:** ${TEST_COUNT}" >> "$entry_file"
 
           if [ "$CHANGELOG_CHANGED" != "0" ]; then
-            delta=$(cat /tmp/changelog_delta.txt | head -5)
-            entry="${entry}
-- **changelog_delta:** ${delta}"
+            delta=$(head -5 /tmp/changelog_delta.txt)
+            printf '%s\n' "- **changelog_delta:** ${delta}" >> "$entry_file"
           fi
 
           if [ "$DECISIONS_CHANGED" != "0" ]; then
-            delta=$(cat /tmp/decisions_delta.txt | head -5)
-            entry="${entry}
-- **decisions_delta:** ${delta}"
+            delta=$(head -5 /tmp/decisions_delta.txt)
+            printf '%s\n' "- **decisions_delta:** ${delta}" >> "$entry_file"
           fi
 
-          entry="${entry}
-- **status:** pending
-"
+          printf '%s\n' "- **status:** pending" "" >> "$entry_file"
 
-          # Append after the frontmatter separator (first ---\n\n block).
-          # Insert the new entry after the header section.
+          # Insert the new entry after the header separator (last ---).
           if [ -f "$queue_file" ]; then
-            # Find the line number of the second "---" (end of header).
             header_end=$(grep -n '^---$' "$queue_file" | tail -1 | cut -d: -f1)
             if [ -n "$header_end" ]; then
               head -n "$header_end" "$queue_file" > /tmp/queue_new.md
               echo "" >> /tmp/queue_new.md
-              echo "$entry" >> /tmp/queue_new.md
+              cat "$entry_file" >> /tmp/queue_new.md
               tail -n +"$((header_end + 1))" "$queue_file" >> /tmp/queue_new.md
               mv /tmp/queue_new.md "$queue_file"
             else
-              echo "$entry" >> "$queue_file"
+              cat "$entry_file" >> "$queue_file"
             fi
           else
             echo "⚠ Queue file not found at $queue_file — skipping."
