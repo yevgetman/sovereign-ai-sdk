@@ -36,6 +36,17 @@ const MicrocompactionSchema = z
   })
   .strict();
 
+const CompactionSchema = z
+  .object({
+    /** When the system prompt + history exceeds this percentage of the
+     *  model's context window, the REPL preemptively compacts the
+     *  session before the next provider call. Default 50. Raise toward
+     *  80–90 to keep more history around (helpful for small-context
+     *  local models like qwen2.5:7b at 32K). */
+    proactiveThresholdPct: z.number().min(1).max(99).optional(),
+  })
+  .strict();
+
 export const SettingsSchema = z
   .object({
     defaultProvider: z.string().optional(),
@@ -51,6 +62,7 @@ export const SettingsSchema = z
       .strict()
       .optional(),
     microcompaction: MicrocompactionSchema.optional(),
+    compaction: CompactionSchema.optional(),
   })
   .strict();
 

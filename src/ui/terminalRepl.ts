@@ -26,6 +26,7 @@ import { compactSession, shouldCompactProactively } from '../compact/compactor.j
 import { resolveHarnessHome } from '../config/paths.js';
 import { parsePermissionRules } from '../config/rules.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../config/settings.js';
+import { readConfig } from '../config/store.js';
 import { expandContextReferences } from '../context/references.js';
 import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
 import { query } from '../core/query.js';
@@ -88,6 +89,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const harnessHome = resolveHarnessHome();
   const transcript = createTranscriptLogger(opts.transcriptPath);
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
+  const userSettings = readConfig();
+  const proactiveThreshold =
+    userSettings.compaction?.proactiveThresholdPct !== undefined
+      ? userSettings.compaction.proactiveThresholdPct / 100
+      : undefined;
   const permissionMode =
     opts.permissionMode === 'default' && permissionSettings.mode !== 'default'
       ? permissionSettings.mode
@@ -339,6 +345,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         messages: history,
         systemPrompt,
         contextLength: resolved.contextLength,
+        ...(proactiveThreshold !== undefined ? { threshold: proactiveThreshold } : {}),
       })
     ) {
       process.stderr.write(chalk.yellow('\n[compact] context threshold exceeded; compacting\n'));

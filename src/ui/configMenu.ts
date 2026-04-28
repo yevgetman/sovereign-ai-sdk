@@ -101,6 +101,12 @@ const FIELDS: Field[] = [
     label: 'microcompaction.triggerThresholdPct',
     hint: '0–100',
   },
+  {
+    path: 'compaction.proactiveThresholdPct',
+    label: 'compaction.proactiveThresholdPct',
+    hint: 'default 50; raise (e.g. 85) for small-context local models',
+    choices: ['50', '70', '80', '85', '90'],
+  },
 ];
 
 const ESC = '\x1b';

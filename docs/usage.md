@@ -99,6 +99,16 @@ sovereign config set providers.ollama.numCtx 16384
 
 If your Ollama install is RAM-constrained, lowering `numCtx` is the right knob. Unsetting it returns to the registered default.
 
+### Frequent compaction with small-context local models
+
+Proactive compaction fires by default at **50% of the model's context window**. For Anthropic at 200K that's 100K — fine. For qwen2.5:7b at 32K that's only 16K, which a typical bundle's system prompt + a few turns will exceed. Raise the threshold:
+
+```bash
+sovereign config set compaction.proactiveThresholdPct 85
+```
+
+Anything between 1 and 99 is accepted. 80–90 is a sane range for keeping more history with local models; the trade-off is a higher chance of hitting the model's hard ceiling and triggering reactive (post-error) compaction instead.
+
 ## Provider Configuration
 
 Provider defaults can live in `~/.harness/config.json`:
