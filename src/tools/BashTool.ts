@@ -21,6 +21,7 @@
 
 import { z } from 'zod';
 import { wildcardMatches } from '../config/rules.js';
+import { type VirtualOperation, analyzeShellCommand } from '../permissions/shellSemantics.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext } from '../tool/types.js';
 
@@ -86,6 +87,7 @@ export const BashTool = buildTool<Input, Output>({
     isReadOnlyBashCommand(input.command)
       ? { behavior: 'allow', reason: 'read-only bash allowlist' }
       : { behavior: 'ask' },
+  virtualToolName: (input) => bashVirtualToolName(input.command),
   isReadOnly: (input) => isReadOnlyBashCommand(input.command),
   isConcurrencySafe: (input) => isReadOnlyBashCommand(input.command),
   preparePermissionMatcher: async (input) => (pattern) =>
@@ -266,4 +268,24 @@ export function formatBashOutput(out: Output): string {
  */
 export function isBashError(out: Output): boolean {
   return out.exit_code !== 0 || out.timed_out === true || out.token_matched === false;
+}
+
+/**
+ * Map a bash command to a virtual tool name (Read, Write, or null) via
+ * shell AST analysis. Used by the permission system to resolve bash
+ * commands against Read/Write permission rules.
+ */
+export function bashVirtualToolName(command: string): string | null {
+  const ops = analyzeShellCommand(command);
+  if (ops.length === 0) return null;
+  if (ops.every((op): op is VirtualOperation & { kind: 'read' } => op.kind === 'read')) {
+    return 'Read';
+  }
+  if (
+    ops.some((op) => op.kind === 'write') &&
+    !ops.some((op) => op.kind === 'edit' || op.kind === 'unsafe')
+  ) {
+    return 'Write';
+  }
+  return null;
 }

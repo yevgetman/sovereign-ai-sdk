@@ -14,6 +14,12 @@
 // Source of pattern: Claude Code src/query.ts (lesson: core loop shape is
 // a one-way door; use async generator from day one).
 
+import {
+  DEFAULT_MICROCOMPACT_CONFIG,
+  buildToolNameMap,
+  microcompact,
+  shouldMicrocompact,
+} from '../compact/microcompact.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { runTools } from './orchestrator.js';
@@ -151,6 +157,21 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       for await (const msg of runTools(toolUseBlocks, turnCtx, toolPool, canUseTool)) {
         history.push(msg);
         yield msg;
+      }
+      // Microcompaction: clear stale tool results before the next provider call.
+      const mcConfig = params.microcompactConfig ?? DEFAULT_MICROCOMPACT_CONFIG;
+      const toolNameMap = buildToolNameMap(history);
+      if (shouldMicrocompact(history, mcConfig, toolNameMap)) {
+        const { messages: compacted, result: mcResult } = microcompact(
+          history,
+          toolNameMap,
+          mcConfig,
+        );
+        if (mcResult.cleared > 0) {
+          history.length = 0;
+          history.push(...compacted);
+          yield { type: 'microcompact', info: mcResult } as StreamEvent;
+        }
       }
     } catch (err) {
       if (signal?.aborted) {

@@ -76,34 +76,49 @@ async function evaluateRuleLayers(
 ): Promise<{ behavior: 'allow' | 'deny' | 'ask'; reason?: string } | undefined> {
   for (const layer of layers) {
     const toolRules = layer.rules.filter((rule) => ruleMatchesTool(tool, rule));
-    if (toolRules.length === 0) continue;
+
+    // Shell AST: if this tool maps its input to a virtual tool name (e.g.
+    // Bash("cat foo") → "Read"), also check rules for that virtual tool.
+    const virtualName = resolveVirtualToolName(tool, input);
+    const virtualRules = virtualName ? layer.rules.filter((rule) => rule.tool === virtualName) : [];
+    const allRules = [...toolRules, ...virtualRules];
+    if (allRules.length === 0) continue;
 
     const matcher = await prepareMatcher(tool, input);
-    const blanketDeny = toolRules.find((rule) => rule.behavior === 'deny' && rule.content === null);
+    const blanketDeny = allRules.find((rule) => rule.behavior === 'deny' && rule.content === null);
     if (blanketDeny) return denyFromRule(blanketDeny, layer.source);
 
-    const patternDeny = toolRules.find(
+    const patternDeny = allRules.find(
       (rule) => rule.behavior === 'deny' && rule.content !== null && matcher(rule.content),
     );
     if (patternDeny) return denyFromRule(patternDeny, layer.source);
 
-    const patternAllow = toolRules.find(
+    const patternAllow = allRules.find(
       (rule) => rule.behavior === 'allow' && rule.content !== null && matcher(rule.content),
     );
     if (patternAllow) return { behavior: 'allow' };
 
-    const blanketAllow = toolRules.find(
+    const blanketAllow = allRules.find(
       (rule) => rule.behavior === 'allow' && rule.content === null,
     );
     if (blanketAllow) return { behavior: 'allow' };
 
-    const patternAsk = toolRules.find(
+    const patternAsk = allRules.find(
       (rule) => rule.behavior === 'ask' && (rule.content === null || matcher(rule.content)),
     );
     if (patternAsk) return { behavior: 'ask' };
   }
 
   return undefined;
+}
+
+function resolveVirtualToolName(tool: Parameters<CanUseTool>[0], input: unknown): string | null {
+  if (!tool.virtualToolName) return null;
+  try {
+    return tool.virtualToolName(input);
+  } catch {
+    return null;
+  }
 }
 
 async function prepareMatcher(

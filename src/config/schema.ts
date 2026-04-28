@@ -25,6 +25,14 @@ const ProviderConfigSchema = z
   })
   .strict();
 
+const MicrocompactionSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    keepRecent: z.number().int().positive().optional(),
+    triggerThresholdPct: z.number().min(0).max(100).optional(),
+  })
+  .strict();
+
 export const SettingsSchema = z
   .object({
     defaultProvider: z.string().optional(),
@@ -39,6 +47,7 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    microcompaction: MicrocompactionSchema.optional(),
   })
   .strict();
 

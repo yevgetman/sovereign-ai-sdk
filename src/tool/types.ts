@@ -82,6 +82,12 @@ export type ToolDef<I, O, P = void> = {
    * calls it without knowing the pattern semantics. */
   preparePermissionMatcher?: (input: I) => Promise<(pattern: string) => boolean>;
 
+  /** Map this tool's input to a virtual tool name for cross-tool permission
+   * resolution. E.g., `Bash("cat foo")` → `"Read"` so Read allow-rules also
+   * cover read-only bash commands. Returns null when the mapping is ambiguous
+   * or the command is unsafe. */
+  virtualToolName?: (input: I) => string | null;
+
   /** Deferred tools ship as name + searchHint only, full schema fetched via
    * ToolSearchTool. Default false. */
   shouldDefer?: boolean;

@@ -431,6 +431,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         if (ev.type === 'usage_delta') {
           latestUsage = ev.usage;
         }
+        if (ev.type === 'microcompact') {
+          process.stdout.write(
+            chalk.gray(
+              `\n[cleared ${ev.info.cleared} stale tool result${ev.info.cleared === 1 ? '' : 's'}, ~${Math.round(ev.info.estimatedTokensSaved / 1000)}K tokens]`,
+            ),
+          );
+        }
         // message_start, thinking_delta, tool_use_delta, message_stop: silent.
       }
     } finally {

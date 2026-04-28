@@ -30,6 +30,12 @@ export type TokenUsage = {
   cacheReadInputTokens?: number;
 };
 
+export type MicrocompactInfo = {
+  cleared: number;
+  estimatedTokensSaved: number;
+  keptRecent: number;
+};
+
 export type StreamEvent =
   | { type: 'message_start' }
   | { type: 'text_delta'; text: string }
@@ -37,7 +43,8 @@ export type StreamEvent =
   | { type: 'tool_use_delta'; id: string; partial: unknown }
   | { type: 'usage_delta'; usage: TokenUsage }
   | { type: 'message_stop'; stop_reason: StopReason }
-  | { type: 'assistant_message'; message: AssistantMessage };
+  | { type: 'assistant_message'; message: AssistantMessage }
+  | { type: 'microcompact'; info: MicrocompactInfo };
 
 export type Terminal = {
   reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted';
@@ -76,4 +83,7 @@ export type QueryParams = {
   cacheEnabled?: boolean;
   /** Optional bounded-memory manager; injects a fenced snapshot once per user turn. */
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
+  /** Microcompaction config. When enabled, stale tool results are cleared before
+   *  they cause full compaction. Omit or set `enabled: false` to disable. */
+  microcompactConfig?: import('../compact/microcompact.js').MicrocompactConfig;
 };
