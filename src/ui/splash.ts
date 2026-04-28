@@ -5,6 +5,7 @@
 // multi-line banner carried (permissions, tools, cache, session).
 
 import chalk from 'chalk';
+import { boxify, visibleWidth } from './box.js';
 
 const PKG_VERSION = '0.0.1';
 
@@ -56,22 +57,28 @@ function padBlock(lines: string[], targetHeight: number, width: number): string[
   return out;
 }
 
+function padRight(line: string, width: number): string {
+  const fill = Math.max(0, width - visibleWidth(line));
+  return `${line}${' '.repeat(fill)}`;
+}
+
 export function renderSplash(info: SplashInfo): string {
   const logoWidth = LOGO_LINES[0]?.length ?? 0;
   const coloredLogo = LOGO_LINES.map((line, i) => {
     const tint = LOGO_GRADIENT[i] ?? chalk.cyan;
     return tint(line);
   });
-  const card = renderCard(info);
-  const height = Math.max(coloredLogo.length, card.length);
+  const cardLines = boxify(renderCard(info), { padding: 2 });
+  const cardWidth = Math.max(...cardLines.map(visibleWidth));
+  const height = Math.max(coloredLogo.length, cardLines.length);
   const left = padBlock(coloredLogo, height, logoWidth);
   // Vertically center the card against the logo.
-  const cardOffset = Math.max(0, Math.floor((height - card.length) / 2));
+  const cardOffset = Math.max(0, Math.floor((height - cardLines.length) / 2));
   const right: string[] = Array(height).fill('');
-  for (let i = 0; i < card.length; i++) {
-    right[cardOffset + i] = card[i] ?? '';
+  for (let i = 0; i < cardLines.length; i++) {
+    right[cardOffset + i] = cardLines[i] ?? '';
   }
-  const rows = left.map((l, i) => `${l}  ${right[i] ?? ''}`);
+  const rows = left.map((l, i) => `${l}  ${padRight(right[i] ?? '', cardWidth)}`);
   const tips = chalk.gray(
     'Tips: type / for slash commands · @file:path to inline files · /quit to exit',
   );

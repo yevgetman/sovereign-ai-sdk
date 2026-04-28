@@ -3,6 +3,7 @@
 // Designed to mirror the goodbye summary common in coding-CLI peers.
 
 import chalk from 'chalk';
+import { boxify } from './box.js';
 
 export type SessionMetrics = {
   sessionId: string;
@@ -28,25 +29,6 @@ function formatDuration(ms: number): string {
 function pct(num: number, denom: number): string {
   if (denom <= 0) return '0.0%';
   return `${((num / denom) * 100).toFixed(1)}%`;
-}
-
-const ESC = String.fromCharCode(27);
-const ANSI_RE = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
-const visibleWidth = (s: string): number => s.replace(ANSI_RE, '').length;
-
-function boxify(lines: string[], padding = 2): string[] {
-  const innerWidth = Math.max(...lines.map(visibleWidth));
-  const horiz = '─'.repeat(innerWidth + padding * 2);
-  const top = chalk.gray(`╭${horiz}╮`);
-  const bottom = chalk.gray(`╰${horiz}╯`);
-  const pad = ' '.repeat(padding);
-  const out = [top];
-  for (const line of lines) {
-    const fill = ' '.repeat(innerWidth - visibleWidth(line));
-    out.push(`${chalk.gray('│')}${pad}${line}${fill}${pad}${chalk.gray('│')}`);
-  }
-  out.push(bottom);
-  return out;
 }
 
 export function renderSessionSummary(m: SessionMetrics): string {
