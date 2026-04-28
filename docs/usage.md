@@ -35,6 +35,8 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--resume <uuid>` | Resume a stored session. |
 | `--db <path>` | Override the session DB path. Default: `~/.harness/sessions.db`. |
 | `--no-cache` | Disable provider prompt-cache markers for testing. |
+| `--no-preflight` | Skip startup provider/model health checks. |
+| `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
 
 Examples:
 

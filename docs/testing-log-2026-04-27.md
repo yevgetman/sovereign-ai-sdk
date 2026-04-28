@@ -21,6 +21,45 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-28 - Optional REPL Transcript Capture
+
+- Scope: Post Phase-10.5 backlog item 7, adding an optional redacted JSONL
+  transcript/event log for manual REPL tests.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+  - Smoke `HARNESS_HOME`: `/tmp/sovereign-transcript-smoke-20260428/home`
+  - Smoke session DB: `/tmp/sovereign-transcript-smoke-20260428/sessions.db`
+  - Smoke transcript: `/tmp/sovereign-transcript-smoke-20260428/trace.jsonl`
+  - Smoke session: `8e03cdaa-091d-4272-aa5a-ddca15cf6005`
+- Commands:
+  - `bun test tests/ui/transcript.test.ts tests/ui/queuedQuestion.test.ts tests/permissions/prompt.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+  - `mkdir -p /tmp/sovereign-transcript-smoke-20260428/home`
+  - `printf '/cost\n/quit\n' | env HARNESS_HOME=/tmp/sovereign-transcript-smoke-20260428/home bun src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-transcript-smoke-20260428/sessions.db --permission-mode ask --no-cache --no-preflight --transcript /tmp/sovereign-transcript-smoke-20260428/trace.jsonl`
+  - `cat /tmp/sovereign-transcript-smoke-20260428/trace.jsonl`
+- Manual / REPL coverage:
+  - Verified the CLI accepts `--transcript <path>` and writes a JSONL event log.
+  - Verified a pasted `/cost\n/quit\n` sequence is processed as two inputs.
+  - Verified the transcript includes `session_start`, both `user_input` events,
+    the local `/cost` `slash_command` output, and `session_end`.
+  - Unit tests cover redaction, transcript file creation, queued readline input,
+    and permission prompt/answer hooks.
+- Result:
+  - Passed. Focused transcript/input/permission tests reported 15 passing tests
+    and 0 failures.
+  - Passed. `bun run lint` checked 119 files with no fixes applied after
+    formatting.
+  - Passed. `bun run test` reported 277 passing tests, 0 failures, and 748
+    assertions across 48 files.
+  - Passed. `bun run typecheck`.
+  - Passed. The no-provider-call CLI smoke recorded the expected transcript
+    events and exited cleanly.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Queued REPL Input For Multi-Line Paste
 
 - Scope: Post Phase-10.5 backlog item 6, preserving pasted multi-line slash

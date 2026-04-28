@@ -9,6 +9,16 @@ import type { AskResponse, AskUser } from './types.js';
 
 type ReadlineQuestion = (prompt: string, options?: { signal?: AbortSignal }) => Promise<string>;
 
+export type ReadlineAskerHooks = {
+  onPrompt?: (event: { toolName: string; preview: string; reason?: string }) => void;
+  onAnswer?: (event: {
+    toolName: string;
+    preview: string;
+    reason?: string;
+    answer: AskResponse;
+  }) => void;
+};
+
 /**
  * Parse a human-typed answer into a structured response. Undefined for
  * un-recognised input — callers re-prompt in that case.
@@ -25,21 +35,33 @@ export function parseAskResponse(raw: string): AskResponse | undefined {
  * Build an AskUser that reads from the given readline. Empty line defaults
  * to deny (safer default — the user hit enter without thinking).
  */
-export function buildReadlineAsker(rl: ReadlineInterface | ReadlineQuestion): AskUser {
+export function buildReadlineAsker(
+  rl: ReadlineInterface | ReadlineQuestion,
+  hooks: ReadlineAskerHooks = {},
+): AskUser {
   const question: ReadlineQuestion =
     typeof rl === 'function'
       ? rl
       : (prompt, options) =>
           options?.signal ? rl.question(prompt, { signal: options.signal }) : rl.question(prompt);
   return serializeAskUser(async ({ toolName, preview, reason, signal }) => {
+    const event = {
+      toolName,
+      preview,
+      ...(reason ? { reason } : {}),
+    };
     const summary = preview ? ` ${chalk.bold(preview)}` : '';
     const reasonLine = reason ? chalk.gray(` — ${reason}`) : '';
     process.stdout.write(chalk.yellow(`\n[permission] ${toolName}${summary}${reasonLine}\n`));
+    hooks.onPrompt?.(event);
     for (;;) {
       const prompt = chalk.yellow('  allow? [y]es / [N]o / [a]lways: ');
       const raw = signal ? await question(prompt, { signal }) : await question(prompt);
       const parsed = parseAskResponse(raw);
-      if (parsed !== undefined) return parsed;
+      if (parsed !== undefined) {
+        hooks.onAnswer?.({ ...event, answer: parsed });
+        return parsed;
+      }
       process.stdout.write(chalk.red('  please enter y, n, or a\n'));
     }
   });

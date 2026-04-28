@@ -57,6 +57,7 @@ import type { Tool, ToolContext } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
 import { createQueuedQuestion } from './queuedQuestion.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
+import { createTranscriptLogger } from './transcript.js';
 
 export type ReplOpts = {
   bundlePath: string;
@@ -73,6 +74,8 @@ export type ReplOpts = {
   noCache?: boolean;
   /** Startup provider health check. Defaults to true. */
   preflight?: boolean;
+  /** Optional redacted JSONL event transcript path. */
+  transcriptPath?: string;
 };
 
 const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
@@ -80,6 +83,7 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
   const harnessHome = resolveHarnessHome();
+  const transcript = createTranscriptLogger(opts.transcriptPath);
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
   const permissionMode =
     opts.permissionMode === 'default' && permissionSettings.mode !== 'default'
@@ -111,6 +115,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   if (opts.preflight !== false) {
     const preflight = await preflightProvider({ provider, providerName, model: activeModel });
     if (!preflight.ok) {
+      transcript?.record({
+        type: 'provider_error',
+        stage: 'provider_preflight',
+        providerName,
+        model: activeModel,
+        message: preflight.message,
+      });
       await memoryManager.onSessionEnd('preflight-failed');
       await memoryManager.shutdown();
       db.close();
@@ -145,6 +156,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   ) {
     const preflight = await preflightToolCalling({ provider, providerName, model: activeModel });
     if (!preflight.ok) {
+      transcript?.record({
+        type: 'provider_error',
+        stage: 'tool_preflight',
+        providerName,
+        model: activeModel,
+        message: preflight.message,
+      });
       await memoryManager.onSessionEnd('preflight-failed');
       await memoryManager.shutdown();
       db.close();
@@ -154,6 +172,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
   let activeSessionId = opened.sessionId;
   const { systemPrompt, history, resumed } = opened;
+  transcript?.record({
+    type: 'session_start',
+    sessionId: activeSessionId,
+    resumed,
+    cwd: process.cwd(),
+    bundlePath: opts.bundlePath,
+    providerName,
+    model: activeModel,
+    permissionMode,
+  });
 
   const toolContext: ToolContext = {
     cwd: process.cwd(),
@@ -191,7 +219,20 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   });
 
   const alwaysAllow = new Set<string>();
-  const ask = buildReadlineAsker(question);
+  const ask = buildReadlineAsker(question, {
+    onPrompt: (event) =>
+      transcript?.record({
+        type: 'permission_prompt',
+        sessionId: activeSessionId,
+        ...event,
+      }),
+    onAnswer: (event) =>
+      transcript?.record({
+        type: 'permission_answer',
+        sessionId: activeSessionId,
+        ...event,
+      }),
+  });
   const canUseTool = buildCanUseTool({
     mode: permissionMode,
     ask,
@@ -230,6 +271,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   while (!closed) {
     const input = await question(chalk.cyan('\nyou> ')).catch(() => null);
     if (input === null) break;
+    transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
     if (trimmed === '') continue;
     if (EXIT_COMMANDS.has(trimmed)) break;
@@ -237,10 +279,24 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     if (trimmed.startsWith('/')) {
       const result = await dispatchSlashCommand(trimmed, commandContext());
       if (result.kind === 'local' || result.kind === 'unknown') {
+        transcript?.record({
+          type: 'slash_command',
+          sessionId: activeSessionId,
+          command: trimmed,
+          kind: result.kind,
+          output: result.output,
+        });
         process.stdout.write(chalk.gray('\nharness> '));
         process.stdout.write(`${result.output}\n`);
         continue;
       }
+      transcript?.record({
+        type: 'slash_command',
+        sessionId: activeSessionId,
+        command: trimmed,
+        kind: result.kind,
+        promptCommand: result.command.name,
+      });
       await runModelTurn(result.content, result.command);
       continue;
     }
@@ -416,6 +472,15 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         return;
       }
       process.stderr.write(chalk.red(`\n[error] ${msg}\n`));
+      transcript?.record({
+        type: 'provider_error',
+        stage: 'turn',
+        sessionId: activeSessionId,
+        providerName,
+        model: activeModel,
+        message: msg,
+        mutationPaths: [...completedMutationPaths],
+      });
       if (completedMutationPaths.size > 0) {
         process.stderr.write(
           chalk.yellow(
@@ -540,6 +605,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
 
   rl.close();
+  transcript?.record({ type: 'session_end', sessionId: activeSessionId });
   await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
   db.close();

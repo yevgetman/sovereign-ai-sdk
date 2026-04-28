@@ -96,6 +96,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
     .option('--no-cache', 'disable provider prompt-cache markers for this session')
     .option('--no-preflight', 'skip the startup provider health check')
+    .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
@@ -109,6 +110,7 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
         ...(opts.cache === false ? { noCache: true } : {}),
         preflight: opts.preflight !== false,
+        ...(opts.transcript !== undefined ? { transcriptPath: opts.transcript } : {}),
       });
     });
 

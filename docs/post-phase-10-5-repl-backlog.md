@@ -197,7 +197,13 @@ Source test:
 ## 7. Optional Terminal Transcript Capture
 
 - Priority: P3
-- Status: open
+- Status: complete (2026-04-28)
+- Fix: Added `--transcript <path>` to write a redacted JSONL terminal/event
+  transcript. The logger records session start/end, user inputs, local and
+  prompt slash-command events, permission prompts, permission answers, provider
+  errors, and preflight provider errors. The same smoke also verified queued
+  pasted slash commands by piping `/cost\n/quit\n` through the CLI and confirming
+  both inputs landed in the transcript.
 - Evidence: The retest used the external `script` command to capture
   permission prompts, provider errors, and human inputs. The SQLite transcript
   records model messages but not the full terminal interaction.

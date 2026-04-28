@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+  buildReadlineAsker,
   parseAskResponse,
   previewToolInput,
   serializeAskUser,
@@ -89,5 +90,38 @@ describe('serializeAskUser', () => {
     releases[1]?.();
     await expect(second).resolves.toBe('allow');
     expect(order).toEqual(['start:A', 'end:A', 'start:B', 'end:B']);
+  });
+});
+
+describe('buildReadlineAsker', () => {
+  test('emits prompt and answer hooks', async () => {
+    const events: unknown[] = [];
+    const ask = buildReadlineAsker(async () => 'y', {
+      onPrompt: (event) => events.push({ type: 'prompt', ...event }),
+      onAnswer: (event) => events.push({ type: 'answer', ...event }),
+    });
+
+    const answer = await ask({
+      toolName: 'Bash',
+      preview: 'git status',
+      reason: 'needs approval',
+    });
+
+    expect(answer).toBe('allow');
+    expect(events).toEqual([
+      {
+        type: 'prompt',
+        toolName: 'Bash',
+        preview: 'git status',
+        reason: 'needs approval',
+      },
+      {
+        type: 'answer',
+        toolName: 'Bash',
+        preview: 'git status',
+        reason: 'needs approval',
+        answer: 'allow',
+      },
+    ]);
   });
 });
