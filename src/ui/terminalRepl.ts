@@ -55,6 +55,7 @@ import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.j
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
+import { createQueuedQuestion } from './queuedQuestion.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
 
 export type ReplOpts = {
@@ -172,6 +173,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     output: process.stdout,
     terminal: true,
   });
+  const question = createQueuedQuestion(rl);
 
   let streamController: AbortController | null = null;
   let closed = false;
@@ -189,7 +191,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   });
 
   const alwaysAllow = new Set<string>();
-  const ask = buildReadlineAsker(rl);
+  const ask = buildReadlineAsker(question);
   const canUseTool = buildCanUseTool({
     mode: permissionMode,
     ask,
@@ -226,7 +228,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   );
 
   while (!closed) {
-    const input = await rl.question(chalk.cyan('\nyou> ')).catch(() => null);
+    const input = await question(chalk.cyan('\nyou> ')).catch(() => null);
     if (input === null) break;
     const trimmed = input.trim();
     if (trimmed === '') continue;

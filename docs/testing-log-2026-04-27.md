@@ -21,6 +21,33 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Queued REPL Input For Multi-Line Paste
+
+- Scope: Post Phase-10.5 backlog item 6, preserving pasted multi-line slash
+  command input across REPL prompts.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/ui/queuedQuestion.test.ts tests/permissions/prompt.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests simulate `/cost\n/quit\n`-style pasted lines through
+    readline streams and verify the second line is preserved for the next
+    prompt.
+- Result:
+  - Passed. Focused input/permission tests reported 12 passing tests and 0
+    failures.
+  - Passed. `bun run lint` checked 117 files with no fixes applied after import
+    ordering.
+  - Passed. `bun run test` reported 274 passing tests, 0 failures, and 740
+    assertions across 47 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Max Tokens Documentation Default
 
 - Scope: Post Phase-10.5 backlog item 5, aligning the documented

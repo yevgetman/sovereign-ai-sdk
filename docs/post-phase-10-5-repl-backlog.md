@@ -178,7 +178,12 @@ Source test:
 ## 6. Pasted Multi-Line Slash Commands
 
 - Priority: P3
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: Replaced the REPL's one-shot `rl.question` usage with a queued readline
+  prompt adapter that listens for every line and stores pasted surplus lines for
+  later prompts. The same adapter feeds permission prompts, so pasted
+  `/cost\n/quit\n` style input is processed sequentially instead of dropping the
+  trailing slash command.
 - Evidence: Pasting `/cost\n/quit\n` into the REPL produced the `/cost` output
   but did not quit until `/quit` was entered again.
 - Impact: Multi-line paste behavior is surprising and can make scripted manual
