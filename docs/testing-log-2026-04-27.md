@@ -21,6 +21,30 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-28 - Anthropic Default Model Update
+
+- Scope: Change the built-in Anthropic harness default model from
+  `claude-sonnet-4-6` to `claude-haiku-4-5-20251001`, with docs and resolver
+  test alignment.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/providers/resolver.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. This was a registry default and documentation update.
+- Result:
+  - Passed. Focused resolver tests reported 5 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 119 files with no fixes applied.
+  - Passed. `bun run test` reported 277 passing tests, 0 failures, and 748
+    assertions across 48 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-28 - Post Phase-10.5 REPL Backlog Final Validation
 
 - Scope: Final validation after closing every item in

@@ -19,7 +19,7 @@ describe('resolveProvider', () => {
       harnessHome: tempHome(),
     });
     expect(resolved.transport.name).toBe('anthropic');
-    expect(resolved.model).toBe('claude-sonnet-4-6');
+    expect(resolved.model).toBe('claude-haiku-4-5-20251001');
     expect(resolved.authType).toBe('api_key');
   });
 

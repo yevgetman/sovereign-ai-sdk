@@ -55,7 +55,7 @@ Provider defaults can live in `~/.harness/config.json`:
 {
   "defaultProvider": "anthropic",
   "providers": {
-    "anthropic": { "model": "claude-sonnet-4-6" },
+    "anthropic": { "model": "claude-haiku-4-5-20251001" },
     "openai": { "apiKey": "sk-...", "model": "gpt-4o-mini" },
     "ollama": { "baseUrl": "http://localhost:11434", "model": "qwen2.5:3b" }
   }

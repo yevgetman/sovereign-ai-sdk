@@ -14,7 +14,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderRegistryEntry> = {
   anthropic: {
     provider: 'anthropic',
     apiMode: 'anthropic',
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: 'claude-haiku-4-5-20251001',
     defaultBaseUrl: 'https://api.anthropic.com',
     authEnvVar: 'ANTHROPIC_API_KEY',
     contextLength: 200_000,
