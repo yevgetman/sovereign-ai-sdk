@@ -21,6 +21,32 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-28 - Default Anthropic API Smoke
+
+- Scope: Quick live harness API smoke using the current default Anthropic model
+  `claude-haiku-4-5-20251001`.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+  - `HARNESS_HOME`: `/tmp/sovereign-api-smoke-20260428/home`
+  - Session DB: `/tmp/sovereign-api-smoke-20260428/sessions.db`
+  - Transcript: `/tmp/sovereign-api-smoke-20260428/trace.jsonl`
+- Commands:
+  - `printf 'Reply exactly API_OK and do not use tools.\n/quit\n' | env HARNESS_HOME=/tmp/sovereign-api-smoke-20260428/home bun src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-api-smoke-20260428/sessions.db --permission-mode ask --no-cache --transcript /tmp/sovereign-api-smoke-20260428/trace.jsonl`
+- Manual / REPL coverage:
+  - Verified the CLI resolves the default provider/model and reaches the
+    Anthropic API preflight before opening a session.
+- Result:
+  - Failed due to provider account state, not harness startup. Anthropic
+    returned a low-credit billing error during provider preflight for
+    `claude-haiku-4-5-20251001`, so no chat session opened and the prompt was
+    not sent.
+  - Passed. The harness surfaced the billing failure through the startup
+    preflight path instead of allowing a partial tool-enabled session.
+- Regressions / follow-ups:
+  - Add Anthropic credits or switch to another configured provider before
+    expecting live default-provider chat to complete.
+
 ## 2026-04-28 - Anthropic Default Model Update
 
 - Scope: Change the built-in Anthropic harness default model from
