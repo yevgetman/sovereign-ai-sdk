@@ -57,6 +57,12 @@ const MODEL_CONTEXT: Record<string, number> = {
   'gpt-4o-mini': 128_000,
   'gpt-4o': 128_000,
   'qwen2.5:3b': 32_768,
+  'qwen2.5:7b': 32_768,
+  'qwen2.5:14b': 32_768,
+  'qwen2.5:32b': 32_768,
+  'llama3.1:8b': 128_000,
+  'llama3.1:70b': 128_000,
+  'mistral-nemo': 128_000,
 };
 
 export function contextLengthFor(provider: string, model: string): number {

@@ -17,6 +17,7 @@ describe('resolveProvider', () => {
     const resolved = resolveProvider(undefined, undefined, {
       env: { ANTHROPIC_API_KEY: 'sk-ant-test' },
       harnessHome: tempHome(),
+      settings: {},
     });
     expect(resolved.transport.name).toBe('anthropic');
     expect(resolved.model).toBe('claude-haiku-4-5-20251001');
@@ -27,6 +28,7 @@ describe('resolveProvider', () => {
     const resolved = resolveProvider('openai', undefined, {
       env: { OPENAI_API_KEY: 'sk-openai-test' },
       harnessHome: tempHome(),
+      settings: {},
     });
     expect(resolved.transport.name).toBe('openai');
     expect(resolved.model).toBe('gpt-4o-mini');
@@ -34,10 +36,54 @@ describe('resolveProvider', () => {
   });
 
   test('ollama resolves without a credential', () => {
-    const resolved = resolveProvider('ollama', undefined, { env: {}, harnessHome: tempHome() });
+    const resolved = resolveProvider('ollama', undefined, {
+      env: {},
+      harnessHome: tempHome(),
+      settings: {},
+    });
     expect(resolved.transport.name).toBe('ollama');
     expect(resolved.authType).toBe('none');
     expect(resolved.model).toBe('qwen2.5:3b');
+  });
+
+  test('ollama transport receives num_ctx from registered model context length', () => {
+    const resolved = resolveProvider('ollama', 'qwen2.5:7b', {
+      env: {},
+      harnessHome: tempHome(),
+      settings: {},
+    });
+    const body = (
+      resolved.client as unknown as {
+        buildKwargs(req: {
+          model: string;
+          system: never[];
+          messages: never[];
+          maxTokens: number;
+        }): { options?: { num_ctx?: number } };
+      }
+    ).buildKwargs({ model: 'qwen2.5:7b', system: [], messages: [], maxTokens: 16 });
+    expect(body.options?.num_ctx).toBe(32768);
+  });
+
+  test('ollama numCtx config override wins over registered context length', () => {
+    const resolved = resolveProvider('ollama', 'qwen2.5:7b', {
+      env: {},
+      harnessHome: tempHome(),
+      settings: {
+        providers: { ollama: { model: 'qwen2.5:7b', numCtx: 8192 } },
+      },
+    });
+    const body = (
+      resolved.client as unknown as {
+        buildKwargs(req: {
+          model: string;
+          system: never[];
+          messages: never[];
+          maxTokens: number;
+        }): { options?: { num_ctx?: number } };
+      }
+    ).buildKwargs({ model: 'qwen2.5:7b', system: [], messages: [], maxTokens: 16 });
+    expect(body.options?.num_ctx).toBe(8192);
   });
 
   test('missing API key fails closed for API-key providers', () => {

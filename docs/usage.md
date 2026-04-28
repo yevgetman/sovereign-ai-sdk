@@ -89,6 +89,16 @@ The same verbs work in-session via `/config`:
 
 Every write is validated against the settings schema before touching disk; rejected changes leave the file untouched. `apiKey`, `apiKeys`, and credential entries are redacted in `show` and `get` output.
 
+## Ollama Notes
+
+Ollama defaults `num_ctx` to **2,048 tokens** for chat requests unless overridden. The harness now sends `num_ctx` automatically based on the model's registered context length (32K for the qwen2.5 family, 128K for llama3.1, etc.) — so chats no longer get silently truncated to 2K and trigger constant compaction. Override with:
+
+```bash
+sovereign config set providers.ollama.numCtx 16384
+```
+
+If your Ollama install is RAM-constrained, lowering `numCtx` is the right knob. Unsetting it returns to the registered default.
+
 ## Provider Configuration
 
 Provider defaults can live in `~/.harness/config.json`:

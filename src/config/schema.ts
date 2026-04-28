@@ -22,6 +22,9 @@ const ProviderConfigSchema = z
     model: z.string().optional(),
     baseUrl: z.string().url().optional(),
     strategy: z.enum(['ROUND_ROBIN', 'LEAST_USED', 'FILL_FIRST']).optional(),
+    /** Ollama only: explicit num_ctx override sent on every request.
+     *  Defaults to the model's registered contextLength when unset. */
+    numCtx: z.number().int().positive().optional(),
   })
   .strict();
 

@@ -68,7 +68,17 @@ export function resolveProvider(
     model ?? providerConfig?.model ?? settings.defaultModel ?? registry.defaultModel;
 
   const selected = selectCredential(providerName, providerConfig, registry.authEnvVar, env, opts);
-  const transport = instantiateTransport(providerName, registry.apiMode, baseUrl, selected?.secret);
+  const numCtx =
+    providerName === 'ollama'
+      ? (providerConfig?.numCtx ?? contextLengthFor(providerName, resolvedModel))
+      : undefined;
+  const transport = instantiateTransport(
+    providerName,
+    registry.apiMode,
+    baseUrl,
+    selected?.secret,
+    numCtx,
+  );
   const guarded = wrapWithProviderHardening(transport, providerName, selected, opts);
 
   return {
@@ -168,6 +178,7 @@ function instantiateTransport(
   apiMode: 'anthropic' | 'openai' | 'ollama',
   baseUrl: string,
   apiKey: string | undefined,
+  numCtx: number | undefined,
 ): Transport {
   if (apiMode === 'anthropic') {
     if (!apiKey) throw new CredentialUnavailableError(providerName);
@@ -177,7 +188,11 @@ function instantiateTransport(
     if (!apiKey) throw new CredentialUnavailableError(providerName);
     return new OpenAIProvider({ apiKey, baseURL: baseUrl, name: providerName }) as Transport;
   }
-  return new OllamaProvider({ baseURL: baseUrl, ...(apiKey ? { apiKey } : {}) }) as Transport;
+  return new OllamaProvider({
+    baseURL: baseUrl,
+    ...(apiKey ? { apiKey } : {}),
+    ...(numCtx !== undefined ? { numCtx } : {}),
+  }) as Transport;
 }
 
 function wrapWithProviderHardening(

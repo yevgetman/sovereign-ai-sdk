@@ -27,6 +27,28 @@ describe('OllamaProvider', () => {
     expect(body.tools?.[0]?.function.name).toBe('Echo');
     expect(body.options?.num_predict).toBe(64);
   });
+
+  test('num_ctx is omitted when not configured', () => {
+    const provider = new OllamaProvider();
+    const body = provider.buildKwargs({
+      model: 'qwen2.5:7b',
+      system: [],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      maxTokens: 32,
+    });
+    expect(body.options?.num_ctx).toBeUndefined();
+  });
+
+  test('num_ctx is forwarded to options when configured', () => {
+    const provider = new OllamaProvider({ numCtx: 32768 });
+    const body = provider.buildKwargs({
+      model: 'qwen2.5:7b',
+      system: [],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      maxTokens: 32,
+    });
+    expect(body.options?.num_ctx).toBe(32768);
+  });
 });
 
 describe('translateOllamaStream', () => {

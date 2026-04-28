@@ -39,6 +39,7 @@ type OllamaChatBody = {
   options?: {
     temperature?: number;
     num_predict?: number;
+    num_ctx?: number;
   };
 };
 
@@ -60,6 +61,11 @@ type OllamaProviderConfig = {
   baseURL?: string;
   apiKey?: string;
   fetchImpl?: typeof fetch;
+  /** num_ctx sent with every request. When unset, Ollama defaults to
+   *  2048 tokens regardless of the model's actual ceiling — almost
+   *  always wrong for chat-with-tools. The resolver passes the model's
+   *  registered contextLength here. */
+  numCtx?: number;
 };
 
 export class OllamaProvider
@@ -69,10 +75,12 @@ export class OllamaProvider
   readonly apiMode = 'ollama';
   private readonly baseURL: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly numCtx: number | undefined;
 
   constructor(private readonly config: OllamaProviderConfig = {}) {
     this.baseURL = (config.baseURL ?? 'http://localhost:11434').replace(/\/$/, '');
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.numCtx = config.numCtx;
   }
 
   toProviderMessages(messages: Message[], system: SystemSegment[] = []): OllamaMessage[] {
@@ -114,6 +122,7 @@ export class OllamaProvider
       options: {
         ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
         num_predict: req.maxTokens,
+        ...(this.numCtx !== undefined ? { num_ctx: this.numCtx } : {}),
       },
     };
   }

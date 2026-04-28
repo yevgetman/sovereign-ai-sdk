@@ -49,6 +49,11 @@ const FIELDS: Field[] = [
     label: 'providers.ollama.baseUrl',
     hint: 'http://localhost:11434',
   },
+  {
+    path: 'providers.ollama.numCtx',
+    label: 'providers.ollama.numCtx',
+    hint: 'override num_ctx (default: model context length)',
+  },
   { path: 'microcompaction.enabled', label: 'microcompaction.enabled', hint: 'true | false' },
   { path: 'microcompaction.keepRecent', label: 'microcompaction.keepRecent', hint: 'integer' },
   {
