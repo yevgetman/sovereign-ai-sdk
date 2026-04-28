@@ -26,16 +26,29 @@ type Field = {
   label: string;
   hint?: string;
   secret?: boolean;
+  /** When set, Enter shows a small choice picker; the last entry is
+   *  always "type custom value..." which falls through to readline. */
+  choices?: string[];
 };
+
+const CUSTOM_SENTINEL = '↪ type custom value…';
 
 const FIELDS: Field[] = [
   {
     path: 'defaultProvider',
     label: 'defaultProvider',
-    hint: 'anthropic | openai | openrouter | ollama',
+    choices: ['anthropic', 'ollama', 'openai', 'openrouter'],
   },
-  { path: 'defaultModel', label: 'defaultModel' },
-  { path: 'permissionMode', label: 'permissionMode', hint: 'default | ask | bypass' },
+  {
+    path: 'defaultModel',
+    label: 'defaultModel',
+    choices: ['claude-haiku-4-5-20251001', 'qwen2.5:7b'],
+  },
+  {
+    path: 'permissionMode',
+    label: 'permissionMode',
+    choices: ['default', 'ask', 'bypass'],
+  },
   { path: 'providers.anthropic.model', label: 'providers.anthropic.model' },
   { path: 'providers.anthropic.apiKey', label: 'providers.anthropic.apiKey', secret: true },
   { path: 'providers.openai.model', label: 'providers.openai.model' },
@@ -148,6 +161,51 @@ async function promptValue(field: Field, currentRaw: unknown): Promise<string | 
   }
 }
 
+async function pickFromChoices(
+  field: Field,
+  currentRaw: unknown,
+): Promise<string | null | typeof CUSTOM_SENTINEL> {
+  const choices = field.choices ?? [];
+  const all = [...choices, CUSTOM_SENTINEL];
+  const currentStr = typeof currentRaw === 'string' ? currentRaw : '';
+  let selected = Math.max(0, all.indexOf(currentStr));
+  while (true) {
+    process.stdout.write(`${ESC}[2J${ESC}[H`);
+    const lines: string[] = [];
+    lines.push(chalk.bold(field.label));
+    if (currentStr) lines.push(chalk.gray(`current: ${currentStr}`));
+    lines.push('');
+    for (let i = 0; i < all.length; i++) {
+      const cursor = i === selected ? chalk.cyan('›') : ' ';
+      const value = all[i] ?? '';
+      const text =
+        i === selected
+          ? chalk.bold(value === CUSTOM_SENTINEL ? chalk.gray(value) : value)
+          : value === CUSTOM_SENTINEL
+            ? chalk.gray(value)
+            : value;
+      lines.push(`${cursor} ${text}`);
+    }
+    lines.push('');
+    lines.push(chalk.gray('↑/↓ select · enter confirm · esc cancel'));
+    process.stdout.write(`${lines.join('\n')}\n`);
+    const key = await readKey();
+    if (key === KEY.ESC || key === KEY.CTRL_C) return null;
+    if (key === KEY.UP) {
+      selected = (selected - 1 + all.length) % all.length;
+      continue;
+    }
+    if (key === KEY.DOWN) {
+      selected = (selected + 1) % all.length;
+      continue;
+    }
+    if (key === KEY.ENTER) {
+      const choice = all[selected] ?? '';
+      return choice === CUSTOM_SENTINEL ? CUSTOM_SENTINEL : choice;
+    }
+  }
+}
+
 async function readKey(): Promise<string> {
   return new Promise((resolve) => {
     const onData = (chunk: Buffer): void => {
@@ -216,14 +274,29 @@ export async function runConfigMenu(): Promise<void> {
       if (key === KEY.ENTER) {
         const current = readConfig();
         const raw = field.secret ? undefined : getAt(current, field.path);
-        const answer = await promptValue(field, raw);
-        if (answer === null) {
+        let chosen: string | null = null;
+        if (field.choices && field.choices.length > 0) {
+          const picked = await pickFromChoices(field, raw);
+          if (picked === null) {
+            state.status = 'cancelled';
+            state.statusKind = 'info';
+            continue;
+          }
+          if (picked === CUSTOM_SENTINEL) {
+            chosen = await promptValue(field, raw);
+          } else {
+            chosen = picked;
+          }
+        } else {
+          chosen = await promptValue(field, raw);
+        }
+        if (chosen === null) {
           state.status = 'cancelled';
           state.statusKind = 'info';
           continue;
         }
         try {
-          const value = parseValueLiteral(answer);
+          const value = parseValueLiteral(chosen);
           writeConfig(setAt(current, field.path, value));
           state.status = `set ${field.path}`;
           state.statusKind = 'ok';
