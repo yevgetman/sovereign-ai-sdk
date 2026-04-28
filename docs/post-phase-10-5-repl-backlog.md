@@ -35,7 +35,12 @@ Source test:
 ## 1. Provider/Model Health Preflight
 
 - Priority: P1
-- Status: open
+- Status: complete (2026-04-27)
+- Fix: The CLI now runs a startup provider preflight by default before opening
+  a real session. The preflight sends a tiny no-tool request with caching off,
+  classifies low-credit/quota, credential, rate-limit, and provider HTTP
+  failures, and aborts before the user can approve file mutations. `--no-preflight`
+  remains available for isolated testing or known-offline provider work.
 - Evidence: The Anthropic retest started successfully and completed the first
   website turn, but the second turn failed after several tool edits with:
 

@@ -51,8 +51,15 @@ export function isCredentialUnavailable(err: unknown): boolean {
 
 export function isBillingExhausted(err: unknown): boolean {
   if (err instanceof BillingExhaustedError) return true;
-  if (err instanceof ProviderHttpError) return err.status === 402;
-  return false;
+  if (err instanceof ProviderHttpError && err.status === 402) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('credit balance is too low') ||
+    lower.includes('insufficient quota') ||
+    lower.includes('billing') ||
+    lower.includes('purchase credits')
+  );
 }
 
 export function isRateLimited(err: unknown): err is ProviderHttpError {

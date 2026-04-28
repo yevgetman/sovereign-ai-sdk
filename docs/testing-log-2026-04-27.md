@@ -21,6 +21,27 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-04-27 - Provider Health Preflight
+
+- Scope: Post Phase-10.5 backlog item 1, adding startup provider preflight and clearer billing/credential classification before real work begins.
+- Environment:
+  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Runtime: Bun 1.3.13
+- Commands:
+  - `bun test tests/providers/preflight.test.ts tests/providers/resolver.test.ts`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run typecheck`
+- Manual / REPL coverage:
+  - None. Focused tests use fake providers and provider HTTP errors rather than live API calls.
+- Result:
+  - Passed. Focused provider tests reported 8 passing tests and 0 failures.
+  - Passed. `bun run lint` checked 112 files with no fixes applied after import ordering.
+  - Passed. `bun run test` reported 264 passing tests, 0 failures, and 709 assertions across 44 files.
+  - Passed. `bun run typecheck`.
+- Regressions / follow-ups:
+  - No regressions found.
+
 ## 2026-04-27 - Post-Fix Real-World Website REPL Retest
 
 - Scope: Real-world REPL retest after closing the Phase-10.5 backlog. The test repeated the imperfect website-building workflow with a new static site under `~/code`, then validated the produced artifact externally and checked session transcript integrity.

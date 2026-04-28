@@ -95,6 +95,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--resume <id>', 'resume a prior session by its UUID')
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
     .option('--no-cache', 'disable provider prompt-cache markers for this session')
+    .option('--no-preflight', 'skip the startup provider health check')
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
@@ -107,6 +108,7 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
         ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
         ...(opts.cache === false ? { noCache: true } : {}),
+        preflight: opts.preflight !== false,
       });
     });
 

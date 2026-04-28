@@ -44,6 +44,7 @@ import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
 import type { PermissionMode } from '../permissions/types.js';
 import { isContextOverflowError } from '../providers/errors.js';
+import { preflightProvider } from '../providers/preflight.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import { buildSkillCommands } from '../skills/commands.js';
@@ -67,6 +68,8 @@ export type ReplOpts = {
   dbPath?: string;
   /** Disable provider prompt-cache markers for deterministic smoke tests. */
   noCache?: boolean;
+  /** Startup provider health check. Defaults to true. */
+  preflight?: boolean;
 };
 
 const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
@@ -102,6 +105,15 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const providerName = String(resolved.metadata.provider);
   let activeModel = resolved.model;
   const provider = resolved.transport;
+  if (opts.preflight !== false) {
+    const preflight = await preflightProvider({ provider, providerName, model: activeModel });
+    if (!preflight.ok) {
+      await memoryManager.onSessionEnd('preflight-failed');
+      await memoryManager.shutdown();
+      db.close();
+      throw new Error(preflight.message);
+    }
+  }
   const preliminaryToolContext: ToolContext = {
     cwd: process.cwd(),
     bundleRoot: bundle.root,
