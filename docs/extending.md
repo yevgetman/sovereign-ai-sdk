@@ -10,7 +10,8 @@ This guide covers common code changes. Keep changes narrow, preserve the async-g
 4. Implement `call(input, ctx, onProgress?)`.
 5. Add `renderResult()` when structured output needs a user-facing transcript shape.
 6. Add `preparePermissionMatcher()` if permission rules should support tool-specific patterns.
-7. Add `affectedPaths()`, `isReadOnly(input)`, and `isConcurrencySafe(input)` only when they are true for the actual invocation.
+7. Add `virtualToolName(input)` if the tool's operations map to another tool's permission rules (e.g., a shell wrapper that does reads should return `'Read'`).
+8. Add `affectedPaths()`, `isReadOnly(input)`, and `isConcurrencySafe(input)` only when they are true for the actual invocation.
 8. Register the tool in `assembleToolPool()` in `src/tool/registry.ts`.
 9. Add focused tests under `tests/tools/` and orchestration tests if concurrency or path behavior matters.
 
@@ -81,6 +82,14 @@ Permission parsing and wildcard matching live in `src/config/rules.ts`; orchestr
 
 When a rule needs tool-specific semantics, add or update the tool's `preparePermissionMatcher()` instead of teaching the global rule engine about that tool's input shape.
 
+### Virtual Tool Mapping
+
+Tools can implement `virtualToolName(input)` to map their input to a different tool name for permission resolution. The permission evaluator checks rules for both the actual tool name and the virtual name. This lets `Bash("cat src/main.ts")` resolve against `Read` rules.
+
+To add a new command to the shell analyzer, add it to the appropriate set in `src/permissions/shellSemantics.ts`: `READ_COMMANDS`, `WRITE_COMMANDS`, `EDIT_COMMANDS`, or `WEB_COMMANDS`. For commands with flag-dependent behavior (like `sed -i`), add a handler in `analyzeSegment()`.
+
+### Permission Invariants
+
 Preserve these invariants:
 
 - deny wins within a settings layer
@@ -88,6 +97,7 @@ Preserve these invariants:
 - `ask` can force a prompt even when fallthrough would allow
 - `updatedInput` must be validated again before execution
 - permission prompts deny by default on empty input
+- virtual tool name resolution is fail-closed: if `virtualToolName()` throws, no virtual rules apply
 
 ## Add A Skill Capability
 

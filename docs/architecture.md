@@ -66,6 +66,8 @@ Tool calls are handled by `runTools()`:
 
 The default tool posture is conservative. If a tool does not explicitly opt into read-only or concurrency-safe behavior for a particular input, it is treated as potentially stateful and runs serially.
 
+After tool results are assembled and pushed to history, the query loop evaluates microcompaction (see below). If stale tool results are cleared, the compacted history replaces the in-memory history before the next provider call.
+
 ## Permissions
 
 Permission settings are layered from local to global:
@@ -84,6 +86,21 @@ The permission interface is intentionally transformable:
 
 That lets permission checks normalize or narrow inputs before the tool runs.
 
+### Shell AST Analysis And Virtual Tool Mapping
+
+Tools can declare a `virtualToolName(input)` method that maps their input to a different tool name for permission resolution. The permission evaluator checks rules for both the actual tool name and the virtual tool name.
+
+`BashTool` uses this to map read-only shell commands to `Read`. When a user has `Read` in their allow rules, `Bash("cat src/main.ts")` resolves as a Read operation and runs without prompting. The mapping is provided by `src/permissions/shellSemantics.ts`, which parses shell commands into virtual operations:
+
+- Read: `cat`, `head`, `grep`, `ls`, `find`, `git log`, `git status`, etc. (60+ commands)
+- Write: `cp`, `mv`, `mkdir`, `touch`, `git commit`, `git push`, etc.
+- Edit: `rm`, `chmod`, `sed -i`, etc.
+- Web: `curl`, `wget`
+- Unsafe: command substitution (`$(...)`, backticks), `eval`
+- Exec: unrecognized commands (fall through to existing Bash rules)
+
+Transparent prefix stripping handles `sudo`, `timeout`, `env`, `nice`, `nohup`. Redirects (`>`, `>>`) promote read commands to write. The analysis is fail-closed: unrecognized commands fall through to the existing Bash permission behavior, never to `allow`.
+
 ## Persistence
 
 Session persistence lives in `src/agent/sessionDb.ts` and uses `bun:sqlite` with WAL, schema migrations, FTS5, and a jittered busy retry wrapper.
@@ -98,6 +115,34 @@ The DB stores:
 - estimated provider and compaction costs
 
 The default database is `$HARNESS_HOME/sessions.db`, normally `~/.harness/sessions.db`.
+
+## Microcompaction
+
+Microcompaction (`src/compact/microcompact.ts`) is a lightweight context-management layer that runs before full compaction. After every tool-result round, the query loop estimates what percentage of the conversation's tokens come from compactable tool results. When that exceeds `triggerThresholdPct` (default 40%), it clears all but the `keepRecent` (default 5) most recent tool results by replacing their content with a short placeholder like `[Tool result cleared — Read]`.
+
+Microcompaction differs from full compaction:
+
+- No model call — it replaces content directly, not via a summarization turn.
+- Per-part granularity — individual `tool_result` blocks are cleared, not entire messages.
+- Error preservation — `is_error` tool results are never cleared; the model needs error context to recover.
+- Idempotent — already-cleared results are skipped on subsequent passes.
+- Reversible via DB — the session DB retains the original content; `/rollback` restores the uncleared history.
+
+The compactable tool set covers tools with large, transient output: Bash, Read, FileRead, Write, FileWrite, Edit, FileEdit, Grep, Glob. Skills and memory tools are excluded.
+
+Configuration via `~/.harness/config.json`:
+
+```json
+{
+  "microcompaction": {
+    "enabled": true,
+    "keepRecent": 5,
+    "triggerThresholdPct": 40
+  }
+}
+```
+
+A `microcompact` StreamEvent is emitted when clearing occurs, rendered by the REPL as `[cleared N stale tool results, ~XK tokens]`.
 
 ## Runtime State
 
@@ -117,10 +162,12 @@ Bundle state is documented separately in `src/bundle/README.md`. The runtime mus
 
 The primary extension surfaces are:
 
-- `src/tools/` and `src/tool/` for native tools
+- `src/tools/` and `src/tool/` for native tools (including `virtualToolName` for cross-tool permission mapping)
 - `src/providers/` for model providers
 - `src/commands/` for slash commands
 - `src/skills/` for markdown skills and skill discovery
+- `src/compact/microcompact.ts` for microcompaction config and compactable tool sets
+- `src/permissions/shellSemantics.ts` for shell command classification (add commands to the handler sets)
 - `src/agent/sessionDb.ts` for schema migrations
 - future `src/hooks/`, `src/mcp/`, `src/review/`, `src/router/`, and `src/trajectory/` phase landing zones
 

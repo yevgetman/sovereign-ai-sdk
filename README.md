@@ -6,9 +6,11 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 10 complete (2026-04-26)** - context-window compaction. The REPL supports `/compact` and `/rollback`, stores parent-child session lineage, records separate compaction usage/cost lanes, proactively compacts above 50% of the model context window, and retries once after provider context-overflow errors.
+**Qwen amendment complete (2026-04-28)** — microcompaction (per-part tool-result clearing) and shell command AST analysis (virtual tool mapping for permissions) landed on top of Phase 10. The runtime now clears stale tool results before full compaction triggers, and read-only Bash commands resolve against Read permission rules.
 
-Next phase: **Phase 10.5 - soak, evals, and traceability**. The canonical v5 build plan now prioritizes private-harness maturity: local-model routing hardening, profile isolation, sub-agent/task parallelism, trajectory capture, and reviewed self-learning before optional external channel/API surfaces.
+**Phase 10 complete (2026-04-26)** — context-window compaction. The REPL supports `/compact` and `/rollback`, stores parent-child session lineage, records separate compaction usage/cost lanes, proactively compacts above 50% of the model context window, and retries once after provider context-overflow errors.
+
+Next phase: **Phase 10.5 — soak, evals, and traceability**. The canonical v6 build plan prioritizes private-harness maturity: loop detection, local-model routing hardening, profile isolation, sub-agent/task parallelism, trajectory capture, and reviewed self-learning before optional external channel/API surfaces.
 
 Phase 11 hooks remains later in that plan. Do not start any future implementation phase unless explicitly requested.
 
@@ -130,11 +132,11 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + skill tools | 2 Bash, 4 file & search, 6.5 memory, 9/9.5 skills |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
-| `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules) | 3, 7 |
+| `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules, shell AST analysis for virtual tool mapping) | 3, 7, Qwen-B |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10 |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8, 10 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
-| `src/compact/` | Context-window compaction | 10 |
+| `src/compact/` | Context-window compaction + microcompaction (per-part tool-result clearing) | 10, Qwen-A |
 | `src/hooks/` | Shell-out lifecycle hooks | 11 |
 | `src/mcp/` | MCP client | 12 |
 | `src/bundle/` | Harness-bundle loader (Sovereign AI specific) | 0 skeleton |

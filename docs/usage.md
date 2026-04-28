@@ -165,6 +165,10 @@ Example:
 
 Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and `Edit` map to `FileRead`, `FileWrite`, and `FileEdit`.
 
+### Shell Command Virtual Tool Mapping
+
+Read-only Bash commands automatically resolve against `Read` permission rules. If your allow rules include `Read` or `Read(*.ts)`, then `Bash("cat src/main.ts")` runs without prompting because the shell AST analyzer classifies `cat` as a read operation. Write and edit commands (`cp`, `rm`, `chmod`, etc.) do not benefit from this — they still follow Bash-specific rules. Command substitution (`$(...)`, backticks) is always treated as unsafe and requires explicit Bash rules.
+
 When a prompt is required, the REPL asks:
 
 ```text
@@ -250,6 +254,24 @@ Skill bodies and reference files support:
 - inline shell interpolation with the `!`-prefixed backtick syntax
 
 Community and agent-created skills are scanned before loading.
+
+## Microcompaction
+
+The runtime automatically clears stale tool results when they consume more than 40% of the estimated conversation context. This happens transparently after each tool-result round — no model call, no latency hit. The 5 most recent tool results are always preserved; older ones are replaced with short placeholders.
+
+Configure in `~/.harness/config.json`:
+
+```json
+{
+  "microcompaction": {
+    "enabled": true,
+    "keepRecent": 5,
+    "triggerThresholdPct": 40
+  }
+}
+```
+
+When microcompaction fires, the REPL prints `[cleared N stale tool results, ~XK tokens]`. Set `"enabled": false` to disable.
 
 ## Compaction And Rollback
 
