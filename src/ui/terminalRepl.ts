@@ -55,6 +55,7 @@ import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.j
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
+import { MarkdownStream } from './markdownStream.js';
 import { createQueuedQuestion } from './queuedQuestion.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
 import { createTranscriptLogger } from './transcript.js';
@@ -339,6 +340,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     process.stdout.write('\n');
 
     streamController = new AbortController();
+    const mdStream = new MarkdownStream(process.stdout);
     let latestAssistant: AssistantMessage | undefined;
     let terminal: Terminal | undefined;
     let latestUsage: TokenUsage | undefined;
@@ -406,7 +408,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // StreamEvent branch.
         if (!('type' in ev)) continue;
         if (ev.type === 'text_delta') {
-          process.stdout.write(ev.text);
+          mdStream.write(ev.text);
           continue;
         }
         if (ev.type === 'assistant_message') {
@@ -442,6 +444,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       }
     } finally {
       streamController = null;
+      mdStream.flush();
     }
 
     process.stdout.write('\n');
