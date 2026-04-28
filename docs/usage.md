@@ -4,17 +4,31 @@ This guide covers day-to-day operation of the Sovereign AI runtime. It assumes t
 
 ## Quick Start
 
-Run against the default Sovereign AI docs bundle:
+The bare `sovereign` command starts a chat (`chat` is the default subcommand). Bundle resolution order:
+
+1. `--bundle <path>` if passed
+2. `HARNESS_BUNDLE` env var if set
+3. **Walk up from the current directory** looking for an `index.yaml` (the bundle marker)
+4. Otherwise, error
+
+So the simplest invocation is:
 
 ```bash
-sovereign chat --bundle ~/code/sovereign-ai-docs
+cd ~/code/sovereign-ai-docs    # or any subdirectory inside a bundle
+sovereign
 ```
 
-Or set the bundle once:
+Or set it once and run from anywhere:
 
 ```bash
 export HARNESS_BUNDLE=~/code/sovereign-ai-docs
-sovereign chat
+sovereign
+```
+
+Or pass it explicitly:
+
+```bash
+sovereign --bundle ~/code/sovereign-ai-docs
 ```
 
 From the repo checkout, the equivalent development command is:
@@ -336,8 +350,8 @@ sovereign chat --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai
 
 ## Troubleshooting
 
-`No bundle path provided`
-: Pass `--bundle <path>` or set `HARNESS_BUNDLE`.
+`No bundle found`
+: Run from inside a bundle directory (one containing `index.yaml`), pass `--bundle <path>`, or set `HARNESS_BUNDLE`.
 
 `~/.bun/bin` command not found
 : Reopen your shell after installing Bun, or add `~/.bun/bin` to `PATH`.

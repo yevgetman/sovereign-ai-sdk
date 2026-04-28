@@ -7,7 +7,7 @@
 // --no-cache.
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, parse as parsePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
 import type { PermissionMode } from './permissions/types.js';
@@ -53,11 +53,32 @@ const VERSION = '0.0.1';
 const DEFAULT_MAX_TOKENS = 12000;
 const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
 
+/**
+ * Walk up from `start` looking for a directory that contains `index.yaml`
+ * (the bundle manifest marker — see src/bundle/loader.ts). Returns the first
+ * match, or null if we hit the filesystem root without finding one.
+ */
+function findBundleUpwards(start: string): string | null {
+  let dir = start;
+  const { root } = parsePath(dir);
+  while (true) {
+    if (existsSync(join(dir, 'index.yaml'))) return dir;
+    if (dir === root) return null;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function resolveBundlePath(cliArg: string | undefined): string {
   if (cliArg) return cliArg;
   const env = process.env.HARNESS_BUNDLE;
   if (env) return env;
-  throw new Error('No bundle path provided. Pass --bundle <path> or set HARNESS_BUNDLE env var.');
+  const found = findBundleUpwards(process.cwd());
+  if (found) return found;
+  throw new Error(
+    'No bundle found. Run from inside a bundle (a directory containing index.yaml), pass --bundle <path>, or set HARNESS_BUNDLE.',
+  );
 }
 
 function parsePositiveInt(raw: string): number {

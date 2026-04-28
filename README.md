@@ -46,8 +46,11 @@ bun link     # creates ~/.bun/bin/sovereign → this repo's src/main.ts
 # 3. Drop your provider key into .env (gitignored; auto-loaded from repo root)
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
-# 4. Run from anywhere
-sovereign chat --bundle ~/code/sovereign-ai-docs
+# 4. Run from anywhere — bare `sovereign` defaults to `chat` and resolves
+#    the bundle from CWD (walks up looking for index.yaml), or pass --bundle
+sovereign --bundle ~/code/sovereign-ai-docs
+# or, from inside the bundle:
+#   cd ~/code/sovereign-ai-docs && sovereign
 ```
 
 That's the whole setup — three commands, a key, a bundle path.
