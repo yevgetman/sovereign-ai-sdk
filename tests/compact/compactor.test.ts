@@ -190,12 +190,48 @@ describe('compaction helpers', () => {
     expect(pruneToolResultsForCompaction(messages)).toEqual(messages);
   });
 
-  test('shouldCompactProactively triggers above 50 percent context by default', () => {
+  test('shouldCompactProactively triggers above 50 percent when threshold passed explicitly', () => {
     const messages: Message[] = [{ role: 'user', content: [text('x'.repeat(300))] }];
-    expect(shouldCompactProactively({ messages, systemPrompt: [], contextLength: 100 })).toBe(true);
-    expect(shouldCompactProactively({ messages, systemPrompt: [], contextLength: 10_000 })).toBe(
-      false,
+    expect(
+      shouldCompactProactively({ messages, systemPrompt: [], contextLength: 100, threshold: 0.5 }),
+    ).toBe(true);
+    expect(
+      shouldCompactProactively({
+        messages,
+        systemPrompt: [],
+        contextLength: 10_000,
+        threshold: 0.5,
+      }),
+    ).toBe(false);
+  });
+
+  test('shouldCompactProactively defaults to 75 percent threshold', () => {
+    // 300-char text ≈ 75 tokens. At contextLength=100 with default
+    // threshold=0.75, the limit is 75 — estimate must EXCEED limit to
+    // trigger, so 100-char message (25 tokens) under limit, 400-char
+    // (100 tokens) over.
+    const small: Message[] = [{ role: 'user', content: [text('x'.repeat(100))] }];
+    const big: Message[] = [{ role: 'user', content: [text('x'.repeat(400))] }];
+    expect(
+      shouldCompactProactively({ messages: small, systemPrompt: [], contextLength: 100 }),
+    ).toBe(false);
+    expect(shouldCompactProactively({ messages: big, systemPrompt: [], contextLength: 100 })).toBe(
+      true,
     );
+  });
+
+  test('shouldCompactProactively returns false when system prompt alone exceeds the limit', () => {
+    // Compaction can't make progress when the frozen system prompt is
+    // bigger than the threshold — it only summarizes message history.
+    // Avoid the runaway loop by refusing to fire.
+    const messages: Message[] = [{ role: 'user', content: [text('x'.repeat(400))] }];
+    expect(
+      shouldCompactProactively({
+        messages,
+        systemPrompt: [{ text: 'y'.repeat(500), cacheable: true }],
+        contextLength: 100,
+      }),
+    ).toBe(false);
   });
 });
 

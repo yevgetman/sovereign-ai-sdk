@@ -163,10 +163,18 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
 
 export function shouldCompactProactively(input: ProactiveCompactionInput): boolean {
   if (input.contextLength <= 0) return false;
-  const threshold = input.threshold ?? 0.5;
-  const estimated =
-    estimateSystemPromptTokens(input.systemPrompt) + estimateMessagesTokens(input.messages);
-  return estimated > input.contextLength * threshold;
+  const threshold = input.threshold ?? 0.75;
+  const limit = input.contextLength * threshold;
+  const systemTokens = estimateSystemPromptTokens(input.systemPrompt);
+  // If the frozen system prompt alone already exceeds the threshold,
+  // compaction can't make progress — it only summarizes message history,
+  // not the system prompt — so firing would just create a runaway loop
+  // (compact, child session has same system prompt, still over limit,
+  // compact again). Stop trying; let the user raise the threshold,
+  // shrink the bundle, or move to a larger-context model.
+  if (systemTokens > limit) return false;
+  const estimated = systemTokens + estimateMessagesTokens(input.messages);
+  return estimated > limit;
 }
 
 export function pruneToolResultsForCompaction(messages: readonly Message[]): Message[] {

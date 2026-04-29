@@ -101,13 +101,16 @@ If your Ollama install is RAM-constrained, lowering `numCtx` is the right knob. 
 
 ### Frequent compaction with small-context local models
 
-Proactive compaction fires by default at **50% of the model's context window**. For Anthropic at 200K that's 100K — fine. For qwen2.5:7b at 32K that's only 16K, which a typical bundle's system prompt + a few turns will exceed. Raise the threshold:
+Proactive compaction fires by default at **75% of the model's context window**. For Anthropic at 200K that's 150K. For qwen2.5:7b at 32K that's ~24K — leaves ~8K for the bundle's system prompt and conversation. Tune with:
 
 ```bash
-sovereign config set compaction.proactiveThresholdPct 85
+sovereign config set compaction.proactiveThresholdPct 90    # keep more history before triggering
+sovereign config set compaction.proactiveThresholdPct 50    # earlier compaction
 ```
 
-Anything between 1 and 99 is accepted. 80–90 is a sane range for keeping more history with local models; the trade-off is a higher chance of hitting the model's hard ceiling and triggering reactive (post-error) compaction instead.
+Anything between 1 and 99 is accepted. The trade-off going higher is a higher chance of hitting the model's hard ceiling and triggering reactive (post-error) compaction instead.
+
+The compactor also self-guards: if the frozen system prompt alone exceeds the threshold (a heavy bundle on a small-context model), compaction stops firing — it can't make progress because it only summarizes message history. The fix in that case is either a lighter bundle, a model with a larger context window, or raising the threshold.
 
 ## Provider Configuration
 
