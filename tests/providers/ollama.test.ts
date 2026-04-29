@@ -88,4 +88,48 @@ describe('translateOllamaStream', () => {
       { type: 'tool_use', id: 'ollama_tool_0', name: 'Echo', input: { text: 'x' } },
     ]);
   });
+
+  test('emits usage_delta when the final chunk carries token counts', async () => {
+    const chunks: OllamaChatChunk[] = [
+      { message: { content: 'hello' } },
+      {
+        message: { content: ' world' },
+        done: true,
+        done_reason: 'stop',
+        prompt_eval_count: 1234,
+        eval_count: 56,
+      },
+    ];
+
+    const yielded: StreamEvent[] = [];
+    const gen = translateOllamaStream(iterate(chunks));
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+      yielded.push(step.value);
+    }
+
+    const usageEvents = yielded.filter((e) => e.type === 'usage_delta');
+    expect(usageEvents).toHaveLength(1);
+    if (usageEvents[0]?.type === 'usage_delta') {
+      expect(usageEvents[0].usage.inputTokens).toBe(1234);
+      expect(usageEvents[0].usage.outputTokens).toBe(56);
+    }
+  });
+
+  test('does not emit usage_delta when the chunk has no counts', async () => {
+    const chunks: OllamaChatChunk[] = [
+      { message: { content: 'hi' }, done: true, done_reason: 'stop' },
+    ];
+
+    const yielded: StreamEvent[] = [];
+    const gen = translateOllamaStream(iterate(chunks));
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+      yielded.push(step.value);
+    }
+
+    expect(yielded.some((e) => e.type === 'usage_delta')).toBe(false);
+  });
 });

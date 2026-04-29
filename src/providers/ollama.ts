@@ -55,6 +55,11 @@ export type OllamaChatChunk = {
   };
   done?: boolean;
   done_reason?: string;
+  /** Ollama returns these on the final chunk (`done: true`). They map
+   *  to TokenUsage.inputTokens / outputTokens. Older Ollama builds may
+   *  omit them, so they're optional. */
+  prompt_eval_count?: number;
+  eval_count?: number;
 };
 
 type OllamaProviderConfig = {
@@ -179,7 +184,20 @@ export async function* translateOllamaStream(
       toolCalls.push({ type: 'tool_use', id, name, input });
       yield { type: 'tool_use_delta', id, partial: JSON.stringify(input) };
     }
-    if (chunk.done) stopReason = mapOllamaStopReason(chunk.done_reason, toolCalls.length > 0);
+    if (chunk.done) {
+      stopReason = mapOllamaStopReason(chunk.done_reason, toolCalls.length > 0);
+      if (typeof chunk.prompt_eval_count === 'number' || typeof chunk.eval_count === 'number') {
+        yield {
+          type: 'usage_delta',
+          usage: {
+            ...(typeof chunk.prompt_eval_count === 'number'
+              ? { inputTokens: chunk.prompt_eval_count }
+              : {}),
+            ...(typeof chunk.eval_count === 'number' ? { outputTokens: chunk.eval_count } : {}),
+          },
+        };
+      }
+    }
   }
 
   const content: ContentBlock[] = [];
