@@ -61,6 +61,7 @@ import { createQueuedQuestion } from './queuedQuestion.js';
 import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
 import { renderSplash } from './splash.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
+import { ThinkingIndicator } from './thinking.js';
 import { createTranscriptLogger, resolveDebugTranscriptPath } from './transcript.js';
 
 export type ReplOpts = {
@@ -84,6 +85,16 @@ export type ReplOpts = {
 
 const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 
+/** Write a bracketed status line (e.g. `[tool: ...]`, `[cleared ...]`,
+ *  `[debug] ...`) with guaranteed leading and trailing newlines so it
+ *  never collides with adjacent assistant text. The caller passes the
+ *  already-tinted body; this helper only enforces the line-break
+ *  contract. Pass `stream='err'` to route to stderr. */
+function writeStatusLine(tinted: string, stream: 'out' | 'err' = 'out'): void {
+  const target = stream === 'err' ? process.stderr : process.stdout;
+  target.write(`\n${tinted}\n`);
+}
+
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
   const harnessHome = resolveHarnessHome();
@@ -96,7 +107,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   });
   const transcript = createTranscriptLogger(transcriptPath);
   if (transcript && opts.transcriptPath === undefined) {
-    process.stdout.write(chalk.gray(`[debug] transcript → ${transcript.path}\n`));
+    writeStatusLine(chalk.gray(`[debug] transcript → ${transcript.path}`));
   }
   const proactiveThreshold =
     userSettings.compaction?.proactiveThresholdPct !== undefined
@@ -362,7 +373,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...(proactiveThreshold !== undefined ? { threshold: proactiveThreshold } : {}),
       })
     ) {
-      process.stderr.write(chalk.yellow('\n[compact] context threshold exceeded; compacting\n'));
+      writeStatusLine(chalk.yellow('[compact] context threshold exceeded; compacting'), 'err');
       const result = await compactNow();
       process.stderr.write(
         chalk.yellow(
@@ -375,6 +386,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
     streamController = new AbortController();
     const mdStream = new MarkdownStream(process.stdout);
+    const indicator = new ThinkingIndicator(process.stdout);
+    indicator.start();
     const turnStartedAt = Date.now();
     const turnToolTimeBaseline = metrics.toolTimeMs;
     let latestAssistant: AssistantMessage | undefined;
@@ -408,12 +421,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
       for (;;) {
         const step = await gen.next();
+        indicator.stop();
         if (step.done) {
           terminal = step.value;
           break;
         }
         const ev = step.value;
-        if (!ev || typeof ev !== 'object') continue;
+        if (!ev || typeof ev !== 'object') {
+          indicator.start();
+          continue;
+        }
 
         // Message branch — ev is a tool_result carrier yielded between turns.
         if ('role' in ev) {
@@ -454,10 +471,10 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               (b) => b.type === 'tool_result' && b.is_error === true,
             ).length;
             if (errs > 0) {
-              process.stdout.write(chalk.gray(`\n[${errs} tool error${errs === 1 ? '' : 's'}]`));
+              writeStatusLine(chalk.gray(`[${errs} tool error${errs === 1 ? '' : 's'}]`));
             }
-            process.stdout.write('\n');
           }
+          indicator.start();
           continue;
         }
 
@@ -465,6 +482,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         if (!('type' in ev)) continue;
         if (ev.type === 'text_delta') {
           mdStream.write(ev.text);
+          indicator.noteStreamedChars(ev.text.length);
+          indicator.start();
           continue;
         }
         if (ev.type === 'assistant_message') {
@@ -487,9 +506,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               const mutation = mutationEffect(block, toolsForTurn, toolContext.cwd);
               if (mutation) mutatingToolUses.set(block.id, mutation);
               const preview = previewToolInput(block.input);
-              process.stdout.write(
-                chalk.gray(`\n[tool: ${block.name}${preview ? ` ${preview}` : ''}]`),
-              );
+              writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
               transcript?.record({
                 type: 'tool_call',
                 sessionId: activeSessionId,
@@ -509,18 +526,21 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         }
         if (ev.type === 'usage_delta') {
           latestUsage = ev.usage;
+          indicator.setUsage(ev.usage.inputTokens, ev.usage.outputTokens);
         }
         if (ev.type === 'microcompact') {
-          process.stdout.write(
+          writeStatusLine(
             chalk.gray(
-              `\n[cleared ${ev.info.cleared} stale tool result${ev.info.cleared === 1 ? '' : 's'}, ~${Math.round(ev.info.estimatedTokensSaved / 1000)}K tokens]`,
+              `[cleared ${ev.info.cleared} stale tool result${ev.info.cleared === 1 ? '' : 's'}, ~${Math.round(ev.info.estimatedTokensSaved / 1000)}K tokens]`,
             ),
           );
         }
         // message_start, thinking_delta, tool_use_delta, message_stop: silent.
+        indicator.start();
       }
     } finally {
       streamController = null;
+      indicator.stop();
       mdStream.flush();
       const turnElapsed = Date.now() - turnStartedAt;
       const turnToolTime = metrics.toolTimeMs - turnToolTimeBaseline;
@@ -562,7 +582,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         });
         return;
       }
-      process.stderr.write(chalk.red(`\n[error] ${msg}\n`));
+      writeStatusLine(chalk.red(`[error] ${msg}`), 'err');
       transcript?.record({
         type: 'provider_error',
         stage: 'turn',
@@ -581,7 +601,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       }
       if (!latestAssistant) history.pop();
     } else if (terminal?.reason === 'interrupted') {
-      process.stderr.write(chalk.yellow('\n[interrupted]\n'));
+      writeStatusLine(chalk.yellow('[interrupted]'), 'err');
     } else if (terminal?.reason === 'max_tokens') {
       process.stderr.write(
         chalk.yellow(
@@ -593,7 +613,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ),
       );
     } else if (terminal?.reason === 'max_turns') {
-      process.stderr.write(chalk.yellow('\n[max turns reached]\n'));
+      writeStatusLine(chalk.yellow('[max turns reached]'), 'err');
     }
   }
 
