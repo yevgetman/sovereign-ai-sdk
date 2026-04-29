@@ -429,6 +429,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     const mdStream = new MarkdownStream(process.stdout);
     const indicator = new ThinkingIndicator(process.stdout);
     const toolSlot = new CompactToolSlot(process.stdout);
+    // Non-verbose: text_delta buffers here per assistant message and is
+    // either flushed (final-answer turn — no tool_use) or discarded
+    // (preamble for a turn that ended in a tool_use). This keeps the
+    // tool slot's overwrite continuity intact and matches the "chat
+    // history shows only user input + final answer" model.
+    let pendingTextBuf = '';
     indicator.start();
     const turnStartedAt = Date.now();
     const turnToolTimeBaseline = metrics.toolTimeMs;
@@ -529,8 +535,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // StreamEvent branch.
         if (!('type' in ev)) continue;
         if (ev.type === 'text_delta') {
-          toolSlot.commit();
-          mdStream.write(ev.text);
+          if (verbose) {
+            toolSlot.commit();
+            mdStream.write(ev.text);
+          } else {
+            pendingTextBuf += ev.text;
+          }
           indicator.noteStreamedChars(ev.text.length);
           indicator.start();
           continue;
@@ -548,6 +558,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             sessionId: activeSessionId,
             content: snapshotContentForTranscript(ev.message.content),
           });
+          if (!verbose) {
+            const hasToolUse = ev.message.content.some((b) => b.type === 'tool_use');
+            if (!hasToolUse && pendingTextBuf.length > 0) {
+              // Final-answer turn — flush buffered text below the slot.
+              toolSlot.commit();
+              mdStream.write(pendingTextBuf);
+            }
+            // Either flushed or discarded; clear the buffer for the next message.
+            pendingTextBuf = '';
+          }
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
               metrics.toolCalls++;
