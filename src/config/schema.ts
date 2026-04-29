@@ -76,7 +76,10 @@ export const SettingsSchema = z
     /** Maximum number of model turns inside a single user query before
      *  the runtime stops with `[max turns reached]`. One turn = one
      *  assistant message; tool_use turns count, so analysis tasks that
-     *  read many files need a higher cap. Default 30. */
+     *  read many files need a higher cap. Default 100 — high enough to
+     *  function as a runaway-loop circuit breaker rather than a task
+     *  ceiling, mirroring Claude Code's "rely on permission gates +
+     *  Ctrl-C, not a numeric cap" model. */
     maxTurns: z.number().int().positive().optional(),
     providers: z
       .object({

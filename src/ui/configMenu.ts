@@ -67,8 +67,8 @@ const FIELDS: Field[] = [
   {
     path: 'maxTurns',
     label: 'maxTurns',
-    hint: 'cap on model turns per user query (default 30; raise for analysis tasks)',
-    choices: ['10', '30', '50', '100'],
+    hint: 'runaway-loop breaker (default 100; rely on permissions + Ctrl-C for normal stop)',
+    choices: ['30', '50', '100', '200', '500'],
   },
   {
     path: 'providers.anthropic.model',

@@ -33,7 +33,7 @@ import type {
   Terminal,
 } from './types.js';
 
-const DEFAULT_MAX_TURNS = 30;
+const DEFAULT_MAX_TURNS = 100;
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
 
