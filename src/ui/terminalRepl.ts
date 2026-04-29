@@ -95,6 +95,15 @@ function writeStatusLine(tinted: string, stream: 'out' | 'err' = 'out'): void {
   target.write(`\n${tinted}\n\n`);
 }
 
+/** Visual divider rendered above and below the user input line. Width
+ *  follows the terminal columns (clamped to 20–80) so it adapts to the
+ *  current window without overflowing. */
+function writePromptRule(): void {
+  const cols = process.stdout.columns ?? 60;
+  const width = Math.max(20, Math.min(80, cols - 2));
+  process.stdout.write(`\n${chalk.gray('─'.repeat(width))}\n`);
+}
+
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
   const harnessHome = resolveHarnessHome();
@@ -314,7 +323,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   );
 
   while (!closed) {
-    const input = await question(chalk.cyan('\n> ')).catch(() => null);
+    writePromptRule();
+    const input = await question(chalk.cyan('> ')).catch(() => null);
+    writePromptRule();
     if (input === null) break;
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
