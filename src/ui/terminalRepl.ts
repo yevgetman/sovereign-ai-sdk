@@ -434,6 +434,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     // inter-tool preamble along with the previous slot line. Text still
     // streams live (good UX); only inter-tool transitions clear it.
     let interToolLines = 0;
+    // Tracks whether we're currently in a continuous text-streaming
+    // run. Used to prepend a single blank line before the first
+    // text_delta of each agent response so the answer always has
+    // breathing room above it. Reset when any non-text event fires.
+    let textRunActive = false;
     indicator.start();
     const turnStartedAt = Date.now();
     const turnToolTimeBaseline = metrics.toolTimeMs;
@@ -534,6 +539,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // StreamEvent branch.
         if (!('type' in ev)) continue;
         if (ev.type === 'text_delta') {
+          if (!textRunActive) {
+            process.stdout.write('\n');
+            if (!verbose) interToolLines += 1;
+            textRunActive = true;
+          }
           mdStream.write(ev.text);
           if (!verbose) {
             // Count newlines actually written to stdout so a future
@@ -590,6 +600,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                 toolSlot.begin(block.name, preview, interToolLines);
                 interToolLines = 0;
               }
+              textRunActive = false;
               transcript?.record({
                 type: 'tool_call',
                 sessionId: activeSessionId,
@@ -618,6 +629,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               `[cleared ${ev.info.cleared} stale tool result${ev.info.cleared === 1 ? '' : 's'}, ~${Math.round(ev.info.estimatedTokensSaved / 1000)}K tokens]`,
             ),
           );
+          textRunActive = false;
         }
         // message_start, thinking_delta, tool_use_delta, message_stop: silent.
         indicator.start();
