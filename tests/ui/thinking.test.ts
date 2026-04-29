@@ -1,0 +1,85 @@
+import { describe, expect, test } from 'bun:test';
+import chalk from 'chalk';
+import { ThinkingIndicator } from '../../src/ui/thinking.js';
+
+chalk.level = 1;
+
+class StringSink {
+  out = '';
+  write(chunk: string): boolean {
+    this.out += chunk;
+    return true;
+  }
+}
+
+const ESC = String.fromCharCode(27);
+const ANSI = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
+const strip = (s: string): string => s.replace(ANSI, '');
+
+async function delay(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+describe('ThinkingIndicator', () => {
+  test('does not render before the 500ms grace period', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    await delay(100);
+    ind.stop();
+    expect(sink.out).toBe('');
+  });
+
+  test('renders a Thinking line after the grace period', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    await delay(620);
+    ind.stop();
+    expect(strip(sink.out)).toContain('Thinking');
+  });
+
+  test('updates token counts when usage is set', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    ind.setUsage(1234, 56);
+    await delay(620);
+    ind.stop();
+    const text = strip(sink.out);
+    expect(text).toContain('↑ 1234');
+    expect(text).toContain('↓ 56');
+  });
+
+  test('streamed-char count rolls into the output token estimate', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    ind.noteStreamedChars(800); // ~200 tokens at chars/4
+    await delay(620);
+    ind.stop();
+    expect(strip(sink.out)).toContain('↓ 200');
+  });
+
+  test('stop clears the rendered line via \\r + ANSI clear', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    await delay(620);
+    const beforeStop = sink.out.length;
+    ind.stop();
+    const afterStop = sink.out.slice(beforeStop);
+    expect(afterStop).toContain('\r');
+    expect(afterStop).toContain(`${ESC}[2K`);
+  });
+
+  test('start() is idempotent; calling it twice is a no-op', () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    const len = sink.out.length;
+    ind.start();
+    expect(sink.out.length).toBe(len);
+    ind.stop();
+  });
+});

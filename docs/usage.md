@@ -51,6 +51,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--no-cache` | Disable provider prompt-cache markers for testing. |
 | `--no-preflight` | Skip startup provider/model health checks. |
 | `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
+| `-v, --verbose` | Show full tool-result preview blocks instead of one-line summaries. |
 
 Examples:
 
@@ -60,6 +61,17 @@ sovereign --provider ollama --model qwen2.5:3b
 sovereign --permission-mode ask
 sovereign --no-cache
 ```
+
+## REPL UX
+
+Visual surfaces you'll see in a normal session:
+
+- **Splash** at startup — block-letter "S" logo next to a boxed info card with version, provider/auth, model, and bundle path. A dim footer line collapses operational details (perms, tools, cache, session id).
+- **Framed input** — top + bottom dim-gray rules around your `>` prompt. Adapts to terminal width.
+- **Thinking indicator** — `⠋ Thinking 12s ↑ 1234 ↓ 56` (cyan spinner + dim status) appears during silent waits (provider work, slow local model prompt processing, tool execution). 500ms grace, so it never flashes during normal fast streaming.
+- **Compact tool slot** — sequential tool calls share a single line that updates in place (`→ FileRead path=...` while running, `✓ N lines, M chars` after). With `--verbose`, the full 40-line preview block is shown instead.
+- **Markdown rendering** of streamed text — headings, bold, italic, inline code, list bullets, blockquotes, fenced code blocks, horizontal rules.
+- **Goodbye box** at session end — Interaction Summary (session ID, tool calls ✓/✗, success rate), Performance (wall time, agent active, API time, tool time), Tokens (total, cache, est. cost). Followed by the resume command.
 
 ## Config Command
 
@@ -76,7 +88,7 @@ sovereign config set microcompaction.enabled false
 sovereign config unset microcompaction.enabled
 ```
 
-Bare `sovereign config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `q` or Esc to quit. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; Phase 16.7 will replace it with the Ink-based TUI.)
+Bare `sovereign config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise readline takes a free-text value. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; Phase 16.7 will replace it with the Ink-based TUI.)
 
 The same verbs work in-session via `/config`:
 
@@ -88,6 +100,27 @@ The same verbs work in-session via `/config`:
 ```
 
 Every write is validated against the settings schema before touching disk; rejected changes leave the file untouched. `apiKey`, `apiKeys`, and credential entries are redacted in `show` and `get` output.
+
+Available config fields (top-level unless noted):
+
+| Path | Type | Default | Notes |
+|---|---|---|---|
+| `defaultProvider` | string | `anthropic` | `anthropic` \| `openai` \| `openrouter` \| `ollama` |
+| `defaultModel` | string | provider default | scoped by `defaultProvider` in the picker |
+| `permissionMode` | enum | `default` | `default` \| `ask` \| `bypass` |
+| `maxTurns` | int | `100` | runaway-loop circuit breaker, not a task ceiling |
+| `verbose` | bool | `false` | show full tool-result preview blocks |
+| `providers.<name>.model` | string | — | provider-specific model override |
+| `providers.<name>.baseUrl` | url | provider default | e.g. `http://localhost:11434` for ollama |
+| `providers.<name>.apiKey` | string (secret) | — | redacted in `show` |
+| `providers.ollama.numCtx` | int | model contextLength | sent as `num_ctx` per request |
+| `compaction.proactiveThresholdPct` | int 1–99 | `75` | full-compaction trigger pct of context window |
+| `microcompaction.enabled` | bool | `true` | per-part tool-result clearing |
+| `microcompaction.keepRecent` | int | `5` | number of recent tool results preserved |
+| `microcompaction.triggerThresholdPct` | int 0–100 | `40` | trigger pct of context for microcompaction |
+| `debugMode.enabled` | bool | `false` | umbrella switch — auto-enables every child |
+| `debugMode.transcript` | bool | `false` | write per-session JSONL transcript |
+| `debugMode.transcriptDir` | path | `<harnessHome>/debug` | directory for auto-generated transcripts |
 
 ## Ollama Notes
 
@@ -375,7 +408,7 @@ Use `/rollback` to switch the active REPL back to the parent:
 /rollback
 ```
 
-The runtime also compacts proactively above 50% of the model context window and retries once after provider context-overflow errors.
+The runtime also compacts proactively above 75% of the model context window (tunable via `compaction.proactiveThresholdPct`) and retries once after provider context-overflow errors. The compactor self-guards: if the frozen system prompt alone exceeds the threshold, proactive compaction stops firing — it can't reduce the system prompt and would otherwise loop. Lighter bundle, larger-context model, or a higher threshold are the resolutions.
 
 ## Common Workflows
 

@@ -759,3 +759,54 @@ Implementation backlogs from these findings live in
   - No regressions found.
   - `@folder:subdir,` treated the comma as part of the path and failed. Retesting with `@folder:./subdir` worked. Treat as syntax sensitivity unless later UX requirements call for punctuation-tolerant parsing.
   - `/compact` on this short session increased the estimated token count slightly because handoff overhead exceeded pruned content. Command behavior and lineage were correct.
+
+## 2026-04-28 - debugMode config + auto-transcript
+
+- Scope: Added `debugMode` settings bucket (`enabled`, `transcript`, `transcriptDir`); REPL now auto-resolves a timestamped transcript path under `<harnessHome>/debug` when debug mode is on and `--transcript` was not passed. Added new fields to the interactive config picker.
+- Environment: Bun 1.3.13 / macOS Darwin 25.2.0, repo `sovereign-ai-harness@master`.
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+  - `bun test tests/ui/transcript.test.ts`
+- Manual coverage: none (config wiring + unit tests). Real REPL session smoke not run.
+- Result:
+  - `bun run lint` passes (2 pre-existing warnings unchanged).
+  - `bun run test` passes: 379/379 tests across 54 files (5 new cases for `resolveDebugTranscriptPath`).
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-up: exercise debug-mode-enabled REPL session end-to-end and confirm a transcript file lands at `<harnessHome>/debug/transcript-<ts>.jsonl`.
+
+## 2026-04-28 - debugMode follow-up: simplify gate + capture assistant/tool events
+
+- Scope: (1) Removed the `debugMode.enabled` umbrella gate so `debugMode.transcript: true` alone triggers the auto-transcript (matched user expectation). (2) Wired the streaming loop to record `assistant_message`, `tool_call`, `tool_result`, and `message_stop` events into the JSONL transcript. Image base64 payloads are stripped before write.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; `~/.harness/config.json` had `debugMode.transcript: true`.
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+  - End-to-end: `printf '... ls -la ...\n/quit\n' | bun src/main.ts chat --bundle ~/code/sovereign-ai-docs --no-preflight --permission-mode bypass`
+- Manual coverage:
+  - Live REPL session against anthropic/claude-haiku-4-5-20251001 that exercised a Bash tool (`ls -la /tmp`) and a final text response.
+  - Verified the resulting `~/.harness/debug/transcript-<ts>.jsonl` contains, in order: `session_start`, `user_input`, `message_stop(tool_use)`, `assistant_message(tool_use block)`, `tool_call`, `tool_result(isError=false, durationMs=28, full content)`, `message_stop(end_turn)`, `assistant_message(text "DONE")`, `session_end`.
+- Result:
+  - Lint clean (2 pre-existing warnings unchanged); 378/378 tests pass.
+  - Transcript now captures the full session: user input, assistant output (text + thinking + tool_use), tool calls with input, tool results with success/error and duration, and per-turn stop reasons.
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-up: tool_result `content` strings can be very large (full stdout in the example was ~10K chars on a single line). Consider an opt-in `debugMode.truncateContentBytes` cap if transcripts get unwieldy.
+
+## 2026-04-28 - Fix permissionMode fallback from config.json
+
+- Scope: Wired `~/.harness/config.json`'s `permissionMode` into the REPL's resolver as a fallback. Previously the schema accepted the field and the picker wrote it, but the runtime only consulted CLI flag and `.harness/settings.json` layers. New precedence: explicit CLI flag → settings.json layers → config.json → `'default'`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; `~/.harness/config.json` had `permissionMode: bypass` and no `.harness/settings.json` override present.
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+  - End-to-end (no CLI permission flag): `printf '... echo PERMISSION_TEST_OK ...\n/quit\n' | bun src/main.ts chat --bundle ~/code/sovereign-ai-docs --no-preflight`
+- Manual coverage:
+  - Verified the Bash tool ran without prompting using only the config.json setting.
+  - Confirmed the splash bar reports `perms: bypass (from settings)`.
+- Result:
+  - Lint clean (2 pre-existing warnings unchanged); 378/378 tests pass.
+  - Bug confirmed fixed: picker-set `permissionMode` now actually applies.
+- Regressions / follow-ups:
+  - None. Settings.json layer (with allow/deny rules) still wins over config.json, preserving prior behavior for users using that layer.

@@ -6,9 +6,11 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**REPL UX overhaul + Phase 10.1 config command (2026-04-29)** — bundle resolution from CWD, splash screen, boxed session-end summary with token totals, thinking spinner with live token counts, line-buffered markdown rendering of streamed output, in-place compact tool slot, framed input prompt. New `sovereign config` CLI + `/config` slash + interactive picker for writeable user-level config. Tunable proactive compaction threshold (default raised 50→75%) with a self-guard against runaway loops when the system prompt itself exceeds the threshold. Ollama `num_ctx` auto-pinning so chats aren't silently truncated to 2K. `--verbose` flag collapses tool-result previews behind a one-line summary by default.
+
 **Qwen amendment complete (2026-04-28)** — microcompaction (per-part tool-result clearing) and shell command AST analysis (virtual tool mapping for permissions) landed on top of Phase 10. The runtime now clears stale tool results before full compaction triggers, and read-only Bash commands resolve against Read permission rules.
 
-**Phase 10 complete (2026-04-26)** — context-window compaction. The REPL supports `/compact` and `/rollback`, stores parent-child session lineage, records separate compaction usage/cost lanes, proactively compacts above 50% of the model context window, and retries once after provider context-overflow errors.
+**Phase 10 complete (2026-04-26)** — context-window compaction. The REPL supports `/compact` and `/rollback`, stores parent-child session lineage, records separate compaction usage/cost lanes, proactively compacts above 75% of the model context window, and retries once after provider context-overflow errors.
 
 Next phase: **Phase 10.5 — soak, evals, and traceability**. The canonical v6 build plan prioritizes private-harness maturity: loop detection, local-model routing hardening, profile isolation, sub-agent/task parallelism, trajectory capture, and reviewed self-learning before optional external channel/API surfaces.
 
@@ -88,7 +90,9 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript).
+Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries).
+
+`sovereign config` — open the interactive picker for user-level config (or `sovereign config get|set|unset|show|path <args>` to script it).
 
 See [`docs/usage.md`](docs/usage.md) for provider configuration, resume, context references, permissions, slash commands, memory, skills, compaction, common workflows, and troubleshooting.
 

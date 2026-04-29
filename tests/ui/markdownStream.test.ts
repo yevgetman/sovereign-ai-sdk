@@ -81,4 +81,22 @@ describe('MarkdownStream', () => {
     const { plain } = render('---\n');
     expect(plain).toMatch(/^─+\n$/);
   });
+
+  test('flush returns 1 when a partial line was emitted, 0 otherwise', () => {
+    const sink = new StringSink();
+    const md = new MarkdownStream(sink);
+    expect(md.flush()).toBe(0);
+    md.write('partial');
+    expect(md.flush()).toBe(1);
+    expect(md.flush()).toBe(0);
+  });
+
+  test('discard drops the buffered partial without emitting', () => {
+    const sink = new StringSink();
+    const md = new MarkdownStream(sink);
+    md.write('about to be discarded');
+    md.discard();
+    md.flush();
+    expect(sink.out).toBe('');
+  });
 });

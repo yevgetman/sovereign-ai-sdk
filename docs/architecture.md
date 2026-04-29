@@ -158,6 +158,31 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+## REPL UX Layer
+
+`src/ui/` contains the user-facing rendering for the streaming turn loop. The runtime stays UI-agnostic — REPL components consume `StreamEvent`s and `Message`s from `query()` without affecting tool/provider/permission semantics.
+
+Components:
+
+- `terminalRepl.ts` — readline prompt loop, slash-command dispatch, streaming-loop event handler, session-DB writes, goodbye/resume printing
+- `splash.ts` — startup banner (block-letter logo + boxed info card)
+- `sessionSummary.ts` — boxed exit summary (interaction stats, performance, token totals)
+- `box.ts` — shared unicode-box helper with ANSI-aware width
+- `markdownStream.ts` — line-buffered markdown renderer for streamed text deltas
+- `thinking.ts` — braille spinner + live token counts during quiet periods
+- `toolSlot.ts` — compact in-place tool-call display
+- `transcript.ts` — redacted JSONL session transcript writer
+- `terminalMessages.ts` — formatted warnings (max-tokens hit, partial mutation, etc.)
+- `configMenu.ts` — interactive picker for `sovereign config` (no verb)
+
+Status-line writes (`[tool: ...]`, `[cleared ...]`, `[debug] ...`, `[error] ...`) all flow through a single `writeStatusLine` helper that enforces leading + trailing newlines so they never collide with adjacent assistant text. The compact tool slot tracks line count via ANSI cursor manipulation; when a new tool fires it clears any inter-tool preamble text and the previous slot line in one operation.
+
+## Compaction
+
+Full compaction (`/compact`) summarizes message history into a child session. Proactive compaction fires automatically when `system_prompt + history > contextLength * proactiveThresholdPct` (default 75%). The compactor self-guards: when the system prompt alone exceeds the threshold, proactive compaction returns false instead of firing — it can only reduce message history, not the system prompt, so otherwise it would loop indefinitely against an oversized bundle.
+
+`compaction.proactiveThresholdPct` (1–99) is settings-configurable in `~/.harness/config.json`. Reactive compaction (post-error retry on context-overflow) is unconditional.
+
 ## Extension Surfaces
 
 The primary extension surfaces are:
