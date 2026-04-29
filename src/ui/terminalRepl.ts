@@ -728,6 +728,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
   rl.close();
   transcript?.record({ type: 'session_end', sessionId: activeSessionId });
+  const finalCost = db.getSessionCost(activeSessionId);
   await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
   db.close();
@@ -736,6 +737,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       ...metrics,
       sessionId: activeSessionId,
       endedAtMs: Date.now(),
+      tokens: {
+        input: finalCost.inputTokens + finalCost.compactionInputTokens,
+        output: finalCost.outputTokens + finalCost.compactionOutputTokens,
+        cacheRead: finalCost.cacheReadInputTokens,
+        cacheWrite: finalCost.cacheCreationInputTokens,
+        estimatedCostUsd: finalCost.estimatedCostUsd + finalCost.estimatedCompactionCostUsd,
+      },
     }),
   );
   process.stdout.write(

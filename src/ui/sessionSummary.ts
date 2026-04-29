@@ -15,6 +15,16 @@ export type SessionMetrics = {
   toolCalls: number;
   toolOk: number;
   toolErr: number;
+  /** Cumulative token usage for the session (chat + compaction lanes
+   *  combined). Populated from sessionDb.getSessionCost just before the
+   *  summary renders. */
+  tokens?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    estimatedCostUsd: number;
+  };
 };
 
 function formatDuration(ms: number): string {
@@ -29,6 +39,18 @@ function formatDuration(ms: number): string {
 function pct(num: number, denom: number): string {
   if (denom <= 0) return '0.0%';
   return `${((num / denom) * 100).toFixed(1)}%`;
+}
+
+function formatCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+function formatUsd(n: number): string {
+  if (n === 0) return '$0.00';
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
 }
 
 export function renderSessionSummary(m: SessionMetrics): string {
@@ -56,5 +78,24 @@ export function renderSessionSummary(m: SessionMetrics): string {
   body.push(
     `  ${chalk.gray('» Tool Time:')}  ${formatDuration(m.toolTimeMs)} ${chalk.gray(`(${toolPct})`)}`,
   );
+
+  if (m.tokens) {
+    const t = m.tokens;
+    const totalIO = t.input + t.output;
+    body.push('');
+    body.push(chalk.bold('Tokens'));
+    body.push(
+      `${chalk.gray('Total:')}         ${chalk.bold(formatCount(totalIO + t.cacheRead + t.cacheWrite))}  ${chalk.gray(`(↑ ${formatCount(t.input)} · ↓ ${formatCount(t.output)})`)}`,
+    );
+    if (t.cacheRead > 0 || t.cacheWrite > 0) {
+      body.push(
+        `${chalk.gray('Cache:')}         ${chalk.gray(`read ${formatCount(t.cacheRead)} · write ${formatCount(t.cacheWrite)}`)}`,
+      );
+    }
+    if (t.estimatedCostUsd > 0) {
+      body.push(`${chalk.gray('Est. Cost:')}     ${chalk.yellow(formatUsd(t.estimatedCostUsd))}`);
+    }
+  }
+
   return ['', ...boxify(body), ''].join('\n');
 }
