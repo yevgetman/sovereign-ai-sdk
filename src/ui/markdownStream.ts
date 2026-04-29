@@ -86,9 +86,20 @@ export class MarkdownStream {
     }
   }
 
-  flush(): void {
-    if (this.buf.length === 0) return;
+  /** Emit any buffered partial line. Returns the number of lines
+   *  written to the underlying stream (0 if nothing was buffered, 1
+   *  otherwise) so callers tracking line counts for ANSI manipulation
+   *  can update without re-counting. */
+  flush(): number {
+    if (this.buf.length === 0) return 0;
     this.emitLine(this.buf);
+    this.buf = '';
+    return 1;
+  }
+
+  /** Discard any buffered partial line without rendering. Use when the
+   *  caller is about to ANSI-clear and replace the affected region. */
+  discard(): void {
     this.buf = '';
   }
 

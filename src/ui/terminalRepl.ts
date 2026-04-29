@@ -429,12 +429,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     const mdStream = new MarkdownStream(process.stdout);
     const indicator = new ThinkingIndicator(process.stdout);
     const toolSlot = new CompactToolSlot(process.stdout);
-    // Non-verbose: text_delta buffers here per assistant message and is
-    // either flushed (final-answer turn — no tool_use) or discarded
-    // (preamble for a turn that ended in a tool_use). This keeps the
-    // tool slot's overwrite continuity intact and matches the "chat
-    // history shows only user input + final answer" model.
-    let pendingTextBuf = '';
+    // Non-verbose: count newlines in text_delta as they stream so that
+    // when the next tool fires we can ANSI-clear the just-streamed
+    // inter-tool preamble along with the previous slot line. Text still
+    // streams live (good UX); only inter-tool transitions clear it.
+    let interToolLines = 0;
     indicator.start();
     const turnStartedAt = Date.now();
     const turnToolTimeBaseline = metrics.toolTimeMs;
@@ -535,11 +534,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // StreamEvent branch.
         if (!('type' in ev)) continue;
         if (ev.type === 'text_delta') {
-          if (verbose) {
-            toolSlot.commit();
-            mdStream.write(ev.text);
-          } else {
-            pendingTextBuf += ev.text;
+          mdStream.write(ev.text);
+          if (!verbose) {
+            // Count newlines actually written to stdout so a future
+            // toolSlot.begin can ANSI-clear them along with the prior
+            // slot. Trailing partial line is tracked at flush time.
+            interToolLines += (ev.text.match(/\n/g) ?? []).length;
           }
           indicator.noteStreamedChars(ev.text.length);
           indicator.start();
@@ -560,13 +560,22 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           });
           if (!verbose) {
             const hasToolUse = ev.message.content.some((b) => b.type === 'tool_use');
-            if (!hasToolUse && pendingTextBuf.length > 0) {
-              // Final-answer turn — flush buffered text below the slot.
+            if (!hasToolUse) {
+              // Final-answer turn: any partial markdown line still
+              // sitting in mdStream's buffer needs to render; the
+              // streamed text stays visible in scrollback as the answer.
+              mdStream.flush();
               toolSlot.commit();
-              mdStream.write(pendingTextBuf);
+              interToolLines = 0;
             }
-            // Either flushed or discarded; clear the buffer for the next message.
-            pendingTextBuf = '';
+            // For tool-bearing messages: leave interToolLines as-is so
+            // the upcoming toolSlot.begin can clear it along with the
+            // previous slot. mdStream's partial buffer (if any) is
+            // discarded so it doesn't render later as a stray line.
+            else {
+              const flushed = mdStream.flush();
+              interToolLines += flushed;
+            }
           }
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
@@ -578,7 +587,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               if (verbose) {
                 writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
               } else {
-                toolSlot.begin(block.name, preview);
+                toolSlot.begin(block.name, preview, interToolLines);
+                interToolLines = 0;
               }
               transcript?.record({
                 type: 'tool_call',

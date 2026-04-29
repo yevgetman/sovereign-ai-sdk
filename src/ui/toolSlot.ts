@@ -48,9 +48,18 @@ export class CompactToolSlot {
     this.out = out;
   }
 
-  /** A new tool is starting. Overwrite the previous slot line if active. */
-  begin(name: string, input: string): void {
-    if (this.active) this.clearLine();
+  /** A new tool is starting. If `interToolLines` > 0, ANSI-clear that
+   *  many lines of inter-tool content (text the agent emitted between
+   *  this tool and the previous one) along with the previous slot line.
+   *  This keeps the tool slot's overwrite continuity intact even when
+   *  the agent streams preamble text between tool calls. */
+  begin(name: string, input: string, interToolLines = 0): void {
+    if (this.active) {
+      const linesToClear = interToolLines + 1;
+      this.out.write(`${ESC}[${linesToClear}A${ESC}[J`);
+    } else if (interToolLines > 0) {
+      this.out.write(`${ESC}[${interToolLines}A${ESC}[J`);
+    }
     const label = input ? `${name} ${truncate(input, 80)}` : name;
     this.out.write(`${chalk.cyan('→')} ${chalk.gray(label)}\n`);
     this.active = true;
