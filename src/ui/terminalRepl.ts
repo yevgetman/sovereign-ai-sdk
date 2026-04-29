@@ -434,6 +434,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                 content: block.content,
                 ...(durationMs !== undefined ? { durationMs } : {}),
               });
+              renderToolResultPreview(block.content, block.is_error === true);
               if (block.is_error === true) {
                 metrics.toolErr++;
                 continue;
@@ -817,6 +818,38 @@ function openOrResumeSession(
     history,
     resumed: true,
   };
+}
+
+/** Width of the inline tool-result preview block in characters. Tool
+ *  results are visible to the model but normally invisible to the user;
+ *  this preview surfaces them to stdout so the user can see what the
+ *  agent saw, with a generous cap to keep the terminal readable. */
+const TOOL_RESULT_PREVIEW_CHARS = 4000;
+const TOOL_RESULT_PREVIEW_LINES = 40;
+
+function renderToolResultPreview(content: string, isError: boolean): void {
+  const trimmed = content.trim();
+  if (trimmed.length === 0) return;
+  const tint = isError ? chalk.red : chalk.gray;
+  const allLines = trimmed.split('\n');
+  let preview = allLines.slice(0, TOOL_RESULT_PREVIEW_LINES).join('\n');
+  let truncated = allLines.length > TOOL_RESULT_PREVIEW_LINES;
+  if (preview.length > TOOL_RESULT_PREVIEW_CHARS) {
+    preview = preview.slice(0, TOOL_RESULT_PREVIEW_CHARS);
+    truncated = true;
+  }
+  const indented = preview
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n');
+  process.stdout.write(`\n${tint(indented)}\n`);
+  if (truncated) {
+    const totalLines = allLines.length;
+    const totalChars = trimmed.length;
+    process.stdout.write(
+      chalk.gray(`  … (${totalLines} lines, ${totalChars} chars total — preview truncated)\n`),
+    );
+  }
 }
 
 function previewToolInput(input: unknown): string {

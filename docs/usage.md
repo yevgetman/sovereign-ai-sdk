@@ -180,6 +180,14 @@ Supported references:
 
 Sensitive paths such as SSH, AWS, GPG, Kube config, shell rc files, sudoers, and `/etc/passwd` or `/etc/shadow` are blocked.
 
+## Tool Result Visibility
+
+When the model runs a tool, the REPL prints a preview of the tool's result to stdout (capped at 40 lines / 4,000 chars; longer results show a count summary). Errors render in red. This makes the agent's view of the world visible to you, instead of letting tool output stay invisible inside the model's context — which can otherwise let the agent appear to "show" content it never actually displayed.
+
+Caveats:
+- The preview is for human visibility only. It is not part of the model's reply text — model-generated explanations still appear separately.
+- Tool inputs (commands, file paths) appear in the `[tool: name input]` header line; results appear in the dim block beneath.
+
 ## Slash Commands
 
 Lines beginning with `/` are handled locally before normal model turns.
