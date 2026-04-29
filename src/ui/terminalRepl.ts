@@ -449,6 +449,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             }
           : {}),
         maxTokens: opts.maxTokens,
+        ...(userSettings.maxTurns !== undefined ? { maxTurns: userSettings.maxTurns } : {}),
         signal: streamController.signal,
         cacheEnabled: opts.noCache !== true,
         memoryManager,

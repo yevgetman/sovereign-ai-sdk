@@ -65,6 +65,12 @@ const FIELDS: Field[] = [
     choices: ['default', 'ask', 'bypass'],
   },
   {
+    path: 'maxTurns',
+    label: 'maxTurns',
+    hint: 'cap on model turns per user query (default 30; raise for analysis tasks)',
+    choices: ['10', '30', '50', '100'],
+  },
+  {
     path: 'providers.anthropic.model',
     label: 'providers.anthropic.model',
     choices: PROVIDER_MODELS.anthropic,

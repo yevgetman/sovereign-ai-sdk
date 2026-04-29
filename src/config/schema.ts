@@ -73,6 +73,11 @@ export const SettingsSchema = z
     defaultProvider: z.string().optional(),
     defaultModel: z.string().optional(),
     permissionMode: z.enum(['default', 'ask', 'bypass']).optional(),
+    /** Maximum number of model turns inside a single user query before
+     *  the runtime stops with `[max turns reached]`. One turn = one
+     *  assistant message; tool_use turns count, so analysis tasks that
+     *  read many files need a higher cap. Default 30. */
+    maxTurns: z.number().int().positive().optional(),
     providers: z
       .object({
         anthropic: ProviderConfigSchema.optional(),
