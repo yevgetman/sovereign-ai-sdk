@@ -92,7 +92,7 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
  *  contract. Pass `stream='err'` to route to stderr. */
 function writeStatusLine(tinted: string, stream: 'out' | 'err' = 'out'): void {
   const target = stream === 'err' ? process.stderr : process.stdout;
-  target.write(`\n${tinted}\n`);
+  target.write(`\n${tinted}\n\n`);
 }
 
 export async function runRepl(opts: ReplOpts): Promise<void> {
