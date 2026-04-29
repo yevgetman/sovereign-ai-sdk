@@ -87,7 +87,7 @@ export class ThinkingIndicator {
     this.frame++;
     const out = Math.max(this.outputTokens, Math.round(this.streamedChars / 4));
     const tokenStr = this.inputTokens > 0 || out > 0 ? ` ↑ ${this.inputTokens} ↓ ${out}` : '';
-    const line = `${chalk.cyan(f)} ${chalk.gray(`thinking ${elapsed}s${tokenStr}`)}`;
+    const line = `${chalk.cyan(f)} ${chalk.gray(`Thinking ${elapsed}s${tokenStr}`)}`;
     this.out.write(`\r${ESC}[2K${line}`);
   }
 

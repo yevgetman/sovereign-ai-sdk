@@ -62,6 +62,7 @@ import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
 import { renderSplash } from './splash.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
 import { ThinkingIndicator } from './thinking.js';
+import { CompactToolSlot } from './toolSlot.js';
 import { createTranscriptLogger, resolveDebugTranscriptPath } from './transcript.js';
 
 export type ReplOpts = {
@@ -427,6 +428,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     streamController = new AbortController();
     const mdStream = new MarkdownStream(process.stdout);
     const indicator = new ThinkingIndicator(process.stdout);
+    const toolSlot = new CompactToolSlot(process.stdout);
     indicator.start();
     const turnStartedAt = Date.now();
     const turnToolTimeBaseline = metrics.toolTimeMs;
@@ -492,7 +494,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                 content: block.content,
                 ...(durationMs !== undefined ? { durationMs } : {}),
               });
-              renderToolResultPreview(block.content, block.is_error === true, verbose);
+              if (verbose) {
+                renderToolResultPreview(block.content, block.is_error === true, true);
+              } else {
+                toolSlot.end(block.content, block.is_error === true);
+              }
               if (block.is_error === true) {
                 metrics.toolErr++;
                 continue;
@@ -512,6 +518,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               (b) => b.type === 'tool_result' && b.is_error === true,
             ).length;
             if (errs > 0) {
+              toolSlot.commit();
               writeStatusLine(chalk.gray(`[${errs} tool error${errs === 1 ? '' : 's'}]`));
             }
           }
@@ -522,6 +529,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         // StreamEvent branch.
         if (!('type' in ev)) continue;
         if (ev.type === 'text_delta') {
+          toolSlot.commit();
           mdStream.write(ev.text);
           indicator.noteStreamedChars(ev.text.length);
           indicator.start();
@@ -547,7 +555,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               const mutation = mutationEffect(block, toolsForTurn, toolContext.cwd);
               if (mutation) mutatingToolUses.set(block.id, mutation);
               const preview = previewToolInput(block.input);
-              writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
+              if (verbose) {
+                writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
+              } else {
+                toolSlot.begin(block.name, preview);
+              }
               transcript?.record({
                 type: 'tool_call',
                 sessionId: activeSessionId,
@@ -570,6 +582,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           indicator.setUsage(ev.usage.inputTokens, ev.usage.outputTokens);
         }
         if (ev.type === 'microcompact') {
+          toolSlot.commit();
           writeStatusLine(
             chalk.gray(
               `[cleared ${ev.info.cleared} stale tool result${ev.info.cleared === 1 ? '' : 's'}, ~${Math.round(ev.info.estimatedTokensSaved / 1000)}K tokens]`,
@@ -582,6 +595,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     } finally {
       streamController = null;
       indicator.stop();
+      toolSlot.commit();
       mdStream.flush();
       const turnElapsed = Date.now() - turnStartedAt;
       const turnToolTime = metrics.toolTimeMs - turnToolTimeBaseline;
