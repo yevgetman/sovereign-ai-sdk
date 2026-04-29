@@ -4,7 +4,11 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTranscriptLogger, redactTranscriptText } from '../../src/ui/transcript.js';
+import {
+  createTranscriptLogger,
+  redactTranscriptText,
+  resolveDebugTranscriptPath,
+} from '../../src/ui/transcript.js';
 
 function withTmp<T>(fn: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-transcript-test-'));
@@ -52,5 +56,81 @@ describe('transcript logger', () => {
     expect(redactTranscriptText('Authorization: Bearer abc123')).toBe(
       'Authorization: Bearer [REDACTED]',
     );
+  });
+});
+
+describe('resolveDebugTranscriptPath', () => {
+  const harnessHome = '/tmp/harness-home';
+  const now = (): Date => new Date('2026-04-28T10:30:45.123Z');
+
+  test('CLI path always wins', () => {
+    expect(
+      resolveDebugTranscriptPath({
+        cliPath: '/explicit/path.jsonl',
+        debugMode: { transcript: true },
+        harnessHome,
+        now,
+      }),
+    ).toBe('/explicit/path.jsonl');
+  });
+
+  test('returns undefined when transcript not enabled', () => {
+    expect(resolveDebugTranscriptPath({ harnessHome, now })).toBeUndefined();
+    expect(
+      resolveDebugTranscriptPath({ debugMode: { transcript: false }, harnessHome, now }),
+    ).toBeUndefined();
+    expect(resolveDebugTranscriptPath({ debugMode: {}, harnessHome, now })).toBeUndefined();
+  });
+
+  test('defaults to <harnessHome>/debug with timestamped filename', () => {
+    expect(resolveDebugTranscriptPath({ debugMode: { transcript: true }, harnessHome, now })).toBe(
+      '/tmp/harness-home/debug/transcript-2026-04-28T10-30-45-123Z.jsonl',
+    );
+  });
+
+  test('honors custom transcriptDir', () => {
+    expect(
+      resolveDebugTranscriptPath({
+        debugMode: { transcript: true, transcriptDir: '/var/log/sovereign' },
+        harnessHome,
+        now,
+      }),
+    ).toBe('/var/log/sovereign/transcript-2026-04-28T10-30-45-123Z.jsonl');
+  });
+
+  test('umbrella debugMode.enabled forces transcript on', () => {
+    expect(resolveDebugTranscriptPath({ debugMode: { enabled: true }, harnessHome, now })).toBe(
+      '/tmp/harness-home/debug/transcript-2026-04-28T10-30-45-123Z.jsonl',
+    );
+  });
+
+  test('umbrella enabled wins over child transcript=false', () => {
+    expect(
+      resolveDebugTranscriptPath({
+        debugMode: { enabled: true, transcript: false },
+        harnessHome,
+        now,
+      }),
+    ).toBe('/tmp/harness-home/debug/transcript-2026-04-28T10-30-45-123Z.jsonl');
+  });
+
+  test('child transcript still works a la carte when umbrella is unset', () => {
+    expect(
+      resolveDebugTranscriptPath({
+        debugMode: { transcript: true },
+        harnessHome,
+        now,
+      }),
+    ).toBe('/tmp/harness-home/debug/transcript-2026-04-28T10-30-45-123Z.jsonl');
+  });
+
+  test('both flags off → undefined', () => {
+    expect(
+      resolveDebugTranscriptPath({
+        debugMode: { enabled: false, transcript: false },
+        harnessHome,
+        now,
+      }),
+    ).toBeUndefined();
   });
 });

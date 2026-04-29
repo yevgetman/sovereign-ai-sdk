@@ -1,7 +1,7 @@
 // Hand-rolled raw-mode config picker for `sovereign config` (no verb).
 // Single-screen list of common keys with ↑/↓ navigation, Enter to edit,
-// `u` to unset, q/Esc to quit. Each commit re-validates through the
-// SettingsSchema; rejected changes are shown inline.
+// `u` to unset, `s`/Esc to save and quit. Each commit re-validates
+// through the SettingsSchema; rejected changes are shown inline.
 //
 // Phase 10.1 interim — Phase 16.7 (TUI polish with Ink) is expected to
 // supersede this with a richer Ink-based component. Keep the
@@ -107,6 +107,23 @@ const FIELDS: Field[] = [
     hint: 'default 50; raise (e.g. 85) for small-context local models',
     choices: ['50', '70', '80', '85', '90'],
   },
+  {
+    path: 'debugMode.enabled',
+    label: 'debugMode.enabled',
+    hint: 'umbrella switch — when true, all child debug options auto-enable',
+    choices: ['true', 'false'],
+  },
+  {
+    path: 'debugMode.transcript',
+    label: 'debugMode.transcript',
+    hint: 'write a redacted JSONL transcript per session',
+    choices: ['true', 'false'],
+  },
+  {
+    path: 'debugMode.transcriptDir',
+    label: 'debugMode.transcriptDir',
+    hint: 'directory for auto-generated transcripts (default ~/.harness/debug)',
+  },
 ];
 
 const ESC = '\x1b';
@@ -167,7 +184,7 @@ function render(state: ViewState): void {
   } else {
     lines.push('');
   }
-  const footer = chalk.gray('↑/↓ navigate · enter edit · u unset · q quit and save');
+  const footer = chalk.gray('↑/↓ navigate · enter edit · u unset · s save and quit');
   process.stdout.write(`${lines.join('\n')}\n${footer}\n`);
 }
 
@@ -285,7 +302,7 @@ export async function runConfigMenu(): Promise<void> {
       render(state);
       const key = await readKey();
       state.status = '';
-      if (key === KEY.CTRL_C || key === 'q' || key === KEY.ESC) {
+      if (key === KEY.CTRL_C || key === 's' || key === 'S' || key === KEY.ESC) {
         running = false;
         break;
       }

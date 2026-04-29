@@ -1,7 +1,7 @@
 // Redacted JSONL transcript writer for manual REPL test sessions.
 
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { expandHomePath } from '../tools/pathUtils.js';
 
 export type TranscriptEvent = {
@@ -47,6 +47,27 @@ export function redactTranscriptText(input: string): string {
 function resolveTranscriptPath(path: string, cwd: string): string {
   const expanded = expandHomePath(path);
   return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
+}
+
+/**
+ * Resolve the transcript path for a session, applying debug-mode defaults.
+ * If `cliPath` is set it wins. Otherwise, when `debugMode.transcript` is
+ * true — or when the umbrella `debugMode.enabled` is true — returns a
+ * timestamped path under `transcriptDir` (default: `<harnessHome>/debug`).
+ */
+export function resolveDebugTranscriptPath(opts: {
+  cliPath?: string;
+  debugMode?: { enabled?: boolean; transcript?: boolean; transcriptDir?: string };
+  harnessHome: string;
+  now?: () => Date;
+}): string | undefined {
+  if (opts.cliPath !== undefined) return opts.cliPath;
+  const debug = opts.debugMode;
+  const transcriptOn = debug?.transcript === true || debug?.enabled === true;
+  if (!transcriptOn) return undefined;
+  const dir = debug?.transcriptDir ?? join(opts.harnessHome, 'debug');
+  const stamp = (opts.now ?? (() => new Date()))().toISOString().replace(/[:.]/g, '-');
+  return join(dir, `transcript-${stamp}.jsonl`);
 }
 
 function redactValue(value: unknown): unknown {

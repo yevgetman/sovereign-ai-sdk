@@ -47,6 +47,27 @@ const CompactionSchema = z
   })
   .strict();
 
+/** Developer-facing flags pinned for harness building/debugging. The
+ *  umbrella `enabled` flag is a convenience switch — when true, every
+ *  child capability behaves as if it were also true. Children can still
+ *  be set individually for fine-grained control when the umbrella is
+ *  unset. The CLI can still override individual settings per session. */
+const DebugModeSchema = z
+  .object({
+    /** Master switch. When true, all child capabilities (currently:
+     *  `transcript`) auto-enable regardless of their individual values. */
+    enabled: z.boolean().optional(),
+    /** When true (or when `enabled` is true), each REPL session writes a
+     *  redacted JSONL transcript under `transcriptDir`. */
+    transcript: z.boolean().optional(),
+    /** Directory for auto-generated transcript files. Tilde and
+     *  relative paths are expanded against the harness home /
+     *  process cwd at REPL startup. Defaults to `<harnessHome>/debug`
+     *  (i.e. `~/.harness/debug`). */
+    transcriptDir: z.string().optional(),
+  })
+  .strict();
+
 export const SettingsSchema = z
   .object({
     defaultProvider: z.string().optional(),
@@ -63,6 +84,7 @@ export const SettingsSchema = z
       .optional(),
     microcompaction: MicrocompactionSchema.optional(),
     compaction: CompactionSchema.optional(),
+    debugMode: DebugModeSchema.optional(),
   })
   .strict();
 
