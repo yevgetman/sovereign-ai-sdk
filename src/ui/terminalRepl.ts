@@ -61,7 +61,7 @@ import { createQueuedQuestion } from './queuedQuestion.js';
 import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
 import { renderSplash } from './splash.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
-import { createTranscriptLogger } from './transcript.js';
+import { createTranscriptLogger, resolveDebugTranscriptPath } from './transcript.js';
 
 export type ReplOpts = {
   bundlePath: string;
@@ -87,17 +87,31 @@ const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundle(opts.bundlePath);
   const harnessHome = resolveHarnessHome();
-  const transcript = createTranscriptLogger(opts.transcriptPath);
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
   const userSettings = readConfig();
+  const transcriptPath = resolveDebugTranscriptPath({
+    ...(opts.transcriptPath !== undefined ? { cliPath: opts.transcriptPath } : {}),
+    ...(userSettings.debugMode !== undefined ? { debugMode: userSettings.debugMode } : {}),
+    harnessHome,
+  });
+  const transcript = createTranscriptLogger(transcriptPath);
+  if (transcript && opts.transcriptPath === undefined) {
+    process.stdout.write(chalk.gray(`[debug] transcript → ${transcript.path}\n`));
+  }
   const proactiveThreshold =
     userSettings.compaction?.proactiveThresholdPct !== undefined
       ? userSettings.compaction.proactiveThresholdPct / 100
       : undefined;
+  // Precedence: explicit CLI flag → .harness/settings.json layers →
+  // ~/.harness/config.json → built-in 'default'. The settings.json layer
+  // owns allow/deny rules so it stays authoritative when present; config.json
+  // acts as a single-knob fallback for users who only touch the picker.
   const permissionMode =
-    opts.permissionMode === 'default' && permissionSettings.mode !== 'default'
-      ? permissionSettings.mode
-      : opts.permissionMode;
+    opts.permissionMode !== 'default'
+      ? opts.permissionMode
+      : permissionSettings.mode !== 'default'
+        ? permissionSettings.mode
+        : (userSettings.permissionMode ?? 'default');
   const memoryManager = createDefaultMemoryManager(harnessHome);
   await memoryManager.initialize();
   await memoryManager.onSessionStart();
@@ -407,10 +421,19 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             for (const block of ev.content) {
               if (block.type !== 'tool_result') continue;
               const startedAt = toolStartTimes.get(block.tool_use_id);
+              const durationMs = startedAt !== undefined ? Date.now() - startedAt : undefined;
               if (startedAt !== undefined) {
-                metrics.toolTimeMs += Date.now() - startedAt;
+                metrics.toolTimeMs += durationMs ?? 0;
                 toolStartTimes.delete(block.tool_use_id);
               }
+              transcript?.record({
+                type: 'tool_result',
+                sessionId: activeSessionId,
+                toolUseId: block.tool_use_id,
+                isError: block.is_error === true,
+                content: block.content,
+                ...(durationMs !== undefined ? { durationMs } : {}),
+              });
               if (block.is_error === true) {
                 metrics.toolErr++;
                 continue;
@@ -451,6 +474,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             content: ev.message.content,
             tokenCount: estimateMessageTokens(ev.message),
           });
+          transcript?.record({
+            type: 'assistant_message',
+            sessionId: activeSessionId,
+            content: snapshotContentForTranscript(ev.message.content),
+          });
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
               metrics.toolCalls++;
@@ -461,8 +489,22 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               process.stdout.write(
                 chalk.gray(`\n[tool: ${block.name}${preview ? ` ${preview}` : ''}]`),
               );
+              transcript?.record({
+                type: 'tool_call',
+                sessionId: activeSessionId,
+                toolUseId: block.id,
+                name: block.name,
+                input: block.input,
+              });
             }
           }
+        }
+        if (ev.type === 'message_stop') {
+          transcript?.record({
+            type: 'message_stop',
+            sessionId: activeSessionId,
+            stopReason: ev.stop_reason,
+          });
         }
         if (ev.type === 'usage_delta') {
           latestUsage = ev.usage;
@@ -665,9 +707,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     }),
   );
   process.stdout.write(
-    chalk.gray(
-      `to resume: sovereign chat --resume ${activeSessionId} --bundle ${opts.bundlePath}\n`,
-    ),
+    chalk.gray(`to resume: sovereign --resume ${activeSessionId} --bundle ${opts.bundlePath}\n`),
   );
 }
 
@@ -809,6 +849,22 @@ function mutationEffect(
 function truncatePreview(s: string): string {
   const clean = s.replace(/\s+/g, ' ').trim();
   return clean.length > 60 ? `${clean.slice(0, 57)}...` : clean;
+}
+
+/** Strip image base64 payloads before serializing assistant content into
+ *  the transcript. Everything else passes through verbatim so the JSONL
+ *  captures full text, thinking, and tool_use blocks. */
+function snapshotContentForTranscript(content: ContentBlock[]): unknown[] {
+  return content.map((block) => {
+    if (block.type === 'image') {
+      return {
+        type: 'image',
+        media_type: block.source.media_type,
+        omitted: 'base64-data',
+      };
+    }
+    return block;
+  });
 }
 
 function formatUsage(usage: TokenUsage): string {

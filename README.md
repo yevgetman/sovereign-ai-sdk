@@ -69,8 +69,8 @@ That's the whole setup — three commands, a key, a bundle path.
 
 - **Contributing docs changes** — `cd ~/code/sovereign-ai-docs && npm install && npm run install-hooks` turns on the pre-commit cascade + linter.
 - **Skip `--bundle` every call** — `export HARNESS_BUNDLE=~/code/sovereign-ai-docs` in your shell rc.
-- **Different model** — `sovereign chat -m claude-opus-4-7` (default is `claude-haiku-4-5-20251001`).
-- **Different provider** — `sovereign chat --provider openai -m gpt-4o-mini`, `sovereign chat --provider ollama -m qwen2.5:3b`, or `sovereign chat --provider openrouter -m anthropic/claude-haiku-4.5`.
+- **Different model** — `sovereign -m claude-opus-4-7` (default is `claude-haiku-4-5-20251001`).
+- **Different provider** — `sovereign --provider openai -m gpt-4o-mini`, `sovereign --provider ollama -m qwen2.5:3b`, or `sovereign --provider openrouter -m anthropic/claude-haiku-4.5`.
 
 ### Gotchas
 
@@ -104,11 +104,11 @@ bun link         # registers the package AND installs the `sovereign` binary on 
 Then from any directory:
 
 ```bash
-sovereign chat --bundle ~/code/sovereign-ai-docs
+sovereign --bundle ~/code/sovereign-ai-docs
 # or set HARNESS_BUNDLE once in your shell rc:
 #   export HARNESS_BUNDLE=~/code/sovereign-ai-docs
 # and just:
-sovereign chat
+sovereign
 ```
 
 The symlink points at `./src/main.ts` so edits under `src/` take effect on the next invocation — no rebuild step. For production (client installs) use `bun build --compile` to produce a standalone binary instead; see [`agent-harness.md § deployment-topology`](../sovereign-ai-docs/business/architecture/agent-harness.md#deployment-topology).

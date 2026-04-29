@@ -55,10 +55,10 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 Examples:
 
 ```bash
-sovereign chat --provider openai --model gpt-4o-mini
-sovereign chat --provider ollama --model qwen2.5:3b
-sovereign chat --permission-mode ask
-sovereign chat --no-cache
+sovereign --provider openai --model gpt-4o-mini
+sovereign --provider ollama --model qwen2.5:3b
+sovereign --permission-mode ask
+sovereign --no-cache
 ```
 
 ## Config Command
@@ -137,13 +137,13 @@ OPENROUTER_API_KEY=sk-or-...
 Every turn is saved to `~/.harness/sessions.db` by default. When the REPL exits, it prints a resume command:
 
 ```text
-to resume: sovereign chat --resume <uuid> --bundle <bundle-path>
+to resume: sovereign --resume <uuid> --bundle <bundle-path>
 ```
 
 Resume with that command:
 
 ```bash
-sovereign chat --resume <uuid> --bundle ~/code/sovereign-ai-docs
+sovereign --resume <uuid> --bundle ~/code/sovereign-ai-docs
 ```
 
 Resume reuses the exact system prompt that was frozen when the session began. The bundle path is validated; resuming a session against a different bundle is rejected.
@@ -151,7 +151,7 @@ Resume reuses the exact system prompt that was frozen when the session began. Th
 Use `--db <path>` when you want an isolated session database for testing:
 
 ```bash
-sovereign chat --db /tmp/harness-test.db --bundle ~/code/sovereign-ai-docs
+sovereign --db /tmp/harness-test.db --bundle ~/code/sovereign-ai-docs
 ```
 
 ## Context References
@@ -388,13 +388,13 @@ Commit a finished change:
 Run with stricter permission prompts:
 
 ```bash
-sovereign chat --permission-mode ask --bundle ~/code/sovereign-ai-docs
+sovereign --permission-mode ask --bundle ~/code/sovereign-ai-docs
 ```
 
 Run locally through Ollama:
 
 ```bash
-sovereign chat --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
+sovereign --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
 ```
 
 ## Troubleshooting
