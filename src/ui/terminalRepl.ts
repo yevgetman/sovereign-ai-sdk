@@ -95,13 +95,37 @@ function writeStatusLine(tinted: string, stream: 'out' | 'err' = 'out'): void {
   target.write(`\n${tinted}\n\n`);
 }
 
-/** Visual divider rendered above and below the user input line. Width
- *  follows the terminal columns (clamped to 20–80) so it adapts to the
- *  current window without overflowing. */
-function writePromptRule(): void {
+/** Visual divider width: terminal columns clamped to a comfortable
+ *  20–80 range so the rules adapt without overflowing narrow windows. */
+function promptRuleWidth(): number {
   const cols = process.stdout.columns ?? 60;
-  const width = Math.max(20, Math.min(80, cols - 2));
-  process.stdout.write(`\n${chalk.gray('─'.repeat(width))}\n`);
+  return Math.max(20, Math.min(80, cols - 2));
+}
+
+/** Render a 3-line frame around the input — top rule, blank input line,
+ *  bottom rule — and reposition the cursor onto the blank line so the
+ *  prompt that follows types between the rules. The returned `close()`
+ *  must be called after readline resolves to advance the cursor past
+ *  the bottom rule before any further output. */
+function openPromptFrame(): { close: () => void } {
+  const rule = chalk.gray('─'.repeat(promptRuleWidth()));
+  // Top rule, blank line, bottom rule, then cursor advances to a line
+  // below the bottom rule. We then move cursor up 2 rows back onto the
+  // blank input line. (TTY only — non-TTY falls back to a single rule
+  // before the prompt so transcripts and CI logs still read sensibly.)
+  if (process.stdout.isTTY) {
+    process.stdout.write(`${rule}\n\n${rule}\n\x1b[2A`);
+    return {
+      close: () => {
+        // After the user hits enter, cursor sits at col 0 of the bottom
+        // rule line. Advance one line so subsequent output lands below
+        // the rule rather than overwriting it.
+        process.stdout.write('\n');
+      },
+    };
+  }
+  process.stdout.write(`${rule}\n`);
+  return { close: () => process.stdout.write(`${rule}\n`) };
 }
 
 export async function runRepl(opts: ReplOpts): Promise<void> {
@@ -323,9 +347,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   );
 
   while (!closed) {
-    writePromptRule();
+    const frame = openPromptFrame();
     const input = await question(chalk.cyan('> ')).catch(() => null);
-    writePromptRule();
+    frame.close();
     if (input === null) break;
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
@@ -563,7 +587,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     if (latestUsage) {
       const cost = estimateCostUsd(providerName, activeModel, latestUsage);
       db.recordTokenUsage(activeSessionId, latestUsage, cost);
-      process.stdout.write(chalk.gray(`${formatUsage(latestUsage)}\n`));
+      const debugOn =
+        userSettings.debugMode?.enabled === true || userSettings.debugMode?.transcript === true;
+      if (debugOn) {
+        process.stdout.write(chalk.gray(`${formatUsage(latestUsage)}\n`));
+      }
     }
 
     // Sync REPL history with what query() actually processed. query() works
