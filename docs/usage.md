@@ -182,11 +182,18 @@ Sensitive paths such as SSH, AWS, GPG, Kube config, shell rc files, sudoers, and
 
 ## Tool Result Visibility
 
-When the model runs a tool, the REPL prints a preview of the tool's result to stdout (capped at 40 lines / 4,000 chars; longer results show a count summary). Errors render in red. This makes the agent's view of the world visible to you, instead of letting tool output stay invisible inside the model's context — which can otherwise let the agent appear to "show" content it never actually displayed.
+When the model runs a tool, the REPL prints a one-line summary under the `[tool: name input]` header by default — `└─ ok · 663 lines, 22.7K chars` for success, `└─ error · ...` (red) for failure. The full tool output stays available to the model but doesn't dominate your conversation view.
+
+Pass `--verbose` (or set `verbose: true` in config) to see the full preview block (capped at 40 lines / 4,000 chars; longer results show a count summary):
+
+```bash
+sovereign --verbose                      # full previews this session
+sovereign config set verbose true        # full previews always
+```
 
 Caveats:
-- The preview is for human visibility only. It is not part of the model's reply text — model-generated explanations still appear separately.
-- Tool inputs (commands, file paths) appear in the `[tool: name input]` header line; results appear in the dim block beneath.
+- Even in verbose mode, the preview is for human visibility only. It is not part of the model's reply text — model-generated explanations still appear separately.
+- Tool inputs (commands, file paths) always appear in the `[tool: name input]` header line.
 
 ## Slash Commands
 

@@ -81,6 +81,10 @@ export type ReplOpts = {
   preflight?: boolean;
   /** Optional redacted JSONL event transcript path. */
   transcriptPath?: string;
+  /** When true, render full tool-result preview blocks. Default false:
+   *  REPL prints a one-line summary so tool output doesn't dominate
+   *  the conversation view. CLI flag wins over config setting. */
+  verbose?: boolean;
 };
 
 const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
@@ -146,6 +150,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     userSettings.compaction?.proactiveThresholdPct !== undefined
       ? userSettings.compaction.proactiveThresholdPct / 100
       : undefined;
+  const verbose = opts.verbose === true || userSettings.verbose === true;
   // Precedence: explicit CLI flag → .harness/settings.json layers →
   // ~/.harness/config.json → built-in 'default'. The settings.json layer
   // owns allow/deny rules so it stays authoritative when present; config.json
@@ -487,7 +492,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                 content: block.content,
                 ...(durationMs !== undefined ? { durationMs } : {}),
               });
-              renderToolResultPreview(block.content, block.is_error === true);
+              renderToolResultPreview(block.content, block.is_error === true, verbose);
               if (block.is_error === true) {
                 metrics.toolErr++;
                 continue;
@@ -895,11 +900,34 @@ function openOrResumeSession(
 const TOOL_RESULT_PREVIEW_CHARS = 4000;
 const TOOL_RESULT_PREVIEW_LINES = 40;
 
-function renderToolResultPreview(content: string, isError: boolean): void {
+function formatChars(n: number): string {
+  if (n < 1000) return `${n} chars`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K chars`;
+  return `${(n / 1_000_000).toFixed(2)}M chars`;
+}
+
+function renderToolResultPreview(content: string, isError: boolean, verbose: boolean): void {
   const trimmed = content.trim();
   if (trimmed.length === 0) return;
   const tint = isError ? chalk.red : chalk.gray;
   const allLines = trimmed.split('\n');
+  if (!verbose) {
+    // One-line summary mode (default). Show "ok · N lines, M chars" or
+    // first 80 chars of the error so the user knows what happened
+    // without the full content dominating the view.
+    if (isError) {
+      const firstLine = allLines[0] ?? '';
+      const snippet = firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine;
+      process.stdout.write(chalk.red(`  └─ error · ${snippet}\n`));
+    } else {
+      process.stdout.write(
+        chalk.gray(
+          `  └─ ok · ${allLines.length} line${allLines.length === 1 ? '' : 's'}, ${formatChars(trimmed.length)}\n`,
+        ),
+      );
+    }
+    return;
+  }
   let preview = allLines.slice(0, TOOL_RESULT_PREVIEW_LINES).join('\n');
   let truncated = allLines.length > TOOL_RESULT_PREVIEW_LINES;
   if (preview.length > TOOL_RESULT_PREVIEW_CHARS) {

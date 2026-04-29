@@ -71,6 +71,12 @@ const FIELDS: Field[] = [
     choices: ['30', '50', '100', '200', '500'],
   },
   {
+    path: 'verbose',
+    label: 'verbose',
+    hint: 'show full tool-result preview blocks (default false: one-line summary only)',
+    choices: ['true', 'false'],
+  },
+  {
     path: 'providers.anthropic.model',
     label: 'providers.anthropic.model',
     choices: PROVIDER_MODELS.anthropic,

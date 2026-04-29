@@ -81,6 +81,11 @@ export const SettingsSchema = z
      *  ceiling, mirroring Claude Code's "rely on permission gates +
      *  Ctrl-C, not a numeric cap" model. */
     maxTurns: z.number().int().positive().optional(),
+    /** When true, show the full tool-result preview block (40 lines /
+     *  4000 chars) under each `[tool: ...]` header. Default off — the
+     *  REPL just prints a one-line summary so the agent's tool output
+     *  doesn't dominate the conversation view. CLI `--verbose` overrides. */
+    verbose: z.boolean().optional(),
     providers: z
       .object({
         anthropic: ProviderConfigSchema.optional(),
