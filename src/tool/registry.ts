@@ -27,6 +27,8 @@ import { SkillTool } from '../tools/SkillTool.js';
 import { SkillsListTool } from '../tools/SkillsListTool.js';
 import { SkillsViewTool } from '../tools/SkillsViewTool.js';
 import { StaticSiteValidateTool } from '../tools/StaticSiteValidateTool.js';
+import { WebFetchTool } from '../tools/WebFetchTool.js';
+import { WebSearchTool } from '../tools/WebSearchTool.js';
 import type { Tool, ToolContext } from './types.js';
 
 const REGISTERED_TOOLS = [
@@ -42,6 +44,8 @@ const REGISTERED_TOOLS = [
   SkillManageTool,
   SkillTool,
   StaticSiteValidateTool,
+  WebFetchTool,
+  WebSearchTool,
 ] as unknown as Tool<unknown, unknown>[];
 
 /**

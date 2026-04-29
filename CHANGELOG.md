@@ -1,5 +1,19 @@
 # Changelog
 
+## Phase 10.2 complete — web reach (WebFetch + WebSearch) - 2026-04-29
+
+Two model-callable tools added for open-web reach. Closes the gap relative to Claude Code (built-in WebFetch/WebSearch) and matches the Cloudflare-stack reference pattern noted in `sovereign-ai-docs/harness/docs/reference/cloudflare-internal-stack-analysis.md`.
+
+**`WebFetchTool` (`src/tools/WebFetchTool.ts`).** Model-callable URL fetcher. Reuses `globalThis.fetch` with: private-host/loopback blocking (`localhost`, `127.x`, `10.x`, `192.168.x`, `172.16-31.x`, IPv6 link/private), 10s timeout, 1MB response cap, 5 redirects (platform default), 50K-char output cap (overridable up to 200K via `max_chars`). HTML responses pass through `htmlToText` — strips `<script>`/`<style>`/`<noscript>`/comments, converts block-level tags to newlines, decodes common entities. Plaintext/JSON/Markdown pass through verbatim. Read-only, concurrency-safe.
+
+**`WebSearchTool` (`src/tools/WebSearchTool.ts`).** Pluggable search. Tavily default (free 1K queries/month, designed for AI agents); Brave optional. API key resolves from `webSearch.apiKey` config first, then `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY` env vars. Throws a structured error with setup commands when no key is configured. Returns up to 20 `{title, url, snippet}` results — model uses these to discover URLs to drill into via WebFetch.
+
+**Schema additions:** `webSearch.provider` (enum `tavily | brave`), `webSearch.apiKey` (secret, redacted in display), `webSearch.maxResults` (int 1–20). Surfaced in the config picker.
+
+**Tests (19 new):** htmlToText edge cases, validateInput URL/scheme/private-host rejection, fetch mocks for HTML/plain/truncation/non-2xx, Tavily/Brave parsing, env-var fallback, max-results cap, no-key error.
+
+**Build plan:** Phase 10.2 marked complete in `harness/docs/runtime/harness-build-plan.md`. The earlier "web search via MCP" recommendation in the Cloudflare analysis remains relevant for higher-fidelity needs (JS-rendered SPAs, browser-only content) — that comes naturally with Phase 12 (MCP client).
+
 ## REPL UX overhaul + Phase 10.1 config command - 2026-04-29
 
 A session of UX hardening on top of Phase 10. Bundle resolution, conversation framing, tool-output rendering, and config management all got first-class user-facing surfaces. No new architectural phases beyond Phase 10.1 (drafted in the docs build plan as the writeable-config phase).

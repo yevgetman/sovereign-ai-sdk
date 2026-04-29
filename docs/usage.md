@@ -114,6 +114,9 @@ Available config fields (top-level unless noted):
 | `providers.<name>.baseUrl` | url | provider default | e.g. `http://localhost:11434` for ollama |
 | `providers.<name>.apiKey` | string (secret) | — | redacted in `show` |
 | `providers.ollama.numCtx` | int | model contextLength | sent as `num_ctx` per request |
+| `webSearch.provider` | enum | `tavily` | `tavily` \| `brave` |
+| `webSearch.apiKey` | string (secret) | — | redacted in `show` |
+| `webSearch.maxResults` | int 1–20 | `5` | default result cap for WebSearch |
 | `compaction.proactiveThresholdPct` | int 1–99 | `75` | full-compaction trigger pct of context window |
 | `microcompaction.enabled` | bool | `true` | per-part tool-result clearing |
 | `microcompaction.keepRecent` | int | `5` | number of recent tool results preserved |
@@ -230,6 +233,28 @@ sovereign config set verbose true        # full previews always
 Caveats:
 - Even in verbose mode, the preview is for human visibility only. It is not part of the model's reply text — model-generated explanations still appear separately.
 - Tool inputs (commands, file paths) always appear in the `[tool: name input]` header line.
+
+## Web Tools
+
+Two model-callable tools cover open-web reach:
+
+- **`WebFetch`** — fetch a URL and return decoded text. HTML pages have `<script>`/`<style>` blocks stripped, tags removed, and entities decoded. Plaintext/JSON/Markdown pass through unchanged. Caps: 10s timeout, 1MB response body, 50K chars returned (override per call with `max_chars`). Refuses non-http(s) schemes and private IPs / localhost.
+- **`WebSearch`** — query the open web through a configurable provider. Returns a small list of `{title, url, snippet}` results that the model can drill into via WebFetch.
+
+`WebFetch` works out of the box with no setup. `WebSearch` needs an API key for the search backend:
+
+```bash
+# Tavily (default — free 1K queries/month, AI-friendly snippets)
+sovereign config set webSearch.apiKey tvly-...
+
+# Or Brave Search
+sovereign config set webSearch.provider brave
+sovereign config set webSearch.apiKey BSA...
+```
+
+You can also export `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` instead of putting the key in config. With no key configured, `WebSearch` returns a helpful error pointing the model at the right config commands.
+
+For higher fidelity (JS-rendered SPAs, browser-only content) connect a headless-browser MCP server when Phase 12 lands.
 
 ## Slash Commands
 

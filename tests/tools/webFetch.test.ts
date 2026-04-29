@@ -1,0 +1,148 @@
+import { describe, expect, test } from 'bun:test';
+import type { ToolContext } from '../../src/tool/types.js';
+import { WebFetchTool, htmlToText } from '../../src/tools/WebFetchTool.js';
+
+const ctxBase: Partial<ToolContext> = {
+  cwd: '/tmp',
+  bundleRoot: '/tmp/bundle',
+  sessionId: 'test',
+  harnessHome: '/tmp/harness',
+};
+
+function makeFetchMock(init: {
+  status?: number;
+  headers?: Record<string, string>;
+  body: string;
+}): typeof fetch {
+  return (async (_url: string | URL | Request) => {
+    const headers = new Headers(init.headers ?? { 'content-type': 'text/plain' });
+    return new Response(init.body, {
+      status: init.status ?? 200,
+      headers,
+    }) as Response & { url: string };
+  }) as unknown as typeof fetch;
+}
+
+describe('htmlToText', () => {
+  test('strips script and style blocks entirely', () => {
+    const html = `
+      <html><head><style>body{color:red}</style></head>
+      <body><script>alert(1)</script><h1>Title</h1><p>body</p></body></html>
+    `;
+    const text = htmlToText(html);
+    expect(text).not.toContain('alert(1)');
+    expect(text).not.toContain('color:red');
+    expect(text).toContain('Title');
+    expect(text).toContain('body');
+  });
+
+  test('decodes basic HTML entities', () => {
+    expect(htmlToText('A &amp; B &lt;tag&gt; &quot;ok&quot;')).toBe('A & B <tag> "ok"');
+    expect(htmlToText('&#65;&#x42;')).toBe('AB');
+    expect(htmlToText('a&nbsp;b')).toBe('a b');
+  });
+
+  test('inserts newlines for block-level tags', () => {
+    const text = htmlToText('<p>one</p><p>two</p><div>three</div>');
+    expect(text.split('\n')).toEqual(['one', 'two', 'three']);
+  });
+
+  test('strips inline tags without losing the text content', () => {
+    expect(htmlToText('<a href="x">click</a> me')).toBe('click me');
+    expect(htmlToText('<strong>bold</strong> normal')).toBe('bold normal');
+  });
+
+  test('removes HTML comments', () => {
+    expect(htmlToText('before <!-- secret --> after')).toBe('before after');
+  });
+});
+
+describe('WebFetchTool.validateInput', () => {
+  test('accepts http and https', async () => {
+    const v1 = await WebFetchTool.validateInput?.(
+      { url: 'https://example.com' },
+      ctxBase as ToolContext,
+    );
+    expect(v1?.ok).toBe(true);
+    const v2 = await WebFetchTool.validateInput?.(
+      { url: 'http://example.com' },
+      ctxBase as ToolContext,
+    );
+    expect(v2?.ok).toBe(true);
+  });
+
+  test('rejects non-http(s) schemes', async () => {
+    const v = await WebFetchTool.validateInput?.(
+      { url: 'ftp://example.com' },
+      ctxBase as ToolContext,
+    );
+    expect(v?.ok).toBe(false);
+  });
+
+  test('rejects malformed URLs', async () => {
+    const v = await WebFetchTool.validateInput?.({ url: 'not a url' }, ctxBase as ToolContext);
+    expect(v?.ok).toBe(false);
+  });
+
+  test('refuses localhost and private IPs', async () => {
+    for (const host of [
+      'http://localhost/',
+      'http://127.0.0.1/',
+      'http://10.0.0.1/',
+      'http://192.168.1.1/',
+      'http://172.16.0.1/',
+    ]) {
+      const v = await WebFetchTool.validateInput?.({ url: host }, ctxBase as ToolContext);
+      expect(v?.ok).toBe(false);
+    }
+  });
+});
+
+describe('WebFetchTool.call', () => {
+  test('returns extracted text from an HTML response', async () => {
+    const fetchImpl = makeFetchMock({
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+      body: '<html><body><h1>Heading</h1><p>Paragraph text.</p></body></html>',
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'https://example.com' }, ctx);
+    expect(result.data.status).toBe(200);
+    expect(result.data.text).toContain('Heading');
+    expect(result.data.text).toContain('Paragraph text.');
+    expect(result.data.text).not.toContain('<html>');
+  });
+
+  test('passes plaintext content through verbatim', async () => {
+    const fetchImpl = makeFetchMock({
+      headers: { 'content-type': 'text/plain' },
+      body: '# Markdown\nlots of text\n',
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'https://example.com/raw.md' }, ctx);
+    expect(result.data.text).toContain('# Markdown');
+  });
+
+  test('truncates output to max_chars and flags truncated', async () => {
+    const fetchImpl = makeFetchMock({
+      headers: { 'content-type': 'text/plain' },
+      body: 'x'.repeat(10_000),
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'https://example.com', max_chars: 200 }, ctx);
+    expect(result.data.truncated).toBe(true);
+    expect(result.data.text.length).toBeLessThan(300); // 200 + truncation suffix
+    expect(result.data.text).toContain('[... truncated]');
+  });
+
+  test('non-2xx responses return the body content if any, or the status text', async () => {
+    const fetchImpl = makeFetchMock({
+      status: 404,
+      headers: { 'content-type': 'text/plain' },
+      body: '',
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'https://example.com/missing' }, ctx);
+    expect(result.data.status).toBe(404);
+    expect(result.data.text).toContain('HTTP 404');
+  });
+});

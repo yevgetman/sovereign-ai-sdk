@@ -89,6 +89,17 @@ export const SettingsSchema = z
      *  REPL just prints a one-line summary so the agent's tool output
      *  doesn't dominate the conversation view. CLI `--verbose` overrides. */
     verbose: z.boolean().optional(),
+    /** WebSearch tool configuration. Sets the search provider and the
+     *  API key. Falls back to TAVILY_API_KEY / BRAVE_SEARCH_API_KEY env
+     *  vars when the config-side key is unset. */
+    webSearch: z
+      .object({
+        provider: z.enum(['tavily', 'brave']).optional(),
+        apiKey: z.string().optional(),
+        maxResults: z.number().int().min(1).max(20).optional(),
+      })
+      .strict()
+      .optional(),
     providers: z
       .object({
         anthropic: ProviderConfigSchema.optional(),

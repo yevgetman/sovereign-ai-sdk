@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 10.2 complete (2026-04-29)** — model-callable web reach. `WebFetch` (URL → readable text with HTML stripping, private-host blocking, size caps) and `WebSearch` (pluggable search via Tavily default or Brave, with API key from config or env). Closes the gap relative to Claude Code's built-in web tools.
+
 **REPL UX overhaul + Phase 10.1 config command (2026-04-29)** — bundle resolution from CWD, splash screen, boxed session-end summary with token totals, thinking spinner with live token counts, line-buffered markdown rendering of streamed output, in-place compact tool slot, framed input prompt. New `sovereign config` CLI + `/config` slash + interactive picker for writeable user-level config. Tunable proactive compaction threshold (default raised 50→75%) with a self-guard against runaway loops when the system prompt itself exceeds the threshold. Ollama `num_ctx` auto-pinning so chats aren't silently truncated to 2K. `--verbose` flag collapses tool-result previews behind a one-line summary by default.
 
 **Qwen amendment complete (2026-04-28)** — microcompaction (per-part tool-result clearing) and shell command AST analysis (virtual tool mapping for permissions) landed on top of Phase 10. The runtime now clears stale tool results before full compaction triggers, and read-only Bash commands resolve against Read permission rules.
@@ -137,7 +139,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
-| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + skill tools | 2 Bash, 4 file & search, 6.5 memory, 9/9.5 skills |
+| `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + skill tools + WebFetch/WebSearch | 2 Bash, 4 file & search, 6.5 memory, 9/9.5 skills, 10.2 web |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules, shell AST analysis for virtual tool mapping) | 3, 7, Qwen-B |
 | `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10 |

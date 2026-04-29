@@ -68,6 +68,15 @@ The default tool posture is conservative. If a tool does not explicitly opt into
 
 After tool results are assembled and pushed to history, the query loop evaluates microcompaction (see below). If stale tool results are cleared, the compacted history replaces the in-memory history before the next provider call.
 
+## Web Tools
+
+Two model-callable tools handle open-web reach:
+
+- `WebFetchTool` (`src/tools/WebFetchTool.ts`) — wraps `globalThis.fetch` with private-host blocking, timeout/size caps, redirect following, and an HTML→text reduction (strips `<script>`/`<style>`/comments, converts block tags to newlines, decodes basic entities). Sufficient for documentation pages, blog posts, news articles, raw markdown/JSON.
+- `WebSearchTool` (`src/tools/WebSearchTool.ts`) — pluggable search via Tavily (default) or Brave. API key resolves from `webSearch.apiKey` config, then `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY` env. Throws with a setup hint when no key is configured. Returns up to 20 `{title, url, snippet}` results.
+
+The tools run with `isReadOnly: true, isConcurrencySafe: true`. The user-only `@url:` context reference (Phase 6.7) and these model-callable tools coexist: the reference inlines a URL into the user message at the start of a turn, while `WebFetch` lets the model decide to fetch a URL it discovered mid-conversation.
+
 ## Permissions
 
 Permission settings are layered from local to global:
