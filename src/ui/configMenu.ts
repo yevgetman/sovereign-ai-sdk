@@ -36,12 +36,16 @@ type Field = {
 
 const CUSTOM_SENTINEL = '↪ type custom value…';
 
-const PROVIDER_MODELS: Record<string, string[]> = {
+const PROVIDER_MODELS = {
   anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7'],
   ollama: ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'],
   openai: ['gpt-4o-mini', 'gpt-4o'],
   openrouter: ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
-};
+} satisfies Record<string, string[]>;
+
+function modelsForProvider(provider: string | undefined): string[] {
+  return (PROVIDER_MODELS as Record<string, string[]>)[provider ?? 'anthropic'] ?? [];
+}
 
 const FIELDS: Field[] = [
   {
@@ -53,7 +57,7 @@ const FIELDS: Field[] = [
     path: 'defaultModel',
     label: 'defaultModel',
     hint: 'scoped by defaultProvider',
-    choices: (settings) => PROVIDER_MODELS[settings.defaultProvider ?? 'anthropic'] ?? [],
+    choices: (settings) => modelsForProvider(settings.defaultProvider),
   },
   {
     path: 'permissionMode',

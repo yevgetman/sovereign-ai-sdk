@@ -30,7 +30,7 @@ function makeCtx(): CommandContext {
     compact: async () => {
       throw new Error('not used');
     },
-    rollback: () => 'rolled back',
+    rollback: async () => 'rolled back',
     tools: [],
     registry: buildCommandRegistry(COMMANDS),
   };

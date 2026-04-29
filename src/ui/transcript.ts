@@ -56,8 +56,14 @@ function resolveTranscriptPath(path: string, cwd: string): string {
  * timestamped path under `transcriptDir` (default: `<harnessHome>/debug`).
  */
 export function resolveDebugTranscriptPath(opts: {
-  cliPath?: string;
-  debugMode?: { enabled?: boolean; transcript?: boolean; transcriptDir?: string };
+  cliPath?: string | undefined;
+  debugMode?:
+    | {
+        enabled?: boolean | undefined;
+        transcript?: boolean | undefined;
+        transcriptDir?: string | undefined;
+      }
+    | undefined;
   harnessHome: string;
   now?: () => Date;
 }): string | undefined {
