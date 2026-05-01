@@ -56,6 +56,12 @@ import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.j
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
+import {
+  BracketedPasteTransform,
+  disableBracketedPaste,
+  enableBracketedPaste,
+  restoreEmbeddedNewlines,
+} from './bracketedPaste.js';
 import { MarkdownStream } from './markdownStream.js';
 import { createQueuedQuestion } from './queuedQuestion.js';
 import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
@@ -283,8 +289,17 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   };
   const toolPool = assembleToolPool(toolContext);
 
+  // Wrap stdin in a bracketed-paste transform so multi-line pastes don't
+  // fragment into one model turn per line. The terminal must opt in too,
+  // via `\x1b[?2004h`. Skip both when stdin isn't a TTY (CI, piped input).
+  const bpEnabled = process.stdin.isTTY === true;
+  const bpTransform = bpEnabled ? new BracketedPasteTransform(process.stdin) : null;
+  if (bpTransform) {
+    process.stdin.pipe(bpTransform);
+    enableBracketedPaste(process.stdout);
+  }
   const rl = createInterface({
-    input: process.stdin,
+    input: (bpTransform ?? process.stdin) as NodeJS.ReadStream,
     output: process.stdout,
     terminal: true,
   });
@@ -357,9 +372,10 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
   while (!closed) {
     const frame = openPromptFrame();
-    const input = await question(chalk.cyan('> ')).catch(() => null);
+    const raw = await question(chalk.cyan('> ')).catch(() => null);
     frame.close();
-    if (input === null) break;
+    if (raw === null) break;
+    const input = bpEnabled ? restoreEmbeddedNewlines(raw) : raw;
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
     if (trimmed === '') continue;
@@ -820,6 +836,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
 
   rl.close();
+  if (bpTransform) {
+    process.stdin.unpipe(bpTransform);
+    bpTransform.end();
+    disableBracketedPaste(process.stdout);
+  }
   transcript?.record({ type: 'session_end', sessionId: activeSessionId });
   const finalCost = db.getSessionCost(activeSessionId);
   await memoryManager.onSessionEnd(activeSessionId);
