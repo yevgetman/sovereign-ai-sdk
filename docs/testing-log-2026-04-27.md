@@ -21,6 +21,27 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-01 - Binary rename: sovereign → sov
+
+- Scope: shortened CLI invocation. `package.json` `bin` mapping changed `"sovereign"` → `"sov"`; commander `.name('sovereign')` → `.name('sov')`; error-message prefix `harness:` → `sov:`; resume hint and max-tokens warning print `sov --resume ...`; WebSearch missing-API-key error references `sov config set ...`; in-source comments referring to the binary updated; active docs (README.md, docs/usage.md, docs/architecture.md) updated. Historical CHANGELOG entries and prior testing-log entries left verbatim.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pre-rename harness commit was `5fa77c4`.
+- Commands:
+  - `bun unlink && rm -f ~/.bun/bin/sovereign && bun link` (refresh global symlink under the new name)
+  - `bun run typecheck`
+  - `bun run lint`
+  - `bun run test`
+  - `sov --help`
+  - End-to-end: `mkdir -p /tmp/sov-rename-test && cd /tmp/sov-rename-test && unset HARNESS_BUNDLE && sov --no-preflight --provider ollama --model placeholder < /dev/null`
+- Manual coverage:
+  - `~/.bun/bin/sov` symlink points to `src/main.ts`; `~/.bun/bin/sovereign` no longer exists.
+  - `sov --help` shows `Usage: sov [options] [command]`.
+  - End-to-end run printed `to resume: sov --resume <uuid>` (no `--bundle` arg since no bundle was found in `/tmp`).
+- Result:
+  - Typecheck clean. Lint clean (2 pre-existing warnings unchanged). 435/435 tests pass.
+- Regressions / follow-ups:
+  - No regressions. Tests don't assert the literal binary name in resume-hint strings, so test changes weren't needed.
+  - User-facing impact: anyone with `bun link` already installed needs to delete `~/.bun/bin/sovereign` and re-`bun link` to pick up the new name (documented in the CHANGELOG entry).
+
 ## 2026-05-01 - Bundleless / generic-agent mode
 
 - Scope: `sovereign` no longer requires a harness bundle. `resolveBundlePath` now returns `string | null` instead of throwing; new `loadBundleIfPresent` returns null when the path is null or has no `index.yaml`. `Bundle` becomes `Bundle | null` through the REPL — five `bundle.root` reads gated, splash and resume hints handle `null`. `ToolContext.bundleRoot` and `LoadSkillsOptions.bundleRoot` made optional; skill loader skips the three bundle-relative roots when unset. Sovereign-flavored "canonical AI entity of the business" framing moved out of `BASE_INSTRUCTIONS` (now generic) and into `state/CONTEXT.md` of `sovereign-ai-docs` under a new `## Identity and voice` section, per CLAUDE.md rule #9.

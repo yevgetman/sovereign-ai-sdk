@@ -1,4 +1,4 @@
-// Hand-rolled raw-mode config picker for `sovereign config` (no verb).
+// Hand-rolled raw-mode config picker for `sov config` (no verb).
 // Single-screen list of common keys with ↑/↓ navigation, Enter to edit,
 // `u` to unset, `s`/Esc to save and quit. Each commit re-validates
 // through the SettingsSchema; rejected changes are shown inline.
@@ -291,7 +291,7 @@ async function readKey(): Promise<string> {
 export async function runConfigMenu(): Promise<void> {
   if (!process.stdin.isTTY) {
     throw new Error(
-      'sovereign config (interactive mode) requires a TTY. Use sovereign config <verb> for scripting.',
+      'sov config (interactive mode) requires a TTY. Use sov config <verb> for scripting.',
     );
   }
   process.stdin.setRawMode(true);

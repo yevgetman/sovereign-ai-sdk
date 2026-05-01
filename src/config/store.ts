@@ -1,7 +1,7 @@
 // Read/write helper for ~/.harness/config.json. Wraps the existing zod
 // schema (src/config/schema.ts) with dot-path get/set/unset, atomic
 // writes, value-literal parsing for CLI args, and secret redaction for
-// display. Used by `sovereign config ...` and the `/config` slash.
+// display. Used by `sov config ...` and the `/config` slash.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';

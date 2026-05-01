@@ -1,5 +1,9 @@
 # Changelog
 
+## Binary rename: `sovereign` → `sov` - 2026-05-01
+
+CLI invocation shortened. `package.json` `bin` mapping is now `"sov": "./src/main.ts"`; `bun link` produces `~/.bun/bin/sov`. Commander program name, error prefix, in-session resume hint, max-tokens warning, WebSearch missing-API-key error message, and active docs (README, usage.md, architecture.md) all updated. Historical changelog/testing-log entries are kept verbatim. Existing users running `bun link` from this checkout will need to remove `~/.bun/bin/sovereign` (the old name) and re-`bun link` to install `sov`.
+
 ## Bundleless / generic-agent mode - 2026-05-01
 
 `sovereign` now runs in any directory without a harness bundle. Bundle resolution still tries `--bundle` → `HARNESS_BUNDLE` → walk-up-for-`index.yaml`, but the no-match path no longer errors — it launches a generic agent with no bundle context, the splash shows `no bundle`, and resume hints/max-token warnings drop the `--bundle` arg.

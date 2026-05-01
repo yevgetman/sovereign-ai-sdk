@@ -25,7 +25,7 @@ import type { PermissionMode } from './permissions/types.js';
 
 /**
  * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`
- * from the CWD, but when `sovereign` runs as a globally-linked binary the
+ * from the CWD, but when `sov` runs as a globally-linked binary the
  * CWD is usually the caller's project, not this repo. Shell-exported values
  * and CWD-based `.env` still win (this loader only fills unset keys).
  *
@@ -108,7 +108,7 @@ function parsePermissionMode(raw: string): PermissionMode {
 
 async function main(argv: string[]): Promise<void> {
   const program = new Command()
-    .name('sovereign')
+    .name('sov')
     .description('Sovereign AI agent runtime')
     .version(VERSION);
 
@@ -206,6 +206,6 @@ async function main(argv: string[]): Promise<void> {
 
 main(process.argv).catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`harness: ${msg}\n`);
+  process.stderr.write(`sov: ${msg}\n`);
   process.exit(1);
 });

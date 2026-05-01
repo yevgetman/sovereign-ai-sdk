@@ -59,8 +59,8 @@ export async function loadBundle(rootPath: string): Promise<Bundle> {
 
 /**
  * Tolerant variant of `loadBundle`: returns null when the path is null or
- * the directory has no `index.yaml`. Used by the CLI so `sovereign` can
- * launch in a directory that isn't a harness bundle (generic-agent mode).
+ * the directory has no `index.yaml`. Used by the CLI so `sov` can launch
+ * in a directory that isn't a harness bundle (generic-agent mode).
  * Other errors (read failures, malformed YAML) still propagate.
  */
 export async function loadBundleIfPresent(rootPath: string | null): Promise<Bundle | null> {

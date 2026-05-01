@@ -6,7 +6,7 @@
   "type": "module",
   "module": "src/main.ts",
   "bin": {
-    "sovereign": "./src/main.ts"
+    "sov": "./src/main.ts"
   },
   "scripts": {
     "chat": "bun src/main.ts",

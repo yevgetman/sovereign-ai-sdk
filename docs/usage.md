@@ -1,10 +1,10 @@
 # Usage Guide
 
-This guide covers day-to-day operation of the Sovereign AI runtime. It assumes the repo is installed and `sovereign` is on your `PATH` via `bun link`.
+This guide covers day-to-day operation of the Sovereign AI runtime. It assumes the repo is installed and `sov` is on your `PATH` via `bun link`.
 
 ## Quick Start
 
-The bare `sovereign` command starts a chat (`chat` is the default subcommand). Bundle resolution order:
+The bare `sov` command starts a chat (`chat` is the default subcommand). Bundle resolution order:
 
 1. `--bundle <path>` if passed
 2. `HARNESS_BUNDLE` env var if set
@@ -15,27 +15,27 @@ Bundled invocation:
 
 ```bash
 cd ~/code/sovereign-ai-docs    # or any subdirectory inside a bundle
-sovereign
+sov
 ```
 
 Or set it once and run from anywhere:
 
 ```bash
 export HARNESS_BUNDLE=~/code/sovereign-ai-docs
-sovereign
+sov
 ```
 
 Or pass it explicitly:
 
 ```bash
-sovereign --bundle ~/code/sovereign-ai-docs
+sov --bundle ~/code/sovereign-ai-docs
 ```
 
-Generic-agent invocation — `sovereign` works in any directory without a bundle. The splash shows `no bundle`, the bundle-derived prompt segments are omitted, and project-level skills (`./.harness/skills`) plus user-level skills (`~/.harness/skills`) still load:
+Generic-agent invocation — `sov` works in any directory without a bundle. The splash shows `no bundle`, the bundle-derived prompt segments are omitted, and project-level skills (`./.harness/skills`) plus user-level skills (`~/.harness/skills`) still load:
 
 ```bash
 cd ~/some-project   # any directory, no bundle required
-sovereign
+sov
 ```
 
 From the repo checkout, the equivalent development command is:
@@ -48,7 +48,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 
 | Flag | Meaning |
 |---|---|
-| `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sovereign` runs as a generic agent when no bundle is found. |
+| `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sov` runs as a generic agent when no bundle is found. |
 | `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, or `ollama`. |
 | `--model <name>` | Model override for the selected provider. |
 | `--max-tokens <n>` | Max output tokens per provider turn. Default: `12000`. |
@@ -63,10 +63,10 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 Examples:
 
 ```bash
-sovereign --provider openai --model gpt-4o-mini
-sovereign --provider ollama --model qwen2.5:3b
-sovereign --permission-mode ask
-sovereign --no-cache
+sov --provider openai --model gpt-4o-mini
+sov --provider ollama --model qwen2.5:3b
+sov --permission-mode ask
+sov --no-cache
 ```
 
 ## REPL UX
@@ -85,17 +85,17 @@ Visual surfaces you'll see in a normal session:
 User-level config lives at `~/.harness/config.json` (override with `HARNESS_CONFIG`). Read or write it without hand-editing JSON:
 
 ```bash
-sovereign config                                 # interactive picker (TTY only)
-sovereign config show                            # full config, secrets redacted
-sovereign config path                            # resolved file path
-sovereign config get defaultProvider
-sovereign config set defaultProvider ollama
-sovereign config set providers.ollama.model qwen2.5:7b
-sovereign config set microcompaction.enabled false
-sovereign config unset microcompaction.enabled
+sov config                                 # interactive picker (TTY only)
+sov config show                            # full config, secrets redacted
+sov config path                            # resolved file path
+sov config get defaultProvider
+sov config set defaultProvider ollama
+sov config set providers.ollama.model qwen2.5:7b
+sov config set microcompaction.enabled false
+sov config unset microcompaction.enabled
 ```
 
-Bare `sovereign config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise readline takes a free-text value. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; Phase 16.7 will replace it with the Ink-based TUI.)
+Bare `sov config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise readline takes a free-text value. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; Phase 16.7 will replace it with the Ink-based TUI.)
 
 The same verbs work in-session via `/config`:
 
@@ -137,7 +137,7 @@ Available config fields (top-level unless noted):
 Ollama defaults `num_ctx` to **2,048 tokens** for chat requests unless overridden. The harness now sends `num_ctx` automatically based on the model's registered context length (32K for the qwen2.5 family, 128K for llama3.1, etc.) — so chats no longer get silently truncated to 2K and trigger constant compaction. Override with:
 
 ```bash
-sovereign config set providers.ollama.numCtx 16384
+sov config set providers.ollama.numCtx 16384
 ```
 
 If your Ollama install is RAM-constrained, lowering `numCtx` is the right knob. Unsetting it returns to the registered default.
@@ -147,8 +147,8 @@ If your Ollama install is RAM-constrained, lowering `numCtx` is the right knob. 
 Proactive compaction fires by default at **75% of the model's context window**. For Anthropic at 200K that's 150K. For qwen2.5:7b at 32K that's ~24K — leaves ~8K for the bundle's system prompt and conversation. Tune with:
 
 ```bash
-sovereign config set compaction.proactiveThresholdPct 90    # keep more history before triggering
-sovereign config set compaction.proactiveThresholdPct 50    # earlier compaction
+sov config set compaction.proactiveThresholdPct 90    # keep more history before triggering
+sov config set compaction.proactiveThresholdPct 50    # earlier compaction
 ```
 
 Anything between 1 and 99 is accepted. The trade-off going higher is a higher chance of hitting the model's hard ceiling and triggering reactive (post-error) compaction instead.
@@ -170,7 +170,7 @@ Provider defaults can live in `~/.harness/config.json`:
 }
 ```
 
-Environment variables still work. For local development, a repo-root `.env` is auto-loaded when the globally linked `sovereign` binary runs:
+Environment variables still work. For local development, a repo-root `.env` is auto-loaded when the globally linked `sov` binary runs:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
@@ -183,13 +183,13 @@ OPENROUTER_API_KEY=sk-or-...
 Every turn is saved to `~/.harness/sessions.db` by default. When the REPL exits, it prints a resume command:
 
 ```text
-to resume: sovereign --resume <uuid> --bundle <bundle-path>
+to resume: sov --resume <uuid> --bundle <bundle-path>
 ```
 
 Resume with that command:
 
 ```bash
-sovereign --resume <uuid> --bundle ~/code/sovereign-ai-docs
+sov --resume <uuid> --bundle ~/code/sovereign-ai-docs
 ```
 
 Resume reuses the exact system prompt that was frozen when the session began. The bundle path is validated; resuming a session against a different bundle is rejected.
@@ -197,7 +197,7 @@ Resume reuses the exact system prompt that was frozen when the session began. Th
 Use `--db <path>` when you want an isolated session database for testing:
 
 ```bash
-sovereign --db /tmp/harness-test.db --bundle ~/code/sovereign-ai-docs
+sov --db /tmp/harness-test.db --bundle ~/code/sovereign-ai-docs
 ```
 
 ## Context References
@@ -233,8 +233,8 @@ When the model runs a tool, the REPL prints a one-line summary under the `[tool:
 Pass `--verbose` (or set `verbose: true` in config) to see the full preview block (capped at 40 lines / 4,000 chars; longer results show a count summary):
 
 ```bash
-sovereign --verbose                      # full previews this session
-sovereign config set verbose true        # full previews always
+sov --verbose                      # full previews this session
+sov config set verbose true        # full previews always
 ```
 
 Caveats:
@@ -252,11 +252,11 @@ Two model-callable tools cover open-web reach:
 
 ```bash
 # Tavily (default — free 1K queries/month, AI-friendly snippets)
-sovereign config set webSearch.apiKey tvly-...
+sov config set webSearch.apiKey tvly-...
 
 # Or Brave Search
-sovereign config set webSearch.provider brave
-sovereign config set webSearch.apiKey BSA...
+sov config set webSearch.provider brave
+sov config set webSearch.apiKey BSA...
 ```
 
 You can also export `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` instead of putting the key in config. With no key configured, `WebSearch` returns a helpful error pointing the model at the right config commands.
@@ -471,13 +471,13 @@ Commit a finished change:
 Run with stricter permission prompts:
 
 ```bash
-sovereign --permission-mode ask --bundle ~/code/sovereign-ai-docs
+sov --permission-mode ask --bundle ~/code/sovereign-ai-docs
 ```
 
 Run locally through Ollama:
 
 ```bash
-sovereign --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
+sov --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
 ```
 
 ## Troubleshooting

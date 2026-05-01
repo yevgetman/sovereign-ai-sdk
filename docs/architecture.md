@@ -182,7 +182,7 @@ Components:
 - `toolSlot.ts` — compact in-place tool-call display
 - `transcript.ts` — redacted JSONL session transcript writer
 - `terminalMessages.ts` — formatted warnings (max-tokens hit, partial mutation, etc.)
-- `configMenu.ts` — interactive picker for `sovereign config` (no verb)
+- `configMenu.ts` — interactive picker for `sov config` (no verb)
 
 Status-line writes (`[tool: ...]`, `[cleared ...]`, `[debug] ...`, `[error] ...`) all flow through a single `writeStatusLine` helper that enforces leading + trailing newlines so they never collide with adjacent assistant text. The compact tool slot tracks line count via ANSI cursor manipulation; when a new tool fires it clears any inter-tool preamble text and the previous slot line in one operation.
 

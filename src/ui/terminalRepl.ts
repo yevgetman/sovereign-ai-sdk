@@ -840,8 +840,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   );
   const resumeHint =
     opts.bundlePath !== undefined
-      ? `sovereign --resume ${activeSessionId} --bundle ${opts.bundlePath}`
-      : `sovereign --resume ${activeSessionId}`;
+      ? `sov --resume ${activeSessionId} --bundle ${opts.bundlePath}`
+      : `sov --resume ${activeSessionId}`;
   process.stdout.write(chalk.gray(`to resume: ${resumeHint}\n`));
 }
 

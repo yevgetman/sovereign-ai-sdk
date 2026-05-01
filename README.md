@@ -8,7 +8,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 **Phase 10.2 complete (2026-04-29)** — model-callable web reach. `WebFetch` (URL → readable text with HTML stripping, private-host blocking, size caps) and `WebSearch` (pluggable search via Tavily default or Brave, with API key from config or env). Closes the gap relative to Claude Code's built-in web tools.
 
-**REPL UX overhaul + Phase 10.1 config command (2026-04-29)** — bundle resolution from CWD, splash screen, boxed session-end summary with token totals, thinking spinner with live token counts, line-buffered markdown rendering of streamed output, in-place compact tool slot, framed input prompt. New `sovereign config` CLI + `/config` slash + interactive picker for writeable user-level config. Tunable proactive compaction threshold (default raised 50→75%) with a self-guard against runaway loops when the system prompt itself exceeds the threshold. Ollama `num_ctx` auto-pinning so chats aren't silently truncated to 2K. `--verbose` flag collapses tool-result previews behind a one-line summary by default.
+**REPL UX overhaul + Phase 10.1 config command (2026-04-29)** — bundle resolution from CWD, splash screen, boxed session-end summary with token totals, thinking spinner with live token counts, line-buffered markdown rendering of streamed output, in-place compact tool slot, framed input prompt. New `sov config` CLI + `/config` slash + interactive picker for writeable user-level config. Tunable proactive compaction threshold (default raised 50→75%) with a self-guard against runaway loops when the system prompt itself exceeds the threshold. Ollama `num_ctx` auto-pinning so chats aren't silently truncated to 2K. `--verbose` flag collapses tool-result previews behind a one-line summary by default.
 
 **Qwen amendment complete (2026-04-28)** — microcompaction (per-part tool-result clearing) and shell command AST analysis (virtual tool mapping for permissions) landed on top of Phase 10. The runtime now clears stale tool results before full compaction triggers, and read-only Bash commands resolve against Read permission rules.
 
@@ -42,22 +42,22 @@ Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your sh
 git clone git@github.com:yevgetman/sovereign-ai-harness.git ~/code/sovereign-ai-harness
 git clone git@github.com:yevgetman/sovereign-ai-docs.git   ~/code/sovereign-ai-docs
 
-# 2. Install deps + register the global `sovereign` binary
+# 2. Install deps + register the global `sov` binary
 cd ~/code/sovereign-ai-harness
 bun install
-bun link     # creates ~/.bun/bin/sovereign → this repo's src/main.ts
+bun link     # creates ~/.bun/bin/sov → this repo's src/main.ts
 
 # 3. Drop your provider key into .env (gitignored; auto-loaded from repo root)
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
-# 4. Run from anywhere — bare `sovereign` defaults to `chat` and resolves
+# 4. Run from anywhere — bare `sov` defaults to `chat` and resolves
 #    the bundle from CWD (walks up looking for index.yaml), or pass --bundle.
 #    With no bundle, runs as a generic agent (no business context).
-sovereign --bundle ~/code/sovereign-ai-docs
+sov --bundle ~/code/sovereign-ai-docs
 # or, from inside the bundle:
-#   cd ~/code/sovereign-ai-docs && sovereign
+#   cd ~/code/sovereign-ai-docs && sov
 # or, in any other directory (no bundle, generic agent):
-#   cd ~/some-project && sovereign
+#   cd ~/some-project && sov
 ```
 
 That's the whole setup — three commands, a key, optional bundle path.
@@ -76,8 +76,8 @@ That's the whole setup — three commands, a key, optional bundle path.
 
 - **Contributing docs changes** — `cd ~/code/sovereign-ai-docs && npm install && npm run install-hooks` turns on the pre-commit cascade + linter.
 - **Skip `--bundle` every call** — `export HARNESS_BUNDLE=~/code/sovereign-ai-docs` in your shell rc.
-- **Different model** — `sovereign -m claude-opus-4-7` (default is `claude-haiku-4-5-20251001`).
-- **Different provider** — `sovereign --provider openai -m gpt-4o-mini`, `sovereign --provider ollama -m qwen2.5:3b`, or `sovereign --provider openrouter -m anthropic/claude-haiku-4.5`.
+- **Different model** — `sov -m claude-opus-4-7` (default is `claude-haiku-4-5-20251001`).
+- **Different provider** — `sov --provider openai -m gpt-4o-mini`, `sov --provider ollama -m qwen2.5:3b`, or `sov --provider openrouter -m anthropic/claude-haiku-4.5`.
 
 ### Gotchas
 
@@ -97,32 +97,32 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 
 Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries).
 
-`sovereign config` — open the interactive picker for user-level config (or `sovereign config get|set|unset|show|path <args>` to script it).
+`sov config` — open the interactive picker for user-level config (or `sov config get|set|unset|show|path <args>` to script it).
 
 See [`docs/usage.md`](docs/usage.md) for provider configuration, resume, context references, permissions, slash commands, memory, skills, compaction, common workflows, and troubleshooting.
 
-### Global `sovereign` command (dev-mode)
+### Global `sov` command (dev-mode)
 
 Install once, invoke from anywhere — mirrors how `claude` is invoked for Claude Code:
 
 ```bash
 cd ~/code/sovereign-ai-harness
-bun link         # registers the package AND installs the `sovereign` binary on PATH
+bun link         # registers the package AND installs the `sov` binary on PATH
 ```
 
 Then from any directory:
 
 ```bash
-sovereign --bundle ~/code/sovereign-ai-docs
+sov --bundle ~/code/sovereign-ai-docs
 # or set HARNESS_BUNDLE once in your shell rc:
 #   export HARNESS_BUNDLE=~/code/sovereign-ai-docs
 # and just:
-sovereign
+sov
 ```
 
 The symlink points at `./src/main.ts` so edits under `src/` take effect on the next invocation — no rebuild step. For production (client installs) use `bun build --compile` to produce a standalone binary instead; see [`agent-harness.md § deployment-topology`](../sovereign-ai-docs/business/architecture/agent-harness.md#deployment-topology).
 
-To uninstall: `bun unlink` from the repo root, or `rm ~/.bun/bin/sovereign`.
+To uninstall: `bun unlink` from the repo root, or `rm ~/.bun/bin/sov`.
 
 ## Development
 

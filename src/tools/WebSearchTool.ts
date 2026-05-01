@@ -146,7 +146,7 @@ export const WebSearchTool = buildTool<Input, Output>({
     const { provider, apiKey, configuredMax } = resolveProviderSettings(env);
     if (!apiKey) {
       throw new Error(
-        `WebSearch needs an API key. Run \`sovereign config set webSearch.provider ${provider}\` and \`sovereign config set webSearch.apiKey <key>\`, or export ${
+        `WebSearch needs an API key. Run \`sov config set webSearch.provider ${provider}\` and \`sov config set webSearch.apiKey <key>\`, or export ${
           provider === 'brave' ? 'BRAVE_SEARCH_API_KEY' : 'TAVILY_API_KEY'
         }. See docs/usage.md § Web Tools.`,
       );

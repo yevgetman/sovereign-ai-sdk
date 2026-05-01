@@ -17,7 +17,7 @@ export function formatMaxTokensWarning(input: MaxTokensWarningInput): string {
   return [
     `[max tokens] provider stopped because this turn hit --max-tokens=${input.maxTokens}`,
     'The partial response was saved. Continue in this session, or resume with a higher output budget:',
-    `sovereign --resume ${input.sessionId}${bundleArg} --max-tokens ${suggested}`,
+    `sov --resume ${input.sessionId}${bundleArg} --max-tokens ${suggested}`,
     'For large code edits, ask for smaller FileWrite/FileEdit patches instead of full replacement files in chat.',
   ].join('\n');
 }
