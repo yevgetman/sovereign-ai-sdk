@@ -102,11 +102,12 @@ function writeStatusLine(tinted: string, stream: 'out' | 'err' = 'out'): void {
   target.write(`\n${tinted}\n\n`);
 }
 
-/** Visual divider width: terminal columns clamped to a comfortable
- *  20–80 range so the rules adapt without overflowing narrow windows. */
+/** Visual divider width: terminal columns. Spans the full terminal width
+ *  so the input frame matches the window. Lower-bounded at 20 to guard
+ *  against terminals that report zero columns. */
 function promptRuleWidth(): number {
   const cols = process.stdout.columns ?? 60;
-  return Math.max(20, Math.min(80, cols - 2));
+  return Math.max(20, cols);
 }
 
 /** Render a 3-line frame around the input — top rule, blank input line,
