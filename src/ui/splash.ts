@@ -1,21 +1,24 @@
-// Splash banner shown at REPL startup. Renders a block-letter "S" mark
-// (a nod to the Sovereign AI logo) next to a small info card with
-// version, provider/auth, model, and bundle path. Below it: a tips line
-// and a one-line dim footer with the operational details that the old
-// multi-line banner carried (permissions, tools, cache, session).
+// Splash banner shown at REPL startup. Renders a block-letter "SOV" mark
+// (a nod to the Sovereign AI logo, shortened to match the `sov` binary)
+// next to a small info card with version, provider/auth, model, and
+// bundle path. Below it: a tips line and a one-line dim footer with
+// the operational details that the old multi-line banner carried
+// (permissions, tools, cache, session).
 
 import chalk from 'chalk';
 import { boxify, visibleWidth } from './box.js';
 
 const PKG_VERSION = '0.0.1';
 
+// "ANSI Shadow" figlet font — same letterforms throughout. Each row is
+// the same width; the renderer pads short lines via padBlock.
 const LOGO_LINES = [
-  '  ███████╗ ',
-  '  ██╔════╝ ',
-  '  ███████╗ ',
-  '  ╚════██║ ',
-  '  ███████║ ',
-  '  ╚══════╝ ',
+  '  ███████╗ ██████╗ ██╗   ██╗ ',
+  '  ██╔════╝██╔═══██╗██║   ██║ ',
+  '  ███████╗██║   ██║██║   ██║ ',
+  '  ╚════██║██║   ██║╚██╗ ██╔╝ ',
+  '  ███████║╚██████╔╝ ╚████╔╝  ',
+  '  ╚══════╝ ╚═════╝   ╚═══╝   ',
 ];
 
 // Cyan→blue gradient that visually echoes the logo's lightning-slash
