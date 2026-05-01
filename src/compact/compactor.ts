@@ -16,7 +16,11 @@ import type {
   TokenUsage,
 } from '../core/types.js';
 import { auxiliaryClient } from '../providers/auxiliary.js';
-import { NoAuxiliaryAvailableError, isContextOverflowError } from '../providers/errors.js';
+import {
+  NoAuxiliaryAvailableError,
+  isContextOverflowError,
+  isModelUnavailable,
+} from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 
 const TOOL_RESULT_PRUNE_CHARS = 800;
@@ -247,6 +251,12 @@ async function runSummarizer(
   } catch (err) {
     if (err instanceof NoAuxiliaryAvailableError) {
       options.warn?.('compression auxiliary unavailable; using deterministic fallback summary');
+      return { summary: buildDeterministicSummary(input), usedAuxiliary: false };
+    }
+    if (isModelUnavailable(err)) {
+      options.warn?.(
+        `compression auxiliary model unavailable (${err instanceof Error ? err.message : String(err)}); using deterministic fallback summary`,
+      );
       return { summary: buildDeterministicSummary(input), usedAuxiliary: false };
     }
     if (isContextOverflowError(err)) {

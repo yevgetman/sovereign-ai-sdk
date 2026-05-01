@@ -15,19 +15,19 @@ const AUXILIARY_CHAINS: Record<AuxiliaryPurpose, Array<[string, string]>> = {
     ['openrouter', 'anthropic/claude-haiku-4.5'],
     ['anthropic', 'claude-haiku-4-5-20251001'],
     ['openai', 'gpt-4o-mini'],
-    ['ollama', 'qwen2.5:3b'],
+    ['ollama', 'qwen2.5:7b'],
   ],
   title: [
     ['openrouter', 'anthropic/claude-haiku-4.5'],
     ['anthropic', 'claude-haiku-4-5-20251001'],
     ['openai', 'gpt-4o-mini'],
-    ['ollama', 'qwen2.5:3b'],
+    ['ollama', 'qwen2.5:7b'],
   ],
   'web-extract': [
     ['openrouter', 'anthropic/claude-haiku-4.5'],
     ['anthropic', 'claude-haiku-4-5-20251001'],
     ['openai', 'gpt-4o-mini'],
-    ['ollama', 'qwen2.5:3b'],
+    ['ollama', 'qwen2.5:7b'],
   ],
 };
 

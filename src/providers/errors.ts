@@ -62,6 +62,18 @@ export function isBillingExhausted(err: unknown): boolean {
   );
 }
 
+export function isModelUnavailable(err: unknown): boolean {
+  if (err instanceof ProviderHttpError && err.status === 404) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('model not found') ||
+    lower.includes("model '") ||
+    lower.includes('not_found') ||
+    lower.includes('try pulling it first')
+  );
+}
+
 export function isRateLimited(err: unknown): err is ProviderHttpError {
   return err instanceof ProviderHttpError && err.status === 429;
 }
