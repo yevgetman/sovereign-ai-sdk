@@ -3,7 +3,8 @@
 export type MaxTokensWarningInput = {
   maxTokens: number;
   sessionId: string;
-  bundlePath: string;
+  /** Bundle path to embed in the resume command, or null in generic-agent mode. */
+  bundlePath: string | null;
 };
 
 export type PartialMutationWarningInput = {
@@ -12,10 +13,11 @@ export type PartialMutationWarningInput = {
 
 export function formatMaxTokensWarning(input: MaxTokensWarningInput): string {
   const suggested = suggestHigherMaxTokens(input.maxTokens);
+  const bundleArg = input.bundlePath !== null ? ` --bundle ${quoteShellArg(input.bundlePath)}` : '';
   return [
     `[max tokens] provider stopped because this turn hit --max-tokens=${input.maxTokens}`,
     'The partial response was saved. Continue in this session, or resume with a higher output budget:',
-    `sovereign --resume ${input.sessionId} --bundle ${quoteShellArg(input.bundlePath)} --max-tokens ${suggested}`,
+    `sovereign --resume ${input.sessionId}${bundleArg} --max-tokens ${suggested}`,
     'For large code edits, ask for smaller FileWrite/FileEdit patches instead of full replacement files in chat.',
   ].join('\n');
 }

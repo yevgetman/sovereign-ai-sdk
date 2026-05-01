@@ -2,7 +2,9 @@
 // memory. Tier-1 (business) content is loaded lazily via getBusinessDoc().
 //
 // This is the Sovereign AI-specific interface to the docs repo or a
-// client's extracted bundle.
+// client's extracted bundle. `loadBundle` requires a bundle and throws when
+// `index.yaml` is missing; `loadBundleIfPresent` is the bundleless-friendly
+// entry point used by the CLI when no bundle was found.
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -53,6 +55,19 @@ export async function loadBundle(rootPath: string): Promise<Bundle> {
     state,
     schemaPaths,
   };
+}
+
+/**
+ * Tolerant variant of `loadBundle`: returns null when the path is null or
+ * the directory has no `index.yaml`. Used by the CLI so `sovereign` can
+ * launch in a directory that isn't a harness bundle (generic-agent mode).
+ * Other errors (read failures, malformed YAML) still propagate.
+ */
+export async function loadBundleIfPresent(rootPath: string | null): Promise<Bundle | null> {
+  if (rootPath === null) return null;
+  const indexPath = join(resolve(rootPath), 'index.yaml');
+  if (!existsSync(indexPath)) return null;
+  return loadBundle(rootPath);
 }
 
 /**

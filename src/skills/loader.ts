@@ -49,7 +49,8 @@ const SHELL_OUTPUT_CAP = 16 * 1024;
 export type LoadSkillsOptions = {
   harnessHome: string;
   cwd: string;
-  bundleRoot: string;
+  /** When set, scans bundle-relative skill roots; absent in generic-agent mode. */
+  bundleRoot?: string;
   warn?: (message: string) => void;
 };
 
@@ -76,18 +77,22 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       path: join(opts.harnessHome, 'skills'),
       classify: (file) => classifyUserSkill(file, join(opts.harnessHome, 'skills')),
     },
-    { source: 'bundle', trustTier: 'builtin', path: join(opts.bundleRoot, 'skills') },
-    {
-      source: 'bundle',
-      trustTier: 'trusted',
-      path: join(opts.bundleRoot, 'harness', 'skills-trusted'),
-    },
-    {
-      source: 'community',
-      trustTier: 'community',
-      path: join(opts.bundleRoot, 'skills-community'),
-    },
   ];
+  if (opts.bundleRoot !== undefined) {
+    roots.push(
+      { source: 'bundle', trustTier: 'builtin', path: join(opts.bundleRoot, 'skills') },
+      {
+        source: 'bundle',
+        trustTier: 'trusted',
+        path: join(opts.bundleRoot, 'harness', 'skills-trusted'),
+      },
+      {
+        source: 'community',
+        trustTier: 'community',
+        path: join(opts.bundleRoot, 'skills-community'),
+      },
+    );
+  }
 
   const seenRealpaths = new Set<string>();
   const byName = new Map<string, Skill>();

@@ -51,13 +51,16 @@ bun link     # creates ~/.bun/bin/sovereign → this repo's src/main.ts
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
 # 4. Run from anywhere — bare `sovereign` defaults to `chat` and resolves
-#    the bundle from CWD (walks up looking for index.yaml), or pass --bundle
+#    the bundle from CWD (walks up looking for index.yaml), or pass --bundle.
+#    With no bundle, runs as a generic agent (no business context).
 sovereign --bundle ~/code/sovereign-ai-docs
 # or, from inside the bundle:
 #   cd ~/code/sovereign-ai-docs && sovereign
+# or, in any other directory (no bundle, generic agent):
+#   cd ~/some-project && sovereign
 ```
 
-That's the whole setup — three commands, a key, a bundle path.
+That's the whole setup — three commands, a key, optional bundle path.
 
 ### What ports vs. what doesn't
 

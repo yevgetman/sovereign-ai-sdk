@@ -140,6 +140,27 @@ describe('buildSystemSegments', () => {
       expect(segments.every((segment) => segment.cacheable === false)).toBe(true);
     });
   });
+
+  test('omits bundle segments when no bundle is supplied (generic-agent mode)', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        tools: [makeTool()],
+        skills: [makeSkill()],
+        cwd: dir,
+        homeDir: dir,
+        now: new Date('2026-04-25T12:00:00.000Z'),
+        warn: () => {},
+      });
+
+      // Generic base prompt + tools + skills + runtime context, no bundle
+      // segments and no Sovereign-specific identity language baked in.
+      expect(segments.some((s) => s.text.includes('<bundle-context>'))).toBe(false);
+      expect(segments.some((s) => s.text.includes('<bundle-preferences>'))).toBe(false);
+      expect(segments.some((s) => s.text.includes('canonical AI entity'))).toBe(false);
+      expect(segments.some((s) => s.text.includes('<runtime-context>'))).toBe(true);
+      expect(segments.some((s) => s.text.includes('<available-tools>'))).toBe(true);
+    });
+  });
 });
 
 describe('formatTools', () => {

@@ -21,6 +21,27 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-01 - Bundleless / generic-agent mode
+
+- Scope: `sovereign` no longer requires a harness bundle. `resolveBundlePath` now returns `string | null` instead of throwing; new `loadBundleIfPresent` returns null when the path is null or has no `index.yaml`. `Bundle` becomes `Bundle | null` through the REPL — five `bundle.root` reads gated, splash and resume hints handle `null`. `ToolContext.bundleRoot` and `LoadSkillsOptions.bundleRoot` made optional; skill loader skips the three bundle-relative roots when unset. Sovereign-flavored "canonical AI entity of the business" framing moved out of `BASE_INSTRUCTIONS` (now generic) and into `state/CONTEXT.md` of `sovereign-ai-docs` under a new `## Identity and voice` section, per CLAUDE.md rule #9.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `f92f84a`.
+- Commands:
+  - `bun run typecheck`
+  - `bun run lint`
+  - `bun run test`
+  - End-to-end (bundleless): `mkdir -p /tmp/sovereign-no-bundle-test && cd /tmp/sovereign-no-bundle-test && bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --no-preflight --provider ollama --model placeholder < /dev/null`
+  - End-to-end (bundled): `cd ~/code/sovereign-ai-docs && bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --no-preflight --provider ollama --model placeholder < /dev/null`
+- Manual coverage:
+  - Bundleless run: splash showed `no bundle` instead of a path; session created and exited cleanly; `[debug] transcript →` line appeared.
+  - Bundled run: splash showed `/Users/julie/code/sovereign-ai-docs`; identical exit path.
+  - `bun src/main.ts chat --help` still lists `--bundle` flag with unchanged semantics.
+- Result:
+  - Typecheck clean. Lint clean (2 pre-existing warnings unchanged). 435/435 tests pass (added 8: 4 in `tests/bundle/loader.test.ts`, 1 in `tests/skills/loader.test.ts`, 1 in `tests/ui/splash.test.ts`, 1 in `tests/ui/terminalMessages.test.ts`, 1 in `tests/context/systemPrompt.test.ts`).
+- Regressions / follow-ups:
+  - No regressions. Bundled mode end-to-end behavior unchanged because `loadBundleIfPresent` falls through to `loadBundle` whenever `index.yaml` exists.
+  - Follow-up: docs-repo `state/CONTEXT.md` is now load-bearing for bundle-mode identity language. If a future client bundle is created, its CONTEXT.md must include an equivalent identity section or the model loses the first-person voice instruction.
+  - Out of scope: Claude-Code-style auto-discovery of `CLAUDE.md`/`AGENTS.md` from CWD upward in bundleless mode (today the runtime relies on the existing user-context discovery in `src/context/user.ts`, which already loads `AGENTS.md`/`CLAUDE.md` from the CWD).
+
 ## 2026-04-28 - Default Anthropic API Smoke Retry
 
 - Scope: Quick live harness API smoke after reloading Anthropic credits, using

@@ -24,7 +24,8 @@ export type ValidationResult = { ok: true } | { ok: false; reason: string };
 /** Per-invocation runtime context passed to every tool call. */
 export type ToolContext = {
   cwd: string;
-  bundleRoot: string;
+  /** Bundle root when a harness bundle is loaded; absent in generic-agent mode. */
+  bundleRoot?: string;
   sessionId: string;
   harnessHome?: string;
   signal?: AbortSignal;

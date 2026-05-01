@@ -33,7 +33,8 @@ export type SplashInfo = {
   providerLabel: string;
   authLabel: string;
   model: string;
-  bundlePath: string;
+  /** Bundle path, or null in generic-agent mode. */
+  bundlePath: string | null;
   permissionMode: string;
   permissionModeNote?: string;
   toolCount: number;
@@ -46,7 +47,7 @@ function renderCard(info: SplashInfo): string[] {
   const title = `${chalk.cyan('>_')} ${chalk.bold('Sovereign AI')} ${chalk.gray(`(v${PKG_VERSION})`)}`;
   const auth = `${info.providerLabel} ${chalk.gray('|')} ${info.authLabel}`;
   const model = `${info.model} ${chalk.gray('(/model to change)')}`;
-  const bundle = chalk.gray(info.bundlePath);
+  const bundle = chalk.gray(info.bundlePath ?? 'no bundle');
   return [title, auth, model, bundle];
 }
 

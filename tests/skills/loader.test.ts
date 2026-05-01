@@ -196,6 +196,34 @@ Research body
       expect(warnings).toEqual([]);
     });
   });
+
+  test('omitting bundleRoot still loads project + user skills (generic-agent mode)', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      writeSkill(
+        join(cwd, '.harness/skills/local.md'),
+        `---
+name: local
+description: Local project skill
+---
+Local body
+`,
+      );
+      writeSkill(
+        join(harnessHome, 'skills/global.md'),
+        `---
+name: global
+description: User skill
+---
+Global body
+`,
+      );
+
+      const registry = await loadSkills({ cwd, harnessHome });
+      expect(registry.skills.map((skill) => skill.name).sort()).toEqual(['global', 'local']);
+    });
+  });
 });
 
 describe('expandSkillPrompt', () => {

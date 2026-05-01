@@ -25,6 +25,17 @@ describe('terminal max-token messages', () => {
     expect(warning).toContain('FileWrite/FileEdit');
   });
 
+  test('formatMaxTokensWarning omits --bundle when no bundle is loaded', () => {
+    const warning = formatMaxTokensWarning({
+      maxTokens: 12000,
+      sessionId: 'session-2',
+      bundlePath: null,
+    });
+
+    expect(warning).toContain('--resume session-2 --max-tokens');
+    expect(warning).not.toContain('--bundle');
+  });
+
   test('formatPartialMutationWarning lists unique touched paths', () => {
     const warning = formatPartialMutationWarning({
       paths: ['/tmp/b.txt', '/tmp/a.txt', '/tmp/a.txt'],

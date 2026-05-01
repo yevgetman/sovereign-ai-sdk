@@ -9,9 +9,9 @@ The bare `sovereign` command starts a chat (`chat` is the default subcommand). B
 1. `--bundle <path>` if passed
 2. `HARNESS_BUNDLE` env var if set
 3. **Walk up from the current directory** looking for an `index.yaml` (the bundle marker)
-4. Otherwise, error
+4. Otherwise, run as a generic agent — no bundle context, generic system prompt, tools and skills load normally
 
-So the simplest invocation is:
+Bundled invocation:
 
 ```bash
 cd ~/code/sovereign-ai-docs    # or any subdirectory inside a bundle
@@ -31,6 +31,13 @@ Or pass it explicitly:
 sovereign --bundle ~/code/sovereign-ai-docs
 ```
 
+Generic-agent invocation — `sovereign` works in any directory without a bundle. The splash shows `no bundle`, the bundle-derived prompt segments are omitted, and project-level skills (`./.harness/skills`) plus user-level skills (`~/.harness/skills`) still load:
+
+```bash
+cd ~/some-project   # any directory, no bundle required
+sovereign
+```
+
 From the repo checkout, the equivalent development command is:
 
 ```bash
@@ -41,7 +48,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 
 | Flag | Meaning |
 |---|---|
-| `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. |
+| `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sovereign` runs as a generic agent when no bundle is found. |
 | `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, or `ollama`. |
 | `--model <name>` | Model override for the selected provider. |
 | `--max-tokens <n>` | Max output tokens per provider turn. Default: `12000`. |

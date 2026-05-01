@@ -17,7 +17,7 @@ import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
-import { loadBundle } from '../bundle/loader.js';
+import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
 import { buildToolScope } from '../commands/toolScope.js';
@@ -66,7 +66,9 @@ import { CompactToolSlot } from './toolSlot.js';
 import { createTranscriptLogger, resolveDebugTranscriptPath } from './transcript.js';
 
 export type ReplOpts = {
-  bundlePath: string;
+  /** Absolute path to the harness bundle. Omitted in generic-agent mode (no
+   *  bundle resolved from --bundle, HARNESS_BUNDLE, or CWD walk-up). */
+  bundlePath?: string;
   providerName?: string;
   model?: string;
   maxTokens: number;
@@ -134,7 +136,7 @@ function openPromptFrame(): { close: () => void } {
 }
 
 export async function runRepl(opts: ReplOpts): Promise<void> {
-  const bundle = await loadBundle(opts.bundlePath);
+  const bundle = await loadBundleIfPresent(opts.bundlePath ?? null);
   const harnessHome = resolveHarnessHome();
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
   const userSettings = readConfig();
@@ -169,7 +171,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const loadedSkills = await loadSkills({
     harnessHome,
     cwd: process.cwd(),
-    bundleRoot: bundle.root,
+    ...(bundle ? { bundleRoot: bundle.root } : {}),
     warn: (message) => process.stderr.write(chalk.yellow(`[skill] ${message}\n`)),
   });
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
@@ -203,7 +205,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
   const preliminaryToolContext: ToolContext = {
     cwd: process.cwd(),
-    bundleRoot: bundle.root,
+    ...(bundle ? { bundleRoot: bundle.root } : {}),
     sessionId: opts.resumeId ?? 'pending',
     harnessHome,
     memoryManager,
@@ -261,7 +263,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     sessionId: activeSessionId,
     resumed,
     cwd: process.cwd(),
-    bundlePath: opts.bundlePath,
+    bundlePath: opts.bundlePath ?? null,
     providerName,
     model: activeModel,
     permissionMode,
@@ -269,7 +271,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
 
   const toolContext: ToolContext = {
     cwd: process.cwd(),
-    bundleRoot: bundle.root,
+    ...(bundle ? { bundleRoot: bundle.root } : {}),
     sessionId: activeSessionId,
     harnessHome,
     memoryManager,
@@ -346,7 +348,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     permissionMode,
     permissionSettings.sources,
     resolved,
-    bundle.state.context !== null,
+    bundle?.state.context != null,
     toolPool.map((t) => t.name),
     activeSessionId,
     resumed,
@@ -709,7 +711,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           `\n${formatMaxTokensWarning({
             maxTokens: opts.maxTokens,
             sessionId: activeSessionId,
-            bundlePath: opts.bundlePath,
+            bundlePath: opts.bundlePath ?? null,
           })}\n`,
         ),
       );
@@ -773,7 +775,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       provider: providerName,
       systemPrompt,
       metadata: {
-        bundleRoot: bundle.root,
+        bundleRoot: bundle?.root ?? null,
         provider: providerName,
         baseUrl: resolved.baseUrl,
         contextLength: resolved.contextLength,
@@ -836,9 +838,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       },
     }),
   );
-  process.stdout.write(
-    chalk.gray(`to resume: sovereign --resume ${activeSessionId} --bundle ${opts.bundlePath}\n`),
-  );
+  const resumeHint =
+    opts.bundlePath !== undefined
+      ? `sovereign --resume ${activeSessionId} --bundle ${opts.bundlePath}`
+      : `sovereign --resume ${activeSessionId}`;
+  process.stdout.write(chalk.gray(`to resume: ${resumeHint}\n`));
 }
 
 function writeBanner(
@@ -865,7 +869,7 @@ function writeBanner(
     providerLabel: providerName,
     authLabel,
     model: resolved.model,
-    bundlePath: opts.bundlePath,
+    bundlePath: opts.bundlePath ?? null,
     permissionMode: configuredMode,
     permissionModeNote: modeNote,
     toolCount: toolNames.length,
@@ -886,14 +890,14 @@ type SessionOpen = {
 function openOrResumeSession(
   db: SessionDb,
   opts: ReplOpts,
-  bundle: Bundle,
+  bundle: Bundle | null,
   resolved: ResolvedProvider,
   tools: import('../tool/types.js').Tool<unknown, unknown>[],
   skills: SkillRegistry,
 ): SessionOpen {
   if (opts.resumeId === undefined) {
     const systemPrompt = buildSystemSegments({
-      bundle,
+      ...(bundle ? { bundle } : {}),
       tools,
       skills: skills.skills,
       cwd: process.cwd(),
@@ -905,7 +909,7 @@ function openOrResumeSession(
       platform: 'cli',
       systemPrompt,
       metadata: {
-        bundleRoot: bundle.root,
+        bundleRoot: bundle?.root ?? null,
         provider: resolved.metadata.provider,
         baseUrl: resolved.baseUrl,
         contextLength: resolved.contextLength,
@@ -918,11 +922,13 @@ function openOrResumeSession(
   if (!session) {
     throw new Error(`no session with id ${opts.resumeId}`);
   }
-  const storedBundleRoot = (session.metadata as { bundleRoot?: string }).bundleRoot;
-  if (storedBundleRoot !== undefined && storedBundleRoot !== bundle.root) {
+  const storedBundleRootRaw = (session.metadata as { bundleRoot?: string | null }).bundleRoot;
+  const storedBundleRoot =
+    typeof storedBundleRootRaw === 'string' ? storedBundleRootRaw : undefined;
+  if (storedBundleRoot !== undefined && storedBundleRoot !== bundle?.root) {
     throw new Error(
       `session ${opts.resumeId} was created against bundle ${storedBundleRoot}; ` +
-        `current --bundle is ${bundle.root}. Pass --bundle ${storedBundleRoot} to resume.`,
+        `current --bundle is ${bundle?.root ?? '(none)'}. Pass --bundle ${storedBundleRoot} to resume.`,
     );
   }
   if (session.systemPrompt === null) {

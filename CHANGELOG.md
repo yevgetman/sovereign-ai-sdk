@@ -1,5 +1,15 @@
 # Changelog
 
+## Bundleless / generic-agent mode - 2026-05-01
+
+`sovereign` now runs in any directory without a harness bundle. Bundle resolution still tries `--bundle` → `HARNESS_BUNDLE` → walk-up-for-`index.yaml`, but the no-match path no longer errors — it launches a generic agent with no bundle context, the splash shows `no bundle`, and resume hints/max-token warnings drop the `--bundle` arg.
+
+**Identity moved to the bundle.** `BASE_INSTRUCTIONS` in `src/context/systemPrompt.ts` is now generic — no Sovereign-specific "canonical AI entity of the business" framing. That language moved to the docs-repo bundle's `state/CONTEXT.md` under a new `## Identity and voice` section, where it belongs per CLAUDE.md rule #9 ("no product-specific hardcoding in `src/`"). The generic prompt still describes the segment layout and points the model at any loaded bundle context as the authoritative project/business prior.
+
+**Bundle plumbing made optional.** `loadBundleIfPresent(path)` is the new tolerant entry point used by the CLI; `loadBundle` still throws for callers that require one. `ToolContext.bundleRoot` and `LoadSkillsOptions.bundleRoot` are optional; the skill loader skips the three bundle-relative roots when unset (project + user roots still load). Session metadata stores `bundleRoot: null` for bundleless sessions; resume validation tolerates either side being unset.
+
+**Tests.** `tests/bundle/loader.test.ts` covers null-path / missing-index / valid-bundle behavior. `tests/skills/loader.test.ts` adds a no-bundleRoot case. `tests/ui/splash.test.ts` and `tests/ui/terminalMessages.test.ts` assert the bundleless display + resume-hint shape. `tests/context/systemPrompt.test.ts` asserts the generic prompt has no Sovereign framing and no bundle segments when bundleless. Smoke-tested both modes end-to-end (`/tmp/sovereign-no-bundle-test` shows `no bundle`; `~/code/sovereign-ai-docs` shows the bundle path).
+
 ## Phase 10.2 complete — web reach (WebFetch + WebSearch) - 2026-04-29
 
 Two model-callable tools added for open-web reach. Closes the gap relative to Claude Code (built-in WebFetch/WebSearch) and matches the Cloudflare-stack reference pattern noted in `sovereign-ai-docs/harness/docs/reference/cloudflare-internal-stack-analysis.md`.

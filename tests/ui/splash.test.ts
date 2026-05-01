@@ -44,4 +44,10 @@ describe('renderSplash', () => {
     const blocky = lines.filter((l) => /[█╔╗╚╝║]/.test(strip(l)));
     expect(blocky.length).toBe(6);
   });
+
+  test('shows a placeholder line when no bundle is loaded', () => {
+    const out = strip(renderSplash({ ...baseInfo, bundlePath: null }));
+    expect(out).toContain('no bundle');
+    expect(out).not.toContain('/Users/test/code/example-bundle');
+  });
 });

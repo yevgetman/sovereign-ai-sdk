@@ -81,15 +81,16 @@ function findBundleUpwards(start: string): string | null {
   }
 }
 
-function resolveBundlePath(cliArg: string | undefined): string {
+/**
+ * Resolve where to find the harness bundle. Returns null when no bundle is
+ * provided via flag/env and none is found by walking up from CWD; the REPL
+ * then runs as a generic agent with no bundle context attached.
+ */
+function resolveBundlePath(cliArg: string | undefined): string | null {
   if (cliArg) return cliArg;
   const env = process.env.HARNESS_BUNDLE;
   if (env) return env;
-  const found = findBundleUpwards(process.cwd());
-  if (found) return found;
-  throw new Error(
-    'No bundle found. Run from inside a bundle (a directory containing index.yaml), pass --bundle <path>, or set HARNESS_BUNDLE.',
-  );
+  return findBundleUpwards(process.cwd());
 }
 
 function parsePositiveInt(raw: string): number {
@@ -134,7 +135,7 @@ async function main(argv: string[]): Promise<void> {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
       await runRepl({
-        bundlePath,
+        ...(bundlePath !== null ? { bundlePath } : {}),
         ...(opts.provider !== undefined ? { providerName: opts.provider } : {}),
         ...(opts.model !== undefined ? { model: opts.model } : {}),
         maxTokens: opts.maxTokens,
