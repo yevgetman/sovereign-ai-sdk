@@ -50,6 +50,42 @@ const CompactionSchema = z
   })
   .strict();
 
+/** Wave-1 REPL polish (Phase 10.5b). All flags optional and default to
+ *  enabled / sensible thresholds; the schema is strict so unknown keys
+ *  surface as zod validation errors rather than silently being ignored. */
+const UiSchema = z
+  .object({
+    /** Pre-prompt status line (provider/model · ctx % · cost · perms ·
+     *  tools) printed above the input frame. Default true. Set false
+     *  for non-TTY scripts where the line just adds noise. */
+    footer: z
+      .object({
+        enabled: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    /** Context-utilization meter thresholds (percent, 0..100). The
+     *  footer turns yellow at warn and red at danger; the REPL emits a
+     *  one-shot pre-compaction warning when crossing into warn. */
+    contextMeter: z
+      .object({
+        warnAtPercent: z.number().min(0).max(100).optional(),
+        dangerAtPercent: z.number().min(0).max(100).optional(),
+      })
+      .strict()
+      .optional(),
+    /** Inline diff renderer for FileEdit / FileWrite results. Default
+     *  true — the user always sees what the agent changed. Setting
+     *  false reverts to the one-line "ok · N lines" summary. */
+    diffRender: z
+      .object({
+        enabled: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 /** Developer-facing flags pinned for harness building/debugging. The
  *  umbrella `enabled` flag is a convenience switch — when true, every
  *  child capability behaves as if it were also true. Children can still
@@ -112,6 +148,7 @@ export const SettingsSchema = z
     microcompaction: MicrocompactionSchema.optional(),
     compaction: CompactionSchema.optional(),
     debugMode: DebugModeSchema.optional(),
+    ui: UiSchema.optional(),
   })
   .strict();
 
