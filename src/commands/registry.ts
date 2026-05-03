@@ -2,6 +2,7 @@
 // future Ink, Telegram, and Slack surfaces should all use this registry
 // rather than re-declaring command lists.
 
+import chalk from 'chalk';
 import {
   formatValue,
   getAt,
@@ -14,7 +15,41 @@ import {
   writeConfig,
 } from '../config/store.js';
 import { formatUsd } from '../providers/pricing.js';
+import { visibleWidth } from '../ui/box.js';
+import { INFO_COMMANDS } from './info.js';
+import { PICKER_COMMANDS } from './pickers.js';
+import { SESSION_OPS_COMMANDS } from './sessionOps.js';
 import type { CommandContext, CommandDispatchResult, SlashCommand } from './types.js';
+
+/** Static category labels for /help. Skill-generated commands fall into
+ *  the "skills" bucket; everything else is keyed off the command name. */
+const COMMAND_CATEGORIES: Record<string, string> = {
+  help: 'session',
+  clear: 'session',
+  cost: 'session',
+  compact: 'session',
+  rollback: 'session',
+  resume: 'session',
+  stats: 'session',
+  quit: 'session',
+  // info
+  about: 'info',
+  tools: 'info',
+  skills: 'info',
+  permissions: 'info',
+  // model + config
+  model: 'config',
+  config: 'config',
+  // file/session ops
+  export: 'files',
+  init: 'files',
+  copy: 'files',
+  // git
+  commit: 'git',
+};
+
+const CATEGORY_ORDER = ['session', 'info', 'config', 'files', 'git', 'skills', 'other'] as const;
+type Category = (typeof CATEGORY_ORDER)[number];
 
 export const COMMANDS: SlashCommand[] = [
   {
@@ -60,18 +95,9 @@ export const COMMANDS: SlashCommand[] = [
     description: 'Switch back to the parent session after /compact.',
     call: async (_args, ctx) => ctx.rollback(),
   },
-  {
-    type: 'local',
-    name: 'model',
-    description: 'Switch the active model for the next turn.',
-    usage: '/model <name>',
-    call: async (args, ctx) => {
-      const next = args.trim();
-      if (!next) return `current model: ${ctx.model}`;
-      ctx.setModel(next);
-      return `model set to ${next}`;
-    },
-  },
+  ...PICKER_COMMANDS,
+  ...INFO_COMMANDS,
+  ...SESSION_OPS_COMMANDS,
   {
     type: 'local',
     name: 'config',
@@ -160,16 +186,53 @@ export function buildCommandRegistry(commands: SlashCommand[]): Map<string, Slas
 }
 
 function formatHelp(registry: ReadonlyMap<string, SlashCommand>): string {
-  const unique = Array.from(new Set(registry.values())).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
-  const lines = ['available commands:'];
+  const unique = Array.from(new Set(registry.values()));
+  const grouped = new Map<Category, SlashCommand[]>();
   for (const command of unique) {
-    const aliases = command.aliases?.length ? ` (aliases: ${command.aliases.join(', ')})` : '';
-    lines.push(`/${command.name}${aliases} — ${command.description}`);
-    if (command.usage) lines.push(`  usage: ${command.usage}`);
+    const category = categoryFor(command);
+    const list = grouped.get(category) ?? [];
+    list.push(command);
+    grouped.set(category, list);
   }
-  return lines.join('\n');
+
+  const sections: string[] = [];
+  sections.push(chalk.bold('slash commands'));
+  for (const category of CATEGORY_ORDER) {
+    const commands = grouped.get(category);
+    if (!commands || commands.length === 0) continue;
+    commands.sort((a, b) => a.name.localeCompare(b.name));
+    const heads = commands.map((c) => `/${c.name}${aliasSuffix(c)}`);
+    const labelWidth = Math.max(...heads.map((h) => visibleWidth(h)));
+    const rows: string[] = [];
+    rows.push('');
+    rows.push(chalk.gray(`── ${category} ──`));
+    for (let i = 0; i < commands.length; i++) {
+      const command = commands[i];
+      const head = heads[i] ?? '';
+      if (!command) continue;
+      const pad = ' '.repeat(Math.max(0, labelWidth - visibleWidth(head)));
+      rows.push(`  ${chalk.cyan(head)}${pad}  ${chalk.gray(command.description)}`);
+      if (command.usage) {
+        rows.push(`  ${' '.repeat(labelWidth)}  ${chalk.dim(command.usage)}`);
+      }
+    }
+    sections.push(rows.join('\n'));
+  }
+  sections.push('');
+  sections.push(chalk.dim('hint: type / followed by a name; tab completion lands in Wave 4.'));
+  return sections.join('\n');
+}
+
+function categoryFor(command: SlashCommand): Category {
+  const explicit = COMMAND_CATEGORIES[command.name];
+  if (explicit) return explicit as Category;
+  if (command.type === 'prompt') return 'skills';
+  return 'other';
+}
+
+function aliasSuffix(command: SlashCommand): string {
+  if (!command.aliases || command.aliases.length === 0) return '';
+  return chalk.dim(` (${command.aliases.map((a) => `/${a}`).join(' ')})`);
 }
 
 function handleConfigCommand(rawArgs: string): string {

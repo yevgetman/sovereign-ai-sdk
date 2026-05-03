@@ -2,39 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  COMMANDS,
-  buildCommandRegistry,
-  dispatchSlashCommand,
-} from '../../src/commands/registry.js';
-import type { CommandContext } from '../../src/commands/types.js';
-
-function makeCtx(): CommandContext {
-  return {
-    sessionId: 'test',
-    cwd: '/tmp',
-    providerName: 'anthropic',
-    model: 'claude-haiku-4-5',
-    setModel: () => {},
-    clearHistory: () => 'cleared',
-    getCost: () => ({
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: 0,
-      compactionInputTokens: 0,
-      compactionOutputTokens: 0,
-      estimatedCostUsd: 0,
-      estimatedCompactionCostUsd: 0,
-    }),
-    compact: async () => {
-      throw new Error('not used');
-    },
-    rollback: async () => 'rolled back',
-    tools: [],
-    registry: buildCommandRegistry(COMMANDS),
-  };
-}
+import { dispatchSlashCommand } from '../../src/commands/registry.js';
+import { makeCtx } from './_makeCtx.js';
 
 describe('/config slash command', () => {
   let dir: string;

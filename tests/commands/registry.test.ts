@@ -12,6 +12,7 @@ import {
 import type { CommandContext } from '../../src/commands/types.js';
 import { buildSkillCommands } from '../../src/skills/commands.js';
 import type { Skill, SkillRegistry } from '../../src/skills/types.js';
+import { makeCtx as baseMakeCtx } from './_makeCtx.js';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-command-registry-'));
@@ -22,50 +23,20 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-function makeCtx(): CommandContext {
-  let model = 'claude-sonnet-4-6';
+function makeCtx(): CommandContext & { cleared: boolean } {
   let cleared = false;
-  return {
-    sessionId: 'session-1',
-    cwd: process.cwd(),
-    providerName: 'anthropic',
-    get model() {
-      return model;
-    },
-    setModel: (next) => {
-      model = next;
-    },
+  const ctx = baseMakeCtx({
+    registry: COMMAND_REGISTRY,
     clearHistory: () => {
       cleared = true;
       return 'conversation history cleared into child session session-2';
     },
-    getCost: () => ({
-      inputTokens: 10,
-      outputTokens: 20,
-      cacheCreationInputTokens: 30,
-      cacheReadInputTokens: 40,
-      estimatedCostUsd: 0.0123,
-      compactionInputTokens: 0,
-      compactionOutputTokens: 0,
-      estimatedCompactionCostUsd: 0,
-    }),
-    compact: async () => ({
-      parentSessionId: 'session-1',
-      newSessionId: 'session-2',
-      summary: 'summary',
-      tail: [],
-      compactedMessages: 3,
-      estimatedBeforeTokens: 1200,
-      estimatedAfterTokens: 300,
-      usedAuxiliary: false,
-    }),
-    rollback: async () => 'rolled back to parent session session-1',
-    tools: [],
-    registry: COMMAND_REGISTRY,
-    get cleared() {
-      return cleared;
-    },
-  } as CommandContext & { cleared: boolean };
+  });
+  Object.defineProperty(ctx, 'cleared', {
+    get: () => cleared,
+    enumerable: true,
+  });
+  return ctx as CommandContext & { cleared: boolean };
 }
 
 describe('slash command registry', () => {
