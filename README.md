@@ -6,17 +6,15 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Phase 10.2 complete (2026-04-29)** — model-callable web reach. `WebFetch` (URL → readable text with HTML stripping, private-host blocking, size caps) and `WebSearch` (pluggable search via Tavily default or Brave, with API key from config or env). Closes the gap relative to Claude Code's built-in web tools.
+**Phase 10.5b–e (REPL polish, 2026-05-03)** — four-wave UX upgrade. Modal-framed permission prompts, persistent pre-prompt footer (provider · model · ctx % · cost · perms · tools), inline FileEdit/FileWrite diffs with line context, context meter with one-shot pre-compaction warning, theme system (`dark` / `light` / `no-color` + `NO_COLOR` env override), 12 new slash commands (`/about`, `/tools`, `/skills`, `/stats`, `/permissions`, `/quit`, `/copy`, `/resume`, `/export`, `/init`, `/theme`, `/settings`), `/help` refactored into a categorized 2-column layout, raw-mode picker primitive, and a from-scratch input editor (multi-line via `\` continuation, persistent history at `~/.harness/input-history`, Ctrl-R reverse search, Tab autocomplete for `/command` and `@file`, soft-wrap for long lines, full readline-style keybinds). The new editor is default under TTY; `--legacy-input` flag forces the readline path. 645 tests, 105 hard-pass assertions, lint clean.
 
-**REPL UX overhaul + Phase 10.1 config command (2026-04-29)** — bundle resolution from CWD, splash screen, boxed session-end summary with token totals, thinking spinner with live token counts, line-buffered markdown rendering of streamed output, in-place compact tool slot, framed input prompt. New `sov config` CLI + `/config` slash + interactive picker for writeable user-level config. Tunable proactive compaction threshold (default raised 50→75%) with a self-guard against runaway loops when the system prompt itself exceeds the threshold. Ollama `num_ctx` auto-pinning so chats aren't silently truncated to 2K. `--verbose` flag collapses tool-result previews behind a one-line summary by default.
+**Phase 10.2 (2026-04-29)** — model-callable web reach. `WebFetch` (URL → readable text with HTML stripping, private-host blocking, size caps) and `WebSearch` (pluggable search via Tavily default or Brave, with API key from config or env).
 
-**Qwen amendment complete (2026-04-28)** — microcompaction (per-part tool-result clearing) and shell command AST analysis (virtual tool mapping for permissions) landed on top of Phase 10. The runtime now clears stale tool results before full compaction triggers, and read-only Bash commands resolve against Read permission rules.
+**Phase 10.1 (2026-04-29)** — writeable config. `sov config` CLI + `/config` slash + interactive picker for `~/.harness/config.json`. Every write is zod-validated. Tunable proactive compaction threshold (default 75%); Ollama `num_ctx` auto-pinning.
 
-**Phase 10 complete (2026-04-26)** — context-window compaction. The REPL supports `/compact` and `/rollback`, stores parent-child session lineage, records separate compaction usage/cost lanes, proactively compacts above 75% of the model context window, and retries once after provider context-overflow errors.
+**Phase 10 (2026-04-26)** — context-window compaction. `/compact` and `/rollback`, parent-child session lineage, separate compaction cost lanes, proactive compaction above 75% of context, reactive retry after context-overflow errors. Microcompaction (per-part tool-result clearing) and shell-AST virtual tool mapping landed as Qwen-amendment deepenings on 2026-04-28.
 
-Next phase: **Phase 10.5 — soak, evals, and traceability**. The canonical v6 build plan prioritizes private-harness maturity: loop detection, local-model routing hardening, profile isolation, sub-agent/task parallelism, trajectory capture, and reviewed self-learning before optional external channel/API surfaces.
-
-Phase 11 hooks remains later in that plan. Do not start any future implementation phase unless explicitly requested.
+**Next phase pivot.** Polish wave is at diminishing returns. The build plan's remaining high-leverage targets are **Phase 11** (hooks), **Phase 12** (MCP client), and **Phase 13.1** (trajectory capture — the actual Sovereign moat). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for the full maturity-first plan.
 
 See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`docs/testing-log-2026-04-27.md`](docs/testing-log-2026-04-27.md) for test and regression history, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full maturity-first phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 
@@ -95,7 +93,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries).
+Flags: `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries), `--legacy-input` (force the readline-based input loop instead of the Wave-4 raw-mode editor; safety hatch for terminal-compat issues).
 
 `sov config` — open the interactive picker for user-level config (or `sov config get|set|unset|show|path <args>` to script it).
 
@@ -157,7 +155,7 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/review/` | Background review loop (Hermes pattern) | 13.3 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5, 10.6 |
 | `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
-| `src/ui/` | Terminal REPL and future local daemon/TUI surfaces | 0 stub, 1, 16.0/16.7 |
+| `src/ui/` | Terminal REPL — splash, footer, modal, picker, diff renderer, theme system, input editor (keypress dispatcher + textBuffer + autocomplete + persistent history) | 0 stub, 1, 10.5b–e |
 
 Empty directories are deliberate — they mark future phase landing zones.
 

@@ -21,6 +21,28 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Documentation soak — bring docs current with Waves 1-4
+
+- Scope: Documentation pass to bring every committed doc current with the polish work shipped over Waves 1-4 + the Wave-4 stabilization (Phase 10.5b–e). User explicitly paused new feature work to "soak" the polish before pivoting to higher-leverage phases. No source code changes.
+- Files updated:
+  - **CHANGELOG.md** — six new entries chronicling each wave + the two hotfixes (Wave 1 line-context, Wave 2 piped-stdin queue drain). Old entries kept verbatim.
+  - **README.md** — Status section rewritten to reflect Phase 10.5b–e completion: lists the 12 new slash commands, the modal/footer/diff/theme/input-editor surfaces, the `--legacy-input` safety hatch, the 645/105 test totals. CLI flag list extended with `--legacy-input`. `src/ui/` directory description updated to mention the new modules.
+  - **docs/usage.md** — slash-command table grew from 8 to ~21 entries grouped by category (session / info / config / files / git). REPL UX section rewritten to describe the modal, footer, input editor (multi-line via `\`, history, Ctrl-R, Tab, soft-wrap, full readline keybinds), inline diffs, multi-line tool errors, pre-compaction warning. New "Themes" section. Tool Permissions section updated to show the modal frame (replaces the old inline `[permission]` example). Config table extended with the five new `ui.*` keys.
+  - **docs/architecture.md** — REPL UX Layer section rewritten with subsections for Wave 1 (modal/footer/contextMeter/diff), Wave 2 (picker/commands), Wave 3 (theme system), Wave 4 (keypress/textBuffer/inputHistory/autocomplete/inputEditor). Each describes the module's role, key contracts, and how it integrates with the existing turn loop.
+  - **docs/extending.md** — "Add A Slash Command" section extended with: where new commands typically live (info / pickers / sessionOps), the picker primitive import path + non-TTY fallback rule, the `_makeCtx` test helper, the `COMMAND_CATEGORIES` registry. New "Render output with theme tokens" subsection pointing readers at `src/ui/theme.ts`.
+  - **DECISIONS.md** — four new decisions (newest first): vim mode deferred indefinitely; Wave-4 input editor + `--legacy-input` safety hatch; theme tokens vs direct chalk; modal frame for permission prompts.
+  - **CLAUDE.md** / **AGENTS.md** (kept identical) — Phases section updated: Phases 0-10 complete plus Phase 10.5b–e (polish waves) complete. Wave 5 deferred. Next high-leverage targets called out: Phase 11 (hooks), Phase 12 (MCP), Phase 13.1 (trajectory capture).
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `ef4f790`.
+- Commands:
+  - Greps for stale phase references and Phase-16.7 mentions to make sure nothing was missed.
+  - `bun run test` / `bun run lint` / `bunx tsc --noEmit` after to confirm no source regression from doc work.
+- Result:
+  - 8 files updated (~310 insertions, ~42 deletions). 645/645 tests pass. Lint clean. Typecheck clean.
+- Regressions / follow-ups:
+  - No source changes; tests / lint / typecheck unaffected.
+  - Backlogs (`docs/phase-10-5-backlog.md`, `docs/post-phase-10-5-repl-backlog.md`) intentionally left as historical records — they describe specific testing sessions in 2026-04-27 and shouldn't be edited retroactively.
+  - Source file header comments in Wave 1-4 modules describe their own behavior accurately and are kept in sync with the corresponding module's purpose.
+
 ## 2026-05-03 - Wave 4 stabilization: Ctrl-R + soft-wrap + Esc-flush
 
 - Scope: Three follow-ups deferred from Wave 4, shipped together as the closeout of the input-editor work before pivoting to non-polish phases. Per the user's "Option A" decision after weighing Wave 5 (vim mode) — vim deferred indefinitely; these three close the highest-value remaining gaps.

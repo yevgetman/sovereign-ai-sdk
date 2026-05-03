@@ -1,5 +1,136 @@
 # Changelog
 
+## Phase 10.5e Wave 4 stabilization — Ctrl-R, soft-wrap, Esc flush - 2026-05-03
+
+Closeout of the input-editor work. Vim mode (originally Wave 5) deferred indefinitely per the LOC-to-value tradeoff.
+
+**Ctrl-R reverse-i-search.** Press Ctrl-R to enter reverse-i-search mode. Type to filter history newest-first. Ctrl-R cycles backward through matches. Enter accepts and submits (readline / bash convention). Esc / Ctrl-C / Ctrl-G cancel and restore the pre-search buffer. Other special keys (Right/Home/End/Tab/Ctrl-A/etc.) accept the match into the buffer and dispatch the key in normal mode for editing before submit.
+
+**Soft-wrap for long input lines.** New `wrapForDisplay(rendered, width)` pure function in `textBuffer.ts`. Each long logical line wraps to multiple display chunks of ≤ width characters; the cursor is mapped from logical (row, col) to display (row, col). `inputEditor.draw()` calls this with `cols - prompt.length`, so a long input line no longer overflows past the terminal column. Width ≤ 0 short-circuits.
+
+**Esc-key flush in keypress dispatcher.** Lone ESC bytes were held in the partial-sequence buffer indefinitely (no `escape` key event emitted). Added a 50ms flush timer matching vim `timeoutlen` and readline `esc-timeout`. Cancelled the moment more bytes arrive, so Alt+key encoding and CSI sequences still work. Cleared on `disable()`.
+
+**Tests.** 13 new (7 wrapForDisplay, 6 Ctrl-R search). All 645 tests pass. Lint clean. Hard-pass 105/105.
+
+## Phase 10.5e Wave 4 — input editor (multi-line, history, autocomplete) - 2026-05-03
+
+The largest single felt UX upgrade. Replaces readline's line-oriented input with a from-scratch raw-mode editor.
+
+**Five new modules (~1,400 LOC):**
+
+- `src/ui/keypress.ts` — raw-mode dispatcher. Reference-counted enable/disable. Parses ANSI escapes (CSI, SS3) + bracketed paste + control chars + Alt-letter into typed `Key` events. Subscribes/unsubscribes via callbacks. `getKeypressDispatcher()` singleton; suppresses dispatch while a modal is up.
+- `src/ui/textBuffer.ts` — multi-line buffer with row/col cursor. `insert` (with embedded-newline split), `deleteLeft/Right/WordLeft/ToLineStart/ToLineEnd`, `moveLeft/Right/Up/Down/LineStart/LineEnd/BufferStart/BufferEnd`, `cursorIsOnFirstLine/LastLine`.
+- `src/ui/inputHistory.ts` — persistent history at `~/.harness/input-history`. 1000-entry cap, dedup against previous, embedded newlines escaped as `\n`. `at(offsetFromEnd)` walks the history for Up/Down navigation.
+- `src/ui/autocomplete.ts` — pure completion. Slash commands (`/co<Tab>` → `/cost`/`/commit`/`/compact`) and `@file` paths (`@src/m<Tab>` → `@src/main.ts`). Directories sorted first, dotfiles hidden, capped at 50 results.
+- `src/ui/inputEditor.ts` — drop-in replacement for `question() ⇒ Promise<string>`. Owns one TextBuffer + subscribes to keypress events. Re-renders the buffer on every keystroke with ANSI cursor positioning. Paste bursts insert literally without keybind dispatch.
+
+**Keybinds:**
+
+| Key | Action |
+|---|---|
+| Enter | Submit (or insert newline if last char of buffer is `\`) |
+| Tab | Autocomplete; subsequent Tabs cycle through matches |
+| Up / Down | History walk when on first/last line; cursor motion otherwise |
+| Left / Right / Home / End | Cursor motion (across line boundaries) |
+| Backspace / Delete | Delete left / right (joins lines at boundaries) |
+| Ctrl-A / E / B / F | Line start / end / cursor left / right (readline) |
+| Ctrl-P / N | History prev / next (readline) |
+| Ctrl-U / K | Delete to line start / end |
+| Ctrl-W | Delete word left |
+| Ctrl-L | Clear screen |
+| Ctrl-C | Clear buffer; second on empty = EOF |
+| Ctrl-D | EOF when empty; deleteRight otherwise |
+
+**Wiring.** New editor is the default when `process.stdin.isTTY === true`. Piped stdin falls through to the legacy readline + queuedQuestion path. New `--legacy-input` flag forces legacy regardless (safety hatch).
+
+**Tests.** 84 new (19 keypress parsing, 21 textBuffer ops, 12 inputHistory I/O, 12 autocomplete shapes, 20 inputEditor integration via FakeDispatcher). All 632 tests pass.
+
+## Phase 10.5d Wave 3 — theme system + /settings dialog - 2026-05-03
+
+First-class user customization via semantic color tokens.
+
+**Theme module (`src/ui/theme.ts`).** ~25 semantic roles: text/textMuted/textBold, accent/accentBold/accentMuted, status×4 (success/warning/error/info), diff×3 (added/removed/context), border×3 (default/accent/warning), code×2 (inline/fence), header×3 (h1/h2/h3). Three built-in themes:
+
+- `dark` (default) — preserves the existing look exactly. Migration is invisible.
+- `light` — darker primaries via `chalk.rgb` for light terminals (amber warning, dark blue accent).
+- `no-color` — identity tokens for transcripts and pipes (separate from chalk's NO_COLOR env handling).
+
+API: `getTheme()` / `setTheme(name)` / `listThemes()` / `isThemeName(name)` / `resolveThemeName({configured, env})`. The last honors `NO_COLOR` overriding the configured value. `theme.tokens` is a getter so swapping themes via `setTheme()` takes effect on the next renderer call without re-imports.
+
+**Renderers migrated** to theme tokens: `footer.ts`, `diff.ts`, `modal.ts`, `thinking.ts`, `toolSlot.ts`, `box.ts`, `splash.ts`. Behavior is identical under the default dark theme — every existing test passes without assertion changes.
+
+**Schema.** New `ui.theme` enum (`'dark'` / `'light'` / `'no-color'`) in `SettingsSchema`. `terminalRepl.ts` calls `setTheme(resolveThemeName(...))` immediately after `readConfig()`, before any rendering.
+
+**New slash commands.** `/theme [<name>]` opens a picker over the three built-in themes (or applies inline). Persists to `~/.harness/config.json`. Rejects unknowns with the available list. `/settings` opens the existing `runConfigMenu` from `sov config` (no verb) inside a session.
+
+**Tests.** 17 new (12 theme module, 5 `/theme` command). 548 tests pass.
+
+## Phase 10.5c Wave 2 hotfix — piped-stdin queue drain - 2026-05-03
+
+Latent bug since Phase 3.5: under piped stdin, `readline` emits all `'line'` events for buffered input, then fires `'close'` on EOF. The REPL loop's `while (!closed)` flag flipped the moment the close event fired — exiting before the queued lines for `/copy`, `/export`, `/quit` could be drained. Single-prompt scripts hid this because `question()` throwing was already the correct exit path.
+
+**Fix.** `createQueuedQuestion` now returns a `QueuedQuestion` with a `pending()` accessor. `question()` shifts buffered lines BEFORE checking the `closed` flag, so callers still receive queued input after readline has closed. `terminalRepl.ts`'s main loop now iterates while `!closed || question.pending() > 0`. `rl.on('close')` no longer flips `closed` — `question()`'s throw path signals exhaustion naturally.
+
+**Tests.** 1 new regression test pinning the pre-close-then-drain pattern. All 531 tests pass.
+
+## Phase 10.5c Wave 2 — pickers & slash command coverage - 2026-05-03
+
+Discoverability upgrade: reusable picker primitive + 11 new slash commands.
+
+**`src/ui/picker.ts` — generic raw-mode picker.** Generalizes `configMenu.ts`'s pattern. ↑/↓/PgUp/PgDn/Home/End/Enter/Esc, optional initial selection, optional hint per item, returns `Promise<T | null>`. Restores raw mode + cursor + screen in `finally` so a thrown error can't leave the terminal in a bad state. Falls back to null on non-TTY (callers display a fallback message).
+
+**SessionDb additions.** `listSessions(limit)` returns recent sessions newest-first by `last_updated`. Title falls back to first user message text (truncated to 60 chars). Includes `msgCount`, `totalTokens`, `totalCostUsd`. `updateSessionModel(sessionId, model)` persists `/model` picks so they survive `--resume`.
+
+**11 new slash commands** (registered via the existing slash-command registry):
+
+| Command | Behavior |
+|---|---|
+| `/about` | Boxed info card: version, provider, model, cwd, bundle, session id |
+| `/tools` | List of registered tools with descriptions |
+| `/skills` | List of visible skills with `[source]` tags |
+| `/stats` | Mid-session metrics card (mirrors goodbye summary shape) |
+| `/permissions` | Mode + session always-allow rules + persistent layered rules |
+| `/quit` (`/exit`, `/q`) | Clean exit via `ctx.requestExit()`; replaces hard-coded EXIT_COMMANDS |
+| `/copy` | Copy last assistant message via pbcopy / wl-copy / xclip / xsel / clip.exe |
+| `/resume` | Picker over recent sessions; prints resume command (in-process swap deferred) |
+| `/model` | Picker over provider models when no arg; persists via DB |
+| `/export [md|jsonl|json]` | Picker over format when no arg; writes `session-<short-id>.<ext>` |
+| `/init` | Prompt-command that scans the project and writes `CONTEXT.md` |
+
+**`/help` refactored** into a categorized 2-column layout (session / info / config / files / git / skills / other) with ANSI-aware visible-width padding so chalk wrapping doesn't misalign columns.
+
+**CommandContext extended** with: `bundlePath`, `listSessions`, `getMetrics`, `skills`, `getLastAssistantText`, `getMessages`, `getPermissions`, `requestExit`. Shared test helper at `tests/commands/_makeCtx.ts`.
+
+**Tests.** 37 new (8 picker navigation, 7 sessionDb listSessions/updateSessionModel, 11 info commands, 8 export+init, 3 misc). All 530 tests pass.
+
+## Phase 10.5b Wave 1 hotfix — FileEdit diff line-context - 2026-05-03
+
+Subagent-driven verification of Wave 1 surfaced a UX gap: the FileEdit diff renderer printed the raw `old_string`/`new_string` substrings (`- hello world` / `+ hello sovereign`) instead of the full line containing the change.
+
+**Fix.** New optional `opts.preContent` in `DiffRenderOpts`. When provided for FileEdit, the renderer scans the file content for `old_string`, computes the surrounding line(s), and renders those full lines as `-`/`+` blocks with a 1-based line number. Multi-occurrence edits (`replace_all: true`) annotate the head with `(applied N× across M occurrences)` and render only the first hunk. Falls back to substring rendering when the match is missing, `old_string` is empty, or `preContent` is omitted.
+
+**Wiring.** `terminalRepl.ts` reads the file synchronously at `tool_use` time (before the orchestrator dispatches the tool) and threads the snapshot through to `renderToolDiff` at `tool_result` time. FileWrite is unchanged.
+
+**Tests.** 7 new diff tests covering full-line render, line numbers, multi-line `old_string`, multi-occurrence note, and fallbacks. All 493 tests pass.
+
+## Phase 10.5b Wave 1 — REPL polish foundations - 2026-05-03
+
+Make the REPL trustworthy. Modal prompts that don't get buried, status line that always shows where you are, errors you can actually read.
+
+**`src/ui/modal.ts` — overlay primitive.** `withModal({title, rows, choices, parse, question})` renders a framed prompt that survives concurrent decorator output. Raises a module-level `modalActive` flag that decorators (spinner, slot) consult before writing. Boxed body uses `box.ts` for visual consistency. Re-prompts on parse failure with configurable message. Used by `permissions/prompt.ts` for the framed permission prompt.
+
+**`src/ui/footer.ts` — pre-prompt status line.** `provider · model · ctx % · cost · perms · tools · bundle`, dim grey by default. Context segment turns yellow at warn threshold, red at danger threshold. Honors `NO_TTY` and `ui.footer.enabled`.
+
+**`src/ui/contextMeter.ts` — token-utilization tracker.** Computes used / contextLength as a percentage. Exposes `getZone()` returning `'ok' | 'warn' | 'danger'` based on configurable thresholds (default 60% / 80%). Emits a one-shot pre-compaction warning a turn ahead of the auto-trigger so the user isn't surprised by silent compaction.
+
+**`src/ui/diff.ts` — inline diff renderer for FileEdit / FileWrite.** Renders `- old / + new` lines under the tool slot summary. Verbose: full block. Non-verbose: head + tail with `… N more lines …` truncation. Multi-line `old_string` and `replace_all` both handled. Returns null for non-diff-shaped tools.
+
+**Schema.** New optional `ui.{footer,contextMeter,diffRender}` block in `SettingsSchema`. All flags default to enabled / sensible thresholds.
+
+**Wiring (`terminalRepl.ts`).** ContextMeter constructed from provider's contextLength. Updates on `usage_delta`. Footer printed before each prompt frame. Pre-compaction warning fires once when crossing 5% below the proactive threshold. Diff renderer called after successful FileEdit/FileWrite. Splash banner shows count of loaded allow-rules. ToolSlot multi-line errors show first line + `+N more lines` hint.
+
+**Tests.** 42 new (modal/contextMeter/footer/diff). All 486 tests pass.
+
 ## Binary rename: `sovereign` → `sov` - 2026-05-01
 
 CLI invocation shortened. `package.json` `bin` mapping is now `"sov": "./src/main.ts"`; `bun link` produces `~/.bun/bin/sov`. Commander program name, error prefix, in-session resume hint, max-tokens warning, WebSearch missing-API-key error message, and active docs (README, usage.md, architecture.md) all updated. Historical changelog/testing-log entries are kept verbatim. Existing users running `bun link` from this checkout will need to remove `~/.bun/bin/sovereign` (the old name) and re-`bun link` to install `sov`.

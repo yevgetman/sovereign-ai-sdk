@@ -48,7 +48,9 @@ When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harne
 
 ## Phases — where we are
 
-Phases 0 through 10 complete (2026-04-26). Next phase: **Phase 10.5** (soak, evals, and traceability). Do not start Phase 10.5 or any later phase unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+Phases 0 through 10 complete (2026-04-26). Phase 10.5b–e (REPL polish across four waves) complete (2026-05-03) — modal permission prompts, footer / context meter, inline diffs with line context, theme system (`dark` / `light` / `no-color`), 12 new slash commands, raw-mode picker, from-scratch input editor (multi-line, persistent history, Ctrl-R reverse search, Tab autocomplete, soft-wrap). Wave 5 (vim mode) deferred indefinitely.
+
+**Next high-leverage targets** per the build plan: **Phase 11** (hooks), **Phase 12** (MCP client), **Phase 13.1** (trajectory capture — the actual Sovereign moat). Polish is at diminishing returns; the next 500 LOC spent on capability beats more polish. Do not start any of these phases unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.

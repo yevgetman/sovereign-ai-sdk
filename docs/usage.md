@@ -59,6 +59,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--no-preflight` | Skip startup provider/model health checks. |
 | `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
 | `-v, --verbose` | Show full tool-result preview blocks instead of one-line summaries. |
+| `--legacy-input` | Force the readline-based input loop instead of the Wave-4 raw-mode editor. Safety hatch when the new editor misbehaves on a specific terminal. |
 
 Examples:
 
@@ -73,12 +74,30 @@ sov --no-cache
 
 Visual surfaces you'll see in a normal session:
 
-- **Splash** at startup — block-letter "S" logo next to a boxed info card with version, provider/auth, model, and bundle path. A dim footer line collapses operational details (perms, tools, cache, session id).
-- **Framed input** — top + bottom dim-gray rules around your `>` prompt. Adapts to terminal width.
+- **Splash** at startup — block-letter "SOV" logo (cyan→blue gradient) next to a boxed info card with version, provider/auth, model, and bundle path. The dim footer line collapses operational details (perms mode + count of loaded allow-rules, tools, cache, session id).
+- **Pre-prompt footer** — a single dim status line above each input frame: `provider · model · ctx N% · $cost · perms:mode · tools:N · bundle:label`. The `ctx` segment turns yellow above 60% utilization and red above 80%. Disable with `sov config set ui.footer.enabled false`.
+- **Input editor** (Wave 4) — multi-line raw-mode editor with persistent history at `~/.harness/input-history`. Type `\` at end of a line + Enter to insert a newline; Enter on a line not ending in `\` submits. Up/Down walk history (or move cursor when on multi-line buffer); Ctrl-R opens reverse-i-search; Tab autocompletes `/commands` and `@file:` paths. Long lines soft-wrap to terminal width. Full readline-style keybinds: Ctrl-A/E/B/F/U/K/W/L/P/N. Ctrl-C clears the buffer (second press exits); Ctrl-D exits when buffer is empty. Escape cancels reverse-search. Falls back to the legacy readline path under piped stdin or when `--legacy-input` is set.
+- **Modal permission prompts** — when a tool needs approval, a yellow-bordered box appears: title, tool name, input, optional reason, and `[y] allow   [N] deny   [a] always` choices. The thinking spinner suppresses itself while the modal is up so the prompt can't be visually buried.
 - **Thinking indicator** — `⠋ Thinking 12s ↑ 1234 ↓ 56` (cyan spinner + dim status) appears during silent waits (provider work, slow local model prompt processing, tool execution). 500ms grace, so it never flashes during normal fast streaming.
 - **Compact tool slot** — sequential tool calls share a single line that updates in place (`→ FileRead path=...` while running, `✓ N lines, M chars` after). With `--verbose`, the full 40-line preview block is shown instead.
+- **Inline diffs** — successful FileEdit and FileWrite calls render below the slot summary as `- ` (red) / `+ ` (green) lines with the file path and 1-based line number. FileEdit shows the full surrounding line, not just the matched substring. Long diffs truncate to head + `… N more lines …` + tail in non-verbose mode. Disable with `sov config set ui.diffRender.enabled false`.
+- **Multi-line tool errors** — failures surface the first line of the error followed by `· +N more lines` when the underlying tool produced a multi-line trace.
+- **Pre-compaction warning** — when context utilization crosses 5% below the proactive-compaction threshold, the REPL prints a one-shot `[compact] approaching threshold (ctx N% / trigger M%)` so you know auto-compaction may fire on the next turn.
 - **Markdown rendering** of streamed text — headings, bold, italic, inline code, list bullets, blockquotes, fenced code blocks, horizontal rules.
 - **Goodbye box** at session end — Interaction Summary (session ID, tool calls ✓/✗, success rate), Performance (wall time, agent active, API time, tool time), Tokens (total, cache, est. cost). Followed by the resume command.
+
+## Themes
+
+Three built-in themes are bundled. The default is `dark`; `light` retunes primaries for light terminals (amber warning, dark blue accent); `no-color` returns identity tokens for transcripts and pipes.
+
+```bash
+/theme            # opens picker (TTY only)
+/theme light      # switches inline + persists to ~/.harness/config.json
+/theme no-color
+/theme dark       # back to default
+```
+
+The `NO_COLOR` environment variable is honored at startup and overrides the configured value (useful for CI / piped output without changing your config). Custom themes loaded from `~/.harness/themes/*.json` are deferred to a future wave; the registry is structured to absorb them.
 
 ## Config Command
 
@@ -95,7 +114,7 @@ sov config set microcompaction.enabled false
 sov config unset microcompaction.enabled
 ```
 
-Bare `sov config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise readline takes a free-text value. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; Phase 16.7 will replace it with the Ink-based TUI.)
+Bare `sov config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. The same picker is reachable in-session via `/settings`. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise readline takes a free-text value. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; a multi-page settings dialog is Wave 5+ work.)
 
 The same verbs work in-session via `/config`:
 
@@ -131,6 +150,11 @@ Available config fields (top-level unless noted):
 | `debugMode.enabled` | bool | `false` | umbrella switch — auto-enables every child |
 | `debugMode.transcript` | bool | `false` | write per-session JSONL transcript |
 | `debugMode.transcriptDir` | path | `<harnessHome>/debug` | directory for auto-generated transcripts |
+| `ui.theme` | enum | `dark` | `dark` \| `light` \| `no-color`. `NO_COLOR` env overrides. |
+| `ui.footer.enabled` | bool | `true` | pre-prompt status line above each input frame |
+| `ui.contextMeter.warnAtPercent` | int 0–100 | `60` | yellow zone threshold for the ctx % footer segment |
+| `ui.contextMeter.dangerAtPercent` | int 0–100 | `80` | red zone threshold for the ctx % footer segment |
+| `ui.diffRender.enabled` | bool | `true` | inline diff renderer for FileEdit / FileWrite |
 
 ## Ollama Notes
 
@@ -265,27 +289,64 @@ For higher fidelity (JS-rendered SPAs, browser-only content) connect a headless-
 
 ## Slash Commands
 
-Lines beginning with `/` are handled locally before normal model turns.
+Lines beginning with `/` are handled locally before normal model turns. `/help` renders a categorized 2-column layout of the full command set.
+
+### Session
 
 | Command | Behavior |
 |---|---|
-| `/help` | List slash commands and aliases. |
-| `/clear` | Clear in-memory conversation history for the current session. |
-| `/cost` | Show session token totals and estimated USD cost. |
-| `/compact` | Compress older history into a guarded handoff summary and switch to a child session. |
-| `/rollback` | Switch back to the parent session after compaction. |
-| `/model <name>` | Switch the active model for later turns. |
+| `/help` (`/h`, `/?`) | List slash commands grouped by category. |
+| `/clear` | Clear in-memory conversation history by starting a fresh child session. |
+| `/cost` | Token totals and estimated USD cost for this session. |
+| `/compact` | Compress older history into a guarded handoff summary; switch to a child session. |
+| `/rollback` | Switch back to the parent session after `/compact` or `/clear`. |
+| `/resume` | Picker over recent sessions; prints the resume command for a fresh REPL. (TTY only.) |
+| `/stats` | Mid-session metrics card (mirrors the goodbye summary shape). |
+| `/quit` (`/exit`, `/q`) | Exit the REPL after printing the session summary. |
+
+### Info
+
+| Command | Behavior |
+|---|---|
+| `/about` | Boxed info card: version, provider, model, cwd, bundle, session id. |
+| `/permissions` | Active mode + session always-allow rules + persistent rule layers. |
+| `/skills` | Visible skills with `[source]` tags. |
+| `/tools` | Registered tools with descriptions. |
+
+### Config
+
+| Command | Behavior |
+|---|---|
 | `/config [...]` | View or change durable config (`show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`). |
+| `/model [<name>]` | Picker over provider models when no arg; persists to the session DB so it survives `--resume`. |
+| `/settings` | Open the interactive settings editor (TTY only; equivalent to `sov config` with no verb). |
+| `/theme [<name>]` | Picker over built-in themes (`dark`, `light`, `no-color`); inline arg skips picker. Persists to config. |
+
+### Files
+
+| Command | Behavior |
+|---|---|
+| `/copy` | Copy the last assistant message to the system clipboard (pbcopy / wl-copy / xclip / xsel / clip.exe). |
+| `/export [md|jsonl|json]` | Picker over format when no arg; writes `session-<short-id>.<ext>` to cwd. |
+| `/init` | Prompt-command that scans the project (Glob / FileRead) and writes a `CONTEXT.md` briefing. |
+
+### Git
+
+| Command | Behavior |
+|---|---|
 | `/commit` | Ask the model to stage and commit changes with git-only Bash scope. |
+
+Skill files registered as slash commands appear under their own category in `/help` output.
 
 Examples:
 
 ```text
 /cost
 /model claude-opus-4-7
-/compact
-/rollback
-/commit
+/theme light
+/export md
+/resume
+/quit
 ```
 
 ## Tool Permissions
@@ -315,12 +376,22 @@ Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and
 
 Read-only Bash commands automatically resolve against `Read` permission rules. If your allow rules include `Read` or `Read(*.ts)`, then `Bash("cat src/main.ts")` runs without prompting because the shell AST analyzer classifies `cat` as a read operation. Write and edit commands (`cp`, `rm`, `chmod`, etc.) do not benefit from this — they still follow Bash-specific rules. Command substitution (`$(...)`, backticks) is always treated as unsafe and requires explicit Bash rules.
 
-When a prompt is required, the REPL asks:
+When a prompt is required, the REPL renders a yellow-bordered modal:
 
 ```text
-[permission] Bash ls src/
-  allow? [y]es / [N]o / [a]lways:
+╭─────────────────────────────────────────────╮
+│  permission required                        │
+│                                             │
+│  tool    Bash                               │
+│  input   ls src/                            │
+│  reason  needs approval                     │
+│                                             │
+│  [y] allow   [N] deny   [a] always          │
+╰─────────────────────────────────────────────╯
+  >
 ```
+
+The thinking spinner suppresses itself while the modal is up so the prompt can't be visually buried by streamed tool output.
 
 Responses:
 

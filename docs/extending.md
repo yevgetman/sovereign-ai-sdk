@@ -65,16 +65,22 @@ The core runtime should not know provider-specific message shapes. If a change r
 
 ## Add A Slash Command
 
-1. Add a command object in `src/commands/registry.ts`.
+1. Add a command object. New commands typically live in one of the topic-specific files: `src/commands/info.ts` for read-only info commands, `pickers.ts` for commands that need the raw-mode picker, `sessionOps.ts` for file/session-shaping commands. The aggregate registry in `src/commands/registry.ts` spreads these arrays.
 2. Choose the command kind:
    - `local` for immediate local output.
    - `prompt` for commands that feed a model turn.
    - `local-jsx` for future rendered local UI.
 3. Add `usage` when arguments are expected.
 4. For prompt commands, set `allowedTools` to the narrowest useful tool scope.
-5. Add tests in `tests/commands/`.
+5. If the command needs picker UI, import `pick` from `src/ui/picker.js`. The picker takes over the screen, runs ↑/↓/Enter/Esc, and returns `Promise<T | null>`. Always include a non-TTY fallback (returns null on non-TTY automatically; print a hint to the user).
+6. Add the command name to `COMMAND_CATEGORIES` in `registry.ts` so it appears in the right `/help` section.
+7. Add tests in `tests/commands/`. The shared `tests/commands/_makeCtx.ts` helper builds a `CommandContext` stub with sensible defaults — override only the fields your test cares about.
 
 Prompt commands are still normal model turns. They should constrain tools through `allowedTools` rather than creating custom execution paths.
+
+### Render output with theme tokens
+
+Slash command output that uses color should consume `theme.tokens.<role>(...)` from `src/ui/theme.js` instead of literal `chalk.<color>(...)`. That way the user's chosen theme (`dark` / `light` / `no-color`) flows through. Available roles include `text`, `textMuted`, `textBold`, `accent`, `statusSuccess`, `statusWarning`, `statusError`, `diffAdded`, `diffRemoved`, `border`, `codeInline`. See `src/ui/theme.ts` for the full set.
 
 ## Add Or Change Permission Rules
 

@@ -171,18 +171,46 @@ Bundle state is documented separately in `src/bundle/README.md`. The runtime mus
 
 `src/ui/` contains the user-facing rendering for the streaming turn loop. The runtime stays UI-agnostic — REPL components consume `StreamEvent`s and `Message`s from `query()` without affecting tool/provider/permission semantics.
 
-Components:
+### Core surfaces
 
-- `terminalRepl.ts` — readline prompt loop, slash-command dispatch, streaming-loop event handler, session-DB writes, goodbye/resume printing
-- `splash.ts` — startup banner (block-letter logo + boxed info card)
-- `sessionSummary.ts` — boxed exit summary (interaction stats, performance, token totals)
-- `box.ts` — shared unicode-box helper with ANSI-aware width
-- `markdownStream.ts` — line-buffered markdown renderer for streamed text deltas
-- `thinking.ts` — braille spinner + live token counts during quiet periods
-- `toolSlot.ts` — compact in-place tool-call display
-- `transcript.ts` — redacted JSONL session transcript writer
-- `terminalMessages.ts` — formatted warnings (max-tokens hit, partial mutation, etc.)
-- `configMenu.ts` — interactive picker for `sov config` (no verb)
+- `terminalRepl.ts` — input loop, slash-command dispatch, streaming-loop event handler, session-DB writes, goodbye/resume printing. Selects between the legacy readline path and the Wave-4 input editor based on `process.stdin.isTTY` and the `--legacy-input` flag.
+- `splash.ts` — startup banner (block-letter logo + boxed info card). Splash footer shows `(N allow rules loaded)` when persistent rules are configured.
+- `sessionSummary.ts` — boxed exit summary (interaction stats, performance, token totals).
+- `box.ts` — shared unicode-box helper with ANSI-aware width. Consumes the active theme's `border` token by default.
+- `markdownStream.ts` — line-buffered markdown renderer for streamed text deltas.
+- `thinking.ts` — braille spinner + live token counts during quiet periods. Suppresses itself while a modal is up.
+- `toolSlot.ts` — compact in-place tool-call display. Multi-line tool errors show the first line plus `· +N more lines`.
+- `transcript.ts` — redacted JSONL session transcript writer.
+- `terminalMessages.ts` — formatted warnings (max-tokens hit, partial mutation, etc.).
+
+### Wave 1 — polish foundations (Phase 10.5b)
+
+- `modal.ts` — `withModal({title, rows, choices, parse, question})` overlay primitive. Raises a module-level `modalActive` flag; decorators (`thinking.ts`, `toolSlot.ts`) consult `isModalActive()` and skip writes while a modal is up. The framed permission prompt routes through this.
+- `footer.ts` — `printPrePromptFooter()` renders a single dim status line above each input frame: `provider · model · ctx N% · $cost · perms · tools · bundle`. Honors `process.stdout.isTTY` and `ui.footer.enabled`.
+- `contextMeter.ts` — token-utilization tracker. Subscribes to `usage_delta` events and exposes `getZone()` returning `'ok' | 'warn' | 'danger'` based on configurable thresholds. Emits a one-shot pre-compaction warning when crossing 5% below the proactive threshold.
+- `diff.ts` — inline `+ / -` renderer for FileEdit / FileWrite. Reads the file synchronously at `tool_use` time (before the orchestrator dispatches the tool) so it can show full-line context with a 1-based line number, not just the matched substring. Multi-occurrence edits (`replace_all: true`) annotate the head with `(applied N× across M occurrences)` and render only the first hunk.
+
+### Wave 2 — pickers & commands (Phase 10.5c)
+
+- `picker.ts` — generic raw-mode picker. ↑/↓/PgUp/PgDn/Home/End/Enter/Esc. Returns `Promise<T | null>`. Restores raw mode + cursor + screen in `finally`. Used by `/resume`, `/model`, `/export`, `/theme`.
+- `configMenu.ts` — interactive picker for `sov config` (no verb) and `/settings` slash command. Pre-dates `picker.ts` but uses a similar pattern.
+- New slash-command modules (`src/commands/info.ts`, `pickers.ts`, `sessionOps.ts`) implement `/about`, `/tools`, `/skills`, `/stats`, `/permissions`, `/quit` (+ aliases), `/copy`, `/resume`, `/model`, `/theme`, `/export`, `/init`, `/settings`. `/help` rewritten as a categorized 2-column layout in `registry.ts` with ANSI-aware visible-width padding.
+- `agent/sessionDb.ts` gains `listSessions(limit)` and `updateSessionModel(id, model)` for `/resume` and persistent `/model` picks.
+
+### Wave 3 — theme system (Phase 10.5d)
+
+- `theme.ts` — semantic token registry (`text`, `accent`, `status×4`, `diff×3`, `border×3`, `code×2`, `header×3`, etc.) with three built-in themes: `dark` (default — preserves the existing look), `light` (darker primaries via `chalk.rgb`), `no-color` (identity tokens). Singleton mutated by `setTheme(name)`; `theme.tokens` is a getter so swapping themes takes effect on the next renderer call without re-imports. `resolveThemeName({configured, env})` honors `NO_COLOR` overriding the configured value.
+- High-traffic renderers (`footer`, `diff`, `modal`, `thinking`, `toolSlot`, `box`, `splash`) consume `theme.tokens.<role>(...)` instead of literal `chalk.<color>(...)`. The migration is invisible under the dark theme — every existing test passes without assertion changes.
+
+### Wave 4 — input editor (Phase 10.5e)
+
+- `keypress.ts` — raw-mode dispatcher. Parses ANSI escapes (CSI, SS3) + bracketed paste + control chars + Alt-letter into typed `Key` events. Reference-counted enable/disable. Modal-aware (suppresses dispatch while a modal is up). 50ms Esc-flush timer: lone ESC bytes that aren't followed by more data within the window emit a plain `escape` key; subsequent bytes within the window cancel the timer and route the ESC into a CSI/Alt sequence.
+- `textBuffer.ts` — multi-line buffer with row/col cursor. Standard editor ops (`insert`, `delete×4`, `move×8`). `wrapForDisplay(rendered, width)` is a pure helper that wraps each long logical line into multiple display chunks of ≤ width chars and maps the cursor from logical (row, col) to display (row, col).
+- `inputHistory.ts` — persistent history at `$HARNESS_HOME/input-history`. 1000-entry cap, dedup against previous entry, embedded newlines escaped as `\n`.
+- `autocomplete.ts` — pure completion. Slash commands and `@file` paths.
+- `inputEditor.ts` — drop-in replacement for `question(prompt) ⇒ Promise<string>`. Owns one TextBuffer + subscribes to keypress events. Handles Enter (with `\` line-continuation), Tab autocomplete (cycle on repeat), Up/Down history, full readline-style keybinds, Ctrl-R reverse-i-search (with Esc/Ctrl-G cancel). Re-renders the buffer area on every keystroke with ANSI cursor positioning. Paste bursts insert literally without keybind dispatch. Soft-wrap via `wrapForDisplay()` when the line exceeds terminal columns.
+
+The editor is the default when `process.stdin.isTTY === true`. Piped stdin falls through to the legacy `readline` + `queuedQuestion` path automatically (so CI / scripted sessions keep working). The `--legacy-input` flag forces the legacy path regardless.
 
 Status-line writes (`[tool: ...]`, `[cleared ...]`, `[debug] ...`, `[error] ...`) all flow through a single `writeStatusLine` helper that enforces leading + trailing newlines so they never collide with adjacent assistant text. The compact tool slot tracks line count via ANSI cursor manipulation; when a new tool fires it clears any inter-tool preamble text and the previous slot line in one operation.
 
