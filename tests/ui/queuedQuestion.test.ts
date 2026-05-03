@@ -39,4 +39,19 @@ describe('createQueuedQuestion', () => {
 
     await expect(pending).rejects.toThrow('readline closed');
   });
+
+  test('drains queued lines even after readline has closed', async () => {
+    // This is the piped-stdin pattern: every line arrives in one burst,
+    // EOF fires almost immediately, the REPL hasn't yet called
+    // question() for the second line. The queue must hand it out anyway.
+    const { input, question, close } = makeQuestion();
+    input.write('/copy\n/export md\n/quit\n');
+    // Tiny delay so the readline 'line' events flush before close fires.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    close();
+    await expect(question('> ')).resolves.toBe('/copy');
+    await expect(question('> ')).resolves.toBe('/export md');
+    await expect(question('> ')).resolves.toBe('/quit');
+    await expect(question('> ')).rejects.toThrow('readline closed');
+  });
 });

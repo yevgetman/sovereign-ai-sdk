@@ -320,7 +320,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   let closed = false;
 
   rl.on('close', () => {
-    closed = true;
+    // Don't set `closed = true` here — under piped stdin the close
+    // event fires after the lines have been buffered into the queue
+    // but before the REPL has dispatched them. The `while` loop now
+    // checks `question.pending()` so any queued lines drain before
+    // the loop exits via the question() throw / null catch path.
   });
 
   rl.on('SIGINT', () => {
@@ -399,7 +403,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     countLayerAllowRules(permissionSettings.layers),
   );
 
-  while (!closed) {
+  while (!closed || question.pending() > 0) {
     if (footerEnabled) {
       const cost = db.getSessionCost(activeSessionId);
       const totalCost = cost.estimatedCostUsd + cost.estimatedCompactionCostUsd;

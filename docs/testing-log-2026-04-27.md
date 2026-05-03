@@ -21,6 +21,24 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Wave 2 hotfix: piped-stdin command queue drained before exit
+
+- Scope: Live verification of Wave 2 surfaced a latent bug in queuedQuestion + the REPL loop. Under piped stdin, every line in the pipe arrives almost instantly via readline 'line' events, then 'close' fires when stdin EOFs. The REPL loop's `while (!closed)` predicate flipped to false the moment the close event fired, exiting before the queued lines for /copy, /export, /quit could be drained. The single-prompt pipe pattern (one user prompt + EOF) hid this — only multi-line scripts triggered it. Fix in two parts: (1) `createQueuedQuestion` returns a `QueuedQuestion` with a `pending()` accessor and now drains queued lines BEFORE checking `closed`, so question() can still return queued input after readline has closed; (2) terminalRepl.ts's main loop checks both `closed` AND `question.pending() > 0`, so the loop keeps iterating until everything queued has been processed; the rl.on('close') handler no longer sets `closed=true` (the question() throw path naturally signals exhaustion). Two new regression tests pin the pre-close-then-drain pattern and the QueuedQuestion.pending() accessor.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `3b98c4c`.
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+  - End-to-end with piped multi-command stdin against Anthropic Haiku: `printf 'Reply with exactly: wave2 reply\n/copy\n/export md\n/export jsonl\n/exit\n' | sov chat ...`
+- Manual / REPL coverage:
+  - Before fix: only the first user prompt processed; /copy, /export, /exit silently dropped (no output, no files written).
+  - After fix: all five commands ran in order. /copy reported `copied 11 chars via pbcopy.` and pbpaste returned the assistant text. /export wrote `session-<short>.md` and `session-<short>.jsonl` to cwd with correct content. /exit printed `goodbye.` and the session summary. /resume picker fallback (`requires a TTY`) and /model picker fallback (`requires a TTY`) confirmed in piped mode.
+- Result:
+  - **531/531 tests pass** (one new queuedQuestion regression test). Lint clean. Typecheck clean.
+- Regressions / follow-ups:
+  - No regressions; the existing queuedQuestion tests pass unchanged.
+  - This bug existed since Phase 3.5 when queuedQuestion landed; it surfaced now because Wave 2 made multi-line piped REPL scripts a real verification pattern.
+  - Pickers (/resume, /model no-arg, /export no-arg) still need a real TTY — they're correctly returning the fallback messages in piped mode. Live-TTY verification belongs in the user's manual walkthrough.
+
 ## 2026-05-03 - Phase 10.5c Wave 2 — Pickers & slash command coverage
 
 - Scope: Wave 2 of the REPL polish plan. New `src/ui/picker.ts` (raw-mode picker primitive: ↑/↓/PgUp/PgDn/Home/End/Enter/Esc, generic over T, falls back to null on non-TTY), `SessionDb.listSessions()` + `updateSessionModel()` (newest-first session list with first-user-message-as-title fallback; persisted /model picks). New slash commands: `/about`, `/tools`, `/skills`, `/stats`, `/permissions`, `/quit` (+ `/exit`/`/q` aliases), `/copy` (clipboard via pbcopy/wl-copy/xclip/xsel/clip.exe shell-out), `/resume` (picker over recent sessions, prints resume command — in-process swap deferred to Wave 4), `/model` (picker over provider models when no arg, persisted via DB), `/export` (md/jsonl/json picker, writes session-<short-id>.<ext> to cwd), `/init` (prompt command that scans the project and writes CONTEXT.md). `/help` rewritten as a category-grouped 2-column table (session / info / config / files / git / skills / other) with ANSI-aware visible-width padding. CommandContext extended with bundlePath, listSessions, getMetrics, skills, getLastAssistantText, getMessages, getPermissions, requestExit. `EXIT_COMMANDS` short-circuit removed from terminalRepl.ts — /quit now flows through the registry like every other command. Hard-coded text-only `/model` and `/clear`/`/help`/`/cost` from the original COMMANDS list left intact (clear/cost stay text-only; help got the table refactor in-place; model is now picker-or-arg).

@@ -1,4 +1,5 @@
-// Queued readline prompt adapter for preserving pasted multi-line input.
+// Queued readline prompt adapter for preserving pasted multi-line input
+// and surviving stdin EOF before all queued lines have been drained.
 
 import type { Interface as ReadlineInterface } from 'node:readline/promises';
 
@@ -7,12 +8,20 @@ export type ReadlineQuestion = (
   options?: { signal?: AbortSignal },
 ) => Promise<string>;
 
+/** Question fn with attached state introspection. The REPL loop reads
+ *  `pending()` to know whether to keep iterating after readline has
+ *  closed but lines remain in the queue (the piped-stdin case). */
+export type QueuedQuestion = ReadlineQuestion & {
+  /** Lines that arrived but haven't been handed out yet. */
+  pending: () => number;
+};
+
 export function createQueuedQuestion(
   rl: ReadlineInterface,
   write: (text: string) => void = (text) => {
     process.stdout.write(text);
   },
-): ReadlineQuestion {
+): QueuedQuestion {
   const pendingLines: string[] = [];
   const waiters: Waiter[] = [];
   let closed = false;
@@ -32,12 +41,19 @@ export function createQueuedQuestion(
     while (waiters.length > 0) waiters.shift()?.reject(err);
   });
 
-  return async (prompt, options = {}) => {
+  const ask: ReadlineQuestion = async (prompt, options = {}) => {
     if (options.signal?.aborted) throw abortError();
+    // Drain pendingLines BEFORE checking `closed`. Under piped stdin,
+    // readline often receives every line and emits 'close' before the
+    // first question() call returns — we must still hand out the
+    // queued lines from that pre-close burst rather than throwing.
+    const queued = pendingLines.shift();
+    if (queued !== undefined) {
+      write(prompt);
+      return queued;
+    }
     if (closed) throw new Error('readline closed');
     write(prompt);
-    const queued = pendingLines.shift();
-    if (queued !== undefined) return queued;
 
     return await new Promise<string>((resolve, reject) => {
       const waiter = createWaiter(resolve, reject, waiters, options.signal);
@@ -45,6 +61,10 @@ export function createQueuedQuestion(
       if (options.signal?.aborted) waiter.reject(abortError());
     });
   };
+  const queued: QueuedQuestion = Object.assign(ask, {
+    pending: () => pendingLines.length,
+  });
+  return queued;
 }
 
 type Waiter = {
