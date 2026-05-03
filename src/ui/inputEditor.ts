@@ -35,7 +35,7 @@ import type { CompletionResult } from './autocomplete.js';
 import { complete } from './autocomplete.js';
 import type { InputHistory } from './inputHistory.js';
 import type { Key, KeypressDispatcher } from './keypress.js';
-import { TextBuffer } from './textBuffer.js';
+import { TextBuffer, wrapForDisplay } from './textBuffer.js';
 import { theme } from './theme.js';
 
 const ESC = '\x1b';
@@ -79,6 +79,16 @@ export class InputEditor {
     suggestions: string[];
     index: number;
     replaceFrom: number;
+  } | null = null;
+  /** Active reverse-i-search session, or null when in normal mode.
+   *  `query` is the current substring filter; `matchIndex` is the
+   *  offset from the most-recent match (0 = newest match, ++ to
+   *  cycle backward). `savedValue` is the buffer's pre-search
+   *  contents so Esc / Ctrl-G can restore it. */
+  private searchState: {
+    query: string;
+    matchIndex: number;
+    savedValue: string;
   } | null = null;
 
   constructor(opts: InputEditorOpts) {
@@ -157,17 +167,33 @@ export class InputEditor {
       this.out.write('\r');
     }
 
-    const { lines, cursor } = this.buffer.render();
-    const promptText = this.prompt;
+    // Reverse-search mode replaces the prompt with `(reverse-i-search):
+    // <query> → <match>`. Cursor sits at the end of the query.
+    const promptText = this.searchState ? this.searchPromptText() : this.prompt;
     const indent = ' '.repeat(visibleWidth(promptText));
-    // First buffer line is on the prompt line. Subsequent lines are
-    // indented to align with the buffer body.
+    const cols = this.opts.columns?.() ?? process.stdout.columns ?? 80;
+    const contentWidth = Math.max(1, cols - visibleWidth(promptText));
+
+    let displayLines: string[];
+    let displayCursor: { row: number; col: number };
+    if (this.searchState) {
+      // In search mode, the buffer body is the matched entry — but
+      // we don't write it editable; we just show the match and put
+      // the cursor at the end of the query in the prompt line.
+      displayLines = [''];
+      displayCursor = { row: 0, col: 0 }; // not used for cursor pos below
+    } else {
+      const wrapped = wrapForDisplay(this.buffer.render(), contentWidth);
+      displayLines = wrapped.lines;
+      displayCursor = wrapped.cursor;
+    }
+
     const drawn: string[] = [];
-    drawn.push(promptText + (lines[0] ?? ''));
-    for (let i = 1; i < lines.length; i++) drawn.push(indent + (lines[i] ?? ''));
+    drawn.push(promptText + (displayLines[0] ?? ''));
+    for (let i = 1; i < displayLines.length; i++) drawn.push(indent + (displayLines[i] ?? ''));
     this.out.write(drawn.join('\n'));
 
-    // Render completion suggestions, if any.
+    // Render completion suggestions below the buffer.
     let extraLines = 0;
     if (this.completionState && this.completionState.suggestions.length > 1) {
       const sugLine = this.formatSuggestionLine();
@@ -175,15 +201,23 @@ export class InputEditor {
       extraLines = 1;
     }
 
-    // Position cursor: from the last drawn line, move up to the cursor
-    // row, then to the cursor col (accounting for prompt indent).
-    const targetRow = cursor.row;
+    // Position cursor: from the last drawn line, move up to the
+    // target display row, then to the col offset.
+    let targetRow: number;
+    let colOffset: number;
+    if (this.searchState) {
+      targetRow = 0;
+      // Cursor at end of the prompt's query portion (right before the
+      // arrow → match). Approximation: end of prompt line.
+      colOffset = visibleWidth(promptText);
+    } else {
+      targetRow = displayCursor.row;
+      colOffset = (targetRow === 0 ? visibleWidth(promptText) : indent.length) + displayCursor.col;
+    }
     const lastRow = drawn.length - 1 + extraLines;
     const upBy = lastRow - targetRow;
     if (upBy > 0) this.out.write(`${ESC}[${upBy}A`);
-    // Move to start of line, then to the target column.
     this.out.write('\r');
-    const colOffset = (targetRow === 0 ? promptText.length : indent.length) + cursor.col;
     if (colOffset > 0) this.out.write(`${ESC}[${colOffset}C`);
 
     this.renderedLines = drawn.length + extraLines;
@@ -201,12 +235,35 @@ export class InputEditor {
     return t.textDim('  ↹ ') + parts.join('  ');
   }
 
+  /** Render the (reverse-i-search) prompt + matched entry. The cursor
+   *  conceptually sits at the end of the query; the matched entry is
+   *  shown after a `→` arrow for visibility. */
+  private searchPromptText(): string {
+    const state = this.searchState;
+    if (!state) return this.prompt;
+    const t = theme.tokens;
+    const match = this.findSearchMatch();
+    const matchPart =
+      match === null
+        ? t.statusWarning(state.query.length > 0 ? '(no match)' : '(type to search)')
+        : t.textMuted(`→ ${match}`);
+    return `${t.textMuted('(reverse-i-search):')} ${t.accent(state.query)}  ${matchPart}  `;
+  }
+
   // ──────────────────────────────────────────────────────────────────
   // Key handling
   // ──────────────────────────────────────────────────────────────────
 
   private handleKey(key: Key): void {
     if (!this.resolve) return;
+
+    // Reverse-search mode owns its own dispatch table — character
+    // input extends the query; Ctrl-R cycles; Enter accepts; Esc
+    // cancels. Any other special key accepts and falls through.
+    if (this.searchState) {
+      this.handleSearchKey(key);
+      return;
+    }
 
     if (key.paste) {
       this.buffer.insert(key.sequence);
@@ -307,6 +364,9 @@ export class InputEditor {
         return true;
       case 'd':
         this.onCtrlD();
+        return true;
+      case 'r':
+        this.enterSearchMode();
         return true;
       default:
         return false;
@@ -461,6 +521,109 @@ export class InputEditor {
     }
     this.buffer.deleteRight();
     this.draw();
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // Reverse-i-search (Ctrl-R)
+  // ──────────────────────────────────────────────────────────────────
+
+  private enterSearchMode(): void {
+    this.searchState = {
+      query: '',
+      matchIndex: 0,
+      savedValue: this.buffer.toString(),
+    };
+    this.completionState = null;
+    this.draw();
+  }
+
+  private exitSearchMode(restore: boolean): void {
+    if (!this.searchState) return;
+    if (restore) this.buffer.setValue(this.searchState.savedValue);
+    this.searchState = null;
+    this.draw();
+  }
+
+  /** Find the Nth-most-recent history entry that contains the query
+   *  as a substring. matchIndex 0 = newest match. Returns null when
+   *  query is empty or no further matches exist. */
+  private findSearchMatch(): string | null {
+    if (!this.searchState) return null;
+    const { query, matchIndex } = this.searchState;
+    if (query.length === 0) return null;
+    const all = this.opts.history.snapshot();
+    let seen = 0;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const entry = all[i] ?? '';
+      if (!entry.includes(query)) continue;
+      if (seen === matchIndex) return entry;
+      seen++;
+    }
+    return null;
+  }
+
+  private handleSearchKey(key: Key): void {
+    if (!this.searchState) return;
+
+    // Cancel keys: Esc / Ctrl-G / Ctrl-C → restore original buffer.
+    if (key.name === 'escape') {
+      this.exitSearchMode(true);
+      return;
+    }
+    if (key.ctrl && (key.sequence === 'g' || key.sequence === 'c')) {
+      this.exitSearchMode(true);
+      return;
+    }
+
+    // Enter in search mode accepts the matched entry AND submits
+    // immediately (matches readline / bash convention). To accept
+    // and continue editing, the user presses Right or any motion
+    // key — those fall through to the "accept + dispatch" path
+    // at the bottom of this function.
+    if (key.name === 'enter') {
+      const match = this.findSearchMatch();
+      if (match !== null) {
+        this.buffer.setValue(match);
+      }
+      this.searchState = null;
+      this.onEnter();
+      return;
+    }
+
+    // Cycle to next-older match.
+    if (key.ctrl && key.sequence === 'r') {
+      this.searchState.matchIndex += 1;
+      if (this.findSearchMatch() === null && this.searchState.matchIndex > 0) {
+        // Out of matches — clamp back so the user sees a stable "no
+        // more matches" state until they shorten the query.
+        this.searchState.matchIndex -= 1;
+      }
+      this.draw();
+      return;
+    }
+
+    // Backspace shortens the query.
+    if (key.name === 'backspace') {
+      this.searchState.query = this.searchState.query.slice(0, -1);
+      this.searchState.matchIndex = 0;
+      this.draw();
+      return;
+    }
+
+    // Plain printable char: extend the query, reset the match cursor.
+    if (key.sequence.length > 0 && !key.ctrl && !key.name) {
+      this.searchState.query += key.sequence;
+      this.searchState.matchIndex = 0;
+      this.draw();
+      return;
+    }
+
+    // Other special keys (Tab, arrows, Home/End, Ctrl-A/E/etc.):
+    // accept the current match and dispatch the key normally.
+    const match = this.findSearchMatch();
+    if (match !== null) this.buffer.setValue(match);
+    this.searchState = null;
+    this.handleKey(key);
   }
 
   // ──────────────────────────────────────────────────────────────────

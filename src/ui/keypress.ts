@@ -76,6 +76,14 @@ export function __setKeypressDispatcherForTests(
   };
 }
 
+/** Wait this long after a lone ESC byte before emitting it as a
+ *  plain Escape key. If more bytes arrive within the window, they're
+ *  treated as Alt+key or part of a CSI sequence. 50ms is the standard
+ *  vim timeoutlen / readline esc-timeout value — long enough to
+ *  capture most paste-encoded sequences, short enough not to feel
+ *  laggy. */
+const ESC_FLUSH_MS = 50;
+
 export class KeypressDispatcher {
   private input: ReadableLike;
   private output: WritableLike;
@@ -84,6 +92,7 @@ export class KeypressDispatcher {
   private inPaste = false;
   private pendingPasteBuffer = '';
   private boundOnData: ((chunk: string | Buffer) => void) | null = null;
+  private escFlushTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(input: ReadableLike = process.stdin, output: WritableLike = process.stdout) {
     this.input = input;
@@ -123,6 +132,10 @@ export class KeypressDispatcher {
       this.input.setRawMode(false);
     }
     this.input.pause?.();
+    if (this.escFlushTimer) {
+      clearTimeout(this.escFlushTimer);
+      this.escFlushTimer = undefined;
+    }
     // Reset paste-mode state so a subsequent enable() doesn't pick
     // up half-buffered paste content.
     this.inPaste = false;
@@ -142,6 +155,12 @@ export class KeypressDispatcher {
   }
 
   private onData(chunk: string | Buffer): void {
+    // Cancel any pending ESC flush — new bytes arrived, so the
+    // previous lone ESC is part of an Alt+key or CSI sequence.
+    if (this.escFlushTimer) {
+      clearTimeout(this.escFlushTimer);
+      this.escFlushTimer = undefined;
+    }
     const data = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     const keys = parseChunk(data, {
       inPaste: this.inPaste,
@@ -150,6 +169,27 @@ export class KeypressDispatcher {
     this.inPaste = keys.inPaste;
     this.pendingPasteBuffer = keys.pasteBuffer;
     for (const key of keys.keys) this.dispatch(key);
+    // If the buffer is exactly one lone ESC, schedule a flush — the
+    // user pressed Escape with no follow-up. Subsequent bytes within
+    // the window cancel the timer and route the ESC into a
+    // CSI/Alt sequence instead.
+    if (!this.inPaste && this.pendingPasteBuffer === ESC) {
+      this.escFlushTimer = setTimeout(() => {
+        this.escFlushTimer = undefined;
+        if (this.pendingPasteBuffer === ESC && !this.inPaste) {
+          this.pendingPasteBuffer = '';
+          this.dispatch({
+            name: 'escape',
+            sequence: '',
+            raw: ESC,
+            ctrl: false,
+            shift: false,
+            alt: false,
+            paste: false,
+          });
+        }
+      }, ESC_FLUSH_MS);
+    }
   }
 
   private dispatch(key: Key): void {

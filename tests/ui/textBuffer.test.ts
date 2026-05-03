@@ -2,7 +2,7 @@
 // rendering happens via render(), no terminal involved.
 
 import { describe, expect, test } from 'bun:test';
-import { TextBuffer } from '../../src/ui/textBuffer.js';
+import { TextBuffer, wrapForDisplay } from '../../src/ui/textBuffer.js';
 
 describe('TextBuffer — initialization', () => {
   test('starts empty with cursor at 0,0', () => {
@@ -211,5 +211,56 @@ describe('TextBuffer.render', () => {
     const r = buf.render();
     expect(r.lines).toEqual(['line one', 'line two']);
     expect(r.cursor).toEqual({ row: 1, col: 8 });
+  });
+});
+
+describe('wrapForDisplay', () => {
+  test('width <= 0 returns input unchanged', () => {
+    const r = wrapForDisplay({ lines: ['hello'], cursor: { row: 0, col: 5 } }, 0);
+    expect(r.lines).toEqual(['hello']);
+    expect(r.cursor).toEqual({ row: 0, col: 5 });
+  });
+
+  test('short lines pass through', () => {
+    const r = wrapForDisplay({ lines: ['hi', 'bye'], cursor: { row: 1, col: 3 } }, 80);
+    expect(r.lines).toEqual(['hi', 'bye']);
+    expect(r.cursor).toEqual({ row: 1, col: 3 });
+  });
+
+  test('wraps a single long line into multiple chunks', () => {
+    const r = wrapForDisplay({ lines: ['abcdefghij'], cursor: { row: 0, col: 7 } }, 4);
+    // 'abcdefghij' (10) → ['abcd','efgh','ij']
+    expect(r.lines).toEqual(['abcd', 'efgh', 'ij']);
+    // col 7 → chunk 1, col 3
+    expect(r.cursor).toEqual({ row: 1, col: 3 });
+  });
+
+  test('multi-line input — each logical line wraps independently', () => {
+    const r = wrapForDisplay({ lines: ['abcdefgh', 'short'], cursor: { row: 1, col: 5 } }, 4);
+    // 'abcdefgh' → ['abcd','efgh']; 'short' (5) → ['shor','t']
+    expect(r.lines).toEqual(['abcd', 'efgh', 'shor', 't']);
+    // logical (row=1, col=5) → row offset 2 (after 2 chunks of line 0)
+    //   + chunk 1 of line 1 + col 1.
+    expect(r.cursor).toEqual({ row: 3, col: 1 });
+  });
+
+  test('preserves empty logical lines as one empty display row', () => {
+    const r = wrapForDisplay({ lines: ['hello', '', 'world'], cursor: { row: 1, col: 0 } }, 80);
+    expect(r.lines).toEqual(['hello', '', 'world']);
+    expect(r.cursor).toEqual({ row: 1, col: 0 });
+  });
+
+  test('cursor at end of an exact-width line stays on its chunk', () => {
+    const r = wrapForDisplay({ lines: ['abcd'], cursor: { row: 0, col: 4 } }, 4);
+    // line is exactly width 4 → one chunk, cursor sits after the 'd'.
+    expect(r.lines).toEqual(['abcd']);
+    expect(r.cursor).toEqual({ row: 0, col: 4 });
+  });
+
+  test('cursor at end of a wrapped long line lands on the trailing chunk', () => {
+    const r = wrapForDisplay({ lines: ['abcdef'], cursor: { row: 0, col: 6 } }, 4);
+    // 'abcdef' → ['abcd','ef']; col 6 = chunk 1 + col 2
+    expect(r.lines).toEqual(['abcd', 'ef']);
+    expect(r.cursor).toEqual({ row: 1, col: 2 });
   });
 });

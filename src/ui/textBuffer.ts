@@ -240,14 +240,61 @@ export class TextBuffer {
   // Rendering
   // ──────────────────────────────────────────────────────────────────
 
-  /** Lines for display. Wave 4 returns one entry per logical line —
-   *  no soft-wrapping. The editor writes each one and uses ANSI cursor
-   *  positioning to place the cursor. Wide-character / RTL handling
-   *  and soft-wrap are explicit Wave 5+ work. */
+  /** Lines for display, one entry per LOGICAL line (no wrap). The
+   *  editor pairs this with `wrapForDisplay()` when the terminal
+   *  width is known. Wide-character / RTL handling is Wave 5+ work. */
   render(): { lines: string[]; cursor: Cursor } {
     return {
       lines: this.lines.slice(),
       cursor: { row: this.cursorRow, col: this.cursorCol },
     };
   }
+}
+
+/**
+ * Soft-wrap a logical render to display lines + display cursor. Pure
+ * function, exported for tests so the editor's draw path can be
+ * exercised without spinning up a real buffer.
+ *
+ * width <= 0 is treated as "don't wrap" (returns input unchanged).
+ *
+ * Cursor mapping rules:
+ *   - The cursor at logical (row, col) maps to display row
+ *     = displayLineStart(row) + floor(col / width).
+ *   - Display col = col mod width.
+ *   - When col == line.length (cursor past end) and the line ends
+ *     exactly on a chunk boundary, we still report the cursor as
+ *     belonging to the LAST chunk's display row at col == width.
+ *     The terminal renders the cursor "after" the last char,
+ *     which is what users expect when typing at end of line.
+ */
+export function wrapForDisplay(
+  rendered: { lines: string[]; cursor: Cursor },
+  width: number,
+): { lines: string[]; cursor: Cursor } {
+  if (width <= 0) return rendered;
+  const displayLines: string[] = [];
+  let cursorRow = 0;
+  let cursorCol = 0;
+  for (let lr = 0; lr < rendered.lines.length; lr++) {
+    const line = rendered.lines[lr] ?? '';
+    const chunks: string[] = [];
+    if (line.length === 0) {
+      chunks.push('');
+    } else {
+      for (let i = 0; i < line.length; i += width) {
+        chunks.push(line.slice(i, i + width));
+      }
+    }
+    if (lr === rendered.cursor.row) {
+      const chunkIdx = Math.min(
+        Math.floor(rendered.cursor.col / width),
+        Math.max(0, chunks.length - 1),
+      );
+      cursorRow = displayLines.length + chunkIdx;
+      cursorCol = rendered.cursor.col - chunkIdx * width;
+    }
+    displayLines.push(...chunks);
+  }
+  return { lines: displayLines, cursor: { row: cursorRow, col: cursorCol } };
 }

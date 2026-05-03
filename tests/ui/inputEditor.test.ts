@@ -259,6 +259,91 @@ describe('InputEditor — Ctrl-A / E / U / K / W', () => {
   });
 });
 
+describe('InputEditor — Ctrl-R reverse search', () => {
+  test('Ctrl-R + query finds the most-recent match', async () => {
+    const { editor, dispatcher, history } = makeEditor();
+    history.add('first prompt');
+    history.add('build the harness');
+    history.add('something else');
+    history.add('test the build');
+    const p = editor.ask('> ');
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    for (const c of 'build') dispatcher.feed(char(c));
+    dispatcher.feed(key('enter'));
+    // Most-recent entry containing 'build' is 'test the build'.
+    await expect(p).resolves.toBe('test the build');
+  });
+
+  test('Ctrl-R cycles backward through matches', async () => {
+    const { editor, dispatcher, history } = makeEditor();
+    history.add('alpha foo');
+    history.add('beta foo bar');
+    history.add('gamma');
+    history.add('delta foo');
+    const p = editor.ask('> ');
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    for (const c of 'foo') dispatcher.feed(char(c));
+    // First match (newest first): 'delta foo'
+    // Cycle once → 'beta foo bar'
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    // Cycle again → 'alpha foo'
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    dispatcher.feed(key('enter'));
+    await expect(p).resolves.toBe('alpha foo');
+  });
+
+  test('Esc cancels search and restores original buffer', async () => {
+    const { editor, dispatcher, history } = makeEditor();
+    history.add('matched-entry');
+    const p = editor.ask('> ');
+    for (const c of 'draft') dispatcher.feed(char(c));
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    for (const c of 'matc') dispatcher.feed(char(c));
+    dispatcher.feed(key('escape'));
+    expect(editor.__testValue()).toBe('draft');
+    dispatcher.feed(key('enter'));
+    await expect(p).resolves.toBe('draft');
+  });
+
+  test('Ctrl-G during search behaves like Esc (restore + exit)', async () => {
+    const { editor, dispatcher, history } = makeEditor();
+    history.add('something');
+    const p = editor.ask('> ');
+    for (const c of 'orig') dispatcher.feed(char(c));
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    for (const c of 'some') dispatcher.feed(char(c));
+    dispatcher.feed(key('ctrl-g', { ctrl: true, sequence: 'g' }));
+    dispatcher.feed(key('enter'));
+    await expect(p).resolves.toBe('orig');
+  });
+
+  test('Backspace shortens the query without leaving search', async () => {
+    const { editor, dispatcher, history } = makeEditor();
+    history.add('aardvark');
+    history.add('bbq');
+    const p = editor.ask('> ');
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    for (const c of 'aab') dispatcher.feed(char(c)); // 'aab' won't match anything
+    dispatcher.feed(key('backspace'));
+    dispatcher.feed(key('backspace')); // back to 'a' — matches 'aardvark'
+    dispatcher.feed(key('enter'));
+    await expect(p).resolves.toBe('aardvark');
+  });
+
+  test('non-search special key (Tab) accepts and dispatches', async () => {
+    const { editor, dispatcher, history } = makeEditor(['help']);
+    history.add('matched-prefix-thing');
+    const p = editor.ask('> ');
+    dispatcher.feed(key('ctrl-r', { ctrl: true, sequence: 'r' }));
+    for (const c of 'matc') dispatcher.feed(char(c));
+    // Pressing Home (a special key not handled by search) should
+    // accept the match and then move cursor to line start.
+    dispatcher.feed(key('home'));
+    dispatcher.feed(key('enter'));
+    await expect(p).resolves.toBe('matched-prefix-thing');
+  });
+});
+
 describe('InputEditor — autocomplete', () => {
   test('Tab on /he completes to /help', async () => {
     const { editor, dispatcher } = makeEditor(['help', 'cost']);

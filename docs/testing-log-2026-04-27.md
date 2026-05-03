@@ -21,6 +21,28 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Wave 4 stabilization: Ctrl-R + soft-wrap + Esc-flush
+
+- Scope: Three follow-ups deferred from Wave 4, shipped together as the closeout of the input-editor work before pivoting to non-polish phases. Per the user's "Option A" decision after weighing Wave 5 (vim mode) — vim deferred indefinitely; these three close the highest-value remaining gaps.
+  - **Ctrl-R reverse-i-search** in `inputEditor.ts`. New `searchState` shape (query / matchIndex / savedValue) and a dedicated `handleSearchKey()` dispatch. Prompt becomes `(reverse-i-search): <query>  → <match>` while active. Enter accepts the match AND submits (readline/bash convention); Esc / Ctrl-C / Ctrl-G cancel and restore the original buffer; Ctrl-R cycles to the next-older match; backspace shortens query and resets the match cursor; non-search special keys (Right/Home/End/Tab/Ctrl-A/etc.) accept the match into the buffer and re-dispatch the key in normal mode so the user can edit before submitting. Substring match against `history.snapshot()` walked newest-first.
+  - **Soft-wrap for long input lines.** New `wrapForDisplay(rendered, width)` pure function in `textBuffer.ts` — takes the logical-lines render output and wraps each long line into multiple display chunks of `<= width` chars, mapping the cursor from logical (row, col) to display (row, col). `inputEditor.draw()` calls this with `cols - prompt.length`, so a long prompt no longer overflows past the terminal column. Empty lines preserved as one display row; cursor at line end maps onto the last chunk; width <= 0 returns input unchanged.
+  - **Esc-key flush** in `keypress.ts`. Lone ESC bytes were previously held in the partial-sequence buffer indefinitely, so a bare Escape press never produced a key event. Added a 50ms flush timer (matches vim `timeoutlen` and readline `esc-timeout`): when stdin's pending buffer is exactly one ESC byte, schedule a flush that emits an `escape` key. Cancelled the moment more bytes arrive (so Alt+key encoding and CSI sequences still work). Cleanup hook clears the timer on `disable()`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `eab9868`.
+- Commands:
+  - `bunx tsc --noEmit`
+  - `bun run lint`
+  - `bun run test`
+  - `bash tests/_smoke/wave1-3-hardpass.sh`
+- Manual / REPL coverage:
+  - 13 new tests: 7 wrapForDisplay (zero-width, short lines, single-line wrap, multi-line independent wrap, empty lines, exact-width cursor, end-of-wrapped-line cursor) + 6 Ctrl-R search (newest-match, cycle backward, Esc cancel, Ctrl-G cancel, backspace shortens, non-search special key falls through with accept).
+  - Live TTY of the search/wrap flow not exercised in this session — same caveat as Wave 4 itself. Recommend a 5-min interactive smoke before relying on it. The `--legacy-input` flag remains the safety hatch.
+- Result:
+  - **645/645 tests pass** (+13 over Wave-4 baseline). Lint clean (2 pre-existing warnings unchanged). Hard-pass 105/105 (waves 1-3 unaffected; non-TTY paths still route through legacy editor).
+- Regressions / follow-ups:
+  - No regressions; the wrap helper preserves single-line behavior identical to before, the Esc flush only fires when the buffer is exactly one ESC byte, and Ctrl-R doesn't enter search mode unless the user actually presses it.
+  - Vim mode deferred indefinitely. Most users won't use it; the LOC-to-value ratio is worse than even basic Phase-11 hooks. Revisit only if a real user asks for it.
+  - Next phase pivot: per the build plan, Phase 11 (hooks) or Phase 12 (MCP client) or Phase 13.1 (trajectory capture). Phase 13.1 is the actual Sovereign moat — "harness state appreciates while base weights decay" via captured ShareGPT trajectories. Polish is at diminishing-returns; the next 500 LOC spent there beats the next 500 LOC spent on more polish.
+
 ## 2026-05-03 - Phase 10.5e Wave 4 — input editor (multi-line, history, autocomplete)
 
 - Scope: Wave 4 of the REPL polish plan — biggest single felt UX upgrade. Five new modules:
