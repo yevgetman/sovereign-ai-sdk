@@ -2,7 +2,7 @@
 // visible (ANSI-stripped) line length so chalk-styled rows align with
 // the right border.
 
-import chalk from 'chalk';
+import { theme } from './theme.js';
 
 const ESC = String.fromCharCode(27);
 const ANSI_RE = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
@@ -16,7 +16,7 @@ export type BoxOptions = {
 
 export function boxify(lines: string[], opts: BoxOptions = {}): string[] {
   const padding = opts.padding ?? 2;
-  const color = opts.borderColor ?? chalk.gray;
+  const color = opts.borderColor ?? theme.tokens.border;
   const innerWidth = Math.max(0, ...lines.map(visibleWidth));
   const horiz = '─'.repeat(innerWidth + padding * 2);
   const top = color(`╭${horiz}╮`);

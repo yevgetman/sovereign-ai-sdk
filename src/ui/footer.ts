@@ -13,8 +13,8 @@
 // future phase (10.5d+) can graduate to a scroll-region footer once
 // the input editor lands and we control the cursor more directly.
 
-import chalk from 'chalk';
 import type { ContextMeter, ContextZone } from './contextMeter.js';
+import { theme } from './theme.js';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -44,20 +44,21 @@ export type FooterOpts = {
  *  trailing newline). Empty string when disabled. */
 export function renderFooter(info: FooterInfo, opts: FooterOpts = {}): string {
   if (opts.enabled === false) return '';
+  const t = theme.tokens;
   const segments: string[] = [];
-  segments.push(chalk.gray(`${info.providerName} · ${info.model}`));
+  segments.push(t.textMuted(`${info.providerName} · ${info.model}`));
   if (info.meter) {
     const zone = info.meter.getZone();
     const pct = info.meter.getPercent();
     segments.push(formatContextSegment(pct, zone));
   }
   segments.push(formatCostSegment(info.costUsd));
-  segments.push(chalk.gray(`perms:${info.permissionMode}`));
-  segments.push(chalk.gray(`tools:${info.toolCount}`));
+  segments.push(t.textMuted(`perms:${info.permissionMode}`));
+  segments.push(t.textMuted(`tools:${info.toolCount}`));
   if (info.bundleLabel) {
-    segments.push(chalk.gray(`bundle:${info.bundleLabel}`));
+    segments.push(t.textMuted(`bundle:${info.bundleLabel}`));
   }
-  return chalk.dim(segments.join(chalk.gray(' · ')));
+  return t.textDim(segments.join(t.textMuted(' · ')));
 }
 
 /** Print the footer line followed by a single newline so it sits above
@@ -77,10 +78,11 @@ export function printPrePromptFooter(
 }
 
 function formatContextSegment(pct: number, zone: ContextZone): string {
+  const t = theme.tokens;
   const text = `ctx ${formatPct(pct)}`;
-  if (zone === 'danger') return chalk.red(text);
-  if (zone === 'warn') return chalk.yellow(text);
-  return chalk.gray(text);
+  if (zone === 'danger') return t.statusError(text);
+  if (zone === 'warn') return t.statusWarning(text);
+  return t.textMuted(text);
 }
 
 function formatPct(pct: number): string {
@@ -89,8 +91,9 @@ function formatPct(pct: number): string {
 }
 
 function formatCostSegment(costUsd: number): string {
-  if (!Number.isFinite(costUsd) || costUsd <= 0) return chalk.gray('$0.00');
-  if (costUsd < 0.01) return chalk.gray('<$0.01');
-  if (costUsd < 1) return chalk.gray(`$${costUsd.toFixed(3)}`);
-  return chalk.gray(`$${costUsd.toFixed(2)}`);
+  const muted = theme.tokens.textMuted;
+  if (!Number.isFinite(costUsd) || costUsd <= 0) return muted('$0.00');
+  if (costUsd < 0.01) return muted('<$0.01');
+  if (costUsd < 1) return muted(`$${costUsd.toFixed(3)}`);
+  return muted(`$${costUsd.toFixed(2)}`);
 }

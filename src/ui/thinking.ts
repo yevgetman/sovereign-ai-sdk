@@ -7,8 +7,8 @@
 // indicator never advances scrollback. A 500ms grace period keeps the
 // indicator from flashing during normal fast streaming.
 
-import chalk from 'chalk';
 import { isModalActive } from './modal.js';
+import { theme } from './theme.js';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SHOW_AFTER_MS = 500;
@@ -91,7 +91,8 @@ export class ThinkingIndicator {
     this.frame++;
     const out = Math.max(this.outputTokens, Math.round(this.streamedChars / 4));
     const tokenStr = this.inputTokens > 0 || out > 0 ? ` ↑ ${this.inputTokens} ↓ ${out}` : '';
-    const line = `${chalk.cyan(f)} ${chalk.gray(`Thinking ${elapsed}s${tokenStr}`)}`;
+    const t = theme.tokens;
+    const line = `${t.accent(f)} ${t.textMuted(`Thinking ${elapsed}s${tokenStr}`)}`;
     this.out.write(`\r${ESC}[2K${line}`);
   }
 

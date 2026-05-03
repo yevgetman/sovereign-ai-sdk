@@ -18,7 +18,7 @@
 // doesn't dominate the conversation. Either way, the output is one
 // indented block under the tool call's slot line.
 
-import chalk from 'chalk';
+import { theme } from './theme.js';
 
 const NON_VERBOSE_HEAD = 4;
 const NON_VERBOSE_TAIL = 2;
@@ -133,27 +133,29 @@ function renderEditWithContext(
   ctx: EditContext,
   verbose: boolean,
 ): string {
+  const t = theme.tokens;
   const head: string[] = [];
-  const lineLabel = chalk.dim(`:${ctx.startLine}`);
+  const lineLabel = t.textDim(`:${ctx.startLine}`);
   const repsLabel = formatRepsLabel(input.replacements, ctx.occurrences);
-  head.push(`  ${chalk.gray(input.path)}${lineLabel}${repsLabel}`);
+  head.push(`  ${t.textMuted(input.path)}${lineLabel}${repsLabel}`);
 
-  const minus = ctx.preLines.map((l) => chalk.red(`  - ${truncateLine(l)}`));
-  const plus = ctx.postLines.map((l) => chalk.green(`  + ${truncateLine(l)}`));
+  const minus = ctx.preLines.map((l) => t.diffRemoved(`  - ${truncateLine(l)}`));
+  const plus = ctx.postLines.map((l) => t.diffAdded(`  + ${truncateLine(l)}`));
   const lines = [...minus, ...plus];
   const rendered = verbose ? lines : truncateBlock(lines);
   return `${[...head, ...rendered].join('\n')}\n`;
 }
 
 function formatRepsLabel(replacements: number | undefined, occurrences: number): string {
+  const dim = theme.tokens.textDim;
   if (occurrences > 1) {
     const reps = replacements ?? occurrences;
-    return chalk.dim(
+    return dim(
       `  (applied ${reps}× across ${occurrences} occurrence${occurrences === 1 ? '' : 's'})`,
     );
   }
   if (replacements && replacements > 1) {
-    return chalk.dim(`  (${replacements} replacements)`);
+    return dim(`  (${replacements} replacements)`);
   }
   return '';
 }
@@ -162,28 +164,30 @@ function renderEditSubstring(
   input: Extract<DiffRenderInput, { kind: 'edit' }>,
   verbose: boolean,
 ): string {
+  const t = theme.tokens;
   const head: string[] = [];
   const reps = input.replacements ?? 1;
   const repsLabel = reps === 1 ? '1 replacement' : `${reps} replacements`;
-  head.push(chalk.gray(`  ${input.path}  ${chalk.dim(`(${repsLabel})`)}`));
+  head.push(t.textMuted(`  ${input.path}  ${t.textDim(`(${repsLabel})`)}`));
 
   const oldLines = splitLines(input.oldString);
   const newLines = splitLines(input.newString);
-  const minus = oldLines.map((l) => chalk.red(`  - ${truncateLine(l)}`));
-  const plus = newLines.map((l) => chalk.green(`  + ${truncateLine(l)}`));
+  const minus = oldLines.map((l) => t.diffRemoved(`  - ${truncateLine(l)}`));
+  const plus = newLines.map((l) => t.diffAdded(`  + ${truncateLine(l)}`));
   const lines = [...minus, ...plus];
   const rendered = verbose ? lines : truncateBlock(lines);
   return `${[...head, ...rendered].join('\n')}\n`;
 }
 
 function renderWrite(input: Extract<DiffRenderInput, { kind: 'write' }>, verbose: boolean): string {
+  const t = theme.tokens;
   const head: string[] = [];
   const verb = input.created ? 'created' : 'wrote';
   const sizeLabel =
-    input.bytesWritten !== undefined ? ` ${chalk.dim(`(${input.bytesWritten} bytes)`)}` : '';
-  head.push(chalk.gray(`  ${verb} ${input.path}${sizeLabel}`));
+    input.bytesWritten !== undefined ? ` ${t.textDim(`(${input.bytesWritten} bytes)`)}` : '';
+  head.push(t.textMuted(`  ${verb} ${input.path}${sizeLabel}`));
   const contentLines = splitLines(input.content);
-  const plus = contentLines.map((l) => chalk.green(`  + ${truncateLine(l)}`));
+  const plus = contentLines.map((l) => t.diffAdded(`  + ${truncateLine(l)}`));
   const rendered = verbose ? plus : truncateBlock(plus);
   return `${[...head, ...rendered].join('\n')}\n`;
 }
@@ -240,5 +244,9 @@ function truncateBlock(lines: string[]): string[] {
   const head = lines.slice(0, NON_VERBOSE_HEAD);
   const tail = lines.slice(-NON_VERBOSE_TAIL);
   const omitted = lines.length - NON_VERBOSE_HEAD - NON_VERBOSE_TAIL;
-  return [...head, chalk.dim(`  … ${omitted} more line${omitted === 1 ? '' : 's'} …`), ...tail];
+  return [
+    ...head,
+    theme.tokens.textDim(`  … ${omitted} more line${omitted === 1 ? '' : 's'} …`),
+    ...tail,
+  ];
 }

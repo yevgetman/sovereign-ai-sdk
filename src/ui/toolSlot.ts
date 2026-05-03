@@ -9,7 +9,7 @@
 // Verbose mode bypasses this entirely — it keeps the additive multi-line
 // preview block from `renderToolResultPreview`.
 
-import chalk from 'chalk';
+import { theme } from './theme.js';
 
 const ESC = '\x1b';
 
@@ -68,7 +68,8 @@ export class CompactToolSlot {
       this.out.write(`${ESC}[${interToolLines}A${ESC}[J`);
     }
     const label = input ? `${name} ${truncate(input, 80)}` : name;
-    this.out.write(`${chalk.cyan('→')} ${chalk.gray(label)}\n`);
+    const t = theme.tokens;
+    this.out.write(`${t.accent('→')} ${t.textMuted(label)}\n`);
     this.active = true;
   }
 
@@ -77,10 +78,11 @@ export class CompactToolSlot {
   end(content: string, isError: boolean): void {
     if (!this.active) return;
     this.clearLine();
+    const t = theme.tokens;
     if (isError) {
-      this.out.write(`${chalk.red('✗')} ${chalk.red(summarizeError(content))}\n`);
+      this.out.write(`${t.statusError('✗')} ${t.statusError(summarizeError(content))}\n`);
     } else {
-      this.out.write(`${chalk.green('✓')} ${chalk.gray(summarizeContent(content))}\n`);
+      this.out.write(`${t.statusSuccess('✓')} ${t.textMuted(summarizeContent(content))}\n`);
     }
     // Stay active so the next begin() can overwrite this line.
   }

@@ -7,6 +7,7 @@
 
 import chalk from 'chalk';
 import { boxify, visibleWidth } from './box.js';
+import { theme } from './theme.js';
 
 const PKG_VERSION = '0.0.1';
 
@@ -47,10 +48,11 @@ export type SplashInfo = {
 };
 
 function renderCard(info: SplashInfo): string[] {
-  const title = `${chalk.cyan('>_')} ${chalk.bold('Sovereign AI')} ${chalk.gray(`(v${PKG_VERSION})`)}`;
-  const auth = `${info.providerLabel} ${chalk.gray('|')} ${info.authLabel}`;
-  const model = `${info.model} ${chalk.gray('(/model to change)')}`;
-  const bundle = chalk.gray(info.bundlePath ?? 'no bundle');
+  const t = theme.tokens;
+  const title = `${t.accent('>_')} ${t.textBold('Sovereign AI')} ${t.textMuted(`(v${PKG_VERSION})`)}`;
+  const auth = `${info.providerLabel} ${t.textMuted('|')} ${info.authLabel}`;
+  const model = `${info.model} ${t.textMuted('(/model to change)')}`;
+  const bundle = t.textMuted(info.bundlePath ?? 'no bundle');
   return [title, auth, model, bundle];
 }
 
@@ -83,11 +85,12 @@ export function renderSplash(info: SplashInfo): string {
     right[cardOffset + i] = cardLines[i] ?? '';
   }
   const rows = left.map((l, i) => `${l}  ${padRight(right[i] ?? '', cardWidth)}`);
-  const tips = chalk.gray(
+  const t = theme.tokens;
+  const tips = t.textMuted(
     'Tips: type / for slash commands · @file:path to inline files · /quit to exit',
   );
   const modeNote = info.permissionModeNote ?? '';
-  const footer = chalk.dim(
+  const footer = t.textDim(
     `perms: ${info.permissionMode}${modeNote} · tools: ${info.toolCount} · cache: ${info.cacheOn ? 'on' : 'off'} · ${info.sessionLabel} · ${info.exitHint}`,
   );
   return ['', ...rows, '', tips, footer, ''].join('\n');

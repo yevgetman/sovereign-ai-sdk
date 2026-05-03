@@ -9,8 +9,8 @@
 // Nested withModal calls throw — that would suggest a bug in the
 // permission flow, not a recoverable state.
 
-import chalk from 'chalk';
 import { boxify } from './box.js';
+import { theme } from './theme.js';
 
 let modalActive = false;
 
@@ -77,19 +77,19 @@ export async function withModal<T>(opts: WithModalOpts<T>): Promise<T> {
   }
   modalActive = true;
   const out = opts.out ?? process.stdout;
-  const borderColor = opts.borderColor ?? chalk.yellow;
+  const borderColor = opts.borderColor ?? theme.tokens.borderWarning;
   try {
     const lines = renderFrame(opts.title, opts.rows, opts.choices, borderColor);
     out.write(`\n${lines.join('\n')}\n`);
     const reprompt = opts.reprompt ?? 'unrecognised — please try again';
     for (;;) {
-      const promptText = chalk.yellow('  > ');
+      const promptText = theme.tokens.statusWarning('  > ');
       const raw = opts.signal
         ? await opts.question(promptText, { signal: opts.signal })
         : await opts.question(promptText);
       const parsed = opts.parse(raw);
       if (parsed !== undefined) return parsed;
-      out.write(chalk.red(`  ${reprompt}\n`));
+      out.write(theme.tokens.statusError(`  ${reprompt}\n`));
     }
   } finally {
     modalActive = false;
@@ -104,13 +104,14 @@ export function renderFrame(
   choices: ModalChoice[],
   borderColor: (s: string) => string,
 ): string[] {
+  const t = theme.tokens;
   const labelWidth = rows.reduce((max, r) => Math.max(max, r.label.length), 0);
   const body: string[] = [];
-  body.push(chalk.bold.yellow(title));
+  body.push(t.textBold(t.statusWarning(title)));
   if (rows.length > 0) body.push('');
   for (const row of rows) {
     const padded = row.label.padEnd(labelWidth, ' ');
-    body.push(`${chalk.gray(padded)}  ${row.value}`);
+    body.push(`${t.textMuted(padded)}  ${row.value}`);
   }
   if (choices.length > 0) {
     body.push('');
@@ -120,12 +121,12 @@ export function renderFrame(
 }
 
 function formatChoices(choices: ModalChoice[]): string {
+  const t = theme.tokens;
   return choices
     .map((c) => {
-      const key = c.default
-        ? chalk.yellow.bold(`[${c.key.toUpperCase()}]`)
-        : chalk.yellow(`[${c.key}]`);
-      return `${key} ${chalk.gray(c.label)}`;
+      const keyText = c.default ? `[${c.key.toUpperCase()}]` : `[${c.key}]`;
+      const key = c.default ? t.textBold(t.statusWarning(keyText)) : t.statusWarning(keyText);
+      return `${key} ${t.textMuted(c.label)}`;
     })
     .join('   ');
 }

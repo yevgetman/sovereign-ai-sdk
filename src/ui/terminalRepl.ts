@@ -71,6 +71,7 @@ import { createQueuedQuestion } from './queuedQuestion.js';
 import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
 import { renderSplash } from './splash.js';
 import { formatMaxTokensWarning, formatPartialMutationWarning } from './terminalMessages.js';
+import { resolveThemeName, setTheme } from './theme.js';
 import { ThinkingIndicator } from './thinking.js';
 import { CompactToolSlot } from './toolSlot.js';
 import { createTranscriptLogger, resolveDebugTranscriptPath } from './transcript.js';
@@ -149,6 +150,15 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const harnessHome = resolveHarnessHome();
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
   const userSettings = readConfig();
+  // Initialize theme BEFORE anything renders. NO_COLOR env var is
+  // honored at this seam; explicit ui.theme wins over default 'dark'
+  // but loses to NO_COLOR. setTheme is a singleton mutation so every
+  // subsequent renderer call sees the active token set.
+  setTheme(
+    resolveThemeName(
+      userSettings.ui?.theme !== undefined ? { configured: userSettings.ui.theme } : {},
+    ),
+  );
   const transcriptPath = resolveDebugTranscriptPath({
     ...(opts.transcriptPath !== undefined ? { cliPath: opts.transcriptPath } : {}),
     ...(userSettings.debugMode !== undefined ? { debugMode: userSettings.debugMode } : {}),
