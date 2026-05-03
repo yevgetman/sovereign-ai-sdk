@@ -1,5 +1,25 @@
 # Changelog
 
+## Semantic test suite (LLM-judged behavior tests) - 2026-05-03
+
+New opt-in test category that complements the existing unit/integration suite. Drives the real `sov` binary as a subprocess, captures the transcript, and asks an LLM judge whether each prompt was handled correctly against per-test must-satisfy / should-not criteria.
+
+**Strict isolation.** Lives entirely under `tests/semantic/`. Zero edits to `src/`. No new production deps (`@anthropic-ai/sdk` and `chalk` already in `package.json`). Each test spawns the binary in an `mktemp -d` sandbox with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB — cleaned up on completion or crash. File names are `*.cases.ts` and `run.ts`, neither matches Bun's `*.test.ts` discovery, so `bun test` is unaffected. New `test:semantic` script is purely additive.
+
+**Pluggable judge backends.** `Judge` is a function type `(test, transcript) => Promise<JudgeVerdict>`. Two backends ship in v1:
+- `claude-code` (default) — shells out to the local `claude` CLI in `--print` mode with `--json-schema` for structured output. Uses your authenticated session, costs zero API tokens. Spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands` for full isolation.
+- `anthropic-api` (opt-in) — direct `@anthropic-ai/sdk` call with tool-use; needs `ANTHROPIC_API_KEY`. Useful for CI runners.
+
+`auto` mode picks `claude-code` if available, else falls back to `anthropic-api`. Adding a new backend (e.g., `codex`, `sov`-itself) is one new file under `framework/judges/` plus a `selectJudge` switch case — `runner.ts`, `run.ts`, and test cases are unchanged.
+
+**Framework (~700 LOC).** `framework/types.ts` (SemanticTest, JudgeVerdict, Judge, RunSummary), `sandbox.ts` (per-test ephemeral env), `driver.ts` (subprocess spawn + ANSI strip + transcript), `judges/` (prompt builder + verdict parser + per-backend factories), `runner.ts` (load + orchestrate, judge-agnostic), `reporter.ts` (chalk progress + summary).
+
+**Starter cases (8 tests).** Bash output capture, Read/Edit/Write tool dispatch, /help command rendering, two-step write-then-verify workflow, directory enumeration, and refusal-on-missing-file (anti-fabrication).
+
+**Designed for portability.** Framework only assumes a stdin-driven REPL that exits on `/quit`. Lift `tests/semantic/` to any project, adjust `driver.ts` defaults, point at a different binary via `SEMANTIC_BINARY` or `--binary`. Documented in `tests/semantic/README.md`, including a sketch for an eventual `sov`-judges-itself backend.
+
+**Cost.** Default judge (`claude-code`) uses your subscription — no API tokens. Binary under test still spends model credit during its own turns regardless of judge backend. Not part of `bun test` — opt-in only via `bun run test:semantic`.
+
 ## Phase 10.5e Wave 4 stabilization — Ctrl-R, soft-wrap, Esc flush - 2026-05-03
 
 Closeout of the input-editor work. Vim mode (originally Wave 5) deferred indefinitely per the LOC-to-value tradeoff.

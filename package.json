@@ -12,6 +12,7 @@
     "chat": "bun src/main.ts",
     "eval:website": "bun src/evals/websiteBuildEval.ts",
     "test": "bun test",
+    "test:semantic": "bun tests/semantic/run.ts",
     "lint": "biome check src tests",
     "format": "biome format --write src tests",
     "typecheck": "tsc --noEmit"
