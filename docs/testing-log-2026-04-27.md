@@ -21,6 +21,29 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Phase 10.5b Wave 1 — REPL polish foundations
+
+- Scope: Wave 1 of the multi-wave REPL polish plan. New `src/ui/modal.ts` (framed permission overlay with `isModalActive()` flag), `src/ui/contextMeter.ts` (per-session token-utilization tracker with one-shot pre-compaction warning), `src/ui/footer.ts` (pre-prompt status line: provider · model · ctx % · cost · perms · tools · bundle), `src/ui/diff.ts` (inline FileEdit/FileWrite diff renderer). Wired into `src/permissions/prompt.ts` (asker now uses `withModal`), `src/ui/thinking.ts` (suppresses tick while modal active), `src/ui/toolSlot.ts` (multi-line errors show `+N more lines` hint), `src/ui/terminalRepl.ts` (meter updates on `usage_delta`, footer printed before each prompt frame, diff rendered after successful FileEdit/FileWrite, splash banner shows count of loaded allow-rules), and `src/config/schema.ts` (new optional `ui.{footer,contextMeter,diffRender}` section). Smoke renderer at `tests/_smoke/wave1-smoke.ts`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `934193a`.
+- Commands:
+  - `bunx tsc --noEmit`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run tests/_smoke/wave1-smoke.ts`
+  - `HARNESS_CONFIG=/tmp/sov-test-config.json sov config set ui.contextMeter.warnAtPercent 70` (round-tripped through the schema)
+  - `sov --help` and `sov config get ui` (no regression to existing CLI surface)
+- Manual / REPL coverage:
+  - Smoke renderer printed all three footer zones (ok / warn / danger), the permission modal frame, and FileEdit + FileWrite diffs (non-verbose, both with truncation). Visual output matched design intent: cyan-grey footer, yellow-bordered modal box, red `-` / green `+` diff lines.
+  - `sov config set ui.contextMeter.warnAtPercent 70` round-tripped through the new schema entry without the strict-zod check rejecting it.
+  - Could not exercise the live REPL end-to-end without an LLM endpoint in this sandbox; `--no-preflight` runs against `--provider ollama --model placeholder` are deferred until a follow-up dogfood pass on a connected machine.
+- Result:
+  - Typecheck clean (`bunx tsc --noEmit` zero output). Lint clean (2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts:219,343` unchanged — not from this wave). **486/486 tests pass** (4 new test files: modal/contextMeter/footer/diff = 42 new tests; existing thinking suite picked up one nested-modal-suppression test = 43 total additions).
+- Regressions / follow-ups:
+  - No regressions. Existing `prompt.test.ts`, `toolSlot.test.ts`, `thinking.test.ts` all green against the new wiring without test edits to their assertions (the modal contract was additive).
+  - Known limitation: footer is rendered as a "pre-prompt status line" rather than a true bottom-pinned scroll-region footer. Sufficient for Wave 1 polish; the scroll-region upgrade is gated on the input-editor work in Wave 4 (10.5e).
+  - Diff renderer renders the agent's intent (old_string → new_string) for FileEdit, not a fresh re-read of post-edit file contents. For Wave 1 this is the right tradeoff — no extra I/O, no race against the orchestrator's tool dispatch. Re-read-from-disk diffs can be considered when the input editor lands and we own more of the cursor model.
+  - Phase-10-5 backlog (`docs/phase-10-5-backlog.md`) entries unaffected; Wave-2/3/4/5 designs in the plan remain the next units of work.
+
 ## 2026-05-01 - Binary rename: sovereign → sov
 
 - Scope: shortened CLI invocation. `package.json` `bin` mapping changed `"sovereign"` → `"sov"`; commander `.name('sovereign')` → `.name('sov')`; error-message prefix `harness:` → `sov:`; resume hint and max-tokens warning print `sov --resume ...`; WebSearch missing-API-key error references `sov config set ...`; in-source comments referring to the binary updated; active docs (README.md, docs/usage.md, docs/architecture.md) updated. Historical CHANGELOG entries and prior testing-log entries left verbatim.
