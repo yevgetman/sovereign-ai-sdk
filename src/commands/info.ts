@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { boxify } from '../ui/box.js';
+import { runConfigMenu } from '../ui/configMenu.js';
 import { renderSessionSummary } from '../ui/sessionSummary.js';
 import type { CommandContext, LocalCommand } from './types.js';
 
@@ -65,6 +66,13 @@ export const copyCommand: LocalCommand = {
   call: async (_args, ctx) => copyLastAssistant(ctx),
 };
 
+export const settingsCommand: LocalCommand = {
+  type: 'local',
+  name: 'settings',
+  description: 'Open the interactive settings editor (raw-mode TTY only).',
+  call: async (_args, _ctx) => runSettingsEditor(),
+};
+
 /** All info-command exports as a single array so the registry can spread
  *  them without hand-listing each command twice. */
 export const INFO_COMMANDS: LocalCommand[] = [
@@ -75,6 +83,7 @@ export const INFO_COMMANDS: LocalCommand[] = [
   permissionsCommand,
   quitCommand,
   copyCommand,
+  settingsCommand,
 ];
 
 // ──────────────────────────────────────────────────────────────────────
@@ -201,6 +210,22 @@ export function copyLastAssistant(ctx: CommandContext): string {
   const result = writeClipboard(text);
   if (result.ok) return `copied ${text.length} chars via ${result.tool}.`;
   return `clipboard tool not available (tried: ${result.attempted.join(', ')}). assistant text:\n\n${text}`;
+}
+
+async function runSettingsEditor(): Promise<string> {
+  if (!process.stdin.isTTY) {
+    return [
+      'settings editor requires a TTY.',
+      'use `sov config show|get|set|unset` from the shell, or run sov interactively.',
+    ].join('\n');
+  }
+  try {
+    await runConfigMenu();
+    return 'settings closed.';
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `settings editor error: ${msg}`;
+  }
 }
 
 type ClipboardResult = { ok: true; tool: string } | { ok: false; attempted: string[] };

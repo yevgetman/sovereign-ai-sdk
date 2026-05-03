@@ -40,6 +40,8 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   // model + config
   model: 'config',
   config: 'config',
+  settings: 'config',
+  theme: 'config',
   // file/session ops
   export: 'files',
   init: 'files',

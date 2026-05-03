@@ -13,8 +13,9 @@
 // /model uses the same provider→model mapping that configMenu.ts
 // uses. Both are kept in sync via a tiny shared registry.
 
-import { resolveConfigPath } from '../config/store.js';
+import { readConfig, resolveConfigPath, setAt, writeConfig } from '../config/store.js';
 import { type PickerItem, pick } from '../ui/picker.js';
+import { type Theme, isThemeName, listThemes, setTheme, theme } from '../ui/theme.js';
 import type { CommandContext, LocalCommand } from './types.js';
 
 /** Provider → models registry. Mirrors configMenu.ts's PROVIDER_MODELS
@@ -41,7 +42,19 @@ export const modelPickerCommand: LocalCommand = {
   call: async (args, ctx) => runModelPicker(args, ctx),
 };
 
-export const PICKER_COMMANDS: LocalCommand[] = [resumeCommand, modelPickerCommand];
+export const themePickerCommand: LocalCommand = {
+  type: 'local',
+  name: 'theme',
+  description: 'Switch the color theme — opens a picker, or accepts a name as arg.',
+  usage: '/theme [<name>]',
+  call: async (args, _ctx) => runThemePicker(args),
+};
+
+export const PICKER_COMMANDS: LocalCommand[] = [
+  resumeCommand,
+  modelPickerCommand,
+  themePickerCommand,
+];
 
 // ──────────────────────────────────────────────────────────────────────
 // /resume
@@ -138,6 +151,74 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
   if (chosen === ctx.model) return `model unchanged (already on ${ctx.model}).`;
   ctx.setModel(chosen);
   return `model set to ${chosen} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /theme
+// ──────────────────────────────────────────────────────────────────────
+
+async function runThemePicker(args: string): Promise<string> {
+  const themes = listThemes();
+  const explicit = args.trim();
+  if (explicit) {
+    if (!isThemeName(explicit)) {
+      const names = themes.map((t) => t.name).join(', ');
+      return `unknown theme: ${explicit}\nknown: ${names}`;
+    }
+    return applyAndPersistTheme(explicit);
+  }
+  if (!process.stdin.isTTY) {
+    const lines: string[] = [];
+    lines.push(`current theme: ${theme.name}`);
+    lines.push('');
+    lines.push('available:');
+    for (const t of themes)
+      lines.push(`  ${t.name}  ${theme.tokens.textMuted(`— ${t.description}`)}`);
+    lines.push('');
+    lines.push('(theme picker requires a TTY; run `/theme <name>` to set non-interactively.)');
+    return lines.join('\n');
+  }
+  const items: PickerItem<string>[] = themes.map((t) => ({
+    label: t.name,
+    hint: t.description,
+    value: t.name,
+    ...(t.name === theme.name ? { hint: `${t.description}  (current)` } : {}),
+  }));
+  const initial = Math.max(
+    0,
+    themes.findIndex((t) => t.name === theme.name),
+  );
+  const chosen = await pick<string>({
+    title: 'switch theme',
+    subtitle: 'changes apply immediately and persist to ~/.harness/config.json',
+    items,
+    initial,
+  });
+  if (chosen === null) return `theme unchanged (current: ${theme.name}).`;
+  if (chosen === theme.name) return `theme unchanged (already on ${chosen}).`;
+  return applyAndPersistTheme(chosen);
+}
+
+function applyAndPersistTheme(name: string): string {
+  const t = setTheme(name);
+  try {
+    writeConfig(setAt(readConfig(), 'ui.theme', name));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `theme set to ${name} (in-process); persisting failed: ${msg}`;
+  }
+  return [
+    `theme set to ${theme.tokens.accent(name)} ${theme.tokens.textMuted(`(${t.description})`)}`,
+    renderThemeSwatch(t),
+    `persisted to ${resolveConfigPath()}`,
+  ].join('\n');
+}
+
+function renderThemeSwatch(t: Theme): string {
+  const tk = t.tokens;
+  return [
+    `  ${tk.accent('accent')}  ${tk.statusSuccess('success')}  ${tk.statusWarning('warning')}  ${tk.statusError('error')}  ${tk.textMuted('muted')}  ${tk.textDim('dim')}`,
+  ].join('\n');
 }
 
 // ──────────────────────────────────────────────────────────────────────

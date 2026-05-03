@@ -21,6 +21,32 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Phase 10.5d Wave 3 — Theme system + /settings dialog
+
+- Scope: Wave 3 of the REPL polish plan. New `src/ui/theme.ts` introduces a semantic token registry (~25 roles: text/textMuted/textBold, accent/accentBold/accentMuted, status×4, diff×3, border×3, code×2, header×3) backed by three built-in themes — `dark` (default; preserves the original look exactly), `light` (darker primaries for light terminals; uses `chalk.rgb` for amber warning), `no-color` (identity tokens for transcripts and pipes; per-token, separate from chalk's NO_COLOR env handling). Singleton API: `getTheme()`, `setTheme(name)`, `listThemes()`, `isThemeName(name)`, `resolveThemeName({configured, env})` — the last honors `NO_COLOR` overriding configured value. Tokens accessed via `theme.tokens.<role>` getter so swapping themes takes effect on the next renderer call without a re-import. New `__resetForTests()` test seam restores default dark between cases.
+- High-traffic UI files migrated to theme tokens: `footer.ts`, `diff.ts`, `modal.ts`, `thinking.ts`, `toolSlot.ts`, `box.ts`, `splash.ts`. The migration is invisible under the default dark theme (existing 531 tests pass without assertion changes). Lower-traffic files (markdownStream, sessionSummary, info, registry, terminalMessages) keep direct chalk usage; their styling is generic enough that theme support isn't load-bearing for v0 — Wave 5+ can sweep them.
+- Schema: `ui.theme` enum (`'dark'` / `'light'` / `'no-color'`) added to `SettingsSchema`. terminalRepl.ts calls `setTheme(resolveThemeName(...))` immediately after `readConfig()`, before any rendering.
+- New slash commands: `/theme [<name>]` (picker over the three themes; inline arg skips picker; persists to `~/.harness/config.json`; rejects unknowns with the available list; under non-TTY lists themes with the current marker), `/settings` (delegates to the existing `runConfigMenu` for the in-REPL config editor; non-TTY hint to use `sov config` instead). Both wired into the categorized /help layout under `── config ──`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `52e675f`.
+- Commands:
+  - `bunx tsc --noEmit`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run tests/_smoke/wave3-smoke.ts` (renders all surfaces under each theme)
+  - End-to-end live REPL: `printf '/theme\n/theme light\n/theme bogus\n/theme dark\n/quit\n' | sov chat ...` against Anthropic Haiku.
+- Manual / REPL coverage:
+  - Smoke renderer printed footer/modal/diff/splash under dark, light, and no-color. Structural output identical; only the ANSI tokens differ (no-color = no escape codes).
+  - Live REPL: `/theme` with no arg listed all three themes with the current marker; `/theme light` applied, persisted to ~/.harness/config.json, and printed a color swatch sample (`accent  success  warning  error  muted  dim`); `/theme bogus` printed `unknown theme: bogus` with `known: dark, light, no-color`; `/theme dark` reverted cleanly.
+  - `/settings` not exercised in piped mode (it correctly returns the TTY-required hint); the live picker is unchanged from the existing `sov config` flow.
+- Result:
+  - Typecheck clean. Lint clean (2 pre-existing warnings unchanged). **548/548 tests pass** (17 new: 12 theme-module unit tests covering registry, setTheme/getTheme, no-color identity, NO_COLOR override, dark token behavior; 5 /theme-command tests covering inline form, unknown rejection, non-TTY listing, no-color round-trip, persistence).
+- Regressions / follow-ups:
+  - No regressions; the theme refactor preserves the dark theme's exact byte output, so all snapshot-style tests pass without changes.
+  - Live preview during the picker (originally specced) is deferred — adds picker complexity. Wave 4+ candidate.
+  - Custom themes (~/.harness/themes/*.json) are deferred — current registry is a Map<string, Theme>, ready to absorb file-loaded themes without API churn.
+  - `/settings` delegates to runConfigMenu (the existing top-level config picker). The full multi-page settings dialog from the plan is deferred — runConfigMenu already covers the value-editing path; multi-page navigation lands when the input editor (Wave 4) gives us a richer cursor model.
+  - markdownStream.ts, sessionSummary.ts, info.ts, registry.ts still use direct chalk calls. Sweeping them to theme tokens is mechanical but low-value for v0 — wait until a felt need (e.g., a high-contrast theme that needs to override h2 styling).
+
 ## 2026-05-03 - Wave 2 hotfix: piped-stdin command queue drained before exit
 
 - Scope: Live verification of Wave 2 surfaced a latent bug in queuedQuestion + the REPL loop. Under piped stdin, every line in the pipe arrives almost instantly via readline 'line' events, then 'close' fires when stdin EOFs. The REPL loop's `while (!closed)` predicate flipped to false the moment the close event fired, exiting before the queued lines for /copy, /export, /quit could be drained. The single-prompt pipe pattern (one user prompt + EOF) hid this — only multi-line scripts triggered it. Fix in two parts: (1) `createQueuedQuestion` returns a `QueuedQuestion` with a `pending()` accessor and now drains queued lines BEFORE checking `closed`, so question() can still return queued input after readline has closed; (2) terminalRepl.ts's main loop checks both `closed` AND `question.pending() > 0`, so the loop keeps iterating until everything queued has been processed; the rl.on('close') handler no longer sets `closed=true` (the question() throw path naturally signals exhaustion). Two new regression tests pin the pre-close-then-drain pattern and the QueuedQuestion.pending() accessor.
