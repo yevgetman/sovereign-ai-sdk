@@ -105,7 +105,8 @@ tests/semantic/
 │   ├── 05-search.cases.ts         Glob, Grep
 │   ├── 06-context.cases.ts        @file expansion
 │   ├── 07-refusal.cases.ts        Zero-results, prompt-injection, verify-not-trust-user
-│   └── 08-multi-turn.cases.ts     Cross-turn memory, refinement, error-recovery
+│   ├── 08-multi-turn.cases.ts     Cross-turn memory, refinement, error-recovery
+│   └── 09-skills.cases.ts         Markdown-skill invocation via .harness/skills/
 ├── run.ts                        Entry point
 └── README.md                     This file
 ```

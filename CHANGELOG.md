@@ -1,5 +1,14 @@
 # Changelog
 
+## Semantic suite — /init + skill invocation (28/28 pass) - 2026-05-03
+
+Two more high-value adds, both filling complete-feature-coverage gaps:
+
+- `commands.init-creates-context-md` — second prompt-command coverage path. `/init` scans a fixture project (package.json + README.md + src/main.ts) using Glob/FileRead/Bash, then writes a CONTEXT.md briefing. Tests the full prompt-command-with-multi-step-tool-pipeline path: dispatch, sequencing, file synthesis. Runs 25s (6+ tool calls).
+- `commands.skill-invocation-via-slash-command` — first end-to-end skill coverage. Drops `marker-skill.md` (with frontmatter + body) into `<cwd>/.harness/skills/` and invokes `/marker-skill`. Verifies the full pipeline: filesystem discovery → frontmatter parse → registry registration → slash-command dispatch → model turn with skill body as prompt. Worked first try.
+
+Suite total: 28/28 pass, 4.3 minutes, $0.79 informational on subscription.
+
 ## Semantic suite — virtual-tool-name + layer precedence + /commit (26/26 pass) - 2026-05-03
 
 Three high-value adds targeting the most security-critical and feature-coverage gaps:

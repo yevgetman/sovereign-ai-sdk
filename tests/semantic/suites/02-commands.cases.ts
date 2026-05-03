@@ -29,6 +29,56 @@ export const tests: SemanticTest[] = [
     timeoutMs: 30_000,
   },
   {
+    id: 'init-creates-context-md',
+    name: '/init scans the project and writes CONTEXT.md',
+    description:
+      'Second prompt-command coverage (after /commit). /init feeds a constrained prompt with ' +
+      'allowedTools: [Glob, FileRead, FileWrite, Bash(ls *), Bash(git status), Bash(git log -*)] ' +
+      'and instructs the model to scan the project and write a briefing. Tests the full pipeline: ' +
+      'prompt-command dispatch, multi-step tool sequencing, file write with synthesized content.',
+    category: 'commands',
+    setup: {
+      files: [
+        {
+          path: 'package.json',
+          content: JSON.stringify(
+            {
+              name: 'sovereign-init-test-project',
+              version: '0.0.1',
+              description: 'Minimal fixture used by the /init semantic test.',
+            },
+            null,
+            2,
+          ),
+        },
+        {
+          path: 'README.md',
+          content:
+            '# sovereign-init-test-project\n\nMinimal fixture used by the /init semantic test.\n',
+        },
+        {
+          path: 'src/main.ts',
+          content: 'console.log("hello from init test fixture");\n',
+        },
+      ],
+    },
+    prompt: '/init',
+    judgeCriteria: {
+      mustSatisfy: [
+        'The agent invoked at least one scanning tool (Glob, FileRead, or Bash with ls/git) to inspect the project.',
+        'The agent invoked a file-writing tool (FileWrite/Write) targeting CONTEXT.md (path may be ./CONTEXT.md or CONTEXT.md).',
+        'The CONTEXT.md content references the project — at minimum the name "sovereign-init-test-project" or content from README.md.',
+        "The agent's final response confirms the briefing was written.",
+      ],
+      shouldNot: [
+        'The agent fabricated CONTEXT.md content without scanning the actual files.',
+        'The agent wrote to a different filename than CONTEXT.md.',
+        'The transcript shows the /init command being treated as unknown or not dispatched.',
+      ],
+    },
+    timeoutMs: 120_000,
+  },
+  {
     id: 'commit-on-non-git-directory',
     name: '/commit gracefully reports when the cwd is not a git repository',
     description:

@@ -1198,3 +1198,22 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions. `bun test` still 690/690.
   - Follow-ups: skill invocation (requires sandbox skill setup), microcompaction tool-result clearing (hard to test deterministically), MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools (need stubbing or network), CLAUDE.md context surface, `/init` command end-to-end.
+
+## 2026-05-03 - Semantic suite: /init + skill invocation (28/28)
+
+- Scope: Two coverage gap-fillers. /init exercises a second prompt-command path (after /commit) with multi-step tool sequencing + file synthesis. Skill invocation exercises the full skills pipeline end-to-end (filesystem discovery → frontmatter parse → registry → slash dispatch → model turn).
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription; agent + judge sonnet 4.6.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass.
+  - Per-test filter: init-creates-context-md (25s pass, $0.057); skill-invocation-via-slash-command (10.7s pass, $0.032).
+  - Full suite: 28/28 pass, 259.1s, $0.790 informational.
+- Manual coverage:
+  - /init: agent invoked Glob/FileRead/Bash to scan a 3-file fixture project (package.json, README.md, src/main.ts), wrote CONTEXT.md with a briefing referencing the fixture name, confirmed the write in its response.
+  - Skill invocation: marker-skill.md placed at <cwd>/.harness/skills/marker-skill.md. /marker-skill recognized as a slash command, dispatched a model turn with the skill body as prompt, agent emitted the test marker token. Worked on first try — full skills pipeline functional.
+- Result:
+  - 28/28 pass.
+  - First end-to-end skill coverage. First /init coverage. Second prompt-command coverage (commands category now: /help local, /commit prompt-command, /init prompt-command, /<skill-name> prompt-command).
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-ups: MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools (need stubbing), CLAUDE.md system-prompt context surface, microcompaction tool-result clearing, /compact correctness across turns (would compose with multi-turn framework).
