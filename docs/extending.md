@@ -136,6 +136,53 @@ Do not mutate the frozen system prompt after session creation. On resume, the st
 
 Injection-prone external text should be fenced, labeled, bounded, and screened before it reaches the model.
 
+## Add A Semantic Test
+
+Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt + judge criteria designed to weed out a specific bug class.
+
+1. Open or create `tests/semantic/suites/NN-topic.cases.ts`.
+2. Append an entry to its exported `tests: SemanticTest[]`:
+
+```ts
+{
+  id: 'kebab-case-id',           // unique across the whole suite
+  name: 'Short human title',
+  description: 'Which bug class does this test guard against?',
+  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal',
+  setup: { files: [{ path: 'foo.txt', content: 'bar' }] }, // optional
+  prompt: 'The single user prompt sent to the agent.',
+  judgeCriteria: {
+    mustSatisfy: [
+      'A behavior the transcript MUST demonstrate.',
+    ],
+    shouldNot: [
+      'A behavior that, if observed, forces fail.',
+    ],
+  },
+  timeoutMs: 45_000,             // optional; default 60_000
+}
+```
+
+3. Validate with `bun run test:semantic -- --filter <your-id>`.
+
+Design rules:
+
+- One target bug class per test. Don't try to verify five things at once — multiple weakly-related criteria make the verdict harder to interpret.
+- Criteria must be observable in the ANSI-stripped transcript. "The agent invoked the Read tool" is observable; "the agent understood the intent" is not.
+- Embed unique tokens (`sovereign-test-token-9f3e1c`) in echo-style prompts so the judge can tell genuine tool output from fabrication.
+- Always include a `shouldNot` to catch hallucination bugs that a presence-only check would miss.
+- Setups must be deterministic: declare every input file in `setup.files`, never depend on ambient state.
+
+### Add A Judge Backend
+
+`Judge` is a function type. Adding `codex`, an OpenAI judge, or eventually `sov`-judges-itself is mechanical:
+
+1. Create `tests/semantic/framework/judges/<name>.ts`. Export `create<Name>Judge(opts)` returning `Judge`. Use `buildJudgePrompt()` from `prompt.ts` for the prompt and either `parseVerdictFromText()` or `makeVerdict()` for the verdict shape.
+2. Wire it into `framework/judges/index.ts`: add to the `JudgeBackendName` union and a case to `selectJudge()`.
+3. Document the backend in the table in `tests/semantic/README.md`.
+
+The runner, the entry point, and every test case stay unchanged.
+
 ## Update Documentation
 
 When a change introduces a non-trivial design choice, add an entry to `DECISIONS.md`. When user-facing behavior changes, update the README or the relevant file under `docs/`. Phase-completion notes belong in `CHANGELOG.md`.

@@ -551,6 +551,26 @@ Run locally through Ollama:
 sov --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
 ```
 
+## Semantic Test Suite
+
+LLM-judged behavior tests that drive the real `sov` binary in an isolated sandbox and have an LLM judge decide whether each prompt was handled correctly. Catches bugs that unit tests can't reach: tool dispatch surfacing, fabrication on tool errors, slash command pipelines, multi-step coherence.
+
+```bash
+bun run test:semantic                              # auto-pick judge backend
+bun run test:semantic -- --filter bash             # single test
+bun run test:semantic -- --list                    # show discovered tests
+bun run test:semantic -- --verbose                 # print transcripts on failure
+bun run test:semantic -- --judge anthropic-api     # API mode (needs ANTHROPIC_API_KEY)
+```
+
+**Default judge:** the local `claude` CLI in `--print` mode — uses your authenticated subscription, no API tokens. Falls back to the Anthropic SDK when `claude` isn't on `PATH` (or you pass `--judge anthropic-api`). Both judge and agent default to `claude-sonnet-4-6`.
+
+**Strictly opt-in.** Not part of `bun test` because every case spawns a real model turn (the judge is subscription-absorbed but the agent-under-test still spends model credit). `tests/semantic/*.cases.ts` doesn't match Bun's `*.test.ts` discovery.
+
+**Fully isolated.** Each test runs in a fresh `mktemp -d` with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB. Cleaned up on success, failure, or crash. The judge subprocess is spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands`.
+
+See [`tests/semantic/README.md`](../tests/semantic/README.md) for design, isolation guarantees, how to add tests, and how to add new judge backends.
+
 ## Troubleshooting
 
 `No bundle found`

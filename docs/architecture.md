@@ -220,6 +220,29 @@ Full compaction (`/compact`) summarizes message history into a child session. Pr
 
 `compaction.proactiveThresholdPct` (1–99) is settings-configurable in `~/.harness/config.json`. Reactive compaction (post-error retry on context-overflow) is unconditional.
 
+## Semantic Test Suite
+
+A second test category lives under `tests/semantic/`, separate from the unit/integration suites. Where unit tests verify functions in isolation, semantic tests drive the real `sov` binary as a subprocess and have an LLM judge evaluate the resulting transcript against per-test criteria.
+
+**Architecture (3 layers, each swappable):**
+
+- `framework/sandbox.ts` builds the per-test ephemeral env (`HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB, working dir) and guarantees cleanup.
+- `framework/driver.ts` spawns the binary, pipes `<prompt>\n/quit\n`, captures stdout/stderr, ANSI-strips, applies a per-test timeout. Defaults the agent model to `claude-sonnet-4-6` unless the test specifies one via `binaryArgs`.
+- `framework/judges/` is a pluggable backend dir. `Judge` is a function type `(test, transcript) => Promise<JudgeVerdict>`. Two backends ship: `claudeCode.ts` (default — shells out to local `claude` CLI in `--print` mode with `--tools ""` for isolation; uses the user's subscription) and `anthropicApi.ts` (opt-in — direct `@anthropic-ai/sdk` call with tool-use; needs `ANTHROPIC_API_KEY`). `index.ts` does auto-detection based on PATH. Adding a new backend (codex, `sov`-itself, etc.) is one new file plus a `selectJudge` switch case.
+- `framework/runner.ts` is judge-agnostic: it accepts a `Judge` and never inspects which backend produced it.
+
+**Isolation invariants:**
+
+- Framework code never imports from `src/`. The binary under test is always a subprocess.
+- File names match `*.cases.ts` and `run.ts` — neither matches Bun's `*.test.ts` / `*.spec.ts` discovery, so `bun test` ignores the suite.
+- Suite runs are opt-in via `bun run test:semantic`; the script is purely additive in `package.json`.
+- Per-test sandbox cleanup is idempotent and runs in a `finally` block.
+- Judge subprocess (when using `claude-code`) runs in `os.tmpdir()` with `--no-session-persistence`, `--disable-slash-commands`, `--tools ""`.
+
+**Verdict shape.** The judge returns `{pass, reasoning, satisfiedCriteria, failedCriteria, costUsd, tokens, backend}`. The reporter shows `subscription` for `claude-code` zero-cost results and a dollar figure (informational under subscription) when the envelope reports one.
+
+See `tests/semantic/README.md` for the full design and porting guide.
+
 ## Extension Surfaces
 
 The primary extension surfaces are:

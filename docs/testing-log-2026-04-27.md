@@ -1084,3 +1084,29 @@ Implementation backlogs from these findings live in
   - Bug confirmed fixed: picker-set `permissionMode` now actually applies.
 - Regressions / follow-ups:
   - None. Settings.json layer (with allow/deny rules) still wins over config.json, preserving prior behavior for users using that layer.
+
+## 2026-05-03 - Semantic test suite (LLM-judged behavior tests)
+
+- Scope: New opt-in test category under `tests/semantic/`. Strictly additive — zero edits to `src/`, never imports from `src/`, opt-in via `bun run test:semantic`. Pluggable judge backends (`claudeCode` default via local CLI subscription, `anthropicApi` opt-in fallback). Both judge and agent default to `claude-sonnet-4-6`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; `claude` CLI 2.1.126 installed and authenticated under subscription (no `ANTHROPIC_API_KEY` set).
+- Commands:
+  - `bun run lint` — clean (2 pre-existing warnings unchanged).
+  - `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass, confirms semantic suite isolation: `*.cases.ts` and `run.ts` don't match Bun's `*.test.ts`/`*.spec.ts` discovery.
+  - `bun tests/semantic/run.ts --list` — discovered 8 starter cases.
+  - `bun run test:semantic -- --filter bash-basic-echo` — 1/1 pass after parser hotfix.
+  - `bun run test:semantic` — 8/8 pass, 66.4s total, $0.222 informational (subscription absorbed).
+- Manual coverage:
+  - Per-test bash/read/edit/write tool dispatch verified by LLM judge against transcripts of real `sov` sessions.
+  - `/help` slash-command pipeline through piped stdin.
+  - Two-step write-then-read workflow coherence.
+  - Directory enumeration honesty (no fabricated filenames).
+  - Anti-fabrication on missing file (the most insidious bug class).
+- Result:
+  - 8/8 starter cases pass on a clean run after two hotfixes during bring-up:
+    1. Dropped `--json-schema` from the claude-code judge — combined with `--tools ""` and large prompts, claude returned `result:""` empty envelopes. Replaced with prompt-instructed JSON output + tolerant parser.
+    2. Parser now strips ` ```json ` fences when unwrapping the `result` field (claude wraps schema-less JSON in markdown by default), and falls back to `structured_output` field when present.
+  - Cost shifted from ~$0.10/judge call (default Opus 4.7) to ~$0.027/judge call (pinned Sonnet 4.6).
+- Regressions / follow-ups:
+  - No regressions. Existing `bun test` discovery confirmed unaffected.
+  - Follow-ups (not blocking): permissions cases, MCP-tool cases (Phase 12), multi-turn conversation coherence cases, parallel execution, JSON reporter, `sov`-judges-itself backend once harness maturity supports it.
