@@ -1177,3 +1177,24 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - Follow-ups: `/compact` correctness across turns (would compose well with multi-turn now that we have the framework support), virtual tool name mapping tests (Bash("cat foo") → Read rules), rule-layer precedence tests (local > project > user), MCP tool dispatch (waits on Phase 12), trajectory capture verification (waits on Phase 13.1).
+
+## 2026-05-03 - Semantic suite: virtual-tool + layer precedence + /commit (26/26)
+
+- Scope: Three high-value additions filling security-critical + feature-coverage gaps. Permission test timeouts bumped 45s → 90s after first full-suite run hit tail-latency false positives.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription auth; agent + judge both pinned to claude-sonnet-4-6.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass.
+  - Individual filter validation: bash-cat-blocked (8.5s), rule-layer-local (8.5s), commit-on-non-git (30.3s).
+  - First full suite run: 24/26 (2 permission tests timed out at 45s). Bumped permission timeouts to 90s.
+  - Second full suite run: 26/26 pass, 241.7s, $0.734 informational.
+- Manual coverage:
+  - Virtual tool name: `Bash("cat secret.txt")` blocked by `Read(**)` deny rule. The harness's shell-AST analyzer maps Bash inputs to virtual tool names (cat → Read; sed -i → Edit), so deny rules cannot be bypassed via shell. Confirmed end-to-end.
+  - Layer precedence: `.harness/settings.local.json` deny outranks `.harness/settings.json` allow on the same pattern. Local-wins behavior verified.
+  - /commit prompt-command path: feeds a constrained prompt with git-only Bash scope to the model. In a non-git cwd, the agent invokes git status, gets "fatal: not a git repository", and reports honestly without fabricating a commit. First coverage of the prompt-command pipeline (vs /help which is local-only).
+- Result:
+  - 26/26 pass after timeout adjustment.
+  - The /commit test ran 24-30s on each run — long-tail latency explains the earlier 45s timeouts on similar permission-deny tests. 90s gives ~6x typical-pass headroom.
+- Regressions / follow-ups:
+  - No regressions. `bun test` still 690/690.
+  - Follow-ups: skill invocation (requires sandbox skill setup), microcompaction tool-result clearing (hard to test deterministically), MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools (need stubbing or network), CLAUDE.md context surface, `/init` command end-to-end.

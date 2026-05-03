@@ -1,5 +1,17 @@
 # Changelog
 
+## Semantic suite — virtual-tool-name + layer precedence + /commit (26/26 pass) - 2026-05-03
+
+Three high-value adds targeting the most security-critical and feature-coverage gaps:
+
+- `permissions.bash-cat-blocked-by-read-deny` — verifies the harness's shell-AST virtual tool name mapping. `Bash("cat foo")` resolves to `Read` for permission resolution, so a `Read(*)` deny rule blocks `cat` even when invoked through the shell. Without this mapping, deny rules can be silently bypassed via shell commands. Highest-stakes test in the suite.
+- `permissions.rule-layer-local-overrides-project` — pins the layer precedence invariant. With project allowing `Bash(echo *)` and local denying it, local wins. Documents the contract for "team-loose project, individual-locked local" workflow.
+- `commands.commit-on-non-git-directory` — first prompt-command coverage (vs `/help` which is local-only). The `/commit` registry entry feeds a constrained prompt to the model with allowedTools restricted to git Bash subcommands. In a non-git cwd, the agent should invoke git status, see "not a git repository", and report honestly without fabricating a commit.
+
+Permission test timeouts bumped from 45s → 90s after the first full-suite run hit two false-positive timeouts on the existing deny/allow tests (tail latency on model calls).
+
+Suite total: 26/26 pass, 4 minutes, $0.73 informational on subscription.
+
 ## Semantic suite — multi-turn support (23/23 pass) - 2026-05-03
 
 Framework now supports multi-turn tests. `SemanticTest.prompt` accepts `string | string[]`; arrays drive one turn per element, sent to `sov` via piped stdin (separated by newlines, terminated with `/quit`). The harness's queued-question pattern consumes them sequentially, waiting for each turn to complete before reading the next. The judge prompt builder renders multi-turn cases readably.
