@@ -36,8 +36,15 @@ function summarizeContent(content: string): string {
 }
 
 function summarizeError(content: string): string {
-  const first = content.trim().split('\n')[0] ?? '';
-  return truncate(first, 120);
+  const lines = content.trim().split('\n');
+  const first = lines[0] ?? '';
+  const head = truncate(first, 160);
+  if (lines.length <= 1) return head;
+  // Multi-line errors: hint that the full body has more lines so the
+  // user knows the truncation is hiding context. The full content is
+  // still visible in `--verbose` mode and the JSONL transcript.
+  const more = lines.length - 1;
+  return `${head}  · +${more} more line${more === 1 ? '' : 's'}`;
 }
 
 export class CompactToolSlot {

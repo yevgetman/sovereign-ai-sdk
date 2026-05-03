@@ -2,9 +2,15 @@
 // in — we don't open a second readline, which would fight with the REPL's
 // input loop. The parser (answer string → AskResponse) is factored out so
 // the test suite can exercise it without spinning up readline.
+//
+// Phase 10.5b: the prompt is rendered as a framed modal (see ui/modal.ts)
+// so it can't get visually buried by the thinking spinner or other
+// concurrent decorators. The readline question() still reads the answer,
+// so existing tests that drive a stub question fn keep working.
 
 import type { Interface as ReadlineInterface } from 'node:readline/promises';
 import chalk from 'chalk';
+import { type ModalRow, withModal } from '../ui/modal.js';
 import type { AskResponse, AskUser } from './types.js';
 
 type ReadlineQuestion = (prompt: string, options?: { signal?: AbortSignal }) => Promise<string>;
@@ -50,20 +56,25 @@ export function buildReadlineAsker(
       preview,
       ...(reason ? { reason } : {}),
     };
-    const summary = preview ? ` ${chalk.bold(preview)}` : '';
-    const reasonLine = reason ? chalk.gray(` — ${reason}`) : '';
-    process.stdout.write(chalk.yellow(`\n[permission] ${toolName}${summary}${reasonLine}\n`));
     hooks.onPrompt?.(event);
-    for (;;) {
-      const prompt = chalk.yellow('  allow? [y]es / [N]o / [a]lways: ');
-      const raw = signal ? await question(prompt, { signal }) : await question(prompt);
-      const parsed = parseAskResponse(raw);
-      if (parsed !== undefined) {
-        hooks.onAnswer?.({ ...event, answer: parsed });
-        return parsed;
-      }
-      process.stdout.write(chalk.red('  please enter y, n, or a\n'));
-    }
+    const rows: ModalRow[] = [{ label: 'tool', value: chalk.bold(toolName) }];
+    if (preview) rows.push({ label: 'input', value: preview });
+    if (reason) rows.push({ label: 'reason', value: chalk.gray(reason) });
+    const answer = await withModal<AskResponse>({
+      title: 'permission required',
+      rows,
+      choices: [
+        { key: 'y', label: 'allow' },
+        { key: 'n', label: 'deny', default: true },
+        { key: 'a', label: 'always' },
+      ],
+      parse: parseAskResponse,
+      question,
+      reprompt: 'please enter y, n, or a',
+      ...(signal ? { signal } : {}),
+    });
+    hooks.onAnswer?.({ ...event, answer });
+    return answer;
   });
 }
 

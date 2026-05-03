@@ -8,6 +8,7 @@
 // indicator from flashing during normal fast streaming.
 
 import chalk from 'chalk';
+import { isModalActive } from './modal.js';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SHOW_AFTER_MS = 500;
@@ -81,6 +82,9 @@ export class ThinkingIndicator {
 
   private tick(): void {
     if (!this.active) return;
+    // Suppress the spinner while a modal is up so the spinner's
+    // \r-clear-line trick doesn't clobber the permission prompt.
+    if (isModalActive()) return;
     this.rendered = true;
     const elapsed = Math.floor((Date.now() - this.startedAt) / 1000);
     const f = FRAMES[this.frame % FRAMES.length] ?? '⠋';

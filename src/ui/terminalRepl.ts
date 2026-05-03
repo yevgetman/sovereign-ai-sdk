@@ -62,6 +62,9 @@ import {
   enableBracketedPaste,
   restoreEmbeddedNewlines,
 } from './bracketedPaste.js';
+import { ContextMeter } from './contextMeter.js';
+import { renderToolDiff } from './diff.js';
+import { type FooterInfo, printPrePromptFooter } from './footer.js';
 import { MarkdownStream } from './markdownStream.js';
 import { createQueuedQuestion } from './queuedQuestion.js';
 import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
@@ -161,6 +164,10 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       ? userSettings.compaction.proactiveThresholdPct / 100
       : undefined;
   const verbose = opts.verbose === true || userSettings.verbose === true;
+  const footerEnabled = userSettings.ui?.footer?.enabled !== false;
+  const diffRenderEnabled = userSettings.ui?.diffRender?.enabled !== false;
+  const meterWarnAt = userSettings.ui?.contextMeter?.warnAtPercent ?? 60;
+  const meterDangerAt = userSettings.ui?.contextMeter?.dangerAtPercent ?? 80;
   // Precedence: explicit CLI flag → .harness/settings.json layers →
   // ~/.harness/config.json → built-in 'default'. The settings.json layer
   // owns allow/deny rules so it stays authoritative when present; config.json
@@ -254,6 +261,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
   let activeSessionId = opened.sessionId;
   const { systemPrompt, history, resumed } = opened;
+  const contextMeter = new ContextMeter({
+    contextLength: resolved.contextLength,
+    warnAtPercent: meterWarnAt,
+    dangerAtPercent: meterDangerAt,
+  });
   const metrics: Omit<SessionMetrics, 'endedAtMs'> = {
     sessionId: activeSessionId,
     startedAtMs: Date.now(),
@@ -368,9 +380,25 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     toolPool.map((t) => t.name),
     activeSessionId,
     resumed,
+    countLayerAllowRules(permissionSettings.layers),
   );
 
   while (!closed) {
+    if (footerEnabled) {
+      const cost = db.getSessionCost(activeSessionId);
+      const totalCost = cost.estimatedCostUsd + cost.estimatedCompactionCostUsd;
+      const bundleLabel = opts.bundlePath ? deriveBundleLabel(opts.bundlePath) : null;
+      const footerInfo: FooterInfo = {
+        providerName,
+        model: activeModel,
+        bundleLabel,
+        permissionMode,
+        toolCount: toolPool.length,
+        costUsd: totalCost,
+        meter: contextMeter,
+      };
+      printPrePromptFooter(process.stdout, footerInfo, { enabled: true });
+    }
     const frame = openPromptFrame();
     const raw = await question(chalk.cyan('> ')).catch(() => null);
     frame.close();
@@ -425,6 +453,25 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       });
     }
 
+    // Pre-compaction warning. Threshold is the configured proactive
+    // threshold (or the meter's danger threshold if proactive is unset)
+    // — fires once when the meter crosses 5% below it, so the user sees
+    // a heads-up before compaction kicks in on the next turn rather
+    // than after-the-fact when history has already been rewritten.
+    {
+      const thresholdPct =
+        proactiveThreshold !== undefined
+          ? proactiveThreshold * 100
+          : contextMeter.getThresholds().danger;
+      if (contextMeter.shouldWarnApproachingCompaction(thresholdPct)) {
+        writeStatusLine(
+          chalk.yellow(
+            `[compact] approaching threshold (ctx ${contextMeter.getPercent()}% / trigger ${Math.round(thresholdPct)}%) — compaction may fire on the next turn`,
+          ),
+          'err',
+        );
+      }
+    }
     if (
       shouldCompactProactively({
         messages: history,
@@ -440,6 +487,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           `[compact] ${result.parentSessionId} -> ${result.newSessionId}; estimated tokens ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}\n`,
         ),
       );
+      contextMeter.reset();
     }
 
     process.stdout.write('\n');
@@ -467,6 +515,10 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     const turnMessages: Message[] = [];
     const mutatingToolUses = new Map<string, { name: string; paths: string[] }>();
     const completedMutationPaths = new Set<string>();
+    // Captured at tool_use time, consumed at tool_result time. Lets the
+    // diff renderer fire after a successful FileEdit / FileWrite so the
+    // user sees the change inline. Errors skip the diff path.
+    const diffInputsByToolUseId = new Map<string, { name: string; input: unknown }>();
     let toolsForTurn = toolPool;
 
     try {
@@ -530,7 +582,21 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               }
               if (block.is_error === true) {
                 metrics.toolErr++;
+                diffInputsByToolUseId.delete(block.tool_use_id);
                 continue;
+              }
+              // Successful diff-shaped tool: emit the inline diff block
+              // below the slot summary so the user sees what changed.
+              const diffEntry = diffInputsByToolUseId.get(block.tool_use_id);
+              if (diffEntry) {
+                diffInputsByToolUseId.delete(block.tool_use_id);
+                const diffOut = renderToolDiff(diffEntry.name, diffEntry.input, { verbose });
+                if (diffOut) {
+                  // toolSlot.commit() so the diff lands as fresh
+                  // scrollback below the slot rather than overwriting it.
+                  toolSlot.commit();
+                  process.stdout.write(diffOut);
+                }
               }
               metrics.toolOk++;
               const mutation = mutatingToolUses.get(block.tool_use_id);
@@ -612,6 +678,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               toolStartTimes.set(block.id, Date.now());
               const mutation = mutationEffect(block, toolsForTurn, toolContext.cwd);
               if (mutation) mutatingToolUses.set(block.id, mutation);
+              if (diffRenderEnabled && isDiffShapedTool(block.name)) {
+                diffInputsByToolUseId.set(block.id, { name: block.name, input: block.input });
+              }
               const preview = previewToolInput(block.input);
               if (verbose) {
                 writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
@@ -640,6 +709,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         if (ev.type === 'usage_delta') {
           latestUsage = ev.usage;
           indicator.setUsage(ev.usage.inputTokens, ev.usage.outputTokens);
+          contextMeter.update(ev.usage);
         }
         if (ev.type === 'microcompact') {
           toolSlot.commit();
@@ -876,6 +946,7 @@ function writeBanner(
   toolNames: string[],
   sessionId: string,
   resumed: boolean,
+  layerAllowRuleCount: number,
 ): void {
   const providerName = String(resolved.metadata.provider);
   const authLabel =
@@ -887,12 +958,16 @@ function writeBanner(
     : `new ${sessionId.slice(0, 8)}`;
   const configuredMode =
     permissionMode === opts.permissionMode ? permissionMode : `${permissionMode} (from settings)`;
+  const rulesNote =
+    layerAllowRuleCount > 0
+      ? ` (${layerAllowRuleCount} allow rule${layerAllowRuleCount === 1 ? '' : 's'} loaded)`
+      : '';
   const splash = renderSplash({
     providerLabel: providerName,
     authLabel,
     model: resolved.model,
     bundlePath: opts.bundlePath ?? null,
-    permissionMode: configuredMode,
+    permissionMode: `${configuredMode}${rulesNote}`,
     permissionModeNote: modeNote,
     toolCount: toolNames.length,
     cacheOn: opts.noCache !== true,
@@ -900,6 +975,20 @@ function writeBanner(
     exitHint: '/quit or Ctrl-D to exit',
   });
   process.stdout.write(`${splash}\n`);
+}
+
+/** Count `allow`-behavior rules across every loaded permission layer.
+ *  The splash uses this to advertise that the user has persistent
+ *  auto-allow rules in effect, separate from session-scoped `always`
+ *  answers (which start empty and accumulate during a session). */
+function countLayerAllowRules(layers: import('../config/rules.js').PermissionRuleLayer[]): number {
+  let n = 0;
+  for (const layer of layers) {
+    for (const rule of layer.rules) {
+      if (rule.behavior === 'allow') n++;
+    }
+  }
+  return n;
 }
 
 type SessionOpen = {
@@ -1062,6 +1151,22 @@ function mutationEffect(
 function truncatePreview(s: string): string {
   const clean = s.replace(/\s+/g, ' ').trim();
   return clean.length > 60 ? `${clean.slice(0, 57)}...` : clean;
+}
+
+/** Names recognised by the inline diff renderer. Aliases (Edit / Write)
+ *  are kept in sync with the buildTool aliases on FileEditTool /
+ *  FileWriteTool so a model that emits either form gets the same UX. */
+function isDiffShapedTool(name: string): boolean {
+  return name === 'FileEdit' || name === 'Edit' || name === 'FileWrite' || name === 'Write';
+}
+
+/** Short, scannable label for the footer's bundle segment. Strips
+ *  trailing slashes and shows just the basename — full path stays
+ *  visible in the splash banner. */
+function deriveBundleLabel(bundlePath: string): string {
+  const trimmed = bundlePath.replace(/\/+$/, '');
+  const slash = trimmed.lastIndexOf('/');
+  return slash === -1 ? trimmed : trimmed.slice(slash + 1);
 }
 
 /** Strip image base64 payloads before serializing assistant content into

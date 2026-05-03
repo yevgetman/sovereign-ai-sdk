@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import chalk from 'chalk';
+import { withModal } from '../../src/ui/modal.js';
 import { ThinkingIndicator } from '../../src/ui/thinking.js';
 
 chalk.level = 1;
@@ -81,5 +82,26 @@ describe('ThinkingIndicator', () => {
     ind.start();
     expect(sink.out.length).toBe(len);
     ind.stop();
+  });
+
+  test('does not render while a modal is active (prompt is sacred)', async () => {
+    const indSink = new StringSink();
+    const modalSink = new StringSink();
+    const ind = new ThinkingIndicator(indSink);
+    ind.start();
+    // Wait past the grace period; tick fires but the modal blocks render.
+    await withModal({
+      title: 't',
+      rows: [],
+      choices: [],
+      parse: () => 'ok',
+      question: async () => {
+        await delay(620);
+        return 'ok';
+      },
+      out: modalSink,
+    });
+    ind.stop();
+    expect(indSink.out).toBe('');
   });
 });
