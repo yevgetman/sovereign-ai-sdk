@@ -14,6 +14,7 @@
 // Exit commands: `/quit`, `/exit`, `/q`, Ctrl-D.
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
@@ -66,6 +67,9 @@ import {
 import { ContextMeter } from './contextMeter.js';
 import { renderToolDiff } from './diff.js';
 import { type FooterInfo, printPrePromptFooter } from './footer.js';
+import { InputEditor } from './inputEditor.js';
+import { InputHistory } from './inputHistory.js';
+import { getKeypressDispatcher } from './keypress.js';
 import { MarkdownStream } from './markdownStream.js';
 import { createQueuedQuestion } from './queuedQuestion.js';
 import { type SessionMetrics, renderSessionSummary } from './sessionSummary.js';
@@ -99,6 +103,9 @@ export type ReplOpts = {
    *  REPL prints a one-line summary so tool output doesn't dominate
    *  the conversation view. CLI flag wins over config setting. */
   verbose?: boolean;
+  /** When true, use the legacy readline-based input loop instead of
+   *  the Wave-4 raw-mode inputEditor. Default false. */
+  legacyInput?: boolean;
 };
 
 /** Write a bracketed status line (e.g. `[tool: ...]`, `[cleared ...]`,
@@ -310,10 +317,17 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   };
   const toolPool = assembleToolPool(toolContext);
 
-  // Wrap stdin in a bracketed-paste transform so multi-line pastes don't
-  // fragment into one model turn per line. The terminal must opt in too,
-  // via `\x1b[?2004h`. Skip both when stdin isn't a TTY (CI, piped input).
-  const bpEnabled = process.stdin.isTTY === true;
+  // Two input paths share the same `question(prompt) => Promise<string>`
+  // shape:
+  //   - legacy: readline + bracketed-paste transform + queuedQuestion
+  //     (Phase 3.5 baseline; the proven path for piped stdin and CI).
+  //   - inputEditor: Wave-4 raw-mode editor with multi-line, history,
+  //     autocomplete (TTY-only path).
+  // Selection: --legacy-input flag forces legacy; otherwise inputEditor
+  // when stdin is a TTY, legacy when stdin is piped (so CI / scripted
+  // sessions keep working without the editor's terminal assumptions).
+  const useEditor = opts.legacyInput !== true && process.stdin.isTTY === true;
+  const bpEnabled = !useEditor && process.stdin.isTTY === true;
   const bpTransform = bpEnabled ? new BracketedPasteTransform(process.stdin) : null;
   if (bpTransform) {
     process.stdin.pipe(bpTransform);
@@ -322,9 +336,30 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const rl = createInterface({
     input: (bpTransform ?? process.stdin) as NodeJS.ReadStream,
     output: process.stdout,
-    terminal: true,
+    terminal: !useEditor,
   });
-  const question = createQueuedQuestion(rl);
+  const legacyQuestion = createQueuedQuestion(rl);
+  const editor = useEditor
+    ? new InputEditor({
+        keypress: getKeypressDispatcher(),
+        history: (() => {
+          const h = new InputHistory({ path: join(harnessHome, 'input-history') });
+          h.load();
+          return h;
+        })(),
+        commandNames: () =>
+          commandRegistry ? Array.from(new Set(commandRegistry.values())).map((c) => c.name) : [],
+        cwd: () => process.cwd(),
+      })
+    : null;
+  const question: typeof legacyQuestion = editor
+    ? Object.assign(
+        async (prompt: string, options?: { signal?: AbortSignal }) => {
+          return editor.ask(prompt, options ?? {});
+        },
+        { pending: () => 0 },
+      )
+    : legacyQuestion;
 
   let streamController: AbortController | null = null;
   let closed = false;
@@ -429,9 +464,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       };
       printPrePromptFooter(process.stdout, footerInfo, { enabled: true });
     }
-    const frame = openPromptFrame();
+    // The Wave-4 editor renders its own multi-line prompt area, so we
+    // skip the rule-frame when it's active. Legacy path keeps the
+    // top/bottom rules as before so piped-stdin transcripts still
+    // read sensibly.
+    const frame = useEditor ? null : openPromptFrame();
     const raw = await question(chalk.cyan('> ')).catch(() => null);
-    frame.close();
+    frame?.close();
     if (raw === null) break;
     const input = bpEnabled ? restoreEmbeddedNewlines(raw) : raw;
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });

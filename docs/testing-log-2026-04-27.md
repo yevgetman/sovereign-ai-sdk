@@ -21,6 +21,33 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Phase 10.5e Wave 4 — input editor (multi-line, history, autocomplete)
+
+- Scope: Wave 4 of the REPL polish plan — biggest single felt UX upgrade. Five new modules:
+  - `src/ui/keypress.ts` (~440 LOC): raw-mode dispatcher. Reference-counted enable/disable, parses ANSI escapes (CSI, SS3) + bracketed paste + control chars + Alt-letter into typed Key objects. Subscribes/unsubscribes via callbacks. `getKeypressDispatcher()` singleton; module-level guard against dispatching while a modal is active.
+  - `src/ui/textBuffer.ts` (~250 LOC): multi-line text buffer with row/col cursor. Operations: insert (with embedded-newline split), deleteLeft/Right, deleteWordLeft, deleteToLineStart/End, moveLeft/Right (line-boundary aware), moveUp/Down (column clamping), moveLineStart/End, moveBufferStart/End. cursorIsOnFirstLine/LastLine for the editor's history-vs-motion decision.
+  - `src/ui/inputHistory.ts` (~120 LOC): persistent history at `~/.harness/input-history`. One entry per line, embedded newlines escaped as `\\n`. add() dedupes against last entry, caps at 1000, persists atomically. at(offsetFromEnd) walks the history for Up/Down navigation.
+  - `src/ui/autocomplete.ts` (~140 LOC): pure completion. Slash commands (`/co<Tab>` → `/cost`/`/commit`/`/compact`) and `@file` paths (`@src/m<Tab>` → `@src/main.ts`). Returns `{prefix, replaceFrom, suggestions, kind}`. Directory entries sorted first, dotfiles hidden, capped at 50 results.
+  - `src/ui/inputEditor.ts` (~470 LOC): drop-in replacement for `question(prompt) ⇒ Promise<string>`. Owns one TextBuffer, subscribes to keypress events, dispatches via dispatchByName/dispatchCtrl tables. Keybinds: Enter (with `\` line-continuation → newline), Tab (autocomplete + cycle), Up/Down (history when on first/last line), Left/Right/Home/End/Backspace/Delete, Ctrl-A/E/B/F/P/N/U/K/W/L (readline emulation), Ctrl-C (clear; second on empty buffer = EOF), Ctrl-D (EOF when empty, deleteRight otherwise). Re-renders the buffer area on every keystroke with ANSI cursor positioning. Paste keys insert literally — no keybind dispatch from inside a paste burst.
+- Wiring (terminalRepl.ts): the new editor is the default when `process.stdin.isTTY === true`; piped stdin falls through to the legacy readline + queuedQuestion path; `--legacy-input` flag forces legacy regardless. The editor renders its own multi-line prompt, so the rule-frame from `openPromptFrame()` is skipped on the editor path. New CLI flag in `src/main.ts`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `cb5b9dd`.
+- Commands:
+  - `bunx tsc --noEmit`
+  - `bun run lint`
+  - `bun run test`
+  - `bash tests/_smoke/wave1-3-hardpass.sh`
+- Manual / REPL coverage:
+  - Piped stdin fallback verified: `printf '/about\\n/quit\\n' | sov chat ...` produces the splash + about card + goodbye summary, identical with and without `--legacy-input`.
+  - **Live TTY behavior was not exercised in this session** — the editor's keystroke handling, multi-line continuation, history navigation, and autocomplete cycling all need a real terminal to drive. Recommend a manual smoke (5 min interactive) before relying on the editor for daily use.
+- Result:
+  - Typecheck clean. Lint clean (2 pre-existing shellSemantics warnings unchanged). **632/632 tests pass** (84 new: 19 keypress parsing, 21 textBuffer ops, 12 inputHistory I/O round-trips, 12 autocomplete shapes, 20 inputEditor integration via FakeDispatcher). Hard-pass 105/105 confirms Waves 1-3 surfaces still work — non-TTY paths correctly route through the legacy editor.
+- Regressions / follow-ups:
+  - No regressions in piped-stdin paths. The hard-pass workflow uses non-TTY pipes; it exercises the legacy editor unchanged.
+  - The new editor is a from-scratch raw-mode implementation. Bugs that only surface in real terminals (cursor positioning under reflow, modifier-key reporting on uncommon terminals, paste-burst edge cases) won't be caught by unit tests. The `--legacy-input` flag exists specifically as a safety hatch — if a user hits a rendering bug, they can fall back without losing functionality.
+  - Ctrl-R reverse search is not yet implemented. Wave 5+ candidate.
+  - Soft wrapping (single line longer than terminal width) is not handled. Buffer renders one display line per logical line; long lines will overflow the terminal column. Acceptable for prompts under ~200 chars; edge case for huge pasted content. Wave 5 candidate.
+  - Grapheme-cluster cursor motion is not implemented (UTF-16 surrogate awareness only). Emoji or combining marks may behave oddly with Left/Right. Acceptable for v0; revisit if a felt issue surfaces.
+
 ## 2026-05-03 - Hard-pass for Waves 1-3 (105 assertions across 35 scenarios)
 
 - Scope: New `tests/_smoke/wave1-3-hardpass.sh` — comprehensive end-to-end workflow that exercises every Wave-1-3 surface against a sandboxed config + DB + cwd. 105 assertions across 35 numbered scenarios spanning: every slash command in the registry (info, pickers, session-ops, config, git), every Wave-1 rendering primitive (footer, modal, diff, contextMeter, multi-line error), Wave-1 hotfix (FileEdit line-context), Wave-2 picker primitives, Wave-2 hotfix (multi-command queue drain), Wave-3 theme system (dark/light/no-color, NO_COLOR override, schema persistence). Live model turns (Anthropic Haiku) verify the modal permission prompt in `ask` mode, FileEdit replace_all annotation, FileWrite live diff, /export round-trip, and /clear /rollback flow. Total cost per run: well under $0.50.
