@@ -100,8 +100,6 @@ export type ReplOpts = {
   verbose?: boolean;
 };
 
-const EXIT_COMMANDS = new Set(['/quit', '/exit', '/q']);
-
 /** Write a bracketed status line (e.g. `[tool: ...]`, `[cleared ...]`,
  *  `[debug] ...`) with guaranteed leading and trailing newlines so it
  *  never collides with adjacent assistant text. The caller passes the
@@ -361,8 +359,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     cwd: process.cwd(),
     providerName,
     model: activeModel,
+    bundlePath: opts.bundlePath ?? null,
     setModel: (model) => {
       activeModel = model;
+      // Persist so /model picks survive --resume.
+      db.updateSessionModel(activeSessionId, model);
     },
     clearHistory: clearNow,
     getCost: () => db.getSessionCost(activeSessionId),
@@ -370,6 +371,20 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     rollback: rollbackNow,
     tools: toolPool,
     registry: commandRegistry,
+    listSessions: (limit) => db.listSessions(limit),
+    getMetrics: () => ({ ...metrics, sessionId: activeSessionId }),
+    skills,
+    getLastAssistantText: () => extractLastAssistantText(history),
+    getMessages: () => [...history],
+    getPermissions: () => ({
+      mode: permissionMode,
+      alwaysAllow: [...alwaysAllow],
+      layers: permissionSettings.layers,
+    }),
+    requestExit: () => {
+      closed = true;
+      rl.close();
+    },
   });
 
   writeBanner(
@@ -408,7 +423,6 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
     if (trimmed === '') continue;
-    if (EXIT_COMMANDS.has(trimmed)) break;
 
     if (trimmed.startsWith('/')) {
       const result = await dispatchSlashCommand(trimmed, commandContext());
@@ -1176,6 +1190,24 @@ function truncatePreview(s: string): string {
  *  FileWriteTool so a model that emits either form gets the same UX. */
 function isDiffShapedTool(name: string): boolean {
   return name === 'FileEdit' || name === 'Edit' || name === 'FileWrite' || name === 'Write';
+}
+
+/** Pull the latest assistant message's text content. Concatenates
+ *  consecutive text blocks; returns null when the latest assistant
+ *  message is tool-only or no assistant message exists yet. Used by
+ *  the /copy slash command. */
+function extractLastAssistantText(history: Message[]): string | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!msg || msg.role !== 'assistant') continue;
+    const text = msg.content
+      .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    return text.length > 0 ? text : null;
+  }
+  return null;
 }
 
 /** For FileEdit only: read the file synchronously at the moment we see

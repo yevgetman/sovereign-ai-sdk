@@ -21,6 +21,28 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Phase 10.5c Wave 2 — Pickers & slash command coverage
+
+- Scope: Wave 2 of the REPL polish plan. New `src/ui/picker.ts` (raw-mode picker primitive: ↑/↓/PgUp/PgDn/Home/End/Enter/Esc, generic over T, falls back to null on non-TTY), `SessionDb.listSessions()` + `updateSessionModel()` (newest-first session list with first-user-message-as-title fallback; persisted /model picks). New slash commands: `/about`, `/tools`, `/skills`, `/stats`, `/permissions`, `/quit` (+ `/exit`/`/q` aliases), `/copy` (clipboard via pbcopy/wl-copy/xclip/xsel/clip.exe shell-out), `/resume` (picker over recent sessions, prints resume command — in-process swap deferred to Wave 4), `/model` (picker over provider models when no arg, persisted via DB), `/export` (md/jsonl/json picker, writes session-<short-id>.<ext> to cwd), `/init` (prompt command that scans the project and writes CONTEXT.md). `/help` rewritten as a category-grouped 2-column table (session / info / config / files / git / skills / other) with ANSI-aware visible-width padding. CommandContext extended with bundlePath, listSessions, getMetrics, skills, getLastAssistantText, getMessages, getPermissions, requestExit. `EXIT_COMMANDS` short-circuit removed from terminalRepl.ts — /quit now flows through the registry like every other command. Hard-coded text-only `/model` and `/clear`/`/help`/`/cost` from the original COMMANDS list left intact (clear/cost stay text-only; help got the table refactor in-place; model is now picker-or-arg).
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `69d7bca`.
+- Commands:
+  - `bunx tsc --noEmit`
+  - `bun run lint`
+  - `bun run test`
+  - `bun run tests/_smoke/wave2-smoke.ts`
+- Manual / REPL coverage:
+  - Smoke renderer printed `/help` (correctly aligned across categories), `/about` (boxed info card), `/skills` (with source tags), `/permissions` (mode + always-allow + persistent layers), `/stats` (mid-session summary card mirrors goodbye summary), `/init` (prompt-command shape with allowedTools), and `/export` empty-history graceful path.
+  - Pickers (`/resume`, `/model` no-arg, `/export` no-arg) require a TTY and were not exercised in this run; the live REPL is the appropriate test surface for those. The `/help` output explicitly cites tab-completion as Wave 4 work, matching the build plan.
+  - Did not exercise `/init` end-to-end against a live model (would write a real CONTEXT.md to the harness repo). Covered by unit tests asserting prompt-command shape and target-path argument handling.
+- Result:
+  - Typecheck clean. Lint clean (2 pre-existing warnings unchanged). **530/530 tests pass** (37 new test cases: 8 picker navigation, 8 sessionDb listSessions+updateSessionModel, 11 info commands, 8 export+init, plus updated existing tests). Test fixture extracted to `tests/commands/_makeCtx.ts` so future commands don't ripple boilerplate to every test file.
+- Regressions / follow-ups:
+  - No regressions. Existing 18 command tests still pass without assertion changes; only the local makeCtx() builder was replaced with a shared helper.
+  - `/resume` does NOT do an in-process session swap — it prints `sov --resume <uuid>` as a hint and the user runs it in a fresh REPL. In-process swap is gated on Wave 4 (input editor), where we own more of the cursor model. The pain point ("must remember UUID") is fixed even without in-process loading.
+  - Picker uses the same full-screen-clear pattern as `configMenu.ts`. Inline (non-clearing) rendering is a Wave 3/4 candidate — keeps conversation history visible during the pick. Acceptable for Wave 2 since the user is in a focused mode while picking.
+  - Type-to-filter inside the picker is Wave 4 work (lands with the input editor so all keypress handling stays cohesive).
+  - `/copy` shell-outs to pbcopy/wl-copy/xclip/xsel/clip.exe in priority order. If none are available the command prints the assistant text inline so the user can manually copy — graceful but not silent.
+
 ## 2026-05-03 - Wave 1 hotfix: FileEdit diff line-context
 
 - Scope: Subagent-driven verification of Wave 1 surfaced a UX gap: the FileEdit diff renderer printed the raw `old_string`/`new_string` substrings (`- hello world` / `+ hello sovereign`) instead of the full line containing the change. Hotfix adds an optional `preContent` to `DiffRenderOpts`. When provided, the renderer scans the file content for `old_string`, computes the surrounding line(s), and renders those full lines as `-`/`+` blocks with a 1-based line number. Multi-occurrence edits (`replace_all: true`) annotate the head with `(applied N× across M occurrences)` and render only the first hunk to avoid dominating the screen. Falls back to substring rendering when the match is missing, when `old_string` is empty, or when `preContent` is omitted — all existing tests pass unchanged. Wired through `terminalRepl.ts`: at `tool_use` time for FileEdit, the file is `readFileSync`-snapshotted before the orchestrator dispatches the tool; the snapshot is consumed at `tool_result` time and threaded into the renderer.
