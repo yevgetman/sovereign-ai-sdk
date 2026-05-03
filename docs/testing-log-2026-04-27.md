@@ -21,6 +21,25 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Wave 1 hotfix: FileEdit diff line-context
+
+- Scope: Subagent-driven verification of Wave 1 surfaced a UX gap: the FileEdit diff renderer printed the raw `old_string`/`new_string` substrings (`- hello world` / `+ hello sovereign`) instead of the full line containing the change. Hotfix adds an optional `preContent` to `DiffRenderOpts`. When provided, the renderer scans the file content for `old_string`, computes the surrounding line(s), and renders those full lines as `-`/`+` blocks with a 1-based line number. Multi-occurrence edits (`replace_all: true`) annotate the head with `(applied N× across M occurrences)` and render only the first hunk to avoid dominating the screen. Falls back to substring rendering when the match is missing, when `old_string` is empty, or when `preContent` is omitted — all existing tests pass unchanged. Wired through `terminalRepl.ts`: at `tool_use` time for FileEdit, the file is `readFileSync`-snapshotted before the orchestrator dispatches the tool; the snapshot is consumed at `tool_result` time and threaded into the renderer.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `fac3906`.
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+  - `bunx tsc --noEmit`
+  - `bun run tests/_smoke/wave1-smoke.ts`
+- Manual / REPL coverage:
+  - Smoke renderer now exhibits both modes side-by-side: "FileEdit substring-only (no preContent)" prints the old `(1 replacement)` substring view; "FileEdit with line context (preContent provided)" prints `src/example.ts:2` with the full line `const greeting = "hello world";` becoming `const greeting = "hello sovereign";`. The replace_all sample shows `data.txt:1  (applied 4× across 4 occurrences)`.
+  - End-to-end live REPL not re-driven; the verifying subagent exercised the path against Anthropic Haiku and reported the substring rendering as the gap, so this hotfix targets exactly that surface. Re-running the verification walkthrough manually is the right way to confirm the new line-context output against a real model.
+- Result:
+  - Lint clean (2 pre-existing warnings unchanged). **493/493 tests pass** (7 new diff tests covering: full-line render, line number, multi-line `old_string`, multi-occurrence note, fallback when match missing, fallback when `old_string` empty, large hunk truncation under non-verbose).
+- Regressions / follow-ups:
+  - No regressions; Wave 1's existing 14 diff tests continue to pass under the new renderer because they don't pass `preContent`.
+  - Renderer reads only the FIRST occurrence's hunk for `replace_all` edits. Showing every hunk would be cleaner but blows the budget for big files; the current "applied N× across M occurrences" note is the right Wave 1 affordance. Multi-hunk rendering is a Wave 2 candidate if the gap proves felt.
+  - FileWrite still renders as additive (no pre-content read for overwrites). Unchanged from Wave 1's design — the "wrote N bytes" + content-as-+ block is sufficient signal.
+
 ## 2026-05-03 - Phase 10.5b Wave 1 — REPL polish foundations
 
 - Scope: Wave 1 of the multi-wave REPL polish plan. New `src/ui/modal.ts` (framed permission overlay with `isModalActive()` flag), `src/ui/contextMeter.ts` (per-session token-utilization tracker with one-shot pre-compaction warning), `src/ui/footer.ts` (pre-prompt status line: provider · model · ctx % · cost · perms · tools · bundle), `src/ui/diff.ts` (inline FileEdit/FileWrite diff renderer). Wired into `src/permissions/prompt.ts` (asker now uses `withModal`), `src/ui/thinking.ts` (suppresses tick while modal active), `src/ui/toolSlot.ts` (multi-line errors show `+N more lines` hint), `src/ui/terminalRepl.ts` (meter updates on `usage_delta`, footer printed before each prompt frame, diff rendered after successful FileEdit/FileWrite, splash banner shows count of loaded allow-rules), and `src/config/schema.ts` (new optional `ui.{footer,contextMeter,diffRender}` section). Smoke renderer at `tests/_smoke/wave1-smoke.ts`.

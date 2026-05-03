@@ -13,6 +13,7 @@
 //
 // Exit commands: `/quit`, `/exit`, `/q`, Ctrl-D.
 
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
@@ -517,8 +518,15 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     const completedMutationPaths = new Set<string>();
     // Captured at tool_use time, consumed at tool_result time. Lets the
     // diff renderer fire after a successful FileEdit / FileWrite so the
-    // user sees the change inline. Errors skip the diff path.
-    const diffInputsByToolUseId = new Map<string, { name: string; input: unknown }>();
+    // user sees the change inline. For FileEdit we also snapshot the
+    // pre-edit file contents (synchronously, before the orchestrator
+    // dispatches the tool) so the renderer can show full-line context
+    // around old_string instead of just the substring. Errors skip the
+    // diff path.
+    const diffInputsByToolUseId = new Map<
+      string,
+      { name: string; input: unknown; preContent?: string }
+    >();
     let toolsForTurn = toolPool;
 
     try {
@@ -590,7 +598,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               const diffEntry = diffInputsByToolUseId.get(block.tool_use_id);
               if (diffEntry) {
                 diffInputsByToolUseId.delete(block.tool_use_id);
-                const diffOut = renderToolDiff(diffEntry.name, diffEntry.input, { verbose });
+                const diffOut = renderToolDiff(diffEntry.name, diffEntry.input, {
+                  verbose,
+                  ...(diffEntry.preContent !== undefined
+                    ? { preContent: diffEntry.preContent }
+                    : {}),
+                });
                 if (diffOut) {
                   // toolSlot.commit() so the diff lands as fresh
                   // scrollback below the slot rather than overwriting it.
@@ -679,7 +692,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               const mutation = mutationEffect(block, toolsForTurn, toolContext.cwd);
               if (mutation) mutatingToolUses.set(block.id, mutation);
               if (diffRenderEnabled && isDiffShapedTool(block.name)) {
-                diffInputsByToolUseId.set(block.id, { name: block.name, input: block.input });
+                const preContent = readPreEditContent(block.name, block.input, toolContext.cwd);
+                diffInputsByToolUseId.set(block.id, {
+                  name: block.name,
+                  input: block.input,
+                  ...(preContent !== undefined ? { preContent } : {}),
+                });
               }
               const preview = previewToolInput(block.input);
               if (verbose) {
@@ -1158,6 +1176,25 @@ function truncatePreview(s: string): string {
  *  FileWriteTool so a model that emits either form gets the same UX. */
 function isDiffShapedTool(name: string): boolean {
   return name === 'FileEdit' || name === 'Edit' || name === 'FileWrite' || name === 'Write';
+}
+
+/** For FileEdit only: read the file synchronously at the moment we see
+ *  the tool_use block, before the orchestrator dispatches the tool.
+ *  The diff renderer uses this snapshot to expand the diff to full-line
+ *  context. Returns undefined on any failure so the renderer falls back
+ *  to substring rendering rather than crashing the turn. FileWrite is
+ *  intentionally skipped — its diff is additive, no pre-content needed. */
+function readPreEditContent(toolName: string, rawInput: unknown, cwd: string): string | undefined {
+  if (toolName !== 'FileEdit' && toolName !== 'Edit') return undefined;
+  if (rawInput === null || typeof rawInput !== 'object') return undefined;
+  const path = (rawInput as Record<string, unknown>).path;
+  if (typeof path !== 'string') return undefined;
+  try {
+    const abs = resolveToolPath(path, cwd);
+    return readFileSync(abs, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Short, scannable label for the footer's bundle segment. Strips

@@ -46,16 +46,46 @@ const lines = renderFrame(
 );
 console.log(lines.join('\n'));
 
-console.log('\n--- diff: FileEdit (non-verbose) ---');
+console.log('\n--- diff: FileEdit substring-only (no preContent) ---');
 console.log(
   renderToolDiff(
     'FileEdit',
     {
       path: 'src/example.ts',
-      old_string: 'const x = 1;\nfunction foo() {\n  return x;\n}',
-      new_string: 'const x = 42;\nfunction foo(): number {\n  return x * 2;\n}',
+      old_string: 'hello world',
+      new_string: 'hello sovereign',
     },
     { verbose: false },
+  ),
+);
+
+console.log('\n--- diff: FileEdit with line context (preContent provided) ---');
+const seededFile =
+  '// preamble\nconst greeting = "hello world";\nfunction main() {\n  console.log(greeting);\n}\n';
+console.log(
+  renderToolDiff(
+    'FileEdit',
+    {
+      path: 'src/example.ts',
+      old_string: 'hello world',
+      new_string: 'hello sovereign',
+    },
+    { verbose: false, preContent: seededFile },
+  ),
+);
+
+console.log('\n--- diff: FileEdit replace_all (multi-occurrence note) ---');
+const multiFile = 'foo\nfoo bar\nbaz foo\nfoo\n';
+console.log(
+  renderToolDiff(
+    'FileEdit',
+    {
+      path: 'data.txt',
+      old_string: 'foo',
+      new_string: 'qux',
+      replace_all: true,
+    },
+    { verbose: true, preContent: multiFile },
   ),
 );
 

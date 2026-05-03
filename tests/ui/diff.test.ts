@@ -107,6 +107,100 @@ describe('renderDiff non-verbose truncation', () => {
   });
 });
 
+describe('renderDiff with line context (preContent)', () => {
+  test('renders the full line containing the substring as -/+ block', () => {
+    const file = 'const greeting = "hello world";\n';
+    const out = renderDiff(
+      { kind: 'edit', path: 'src/x.ts', oldString: 'hello world', newString: 'hello sovereign' },
+      { preContent: file, verbose: true },
+    );
+    const text = strip(out);
+    expect(text).toContain('- const greeting = "hello world";');
+    expect(text).toContain('+ const greeting = "hello sovereign";');
+    // Substring-only output should NOT appear in line-context mode.
+    expect(text).not.toMatch(/^\s*- hello world$/m);
+  });
+
+  test('shows 1-based line number for the change', () => {
+    const file = 'first\nsecond\nthird matched\nfourth\n';
+    const out = renderDiff(
+      { kind: 'edit', path: 'a.txt', oldString: 'matched', newString: 'changed' },
+      { preContent: file, verbose: true },
+    );
+    expect(strip(out)).toContain('a.txt:3');
+  });
+
+  test('handles multi-line old_string spanning two lines', () => {
+    const file = 'header\nold first\nold second\ntail\n';
+    const out = renderDiff(
+      {
+        kind: 'edit',
+        path: 'multi.txt',
+        oldString: 'old first\nold second',
+        newString: 'new only',
+      },
+      { preContent: file, verbose: true },
+    );
+    const text = strip(out);
+    expect(text).toContain('- old first');
+    expect(text).toContain('- old second');
+    expect(text).toContain('+ new only');
+    expect(text).toContain('multi.txt:2');
+  });
+
+  test('annotates multi-occurrence edits (replace_all) with count', () => {
+    const file = 'foo\nfoo\nfoo bar\nfoo\n';
+    const out = renderDiff(
+      { kind: 'edit', path: 'r.txt', oldString: 'foo', newString: 'qux' },
+      { preContent: file, verbose: true },
+    );
+    const text = strip(out);
+    expect(text).toContain('4 occurrence');
+    // Only the FIRST occurrence's hunk is rendered.
+    expect(text).toContain('- foo');
+    expect(text).toContain('+ qux');
+  });
+
+  test('falls back to substring rendering when preContent does not contain match', () => {
+    const file = 'totally unrelated content\n';
+    const out = renderDiff(
+      { kind: 'edit', path: 'x.ts', oldString: 'missing', newString: 'replacement' },
+      { preContent: file, verbose: true },
+    );
+    const text = strip(out);
+    // Substring-style render is back: no line number, raw substring.
+    expect(text).toContain('- missing');
+    expect(text).toContain('+ replacement');
+    expect(text).not.toContain('x.ts:');
+  });
+
+  test('falls back when oldString is empty', () => {
+    const out = renderDiff(
+      { kind: 'edit', path: 'x.ts', oldString: '', newString: 'noop' },
+      { preContent: 'whatever\n', verbose: true },
+    );
+    const text = strip(out);
+    expect(text).not.toContain('x.ts:');
+  });
+
+  test('non-verbose with line context still truncates large hunks', () => {
+    // Single old_string spans many lines.
+    const lines = Array.from({ length: 30 }, (_, i) => `line-${i}`);
+    const file = lines.join('\n');
+    const oldStr = lines.join('\n');
+    const newStr = 'replaced everything';
+    const out = renderDiff(
+      { kind: 'edit', path: 'big.txt', oldString: oldStr, newString: newStr },
+      { preContent: file, verbose: false },
+    );
+    const text = strip(out);
+    expect(text).toContain('more line');
+    // Head should appear; far middle should not.
+    expect(text).toContain('- line-0');
+    expect(text).not.toContain('- line-15');
+  });
+});
+
 describe('renderDiff edge cases', () => {
   test('truncates very long single lines with ellipsis', () => {
     const out = renderDiff(
