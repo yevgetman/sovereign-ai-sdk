@@ -44,11 +44,15 @@ export interface SemanticTest {
   description: string;
   category: TestCategory;
   setup?: TestSetup;
-  /** Single user prompt sent to the agent. */
-  prompt: string;
-  /** Criteria the LLM judge applies to the transcript. */
+  /** Either a single user prompt (one turn) or an array of prompts (one turn
+   *  per element, in order). Multi-turn tests catch coherence/memory bugs
+   *  that single-shot tests can't reach. */
+  prompt: string | string[];
+  /** Criteria the LLM judge applies to the transcript. The judge sees the
+   *  full transcript across all turns when prompt is an array. */
   judgeCriteria: JudgeCriteria;
-  /** Per-test binary timeout in ms. Default: 60_000. */
+  /** Per-test binary timeout in ms. Default: 60_000. Multi-turn tests should
+   *  bump this — each turn is a model call. */
   timeoutMs?: number;
   /** Extra binary args (merged after sandbox defaults). */
   binaryArgs?: string[];

@@ -1157,3 +1157,23 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions. `bun test` still 690/690.
   - Follow-ups: multi-turn conversation coherence (next batch — needs ~30 LOC driver extension to support multiple prompts per session); ask-mode behavior; rule-layer precedence (local > project > user); virtual tool name mapping (`Bash("cat foo")` → `Read` rules).
+
+## 2026-05-03 - Semantic suite: multi-turn support (23/23)
+
+- Scope: Framework now supports multi-turn cases. SemanticTest.prompt accepts string | string[]; arrays drive one turn per element. Driver pipes them all to stdin (newline-separated, terminated with /quit). The judge prompt builder renders multi-turn cases readably. Three new cases in 08-multi-turn.cases.ts.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription auth; agent + judge both pinned to claude-sonnet-4-6.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass; semantic suite isolation unaffected.
+  - Per-test filter validation for cross-turn-memory (9.2s pass), refinement-after-tool-result (9.8s pass), error-recovery-across-turns (15.1s pass).
+  - `bun run test:semantic` (full): 23/23 pass, 204.7s, $0.639 informational.
+- Manual coverage:
+  - Cross-turn memory: agent recalls a Turn 1 token in Turn 2.
+  - Tool-result refinement: Turn 1 reads a value, Turn 2 edits that value with proper field targeting.
+  - Error recovery: Turn 1 errors on missing file; Turn 2 creates the file and reads it back successfully. The Turn 1 failure does not poison Turn 2.
+- Result:
+  - 23/23 pass on the first multi-turn run. The harness's existing piped-stdin queued-question pattern handled multi-turn cleanly without driver re-architecture.
+  - Multi-turn category coverage now exists; bug classes targeted are conversation history loss, tool-result amnesia, and post-failure recovery.
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-ups: `/compact` correctness across turns (would compose well with multi-turn now that we have the framework support), virtual tool name mapping tests (Bash("cat foo") → Read rules), rule-layer precedence tests (local > project > user), MCP tool dispatch (waits on Phase 12), trajectory capture verification (waits on Phase 13.1).

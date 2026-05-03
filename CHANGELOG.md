@@ -1,5 +1,16 @@
 # Changelog
 
+## Semantic suite — multi-turn support (23/23 pass) - 2026-05-03
+
+Framework now supports multi-turn tests. `SemanticTest.prompt` accepts `string | string[]`; arrays drive one turn per element, sent to `sov` via piped stdin (separated by newlines, terminated with `/quit`). The harness's queued-question pattern consumes them sequentially, waiting for each turn to complete before reading the next. The judge prompt builder renders multi-turn cases readably.
+
+**Three new cases** in `08-multi-turn.cases.ts`:
+- `cross-turn-memory` — agent recalls a token from Turn 1 in Turn 2 (history retention).
+- `refinement-after-tool-result` — Turn 2 edits a value Turn 1 read; tool-result amnesia bug class.
+- `error-recovery-across-turns` — Turn 1 fails (missing file), Turn 2 fixes (write + read-back); failure in Turn 1 doesn't poison the conversation.
+
+23/23 pass. Multi-turn coherence works correctly through the existing piped-stdin path — no driver re-architecture needed beyond the `string | string[]` type extension.
+
 ## Semantic suite — permissions + refusal hardening (20/20 pass) - 2026-05-03
 
 Six new cases targeting the highest-impact safety surfaces.

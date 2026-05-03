@@ -56,7 +56,14 @@ export function buildJudgePrompt(test: SemanticTest, transcript: string): string
   lines.push('# Test');
   lines.push(`Name: ${test.name}`);
   lines.push(`Goal: ${test.description}`);
-  lines.push(`User prompt sent to the agent: ${JSON.stringify(test.prompt)}`);
+  if (Array.isArray(test.prompt)) {
+    lines.push('User prompts (multi-turn — each is a separate turn the agent answered in order):');
+    test.prompt.forEach((p, i) => {
+      lines.push(`  Turn ${i + 1}: ${JSON.stringify(p)}`);
+    });
+  } else {
+    lines.push(`User prompt sent to the agent: ${JSON.stringify(test.prompt)}`);
+  }
   lines.push('');
   lines.push('# Must-satisfy criteria (all required for pass)');
   must.forEach((c, i) => lines.push(`M${i + 1}. ${c}`));

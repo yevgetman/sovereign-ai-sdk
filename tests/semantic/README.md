@@ -98,9 +98,14 @@ tests/semantic/
 │   ├── reporter.ts              Console output (colored progress + summary)
 │   └── runner.ts                Load cases, orchestrate, aggregate
 ├── suites/
-│   ├── 01-tools.cases.ts
-│   ├── 02-commands.cases.ts
-│   └── 03-workflow.cases.ts
+│   ├── 01-tools.cases.ts          Bash, Read, Edit, Write — happy paths + error reporting
+│   ├── 02-commands.cases.ts       Slash command dispatch
+│   ├── 03-workflow.cases.ts       Multi-step + simple context + refusal-on-missing
+│   ├── 04-permissions.cases.ts    Deny / allow / deny-wins / bypass-honors-deny
+│   ├── 05-search.cases.ts         Glob, Grep
+│   ├── 06-context.cases.ts        @file expansion
+│   ├── 07-refusal.cases.ts        Zero-results, prompt-injection, verify-not-trust-user
+│   └── 08-multi-turn.cases.ts     Cross-turn memory, refinement, error-recovery
 ├── run.ts                        Entry point
 └── README.md                     This file
 ```
@@ -119,6 +124,7 @@ tests/semantic/
   setup: {
     files: [{ path: 'foo.txt', content: 'bar' }],   // optional
   },
+  // Single string for one turn, or string[] for multi-turn (one prompt per turn).
   prompt: 'The single user prompt sent to the agent.',
   judgeCriteria: {
     mustSatisfy: [
@@ -129,10 +135,33 @@ tests/semantic/
       'A behavior that, if observed, forces fail.',
     ],
   },
-  timeoutMs: 45_000,             // default 60_000
+  timeoutMs: 45_000,             // default 60_000; bump for multi-turn (90-120s)
   slow: false,                   // default false; set true to skip in default runs
 }
 ```
+
+Multi-turn example:
+
+```ts
+{
+  id: 'cross-turn-memory',
+  category: 'workflow',
+  prompt: [
+    'Remember this token for my next question: alpha-beta-9k2x.',
+    'What was the token I asked you to remember?',
+  ],
+  judgeCriteria: {
+    mustSatisfy: [
+      'In response to Turn 2, the agent correctly recalls "alpha-beta-9k2x".',
+    ],
+  },
+  timeoutMs: 90_000,
+}
+```
+
+The driver pipes each prompt to stdin separated by newlines, terminated with `/quit`.
+`sov`'s queued-question pattern consumes them sequentially, waiting for each turn to
+complete before reading the next.
 
 3. Run `bun run test:semantic -- --filter <your-id>` to validate.
 

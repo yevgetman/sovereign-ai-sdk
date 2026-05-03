@@ -24,7 +24,11 @@ export interface DriverOptions {
   /** Args appended after the sandbox-default args. */
   extraArgs?: string[];
   sandbox: Sandbox;
-  prompt: string;
+  /** Single prompt (one turn) or array of prompts (one turn per element).
+   *  In piped-stdin mode, sov reads line-by-line — each newline-terminated
+   *  prompt drives one turn, then the next is consumed when the previous
+   *  turn completes. */
+  prompt: string | string[];
   /** Hard timeout in ms. The process is SIGKILLed on timeout. */
   timeoutMs: number;
 }
@@ -64,9 +68,12 @@ export async function runHarnessSession(opts: DriverOptions): Promise<DriverOutc
     stderr: 'pipe',
   });
 
-  // Drive a single prompt, then quit. Newline at the end so the input
-  // editor / readline submits each line.
-  proc.stdin.write(`${opts.prompt}\n/quit\n`);
+  // Drive each prompt as one turn, then /quit. sov in piped-stdin mode
+  // consumes each newline-terminated line as a separate prompt and waits
+  // for the prior turn to finish before reading the next.
+  const prompts = Array.isArray(opts.prompt) ? opts.prompt : [opts.prompt];
+  const stdinContent = `${prompts.map((p) => `${p}\n`).join('')}/quit\n`;
+  proc.stdin.write(stdinContent);
   await proc.stdin.end();
 
   let timedOut = false;
