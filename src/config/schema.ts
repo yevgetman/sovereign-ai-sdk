@@ -50,11 +50,16 @@ const CompactionSchema = z
   })
   .strict();
 
-/** Wave-1 REPL polish (Phase 10.5b). All flags optional and default to
- *  enabled / sensible thresholds; the schema is strict so unknown keys
- *  surface as zod validation errors rather than silently being ignored. */
+/** Wave-1+3 REPL polish (Phase 10.5b/d). All flags optional and
+ *  default to enabled / sensible thresholds; the schema is strict so
+ *  unknown keys surface as zod validation errors rather than silently
+ *  being ignored. */
 const UiSchema = z
   .object({
+    /** Active color theme. Built-ins: dark, light, no-color. Default
+     *  is 'dark' (preserves the original look). NO_COLOR env var is
+     *  honored automatically and overrides the configured value. */
+    theme: z.enum(['dark', 'light', 'no-color']).optional(),
     /** Pre-prompt status line (provider/model · ctx % · cost · perms ·
      *  tools) printed above the input frame. Default true. Set false
      *  for non-TTY scripts where the line just adds noise. */
