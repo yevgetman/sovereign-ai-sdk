@@ -32,16 +32,18 @@ export interface DriverOptions {
 export async function runHarnessSession(opts: DriverOptions): Promise<DriverOutcome> {
   const extraArgs = opts.extraArgs ?? [];
   const hasExplicitModel = extraArgs.includes('--model');
+  const hasExplicitPermMode = extraArgs.includes('--permission-mode');
   const args = [
     'chat',
     '--no-preflight',
     '--no-cache',
-    '--permission-mode',
-    'bypass',
+    // Default the agent to bypass mode for happy-path tests. Permission tests
+    // override via binaryArgs (e.g., ['--permission-mode', 'default']) so the
+    // deny/allow rules from a sandbox `.harness/settings.local.json` apply.
+    ...(hasExplicitPermMode ? [] : ['--permission-mode', 'bypass']),
     '--db',
     opts.sandbox.dbPath,
-    // Pin the agent model unless the test specifies one via binaryArgs. Last-wins
-    // works for `--model` in commander, but we skip the default here for clarity.
+    // Pin the agent model unless the test specifies one via binaryArgs.
     ...(hasExplicitModel ? [] : ['--model', DEFAULT_AGENT_MODEL]),
     ...extraArgs,
   ];

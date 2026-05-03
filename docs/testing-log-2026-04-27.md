@@ -1110,3 +1110,27 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions. Existing `bun test` discovery confirmed unaffected.
   - Follow-ups (not blocking): permissions cases, MCP-tool cases (Phase 12), multi-turn conversation coherence cases, parallel execution, JSON reporter, `sov`-judges-itself backend once harness maturity supports it.
+
+## 2026-05-03 - Semantic suite: 6 high-value coverage additions (14/14)
+
+- Scope: Closed obvious v1 gaps. New cases: bash-error-reported, edit-missing-string-no-fabrication, permissions.deny-rule-blocks-echo (NEW category), glob-recursive-typescript-files, grep-finds-marker-content, at-file-expansion-or-read. Driver now skips its default `--permission-mode bypass` when a test supplies `--permission-mode` via binaryArgs (mirrors the existing `--model` override pattern).
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription auth; agent + judge both pinned to claude-sonnet-4-6.
+- Commands:
+  - `bun run lint` — clean.
+  - `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass (semantic suite isolation confirmed unchanged).
+  - `bun run test:semantic` — first run: 12/14 pass (2 redesigns identified), second run: 14/14 pass, 127s, $0.384 informational.
+- Manual coverage:
+  - Bash non-zero-exit error path verified.
+  - Edit-tool absent-string handling: accepts both "read first → report" and "attempt → fail → report".
+  - Deny rule under `--permission-mode default` (via sandbox `.harness/settings.local.json`) blocks `Bash(echo *)` and the agent acknowledges the block.
+  - Glob recursion: setup nests one .ts file in `src/sub/` to catch non-recursive searches.
+  - Grep marker search: token unique enough that any answer-without-tool-call is fabrication.
+  - @file: accepts either harness-side @-expansion OR agent-side Read fallback.
+- Result:
+  - 14/14 pass on the second run after redesigning two cases. The first-run failures were genuine signals about agent behavior, not harness bugs:
+    1. `edit-missing-old-string` failed because the agent correctly Read first instead of attempting a futile edit. Criteria relaxed to accept both paths; bug class now tested (fabricating success) without tripping over defensive behavior.
+    2. `deny-rule-blocks-rm` failed because modern models refuse `rm` on their own safety judgment, masking whether the deny rule fired. Switched to denying `Bash(echo *)` — a benign command the model has no reason to refuse, isolating the permission-system signal.
+- Regressions / follow-ups:
+  - No regressions. `bun test` still 690/690.
+  - Follow-ups: more permissions cases (allow-rule lets through, ask-mode behavior), MCP-tool cases when Phase 12 lands, multi-turn coherence tests (requires driver multi-prompt support), parallel execution.

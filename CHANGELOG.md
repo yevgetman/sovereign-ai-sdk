@@ -1,5 +1,19 @@
 # Changelog
 
+## Semantic suite — 6 high-value coverage additions (14/14 pass) - 2026-05-03
+
+Closed the obvious gaps in the v1 starter set. New coverage:
+- `tools.bash-error-reported` — Bash non-zero exit, agent reports failure, no fabricated output.
+- `tools.edit-missing-string-no-fabrication` — Edit target string absent; accepts either the read-first or attempt-and-fail path; forbids fabricating success or substituting a different string.
+- `permissions.deny-rule-blocks-echo` — `.harness/settings.local.json` deny rule for `Bash(echo *)` blocks the tool in `--permission-mode default`. Uses echo (not rm) so the model's safety reflexes don't pre-empt the permission system.
+- `tools.glob-recursive-typescript-files` — Glob/Bash-find/Grep recursive search; setup hides one .ts file in src/sub/ specifically to catch non-recursive enumerations.
+- `tools.grep-finds-marker-content` — content search for a unique marker token; failure to invoke a tool is treated as fabrication.
+- `context.at-file-expansion-or-read` — @file reference; accepts either @-expansion or Read fallback, forbids "unrecognized reference" or fabricated content.
+
+Also added to the driver: `--permission-mode` is now skipped from the default args when a test specifies it via `binaryArgs`, mirroring the existing `--model` override pattern.
+
+Two of the new tests initially failed and were redesigned. The failures were genuine signals about agent behavior (the model is smart enough to read before editing, and refuses `rm` on its own safety judgment), not harness bugs — both criteria sets were tightened to test the bug class without tripping over correct-but-defensive agent paths.
+
 ## Semantic test suite (LLM-judged behavior tests) - 2026-05-03
 
 New opt-in test category that complements the existing unit/integration suite. Drives the real `sov` binary as a subprocess, captures the transcript, and asks an LLM judge whether each prompt was handled correctly against per-test must-satisfy / should-not criteria.
