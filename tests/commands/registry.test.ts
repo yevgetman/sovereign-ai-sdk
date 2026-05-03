@@ -55,6 +55,64 @@ describe('slash command registry', () => {
     expect(result.output).toContain('/cost');
   });
 
+  test('/help renders the categorized 2-column layout', async () => {
+    const result = await dispatchSlashCommand('/help', makeCtx());
+    if (result.kind !== 'local') throw new Error('expected local command result');
+    const text = result.output;
+    // Bolded title
+    expect(text).toContain('slash commands');
+    // Category section markers
+    expect(text).toContain('── session ──');
+    expect(text).toContain('── info ──');
+    expect(text).toContain('── config ──');
+    expect(text).toContain('── files ──');
+    expect(text).toContain('── git ──');
+    // Wave-4 footer hint
+    expect(text).toContain('tab completion lands in Wave 4');
+  });
+
+  test('/help bucketing places commands in the right categories', async () => {
+    const result = await dispatchSlashCommand('/help', makeCtx());
+    if (result.kind !== 'local') throw new Error('expected local command result');
+    const text = result.output;
+    // Find each section's start index so we can assert command-to-section mapping.
+    const sessionAt = text.indexOf('── session ──');
+    const infoAt = text.indexOf('── info ──');
+    const configAt = text.indexOf('── config ──');
+    const filesAt = text.indexOf('── files ──');
+    const gitAt = text.indexOf('── git ──');
+    // /help is a session command — should appear after the session marker
+    // but before the info marker.
+    const helpAt = text.indexOf('/help');
+    expect(helpAt).toBeGreaterThan(sessionAt);
+    expect(helpAt).toBeLessThan(infoAt);
+    // /commit is git
+    const commitAt = text.indexOf('/commit');
+    expect(commitAt).toBeGreaterThan(gitAt);
+    // /config and /model are config; appear between configAt and filesAt
+    const configCmdAt = text.indexOf('/config');
+    expect(configCmdAt).toBeGreaterThan(configAt);
+    expect(configCmdAt).toBeLessThan(filesAt);
+  });
+
+  test('/help renders alias suffix for /quit', async () => {
+    const result = await dispatchSlashCommand('/help', makeCtx());
+    if (result.kind !== 'local') throw new Error('expected local command result');
+    // After ANSI stripping the alias suffix renders as `/quit (/exit /q)`.
+    const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+    const stripped = result.output.replace(ANSI, '');
+    expect(stripped).toContain('/quit (/exit /q)');
+  });
+
+  test('/help renders alias suffix for /help itself', async () => {
+    const result = await dispatchSlashCommand('/help', makeCtx());
+    if (result.kind !== 'local') throw new Error('expected local command result');
+    const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+    const stripped = result.output.replace(ANSI, '');
+    // /help has aliases /h and /?
+    expect(stripped).toContain('/help (/h /?)');
+  });
+
   test('/model switches model and reports current model without args', async () => {
     const ctx = makeCtx();
     const set = await dispatchSlashCommand('/model claude-opus-4-7', ctx);

@@ -21,6 +21,35 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Test-suite audit — coverage gaps closed (690/690)
+
+- Scope: User-initiated audit of the test suite for staleness, missing coverage of Wave 1-4 surfaces, and tests that no longer reference real exports. An Explore agent built a 98-source-file × 77-test-file coverage matrix; manual verification of the agent's report uncovered two false-negative claims (htmlToText and InputHistory were both already directly tested) and confirmed three real gaps. New tests added for the real gaps. No existing tests were stale.
+- Files added:
+  - `tests/commands/pickers.test.ts` — 16 new tests for the Wave-2 picker-command module (`/resume`, `/model`, `/theme`). Covers `formatRelativeTime` helper across all 6 unit ranges (s/m/h/d/mo/y) plus clock-skew clamp; `PROVIDER_MODELS` registry shape (every provider has ≥1 model); `/resume` non-TTY hint; `/model` inline name persists + non-TTY no-arg fallback; `/theme` valid-name applies+persists, unknown-name rejected with available list, non-TTY no-arg lists themes with current marker.
+  - `tests/config/schema.test.ts` — 25 new tests pinning `SettingsSchema` strict-mode behavior, enum coverage (`permissionMode`, `ui.theme`, `webSearch.provider`, `providers.<name>.strategy`), numeric bounds (`maxTurns`, `compaction.proactiveThresholdPct` 1-99, `microcompaction.triggerThresholdPct` 0-100, `microcompaction.keepRecent` ≥1, `webSearch.maxResults` 1-20, `ui.contextMeter.warnAtPercent`/`dangerAtPercent` 0-100, `providers.<name>.numCtx` positive int), Wave-1 `ui.*` round-trips, providers config shape (credentials list, `apiKeys` array, `baseUrl` URL validation), debugMode umbrella+children. Catches breakage from accidental schema relaxations.
+- Files modified:
+  - `tests/commands/registry.test.ts` — 4 new tests for the categorized `/help` layout: section markers (`── session ──`, `── info ──`, `── config ──`, `── files ──`, `── git ──`); bucketing (commands appear under their declared category in `COMMAND_CATEGORIES`); alias suffix rendering for `/quit (/exit /q)` and `/help (/h /?)`; Wave-4 footer hint.
+- Audit verification (false-negatives in the explore agent's report):
+  - `tests/tools/webFetch.test.ts` lines 26-58 already has 5 dedicated `htmlToText` tests (script/style stripping, entity decoding, block-tag → newline, inline-tag stripping, HTML-comment removal). The agent missed these.
+  - `tests/ui/inputHistory.test.ts` already has 12 dedicated unit tests covering load (3 cases), add (5 cases), at (2 cases), and round-trip across restart. The agent missed these too.
+- Truly untested infrastructure left as-is:
+  - `src/ui/terminalRepl.ts` (1,320 lines) — central REPL orchestrator. Untested directly; the `wave1-3-hardpass.sh` shell suite (105 assertions, ~25 live model turns) covers it via end-to-end behavior. Unit-testing it would require mocking readline + SessionDb + provider + memory manager, which buys little over the existing integration coverage.
+  - `src/ui/configMenu.ts` (389 lines) — raw-mode interactive picker for `sov config`. Same reasoning: live TTY interaction is the right test surface.
+  - `src/main.ts` — pure CLI option parsing + dispatch. Type-checked; hard-pass exercises every flag.
+  - Type-only files (`*/types.ts` × 7) — no runtime logic to test.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `b7a0cf7`.
+- Commands:
+  - `bun run lint`
+  - `bun run test`
+  - `bunx tsc --noEmit`
+  - `bash tests/_smoke/wave1-3-hardpass.sh`
+- Result:
+  - **690/690 tests pass** (+45 over the doc-soak baseline of 645). Lint clean (2 pre-existing shellSemantics warnings unchanged). Typecheck clean. Hard-pass 105/105 unchanged.
+  - Total test files: 79 (3 new). Total expect() calls: 1,625.
+- Regressions / follow-ups:
+  - No existing tests broke. No stale references found in the spot-checked tested files (sessionDb, inputEditor, keypress, registry — all imports resolve to current exports).
+  - Coverage is now ~75% of source files (up from 69%). The remaining gaps are deliberate: REPL orchestrator + configMenu have integration coverage via the hard-pass; main.ts is plumbing; types files are type-only.
+
 ## 2026-05-03 - Documentation soak — bring docs current with Waves 1-4
 
 - Scope: Documentation pass to bring every committed doc current with the polish work shipped over Waves 1-4 + the Wave-4 stabilization (Phase 10.5b–e). User explicitly paused new feature work to "soak" the polish before pivoting to higher-leverage phases. No source code changes.
