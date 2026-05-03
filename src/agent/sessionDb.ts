@@ -201,6 +201,27 @@ export type SessionCompaction = {
   createdAt: number;
 };
 
+/** Lightweight session row for the `/resume` picker. Excludes the
+ *  full system prompt and metadata blob — those are loaded on demand
+ *  when the user picks a session, not when the list renders. */
+export type SessionListEntry = {
+  sessionId: string;
+  parentSessionId: string | null;
+  model: string;
+  provider: string;
+  platform: string;
+  createdAt: number;
+  lastUpdated: number;
+  /** Stored title if present, else the first user message (truncated). */
+  title: string | null;
+  /** Number of messages in the session. */
+  msgCount: number;
+  /** Total tokens (chat + cache + compaction lanes summed). */
+  totalTokens: number;
+  /** Total estimated cost (chat + compaction lanes summed). */
+  totalCostUsd: number;
+};
+
 export type SearchOpts = {
   sessionId?: string;
   limit?: number;
@@ -294,6 +315,46 @@ export class SessionDb {
       )
       .all(sessionId);
     return rows.map(rowToMessage);
+  }
+
+  /** Recent sessions for the `/resume` picker. Ordered newest-first by
+   *  `last_updated`. Title falls back to the first user message body
+   *  (truncated) when the row's `title` column is null — matches what
+   *  Claude Code shows in its session picker. msgCount and totalCost
+   *  come from cheap aggregates. */
+  listSessions(limit = 20): SessionListEntry[] {
+    const rows = this.db
+      .query<SessionListRow, [number]>(
+        `SELECT s.session_id, s.parent_session_id, s.model, s.provider, s.platform,
+                s.created_at, s.last_updated, s.title,
+                s.input_tokens + s.output_tokens + s.cache_creation_input_tokens
+                  + s.cache_read_input_tokens + s.compaction_input_tokens
+                  + s.compaction_output_tokens AS total_tokens,
+                s.estimated_cost_usd + s.estimated_compaction_cost_usd AS total_cost_usd,
+                (SELECT COUNT(*) FROM messages WHERE session_id = s.session_id) AS msg_count,
+                (SELECT content FROM messages
+                  WHERE session_id = s.session_id AND role = 'user'
+                  ORDER BY id ASC LIMIT 1) AS first_user_content
+         FROM sessions s
+         ORDER BY s.last_updated DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return rows.map(rowToListEntry);
+  }
+
+  /** Persist a model change so /model picks survive --resume. The
+   *  updated row keeps its provider, parent lineage, and system prompt;
+   *  only the `model` field changes. */
+  updateSessionModel(sessionId: string, model: string): void {
+    const now = Date.now() / 1000;
+    this.writeWithRetry(() => {
+      this.db.run('UPDATE sessions SET model = ?, last_updated = ? WHERE session_id = ?', [
+        model,
+        now,
+        sessionId,
+      ]);
+    });
   }
 
   getSession(sessionId: string): Session | null {
@@ -519,6 +580,58 @@ type CompactionRow = {
   child_session_id: string;
   created_at: number;
 };
+
+type SessionListRow = {
+  session_id: string;
+  parent_session_id: string | null;
+  model: string;
+  provider: string;
+  platform: string;
+  created_at: number;
+  last_updated: number;
+  title: string | null;
+  total_tokens: number;
+  total_cost_usd: number;
+  msg_count: number;
+  first_user_content: string | null;
+};
+
+/** Pull a short, scannable label out of a stored user message. Tries
+ *  the first text block; falls back to "(no text)" for tool-only or
+ *  image-only messages. Truncates to ~60 chars. */
+function deriveTitleFromContent(jsonContent: string | null): string | null {
+  if (!jsonContent) return null;
+  let blocks: ContentBlock[];
+  try {
+    blocks = JSON.parse(jsonContent) as ContentBlock[];
+  } catch {
+    return null;
+  }
+  for (const block of blocks) {
+    if (block.type === 'text' && typeof block.text === 'string') {
+      const collapsed = block.text.replace(/\s+/g, ' ').trim();
+      if (collapsed.length === 0) continue;
+      return collapsed.length > 60 ? `${collapsed.slice(0, 57)}...` : collapsed;
+    }
+  }
+  return null;
+}
+
+function rowToListEntry(row: SessionListRow): SessionListEntry {
+  return {
+    sessionId: row.session_id,
+    parentSessionId: row.parent_session_id,
+    model: row.model,
+    provider: row.provider,
+    platform: row.platform,
+    createdAt: row.created_at,
+    lastUpdated: row.last_updated,
+    title: row.title ?? deriveTitleFromContent(row.first_user_content),
+    msgCount: row.msg_count,
+    totalTokens: row.total_tokens,
+    totalCostUsd: row.total_cost_usd,
+  };
+}
 
 function rowToMessage(row: StoredRow): StoredMessage {
   return {
