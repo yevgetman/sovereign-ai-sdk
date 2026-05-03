@@ -21,6 +21,30 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-03 - Hard-pass for Waves 1-3 (105 assertions across 35 scenarios)
+
+- Scope: New `tests/_smoke/wave1-3-hardpass.sh` — comprehensive end-to-end workflow that exercises every Wave-1-3 surface against a sandboxed config + DB + cwd. 105 assertions across 35 numbered scenarios spanning: every slash command in the registry (info, pickers, session-ops, config, git), every Wave-1 rendering primitive (footer, modal, diff, contextMeter, multi-line error), Wave-1 hotfix (FileEdit line-context), Wave-2 picker primitives, Wave-2 hotfix (multi-command queue drain), Wave-3 theme system (dark/light/no-color, NO_COLOR override, schema persistence). Live model turns (Anthropic Haiku) verify the modal permission prompt in `ask` mode, FileEdit replace_all annotation, FileWrite live diff, /export round-trip, and /clear /rollback flow. Total cost per run: well under $0.50.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; harness commit pre-change was `9c69f07`.
+- Commands:
+  - `bash tests/_smoke/wave1-3-hardpass.sh` (~1m runtime, ~25 live model turns)
+  - `bun run lint`
+  - `bun run test`
+  - `bunx tsc --noEmit`
+- Manual / REPL coverage:
+  - First run: 85/87. Two failures, both **test-harness bugs not harness bugs** — (1) `assert_contains` used `grep -F` without `--`, so a needle starting with `-` (the `-` line of a unified diff) was parsed as a flag; (2) the `permissions/settings.local.json` shape used `rules: [{behavior, rule}]` instead of the actual `permissions: {allow: [...], deny: [...], ask: [...]}` schema. Both fixed by editing the test script; the harness needed no changes.
+  - Second run after test fixes: 87/87. Then strengthened the workflow with eight more scenarios — modal in ask mode end-to-end (T28), replace_all annotation (T29), FileWrite live diff (T30), all-themes-render-/about cross-check (T31), /export non-TTY hint (T32), /commit prompt-command shape (T33), numeric+boolean config round-trip (T34), schema rejection of bogus theme (T35).
+  - Third run: **105/105**. Live model turns confirmed:
+    - Modal permission box renders with title, border, tool name, and `[y]`/`[N]`/`[a]` choices; the piped `y` answer is consumed correctly and the tool runs (mkdir target directory created on disk).
+    - FileEdit replace_all shows the occurrence count annotation.
+    - FileWrite live diff prints + lines and the file lands on disk.
+- Result:
+  - **105/105 hard-pass assertions, 548/548 unit tests, lint clean, typecheck clean**. User's real `~/.harness/config.json` and `~/.harness/sessions.db` not touched (sandbox via `HARNESS_CONFIG` + `--db`).
+- Regressions / follow-ups:
+  - Zero harness bugs uncovered by the hard-pass. The two initial failures were assertion-script issues only.
+  - Picker UI navigation (↑/↓/Enter/Esc) is the remaining manual-only surface — exercised correctly via fallback messages under non-TTY but the actual key dispatch needs a real terminal. Recommend running an interactive `sov` session for /resume, /model no-arg, /theme no-arg, /settings to round out coverage.
+  - Compaction trigger (T19/Wave 1) and pre-compaction warning are not exercised by the hard-pass — they need a long context to fire. Could be a synthetic session-load-up test in a future iteration.
+  - Hard-pass script is now part of the repo at `tests/_smoke/wave1-3-hardpass.sh`. Re-run before any future Wave 1-3 surface change to confirm nothing broke.
+
 ## 2026-05-03 - Phase 10.5d Wave 3 — Theme system + /settings dialog
 
 - Scope: Wave 3 of the REPL polish plan. New `src/ui/theme.ts` introduces a semantic token registry (~25 roles: text/textMuted/textBold, accent/accentBold/accentMuted, status×4, diff×3, border×3, code×2, header×3) backed by three built-in themes — `dark` (default; preserves the original look exactly), `light` (darker primaries for light terminals; uses `chalk.rgb` for amber warning), `no-color` (identity tokens for transcripts and pipes; per-token, separate from chalk's NO_COLOR env handling). Singleton API: `getTheme()`, `setTheme(name)`, `listThemes()`, `isThemeName(name)`, `resolveThemeName({configured, env})` — the last honors `NO_COLOR` overriding configured value. Tokens accessed via `theme.tokens.<role>` getter so swapping themes takes effect on the next renderer call without a re-import. New `__resetForTests()` test seam restores default dark between cases.
