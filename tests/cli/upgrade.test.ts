@@ -103,4 +103,22 @@ describe('runUpgrade', () => {
     expect(result.commands.length).toBe(1);
     expect(chunks.join('')).not.toContain('uninstall');
   });
+
+  test('dry-run with purgeCache reports the cache dir that would be wiped', () => {
+    const chunks: string[] = [];
+    const out = {
+      write: (chunk: string) => {
+        chunks.push(chunk);
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const err = { write: () => true } as unknown as NodeJS.WritableStream;
+    const result = runUpgrade(
+      { dryRun: true, purgeCache: true, cacheDir: '/tmp/fake-bun-cache' },
+      out,
+      err,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(chunks.join('')).toContain('would purge: /tmp/fake-bun-cache');
+  });
 });

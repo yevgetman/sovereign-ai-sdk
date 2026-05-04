@@ -69,7 +69,9 @@ sov                                           # generic-agent mode, no bundle
 sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle (also private)
 ```
 
-**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand shells out to `bun install -g git+ssh://…sovereign-ai-harness.git` so you don't have to remember the URL. `--dry-run` prints the command without running it. The first install still uses the explicit `bun install -g git+ssh://…` form above (you can't run `sov upgrade` until `sov` exists).
+**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. `--dry-run` prints the bun commands without running them. The first install still uses the explicit `bun install -g git+ssh://…` form above (you can't run `sov upgrade` until `sov` exists).
+
+If `sov upgrade` keeps installing an older commit than the current `master` HEAD, Bun's binary install-cache is holding a stale `URL → SHA` mapping. Run `sov upgrade --purge-cache` to wipe `~/.bun/install/cache/` before installing — that forces Bun to re-resolve against the live remote. The cache wipe also evicts other Bun-installed packages' manifests, but those regenerate on next install.
 
 Access control is the GitHub SSH key on the user's machine — exactly the same model the source clone uses. Nothing reaches a public registry.
 

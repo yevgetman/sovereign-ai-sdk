@@ -212,12 +212,17 @@ async function main(argv: string[]): Promise<void> {
       '--skip-uninstall',
       "skip the pre-uninstall step (faster, but Bun's git-cache may serve a stale SHA)",
     )
+    .option(
+      '--purge-cache',
+      'wipe ~/.bun/install/cache before install (use when bun keeps installing an older SHA than master HEAD)',
+    )
     .action(async (opts) => {
       const { runUpgrade } = await import('./cli/upgrade.js');
       const result = runUpgrade({
         ...(opts.ref !== undefined ? { ref: opts.ref } : {}),
         ...(opts.dryRun === true ? { dryRun: true } : {}),
         ...(opts.skipUninstall === true ? { skipUninstall: true } : {}),
+        ...(opts.purgeCache === true ? { purgeCache: true } : {}),
       });
       process.exit(result.exitCode);
     });

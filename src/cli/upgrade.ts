@@ -8,15 +8,25 @@
 // `SOV_UPGRADE_URL` env var overrides the default, useful for forks /
 // development clones or for users who maintain their own mirror.
 //
-// Why pre-uninstall: Bun caches the resolved git SHA per URL in
-// `~/bun.lock` and the package's `.bun-tag`. `bun install -g <url>`
-// re-installs that cached SHA without re-resolving against master, so a
-// freshly-pushed commit isn't picked up. We work around by uninstalling
-// the package first (failures ignored — covers the first-install case)
-// and then running the install. Lockfile evicts the stale SHA and Bun
-// re-resolves against the live remote.
+// Why pre-uninstall: Bun's lockfile pins the resolved git SHA per URL.
+// Without pre-uninstall, `bun install -g <url>` either reuses the
+// pinned SHA or fails with `DependencyLoop` when a different ref is
+// requested. Uninstalling first evicts the lockfile entry so a fresh
+// install can resolve cleanly.
+//
+// Why --purge-cache: even after the lockfile is cleared, Bun's binary
+// manifest cache (`~/.bun/install/cache/*.npm`) keeps a `URL → SHA`
+// mapping. Subsequent `bun install -g <url>` re-uses the cached SHA
+// instead of re-resolving against the live remote. The flag wipes
+// `~/.bun/install/cache/` so the next install must re-fetch from
+// remote. This is the "I want LATEST master, no kidding" hammer; it
+// also evicts the npm-package manifest cache for every other package
+// (mostly harmless — Bun re-fetches on next install).
 
 import { spawnSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git';
 
@@ -35,8 +45,15 @@ export type UpgradeOpts = {
    *  the resolved SHA. Useful when you actually want the cached version
    *  and to save the ~1s of uninstall round-trip. */
   skipUninstall?: boolean;
+  /** Wipe `~/.bun/install/cache/` before installing so Bun re-resolves
+   *  the git URL against the live remote. Use when `sov upgrade` keeps
+   *  serving an older SHA than the current `master` HEAD. Also evicts
+   *  every other Bun install's manifest cache (regenerable). */
+  purgeCache?: boolean;
   /** Test seam — overrides DEFAULT_INSTALL_URL and SOV_UPGRADE_URL. */
   installUrl?: string;
+  /** Test seam — overrides ~/.bun/install/cache for the purge step. */
+  cacheDir?: string;
 };
 
 export type UpgradeResult = {
@@ -72,6 +89,9 @@ export function runUpgrade(
 ): UpgradeResult {
   const commands = buildUpgradeCommands(opts);
   if (opts.dryRun === true) {
+    if (opts.purgeCache === true) {
+      out.write(`would purge: ${cacheDirFor(opts)}\n`);
+    }
     for (const cmd of commands) out.write(`would run: ${cmd.join(' ')}\n`);
     return { exitCode: 0, commands };
   }
@@ -86,9 +106,25 @@ export function runUpgrade(
       const [ubin, ...uargs] = uninstall;
       if (ubin) spawnSync(ubin, uargs, { stdio: 'inherit' });
     }
+    if (opts.purgeCache === true) purgeCache(opts, out);
     return runInstall(rest[0], commands, out, err);
   }
+  if (opts.purgeCache === true) purgeCache(opts, out);
   return runInstall(commands[0], commands, out, err);
+}
+
+function cacheDirFor(opts: UpgradeOpts): string {
+  return opts.cacheDir ?? join(homedir(), '.bun', 'install', 'cache');
+}
+
+function purgeCache(opts: UpgradeOpts, out: NodeJS.WritableStream): void {
+  const dir = cacheDirFor(opts);
+  out.write(`purging Bun install cache: ${dir}\n`);
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Cache dir might not exist on a fresh machine; that's fine.
+  }
 }
 
 function runInstall(
