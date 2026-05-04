@@ -27,7 +27,11 @@ import type { CommandContext, PromptCommand } from '../commands/types.js';
 import { compactSession, shouldCompactProactively } from '../compact/compactor.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import { parsePermissionRules } from '../config/rules.js';
-import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../config/settings.js';
+import {
+  appendProjectLocalPermissionRule,
+  loadHookSettings,
+  loadPermissionSettings,
+} from '../config/settings.js';
 import { readConfig } from '../config/store.js';
 import { expandContextReferences } from '../context/references.js';
 import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
@@ -43,6 +47,8 @@ import type {
   Terminal,
   TokenUsage,
 } from '../core/types.js';
+import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
+import { buildHookRunner } from '../hooks/runner.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
@@ -156,6 +162,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundleIfPresent(opts.bundlePath ?? null);
   const harnessHome = resolveHarnessHome();
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
+  const hookSettings = loadHookSettings({ cwd: process.cwd(), harnessHome });
   const userSettings = readConfig();
   // Initialize theme BEFORE anything renders. NO_COLOR env var is
   // honored at this seam; explicit ui.theme wins over default 'dark'
@@ -403,6 +410,19 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     recordAlwaysAllow: (rule) =>
       appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
   });
+  // Hook subsystem (Phase 11). Built once per session; the consent allowlist
+  // is read lazily on first prompt and cached for the session lifetime. When
+  // no hooks are configured, we still build the runner — its first call cost
+  // is one map lookup, and the alternative (conditional plumbing) costs more
+  // than it saves.
+  const hookConsentStore = buildFileConsentStore(join(harnessHome, 'shell-hooks-allowlist.json'));
+  const hookConsent = buildConsentChecker({ store: hookConsentStore, ask });
+  const hookRunner = buildHookRunner({
+    hooksByEvent: hookSettings.hooksByEvent,
+    consent: hookConsent,
+    home: process.env.HOME,
+    logStderr: (msg) => process.stderr.write(`${msg}\n`),
+  });
   const commandContext = (): CommandContext => ({
     sessionId: activeSessionId,
     cwd: process.cwd(),
@@ -616,6 +636,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         signal: streamController.signal,
         cacheEnabled: opts.noCache !== true,
         memoryManager,
+        hookRunner,
+        sessionId: activeSessionId,
+        cwd: process.cwd(),
       });
 
       for (;;) {

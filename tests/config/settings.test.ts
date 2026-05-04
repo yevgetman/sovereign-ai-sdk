@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   appendProjectLocalPermissionRule,
+  loadHookSettings,
   loadPermissionSettings,
 } from '../../src/config/settings.js';
 
@@ -78,6 +79,66 @@ describe('appendProjectLocalPermissionRule', () => {
         ask: [],
       },
     });
+  });
+});
+
+describe('loadHookSettings', () => {
+  test('concatenates hooks from local, project, user — local first', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(harnessHome, 'settings.json'), {
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'user.sh' }] }],
+      },
+    });
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'project.sh' }] }],
+        PostToolUse: [{ hooks: [{ type: 'command', command: 'audit.sh' }] }],
+      },
+    });
+    writeJson(join(cwd, '.harness', 'settings.local.json'), {
+      hooks: {
+        PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'local.sh' }] }],
+      },
+    });
+
+    const loaded = loadHookSettings({ cwd, harnessHome });
+    expect(loaded.hooksByEvent.PreToolUse.map((c) => c.hooks[0]?.command)).toEqual([
+      'local.sh',
+      'project.sh',
+      'user.sh',
+    ]);
+    expect(loaded.hooksByEvent.PostToolUse.map((c) => c.hooks[0]?.command)).toEqual(['audit.sh']);
+    expect(loaded.hooksByEvent.UserPromptSubmit).toEqual([]);
+    expect(loaded.hooksByEvent.Stop).toEqual([]);
+    expect(loaded.sources).toEqual([
+      join(cwd, '.harness', 'settings.local.json'),
+      join(cwd, '.harness', 'settings.json'),
+      join(harnessHome, 'settings.json'),
+    ]);
+  });
+
+  test('returns empty hooksByEvent when no settings declare hooks', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), { permissions: { allow: ['Bash(ls)'] } });
+
+    const loaded = loadHookSettings({ cwd, harnessHome });
+    expect(loaded.hooksByEvent.PreToolUse).toEqual([]);
+    expect(loaded.sources).toEqual([]);
+  });
+
+  test('rejects unknown event names', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      hooks: { Notification: [{ hooks: [{ type: 'command', command: 'x.sh' }] }] },
+    });
+    expect(() => loadHookSettings({ cwd, harnessHome })).toThrow();
   });
 });
 

@@ -2,6 +2,28 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - Phase 11 Hook System: Eight Design Decisions
+
+Phase 11 ships shell hooks per `harness-build-plan.md` §"Phase 11" and `claude-code-reverse-engineering.md` §10. Eight choices were locked during implementation; recording here so a future pass that revisits any of them sees the rationale.
+
+1. **PreToolUse fires after `canUseTool`, before `tool.call()`.** Permissions deny first — no wasted subprocess spawn for known-bad calls. Hooks observe an already-authorised invocation and can still upgrade to deny or rewrite the input. The orchestrator's flow is: schema-validate → canUseTool → PreToolUse hook → tool.call → PostToolUse hook → render result. Reversing canUseTool ↔ PreToolUse would let a deny-rule-blocked invocation still spend a hook subprocess; not worth it.
+
+2. **`permissionDecision: 'ask'` from PreToolUse is treated as deny with reason.** Wiring the hook back through the same `AskUser` callback would couple the orchestrator to the permission UI for one rare path. Until a real-world hook returns 'ask', the deny-with-reason is the lowest-risk default. Trivial to upgrade later — the hook output is already parsed; only the response handler in `executeOne()` needs a branch.
+
+3. **Overlap-lock util (`src/util/overlapLock.ts` per Fry §A3) is deferred.** No real-world hook hits concurrent reentrancy in the current flows. Add when a smoke test surfaces a problem; the Fry pattern (`os.Mkdir` is atomic; EEXIST → skip) is portable and zero-dep.
+
+4. **Hooks live in `RuntimeSettingsSchema` (`src/config/settings.ts`)**, not `SettingsSchema` (`src/config/schema.ts`). Hooks are runtime policy, layered local → project → user, same lifecycle as permission rules. `loadHookSettings()` parallels `loadPermissionSettings()` and walks the same `getPermissionSettingsPaths()`. `SettingsSchema` (the user-level provider config in `~/.harness/config.json`) is a different concern.
+
+5. **Allowlist keyed by literal command string + event name.** Moving a hook from PreToolUse to PostToolUse re-prompts (cheap defence-in-depth — a hook approved as one event surface should not silently start running on another). Hashing the command body would protect against script substitution but adds complexity; trusting the literal command string mirrors how the rest of settings.json is trusted.
+
+6. **`argvSplit()` is a small purpose-built util, not an npm dep.** ~40 LOC handling whitespace, single/double quotes, `\` escapes, and leading `~/` expansion. No piping, redirection, variable substitution, or globbing — those are shell features that belong inside the user's hook script. Adding `shell-quote` for these few semantics would weigh more than the implementation.
+
+7. **`PostToolUseFailure` (a separate event in Claude Code) is folded into `PostToolUse` with `is_error: boolean`.** The build plan's type signature combined them deliberately — splitting later is a non-breaking change if the matcher schema stays forward-compatible.
+
+8. **Stop hook fires unconditionally on every Terminal — including `error`.** Claude Code skips Stop hooks on API errors to avoid an infinite loop where a Stop hook requests continuation. We don't expose a continuation channel from Stop hooks (they're observers only), so the guard isn't needed. Stop hooks are also fire-and-forget; failures are swallowed.
+
+Skipped this phase by build-plan instruction: `Notification` and `SubagentStop` events; glob matchers like `mcp__*` (waits for Phase 12 MCP); transcript_path / permission_mode in the stdin payload (the build plan's payload spec didn't include them).
+
 ## 2026-05-03 - Vim Mode Deferred Indefinitely
 
 The Wave-5 vim-mode plan (~500 LOC: NORMAL/INSERT/VISUAL state machine over the Wave-4 TextBuffer) is deferred. ~70-80% of users don't use Vim, and the LOC-to-felt-value ratio is worse than even Phase-11 hooks. The Wave-4 input editor's TextBuffer already supports every operation a vim layer would need, so adding vim later is a small additive change rather than a refactor.

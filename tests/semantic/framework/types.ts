@@ -9,7 +9,8 @@ export type TestCategory =
   | 'permissions'
   | 'context'
   | 'workflow'
-  | 'refusal';
+  | 'refusal'
+  | 'hooks';
 
 export interface TestSetupFile {
   /** Path relative to the test sandbox cwd. */
@@ -18,8 +19,13 @@ export interface TestSetupFile {
 }
 
 export interface TestSetup {
-  /** Files materialized inside the sandbox before the binary launches. */
+  /** Files materialized inside the sandbox cwd before the binary launches. */
   files?: TestSetupFile[];
+  /** Files materialized inside HARNESS_HOME before the binary launches.
+   *  Used by the hooks suite to pre-populate the consent allowlist; non-hook
+   *  tests have no need for this. Paths are relative to the sandbox's
+   *  HARNESS_HOME (e.g. `shell-hooks-allowlist.json`). */
+  homeFiles?: TestSetupFile[];
   /** Additional env vars merged on top of sandbox defaults — must not collide
    *  with HARNESS_HOME / HARNESS_CONFIG / HARNESS_BUNDLE (those are owned
    *  by the sandbox). */

@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import type { HookConfig, HookEventName } from '../hooks/types.js';
 import { type PermissionRule, type PermissionRuleLayer, parsePermissionRules } from './rules.js';
 
 export const PermissionModeSchema = z.enum(['default', 'ask', 'bypass']);
@@ -19,10 +20,35 @@ const PermissionRuleSetSchema = z
   .strict()
   .default({});
 
+const HookCommandSpecSchema = z
+  .object({
+    type: z.literal('command'),
+    command: z.string(),
+    timeout: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const HookConfigSchema = z
+  .object({
+    matcher: z.string().optional(),
+    hooks: z.array(HookCommandSpecSchema),
+  })
+  .strict();
+
+const HooksSettingsSchema = z
+  .object({
+    PreToolUse: z.array(HookConfigSchema).optional(),
+    PostToolUse: z.array(HookConfigSchema).optional(),
+    UserPromptSubmit: z.array(HookConfigSchema).optional(),
+    Stop: z.array(HookConfigSchema).optional(),
+  })
+  .strict();
+
 export const RuntimeSettingsSchema = z
   .object({
     permissionMode: PermissionModeSchema.optional(),
     permissions: PermissionRuleSetSchema.optional(),
+    hooks: HooksSettingsSchema.optional(),
   })
   .strict();
 
@@ -83,6 +109,38 @@ export function loadPermissionSettings(opts: LoadPermissionSettingsOpts): Loaded
     layers,
     sources: discovered.map((entry) => entry.source),
   };
+}
+
+export type LoadedHookSettings = {
+  hooksByEvent: Record<HookEventName, HookConfig[]>;
+  sources: string[];
+};
+
+/** Load hooks from the same layered settings.json files as permissions, in
+ *  precedence order (local → project → user). All non-empty layers are
+ *  *concatenated*; later layers do not shadow earlier ones (matches Claude
+ *  Code semantics — multiple settings files contribute additively, and
+ *  blanket denial is achieved per-event via a hook script that exits 2). */
+export function loadHookSettings(opts: LoadPermissionSettingsOpts): LoadedHookSettings {
+  const hooksByEvent: Record<HookEventName, HookConfig[]> = {
+    PreToolUse: [],
+    PostToolUse: [],
+    UserPromptSubmit: [],
+    Stop: [],
+  };
+  const sources: string[] = [];
+  for (const item of getPermissionSettingsPaths(opts)) {
+    if (!existsSync(item.path)) continue;
+    const raw = JSON.parse(readFileSync(item.path, 'utf8')) as unknown;
+    const settings = RuntimeSettingsSchema.parse(raw);
+    if (!settings.hooks) continue;
+    sources.push(item.path);
+    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop'] as const) {
+      const layer = settings.hooks[event];
+      if (layer && layer.length > 0) hooksByEvent[event].push(...layer);
+    }
+  }
+  return { hooksByEvent, sources };
 }
 
 export function appendProjectLocalPermissionRule(opts: {

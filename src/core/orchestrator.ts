@@ -16,6 +16,7 @@
 // path-scoped serialization mirrors hermes-reverse-engineering.md §2.6.
 
 import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
+import type { HookRunner } from '../hooks/types.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
@@ -50,6 +51,7 @@ export async function* runTools(
   ctx: ToolContext,
   tools: Tool<unknown, unknown>[],
   canUseTool?: CanUseTool,
+  hookRunner?: HookRunner,
 ): AsyncGenerator<Message, void> {
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const results: (ToolResultBlock | undefined)[] = new Array(blocks.length);
@@ -58,9 +60,16 @@ export async function* runTools(
 
   for (const partition of partitions) {
     if (partition.mode === 'serial') {
-      await runSerialPartition(partition.items, ctx, toolsByName, canUseTool, results);
+      await runSerialPartition(partition.items, ctx, toolsByName, canUseTool, hookRunner, results);
     } else {
-      await runConcurrentPartition(partition.items, ctx, toolsByName, canUseTool, results);
+      await runConcurrentPartition(
+        partition.items,
+        ctx,
+        toolsByName,
+        canUseTool,
+        hookRunner,
+        results,
+      );
     }
   }
 
@@ -137,10 +146,11 @@ async function runSerialPartition(
   ctx: ToolContext,
   toolsByName: Map<string, Tool<unknown, unknown>>,
   canUseTool: CanUseTool | undefined,
+  hookRunner: HookRunner | undefined,
   out: (ToolResultBlock | undefined)[],
 ): Promise<void> {
   for (const item of items) {
-    out[item.index] = await executeOne(item.block, ctx, toolsByName, canUseTool);
+    out[item.index] = await executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner);
   }
 }
 
@@ -155,6 +165,7 @@ async function runConcurrentPartition(
   ctx: ToolContext,
   toolsByName: Map<string, Tool<unknown, unknown>>,
   canUseTool: CanUseTool | undefined,
+  hookRunner: HookRunner | undefined,
   out: (ToolResultBlock | undefined)[],
 ): Promise<void> {
   const subBatches = splitByPathOverlap(items, toolsByName, ctx.cwd);
@@ -164,7 +175,7 @@ async function runConcurrentPartition(
     for (let start = 0; start < batch.length; start += CONCURRENT_CAP) {
       const wave = batch.slice(start, start + CONCURRENT_CAP);
       const waveResults = await Promise.all(
-        wave.map((item) => executeOne(item.block, ctx, toolsByName, canUseTool)),
+        wave.map((item) => executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner)),
       );
       for (let j = 0; j < wave.length; j++) {
         const item = wave[j];
@@ -286,6 +297,7 @@ async function executeOne(
   ctx: ToolContext,
   toolsByName: Map<string, Tool<unknown, unknown>>,
   canUseTool?: CanUseTool,
+  hookRunner?: HookRunner,
 ): Promise<ToolResultBlock> {
   const tool = toolsByName.get(block.name);
   if (!tool) {
@@ -332,19 +344,85 @@ async function executeOne(
     }
   }
 
-  try {
-    const result = await tool.call(callInput, ctx);
-    const formatted = formatToolResult(tool, block.id, result.data);
-    return maybeAppendHints(tool.name, callInput, ctx, formatted);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      type: 'tool_result',
-      tool_use_id: block.id,
-      content: `tool threw: ${msg}`,
-      is_error: true,
-    };
+  // PreToolUse: runs after permissions resolve to allow, before tool.call().
+  // The hook can deny (returning is_error) or rewrite the input (re-validated
+  // through the same schema before reaching the tool).
+  if (hookRunner) {
+    const pre = await hookRunner(
+      'PreToolUse',
+      {
+        hookEventName: 'PreToolUse',
+        session_id: ctx.sessionId,
+        cwd: ctx.cwd,
+        tool_name: tool.name,
+        tool_input: callInput,
+      },
+      ctx.signal,
+    );
+    if (pre.block) {
+      return {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: pre.reason ? `hook denied: ${pre.reason}` : 'hook denied',
+        is_error: true,
+      };
+    }
+    if (pre.updatedInput !== undefined) {
+      const updated = tool.inputSchema.safeParse(pre.updatedInput);
+      if (!updated.success) {
+        return {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: `hook-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          is_error: true,
+        };
+      }
+      callInput = updated.data;
+    }
   }
+
+  let result: { data: unknown };
+  let toolError: Error | undefined;
+  try {
+    result = await tool.call(callInput, ctx);
+  } catch (err) {
+    toolError = err instanceof Error ? err : new Error(String(err));
+    result = { data: `tool threw: ${toolError.message}` };
+  }
+
+  const formatted = toolError
+    ? ({
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: result.data as string,
+        is_error: true,
+      } as const)
+    : formatToolResult(tool, block.id, result.data);
+
+  // PostToolUse: runs whether the tool succeeded or threw. additionalContext
+  // is appended to the tool_result content with a separator so the model
+  // sees both the original output and the hook's annotation.
+  let final: ToolResultBlock = formatted;
+  if (hookRunner) {
+    const post = await hookRunner(
+      'PostToolUse',
+      {
+        hookEventName: 'PostToolUse',
+        session_id: ctx.sessionId,
+        cwd: ctx.cwd,
+        tool_name: tool.name,
+        tool_input: callInput,
+        tool_output: result.data,
+        is_error: final.is_error === true,
+      },
+      ctx.signal,
+    );
+    if (post.additionalContext) {
+      final = { ...final, content: `${final.content}\n\n---\n${post.additionalContext}` };
+    }
+  }
+
+  return maybeAppendHints(tool.name, callInput, ctx, final);
 }
 
 function maybeAppendHints(

@@ -86,4 +86,12 @@ export type QueryParams = {
   /** Microcompaction config. When enabled, stale tool results are cleared before
    *  they cause full compaction. Omit or set `enabled: false` to disable. */
   microcompactConfig?: import('../compact/microcompact.js').MicrocompactConfig;
+  /** Lifecycle-event hook runner (Phase 11). Optional — when omitted, no
+   *  PreToolUse/PostToolUse/UserPromptSubmit/Stop hooks fire. */
+  hookRunner?: import('../hooks/types.js').HookRunner;
+  /** Session id used for hook event payloads. Required when hookRunner is set. */
+  sessionId?: string;
+  /** cwd used for hook event payloads. Required when hookRunner is set; falls
+   *  back to toolContext.cwd when both are present. */
+  cwd?: string;
 };

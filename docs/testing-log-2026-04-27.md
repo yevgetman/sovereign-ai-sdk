@@ -21,6 +21,29 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-04 - Phase 11: shell hooks (unit suite green; semantic +2)
+
+- Scope: Phase 11 shipped — `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop` hooks with JSON-stdio, exit-code-2 = block, first-use TTY consent, allowlist persisted at `~/.harness/shell-hooks-allowlist.json`. Implementation per `harness-build-plan.md` §"Phase 11" + `claude-code-reverse-engineering.md` §10. Invariant #13 (shell:false, JSON-stdio, consent gate) honoured.
+- Environment: Bun 1.3.13 / Darwin 25.2.0.
+- Commands:
+  - `bun run lint` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`, unrelated to Phase 11).
+  - `bun run test` — full suite green; 31 new hook unit tests (`tests/hooks/argvSplit.test.ts`, `consent.test.ts`, `runner.test.ts`, `wiring.test.ts`).
+- Manual coverage:
+  - Unit-level: hook runner spawns scripts with `shell: false` via Bun.spawn (FileSink stdin, ReadableStream stdout/stderr); JSON in / JSON out round-trips; exit code 2 blocks with stderr captured into `reason`; non-0/non-2 exits soft-fail (logged, no block); consent denial makes a hook inert.
+  - Wiring: PreToolUse fires inside `executeOne()` after `canUseTool` resolves to allow, before `tool.call()`; `updatedInput` re-validates through the tool schema; PostToolUse `additionalContext` appended to `tool_result.content`; UserPromptSubmit rewrites the latest user message text; Stop fires on every Terminal path (completed, max_tokens, max_turns, error, interrupted) and is fire-and-forget.
+  - REPL: `loadHookSettings` walks the same local→project→user paths as `loadPermissionSettings`; consent allowlist atomic-writes via temp+rename (mirrors `src/providers/credentials/pool.ts:166-179`).
+- Result:
+  - 31 new unit tests pass; full unit suite remains green.
+  - Two new semantic cases land under a new `hooks` category: `hook-pretooluse-blocks-bash` and `hook-posttooluse-additional-context`. Inventory headline updated 30 → 32 in `docs/semantic-testing.md`.
+- Regressions / follow-ups:
+  - No regressions.
+  - Deferred this phase (deliberate, per CLAUDE.md "no features beyond what the task requires"):
+    - PreToolUse `permissionDecision: 'ask'` upgrade — currently treated as deny with reason.
+    - Overlap-lock util (`src/util/overlapLock.ts` per Fry §A3) — revisit if concurrent hook reentrancy surfaces a problem.
+    - Glob matchers (`mcp__*`) — waits for MCP in Phase 12.
+    - `Notification` and `SubagentStop` events — add when there's a use case (per build plan).
+  - Next high-leverage targets per build plan: Phase 12 (MCP client), Phase 13.1 (trajectory capture).
+
 ## 2026-05-03 - Test-suite audit — coverage gaps closed (690/690)
 
 - Scope: User-initiated audit of the test suite for staleness, missing coverage of Wave 1-4 surfaces, and tests that no longer reference real exports. An Explore agent built a 98-source-file × 77-test-file coverage matrix; manual verification of the agent's report uncovered two false-negative claims (htmlToText and InputHistory were both already directly tested) and confirmed three real gaps. New tests added for the real gaps. No existing tests were stale.

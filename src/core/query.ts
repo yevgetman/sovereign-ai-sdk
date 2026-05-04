@@ -55,13 +55,51 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   const toolPool: Tool<unknown, unknown>[] = tools ?? [];
   const toolCtx: ToolContext | undefined = params.toolContext;
   const canUseTool = params.canUseTool;
+  const hookRunner = params.hookRunner;
+  const sessionId = params.sessionId ?? toolCtx?.sessionId;
+  const cwd = params.cwd ?? toolCtx?.cwd;
   const originalUserText = latestUserText(messages);
-  const history: Message[] = params.memoryManager
+  let history: Message[] = params.memoryManager
     ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
     : [...messages];
 
+  // UserPromptSubmit: runs once before turn 0. A hook can deny (terminating
+  // immediately) or rewrite the prompt text in the latest user message.
+  if (hookRunner && sessionId && cwd && originalUserText !== undefined) {
+    const result = await hookRunner(
+      'UserPromptSubmit',
+      {
+        hookEventName: 'UserPromptSubmit',
+        session_id: sessionId,
+        cwd,
+        prompt: originalUserText,
+      },
+      signal,
+    );
+    if (result.block) {
+      const terminal: Terminal = {
+        reason: 'error',
+        error: new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook'),
+      };
+      await fireStopHook(hookRunner, sessionId, cwd, terminal.reason, signal);
+      return terminal;
+    }
+    if (typeof result.rewrittenPrompt === 'string') {
+      history = rewriteLatestUserText(history, result.rewrittenPrompt);
+    }
+  }
+
+  async function maybeFireStop(reason: Terminal['reason']): Promise<void> {
+    if (hookRunner && sessionId && cwd) {
+      await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+    }
+  }
+
   for (let turn = 0; turn < maxTurns; turn++) {
-    if (signal?.aborted) return { reason: 'interrupted' };
+    if (signal?.aborted) {
+      await maybeFireStop('interrupted');
+      return { reason: 'interrupted' };
+    }
 
     let assistant: AssistantMessage | undefined;
     let stopReason: StopReason | undefined;
@@ -86,11 +124,17 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         yield event;
       }
     } catch (err) {
-      if (signal?.aborted) return { reason: 'interrupted' };
-      return { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
+      if (signal?.aborted) {
+        await maybeFireStop('interrupted');
+        return { reason: 'interrupted' };
+      }
+      const error = err instanceof Error ? err : new Error(String(err));
+      await maybeFireStop('error');
+      return { reason: 'error', error };
     }
 
     if (!assistant) {
+      await maybeFireStop('error');
       return {
         reason: 'error',
         error: new Error('provider stream ended without an assistant_message'),
@@ -110,6 +154,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         history.push(msg);
         yield msg;
       }
+      await maybeFireStop('max_tokens');
       return { reason: 'max_tokens' };
     }
 
@@ -117,6 +162,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       if (params.memoryManager && originalUserText !== undefined) {
         await params.memoryManager.syncTurn(originalUserText, assistantText(assistant));
       }
+      await maybeFireStop('completed');
       return { reason: 'completed' };
     }
 
@@ -127,6 +173,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       );
       history.push(msg);
       yield msg;
+      await maybeFireStop('error');
       return {
         reason: 'error',
         error: new Error(
@@ -142,6 +189,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       );
       history.push(msg);
       yield msg;
+      await maybeFireStop('error');
       return {
         reason: 'error',
         error: new Error('tool_use encountered but no toolContext was passed in QueryParams'),
@@ -154,7 +202,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
 
     try {
-      for await (const msg of runTools(toolUseBlocks, turnCtx, toolPool, canUseTool)) {
+      for await (const msg of runTools(toolUseBlocks, turnCtx, toolPool, canUseTool, hookRunner)) {
         history.push(msg);
         yield msg;
       }
@@ -181,6 +229,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         );
         history.push(msg);
         yield msg;
+        await maybeFireStop('interrupted');
         return { reason: 'interrupted' };
       }
       const message = err instanceof Error ? err.message : String(err);
@@ -190,11 +239,45 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       );
       history.push(msg);
       yield msg;
-      return { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
+      const error = err instanceof Error ? err : new Error(String(err));
+      await maybeFireStop('error');
+      return { reason: 'error', error };
     }
   }
 
+  await maybeFireStop('max_turns');
   return { reason: 'max_turns' };
+}
+
+/** Fire the Stop hook. Failures are swallowed — a misbehaving Stop hook must
+ *  not turn a 'completed' run into an 'error'. */
+async function fireStopHook(
+  runner: import('../hooks/types.js').HookRunner,
+  sessionId: string,
+  cwd: string,
+  reason: Terminal['reason'],
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    await runner('Stop', { hookEventName: 'Stop', session_id: sessionId, cwd, reason }, signal);
+  } catch {
+    // Stop hooks are observers; never propagate.
+  }
+}
+
+function rewriteLatestUserText(messages: Message[], next: string): Message[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== 'user') continue;
+    const idx = message.content.findIndex((block) => block.type === 'text');
+    if (idx === -1) continue;
+    const updatedContent = message.content.slice();
+    updatedContent[idx] = { type: 'text', text: next };
+    const out = messages.slice();
+    out[i] = { ...message, content: updatedContent };
+    return out;
+  }
+  return messages;
 }
 
 function latestUserText(messages: Message[]): string | undefined {

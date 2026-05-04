@@ -41,6 +41,14 @@ export function createSandbox(opts: { setup?: TestSetup } = {}): Sandbox {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, f.content);
   }
+  for (const f of opts.setup?.homeFiles ?? []) {
+    const target = resolve(home, f.path);
+    if (!target.startsWith(`${home}/`) && target !== home) {
+      throw new Error(`setup homeFile path escapes sandbox harness home: ${f.path}`);
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, f.content);
+  }
 
   // Sandbox vars must win over user-supplied env — listed last on purpose.
   const envAdditions: Record<string, string> = {
