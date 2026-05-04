@@ -4,6 +4,11 @@ LLM-judged behavior tests that drive the real `sov` binary as a subprocess and
 verify it behaves correctly. Complements (does not replace) the unit/integration
 suites under `tests/`.
 
+This README is the developer-facing reference: architecture, isolation, layout,
+how to add a test, how to add a judge backend, porting guide. For the canonical
+inventory of which tests exist and what each one guards against, see
+[`docs/semantic-testing.md`](../../docs/semantic-testing.md) at the repo root.
+
 ## What problem this solves
 
 Unit tests catch logic bugs in isolated functions. They cannot catch:

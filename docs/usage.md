@@ -553,10 +553,10 @@ sov --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
 
 ## Semantic Test Suite
 
-LLM-judged behavior tests that drive the real `sov` binary in an isolated sandbox and have an LLM judge decide whether each prompt was handled correctly. Catches bugs that unit tests can't reach: tool dispatch surfacing, fabrication on tool errors, slash command pipelines, multi-step coherence.
+LLM-judged behavior tests that drive the real `sov` binary in an isolated sandbox and have an LLM judge decide whether each prompt was handled correctly. Catches bugs that unit tests can't reach: tool dispatch surfacing, fabrication on tool errors, slash command pipelines, permission system end-to-end, multi-turn coherence, /compact and /rollback.
 
 ```bash
-bun run test:semantic                              # auto-pick judge backend
+bun run test:semantic                              # full suite (~5 min, $0.87 informational)
 bun run test:semantic -- --filter bash             # single test
 bun run test:semantic -- --list                    # show discovered tests
 bun run test:semantic -- --verbose                 # print transcripts on failure
@@ -569,7 +569,7 @@ bun run test:semantic -- --judge anthropic-api     # API mode (needs ANTHROPIC_A
 
 **Fully isolated.** Each test runs in a fresh `mktemp -d` with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB. Cleaned up on success, failure, or crash. The judge subprocess is spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands`.
 
-See [`tests/semantic/README.md`](../tests/semantic/README.md) for design, isolation guarantees, how to add tests, and how to add new judge backends.
+**Coverage at a glance (30/30 pass):** 8 tool-dispatch cases, 4 slash-command pipeline paths (/help local, /commit, /init, /<skill>), 6 permission cases (deny/allow/deny-wins/bypass-honors/virtual-tool-name/layer-precedence), 4 refusal cases, 2 context-expansion cases, 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
 
 ## Troubleshooting
 

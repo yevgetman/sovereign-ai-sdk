@@ -138,7 +138,7 @@ Injection-prone external text should be fenced, labeled, bounded, and screened b
 
 ## Add A Semantic Test
 
-Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt + judge criteria designed to weed out a specific bug class.
+Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt (or array of prompts for multi-turn cases) + judge criteria designed to weed out a specific bug class. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory of existing tests and what each guards against.
 
 1. Open or create `tests/semantic/suites/NN-topic.cases.ts`.
 2. Append an entry to its exported `tests: SemanticTest[]`:
@@ -150,6 +150,7 @@ Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a sing
   description: 'Which bug class does this test guard against?',
   category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal',
   setup: { files: [{ path: 'foo.txt', content: 'bar' }] }, // optional
+  // Single string for one turn, or string[] for multi-turn (one prompt per turn).
   prompt: 'The single user prompt sent to the agent.',
   judgeCriteria: {
     mustSatisfy: [
@@ -159,7 +160,8 @@ Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a sing
       'A behavior that, if observed, forces fail.',
     ],
   },
-  timeoutMs: 45_000,             // optional; default 60_000
+  timeoutMs: 45_000,             // optional; default 60_000; bump for multi-turn (90-180s)
+  binaryArgs: ['--permission-mode', 'default'],  // optional; overrides driver defaults
 }
 ```
 
@@ -172,6 +174,8 @@ Design rules:
 - Embed unique tokens (`sovereign-test-token-9f3e1c`) in echo-style prompts so the judge can tell genuine tool output from fabrication.
 - Always include a `shouldNot` to catch hallucination bugs that a presence-only check would miss.
 - Setups must be deterministic: declare every input file in `setup.files`, never depend on ambient state.
+- Pick prompts the agent has no independent reason to refuse. Modern models refuse risky commands like `rm` on their own safety judgment, masking the system you're actually trying to test (e.g., the permission deny rule). Use innocuous targets like `echo` and rely on the test setup to gate them.
+- For multi-turn cases, criteria can refer to specific turns ("In Turn 2, the agent..."). The judge prompt builder formats multi-turn prompts as numbered turns automatically.
 
 ### Add A Judge Backend
 
@@ -179,7 +183,7 @@ Design rules:
 
 1. Create `tests/semantic/framework/judges/<name>.ts`. Export `create<Name>Judge(opts)` returning `Judge`. Use `buildJudgePrompt()` from `prompt.ts` for the prompt and either `parseVerdictFromText()` or `makeVerdict()` for the verdict shape.
 2. Wire it into `framework/judges/index.ts`: add to the `JudgeBackendName` union and a case to `selectJudge()`.
-3. Document the backend in the table in `tests/semantic/README.md`.
+3. Document the backend in the table in `tests/semantic/README.md` and add coverage notes to [`docs/semantic-testing.md`](./semantic-testing.md) if relevant.
 
 The runner, the entry point, and every test case stay unchanged.
 

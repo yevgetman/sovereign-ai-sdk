@@ -241,7 +241,7 @@ A second test category lives under `tests/semantic/`, separate from the unit/int
 
 **Verdict shape.** The judge returns `{pass, reasoning, satisfiedCriteria, failedCriteria, costUsd, tokens, backend}`. The reporter shows `subscription` for `claude-code` zero-cost results and a dollar figure (informational under subscription) when the envelope reports one.
 
-See `tests/semantic/README.md` for the full design and porting guide.
+**Coverage.** 30 tests spanning 8 tool-dispatch cases (Bash/Read/Edit/Write/Glob/Grep + error paths), 4 slash-command dispatch paths (/help local, /commit, /init, /<skill>), 6 permission cases (including the highest-stakes virtual-tool-name mapping and layer-precedence invariant), 4 refusal cases (anti-fabrication + prompt-injection resistance), 2 context-expansion cases, and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
 
 ## Extension Surfaces
 
