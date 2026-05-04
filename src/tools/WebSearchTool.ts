@@ -140,6 +140,12 @@ export const WebSearchTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  // Hide WebSearch when no Tavily/Brave API key is configured. The model
+  // never sees an unusable tool in <available-tools>, so it can't pick it
+  // and won't hit the no-key error path. The error path below is kept for
+  // defense in depth (tests, programmatic use, mid-session config drift).
+  // Setup: docs/usage.md § Web Tools.
+  isEnabled: () => resolveProviderSettings().apiKey !== undefined,
   async call(input, ctx) {
     const env = (ctx as { env?: NodeJS.ProcessEnv }).env ?? process.env;
     const fetchImpl = (ctx as { fetchImpl?: typeof fetch }).fetchImpl ?? globalThis.fetch;

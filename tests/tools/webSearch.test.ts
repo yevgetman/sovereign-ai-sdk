@@ -45,7 +45,21 @@ describe('WebSearchTool', () => {
     else process.env.BRAVE_SEARCH_API_KEY = prevBrave;
   });
 
-  test('throws a helpful error when no API key is configured', async () => {
+  test('isEnabled returns false when no API key is configured', () => {
+    expect(WebSearchTool.isEnabled()).toBe(false);
+  });
+
+  test('isEnabled returns true once an API key is set', () => {
+    writeFileSync(cfgPath, JSON.stringify({ webSearch: { apiKey: 'tvly-test' } }));
+    expect(WebSearchTool.isEnabled()).toBe(true);
+  });
+
+  test('isEnabled honors the env-var fallback', () => {
+    process.env.TAVILY_API_KEY = 'tvly-env';
+    expect(WebSearchTool.isEnabled()).toBe(true);
+  });
+
+  test('throws a helpful error when called with no API key (defense in depth)', async () => {
     await expect(WebSearchTool.call({ query: 'anything' }, ctxBase as ToolContext)).rejects.toThrow(
       /needs an API key/i,
     );
