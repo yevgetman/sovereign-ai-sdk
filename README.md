@@ -22,7 +22,12 @@ See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](
 
 ## Install on a new machine
 
-Two paths: **(A)** install via Bun's package registry — fastest, what most users want; **(B)** clone the repo and develop against the source.
+The repo is **private** — access is controlled by GitHub SSH permissions. There is no public package registry entry. Two paths:
+
+- **(A) Direct git+SSH install** — fastest, no clone needed. Recommended for users who just want to run `sov`.
+- **(B) Source clone + `bun link`** — for contributing or tracking `master` between version bumps.
+
+Both paths register the binary at `~/.bun/bin/sov`. Run only one of them; the latest install wins.
 
 ### Prerequisites
 
@@ -30,34 +35,35 @@ Two paths: **(A)** install via Bun's package registry — fastest, what most use
 |---|---|
 | **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
 | **Provider API key** | Anthropic/OpenAI/OpenRouter access, depending on provider. Ollama can run local without a key. |
-| **Git + SSH to GitHub** | Only for path B (source clone) and for fetching the docs bundle. |
+| **Git + SSH to GitHub** | The repo is private — your SSH key must be authorized on the `yevgetman/sovereign-ai-harness` repo. Same for the docs bundle (`yevgetman/sovereign-ai-docs`) if you want it. |
 | **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
 
-Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your shell (or `source` your rc) so `~/.bun/bin` ends up on PATH. Get a provider API key at `console.anthropic.com`.
+Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your shell (or `source` your rc) so `~/.bun/bin` ends up on PATH. Get a provider API key at `console.anthropic.com`. Confirm SSH access works with `ssh -T git@github.com`.
 
-### Path A — install from Bun's package registry
+### Path A — install directly from the private repo
 
 ```bash
-# 1. Install (or upgrade) the global `sov` binary
-bun install -g @yevgetman/sov
+# 1. Install or upgrade `sov` from the private repo over SSH.
+#    Bun clones into its global cache, runs `bun install`, and links
+#    ~/.bun/bin/sov → the cached repo's src/main.ts.
+bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git
 
 # 2. Drop your provider key somewhere `sov` will see it
-export ANTHROPIC_API_KEY=sk-ant-...        # any login shell
+export ANTHROPIC_API_KEY=sk-ant-...           # any login shell
 # or persist it in ~/.harness/credentials.json — see docs/usage.md
 
 # 3. Run from anywhere
-sov                                        # generic-agent mode, no bundle
-# or, with a harness bundle:
-sov --bundle ~/code/sovereign-ai-docs
+sov                                           # generic-agent mode, no bundle
+sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle (also private)
 ```
 
-**Upgrade:** `bun update -g @yevgetman/sov` (or `bun install -g @yevgetman/sov@latest` to force-pull a new version).
+**Upgrade:** re-run the same `bun install -g git+ssh://...` command. Bun pulls the current `master` and rewires the symlink. To pin a specific revision, append `#<branch-or-tag>` (e.g. `…sovereign-ai-harness.git#v0.2.0`).
 
-**Why scoped (`@yevgetman/sov`)?** The unscoped name `sov` is taken on npm; scoping puts the package in a personal namespace.
+Access control is the GitHub SSH key on the user's machine — exactly the same model the source clone uses. Nothing reaches a public registry.
 
-### Path B — install from source (development / contributing)
+### Path B — clone + `bun link` (development / contributing)
 
-Path A is sufficient for using the harness. Use this path only if you're modifying runtime code or want to track `master` between releases.
+Path A is sufficient for using the harness. Use this path only if you're modifying runtime code or want a working tree with live symlink semantics.
 
 ```bash
 # 1. Clone both repos
@@ -76,7 +82,7 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 sov --bundle ~/code/sovereign-ai-docs
 ```
 
-`bun link` and `bun install -g @yevgetman/sov` install to the same `~/.bun/bin/sov` shim. Run only one or the other; the latest install wins.
+`bun link` produces a live symlink to your working tree (edits take effect immediately, no rebuild). Path A's symlink points at the global cache and is replaced on every upgrade.
 
 ### What ports vs. what doesn't
 
