@@ -4,6 +4,11 @@
 // persistence is off — the judge cannot touch any state outside the prompt
 // it receives. Spawned in tmpdir() to keep it away from the repo cwd.
 //
+// We strip ANTHROPIC_API_KEY from the spawned env so the `claude` CLI falls
+// back to the stored subscription credentials. Without this, a project-local
+// .env or a shell-exported API key takes priority over the subscription and
+// burns API credit (which is the wrong charging path for the judge).
+//
 // We deliberately DO NOT pass `--json-schema` here: empirically, combining
 // schema validation with `--tools ""` and large prompts causes claude to
 // return an empty `result` field (validator burns the response). Instead we
@@ -48,7 +53,7 @@ export function createClaudeCodeJudge(opts: ClaudeCodeJudgeOptions = {}): Judge 
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
-      env: process.env as Record<string, string>,
+      env: judgeSpawnEnv(),
     });
     proc.stdin.write(prompt);
     await proc.stdin.end();
@@ -83,6 +88,21 @@ export function createClaudeCodeJudge(opts: ClaudeCodeJudgeOptions = {}): Judge 
       backend: 'claude-code',
     });
   };
+}
+
+/** Build the env handed to the spawned `claude` CLI. Strips
+ *  ANTHROPIC_API_KEY (and a couple of variants Anthropic clients honor) so
+ *  the CLI falls through to its stored subscription credentials. Without
+ *  this, an `.env` or shell-exported API key wins and the judge burns API
+ *  credit — wrong charging path for semantic testing. */
+function judgeSpawnEnv(): Record<string, string> {
+  const blocked = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (blocked.has(k)) continue;
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
 }
 
 /** Pull cost / tokens from the claude --output-format json envelope when present.
