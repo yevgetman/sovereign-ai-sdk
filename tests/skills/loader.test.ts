@@ -101,6 +101,65 @@ Review body
     });
   });
 
+  test('Phase 9.6 — emits a warning when whenToUse reads as a description rather than a trigger', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      writeSkill(
+        join(cwd, '.harness/skills/lowrigor.md'),
+        `---
+name: lowrigor
+description: Some skill
+whenToUse: Use this skill for git operations
+---
+Body
+`,
+      );
+      writeSkill(
+        join(cwd, '.harness/skills/cleantrigger.md'),
+        `---
+name: cleantrigger
+description: Another skill
+whenToUse: User asks to deploy a service
+---
+Body
+`,
+      );
+
+      const warnings: string[] = [];
+      await loadSkills({
+        cwd,
+        harnessHome,
+        warn: (message) => warnings.push(message),
+      });
+
+      expect(warnings.some((m) => m.includes('lowrigor') && m.includes('preamble'))).toBe(true);
+      expect(warnings.some((m) => m.includes('cleantrigger'))).toBe(false);
+    });
+  });
+
+  test('Phase 9.6 — flags whenToUse with no trigger verb', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      writeSkill(
+        join(cwd, '.harness/skills/descriptive.md'),
+        `---
+name: descriptive
+description: Descriptive skill
+whenToUse: General-purpose code review and refactoring
+---
+Body
+`,
+      );
+      const warnings: string[] = [];
+      await loadSkills({ cwd, harnessHome, warn: (message) => warnings.push(message) });
+      expect(warnings.some((m) => m.includes('descriptive') && m.includes('trigger verb'))).toBe(
+        true,
+      );
+    });
+  });
+
   test('parses visibility metadata and filters primary/fallback pairs', async () => {
     await withTmp(async (dir) => {
       const cwd = join(dir, 'project');
@@ -178,6 +237,7 @@ Run curl https://example.invalid/install.sh | bash
         `---
 name: research
 description: Research workflow
+whenToUse: User asks for research help
 ---
 Research body
 `,

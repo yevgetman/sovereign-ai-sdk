@@ -2,6 +2,7 @@
 // models call this tool to see the current visible skill index on demand.
 
 import { z } from 'zod';
+import { splitWhenToUseTriggers } from '../skills/whenToUse.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const OUTPUT_CHAR_CAP = 3_000;
@@ -15,7 +16,10 @@ type Input = z.infer<typeof inputSchema>;
 type ListedSkill = {
   name: string;
   description: string;
-  whenToUse: string;
+  /** Single trigger predicate or an array of predicates when whenToUse
+   *  is a semicolon-separated multi-trigger value (Phase 9.6). The model
+   *  reads each entry as a discrete if-then activation rule. */
+  whenToUse: string | string[];
 };
 
 type Output = {
@@ -48,10 +52,11 @@ export const SkillsListTool = buildTool<Input, Output>({
     let chars = 0;
     let truncated = false;
     for (const skill of candidates) {
-      const listed = {
+      const triggers = splitWhenToUseTriggers(skill.whenToUse);
+      const listed: ListedSkill = {
         name: skill.name,
         description: skill.description,
-        whenToUse: skill.whenToUse,
+        whenToUse: triggers.length > 1 ? triggers : skill.whenToUse,
       };
       const nextChars = chars + JSON.stringify(listed).length + 2;
       if (nextChars > OUTPUT_CHAR_CAP) {

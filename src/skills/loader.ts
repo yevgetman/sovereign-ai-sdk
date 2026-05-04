@@ -16,6 +16,7 @@ import type {
   SkillSource,
   SkillTrustTier,
 } from './types.js';
+import { validateWhenToUse } from './whenToUse.js';
 
 const MetadataHarnessSchema = z
   .object({
@@ -188,6 +189,10 @@ async function loadSkillFile(
     }
     const parsed = parseMarkdownFrontmatter(raw);
     const frontmatter = SkillFrontmatterSchema.parse(parsed.frontmatter);
+    const rigor = validateWhenToUse(frontmatter.whenToUse);
+    if (!rigor.ok) {
+      warn?.(`skill '${frontmatter.name}' (${path}): ${rigor.reason}`);
+    }
     return {
       name: frontmatter.name,
       description: frontmatter.description,

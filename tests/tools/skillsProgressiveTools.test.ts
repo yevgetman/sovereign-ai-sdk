@@ -61,6 +61,53 @@ Docs body
     });
   });
 
+  test('Phase 9.6 — skills_list splits semicolon-separated whenToUse into a trigger array', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      const bundleRoot = join(dir, 'bundle');
+      write(
+        join(bundleRoot, 'skills/multi.md'),
+        `---
+name: multi
+description: Skill with multiple triggers
+whenToUse: User asks to deploy; user mentions production rollout; agent runs kubectl
+---
+Body
+`,
+      );
+      write(
+        join(bundleRoot, 'skills/single.md'),
+        `---
+name: single
+description: Skill with one trigger
+whenToUse: User asks to simplify code
+---
+Body
+`,
+      );
+      const skills = await loadSkills({ cwd, harnessHome, bundleRoot });
+      const ctx: ToolContext = {
+        cwd,
+        bundleRoot,
+        harnessHome,
+        sessionId: 'session-multi',
+        skills,
+      };
+      const result = await SkillsListTool.call({}, ctx);
+      const multi = result.data.skills.find((s) => s.name === 'multi');
+      const single = result.data.skills.find((s) => s.name === 'single');
+      expect(Array.isArray(multi?.whenToUse)).toBe(true);
+      expect(multi?.whenToUse).toEqual([
+        'User asks to deploy',
+        'user mentions production rollout',
+        'agent runs kubectl',
+      ]);
+      expect(typeof single?.whenToUse).toBe('string');
+      expect(single?.whenToUse).toBe('User asks to simplify code');
+    });
+  });
+
   test('skill_view returns body and reference files under the skill directory', async () => {
     await withTmp(async (dir) => {
       const cwd = join(dir, 'project');
