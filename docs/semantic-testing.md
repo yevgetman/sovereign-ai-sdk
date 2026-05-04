@@ -226,6 +226,19 @@ Don't add a semantic test when:
 - The change is a performance optimization. Wrong test category.
 - The behavior is already covered by an existing test. Don't duplicate.
 
+### When the suite changes, update this document in the same commit
+
+This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
+
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3030-pass), update the headline count (`30/30 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
+- **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
+- **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).
+- **Adding a new judge backend** → update the backend table in [`tests/semantic/README.md`](../tests/semantic/README.md) and the backends paragraph in [Architecture (one screen)](#architecture-one-screen).
+- **Changing the cost or runtime profile** (e.g., timeouts, model defaults) → update [Cost & time profile](#cost--time-profile) and the per-tier cost figures in [Run policy](#run-policy).
+
+If you add a test without updating the inventory and the mapping table, the policy lies — contributors will read it expecting accurate triage and find their `--filter` choice doesn't match what the suite actually contains. Drift here defeats the point of the policy.
+
 ### Future automation (not yet built)
 
 A `select-tests-from-diff.sh` helper that runs `git diff --stat` and emits the appropriate `--filter` flag would make Tier 2 fully automatic. Not built yet — the mapping table above is the manual version. Add this helper when the cost of looking up the right filter exceeds the cost of writing the script (probably never, given the table fits on one screen).

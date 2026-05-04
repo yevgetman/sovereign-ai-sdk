@@ -76,6 +76,8 @@ When in doubt, run the full suite — five minutes and a dollar of subscription 
 
 Add a new semantic test when shipping: a new tool, a new slash command, a new permission rule path, a new context surface, or fixing a bug that should never regress. At phase completion, audit user-visible behaviors and ensure each has at least one case.
 
+**When you change `tests/semantic/suites/`, update [`docs/semantic-testing.md`](docs/semantic-testing.md) in the same commit** — coverage inventory, headline count, and the run-policy mapping table all must stay in sync with reality. If they drift, the triage policy lies.
+
 Full mapping table (changed area → filter) and extension rules: [`docs/semantic-testing.md#when-to-run-and-when-to-extend`](docs/semantic-testing.md#when-to-run-and-when-to-extend).
 
 ## Testing log
