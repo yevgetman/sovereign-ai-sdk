@@ -6,6 +6,7 @@
 
 import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
+import { formatBudgetReport } from '../context/budget.js';
 import { boxify } from '../ui/box.js';
 import { runConfigMenu } from '../ui/configMenu.js';
 import { renderSessionSummary } from '../ui/sessionSummary.js';
@@ -73,6 +74,14 @@ export const settingsCommand: LocalCommand = {
   call: async (_args, _ctx) => runSettingsEditor(),
 };
 
+export const contextBudgetCommand: LocalCommand = {
+  type: 'local',
+  name: 'context-budget',
+  description:
+    'Audit context-window usage across system prompt, tool schemas, skills, bundle, and memory.',
+  call: async (_args, ctx) => formatBudgetReport(ctx.getBudgetReport()),
+};
+
 /** All info-command exports as a single array so the registry can spread
  *  them without hand-listing each command twice. */
 export const INFO_COMMANDS: LocalCommand[] = [
@@ -84,6 +93,7 @@ export const INFO_COMMANDS: LocalCommand[] = [
   quitCommand,
   copyCommand,
   settingsCommand,
+  contextBudgetCommand,
 ];
 
 // ──────────────────────────────────────────────────────────────────────

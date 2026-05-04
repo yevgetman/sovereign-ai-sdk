@@ -10,7 +10,7 @@
 
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
-import type { ToolContext } from '../tool/types.js';
+import type { ToolContext, ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
@@ -76,7 +76,10 @@ export const GrepTool = buildTool<Input, Output>({
   },
 });
 
-async function runGrep(input: Input, ctx: ToolContext): Promise<{ data: Output }> {
+async function runGrep(
+  input: Input,
+  ctx: ToolContext,
+): Promise<{ data: Output; observation: ToolObservation }> {
   const args: string[] = ['--no-heading', '--color=never'];
   const mode = input.output_mode ?? 'content';
   if (mode === 'files_with_matches') args.push('--files-with-matches');
@@ -125,9 +128,28 @@ async function runGrep(input: Input, ctx: ToolContext): Promise<{ data: Output }
     lines = lines.slice(0, input.head_limit);
     truncated = true;
   }
-  return {
-    data: { matches: lines, truncated },
-  };
+  const observation: ToolObservation = (() => {
+    if (lines.length === 0) {
+      return {
+        status: 'warning',
+        summary: `no matches for /${input.pattern}/${input.case_insensitive ? 'i' : ''}`,
+        next_actions: [
+          'broaden the regex (drop word boundaries; use case_insensitive: true)',
+          'widen the search root via the `path` arg, or check the glob filter',
+        ],
+      };
+    }
+    return {
+      status: 'success',
+      summary: `${lines.length} match${lines.length === 1 ? '' : 'es'}${truncated ? ' (truncated)' : ''}`,
+      ...(truncated
+        ? {
+            next_actions: ['raise head_limit, or narrow the regex / scope to reduce result count'],
+          }
+        : {}),
+    };
+  })();
+  return { data: { matches: lines, truncated }, observation };
 }
 
 async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {

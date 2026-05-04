@@ -54,6 +54,11 @@ export const SkillTool = buildTool<Input, Output>({
         prompt,
         allowedTools: current.allowedTools,
       },
+      observation: {
+        status: 'success',
+        summary: `activated skill ${current.name}`,
+        artifacts: [current.path],
+      },
     };
   },
   renderResult: (out) => ({

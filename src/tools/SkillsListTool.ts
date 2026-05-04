@@ -73,6 +73,24 @@ export const SkillsListTool = buildTool<Input, Output>({
         skills,
         truncated,
       },
+      observation:
+        skills.length === 0
+          ? {
+              status: 'warning',
+              summary: needle
+                ? `no visible skills matched "${needle}"`
+                : 'no visible skills configured',
+              next_actions: needle
+                ? [
+                    'try a broader query, or call without `query` to see the full index',
+                    'check that the skill is loaded (look for skill files under .harness/skills/)',
+                  ]
+                : ['add skills under .harness/skills/ or ~/.harness/skills/ to populate the index'],
+            }
+          : {
+              status: 'success',
+              summary: `${skills.length} skill${skills.length === 1 ? '' : 's'}${truncated ? ' (truncated)' : ''}`,
+            },
     };
   },
   renderResult: (out) => ({

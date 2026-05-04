@@ -4,6 +4,7 @@
 import type { SessionCost, SessionListEntry } from '../agent/sessionDb.js';
 import type { CompactResult } from '../compact/compactor.js';
 import type { PermissionRuleLayer } from '../config/rules.js';
+import type { BudgetReport } from '../context/budget.js';
 import type { ContentBlock, Message } from '../core/types.js';
 import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
@@ -48,6 +49,9 @@ export type CommandContext = {
   /** Request graceful REPL exit. The REPL loop will close after the
    *  current command's output prints. */
   requestExit: () => void;
+  /** Phase 12.6: per-component context-window audit. Backs the
+   *  `/context-budget` command. */
+  getBudgetReport: () => BudgetReport;
 };
 
 /** Slash command that runs locally and returns display text. */

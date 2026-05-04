@@ -170,14 +170,35 @@ export const WebFetchTool = buildTool<Input, Output>({
       const text = truncated ? `${decoded.slice(0, cap)}\n[... truncated]` : decoded;
       const body =
         !response.ok && decoded.length === 0 ? `HTTP ${status} ${response.statusText}` : text;
+      const ok = response.ok;
+      const next_actions: string[] = [];
+      if (!ok) {
+        if (status === 404) {
+          next_actions.push(
+            'try the Web Archive (https://web.archive.org/web/*/<url>) for cached copies',
+          );
+        } else if (status === 403 || status === 401) {
+          next_actions.push(
+            'the page requires auth — paste content in directly if you have access',
+          );
+        } else if (status === 429) {
+          next_actions.push('rate-limited — wait and retry, or fetch a different URL');
+        } else if (status >= 500) {
+          next_actions.push('server error — retry once, or fetch a different mirror/CDN');
+        }
+      }
+      if (truncated) {
+        next_actions.push(`raise max_chars (current cap ${cap}) or fetch a more specific URL`);
+      }
       return {
-        data: {
-          url: input.url,
-          finalUrl,
-          status,
-          contentType,
-          truncated,
-          text: body,
+        data: { url: input.url, finalUrl, status, contentType, truncated, text: body },
+        observation: {
+          status: ok ? 'success' : 'error',
+          summary: ok
+            ? `${status} ${contentType.split(';')[0] || 'unknown'}, ${text.length} chars${truncated ? ' (truncated)' : ''}`
+            : `HTTP ${status} ${response.statusText}`,
+          ...(next_actions.length > 0 ? { next_actions } : {}),
+          artifacts: [finalUrl],
         },
       };
     } finally {

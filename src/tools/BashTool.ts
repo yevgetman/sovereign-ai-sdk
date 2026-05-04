@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { wildcardMatches } from '../config/rules.js';
 import { type VirtualOperation, analyzeShellCommand } from '../permissions/shellSemantics.js';
 import { buildTool } from '../tool/buildTool.js';
-import type { ToolContext } from '../tool/types.js';
+import type { ToolContext, ToolObservation } from '../tool/types.js';
 
 /** Bash commands deemed read-only and safe to run in parallel with other
  *  read-only operations. Anything not on this list is treated as a writer
@@ -203,14 +203,28 @@ function refusedPrivilegeEscalationOutput(command: string, escalator: string): O
   };
 }
 
-async function runBash(input: Input, ctx: ToolContext): Promise<{ data: Output }> {
+async function runBash(
+  input: Input,
+  ctx: ToolContext,
+): Promise<{ data: Output; observation: ToolObservation }> {
   // Privilege-escalation guardrail. These commands need a TTY for password /
   // TouchID prompts which a piped subprocess can't supply — the spawn would
   // hang until BashTool's timeout fires, leaving the agent stuck for two
   // minutes. Refuse upfront with a structured error so the agent adapts.
   const escalator = detectPrivilegeEscalation(input.command);
   if (escalator) {
-    return { data: refusedPrivilegeEscalationOutput(input.command, escalator) };
+    const data = refusedPrivilegeEscalationOutput(input.command, escalator);
+    return {
+      data,
+      observation: {
+        status: 'error',
+        summary: `refused: command uses ${escalator}, which needs a TTY`,
+        next_actions: [
+          'run the command yourself in your terminal and paste the output back',
+          `for service queries on macOS, prefer \`launchctl list\` over \`${escalator} grep /etc/cron*\``,
+        ],
+      },
+    };
   }
 
   const timeoutMs = input.timeout_ms ?? DEFAULT_TIMEOUT_MS;
@@ -251,16 +265,15 @@ async function runBash(input: Input, ctx: ToolContext): Promise<{ data: Output }
           ?.includes(input.expect_token) ?? false;
     }
 
-    return {
-      data: {
-        stdout,
-        stderr,
-        exit_code: exitCode,
-        timed_out: timedOut,
-        ...(tokenMatched !== undefined ? { token_matched: tokenMatched } : {}),
-        ...(truncated ? { truncated: true } : {}),
-      },
+    const data: Output = {
+      stdout,
+      stderr,
+      exit_code: exitCode,
+      timed_out: timedOut,
+      ...(tokenMatched !== undefined ? { token_matched: tokenMatched } : {}),
+      ...(truncated ? { truncated: true } : {}),
     };
+    return { data, observation: bashObservation(data) };
   } finally {
     clearTimeout(timer);
   }
@@ -323,6 +336,78 @@ export function formatBashOutput(out: Output): string {
  */
 export function isBashError(out: Output): boolean {
   return out.exit_code !== 0 || out.timed_out === true || out.token_matched === false;
+}
+
+/**
+ * Build the Phase 12.5 observation envelope from a Bash Output. Status maps
+ * via `isBashError`; summary picks the first non-empty stderr line on error
+ * paths, otherwise the first non-empty stdout line. `next_actions` are
+ * supplied for a few common error classes; for run-of-the-mill non-zero
+ * exits we deliberately surface no next_actions because the right move is
+ * usually call-site-specific.
+ */
+export function bashObservation(out: Output): ToolObservation {
+  if (out.timed_out) {
+    return {
+      status: 'error',
+      summary: 'command timed out',
+      next_actions: [
+        'increase the timeout_ms input or break the command into smaller steps',
+        'check whether the command is waiting for stdin (the harness pipes /dev/null)',
+      ],
+    };
+  }
+  if (out.token_matched === false) {
+    return {
+      status: 'error',
+      summary: 'expect_token not found on the last stdout line',
+      next_actions: [
+        'review the actual stdout below to see what the command produced',
+        'adjust expect_token to match a stable sentinel, or drop it for this call',
+      ],
+    };
+  }
+  const error = out.exit_code !== 0;
+  const summary = (() => {
+    if (error) {
+      const stderrLine = firstNonEmptyLine(out.stderr);
+      if (stderrLine) return `exit ${out.exit_code}: ${truncateLine(stderrLine)}`;
+      return `exit ${out.exit_code} (no stderr)`;
+    }
+    const stdoutLine = firstNonEmptyLine(out.stdout);
+    if (stdoutLine) return truncateLine(stdoutLine);
+    return 'command succeeded silently';
+  })();
+  const next_actions: string[] = [];
+  if (error) {
+    if (/command not found/i.test(out.stderr)) {
+      next_actions.push('install the missing binary or check PATH');
+    } else if (/permission denied/i.test(out.stderr)) {
+      next_actions.push('check file/directory ownership or run with appropriate user');
+    } else if (/no such file or directory/i.test(out.stderr)) {
+      next_actions.push('verify the path with Glob or `ls`; confirm the working directory');
+    }
+  }
+  if (out.truncated) {
+    next_actions.push('output was truncated — narrow the command scope or pipe through head/grep');
+  }
+  return {
+    status: error ? 'error' : 'success',
+    summary,
+    ...(next_actions.length > 0 ? { next_actions } : {}),
+  };
+}
+
+function firstNonEmptyLine(s: string): string | undefined {
+  for (const raw of s.split('\n')) {
+    const line = raw.trim();
+    if (line.length > 0) return line;
+  }
+  return undefined;
+}
+
+function truncateLine(s: string, max = 120): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
 /**

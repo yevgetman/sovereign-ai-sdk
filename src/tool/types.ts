@@ -21,6 +21,23 @@ export type PermissionResult = {
 /** Result returned by optional tool-specific validation. */
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
+/** Uniform observation envelope (Phase 12.5). Optional in v1: tools opt in by
+ *  populating the field on `ToolResult`. The orchestrator renders the envelope
+ *  as a structured header above the tool's own `renderResult` output, so the
+ *  model sees consistent recovery and continuation signals across native, MCP,
+ *  skill, and sub-agent tools. ECC's agent-harness-construction skill
+ *  prescribes the {status, summary, next_actions, artifacts} shape. */
+export type ToolObservation = {
+  status: 'success' | 'warning' | 'error';
+  /** One-line result, fits on a single screen line (ideally ≤ 80 chars). */
+  summary: string;
+  /** Actionable follow-ups for the agent — what to try next. Especially
+   *  important on error paths so the model doesn't retry the same call. */
+  next_actions?: string[];
+  /** File paths, IDs, or URLs the call produced or touched. */
+  artifacts?: string[];
+};
+
 /** Per-invocation runtime context passed to every tool call. */
 export type ToolContext = {
   cwd: string;
@@ -39,6 +56,11 @@ export type ToolContext = {
 /** Structured tool output plus optional transcript messages injected after the result. */
 export type ToolResult<T> = {
   data: T;
+  /** Phase 12.5: optional uniform observation envelope. When present, the
+   *  orchestrator prepends a structured header to the rendered `tool_result`
+   *  content. `status === 'error'` also forces the tool_result `is_error`
+   *  flag. Tools that omit this field render exactly as before. */
+  observation?: ToolObservation;
   /** Messages spliced into the transcript after this tool's result. Used by
    * tools that inject context (e.g. skill activation hints). Applied only
    * between serial tools; ignored for parallel batches. */

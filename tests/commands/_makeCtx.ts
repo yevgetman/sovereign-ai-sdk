@@ -59,6 +59,7 @@ export function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext
     getMessages: () => [],
     getPermissions: () => ({ mode: 'default', alwaysAllow: [], layers: [] }),
     requestExit: () => {},
+    getBudgetReport: () => ({ components: [], totals: { estimated: 0 } }),
     ...overrides,
   };
 }

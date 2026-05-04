@@ -35,6 +35,7 @@ import {
   loadPermissionSettings,
 } from '../config/settings.js';
 import { readConfig } from '../config/store.js';
+import { auditContextBudget } from '../context/budget.js';
 import { expandContextReferences } from '../context/references.js';
 import { createSubdirectoryHintState } from '../context/subdirectoryHints.js';
 import { query } from '../core/query.js';
@@ -389,6 +390,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         name: c.name,
         description: c.description,
       })),
+      budget: auditContextBudget({
+        systemSegments: opened.systemPrompt,
+        tools: finalToolPoolRef,
+        skills: skills.skills,
+        ...(bundle ? { bundle } : {}),
+        ...(activeToolNames ? { activeToolNames } : {}),
+      }),
     };
   };
   const toolPool = assembleToolPool(toolContext, { mcpTools, harnessInfoSnapshot });
@@ -524,6 +532,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       closed = true;
       rl.close();
     },
+    getBudgetReport: () =>
+      harnessInfoSnapshot().budget ?? { components: [], totals: { estimated: 0 } },
   });
 
   writeBanner(

@@ -83,12 +83,18 @@ export const FileReadTool = buildTool<Input, Output>({
     const offset = input.offset ?? 0;
     const limit = input.limit ?? allLines.length;
     const lines = allLines.slice(offset, offset + limit);
+    const totalLines = allLines.length;
     return {
-      data: {
-        path: abs,
-        lines,
-        startLine: offset + 1,
-        totalLines: allLines.length,
+      data: { path: abs, lines, startLine: offset + 1, totalLines },
+      observation: {
+        status: 'success',
+        summary:
+          totalLines === 0
+            ? `${abs}: empty file`
+            : `${abs}: ${lines.length} line${lines.length === 1 ? '' : 's'} (${offset + 1}-${
+                offset + lines.length
+              } of ${totalLines})`,
+        artifacts: [abs],
       },
     };
   },

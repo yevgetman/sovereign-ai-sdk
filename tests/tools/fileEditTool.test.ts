@@ -49,14 +49,17 @@ describe('FileEditTool', () => {
     });
   });
 
-  test('multiple matches without replace_all is a clean failure that does not mutate the file', async () => {
+  test('multiple matches without replace_all surfaces an envelope and does not mutate the file', async () => {
     await withTmp(async (dir) => {
       const p = join(dir, 'src.txt');
       const original = 'foo foo foo';
       writeFileSync(p, original);
-      await expect(
-        FileEditTool.call({ path: p, old_string: 'foo', new_string: 'bar' }, makeCtx(dir)),
-      ).rejects.toThrow(/3 matches/);
+      const result = await FileEditTool.call(
+        { path: p, old_string: 'foo', new_string: 'bar' },
+        makeCtx(dir),
+      );
+      expect(result.observation?.status).toBe('error');
+      expect(result.observation?.summary).toContain('matches 3 times');
       expect(readFileSync(p, 'utf8')).toBe(original);
     });
   });
@@ -87,14 +90,54 @@ describe('FileEditTool', () => {
     });
   });
 
-  test('zero matches throws and does not mutate the file', async () => {
+  test('zero matches surfaces a Phase 12.5 error envelope; file unchanged', async () => {
     await withTmp(async (dir) => {
       const p = join(dir, 'src.txt');
       writeFileSync(p, 'hello world');
-      await expect(
-        FileEditTool.call({ path: p, old_string: 'absent', new_string: 'X' }, makeCtx(dir)),
-      ).rejects.toThrow(/not found/);
+      const result = await FileEditTool.call(
+        { path: p, old_string: 'absent', new_string: 'X' },
+        makeCtx(dir),
+      );
+      expect(result.observation?.status).toBe('error');
+      expect(result.observation?.summary).toContain('no match');
+      expect(result.observation?.next_actions).toEqual(
+        expect.arrayContaining([expect.stringContaining('Re-read')]),
+      );
+      expect(result.data.replacements).toBe(0);
+      expect(result.data.error).toContain('not found');
       expect(readFileSync(p, 'utf8')).toBe('hello world');
+    });
+  });
+
+  test('non-unique match without replace_all surfaces an envelope with replace_all guidance', async () => {
+    await withTmp(async (dir) => {
+      const p = join(dir, 'src.txt');
+      writeFileSync(p, 'aa-aa');
+      const result = await FileEditTool.call(
+        { path: p, old_string: 'aa', new_string: 'bb' },
+        makeCtx(dir),
+      );
+      expect(result.observation?.status).toBe('error');
+      expect(result.observation?.summary).toContain('matches 2 times');
+      expect(result.observation?.next_actions).toEqual(
+        expect.arrayContaining([expect.stringContaining('replace_all')]),
+      );
+      expect(result.data.replacements).toBe(0);
+      expect(readFileSync(p, 'utf8')).toBe('aa-aa');
+    });
+  });
+
+  test('successful edit emits a success envelope with the artifact path', async () => {
+    await withTmp(async (dir) => {
+      const p = join(dir, 'src.txt');
+      writeFileSync(p, 'hello world');
+      const result = await FileEditTool.call(
+        { path: p, old_string: 'world', new_string: 'mars' },
+        makeCtx(dir),
+      );
+      expect(result.observation?.status).toBe('success');
+      expect(result.observation?.summary).toContain('1 replacement');
+      expect(result.observation?.artifacts).toContain(p);
     });
   });
 

@@ -204,7 +204,25 @@ export const WebSearchTool = buildTool<Input, Output>({
         provider === 'brave'
           ? await searchBrave(input.query, apiKey, maxResults, fetchImpl, controller.signal)
           : await searchTavily(input.query, apiKey, maxResults, fetchImpl, controller.signal);
-      return { data: { query: input.query, provider, results } };
+      return {
+        data: { query: input.query, provider, results },
+        observation: {
+          status: results.length === 0 ? 'warning' : 'success',
+          summary:
+            results.length === 0
+              ? `no results for "${input.query}"`
+              : `${results.length} result${results.length === 1 ? '' : 's'} via ${provider}`,
+          ...(results.length === 0
+            ? {
+                next_actions: [
+                  'try a more specific or differently-phrased query',
+                  'check spelling, or search a primary source directly with WebFetch',
+                ],
+              }
+            : {}),
+          artifacts: results.map((r) => r.url),
+        },
+      };
     } finally {
       clearTimeout(timer);
     }

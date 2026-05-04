@@ -157,10 +157,13 @@ describe('MCP integration', () => {
     expect(searchResult.content).toContain('mcp__echo__echo');
     expect(searchResult.content).toContain('"text"');
 
-    // Turn 2: the actual MCP call returned the input verbatim.
+    // Turn 2: the actual MCP call returned the input verbatim. With the
+    // Phase 12.5 envelope, the content gains a status/summary header above
+    // the original verbatim text.
     const echoResult = toolResultMessages[1]?.content[0];
     if (echoResult?.type !== 'tool_result') throw new Error('expected tool_result for echo');
-    expect(echoResult.content).toBe('integration says hi');
+    expect(echoResult.content).toContain('status: success');
+    expect(echoResult.content).toContain('integration says hi');
     expect(echoResult.is_error).toBeUndefined();
   });
 

@@ -18,7 +18,7 @@
 import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
 import type { HookRunner } from '../hooks/types.js';
 import type { CanUseTool } from '../permissions/types.js';
-import type { Tool, ToolContext } from '../tool/types.js';
+import type { Tool, ToolContext, ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
 import type { ContentBlock, Message, UserMessage } from './types.js';
 
@@ -399,7 +399,7 @@ async function executeOne(
     }
   }
 
-  let result: { data: unknown };
+  let result: { data: unknown; observation?: ToolObservation };
   let toolError: Error | undefined;
   try {
     result = await tool.call(callInput, ctx);
@@ -415,7 +415,7 @@ async function executeOne(
         content: result.data as string,
         is_error: true,
       } as const)
-    : formatToolResult(tool, block.id, result.data);
+    : formatToolResult(tool, block.id, result.data, result.observation);
 
   // PostToolUse: runs whether the tool succeeded or threw. additionalContext
   // is appended to the tool_result content with a separator so the model
@@ -466,19 +466,36 @@ function formatToolResult(
   tool: Tool<unknown, unknown>,
   toolUseId: string,
   data: unknown,
+  observation: ToolObservation | undefined,
 ): ToolResultBlock {
-  if (tool.renderResult) {
-    const rendered = tool.renderResult(data);
-    return {
-      type: 'tool_result',
-      tool_use_id: toolUseId,
-      content: rendered.content,
-      ...(rendered.isError ? { is_error: true as const } : {}),
-    };
-  }
+  const baseContent = tool.renderResult
+    ? tool.renderResult(data)
+    : { content: typeof data === 'string' ? data : JSON.stringify(data, null, 2) };
+  // Envelope (Phase 12.5) is rendered as a plain-text header before the
+  // tool's own content. Provider-agnostic; no JSON in tool_result.
+  // status === 'error' forces is_error even if renderResult didn't set it.
+  const envelopeHeader = observation ? renderObservationHeader(observation) : '';
+  const content = envelopeHeader
+    ? `${envelopeHeader}\n\n${baseContent.content}`
+    : baseContent.content;
+  const isError = baseContent.isError === true || observation?.status === 'error';
   return {
     type: 'tool_result',
     tool_use_id: toolUseId,
-    content: typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+    content,
+    ...(isError ? { is_error: true as const } : {}),
   };
+}
+
+function renderObservationHeader(o: ToolObservation): string {
+  const lines: string[] = [`status: ${o.status}`, `summary: ${o.summary}`];
+  if (o.next_actions && o.next_actions.length > 0) {
+    lines.push('next_actions:');
+    for (const action of o.next_actions) lines.push(`  - ${action}`);
+  }
+  if (o.artifacts && o.artifacts.length > 0) {
+    lines.push('artifacts:');
+    for (const artifact of o.artifacts) lines.push(`  - ${artifact}`);
+  }
+  return lines.join('\n');
 }

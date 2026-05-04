@@ -252,6 +252,79 @@ describe('runTools — per-tool renderResult', () => {
   });
 });
 
+// ─── Phase 12.5: observation envelope ────────────────────────────────────
+
+describe('runTools — observation envelope (Phase 12.5)', () => {
+  test('observation header is prepended above renderResult content', async () => {
+    const tool = buildTool({
+      name: 'EnvSuccess',
+      description: () => 'success path',
+      inputSchema: z.object({}),
+      async call() {
+        return {
+          data: { value: 42 },
+          observation: {
+            status: 'success' as const,
+            summary: 'computed value',
+            artifacts: ['/tmp/result.txt'],
+          },
+        };
+      },
+      renderResult: (out) => ({ content: `value=${out.value}` }),
+    }) as unknown as Tool<unknown, unknown>;
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'e1', name: 'EnvSuccess', input: {} }];
+    const results = await collectResults(blocks, [tool]);
+    expect(results[0]?.content).toContain('status: success');
+    expect(results[0]?.content).toContain('summary: computed value');
+    expect(results[0]?.content).toContain('artifacts:');
+    expect(results[0]?.content).toContain('  - /tmp/result.txt');
+    // Body still present after the envelope.
+    expect(results[0]?.content).toContain('value=42');
+    expect(results[0]?.is_error).toBeUndefined();
+  });
+
+  test('observation status:error forces is_error even when renderResult does not', async () => {
+    const tool = buildTool({
+      name: 'EnvErr',
+      description: () => 'error path',
+      inputSchema: z.object({}),
+      async call() {
+        return {
+          data: { code: 1 },
+          observation: {
+            status: 'error' as const,
+            summary: 'file not found',
+            next_actions: ['re-read the directory listing', 'check the path'],
+          },
+        };
+      },
+      renderResult: (out) => ({ content: `code=${out.code}` }),
+    }) as unknown as Tool<unknown, unknown>;
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'e2', name: 'EnvErr', input: {} }];
+    const results = await collectResults(blocks, [tool]);
+    expect(results[0]?.is_error).toBe(true);
+    expect(results[0]?.content).toContain('next_actions:');
+    expect(results[0]?.content).toContain('  - re-read the directory listing');
+    expect(results[0]?.content).toContain('  - check the path');
+  });
+
+  test('observation absent → tool_result content is unchanged from prior shape', async () => {
+    const tool = buildTool({
+      name: 'NoEnv',
+      description: () => 'no envelope',
+      inputSchema: z.object({}),
+      async call() {
+        return { data: { value: 'plain' } };
+      },
+      renderResult: (out) => ({ content: `plain=${out.value}` }),
+    }) as unknown as Tool<unknown, unknown>;
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'e3', name: 'NoEnv', input: {} }];
+    const results = await collectResults(blocks, [tool]);
+    expect(results[0]?.content).toBe('plain=plain');
+    expect(results[0]?.is_error).toBeUndefined();
+  });
+});
+
 // ─── Phase 4: partitioning ───────────────────────────────────────────────
 
 describe('partitionToolCalls', () => {

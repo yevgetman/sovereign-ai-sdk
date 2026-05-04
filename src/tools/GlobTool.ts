@@ -60,8 +60,25 @@ export const GlobTool = buildTool<Input, Output>({
       }
     }
     found.sort();
+    const next_actions: string[] = [];
+    if (found.length === 0) {
+      next_actions.push(
+        'broaden the pattern (e.g. **/*.ts → **/*) or change the scan root with `path`',
+        'try a different file extension if you guessed at the language',
+      );
+    } else if (truncated) {
+      next_actions.push('raise head_limit, or narrow the pattern to reduce result count');
+    }
     return {
       data: { paths: found, truncated },
+      observation: {
+        status: found.length === 0 ? 'warning' : 'success',
+        summary:
+          found.length === 0
+            ? `no files matched ${input.pattern}`
+            : `${found.length} file${found.length === 1 ? '' : 's'}${truncated ? ' (truncated)' : ''}`,
+        ...(next_actions.length > 0 ? { next_actions } : {}),
+      },
     };
   },
 });

@@ -172,3 +172,39 @@ describe('/copy', () => {
     expect(text.includes('copied') || text.includes('clipboard tool not available')).toBe(true);
   });
 });
+
+describe('/context-budget', () => {
+  test('renders the budget report passed in via getBudgetReport', async () => {
+    const ctx = makeCtx({
+      getBudgetReport: () => ({
+        components: [
+          {
+            kind: 'tool-schema',
+            name: 'Bash',
+            tokens: 280,
+            bloat: null,
+            classification: 'always',
+          },
+          {
+            kind: 'skill',
+            name: 'react-patterns',
+            tokens: 950,
+            bloat: 'extreme',
+            classification: 'sometimes',
+            path: '/tmp/react-patterns.md',
+          },
+        ],
+        totals: { estimated: 1230, window: 200_000, utilization: 0.00615 },
+      }),
+    });
+    const result = await dispatchSlashCommand('/context-budget', ctx);
+    expect(result.kind).toBe('local');
+    if (result.kind !== 'local') return;
+    const text = strip(result.output);
+    expect(text).toContain('total estimate');
+    expect(text).toContain('Bash');
+    expect(text).toContain('react-patterns');
+    expect(text).toContain('extreme');
+    expect(text).toContain('sometimes');
+  });
+});

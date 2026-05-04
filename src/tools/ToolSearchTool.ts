@@ -48,7 +48,23 @@ export function buildToolSearchTool(
     async call(input) {
       const deferred = getDeferredTools();
       const matched = matchTools(input.query, deferred);
-      return { data: { matched } };
+      return {
+        data: { matched },
+        observation:
+          matched.length === 0
+            ? {
+                status: 'warning',
+                summary: `no deferred tools matched "${input.query}"`,
+                next_actions: [
+                  'try a broader keyword query, or check that any MCP servers are connected (call HarnessInfo with section: "mcp")',
+                  'if you know the tool name, use the form `select:<name>` to fetch its schema directly',
+                ],
+              }
+            : {
+                status: 'success',
+                summary: `${matched.length} deferred tool${matched.length === 1 ? '' : 's'} matched`,
+              },
+      };
     },
     renderResult: (out) => {
       if (out.matched.length === 0) {

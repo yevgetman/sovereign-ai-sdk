@@ -15,6 +15,7 @@
 // can't be captured eagerly).
 
 import { z } from 'zod';
+import { type BudgetReport, formatBudgetReport } from '../context/budget.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { Tool } from '../tool/types.js';
 
@@ -38,9 +39,13 @@ export type HarnessInfoSnapshot = {
     mcp: string[];
   };
   slashCommands: Array<{ name: string; description: string }>;
+  /** Phase 12.6: per-component context-window audit. Optional — present
+   *  when the snapshot getter has access to the system-prompt segments
+   *  and tool pool. */
+  budget?: BudgetReport;
 };
 
-const SECTIONS = ['all', 'settings', 'mcp', 'tools', 'commands'] as const;
+const SECTIONS = ['all', 'settings', 'mcp', 'tools', 'commands', 'budget'] as const;
 type Section = (typeof SECTIONS)[number];
 
 const inputSchema = z.object({
@@ -71,7 +76,13 @@ export function buildHarnessInfoTool(getSnapshot: () => HarnessInfoSnapshot): To
     async call(input) {
       const snap = getSnapshot();
       const section = input.section ?? 'all';
-      return { data: filterSnapshot(snap, section) };
+      return {
+        data: filterSnapshot(snap, section),
+        observation: {
+          status: 'success',
+          summary: `runtime snapshot (${section})`,
+        },
+      };
     },
     renderResult: (out) => ({ content: formatSnapshot(out) }),
   });
@@ -87,6 +98,8 @@ function filterSnapshot(snap: HarnessInfoSnapshot, section: Section): Output {
       return { tools: snap.tools };
     case 'commands':
       return { slashCommands: snap.slashCommands };
+    case 'budget':
+      return snap.budget !== undefined ? { budget: snap.budget } : {};
     default:
       return snap;
   }
@@ -118,6 +131,9 @@ function formatSnapshot(out: Output): string {
     if (out.tools.native.length > 0) lines.push(`  ${out.tools.native.join(', ')}`);
     lines.push(`mcp tools (${out.tools.mcp.length}):`);
     if (out.tools.mcp.length > 0) lines.push(`  ${out.tools.mcp.join(', ')}`);
+  }
+  if (out.budget !== undefined) {
+    lines.push('', formatBudgetReport(out.budget));
   }
   if (out.slashCommands !== undefined) {
     lines.push('', `slash commands (${out.slashCommands.length}):`);

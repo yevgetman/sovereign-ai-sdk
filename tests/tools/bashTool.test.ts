@@ -238,3 +238,51 @@ describe('BashTool sudo guardrail', () => {
     expect(result.data.stdout.trim()).toBe('not-sudo');
   });
 });
+
+describe('BashTool — observation envelope (Phase 12.5)', () => {
+  test('success path emits status: success with stdout summary', async () => {
+    const result = await BashTool.call({ command: 'echo hello-bash-12-5' }, ctx);
+    expect(result.observation?.status).toBe('success');
+    expect(result.observation?.summary).toBe('hello-bash-12-5');
+    expect(result.observation?.next_actions).toBeUndefined();
+  });
+
+  test('non-zero exit emits status: error with stderr summary', async () => {
+    const result = await BashTool.call({ command: 'echo oops 1>&2; exit 3' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(result.observation?.summary).toContain('exit 3');
+    expect(result.observation?.summary).toContain('oops');
+  });
+
+  test('command-not-found suggests installing the binary', async () => {
+    const result = await BashTool.call({ command: 'definitely-not-a-real-binary-zz4' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(result.observation?.next_actions).toEqual(
+      expect.arrayContaining([expect.stringContaining('install')]),
+    );
+  });
+
+  test('timeout emits a timeout-specific envelope', async () => {
+    const result = await BashTool.call({ command: 'sleep 5', timeout_ms: 50 }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(result.observation?.summary).toContain('timed out');
+    expect(result.observation?.next_actions).toEqual(
+      expect.arrayContaining([expect.stringContaining('timeout_ms')]),
+    );
+  });
+
+  test('expect_token miss surfaces a token-specific envelope', async () => {
+    const result = await BashTool.call({ command: 'echo done', expect_token: 'NOT_THERE' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(result.observation?.summary).toContain('expect_token');
+  });
+
+  test('privilege-escalation refusal surfaces in the envelope', async () => {
+    const result = await BashTool.call({ command: 'sudo ls /etc' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(result.observation?.summary).toContain('sudo');
+    expect(result.observation?.next_actions).toEqual(
+      expect.arrayContaining([expect.stringContaining('run the command yourself')]),
+    );
+  });
+});

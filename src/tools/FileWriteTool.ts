@@ -59,11 +59,15 @@ export const FileWriteTool = buildTool<Input, Output>({
       }
     }
     writeFileSync(abs, input.content, 'utf8');
+    const bytesWritten = Buffer.byteLength(input.content, 'utf8');
     return {
-      data: {
-        path: abs,
-        bytesWritten: Buffer.byteLength(input.content, 'utf8'),
-        created,
+      data: { path: abs, bytesWritten, created },
+      observation: {
+        status: 'success',
+        summary: created
+          ? `created ${abs} (${bytesWritten} bytes)`
+          : `wrote ${bytesWritten} bytes to ${abs}`,
+        artifacts: [abs],
       },
     };
   },

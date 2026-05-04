@@ -49,6 +49,11 @@ export const SkillsViewTool = buildTool<Input, Output>({
             sessionId: ctx.sessionId,
           }),
         },
+        observation: {
+          status: 'success',
+          summary: `viewed SKILL.md for ${current.name}`,
+          artifacts: [current.path],
+        },
       };
     }
 
@@ -69,6 +74,11 @@ export const SkillsViewTool = buildTool<Input, Output>({
           cwd: ctx.cwd,
           sessionId: ctx.sessionId,
         }),
+      },
+      observation: {
+        status: 'success',
+        summary: `viewed ${relative(current.dir, target)} (skill ${current.name})`,
+        artifacts: [target],
       },
     };
   },

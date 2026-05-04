@@ -51,10 +51,12 @@ export const MemoryTool = buildTool<Input, Output>({
     const harnessHome = ctx.harnessHome ?? resolveHarnessHome();
     if (input.action === 'view') {
       const file = optionalFile(input.file);
+      const result = file ? readMemoryFile(file, harnessHome) : readAllMemory(harnessHome);
       return {
-        data: {
-          ok: true,
-          result: file ? readMemoryFile(file, harnessHome) : readAllMemory(harnessHome),
+        data: { ok: true, result },
+        observation: {
+          status: 'success',
+          summary: file ? `viewed ${file}` : 'viewed all memory files',
         },
       };
     }
@@ -62,27 +64,42 @@ export const MemoryTool = buildTool<Input, Output>({
     const file = optionalFile(input.file);
     if (!file) {
       return {
-        data: {
-          ok: false,
-          result: { error: 'file is required for action=replace' },
+        data: { ok: false, result: { error: 'file is required for action=replace' } },
+        observation: {
+          status: 'error',
+          summary: 'replace requires the `file` argument',
+          next_actions: ['set file to "MEMORY.md" or "USER.md" and retry'],
         },
       };
     }
     if (input.content === undefined) {
       return {
-        data: {
-          ok: false,
-          result: { error: 'content is required for action=replace' },
+        data: { ok: false, result: { error: 'content is required for action=replace' } },
+        observation: {
+          status: 'error',
+          summary: 'replace requires the `content` argument',
+          next_actions: ['provide the full new file body in `content` and retry'],
         },
       };
     }
     const result = replaceMemoryFile(file, input.content, harnessHome);
     if (result.ok) await ctx.memoryManager?.onMemoryWrite({ file, chars: input.content.length });
     return {
-      data: {
-        ok: result.ok,
-        result,
-      },
+      data: { ok: result.ok, result },
+      observation: result.ok
+        ? {
+            status: 'success',
+            summary: `replaced ${file} (${input.content.length} chars)`,
+            artifacts: [`memory/${file}`],
+          }
+        : {
+            status: 'error',
+            summary: `replace ${file} rejected by memory bound`,
+            next_actions: [
+              'reduce content length below the cap (USER.md=1375, MEMORY.md=2200 chars)',
+              'consolidate older entries before adding new ones',
+            ],
+          },
     };
   },
 });

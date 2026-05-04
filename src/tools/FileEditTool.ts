@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import type { ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
@@ -33,6 +34,10 @@ type Input = z.infer<typeof inputSchema>;
 type Output = {
   path: string;
   replacements: number;
+  /** Phase 12.5: set on the recoverable error classes (missing match,
+   *  non-unique match) so the rendered tool_result still shows the
+   *  message. The `is_error` flag is driven by the observation envelope. */
+  error?: string;
 };
 
 export const FileEditTool = buildTool<Input, Output>({
@@ -47,9 +52,12 @@ export const FileEditTool = buildTool<Input, Output>({
   checkPermissions: async () => ({ behavior: 'ask' }),
   preparePermissionMatcher: async (input) => (pattern) =>
     matchesPathPermissionPattern(input.path, pattern),
-  renderResult: (out) => ({
-    content: `${out.path}: ${out.replacements} replacement${out.replacements === 1 ? '' : 's'}`,
-  }),
+  renderResult: (out) => {
+    if (out.error !== undefined) return { content: out.error };
+    return {
+      content: `${out.path}: ${out.replacements} replacement${out.replacements === 1 ? '' : 's'}`,
+    };
+  },
   async call(input, ctx) {
     const abs = resolveToolPath(input.path, ctx.cwd);
     if (!existsSync(abs)) {
@@ -68,22 +76,43 @@ export const FileEditTool = buildTool<Input, Output>({
     const original = readFileSync(abs, 'utf8');
     const occurrences = countOccurrences(original, input.old_string);
     if (occurrences === 0) {
-      throw new Error(`old_string not found in ${abs}`);
+      const error = `old_string not found in ${abs}`;
+      const observation: ToolObservation = {
+        status: 'error',
+        summary: `no match for old_string in ${abs}`,
+        next_actions: [
+          'Re-read the file (FileRead) to see current contents — your old_string may not match exactly.',
+          'Check whitespace, indentation, and line endings — every byte of old_string must match.',
+        ],
+        artifacts: [abs],
+      };
+      return { data: { path: abs, replacements: 0, error }, observation };
     }
     const replaceAll = input.replace_all ?? false;
     if (!replaceAll && occurrences > 1) {
-      throw new Error(
-        `old_string is not unique in ${abs} (${occurrences} matches). Expand the match with surrounding context, or set replace_all: true.`,
-      );
+      const error = `old_string is not unique in ${abs} (${occurrences} matches). Expand the match with surrounding context, or set replace_all: true.`;
+      const observation: ToolObservation = {
+        status: 'error',
+        summary: `old_string matches ${occurrences} times in ${abs}`,
+        next_actions: [
+          'Expand old_string with surrounding context so it identifies one location uniquely.',
+          'Or set replace_all: true to apply the substitution to every occurrence.',
+        ],
+        artifacts: [abs],
+      };
+      return { data: { path: abs, replacements: 0, error }, observation };
     }
     const updated = replaceAll
       ? original.split(input.old_string).join(input.new_string)
       : replaceFirst(original, input.old_string, input.new_string);
     writeFileSync(abs, updated, 'utf8');
+    const replacements = replaceAll ? occurrences : 1;
     return {
-      data: {
-        path: abs,
-        replacements: replaceAll ? occurrences : 1,
+      data: { path: abs, replacements },
+      observation: {
+        status: 'success',
+        summary: `${replacements} replacement${replacements === 1 ? '' : 's'} in ${abs}`,
+        artifacts: [abs],
       },
     };
   },
