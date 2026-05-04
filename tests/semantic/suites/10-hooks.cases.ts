@@ -91,7 +91,6 @@ export const tests: SemanticTest[] = [
       ],
     },
     timeoutMs: 90_000,
-    slow: true,
   },
   {
     id: 'hook-posttooluse-additional-context',
@@ -152,6 +151,5 @@ export const tests: SemanticTest[] = [
       ],
     },
     timeoutMs: 90_000,
-    slow: true,
   },
 ];

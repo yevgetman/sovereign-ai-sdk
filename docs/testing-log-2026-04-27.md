@@ -27,7 +27,10 @@ Implementation backlogs from these findings live in
 - Environment: Bun 1.3.13 / Darwin 25.2.0.
 - Commands:
   - `bun run lint` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`, unrelated to Phase 11).
+  - `bun run typecheck` — clean.
   - `bun run test` — full suite green; 31 new hook unit tests (`tests/hooks/argvSplit.test.ts`, `consent.test.ts`, `runner.test.ts`, `wiring.test.ts`).
+  - Per-test filter: `bun run test:semantic -- --filter hook` — both new cases pass solo (19.9s, $0.070).
+  - Full semantic suite: **32/32 pass, 342.6s, $0.921 informational.** Both new hook cases land at the end (10.4s + 10.1s solo cost ≈ $0.055 incremental).
 - Manual coverage:
   - Unit-level: hook runner spawns scripts with `shell: false` via Bun.spawn (FileSink stdin, ReadableStream stdout/stderr); JSON in / JSON out round-trips; exit code 2 blocks with stderr captured into `reason`; non-0/non-2 exits soft-fail (logged, no block); consent denial makes a hook inert.
   - Wiring: PreToolUse fires inside `executeOne()` after `canUseTool` resolves to allow, before `tool.call()`; `updatedInput` re-validates through the tool schema; PostToolUse `additionalContext` appended to `tool_result.content`; UserPromptSubmit rewrites the latest user message text; Stop fires on every Terminal path (completed, max_tokens, max_turns, error, interrupted) and is fire-and-forget.
@@ -35,6 +38,7 @@ Implementation backlogs from these findings live in
 - Result:
   - 31 new unit tests pass; full unit suite remains green.
   - Two new semantic cases land under a new `hooks` category: `hook-pretooluse-blocks-bash` and `hook-posttooluse-additional-context`. Inventory headline updated 30 → 32 in `docs/semantic-testing.md`.
+  - Full semantic suite passes 32/32 on first attempt — no regressions in any of the 30 prior cases. Wall time within prior envelope (was 319s for 30/30, now 342.6s for 32/32 — the +23.6s ≈ the two new cases plus a touch of judge variance).
 - Regressions / follow-ups:
   - No regressions.
   - Deferred this phase (deliberate, per CLAUDE.md "no features beyond what the task requires"):
