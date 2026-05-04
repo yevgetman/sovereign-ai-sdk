@@ -62,6 +62,22 @@ Each phase should:
 
 Run `bun run lint` and `bun run test` before every commit. Commit atomically — one logical change per commit. This matches the rule in `sovereign-ai-docs/CLAUDE.md`.
 
+## Semantic test suite — when to run, when to extend
+
+`bun run test:semantic` is opt-in (~5 min wall, ~$0.87 informational on subscription). Apply this triage:
+
+- **Doc-only / formatting:** skip
+- **Touching one specific surface** (single tool, single slash command, single permission rule path, single context surface): run the matching filter — `bun run test:semantic -- --filter <id-or-substring>`
+- **Touching `src/core/query.ts`, `src/providers/`, `src/agent/sessionDb.ts` schema, or `src/permissions/canUseTool.ts`:** run the full suite
+- **Before pushing a substantive feature batch to master:** run the full suite
+- **Phase completion gate:** run the full suite + log it in `docs/testing-log-2026-04-27.md`
+
+When in doubt, run the full suite — five minutes and a dollar of subscription value is cheap insurance.
+
+Add a new semantic test when shipping: a new tool, a new slash command, a new permission rule path, a new context surface, or fixing a bug that should never regress. At phase completion, audit user-visible behaviors and ensure each has at least one case.
+
+Full mapping table (changed area → filter) and extension rules: [`docs/semantic-testing.md#when-to-run-and-when-to-extend`](docs/semantic-testing.md#when-to-run-and-when-to-extend).
+
 ## Testing log
 
 Append an entry to `docs/testing-log-2026-04-27.md` whenever harness testing is performed, whether automated (`bun run test`, lint/typecheck gates, targeted unit tests) or semantic/manual (CLI checks, REPL smoke tests, provider/tool behavior checks). Record the scope, environment, commands, manual coverage, result, and any regressions or follow-ups.

@@ -138,7 +138,7 @@ Injection-prone external text should be fenced, labeled, bounded, and screened b
 
 ## Add A Semantic Test
 
-Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt (or array of prompts for multi-turn cases) + judge criteria designed to weed out a specific bug class. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory of existing tests and what each guards against.
+Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt (or array of prompts for multi-turn cases) + judge criteria designed to weed out a specific bug class. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory of existing tests, what each guards against, and the policy for when to add a new one (new tool / slash command / permission rule path / context surface, or a bug that should never regress).
 
 1. Open or create `tests/semantic/suites/NN-topic.cases.ts`.
 2. Append an entry to its exported `tests: SemanticTest[]`:

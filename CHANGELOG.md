@@ -1,5 +1,9 @@
 # Changelog
 
+## Semantic suite — run + extend policy documented - 2026-05-03
+
+Added a "When to run and when to extend" section to [`docs/semantic-testing.md`](docs/semantic-testing.md). Codifies a four-tier triage (skip / filtered / full / gate) with a concrete mapping table from changed source area → filter, plus rules for when to add a new test (new tool, new slash command, new permission rule path, new context surface, regression fix, phase completion). Brief pointer added to `CLAUDE.md` and `AGENTS.md`. The policy makes the suite's cost-benefit explicit so contributors don't either over-run it (per-commit) or under-run it (never).
+
 ## Semantic suite — /rollback end-to-end (30/30 pass) - 2026-05-03
 
 `workflow.rollback-restores-parent-session` — four-turn case proving `/rollback` returns to the parent session and restores its full history. Pairs with the existing /compact case: Turn 1 introduces a token, Turn 2 /compact (spawn child), Turn 3 /rollback (return to parent), Turn 4 recall the token. The agent recalls correctly from the restored parent history (per `terminalRepl.ts:rollbackNow()` — switches `activeSessionId`, reloads messages from the DB, repairs orphaned tool_results).

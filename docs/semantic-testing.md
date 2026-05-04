@@ -161,6 +161,75 @@ For the full architecture (judge prompt construction, verdict parsing tolerance,
 
 The reporter shows `subscription` for `claude-code` zero-cost results; non-zero figures are informational ("what this would cost metered").
 
+## When to run and when to extend
+
+Each full-suite run costs ~5 min wall time and ~$0.87 informational on subscription. That's cheap enough to run before pushes, expensive enough that we don't run it on every commit. The triage below codifies what to run for a given change.
+
+### Run policy
+
+A four-tier rule based on what changed:
+
+| Tier | Trigger | What to run |
+|---|---|---|
+| **Skip** | Doc-only / formatting / README updates that don't change code behavior | Nothing |
+| **Filtered** | Touching one specific surface (one tool, one slash command, one permission rule path, one context surface) | `bun run test:semantic -- --filter <id-or-substring>` (~10-30 s, ~$0.03-0.10) |
+| **Full suite** | Touching `src/core/query.ts`, `src/providers/`, `src/agent/sessionDb.ts` schema, `src/permissions/canUseTool.ts`, or any shared infrastructure that affects multiple surfaces; before pushing a substantive feature batch | `bun run test:semantic` (~5 min, ~$0.87) |
+| **Gate** | Phase completion; before merging a substantive PR; before any release | `bun run test:semantic` + log entry in `docs/testing-log-2026-04-27.md` |
+
+When in doubt, run the full suite. Five minutes and a dollar of subscription value is cheap insurance.
+
+### Mapping table — changed area → tests
+
+Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change spans multiple rows, run all matching filters or just escalate to full suite.
+
+| Changed area | Filter to run |
+|---|---|
+| `src/tools/Bash*` | `--filter bash` (also catches `bash-cat-blocked-by-read-deny`) |
+| `src/tools/FileRead*` | `--filter read-file` |
+| `src/tools/FileEdit*` | `--filter edit` (catches `edit-file-modify-content` + `edit-missing-string`) |
+| `src/tools/FileWrite*` | `--filter write-file` |
+| `src/tools/Glob*` | `--filter glob` |
+| `src/tools/Grep*` | `--filter grep` |
+| `src/tool/buildTool.ts` | `--filter tools` (full category — buildTool is shared) |
+| `src/permissions/canUseTool.ts` | `--filter permissions` (full category — orchestrator-level) |
+| `src/permissions/shellSemantics.ts` | `--filter virtual-tool` (specifically tests Bash→Read mapping) |
+| `src/config/rules.ts` | `--filter permissions` |
+| `src/config/settings.ts` (rule layers) | `--filter rule-layer` (tests local > project) |
+| `src/commands/registry.ts` | `--filter commands` |
+| `src/commands/sessionOps.ts` (`/init`, `/export`) | `--filter init` and `--filter commit` |
+| `src/commands/info.ts` (`/help`, `/about`) | `--filter help` |
+| `src/skills/loader.ts`, `src/skills/types.ts` | `--filter skill` |
+| `src/context/system.ts` (system prompt, cwd) | `--filter context` |
+| `src/context/userMessage.ts` (`@`-references) | `--filter at-file` |
+| `src/compact/` | `--filter compact` |
+| `src/agent/sessionDb.ts` | `--filter compact` and `--filter rollback` |
+| `src/ui/terminalRepl.ts:rollbackNow` | `--filter rollback` |
+| `src/core/query.ts` (turn loop) | **Full suite** — too core for filtering |
+| `src/providers/` | **Full suite** — affects all model interactions |
+| `src/ui/*` (rendering only) | Skip the semantic suite; the hardpass shell at `tests/_smoke/wave1-3-hardpass.sh` covers visual surfaces |
+
+### Extension policy — when to add a new test
+
+Add a new semantic test when ANY of:
+
+- **A new tool ships.** Add a tool-dispatch case (and an error-path case if the tool has meaningful failure modes the agent must surface honestly).
+- **A new slash command ships.** Local commands need at least one dispatch test; prompt-commands also need an end-to-end behavior test like `/commit` or `/init`.
+- **A new permission rule path ships** — a new rule type, a new layer, a new virtual tool name mapping. Add a permissions case demonstrating the user-visible behavior.
+- **A new context surface ships** — new `@`-reference type, new system-prompt section, new auto-injected fact. Add a context case.
+- **A bug is fixed that wasn't caught by existing tests.** Add a regression case that would have caught the bug. Name and description should reference the bug class so future maintainers know why the test exists.
+- **A phase completes.** Audit the user-visible behaviors the phase introduces. Each new behavior class should have at least one semantic test before the phase is marked done.
+- **A design decision introduces a new invariant.** If the invariant is observable in the agent's transcript, write a test that pins it. Two such tests already exist by happy accident — `bypass-mode-honors-deny` and `deny-wins-within-layer` both pin documented invariants from `canUseTool.ts`.
+
+Don't add a semantic test when:
+- The change is an internal refactor that preserves user-visible behavior. Unit tests are the right level.
+- The change is UI/rendering polish. The hardpass shell at `tests/_smoke/wave1-3-hardpass.sh` is the right place.
+- The change is a performance optimization. Wrong test category.
+- The behavior is already covered by an existing test. Don't duplicate.
+
+### Future automation (not yet built)
+
+A `select-tests-from-diff.sh` helper that runs `git diff --stat` and emits the appropriate `--filter` flag would make Tier 2 fully automatic. Not built yet — the mapping table above is the manual version. Add this helper when the cost of looking up the right filter exceeds the cost of writing the script (probably never, given the table fits on one screen).
+
 ## Adding tests / extending
 
 To add a new test, design a good criteria set, add a new judge backend, or port the framework to another codebase, see [`tests/semantic/README.md`](../tests/semantic/README.md). The recipe in [`docs/extending.md`](./extending.md#add-a-semantic-test) is the short-form version with a copy-pasteable test template.
