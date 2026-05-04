@@ -599,6 +599,14 @@ Commit a finished change:
 /commit
 ```
 
+Audit context-window usage when a session feels sluggish or the agent's output quality drops:
+
+```text
+/context-budget
+```
+
+The output is sectioned by component kind (system prompt, tool schemas, skills, bundle context, memory files) with token counts, bloat flags (`heavy`, `extreme`), and triage classes (`sometimes`, `rarely`). Lets you see whether a particular skill or MCP server's schema is dominating the window before deciding what to drop or move behind a `requires_*` gate.
+
 Run with stricter permission prompts:
 
 ```bash
