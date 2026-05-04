@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (34/34 pass)
+## Coverage inventory (35/35 pass)
 
 The full suite runs in ~5.3 minutes and costs ~$0.87 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -109,6 +109,14 @@ Phase 12 connects the harness to external MCP servers (filesystem, GitHub, Slack
 |---|---|
 | `tools.mcp-tool-search-then-invoke` | MCP tool not merged into the pool, deferred-schema handling broken, or ToolSearch fails to return the full schema |
 | `permissions.mcp-permission-rule-blocks-server` | MCP tool bypasses the permission system — `mcp__<server>` deny rule must block every tool from that server |
+
+### Self-doc / runtime introspection — 1 test
+
+Pairs the `<harness-self-doc>` system-prompt segment (`src/context/systemPrompt.ts`) with the `HarnessInfo` runtime tool (`src/tools/HarnessInfoTool.ts`). The prompt teaches the contracts (settings paths, schemas, slash commands); the tool exposes the live state (loaded settings layers, connected MCP servers, tool inventory, registered commands). Together they prevent the agent from falling back to generic Claude-Desktop / SDK recall when the user asks meta-questions about the harness it's running in.
+
+| ID | Guards against |
+|---|---|
+| `tools.harness-info-config-and-extension-guidance` | Agent answers MCP-config questions with `~/.harness/config.json` / Claude-Desktop guidance instead of `.harness/settings.json` + the `mcpServers` schema; agent fails to identify the configured server |
 
 ### Hooks — 2 tests
 
@@ -225,6 +233,8 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/hooks/` | `--filter hooks` (covers PreToolUse deny + PostToolUse additionalContext) |
 | `src/mcp/` | `--filter mcp` (covers MCP discovery + invocation + permission-rule blocking) |
 | `src/tools/ToolSearchTool.ts` | `--filter mcp-tool-search` |
+| `src/tools/HarnessInfoTool.ts` | `--filter harness-info` |
+| `src/context/systemPrompt.ts` (self-doc segment) | `--filter harness-info` |
 | `src/core/query.ts` (turn loop) | **Full suite** — too core for filtering |
 | `src/providers/` | **Full suite** — affects all model interactions |
 | `src/ui/*` (rendering only) | Skip the semantic suite; the hardpass shell at `tests/_smoke/wave1-3-hardpass.sh` covers visual surfaces |
@@ -251,7 +261,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3030-pass), update the headline count (`30/30 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3535-pass), update the headline count (`35/35 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

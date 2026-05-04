@@ -21,6 +21,18 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-04 - Self-doc segment + HarnessInfo tool (semantic 35/35)
+
+- Scope: User reported the harness couldn't answer meta-questions about itself — "how do I add an MCP server here?" got generic Claude-Desktop guidance plus a wrong pointer to `~/.harness/config.json`. Two seams added: (1) `<harness-self-doc>` cacheable segment in `src/context/systemPrompt.ts` covering settings paths + precedence, mcpServers/permissions/hooks schemas, the `mcp__<server>` rule prefix, the `! <command>` inline shell, and the slash-command list; (2) `HarnessInfo` native tool exposing live state (settings layers, MCP server connection status, tool inventory, slash commands).
+- Vendor neutrality: per CLAUDE.md "no product-specific hardcoding in `src/`," the prompt segment uses `<harness-home>` (not `~/.harness/`) and avoids the "Sovereign AI" identity. White-label deployments inherit the same prompt; product identity comes from the bundle.
+- Wiring: `HarnessInfo` is closure-injected (mirrors `ToolSearchTool`'s deferred-tools pattern). The snapshot getter reads `finalToolPoolRef` post-assembly so the `tools.native` vs `tools.mcp` split reflects the actual pool the model sees. `assembleToolPool` accepts a new `harnessInfoSnapshot` opt; when omitted (tests, programmatic uses) the tool isn't registered.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`, unrelated).
+  - `bun run test` — 804/804 pass. New tests: `tests/tools/harnessInfoTool.test.ts` (10 cases — section filtering, fresh snapshot per call, formatted rendering) + `tests/context/systemPrompt.test.ts` (1 new case verifying the self-doc segment, vendor neutrality, settings paths + schema keys).
+  - `bun run test:semantic -- --filter harness-info-config-and-extension-guidance` — pass first shot (21.2s, $0.044). Agent correctly identified the configured `echo` MCP server and pointed at `.harness/settings.json` with the `mcpServers` key for adding new servers.
+- Result: Suite headline 34 → 35. Inventory updated under a new "Self-doc / runtime introspection" subsection. Mapping table extended with `src/tools/HarnessInfoTool.ts` and `src/context/systemPrompt.ts` rows.
+- Regressions / follow-ups: No regressions. The full semantic suite was not re-run for this change — single-case verification is sufficient (the unit suite covers tool correctness, the new semantic case covers the user-visible failure mode, and the tool wiring is conditional and additive).
+
 ## 2026-05-04 - Fix: MCP server-prefix permission rule (semantic 34/34)
 
 - Scope: Background semantic suite ran post-Phase-12 and surfaced one failure — `permissions.mcp-permission-rule-blocks-server` (33/34, 415s, $1.011). A `deny: ["mcp__echo"]` rule did not block `mcp__echo__echo`; the agent invoked the tool and received the echoed token. Phase-12 plan claimed "the rule matcher already does prefix matching" — that assumption was wrong.
