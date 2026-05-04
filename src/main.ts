@@ -203,6 +203,20 @@ async function main(argv: string[]): Promise<void> {
       process.stdout.write(`unset ${dotpath}\n`);
     });
 
+  program
+    .command('upgrade')
+    .description('Pull the latest sov from the private repo and re-link the global binary')
+    .option('--ref <ref>', 'branch, tag, or commit to install (default: the remote default branch)')
+    .option('--dry-run', 'print the bun command without running it')
+    .action(async (opts) => {
+      const { runUpgrade } = await import('./cli/upgrade.js');
+      const result = runUpgrade({
+        ...(opts.ref !== undefined ? { ref: opts.ref } : {}),
+        ...(opts.dryRun === true ? { dryRun: true } : {}),
+      });
+      process.exit(result.exitCode);
+    });
+
   await program.parseAsync(argv);
 }
 

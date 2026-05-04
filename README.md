@@ -57,7 +57,7 @@ sov                                           # generic-agent mode, no bundle
 sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle (also private)
 ```
 
-**Upgrade:** re-run the same `bun install -g git+ssh://...` command. Bun pulls the current `master` and rewires the symlink. To pin a specific revision, append `#<branch-or-tag>` (e.g. `…sovereign-ai-harness.git#v0.2.0`).
+**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand shells out to `bun install -g git+ssh://…sovereign-ai-harness.git` so you don't have to remember the URL. `--dry-run` prints the command without running it. The first install still uses the explicit `bun install -g git+ssh://…` form above (you can't run `sov upgrade` until `sov` exists).
 
 Access control is the GitHub SSH key on the user's machine — exactly the same model the source clone uses. Nothing reaches a public registry.
 
