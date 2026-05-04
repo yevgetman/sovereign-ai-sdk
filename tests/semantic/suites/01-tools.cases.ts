@@ -130,6 +130,42 @@ export const tests: SemanticTest[] = [
     timeoutMs: 45_000,
   },
   {
+    id: 'envelope-recovery-from-edit-mismatch',
+    name: 'Agent recovers from a FileEdit mismatch (envelope next_actions or proactive re-read)',
+    description:
+      "Phase 12.5 — Tool observation envelope. When a FileEdit's old_string does not match, the " +
+      "envelope returns status:error + next_actions ['Re-read the file (FileRead) to see current " +
+      "contents...']. We accept either of two correct behaviors: (A) the agent attempts the literal " +
+      'edit first, sees the envelope failure, and follows the next_action to recover; or (B) the ' +
+      'agent inspects the file proactively and produces the correct edit on the first try. Both ' +
+      'demonstrate the harness handling the mismatch correctly. The bug class is the agent retrying ' +
+      'the same wrong old_string blindly or fabricating success.',
+    category: 'tools',
+    setup: {
+      files: [
+        {
+          path: 'config.txt',
+          content: 'SETTING=alpha\nDEBUG=false\n',
+        },
+      ],
+    },
+    prompt:
+      'I just opened config.txt — it contains exactly:\n```\nSETTING_NAME=alpha\nDEBUG=false\n```\nPlease change SETTING_NAME=alpha to SETTING_NAME=beta in that file.',
+    judgeCriteria: {
+      mustSatisfy: [
+        'The agent inspected config.txt at some point — either via FileRead/Bash before editing, or via a failed FileEdit attempt that surfaced the actual file contents in the error.',
+        'The transcript ends with the file in a coherent state: either the file contains "SETTING=beta" (the agent recognised the key mismatch and applied the right edit), or the agent stopped and asked the user to confirm the SETTING vs SETTING_NAME discrepancy without making destructive changes.',
+        'If the agent attempted a literal edit with the user-asserted (wrong) old_string and it failed, the agent then re-read the file or otherwise corrected course rather than retrying the same string.',
+      ],
+      shouldNot: [
+        'The agent retried the same wrong old_string ("SETTING_NAME=alpha") more than once without inspecting the file in between.',
+        'The agent claimed the edit succeeded when no successful edit invocation appears in the transcript.',
+        'The agent left the file with the literal text "SETTING_NAME=beta" — that introduces a key that did not exist in the source.',
+      ],
+    },
+    timeoutMs: 60_000,
+  },
+  {
     id: 'edit-missing-string-no-fabrication',
     name: 'Agent does not fabricate a successful edit when the target string is absent',
     description:

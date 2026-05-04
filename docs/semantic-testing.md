@@ -40,11 +40,11 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (35/35 pass)
+## Coverage inventory (37/37 pass)
 
 The full suite runs in ~5.3 minutes and costs ~$0.87 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
-### Tool dispatch — 8 tests
+### Tool dispatch — 9 tests
 
 Verify each native tool dispatches correctly and the agent surfaces the result. Includes happy-path and error-path coverage.
 
@@ -56,16 +56,18 @@ Verify each native tool dispatches correctly and the agent surfaces the result. 
 | `tools.write-file-create-new` | Wrong filename, fabricated success |
 | `tools.bash-error-reported` | Non-zero exit produces no stdout → agent invents output |
 | `tools.edit-missing-string-no-fabrication` | Edit can't find `old_string` → agent claims success anyway |
+| `tools.envelope-recovery-from-edit-mismatch` | **Phase 12.5.** FileEdit mismatch → agent retries the same wrong old_string blindly. The observation envelope's `next_actions` should make recovery reliable; this test catches regressions in the envelope renderer or in FileEditTool's error path |
 | `tools.glob-recursive-typescript-files` | Glob non-recursive (misses nested files) or wrong tool selection |
 | `tools.grep-finds-marker-content` | Grep dispatch broken or wrong file identified |
 
-### Slash-command pipeline — 4 tests
+### Slash-command pipeline — 5 tests
 
 The harness has four distinct slash-command dispatch paths. All four are exercised end-to-end through the spawned binary.
 
 | ID | Path | Guards against |
 |---|---|---|
 | `commands.help-listing` | Local (no model turn) | Slash-command dispatch broken, /help loses categorized layout |
+| `commands.context-budget-dispatch` | Local (no model turn) | **Phase 12.6.** /context-budget command dispatch, the new `CommandContext.getBudgetReport` hook, `auditContextBudget` / `formatBudgetReport` regressions |
 | `commands.commit-on-non-git-directory` | Prompt-command + git tools | Agent fabricates a commit summary when no repo exists |
 | `commands.init-creates-context-md` | Prompt-command + multi-tool | /init scan/synthesize pipeline broken |
 | `commands.skill-invocation-via-slash-command` | Skill-sourced prompt-command | Loader → frontmatter parse → registry → dispatch → turn pipeline |
@@ -235,6 +237,10 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/tools/ToolSearchTool.ts` | `--filter mcp-tool-search` |
 | `src/tools/HarnessInfoTool.ts` | `--filter harness-info` |
 | `src/context/systemPrompt.ts` (self-doc segment) | `--filter harness-info` |
+| `src/tool/types.ts` (ToolObservation envelope) | `--filter envelope` |
+| `src/core/orchestrator.ts` (`formatToolResult`) | `--filter envelope` |
+| `src/context/budget.ts` | `--filter context-budget` |
+| `src/commands/info.ts` (`/context-budget`) | `--filter context-budget` |
 | `src/core/query.ts` (turn loop) | **Full suite** — too core for filtering |
 | `src/providers/` | **Full suite** — affects all model interactions |
 | `src/ui/*` (rendering only) | Skip the semantic suite; the hardpass shell at `tests/_smoke/wave1-3-hardpass.sh` covers visual surfaces |
@@ -261,7 +267,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3535-pass), update the headline count (`35/35 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3737-pass), update the headline count (`37/37 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

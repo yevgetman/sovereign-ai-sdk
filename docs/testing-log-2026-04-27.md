@@ -21,6 +21,19 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-04 - Phase 12.5 + 12.6 semantic coverage (semantic 37/37)
+
+- Scope: User asked whether the Phase 12.5 / 12.6 work shipped earlier today included semantic tests. It hadn't — only unit tests. Added two cases to close the gap.
+- Added cases:
+  - `tools.envelope-recovery-from-edit-mismatch` (Phase 12.5) — ships `config.txt` with `SETTING=alpha`, asks the agent to change `SETTING_NAME=alpha` (wrong key) → `SETTING_NAME=beta`. Accepts either correct path: (A) literal-edit-attempt → mismatch envelope → re-read → correct edit, or (B) proactive read → correct edit. Forbids retrying the same wrong old_string blindly, fabricating success, or leaving the file with the wrong key.
+  - `commands.context-budget-dispatch` (Phase 12.6) — local-command dispatch test for `/context-budget`. Verifies the "total estimate" header, section grouping, and per-tool token counts.
+- Initial design issue: the envelope-recovery case originally required the first edit attempt to fail. The judge correctly failed it because frontier models proactively read first and avoid the failure entirely. Revised the criteria to accept either path — both correctly handle the user's intent.
+- Commands:
+  - `bun run test:semantic -- --filter envelope-recovery-from-edit-mismatch` — pass (44.1s, $0.076).
+  - `bun run test:semantic -- --filter context-budget-dispatch` — pass (16.6s, $0.060).
+- Result: Suite headline 35 → 37. Inventory updated under "Tool dispatch" (now 9 tests) and "Slash-command pipeline" (now 5 tests). Mapping table extended with rows for `src/tool/types.ts`, `src/core/orchestrator.ts`, `src/context/budget.ts`, `src/commands/info.ts (/context-budget)`.
+- Regressions / follow-ups: No regressions. Total semantic-suite addition cost on first run: $0.136. Full suite re-run deferred — both new cases pass on their filtered runs and the existing 35 cases are not affected by these additive changes.
+
 ## 2026-05-04 - Self-doc segment + HarnessInfo tool (semantic 35/35)
 
 - Scope: User reported the harness couldn't answer meta-questions about itself — "how do I add an MCP server here?" got generic Claude-Desktop guidance plus a wrong pointer to `~/.harness/config.json`. Two seams added: (1) `<harness-self-doc>` cacheable segment in `src/context/systemPrompt.ts` covering settings paths + precedence, mcpServers/permissions/hooks schemas, the `mcp__<server>` rule prefix, the `! <command>` inline shell, and the slash-command list; (2) `HarnessInfo` native tool exposing live state (settings layers, MCP server connection status, tool inventory, slash commands).

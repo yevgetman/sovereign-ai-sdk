@@ -8,6 +8,29 @@ import type { SemanticTest } from '../framework/types.js';
 
 export const tests: SemanticTest[] = [
   {
+    id: 'context-budget-dispatch',
+    name: '/context-budget renders a section-grouped audit of context-window usage',
+    description:
+      'Phase 12.6 — context budget. The command must dispatch as a local slash command (no model ' +
+      "turn), produce a 'total estimate' header, and group components by kind. Guards against " +
+      'regressions in src/context/budget.ts (auditContextBudget / formatBudgetReport), the new ' +
+      'CommandContext.getBudgetReport hook, and the command registry wiring.',
+    category: 'commands',
+    prompt: '/context-budget',
+    judgeCriteria: {
+      mustSatisfy: [
+        'The transcript contains the literal string "total estimate".',
+        'The output groups components by section — at least two of: "system prompt", "tool schemas", "skills", "bundle context", "memory files".',
+        'Each tool-schema entry shows a token count after a colon (e.g. "Bash: 280" or similar — the exact tools and counts vary, but every line has a name and a token number).',
+      ],
+      shouldNot: [
+        'The agent treated /context-budget as a model prompt instead of dispatching it locally.',
+        'The transcript contains "unknown command" referring to context-budget.',
+      ],
+    },
+    timeoutMs: 30_000,
+  },
+  {
     id: 'help-listing',
     name: '/help renders the categorized command listing',
     description:
