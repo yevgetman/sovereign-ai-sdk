@@ -21,6 +21,15 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-04 - Full semantic suite run — auth-blocked (35 fail / 1 pass / 1 error)
+
+- Scope: Verification run of the 37-case suite against today's session work (Phase 9.6 / 12.5 / 12.6 / HarnessInfo+self-doc / WebSearch UX / MCP rule fix / sov upgrade / git+ssh distribution).
+- Commands: `bun run test:semantic 2>&1 | tee /tmp/semantic-37.log`.
+- Result: **1 pass / 35 fail / 1 error · 348.5s · $1.913 informational.**
+- Root cause: every failure surface is identical — *"session terminated immediately due to a 401 authentication error"* / *"Invalid authentication credentials"* / *"Tool Calls: 0."* Test 9 (`commands.help-listing`) passed because it's a local-only slash command (no model call); test 8 (`commands.context-budget-dispatch`) errored on a judge JSON-parse glitch but the underlying behavior was correct (M1 + M2 satisfied; the judge's mid-stream reasoning got truncated). **None of the 35 failures are code regressions of today's work** — every one is the agent-under-test's `ANTHROPIC_API_KEY` returning 401 for every model call.
+- Diagnosis: the `.env` at the harness repo root carries an `ANTHROPIC_API_KEY` that Bun auto-loads when `sov` is spawned by the test driver. The judge runs through the local `claude` CLI on subscription (judgeSpawnEnv strips ANTHROPIC_API_KEY), but the agent under test inherits the driver's env and uses the stale key.
+- Follow-up: refresh the API key in repo-root `.env` (or unset it and rely on `~/.harness/credentials.json`), then rerun. Unit suite (853/853) is clean and lint+typecheck pass — none of today's code changes are implicated.
+
 ## 2026-05-04 - Phase 12.5 + 12.6 semantic coverage (semantic 37/37)
 
 - Scope: User asked whether the Phase 12.5 / 12.6 work shipped earlier today included semantic tests. It hadn't — only unit tests. Added two cases to close the gap.

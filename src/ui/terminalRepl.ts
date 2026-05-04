@@ -71,6 +71,7 @@ import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
+import { tryWriteTrajectory } from '../trajectory/writer.js';
 import {
   BracketedPasteTransform,
   disableBracketedPaste,
@@ -548,6 +549,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     countLayerAllowRules(permissionSettings.layers),
   );
 
+  // Phase 13.1 — track the most recent Terminal across all turns so the
+  // session-close trajectory writer knows whether the session ended
+  // cleanly. Empty sessions (user opens sov and quits without prompting)
+  // leave this undefined; the writer treats `undefined` as "completed."
+  let lastTerminal: Terminal | undefined;
+
   while (!closed || question.pending() > 0) {
     if (footerEnabled) {
       const cost = db.getSessionCost(activeSessionId);
@@ -748,6 +755,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         indicator.stop();
         if (step.done) {
           terminal = step.value;
+          lastTerminal = terminal;
           break;
         }
         const ev = step.value;
@@ -1123,6 +1131,29 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
   transcript?.record({ type: 'session_end', sessionId: activeSessionId });
   const finalCost = db.getSessionCost(activeSessionId);
+  // Phase 13.1 — write a ShareGPT-shaped trajectory record before
+  // shutting down dependencies. Skipped for empty sessions (no
+  // user/assistant turns at all). Failures are swallowed via
+  // tryWriteTrajectory — Invariant #10 (additive, non-blocking).
+  if (history.length > 0) {
+    const artifactsRoot = bundle ? join(bundle.root, 'state', 'artifacts') : harnessHome;
+    await tryWriteTrajectory(
+      {
+        messages: history,
+        terminal: lastTerminal ?? { reason: 'completed' },
+        metadata: {
+          sessionId: activeSessionId,
+          provider: providerName,
+          model: activeModel,
+          toolCallCount: metrics.toolCalls,
+          iterationsUsed: metrics.toolOk + metrics.toolErr,
+          estimatedCostUsd: finalCost.estimatedCostUsd + finalCost.estimatedCompactionCostUsd,
+        },
+        artifactsRoot,
+      },
+      (msg) => process.stderr.write(`${msg}\n`),
+    );
+  }
   await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
   if (mcpPool) await mcpPool.shutdown();

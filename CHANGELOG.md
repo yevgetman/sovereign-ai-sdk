@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 13.1 — Trajectory capture - 2026-05-04
+
+The Sovereign moat: every completed session writes a ShareGPT-shaped JSONL record to `<bundle>/state/artifacts/trajectories/samples.jsonl` (or `<harnessHome>/trajectories/samples.jsonl` in generic-agent mode); failed/interrupted sessions land in `failed.jsonl`. Records are redacted at write time via `redact()` against a 14-pattern allowlist (Anthropic / OpenAI / Tavily / Brave / OpenRouter / GitHub PATs / AWS keys / JWTs / Bearer tokens / PEM private keys / credential file paths).
+
+Per Invariant #15, `HARNESS_REDACT_SECRETS` is snapshotted at module import — an agent tool call that mutates `process.env` mid-session can't disable redaction.
+
+ShareGPT mapping handles the full content-block surface: `<think>…</think>` for thinking blocks (cross-model compatible: OpenAI o-series, Anthropic extended thinking, DeepSeek R1), `<tool_call name="X" id="Y">{…}</tool_call>` for assistant tool_use blocks, `from: 'tool'` records for tool_result blocks. `terminal.reason === 'max_turns'` counts as completed (run loop hit cap cleanly); only genuine error/interrupt/max_tokens paths land in `failed.jsonl`.
+
+Wiring captures the most-recent Terminal across all turns of the session (per-session, not per-turn) and calls `tryWriteTrajectory()` after the REPL loop closes, before DB shutdown. Empty sessions (no in-memory messages) skip the write. Failures log to stderr without blocking shutdown — Invariant #10 (additive, non-blocking learning loop).
+
+32 unit tests across `tests/trajectory/`. Build plan §"Phase 13.1".
+
 ## `sov upgrade` — one-command pull from the private repo - 2026-05-04
 
 `sov upgrade` shells out to `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` so users don't have to remember the URL. `--ref <ref>` pins to a tag, branch, or commit (e.g. `sov upgrade --ref v0.2.0`); `--dry-run` prints the command without running it; `SOV_UPGRADE_URL` env var overrides the default install URL for forks or mirrors. stdio is inherited so Bun's progress output flows through unchanged. The subcommand exits with the spawned bun's exit code so shell scripts can branch on success.

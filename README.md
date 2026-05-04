@@ -6,6 +6,8 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
+**Phase 13.1 — Trajectory capture (2026-05-04).** The Sovereign moat. Every completed session writes a ShareGPT-shaped JSONL record (with thinking blocks rendered as `<think>` tags for cross-model compatibility) to `<bundle>/state/artifacts/trajectories/samples.jsonl` or `<harnessHome>/trajectories/samples.jsonl`. Records are redacted at write via a 14-pattern allowlist (Anthropic / OpenAI / Tavily / Brave / OpenRouter / GitHub PATs / AWS keys / JWTs / bearer tokens / PEM private keys / credential file paths). `HARNESS_REDACT_SECRETS=0` disables (snapshotted at import per Invariant #15 — agent tool calls can't disable mid-session).
+
 **Phases 9.6 + 12.5 + 12.6 (2026-05-04)** — three follow-on polish phases, all shipped.
 
 - **Phase 12.5 — tool observation envelope.** Optional uniform `{status, summary, next_actions, artifacts}` shape on every `ToolResult`. The orchestrator renders it as a header above each tool's existing output; `status: 'error'` forces `is_error`. Retrofitted across all native tools (BashTool with per-error-class hints; FileEditTool flips its missing-match / non-unique-match throws to envelope-emitting returns) and the MCP wrapper. Lifts ECC's "Observation Design" + "Error Recovery Contract".
@@ -26,7 +28,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 **Phase 10 (compaction, 2026-04-26)** — `/compact` and `/rollback`, parent-child session lineage, separate compaction cost lanes, proactive compaction above 75% of context, reactive retry after context-overflow errors. Microcompaction (per-part tool-result clearing) and shell-AST virtual tool mapping landed as Qwen-amendment deepenings on 2026-04-28.
 
-**Next high-leverage targets** per the build plan: **Phase 13** (sub-agent runtime + AgentTool), **Phase 13.1** (trajectory capture — the actual Sovereign moat), **Phase 13.4** (continuous-learning observation stream + instinct corpus, derived from ECC). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for the full plan.
+**Next high-leverage targets** per the build plan: **Phase 13** (sub-agent runtime + AgentTool — prerequisite for 13.3 + 13.4), **Phase 13.4** (continuous-learning observation stream + instinct corpus, derived from ECC). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for the full plan.
 
 See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`docs/testing-log-2026-04-27.md`](docs/testing-log-2026-04-27.md) for test and regression history, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full maturity-first phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
 

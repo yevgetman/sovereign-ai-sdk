@@ -48,9 +48,9 @@ When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harne
 
 ## Phases — where we are
 
-Phases 0 through 10 complete (2026-04-26). Phase 10.5b–e (REPL polish across four waves) complete (2026-05-03). Phase 11 (shell hooks) and Phase 12 (MCP client + deferred tool loading) complete (2026-05-03). Three follow-on polish phases shipped 2026-05-04: Phase 9.6 (skill `whenToUse` trigger rigor), Phase 12.5 (tool observation envelope), and Phase 12.6 (context budget audit + `/context-budget`). Semantic test suite is 37/37.
+Phases 0 through 10 complete (2026-04-26). Phase 10.5b–e (REPL polish) complete (2026-05-03). Phase 11 (shell hooks) and Phase 12 (MCP client + deferred tool loading) complete (2026-05-03). Phase 9.6 (skill trigger rigor), Phase 12.5 (tool observation envelope), Phase 12.6 (context budget audit + `/context-budget`), and Phase 13.1 (trajectory capture — the Sovereign moat) shipped 2026-05-04. Semantic test suite is 37/37; unit suite is 885/885.
 
-**Next high-leverage targets** per the build plan: **Phase 13** (sub-agent runtime + AgentTool), **Phase 13.1** (trajectory capture — the actual Sovereign moat), **Phase 13.4** (continuous-learning observation stream + instinct corpus, derived from ECC). Do not start any of these phases unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+**Next high-leverage targets** per the build plan: **Phase 13** (sub-agent runtime + AgentTool — prerequisite for 13.3 + 13.4), **Phase 13.4** (continuous-learning observation stream + instinct corpus, derived from ECC). Do not start any of these phases unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.
