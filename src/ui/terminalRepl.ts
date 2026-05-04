@@ -29,6 +29,7 @@ import { resolveHarnessHome } from '../config/paths.js';
 import { parsePermissionRules } from '../config/rules.js';
 import {
   appendProjectLocalPermissionRule,
+  getPermissionSettingsPaths,
   loadHookSettings,
   loadMcpServerSettings,
   loadPermissionSettings,
@@ -67,6 +68,7 @@ import type { SkillRegistry } from '../skills/types.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
 import {
   BracketedPasteTransform,
@@ -341,7 +343,56 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const mcpTools: Tool<unknown, unknown>[] = mcpPool
     ? mcpPool.tools().map((meta) => wrapMcpTool(meta, mcpPool))
     : [];
-  const toolPool = assembleToolPool(toolContext, { mcpTools });
+  // HarnessInfo's snapshot reads live state at tool-call time. The tool
+  // pool reference is captured *after* assembly via `finalToolPoolRef`
+  // (it's circular: HarnessInfo is in the pool it reports on). Skipping
+  // skill-derived commands intentionally — they're listed via /skills.
+  let finalToolPoolRef: Tool<unknown, unknown>[] = [];
+  const settingsPaths = getPermissionSettingsPaths({ cwd: process.cwd(), harnessHome });
+  const presentSources = new Set(permissionSettings.sources);
+  const harnessInfoSnapshot = (): HarnessInfoSnapshot => {
+    const liveByServer = new Map<string, string[]>();
+    for (const handle of mcpPool?.servers() ?? []) {
+      liveByServer.set(
+        handle.name,
+        handle.tools.map((t) => t.toolName),
+      );
+    }
+    return {
+      permissionMode: permissionSettings.mode,
+      settingsLayers: settingsPaths.map((p) => ({
+        name: p.name,
+        path: p.path,
+        present: presentSources.has(p.path),
+      })),
+      mcpServers: Object.entries(mcpSettings.servers).map(([name, cfg]) => {
+        const liveTools = liveByServer.get(name);
+        const status: 'connected' | 'failed' | 'not-attempted' = mcpPool
+          ? liveTools !== undefined
+            ? 'connected'
+            : 'failed'
+          : 'not-attempted';
+        return {
+          name,
+          command: cfg.command,
+          args: cfg.args ?? [],
+          status,
+          toolCount: liveTools?.length ?? 0,
+          tools: liveTools ?? [],
+        };
+      }),
+      tools: {
+        native: finalToolPoolRef.filter((t) => t.isMcp !== true).map((t) => t.name),
+        mcp: finalToolPoolRef.filter((t) => t.isMcp === true).map((t) => t.name),
+      },
+      slashCommands: Array.from(new Set(commandRegistry.values())).map((c) => ({
+        name: c.name,
+        description: c.description,
+      })),
+    };
+  };
+  const toolPool = assembleToolPool(toolContext, { mcpTools, harnessInfoSnapshot });
+  finalToolPoolRef = toolPool;
 
   // Two input paths share the same `question(prompt) => Promise<string>`
   // shape:

@@ -21,6 +21,7 @@ import { FileReadTool } from '../tools/FileReadTool.js';
 import { FileWriteTool } from '../tools/FileWriteTool.js';
 import { GlobTool } from '../tools/GlobTool.js';
 import { GrepTool } from '../tools/GrepTool.js';
+import { type HarnessInfoSnapshot, buildHarnessInfoTool } from '../tools/HarnessInfoTool.js';
 import { MemoryTool } from '../tools/MemoryTool.js';
 import { SkillManageTool } from '../tools/SkillManageTool.js';
 import { SkillTool } from '../tools/SkillTool.js';
@@ -53,6 +54,11 @@ export type AssembleToolPoolOpts = {
   /** Phase 12: tools wrapped from connected MCP servers. Merged into the
    *  pool with native tools and sorted by name. */
   mcpTools?: Tool<unknown, unknown>[];
+  /** Snapshot getter for HarnessInfo. The getter is invoked at tool-call
+   *  time, so it can read the live MCP pool and the post-assembly tool
+   *  pool via reference cells supplied by the REPL. When omitted, the
+   *  HarnessInfo tool is not registered. */
+  harnessInfoSnapshot?: () => HarnessInfoSnapshot;
 };
 
 /**
@@ -77,8 +83,11 @@ export function assembleToolPool(
   const toolSearch = buildToolSearchTool(() =>
     enabled.filter((t) => t.shouldDefer === true),
   ) as unknown as Tool<unknown, unknown>;
-  const withSearch = [...enabled, toolSearch];
-  const patched = patchSchemasAgainstAvailable(withSearch);
+  const harnessInfo = opts.harnessInfoSnapshot
+    ? (buildHarnessInfoTool(opts.harnessInfoSnapshot) as unknown as Tool<unknown, unknown>)
+    : null;
+  const withExtras = [...enabled, toolSearch, ...(harnessInfo ? [harnessInfo] : [])];
+  const patched = patchSchemasAgainstAvailable(withExtras);
   return [...patched].sort((a, b) => a.name.localeCompare(b.name));
 }
 

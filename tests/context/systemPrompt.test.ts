@@ -127,6 +127,32 @@ describe('buildSystemSegments', () => {
     });
   });
 
+  test('includes a vendor-neutral harness-self-doc segment with settings paths and schema', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        tools: [makeTool()],
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+      });
+      const selfDoc = segments.find((s) => s.text.includes('<harness-self-doc>'));
+      expect(selfDoc).toBeDefined();
+      expect(selfDoc?.cacheable).toBe(true);
+      // Settings layer paths (vendor-neutral — uses <harness-home>, not ~/.harness).
+      expect(selfDoc?.text).toContain('.harness/settings.local.json');
+      expect(selfDoc?.text).toContain('.harness/settings.json');
+      expect(selfDoc?.text).toContain('<harness-home>/settings.json');
+      // Schema keys + the trap (config.json holds provider/theme, not mcpServers).
+      expect(selfDoc?.text).toContain('mcpServers');
+      expect(selfDoc?.text).toContain('PreToolUse');
+      expect(selfDoc?.text).toContain('config.json');
+      // Mcp permission rule grammar including the server-prefix form.
+      expect(selfDoc?.text).toContain('mcp__<server>');
+      // No vendor branding leaks into a white-label runtime prompt.
+      expect(selfDoc?.text).not.toContain('Sovereign');
+    });
+  });
+
   test('--no-cache disables every cache marker', async () => {
     await withTmp(async (dir) => {
       const segments = buildSystemSegments({

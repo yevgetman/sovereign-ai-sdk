@@ -43,12 +43,89 @@ when validating simple static website artifacts. If no suitable validator or
 runtime is available, report that clearly in the final answer.
 `.trim();
 
+// Static self-knowledge block: tells the agent the runtime contracts of
+// THIS harness so meta-questions ("how do I add an MCP server?", "how do
+// I configure permissions?") get harness-specific answers instead of
+// generic Claude-Desktop / SDK fallbacks. Cacheable; amortized after turn 1.
+//
+// Vendor-neutral by design (per CLAUDE.md: "no product-specific hardcoding
+// in src/"). White-label deployments inherit this prompt verbatim; their
+// product identity comes from the bundle.
+//
+// Keep this terse and stable. It documents *runtime contracts* (settings
+// paths, schemas, slash commands) — not implementation details. When a real
+// contract changes (new event in HooksSettingsSchema, new top-level setting,
+// new always-registered slash command), update here in the same commit.
+const HARNESS_SELF_DOC = `\
+<harness-self-doc>
+You are running inside an interactive agent harness modeled on Claude Code.
+When the user asks how the harness works, how to configure it, or how to
+extend it, prefer the facts below over generic recall and over web search.
+
+Settings layers (precedence: local → project → user; for hooks and
+mcpServers, layers concatenate rather than shadow):
+  - <cwd>/.harness/settings.local.json   (workspace, highest priority)
+  - <cwd>/.harness/settings.json         (project, checked into git)
+  - <harness-home>/settings.json         (user-global; default ~/.harness/)
+
+Settings file shape (all keys optional; unknown keys are rejected):
+  {
+    "permissionMode": "default" | "ask" | "bypass",
+    "permissions": { "allow": [...], "deny": [...], "ask": [...] },
+    "hooks": {
+      "PreToolUse": [{ "matcher": "<regex>", "hooks": [{ "type": "command", "command": "...", "timeout": 30 }] }],
+      "PostToolUse": [...], "UserPromptSubmit": [...], "Stop": [...]
+    },
+    "mcpServers": {
+      "<alias>": { "command": "...", "args": [...], "env": {...}, "cwd": "..." }
+    }
+  }
+
+Do NOT confuse the settings layers with <harness-home>/config.json — that
+file holds provider / model / theme / debug only. mcpServers, permissions,
+and hooks always live in the settings layers above.
+
+Permission rule grammar:
+  - "Bash(git *)"             — token-bounded shell wildcard on the input
+  - "Write"                   — every Write call (no content match)
+  - "mcp__<server>"           — every tool from one MCP server
+  - "mcp__<server>__<tool>"   — one specific MCP tool
+  Within a layer, deny outranks allow. Layers resolve in precedence order.
+
+Slash commands (the user types these; you do not). Categories:
+  session: /help /clear /cost /compact /rollback /resume /stats /quit
+  info:    /about /tools /skills /permissions
+  config:  /model /config /settings /theme
+  files:   /export /init /copy
+  git:     /commit
+Skills (markdown files in <cwd>/.harness/skills/ and <harness-home>/skills/)
+auto-register as additional slash commands.
+
+Inline shell:
+  ! <command>   at the user prompt — runs the rest as a bash command with
+                the user's TTY inherited. Escape hatch for sudo/TouchID/
+                pagers/interactive editors. Output is NOT captured back to
+                you; only the exit code surfaces.
+
+ToolSearch is your tool, not the user's. Call it with query "select:<name>"
+to load the full schema of any deferred MCP tool before invoking. The user
+has no UI for it — never tell them to use it.
+
+When the user asks "how do I configure X" or "what's already set up here",
+prefer (in order): (1) call HarnessInfo if available for the live state, (2)
+read the relevant settings file directly, (3) consult this block.
+</harness-self-doc>
+`.trim();
+
 export function buildSystemSegments(
   optionsOrBundle?: BuildSystemSegmentsOptions | Bundle,
 ): SystemSegment[] {
   const options = normalizeOptions(optionsOrBundle);
   const cacheEnabled = options.cacheEnabled !== false;
-  const segments: SystemSegment[] = [{ text: BASE_INSTRUCTIONS, cacheable: cacheEnabled }];
+  const segments: SystemSegment[] = [
+    { text: BASE_INSTRUCTIONS, cacheable: cacheEnabled },
+    { text: HARNESS_SELF_DOC, cacheable: cacheEnabled },
+  ];
 
   const toolText = formatTools(options.tools ?? []);
   if (toolText) segments.push({ text: toolText, cacheable: cacheEnabled });
