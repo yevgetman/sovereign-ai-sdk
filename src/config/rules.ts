@@ -52,7 +52,13 @@ export function parsePermissionRules(
 }
 
 export function ruleMatchesTool(tool: Tool<unknown, unknown>, rule: ParsedPermissionRule): boolean {
-  return rule.tool === tool.name || (tool.aliases ?? []).includes(rule.tool);
+  if (rule.tool === tool.name) return true;
+  if ((tool.aliases ?? []).includes(rule.tool)) return true;
+  // Server-scoped MCP rule: `mcp__<server>` matches every tool from that server,
+  // so `deny: ["mcp__github"]` blocks the whole server in one line. Tool-level
+  // rules use the full `mcp__<server>__<tool>` name and hit the exact match above.
+  if (tool.isMcp && tool.mcpInfo && rule.tool === `mcp__${tool.mcpInfo.serverName}`) return true;
+  return false;
 }
 
 function assertToolSelector(tool: string, raw: string): void {

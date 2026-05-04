@@ -57,6 +57,24 @@ describe('permission rule matching helpers', () => {
     expect(ruleMatchesTool(tool, { tool: 'Write', content: null })).toBe(false);
   });
 
+  test('mcp server-scoped rule matches every tool from that server', () => {
+    const mcpTool = buildTool({
+      name: 'mcp__echo__echo',
+      description: () => 'echo',
+      inputSchema: z.object({ text: z.string() }),
+      isMcp: true,
+      mcpInfo: { serverName: 'echo', toolName: 'echo' },
+      async call() {
+        return { data: 'ok' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    expect(ruleMatchesTool(mcpTool, { tool: 'mcp__echo', content: null })).toBe(true);
+    expect(ruleMatchesTool(mcpTool, { tool: 'mcp__echo__echo', content: null })).toBe(true);
+    expect(ruleMatchesTool(mcpTool, { tool: 'mcp__other', content: null })).toBe(false);
+    // Tool-name lookalike must not bleed across servers.
+    expect(ruleMatchesTool(mcpTool, { tool: 'mcp__echo__other', content: null })).toBe(false);
+  });
+
   test('file wildcard can match nested paths', () => {
     expect(wildcardMatches('*.ts', 'src/index.ts', { flavor: 'file' })).toBe(true);
     expect(wildcardMatches('*.ts', 'src/index.md', { flavor: 'file' })).toBe(false);

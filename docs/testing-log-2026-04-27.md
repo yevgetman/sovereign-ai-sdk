@@ -21,6 +21,18 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-04 - Fix: MCP server-prefix permission rule (semantic 34/34)
+
+- Scope: Background semantic suite ran post-Phase-12 and surfaced one failure — `permissions.mcp-permission-rule-blocks-server` (33/34, 415s, $1.011). A `deny: ["mcp__echo"]` rule did not block `mcp__echo__echo`; the agent invoked the tool and received the echoed token. Phase-12 plan claimed "the rule matcher already does prefix matching" — that assumption was wrong.
+- Root cause: `ruleMatchesTool()` in `src/config/rules.ts` did exact match plus aliases only. Server-prefix rules (`mcp__<server>`) never matched any tool whose canonical name was `mcp__<server>__<tool>`.
+- Fix: Extended `ruleMatchesTool()` to recognize `mcp__<server>` as a server-scoped rule and match any tool whose `mcpInfo.serverName` equals `<server>`. Tool-level rules still hit the exact-match path. Used `tool.isMcp` + `tool.mcpInfo.serverName` (not name-string parsing) so the match is grounded in the tool metadata.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun run test` — 793/793 pass (added one test: `mcp server-scoped rule matches every tool from that server` in `tests/config/rules.test.ts`).
+  - `bun run test:semantic -- --filter mcp-permission-rule-blocks-server` — pass (21.6s, $0.044).
+- Result: Semantic suite now expected to be 34/34 (the failing case re-runs green; other 33 unaffected by a pure rule-matcher widening).
+- Regressions / follow-ups: No regressions. Tool-level MCP rules (`mcp__server__tool`) continue to hit the exact-match path; non-MCP rule matching is untouched.
+
 ## 2026-05-04 - Phase 12: MCP client + deferred tool loading (unit suite green; semantic +2)
 
 - Scope: Phase 12 shipped — stdio MCP client via `@modelcontextprotocol/sdk`, tool wrapper through the existing `Tool` interface (Invariant #5), deferred tool loading + `ToolSearchTool` for schema retrieval. Implementation per `harness-build-plan.md` §"Phase 12" + `claude-code-reverse-engineering.md` §11.
