@@ -59,10 +59,44 @@ function resolveProviderSettings(env: NodeJS.ProcessEnv = process.env): {
   configuredMax: number | undefined;
 } {
   const settings = (readConfig() as { webSearch?: WebSearchSettings }).webSearch ?? {};
-  const provider = settings.provider === 'brave' ? 'brave' : 'tavily';
-  const envKey = provider === 'brave' ? env.BRAVE_SEARCH_API_KEY : env.TAVILY_API_KEY;
-  const apiKey = settings.apiKey ?? envKey;
-  return { provider, apiKey, configuredMax: settings.maxResults };
+  const explicit = settings.provider;
+  const configKey = settings.apiKey;
+  const tavilyEnv = env.TAVILY_API_KEY;
+  const braveEnv = env.BRAVE_SEARCH_API_KEY;
+
+  // 1. Explicit provider in config wins — pair it with the matching key.
+  //    Per-provider env var still acts as a fallback so users can rotate the
+  //    secret without touching their config.
+  if (explicit === 'tavily') {
+    return {
+      provider: 'tavily',
+      apiKey: configKey ?? tavilyEnv,
+      configuredMax: settings.maxResults,
+    };
+  }
+  if (explicit === 'brave') {
+    return { provider: 'brave', apiKey: configKey ?? braveEnv, configuredMax: settings.maxResults };
+  }
+
+  // 2. No explicit provider. Pick whichever path has a key, with the provider
+  //    inferred from the signal that supplied it. The config-side apiKey is
+  //    classified by prefix: Tavily keys begin with "tvly-" by convention;
+  //    anything else is treated as Brave. This means a user can paste either
+  //    flavor of key under `webSearch.apiKey` without needing to set
+  //    `webSearch.provider` first.
+  if (configKey) {
+    const inferred: 'tavily' | 'brave' = configKey.startsWith('tvly-') ? 'tavily' : 'brave';
+    return { provider: inferred, apiKey: configKey, configuredMax: settings.maxResults };
+  }
+  if (tavilyEnv) {
+    return { provider: 'tavily', apiKey: tavilyEnv, configuredMax: settings.maxResults };
+  }
+  if (braveEnv) {
+    return { provider: 'brave', apiKey: braveEnv, configuredMax: settings.maxResults };
+  }
+
+  // 3. Nothing configured — apiKey undefined, isEnabled returns false.
+  return { provider: 'tavily', apiKey: undefined, configuredMax: settings.maxResults };
 }
 
 async function searchTavily(

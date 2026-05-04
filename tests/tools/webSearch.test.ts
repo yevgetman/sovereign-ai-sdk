@@ -107,8 +107,48 @@ describe('WebSearchTool', () => {
     expect(result.data.results).toEqual([]);
   });
 
+  test('infers Tavily from a tvly- prefix when provider is unset', async () => {
+    writeFileSync(cfgPath, JSON.stringify({ webSearch: { apiKey: 'tvly-detected' } }));
+    const fetchImpl = makeJsonFetchMock({
+      results: [{ title: 'A', url: 'https://a.example', content: 'hi' }],
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebSearchTool.call({ query: 'q' }, ctx);
+    expect(result.data.provider).toBe('tavily');
+  });
+
+  test('infers Brave from a non-tvly key when provider is unset', async () => {
+    writeFileSync(cfgPath, JSON.stringify({ webSearch: { apiKey: 'BSA-some-brave-key' } }));
+    const fetchImpl = makeJsonFetchMock({
+      web: { results: [{ title: 'X', url: 'https://x.example', description: 'about X' }] },
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebSearchTool.call({ query: 'q' }, ctx);
+    expect(result.data.provider).toBe('brave');
+  });
+
+  test('explicit provider wins over the env-var that does not match', async () => {
+    writeFileSync(cfgPath, JSON.stringify({ webSearch: { provider: 'brave' } }));
+    process.env.TAVILY_API_KEY = 'tvly-should-be-ignored';
+    process.env.BRAVE_SEARCH_API_KEY = 'brave-from-env';
+    const fetchImpl = makeJsonFetchMock({
+      web: { results: [{ title: 'X', url: 'https://x.example', description: 'X' }] },
+    });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebSearchTool.call({ query: 'q' }, ctx);
+    expect(result.data.provider).toBe('brave');
+  });
+
+  test('picks Brave from env when no Tavily env is set and provider is unset', async () => {
+    process.env.BRAVE_SEARCH_API_KEY = 'brave-env-only';
+    const fetchImpl = makeJsonFetchMock({ web: { results: [] } });
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebSearchTool.call({ query: 'q' }, ctx);
+    expect(result.data.provider).toBe('brave');
+  });
+
   test('respects max_results input cap', async () => {
-    writeFileSync(cfgPath, JSON.stringify({ webSearch: { apiKey: 'k' } }));
+    writeFileSync(cfgPath, JSON.stringify({ webSearch: { apiKey: 'tvly-k' } }));
     const fetchImpl = makeJsonFetchMock({
       results: Array.from({ length: 10 }, (_, i) => ({
         title: `r${i}`,
