@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   appendProjectLocalPermissionRule,
   loadHookSettings,
+  loadMcpServerSettings,
   loadPermissionSettings,
 } from '../../src/config/settings.js';
 
@@ -79,6 +80,58 @@ describe('appendProjectLocalPermissionRule', () => {
         ask: [],
       },
     });
+  });
+});
+
+describe('loadMcpServerSettings', () => {
+  test('concatenates servers across layers', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(harnessHome, 'settings.json'), {
+      mcpServers: { user_fs: { command: 'fsd' } },
+    });
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { project_db: { command: 'dbd', args: ['--port', '5432'] } },
+    });
+
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    expect(Object.keys(loaded.servers).sort()).toEqual(['project_db', 'user_fs']);
+    expect(loaded.servers.project_db?.args).toEqual(['--port', '5432']);
+    expect(loaded.sources).toHaveLength(2);
+  });
+
+  test('returns empty when no settings declare mcpServers', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), { permissions: { allow: ['Bash(ls)'] } });
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    expect(loaded.servers).toEqual({});
+    expect(loaded.sources).toEqual([]);
+  });
+
+  test('duplicate aliases across layers throws', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(harnessHome, 'settings.json'), {
+      mcpServers: { fs: { command: 'fs-user' } },
+    });
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { fs: { command: 'fs-project' } },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/fs/);
+  });
+
+  test('rejects unknown keys inside server config', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { fs: { command: 'fs', bogus: true } },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
   });
 });
 

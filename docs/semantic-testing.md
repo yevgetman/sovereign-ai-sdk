@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (32/32 pass)
+## Coverage inventory (34/34 pass)
 
 The full suite runs in ~5.3 minutes and costs ~$0.87 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -100,6 +100,15 @@ The most insidious bug class: agent fabricates content silently when it cannot h
 |---|---|
 | `context.directory-listing` | Hallucinated file enumeration |
 | `context.at-file-expansion-or-read` | `@file` reference unrecognized or content fabricated |
+
+### MCP — 2 tests
+
+Phase 12 connects the harness to external MCP servers (filesystem, GitHub, Slack, etc.). MCP tools flow through the same orchestrator/permissions/hooks pipe as native tools (Invariant #5). Unit tests in `tests/mcp/` cover the SDK glue, tool wrapping, schema serialization, and ToolSearch lookup; these end-to-end tests catch regressions where MCP tools fail to reach the agent or bypass permissions.
+
+| ID | Guards against |
+|---|---|
+| `tools.mcp-tool-search-then-invoke` | MCP tool not merged into the pool, deferred-schema handling broken, or ToolSearch fails to return the full schema |
+| `permissions.mcp-permission-rule-blocks-server` | MCP tool bypasses the permission system — `mcp__<server>` deny rule must block every tool from that server |
 
 ### Hooks — 2 tests
 
@@ -214,6 +223,8 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/agent/sessionDb.ts` | `--filter compact` and `--filter rollback` |
 | `src/ui/terminalRepl.ts:rollbackNow` | `--filter rollback` |
 | `src/hooks/` | `--filter hooks` (covers PreToolUse deny + PostToolUse additionalContext) |
+| `src/mcp/` | `--filter mcp` (covers MCP discovery + invocation + permission-rule blocking) |
+| `src/tools/ToolSearchTool.ts` | `--filter mcp-tool-search` |
 | `src/core/query.ts` (turn loop) | **Full suite** — too core for filtering |
 | `src/providers/` | **Full suite** — affects all model interactions |
 | `src/ui/*` (rendering only) | Skip the semantic suite; the hardpass shell at `tests/_smoke/wave1-3-hardpass.sh` covers visual surfaces |

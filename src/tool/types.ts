@@ -53,6 +53,12 @@ export type ToolDef<I, O, P = void> = {
   searchHint?: string;
   description: (input: I) => Promise<string> | string;
   inputSchema: z.ZodType<I>;
+  /** Raw JSON Schema (Phase 12: MCP tools). When present, the provider tools
+   * array uses this verbatim and the orchestrator skips Zod input validation
+   * (the underlying tool — typically an MCP server — owns input validation).
+   * For native tools `inputSchema` (Zod) is the single source of truth and
+   * this stays unset. */
+  inputJSONSchema?: object;
   outputSchema?: z.ZodType<O>;
 
   /** Main execution path. */

@@ -27,6 +27,7 @@ import { SkillTool } from '../tools/SkillTool.js';
 import { SkillsListTool } from '../tools/SkillsListTool.js';
 import { SkillsViewTool } from '../tools/SkillsViewTool.js';
 import { StaticSiteValidateTool } from '../tools/StaticSiteValidateTool.js';
+import { buildToolSearchTool } from '../tools/ToolSearchTool.js';
 import { WebFetchTool } from '../tools/WebFetchTool.js';
 import { WebSearchTool } from '../tools/WebSearchTool.js';
 import type { Tool, ToolContext } from './types.js';
@@ -48,16 +49,36 @@ const REGISTERED_TOOLS = [
   WebSearchTool,
 ] as unknown as Tool<unknown, unknown>[];
 
+export type AssembleToolPoolOpts = {
+  /** Phase 12: tools wrapped from connected MCP servers. Merged into the
+   *  pool with native tools and sorted by name. */
+  mcpTools?: Tool<unknown, unknown>[];
+};
+
 /**
  * Return the tool pool for the current context. A new array on every call
  * so callers can safely mutate or filter. `ctx` is reserved for future
- * phases (MCP tools filter by server liveness, skills filter by activation
- * hints, permission modes hide `ask`-only tools in bypass mode, etc.).
+ * phases (skills filter by activation hints, permission modes hide
+ * `ask`-only tools in bypass mode, etc.).
+ *
+ * Phase 12: ToolSearchTool is appended; its closure references the live
+ * deferred-tool subset of the same pool (so newly-discovered MCP tools
+ * are searchable without restarting the session).
  */
-export function assembleToolPool(ctx: ToolContext): Tool<unknown, unknown>[] {
+export function assembleToolPool(
+  ctx: ToolContext,
+  opts: AssembleToolPoolOpts = {},
+): Tool<unknown, unknown>[] {
   void ctx;
-  const enabled = REGISTERED_TOOLS.filter((t) => t.isEnabled());
-  const patched = patchSchemasAgainstAvailable(enabled);
+  const merged: Tool<unknown, unknown>[] = [...REGISTERED_TOOLS, ...(opts.mcpTools ?? [])];
+  const enabled = merged.filter((t) => t.isEnabled());
+  // ToolSearch must see every deferred tool in the final pool — including
+  // MCP tools — so its closure reads from the assembled list.
+  const toolSearch = buildToolSearchTool(() =>
+    enabled.filter((t) => t.shouldDefer === true),
+  ) as unknown as Tool<unknown, unknown>;
+  const withSearch = [...enabled, toolSearch];
+  const patched = patchSchemasAgainstAvailable(withSearch);
   return [...patched].sort((a, b) => a.name.localeCompare(b.name));
 }
 

@@ -21,6 +21,35 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-04 - Phase 12: MCP client + deferred tool loading (unit suite green; semantic +2)
+
+- Scope: Phase 12 shipped — stdio MCP client via `@modelcontextprotocol/sdk`, tool wrapper through the existing `Tool` interface (Invariant #5), deferred tool loading + `ToolSearchTool` for schema retrieval. Implementation per `harness-build-plan.md` §"Phase 12" + `claude-code-reverse-engineering.md` §11.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; `@modelcontextprotocol/sdk@1.29.0` added.
+- Commands:
+  - `bun run lint` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`, unrelated).
+  - `bun run typecheck` — clean.
+  - `bun run test` — full unit suite green; new tests across `tests/mcp/` (client, toolWrapper, schemaSerialization, integration) + `tests/tools/toolSearchTool.test.ts` + `tests/config/settings.test.ts` (loadMcpServerSettings).
+  - Per-test filter (post-commit): `bun run test:semantic -- --filter mcp` exercises both new cases.
+- Manual coverage:
+  - Unit-level: stdio MCP server (echo-server fixture in `tests/mcp/fixtures/`) connects, lists tools, calls succeed/fail/timeout. Failed connections log + skip; the pool returns successful connections.
+  - Wrapper: MCP tools surface as `mcp__<server>__<tool>` with `shouldDefer: true`, `isMcp: true`, `mcpInfo`, and `inputJSONSchema` verbatim from the server.
+  - Serialization: deferred tools emit `{name, description: searchHint + ToolSearch hint, input_schema: {type:'object', additionalProperties:true}}`. Native tools emit Zod-converted schemas. Tools with `inputJSONSchema` (non-deferred) emit it verbatim.
+  - Orchestrator: input-validation skip when `tool.inputJSONSchema` is set (MCP server validates inputs itself; the harness no longer pre-rejects via Zod).
+  - Wiring: REPL builds the pool after settings load, wraps tools, passes them to `assembleToolPool({ mcpTools })`, awaits `pool.shutdown()` on session end. Connection banner / failure banner render to stdout.
+- Result:
+  - Unit suite remains green.
+  - Two new semantic cases under existing categories: `tools.mcp-tool-search-then-invoke` (end-to-end MCP discovery + invocation) and `permissions.mcp-permission-rule-blocks-server` (mcp__server prefix denial). Inventory headline updated 32 → 34 in `docs/semantic-testing.md`.
+- Regressions / follow-ups:
+  - No regressions in the unit suite.
+  - Deferred this phase (deliberate, per CLAUDE.md "no features beyond what the task requires"):
+    - HTTP / SSE / WebSocket transports — stdio covers most published servers.
+    - MCP resources, MCP auth (OAuth flows).
+    - Server mode (harness-as-MCP-server) — Phase 19.
+    - Lazy-loading factory (Qwen §3.1) — current scale doesn't justify it.
+    - First-use TTY consent for MCP servers — explicit settings.json edit is the consent.
+    - Auto-deferral threshold (10% of context) — all MCP tools default deferred; native tools opt in explicitly.
+  - Next high-leverage target per build plan: Phase 13.1 (trajectory capture — the Sovereign moat).
+
 ## 2026-05-04 - Phase 11: shell hooks (unit suite green; semantic +2)
 
 - Scope: Phase 11 shipped — `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop` hooks with JSON-stdio, exit-code-2 = block, first-use TTY consent, allowlist persisted at `~/.harness/shell-hooks-allowlist.json`. Implementation per `harness-build-plan.md` §"Phase 11" + `claude-code-reverse-engineering.md` §10. Invariant #13 (shell:false, JSON-stdio, consent gate) honoured.

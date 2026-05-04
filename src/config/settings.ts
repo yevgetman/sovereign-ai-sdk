@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { HookConfig, HookEventName } from '../hooks/types.js';
+import type { McpServerConfig } from '../mcp/types.js';
 import { type PermissionRule, type PermissionRuleLayer, parsePermissionRules } from './rules.js';
 
 export const PermissionModeSchema = z.enum(['default', 'ask', 'bypass']);
@@ -44,11 +45,21 @@ const HooksSettingsSchema = z
   })
   .strict();
 
+const McpServerConfigSchema = z
+  .object({
+    command: z.string(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    cwd: z.string().optional(),
+  })
+  .strict();
+
 export const RuntimeSettingsSchema = z
   .object({
     permissionMode: PermissionModeSchema.optional(),
     permissions: PermissionRuleSetSchema.optional(),
     hooks: HooksSettingsSchema.optional(),
+    mcpServers: z.record(z.string(), McpServerConfigSchema).optional(),
   })
   .strict();
 
@@ -141,6 +152,38 @@ export function loadHookSettings(opts: LoadPermissionSettingsOpts): LoadedHookSe
     }
   }
   return { hooksByEvent, sources };
+}
+
+export type LoadedMcpServerSettings = {
+  servers: Record<string, McpServerConfig>;
+  sources: string[];
+};
+
+/** Load MCP server configs from the layered settings.json files, in
+ *  precedence order (local → project → user). Servers from multiple layers
+ *  are concatenated by alias. Duplicate aliases across layers are an error
+ *  — the user must rename one or pick a single source. */
+export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedMcpServerSettings {
+  const servers: Record<string, McpServerConfig> = {};
+  const aliasOrigin: Record<string, string> = {};
+  const sources: string[] = [];
+  for (const item of getPermissionSettingsPaths(opts)) {
+    if (!existsSync(item.path)) continue;
+    const raw = JSON.parse(readFileSync(item.path, 'utf8')) as unknown;
+    const settings = RuntimeSettingsSchema.parse(raw);
+    if (!settings.mcpServers) continue;
+    sources.push(item.path);
+    for (const [alias, cfg] of Object.entries(settings.mcpServers)) {
+      if (alias in servers) {
+        throw new Error(
+          `mcp server alias "${alias}" is defined in both ${aliasOrigin[alias]} and ${item.path}; rename one.`,
+        );
+      }
+      servers[alias] = cfg;
+      aliasOrigin[alias] = item.path;
+    }
+  }
+  return { servers, sources };
 }
 
 export function appendProjectLocalPermissionRule(opts: {

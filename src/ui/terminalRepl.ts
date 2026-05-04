@@ -30,6 +30,7 @@ import { parsePermissionRules } from '../config/rules.js';
 import {
   appendProjectLocalPermissionRule,
   loadHookSettings,
+  loadMcpServerSettings,
   loadPermissionSettings,
 } from '../config/settings.js';
 import { readConfig } from '../config/store.js';
@@ -49,6 +50,9 @@ import type {
 } from '../core/types.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
+import { buildMcpClientPool } from '../mcp/client.js';
+import { wrapMcpTool } from '../mcp/toolWrapper.js';
+import type { McpClientPool } from '../mcp/types.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
@@ -163,6 +167,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const harnessHome = resolveHarnessHome();
   const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
   const hookSettings = loadHookSettings({ cwd: process.cwd(), harnessHome });
+  const mcpSettings = loadMcpServerSettings({ cwd: process.cwd(), harnessHome });
   const userSettings = readConfig();
   // Initialize theme BEFORE anything renders. NO_COLOR env var is
   // honored at this seam; explicit ui.theme wins over default 'dark'
@@ -322,7 +327,20 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     activeToolNames,
     activeToolsets,
   };
-  const toolPool = assembleToolPool(toolContext);
+  // Phase 12: connect to configured MCP servers and wrap each discovered
+  // tool. Connection failures log + continue (one bad server doesn't take
+  // down the session). The pool is shut down at session end.
+  const mcpPool: McpClientPool | undefined =
+    Object.keys(mcpSettings.servers).length > 0
+      ? await buildMcpClientPool({
+          servers: mcpSettings.servers,
+          log: (msg) => process.stdout.write(`${msg}\n`),
+        })
+      : undefined;
+  const mcpTools: Tool<unknown, unknown>[] = mcpPool
+    ? mcpPool.tools().map((meta) => wrapMcpTool(meta, mcpPool))
+    : [];
+  const toolPool = assembleToolPool(toolContext, { mcpTools });
 
   // Two input paths share the same `question(prompt) => Promise<string>`
   // shape:
@@ -1023,6 +1041,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const finalCost = db.getSessionCost(activeSessionId);
   await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
+  if (mcpPool) await mcpPool.shutdown();
   db.close();
   process.stdout.write(
     renderSessionSummary({

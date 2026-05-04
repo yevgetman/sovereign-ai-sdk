@@ -20,6 +20,7 @@ import {
   microcompact,
   shouldMicrocompact,
 } from '../compact/microcompact.js';
+import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { runTools } from './orchestrator.js';
@@ -309,91 +310,6 @@ function synthesizeToolResultMessage(blocks: ToolUseBlock[], content: string): M
   };
 }
 
-function toToolSchemas(
-  tools: Tool<unknown, unknown>[],
-): { name: string; description: string; input_schema: unknown }[] {
-  return tools.map((t) => ({
-    name: t.name,
-    description: describeToStatic(t),
-    input_schema: zodToJsonSchemaShallow(t.inputSchema),
-  }));
-}
-
-function describeToStatic(tool: Tool<unknown, unknown>): string {
-  // `Tool.description` is `(input) => string | Promise<string>` — the input
-  // shaping lets per-call tools tune their description (Claude Code pattern).
-  // For schema-publication we need a static description, so we call with
-  // `undefined` (valid for tools that ignore the argument). Tools that
-  // actually use the input during schema construction must expose a static
-  // fallback; Phase 2 tools don't.
-  const result = tool.description(undefined as never);
-  if (result instanceof Promise) {
-    // Lazily-async descriptions aren't supported yet — fall back to the name.
-    return tool.name;
-  }
-  return result;
-}
-
-/**
- * Minimal zod→JSON-Schema conversion. Covers what the harness's own tools
- * need: object/string/number/boolean/array/enum/literal, optional &
- * default unwrapping, and `.describe()` propagation. Phase 5.5 or 9.5
- * will swap in a proper library (`zod-to-json-schema`) when a tool needs
- * nested unions or refinements.
- */
-function zodToJsonSchemaShallow(schema: unknown): unknown {
-  // biome-ignore lint/suspicious/noExplicitAny: pragmatic introspection
-  const s = schema as any;
-  if (!s || typeof s !== 'object') return { type: 'object' };
-  const def = s._def;
-  if (!def) return { type: 'object' };
-
-  // Unwrap wrappers; the wrapped type's description, if any, wins. The
-  // wrapper's own description (set on the optional/default shell) is
-  // grafted onto the unwrapped result so `field.describe('...').optional()`
-  // and `field.optional().describe('...')` both work.
-  if (def.typeName === 'ZodOptional' || def.typeName === 'ZodDefault') {
-    const inner = zodToJsonSchemaShallow(def.innerType);
-    return def.description && typeof inner === 'object' && inner
-      ? { ...(inner as object), description: def.description }
-      : inner;
-  }
-
-  let result: Record<string, unknown> = {};
-  if (def.typeName === 'ZodObject') {
-    const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-    for (const key of Object.keys(shape)) {
-      const field = shape[key];
-      properties[key] = zodToJsonSchemaShallow(field);
-      if (!field.isOptional?.()) required.push(key);
-    }
-    result = {
-      type: 'object',
-      properties,
-      ...(required.length > 0 ? { required } : {}),
-    };
-  } else if (def.typeName === 'ZodString') {
-    result = { type: 'string' };
-  } else if (def.typeName === 'ZodNumber') {
-    result = { type: 'number' };
-  } else if (def.typeName === 'ZodBoolean') {
-    result = { type: 'boolean' };
-  } else if (def.typeName === 'ZodArray') {
-    result = { type: 'array', items: zodToJsonSchemaShallow(def.type) };
-  } else if (def.typeName === 'ZodEnum') {
-    result = { type: 'string', enum: def.values };
-  } else if (def.typeName === 'ZodLiteral') {
-    // JSON-Schema `const` form. Anthropic accepts it; OpenAI tolerates it.
-    result = { const: def.value };
-  } else if (def.typeName === 'ZodNullable') {
-    const inner = zodToJsonSchemaShallow(def.innerType);
-    return inner;
-  }
-
-  if (def.description && !('description' in result)) {
-    result.description = def.description;
-  }
-  return result;
-}
+// toToolSchemas + zodToJsonSchemaShallow moved to src/mcp/schemaSerialization.ts
+// in Phase 12 — they now also handle deferred-tool descriptions and
+// MCP-supplied JSON Schemas. Imported at the top of this file.

@@ -2,6 +2,34 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - Phase 12 MCP Client: Eleven Design Decisions
+
+Phase 12 ships the MCP client + deferred tool loading per `harness-build-plan.md` §"Phase 12" and `claude-code-reverse-engineering.md` §11. Eleven choices were locked during implementation; recording here so a future pass that revisits any of them sees the rationale.
+
+1. **stdio transport only this phase.** HTTP/SSE/WebSocket explicitly skipped. The build plan calls this out: "stdio covers most published servers." Adding more transports is additive — the SDK's `Transport` abstraction means new transports plug into `client.ts` without changing the wrapper or anything downstream.
+
+2. **Use `@modelcontextprotocol/sdk` (the official TS client).** Pinned at `^1.29.0`. The SDK owns JSON-RPC framing, schema discovery, and tool invocation; reinventing any of that would be wasted code and a future bug source.
+
+3. **`mcpServers` lives in `RuntimeSettingsSchema` (`src/config/settings.ts`)**, alongside `permissions` and `hooks`. Same layered local→project→user precedence. Servers are concatenated by alias across layers; duplicate aliases throw with both source paths so the user can pick one. Putting MCP in `SettingsSchema` (provider config) instead would make project-level MCP impossible.
+
+4. **All MCP tools default to `shouldDefer: true`.** Otherwise a single MCP server can blow out the prompt — many servers expose 10-30 tools. Native tools stay non-deferred; their schemas are small and stable enough to ship every turn.
+
+5. **Auto-deferral threshold (the build plan's "10% of context" line) is skipped.** Token-count heuristics for "should this tool defer" are easy to get wrong. Deferral is a per-tool boolean; native tools opt in explicitly if needed. The MCP-default behavior already covers the common prompt-bloat case.
+
+6. **Lazy-loading factory pattern (Qwen §3.1) is deferred.** ~14 native + N MCP tools is small enough that eager registration costs little. The wrapper is a thin closure (no expensive imports). Revisit when MCP tool counts cross ~50, or when startup latency from MCP discovery becomes user-visible.
+
+7. **First-use TTY consent for MCP servers is deferred.** The settings.json edit IS the consent — registering an MCP server requires the user to type a command + args, which is a deliberate scoped action. Hooks needed first-use TTY consent because they could be silently invoked by any tool call; MCP servers are explicit external resources. If a real-world abuse pattern surfaces, add consent in a follow-up.
+
+8. **MCP tools use existing `mcp__<server>__<tool>` rule patterns — no new permission code.** The rule matcher's prefix matching already supports `mcp__github` (deny whole server) and `mcp__github__create_issue` (specific tool). Re-using the canUseTool path means the same hooks, prompts, and bypass-mode semantics apply uniformly.
+
+9. **Add `inputJSONSchema?: object` to `ToolDef`/`Tool` for MCP.** When present, the schema serializer uses it verbatim and the orchestrator skips Zod validation on the input (the MCP server validates inputs itself). For native tools, Zod stays the single source of truth. This keeps native tools strict while letting external schemas flow through unchanged.
+
+10. **MCP server lifecycle is session-scoped.** Connect at session start (after settings load), disconnect on session end via `mcpPool.shutdown()`. Connection failures log and skip — one bad server doesn't take down the whole session, the affected tools just don't appear. Restart the harness to retry connections.
+
+11. **`ToolSearchTool` is a native tool, always non-deferred, with a closure over the live deferred-tool list.** It must be in every tools array so the model can find it. Its closure reads from the assembled pool at call time, so newly-discovered tools become searchable without a rebuild. Input is `query: string` (keyword OR `select:n1,n2`); output is the full schemas of matched deferred tools, formatted so the model can read the result and emit a correct subsequent tool_use.
+
+Skipped this phase per the build plan's explicit list: HTTP/SSE/WebSocket transports, MCP resources, MCP OAuth, harness-as-MCP-server (Phase 19).
+
 ## 2026-05-04 - Phase 11 Hook System: Eight Design Decisions
 
 Phase 11 ships shell hooks per `harness-build-plan.md` §"Phase 11" and `claude-code-reverse-engineering.md` §10. Eight choices were locked during implementation; recording here so a future pass that revisits any of them sees the rationale.

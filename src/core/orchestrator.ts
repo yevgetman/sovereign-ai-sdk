@@ -309,19 +309,28 @@ async function executeOne(
     };
   }
 
-  const parsed = tool.inputSchema.safeParse(block.input);
-  if (!parsed.success) {
-    return {
-      type: 'tool_result',
-      tool_use_id: block.id,
-      content: `input validation failed: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
-      is_error: true,
-    };
+  // Tools that own their input schema externally (Phase 12: MCP via
+  // inputJSONSchema) skip the local Zod validation — the underlying tool
+  // implementation rejects invalid input itself, and forcing a Zod parse
+  // here would either block valid inputs or require a permissive
+  // z.unknown() that adds no safety. Native tools keep strict Zod parsing.
+  let callInput: unknown;
+  if (tool.inputJSONSchema) {
+    callInput = block.input;
+  } else {
+    const parsed = tool.inputSchema.safeParse(block.input);
+    if (!parsed.success) {
+      return {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: `input validation failed: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+        is_error: true,
+      };
+    }
+    callInput = parsed.data;
   }
-
-  let callInput = parsed.data;
   if (canUseTool) {
-    const perm = await canUseTool(tool, parsed.data, ctx);
+    const perm = await canUseTool(tool, callInput, ctx);
     if (perm.behavior === 'deny') {
       return {
         type: 'tool_result',
@@ -331,16 +340,21 @@ async function executeOne(
       };
     }
     if (perm.updatedInput !== undefined) {
-      const updated = tool.inputSchema.safeParse(perm.updatedInput);
-      if (!updated.success) {
-        return {
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: `permission-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
-          is_error: true,
-        };
+      // Same Zod-skip rule as initial parsing: MCP tools own their schema.
+      if (tool.inputJSONSchema) {
+        callInput = perm.updatedInput;
+      } else {
+        const updated = tool.inputSchema.safeParse(perm.updatedInput);
+        if (!updated.success) {
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: `permission-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+            is_error: true,
+          };
+        }
+        callInput = updated.data;
       }
-      callInput = updated.data;
     }
   }
 
@@ -368,16 +382,20 @@ async function executeOne(
       };
     }
     if (pre.updatedInput !== undefined) {
-      const updated = tool.inputSchema.safeParse(pre.updatedInput);
-      if (!updated.success) {
-        return {
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: `hook-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
-          is_error: true,
-        };
+      if (tool.inputJSONSchema) {
+        callInput = pre.updatedInput;
+      } else {
+        const updated = tool.inputSchema.safeParse(pre.updatedInput);
+        if (!updated.success) {
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: `hook-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+            is_error: true,
+          };
+        }
+        callInput = updated.data;
       }
-      callInput = updated.data;
     }
   }
 
