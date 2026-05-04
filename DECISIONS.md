@@ -2,6 +2,28 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - `sov upgrade` Bun-cache workaround: pre-uninstall + optional --purge-cache
+
+`bun install -g <git-url>` doesn't reliably re-resolve against the remote. Two layers of cache fight us:
+
+1. **Lockfile pin** at `~/.bun/install/global/bun.lock`. Bun records the resolved SHA per URL and re-uses it. Symptom: `bun install -g <url>` reinstalls the pinned commit. Workaround: `bun uninstall -g @yevgetman/sov` evicts the lockfile entry. (Without this, requesting a different ref also triggers `DependencyLoop` because the existing install and the new request have the same package name.)
+
+2. **Binary `.npm` manifest cache** at `~/.bun/install/cache/*.npm`. Even after the lockfile is clean, Bun stores a `URL → SHA` mapping in opaque per-package binary files. `bun install --no-cache --force <url>#master` still serves the cached SHA. Symptom verified empirically while verifying Phase 13.1: `sov upgrade` (post-pre-uninstall fix) kept installing `0eee03c` while `git ls-remote` showed master at `797222d`.
+
+Two-step fix:
+
+- **Pre-uninstall is always-on.** `runUpgrade` spawns `bun uninstall -g @yevgetman/sov` before `bun install -g <url>`. Uninstall failures are silently ignored (first-install case). API contract bumped: `UpgradeResult.command: string[]` → `UpgradeResult.commands: string[][]`. `--skip-uninstall` flag for the rare "I want the cached SHA" case.
+
+- **`--purge-cache` is opt-in.** When present, `runUpgrade` `rm -rf`'s `~/.bun/install/cache/` before install. The cache wipe takes out other Bun-installed packages' manifest entries too — regenerable on next install, low cost. `cacheDir` opt is a test seam so unit tests exercise dry-run without touching the real cache.
+
+Rejected alternatives:
+
+- **Always purge the cache.** Defaulting to a destructive cache wipe punishes users who have other globally-installed Bun packages. Make it explicit.
+- **Append a unique URL fragment per upgrade** (`#?t=<timestamp>`). Git rejects query parameters in refs, breaks the URL.
+- **Clone-and-link instead of `bun install -g`.** Bypasses Bun's caches entirely but loses the upgrade-via-package-manager UX. Worth revisiting if Bun's caching changes shape again.
+
+This is a Bun-side bug surface. If `bun install` ever gains a real "force re-resolve" semantic for git URLs, drop `--purge-cache` and the lockfile-eviction step.
+
 ## 2026-05-04 - Distribution: git+ssh, not npm
 
 The harness package and the repo it lives in are private. Distribution uses `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` directly against the private repo; SSH access is the access-control gate (same as cloning). `package.json` is marked `"private": true` so `npm publish` is impossible by mistake.

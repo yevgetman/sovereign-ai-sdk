@@ -1,5 +1,21 @@
 # Changelog
 
+## `sov upgrade --purge-cache` — defeat Bun's sticky URL→SHA cache - 2026-05-04
+
+Empirically discovered while verifying Phase 13.1 end-to-end: `sov upgrade` (post-pre-uninstall fix below) was still installing a cached commit instead of master HEAD. Root cause: Bun's binary install-cache at `~/.bun/install/cache/` contains both per-SHA git package extracts (`@G@<sha>/`) and opaque `.npm` manifest files holding `URL → SHA` mappings. Even `bun install --no-cache --force <url>#master` (with the lockfile evicted) re-uses the cached SHA from `.npm` rather than re-resolving against the live remote.
+
+Workaround: `sov upgrade --purge-cache` wipes `~/.bun/install/cache/` before installing, forcing Bun to re-resolve. Other Bun packages' manifest caches also evict — regenerable on next install. The flag is the "I want LATEST master, no kidding" hammer; the default (no flag) does the pre-uninstall + reinstall and works most of the time.
+
+`--dry-run` now reports both the cache dir that would be wiped and the commands. `cacheDir` opt is a test seam so unit tests exercise the dry-run path without touching the real cache.
+
+## `sov upgrade` — pre-uninstall to bypass Bun lockfile pin - 2026-05-04
+
+`sov upgrade` was a no-op past the first install: Bun's lockfile pinned the resolved git SHA per URL, so `bun install -g <url>` re-installed that pinned SHA. Worse, requesting a different ref triggered `DependencyLoop` because the existing install and the new request had the same package name.
+
+Fix: `bun uninstall -g @yevgetman/sov` first (failures intentionally ignored — covers first-install case), then `bun install -g <url>`. The uninstall evicts the lockfile entry so the next install can resolve cleanly without the loop.
+
+API change: `buildUpgradeCommand` (returns `string[]`) → `buildUpgradeCommands` (returns `string[][]`). `UpgradeResult.command` → `UpgradeResult.commands`. `runUpgrade` now spawns up to 2 processes; the uninstall step is best-effort. New `--skip-uninstall` flag for the rare case when you actually want bun's cached SHA.
+
 ## Phase 13.1 — Trajectory capture - 2026-05-04
 
 The Sovereign moat: every completed session writes a ShareGPT-shaped JSONL record to `<bundle>/state/artifacts/trajectories/samples.jsonl` (or `<harnessHome>/trajectories/samples.jsonl` in generic-agent mode); failed/interrupted sessions land in `failed.jsonl`. Records are redacted at write time via `redact()` against a 14-pattern allowlist (Anthropic / OpenAI / Tavily / Brave / OpenRouter / GitHub PATs / AWS keys / JWTs / Bearer tokens / PEM private keys / credential file paths).

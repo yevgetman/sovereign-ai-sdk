@@ -78,7 +78,7 @@ sov --no-cache
 |---|---|
 | `chat` (default) | Start the interactive REPL. Bare `sov` runs this. |
 | `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive picker. |
-| `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Shells out to `bun install -g git+ssh://...`. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (print the command without running it). `SOV_UPGRADE_URL` env var overrides the default install URL for forks. |
+| `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
 
 ## REPL UX
 
@@ -531,6 +531,45 @@ Skill bodies and reference files support:
 - inline shell interpolation with the `!`-prefixed backtick syntax
 
 Community and agent-created skills are scanned before loading.
+
+## Trajectory Capture
+
+Every completed session writes a ShareGPT-shaped JSONL record (Phase 13.1). Storage location:
+
+| Mode | Path |
+|---|---|
+| Bundle loaded | `<bundle>/state/artifacts/trajectories/{samples,failed}.jsonl` |
+| Generic-agent | `<harnessHome>/trajectories/{samples,failed}.jsonl` |
+
+Sessions terminating cleanly (`reason: completed` or `max_turns` — the run loop hit its iteration cap with no error) land in `samples.jsonl`; sessions ending via interrupt / error / `max_tokens` go to `failed.jsonl`. Each line is a single record:
+
+```json
+{
+  "conversations": [
+    { "from": "human", "value": "what is 2+2?" },
+    { "from": "gpt", "value": "2 + 2 = 4" }
+  ],
+  "timestamp": "2026-05-04T22:49:49.755Z",
+  "sessionId": "0b576155-e83b-43ba-b432-12b99f5d5e57",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5-20251001",
+  "completed": true,
+  "terminalReason": "completed",
+  "toolCallCount": 0,
+  "iterationsUsed": 0,
+  "estimatedCostUsd": 0.00107145
+}
+```
+
+Mapping conventions: `user → human`, `assistant → gpt`, `tool_result → tool`. Thinking blocks render inline as `<think>…</think>` (cross-model compatible — OpenAI o-series, Anthropic extended thinking, DeepSeek R1 all agree on the tag). Assistant messages with text + `tool_use` split into separate records: text first, then `<tool_call name="X" id="Y">{…}</tool_call>`.
+
+**Redaction at write.** Every record passes through `redact()` before disk write — secrets in conversation text get replaced with `[REDACTED]`. Patterns cover Anthropic / OpenAI / Tavily / Brave / OpenRouter API keys, GitHub PATs, AWS access keys, JWTs, bearer tokens, PEM private-key blocks, and credential file paths (`~/.aws/credentials`, `~/.ssh/id_*`).
+
+**Disable redaction** (test-only — not recommended): `HARNESS_REDACT_SECRETS=0`. The flag is **snapshotted at process import** per Invariant #15, so an agent tool call that mutates `process.env` mid-session can't disable redaction.
+
+**Privacy posture.** The trajectory directory is tier-3 per-installation state. Treat it like `sessions.db` — fine to commit to a private repo as a durable archive, don't push to a public one without scrubbing. `failed.jsonl` is especially worth checking before sharing because session interrupts often capture mid-thought text.
+
+Empty sessions (you opened `sov` and quit without prompting) skip the write entirely — no record gets created.
 
 ## Microcompaction
 

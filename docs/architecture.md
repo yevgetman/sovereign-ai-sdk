@@ -312,6 +312,23 @@ Settings shape:
 
 The `! <command>` REPL prefix is the explicit escape hatch for cases BashTool can't handle. The rest of the line runs as a bash command with the user's stdio inherited — sudo / TouchID / pagers / interactive editors all work as if typed at the user's regular shell. The harness does not capture inline-shell output; the user typed `! foo` to do something for themselves, not to feed state to the agent.
 
+## Trajectory Capture
+
+`src/trajectory/` ships three modules (Phase 13.1):
+
+- **`redact.ts`** — pattern-based secret redaction. The `HARNESS_REDACT_SECRETS` env flag is snapshotted at module import (Invariant #15), so mid-session env mutations can't disable redaction. Patterns cover Anthropic / OpenAI / Tavily / Brave / OpenRouter API keys, GitHub PATs, AWS access keys, JWTs, bearer tokens, PEM private-key blocks, and credential file paths (`~/.aws/credentials`, `~/.ssh/id_*`). Conservative — false positives are cheap; false negatives leak secrets into archives that may be committed to a repo.
+
+- **`shareGpt.ts`** — `Message → ShareGPTRecord[]` mapping. `user → human`, `assistant → gpt`, `tool_result → tool`. Thinking blocks render inline as `<think>…</think>` for cross-model compatibility (OpenAI o-series, Anthropic extended thinking, DeepSeek R1 all agree on the tag). Assistant messages with text + `tool_use` split into separate records.
+
+- **`writer.ts`** — `buildTrajectoryRecord()` (pure) + `writeTrajectory()` (appending) + `tryWriteTrajectory()` (fire-and-forget wrapper, swallows errors per Invariant #10). Bucket split: `terminal.reason ∈ {completed, max_turns}` → `samples.jsonl`; everything else → `failed.jsonl`. JSON serialization passes through `redact()` before disk write.
+
+REPL wiring captures `lastTerminal` across all turns of the session and calls `tryWriteTrajectory` after the input loop closes, before DB shutdown. Empty sessions (zero in-memory messages) skip the write. Storage:
+
+- Bundle loaded → `<bundle>/state/artifacts/trajectories/`
+- Generic-agent → `<harnessHome>/trajectories/`
+
+The trajectory directory is tier-3 per-installation state (Invariant #9). Phase 13.4 (continuous learning, planned) will read from this archive plus a parallel observation stream to synthesize an instinct corpus.
+
 ## Compaction
 
 Full compaction (`/compact`) summarizes message history into a child session. Proactive compaction fires automatically when `system_prompt + history > contextLength * proactiveThresholdPct` (default 75%). The compactor self-guards: when the system prompt alone exceeds the threshold, proactive compaction returns false instead of firing — it can only reduce message history, not the system prompt, so otherwise it would loop indefinitely against an oversized bundle.
@@ -352,9 +369,11 @@ The primary extension surfaces are:
 - `src/hooks/` for the shell-hook runner, consent allowlist, and orchestrator integration
 - `src/mcp/` for the MCP client pool and tool wrapper
 - `src/context/budget.ts` for the per-component context-window audit
+- `src/trajectory/` for the ShareGPT writer + secret-redaction patterns
+- `src/cli/upgrade.ts` for the `sov upgrade` subcommand
 - `src/compact/microcompact.ts` for microcompaction config and compactable tool sets
 - `src/permissions/shellSemantics.ts` for shell command classification (add commands to the handler sets)
 - `src/agent/sessionDb.ts` for schema migrations
-- future `src/review/`, `src/router/`, and `src/trajectory/` phase landing zones
+- future `src/review/` and `src/router/` phase landing zones
 
 See `docs/extending.md` for concrete recipes.

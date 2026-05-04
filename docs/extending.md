@@ -151,6 +151,18 @@ The wrapper translates an MCP `CallToolResult` into a `ToolResult<T>` with the P
 
 Permission rules participate via two prefix shapes: `mcp__<server>` matches every tool from one server; `mcp__<server>__<tool>` matches one specific tool. The matching is in `ruleMatchesTool()` (`src/config/rules.ts`) and uses `tool.isMcp` + `tool.mcpInfo.serverName` rather than name-string parsing.
 
+## Add A Trajectory Redaction Pattern
+
+`src/trajectory/redact.ts` ships a `PATTERNS` array — every match is replaced with `[REDACTED]` (or `[REDACTED:<name>]` when `tagged: true`) before the trajectory record is written to disk. Adding a new secret-shape:
+
+1. Append a `{name, regex}` entry to `PATTERNS`. Use a **named** regex so the `tagged` mode shows which pattern fired — useful for diagnosing false positives.
+2. Anchor the pattern with word boundaries (`\b`) where the secret has a stable prefix/suffix; otherwise the regex will match arbitrary substrings.
+3. Add a positive case (the secret should redact) AND a negative case (similar-shaped but legitimate text shouldn't) to `tests/trajectory/redact.test.ts`.
+
+Use `redactForce()` in tests rather than `redact()` — `redactForce` runs the patterns regardless of the import-time `HARNESS_REDACT_SECRETS` snapshot, so tests are independent of env state.
+
+The redactor is **conservative on purpose** — false positives are cheap (a stray `[REDACTED]` in a trajectory archive), false negatives leak secrets into archives that may be committed to a repo. Bias toward over-matching when a secret pattern is ambiguous.
+
 ## Add A Session Migration
 
 1. Increment `CURRENT_SCHEMA_VERSION` in `src/agent/sessionDb.ts`.
