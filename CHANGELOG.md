@@ -1,5 +1,84 @@
 # Changelog
 
+## `sov upgrade` — one-command pull from the private repo - 2026-05-04
+
+`sov upgrade` shells out to `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` so users don't have to remember the URL. `--ref <ref>` pins to a tag, branch, or commit (e.g. `sov upgrade --ref v0.2.0`); `--dry-run` prints the command without running it; `SOV_UPGRADE_URL` env var overrides the default install URL for forks or mirrors. stdio is inherited so Bun's progress output flows through unchanged. The subcommand exits with the spawned bun's exit code so shell scripts can branch on success.
+
+`src/cli/upgrade.ts` splits the pure argv builder from the side-effecting runner so unit tests exercise the URL/ref/env-override logic without ever spawning bun. Live spawn paths run only when the user actually invokes `sov upgrade`. Six unit tests cover ref handling, env override, opts override, and the dry-run path.
+
+## Distribution: switched from npm to git+ssh - 2026-05-04
+
+The private repo stays private — there is no public package registry entry. Distribution is via `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git`. SSH access to the repo is the access-control gate (same as cloning); upgrades are the same command rerun (or `sov upgrade` once landed). `package.json` re-marked `"private": true` so `npm publish` is impossible by mistake; `repository.url` switched to `git+ssh://`; the `engines.bun >= 1.2` constraint stays. README install section rewritten with the two install paths (registry-style git+SSH and the dev-mode `bun link`).
+
+## Phase 12.5 + 12.6 semantic suite backfill (37/37 pass) - 2026-05-04
+
+Two new semantic cases close the coverage gap from Phase 12.5 + 12.6 shipping earlier today:
+
+- `tools.envelope-recovery-from-edit-mismatch` — config.txt seeded with `SETTING=alpha`; user asserts (incorrectly) that the file contains `SETTING_NAME=alpha` and asks for `SETTING_NAME=beta`. Accepts either correct path: literal-edit-attempt → mismatch envelope → re-read → correct edit, or proactive read → correct edit. Forbids retrying the same wrong old_string blindly, fabricating success, or leaving the file with the wrong key. First-shot pass, 44.1s, $0.076.
+- `commands.context-budget-dispatch` — local-command dispatch test for `/context-budget`. Verifies the "total estimate" header, section grouping, and per-tool token counts. First-shot pass, 16.6s, $0.060.
+
+Inventory bumped 35 → 37 (Tool dispatch 8→9, Slash-command pipeline 4→5). Mapping table extended with rows for `src/tool/types.ts` (`--filter envelope`), `src/core/orchestrator.ts` (`--filter envelope`), `src/context/budget.ts` (`--filter context-budget`), `src/commands/info.ts` (`--filter context-budget`).
+
+Design lesson: the envelope-recovery case originally required the first FileEdit to fail, but the judge correctly rejected that — frontier models proactively read first and avoid the failure entirely. Revised criteria accept either path; the bug class is retrying the same wrong string blindly or fabricating success.
+
+## Phase 12.6 — Context budget audit + `/context-budget` - 2026-05-04
+
+`src/context/budget.ts` ships `auditContextBudget()` and `formatBudgetReport()`. The audit walks system-prompt segments, tool schemas (native + MCP), skills, bundle context, and memory files; emits per-component token estimates with bloat tier (`heavy` / `extreme` / null) and triage classification (`always` / `sometimes` / `rarely`). Defaults match the threshold table in the build plan (skill 300/800, tool-schema 500/1500, system-segment 800/2000, memory 1000, bundle 1500/3000) and are overridable via the `thresholds` opt and the prospective `~/.harness/config.json` `contextBudget.thresholds.*` block.
+
+Three surfaces consume the audit:
+
+- The new **`/context-budget` slash command** (Info category) prints a sectioned report.
+- **`HarnessInfo`** gains a `'budget'` section so the model can reason about its own budget when answering meta-questions.
+- A `CommandContext.getBudgetReport()` hook plumbs the data from the REPL's snapshot getter into the slash-command surface.
+
+Lifts ECC's `context-budget` skill (inventory → classify → flag → recommend), trading line-count thresholds for token-count thresholds. Auto-warning at 60% utilization deferred — Invariant #4 freezes the system prompt per session; the audit currently surfaces utilization on demand via `/context-budget`.
+
+10 unit tests in `tests/context/budget.test.ts` (empty audit, system-segment thresholds, deferred-tool classification, skill `requires_tools` matching, utilization ratio, memory char-based estimate, threshold overrides, formatter sections) plus a dispatch test in `tests/commands/info.test.ts`. Build plan §"Phase 12.6"; reference doc `harness/docs/reference/everything-claude-code-analysis.md` §2.3.
+
+## Phase 12.5 — Tool observation envelope - 2026-05-04
+
+Adds an optional uniform `{status, summary, next_actions, artifacts}` envelope to `ToolResult<T>`. The orchestrator's `formatToolResult` renders the envelope as a plain-text header above the existing `renderResult` content; `status: 'error'` forces `is_error: true` on the resulting `tool_result` block even when the tool's renderer didn't set it. Optional in v1 — tools opt in by populating the field. Provider-agnostic (no JSON in tool_result content).
+
+Retrofitted: `BashTool` (per-error-class `next_actions`: command-not-found, permission-denied, timeout, expect_token miss, privilege-escalation refusal), `FileEditTool` (success path + envelope-emitting error returns for missing-match and non-unique-match — replaces the prior throws so the recovery hint reaches the model), `FileWriteTool`, `FileReadTool`, `GlobTool`, `GrepTool`, `MemoryTool`, `SkillTool`, `SkillsListTool`, `SkillsViewTool`, `WebFetchTool` (HTTP-status-aware next_actions), `WebSearchTool`, `HarnessInfoTool`, `ToolSearchTool`, plus the MCP wrapper (CallToolResult mapped to envelope; URL-shaped output → artifacts; common error keywords → next_actions inference).
+
+Lifts ECC's `agent-harness-construction` skill ("Observation Design" + "Error Recovery Contract" + the anti-patterns it explicitly forbids: opaque tool output with no recovery hints, error-only output without next steps). Build plan §"Phase 12.5"; reference doc §2.2.
+
+12 unit tests across orchestrator (3 envelope cases), BashTool (6 envelope cases), FileEditTool (3 envelope cases). MCP integration test updated to expect envelope-prefixed content. **Behavior change worth flagging:** `FileEditTool` now returns a structured envelope for the two recoverable error classes (missing match, non-unique match) instead of throwing — callers checking for `result.observation.status === 'error'` or `result.data.error !== undefined` see the failure; the orchestrator surfaces it as `is_error: true` automatically. Other errors (file doesn't exist, identical strings) still throw.
+
+## Phase 9.6 — Skill `whenToUse` trigger rigor - 2026-05-04
+
+Tightens skill-activation matching by validating `whenToUse` against a rigor rubric at load time. Three checks: empty / too-short field, low-rigor preamble (`use this skill`, `activate this skill`, `call this when`, `run when`, `when to use`, …), and absence of any trigger verb from a 22-word allowlist (`asks`, `mentions`, `runs`, `edits`, `commits`, `pushes`, `deploys`, …). Non-blocking — the skill still loads; the loader emits a one-line warning per low-rigor entry via the `warn` callback.
+
+`SkillsListTool` now splits semicolon-separated `whenToUse` values into a `whenToUse: string[]` array so the model sees discrete trigger predicates rather than one buried sentence. Single-trigger skills keep the original `string` shape.
+
+Lifts ECC's "When to Activate" predicate-list convention from `skills/agent-harness-construction` and `skills/continuous-learning-v2`. The `whenToUse` schema field stays as `string` for back-compat — the multi-trigger convention is documented but not a hard schema break.
+
+## Self-doc segment + HarnessInfo runtime introspection - 2026-05-04
+
+Surfaces harness-specific contracts to the model via two complementary seams so meta-questions ("how do I add an MCP server here?", "how do I configure permissions?") get harness-specific answers instead of generic Claude-Desktop / SDK fallbacks.
+
+1. **`<harness-self-doc>` system-prompt segment** (`src/context/systemPrompt.ts`). Cacheable, vendor-neutral. Documents the settings file paths and precedence (`.harness/settings.json` layers vs `~/.harness/config.json`), the schema for `permissions` / `hooks` / `mcpServers`, the permission rule grammar (including the `mcp__server` server-prefix form), the inline-shell `!` prefix, the slash-command list, and clarifies that `ToolSearch` is the model's tool, not the user's. Per CLAUDE.md "no product-specific hardcoding in `src/`," the segment uses `<harness-home>` (not `~/.harness/`) and avoids the "Sovereign AI" identity — white-label deployments inherit the same prompt; product identity comes from the bundle.
+
+2. **`HarnessInfo` native tool** (`src/tools/HarnessInfoTool.ts`). Read-only, native, always available when the snapshot getter is wired. Returns: permission mode + loaded settings layers (with paths + present/absent), configured MCP servers (with connection status + tool counts), the live native + MCP tool inventory, and the registered slash commands. Section filter (`settings` / `mcp` / `tools` / `commands` / `budget`) for scoped queries. Closure-injected (mirrors `ToolSearchTool`'s pattern); the snapshot reads `finalToolPoolRef` post-assembly so `tools.native` vs `tools.mcp` reflects the actual pool the model sees.
+
+Together the prompt teaches the contracts; the tool exposes the live state. Semantic case `tools.harness-info-config-and-extension-guidance` covers the user's actual failure-mode question end-to-end (21.2s, $0.044, first-shot pass).
+
+## WebSearch UX hardening - 2026-05-04
+
+Two fixes addressing the same friction class — search-shaped prompts failing because of provider misconfiguration:
+
+1. **Hide WebSearch when no key is configured.** `isEnabled()` returns false when `resolveProviderSettings().apiKey` is undefined, so the tool is filtered out at `assembleToolPool` time and the model never sees it in `<available-tools>`. The previous behavior surfaced WebSearch regardless of configuration; search-shaped prompts let the model pick it, and the call failed with a "needs an API key" error every time.
+
+2. **Infer provider from key shape when not set explicitly.** Previously `webSearch.provider` defaulted to `tavily` whenever it wasn't set, so a user pasting a Brave key under `webSearch.apiKey` got 401s from Tavily. Now: an explicit `webSearch.provider` still wins (paired with the matching key, with the per-provider env var as a fallback). When provider is unset, the harness picks the path that has a key. Config-side keys are classified by prefix — Tavily keys start with `tvly-` by Tavily's own convention; anything else is treated as Brave. Env-only setups dispatch by which env var is set. Pasting either flavor of key under `webSearch.apiKey` Just Works without a second config command.
+
+## MCP `mcp__<server>` permission rule prefix - 2026-05-04
+
+Fix surfaced by the post-Phase-12 semantic suite (33/34 with `permissions.mcp-permission-rule-blocks-server` failing). The Phase 12 plan claimed "the rule matcher already does prefix matching" — it didn't. `ruleMatchesTool()` was exact-match-plus-aliases only, so a `deny: ["mcp__echo"]` rule never blocked any tool whose canonical name was `mcp__echo__<tool>`.
+
+Extended `ruleMatchesTool()` (`src/config/rules.ts`) to recognize a server-scoped rule when the tool is MCP and `rule.tool === \`mcp__${tool.mcpInfo.serverName}\``. Tool-level rules (`mcp__server__tool`) still hit the exact-match path. Uses tool metadata (`tool.isMcp` + `tool.mcpInfo.serverName`), not name-string parsing.
+
+Verified by a unit test in `tests/config/rules.test.ts` and the failing semantic case re-running green (21.6s, $0.044). Suite returned to 34/34, then 35/35 with the next add.
+
 ## Semantic suite — run + extend policy documented - 2026-05-03
 
 Added a "When to run and when to extend" section to [`docs/semantic-testing.md`](docs/semantic-testing.md). Codifies a four-tier triage (skip / filtered / full / gate) with a concrete mapping table from changed source area → filter, plus rules for when to add a new test (new tool, new slash command, new permission rule path, new context surface, regression fix, phase completion). Brief pointer added to `CLAUDE.md` and `AGENTS.md`. The policy makes the suite's cost-benefit explicit so contributors don't either over-run it (per-commit) or under-run it (never).

@@ -1,6 +1,6 @@
 # Usage Guide
 
-This guide covers day-to-day operation of the Sovereign AI runtime. It assumes the repo is installed and `sov` is on your `PATH` via `bun link`.
+This guide covers day-to-day operation of the Sovereign AI runtime. It assumes `sov` is on your `PATH` (either `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` for users, or `bun link` from a source clone for development — see the README install section).
 
 ## Quick Start
 
@@ -69,6 +69,16 @@ sov --provider ollama --model qwen2.5:3b
 sov --permission-mode ask
 sov --no-cache
 ```
+
+## CLI Subcommands
+
+`sov` has top-level subcommands beyond the default `chat`:
+
+| Subcommand | Behavior |
+|---|---|
+| `chat` (default) | Start the interactive REPL. Bare `sov` runs this. |
+| `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive picker. |
+| `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Shells out to `bun install -g git+ssh://...`. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (print the command without running it). `SOV_UPGRADE_URL` env var overrides the default install URL for forks. |
 
 ## REPL UX
 
@@ -269,23 +279,22 @@ Caveats:
 
 Two model-callable tools cover open-web reach:
 
-- **`WebFetch`** — fetch a URL and return decoded text. HTML pages have `<script>`/`<style>` blocks stripped, tags removed, and entities decoded. Plaintext/JSON/Markdown pass through unchanged. Caps: 10s timeout, 1MB response body, 50K chars returned (override per call with `max_chars`). Refuses non-http(s) schemes and private IPs / localhost.
-- **`WebSearch`** — query the open web through a configurable provider. Returns a small list of `{title, url, snippet}` results that the model can drill into via WebFetch.
+- **`WebFetch`** — fetch a URL and return decoded text. HTML pages have `<script>`/`<style>` blocks stripped, tags removed, and entities decoded. Plaintext/JSON/Markdown pass through unchanged. Caps: 10s timeout, 1MB response body, 50K chars returned (override per call with `max_chars`). Refuses non-http(s) schemes and private IPs / localhost. **Works out of the box with no API key.**
+- **`WebSearch`** — query the open web through a configurable provider. Returns a small list of `{title, url, snippet}` results the model drills into via WebFetch.
 
-`WebFetch` works out of the box with no setup. `WebSearch` needs an API key for the search backend:
+**WebSearch is hidden until you configure a key.** `isEnabled()` returns false when no Tavily/Brave key is set, so the model never sees a tool that would only fail. To turn it on, set a key — both Tavily and Brave have free tiers:
 
 ```bash
-# Tavily (default — free 1K queries/month, AI-friendly snippets)
+# Tavily (free tier: 1K queries/month, AI-friendly snippets — keys start with tvly-)
 sov config set webSearch.apiKey tvly-...
 
-# Or Brave Search
-sov config set webSearch.provider brave
+# Or Brave Search (free tier: 2K queries/month — keys are bare hex strings)
 sov config set webSearch.apiKey BSA...
 ```
 
-You can also export `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` instead of putting the key in config. With no key configured, `WebSearch` returns a helpful error pointing the model at the right config commands.
+The provider auto-detects from the key shape — Tavily keys begin with `tvly-` by Tavily's own convention; anything else is treated as Brave. You can override explicitly with `sov config set webSearch.provider tavily` (or `brave`). You can also export `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` instead of putting the key in config; the harness dispatches by which env var is set.
 
-For higher fidelity (JS-rendered SPAs, browser-only content) connect a headless-browser MCP server when Phase 12 lands.
+For higher-fidelity reach (JS-rendered SPAs, browser-only content, GitHub / Slack / etc.) configure an MCP server — see "MCP Servers" below.
 
 ## Slash Commands
 
@@ -312,6 +321,7 @@ Lines beginning with `/` are handled locally before normal model turns. `/help` 
 | `/permissions` | Active mode + session always-allow rules + persistent rule layers. |
 | `/skills` | Visible skills with `[source]` tags. |
 | `/tools` | Registered tools with descriptions. |
+| `/context-budget` | Per-component context-window audit: system prompt, tool schemas, skills, bundle, memory. Flags components above bloat thresholds and classifies as always/sometimes/rarely needed. |
 
 ### Config
 
@@ -364,13 +374,13 @@ Example:
   "permissionMode": "default",
   "permissions": {
     "allow": ["Bash(git *)", "Read(*.ts)", "Write(notes.md)"],
-    "deny": ["Bash(rm *)"],
+    "deny": ["Bash(rm *)", "mcp__github"],
     "ask": ["Edit"]
   }
 }
 ```
 
-Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and `Edit` map to `FileRead`, `FileWrite`, and `FileEdit`.
+Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and `Edit` map to `FileRead`, `FileWrite`, and `FileEdit`. For MCP tools (`mcp__<server>__<tool>`), the rule shape `mcp__<server>` matches every tool from one server in one line — useful for blanket-deny of an entire MCP server. Tool-level rules use the full `mcp__<server>__<tool>` form.
 
 ### Shell Command Virtual Tool Mapping
 
@@ -408,6 +418,56 @@ Modes:
 | `default` | Honor explicit rules, then tool self-checks, then prompt if needed. |
 | `ask` | Prompt on fallthrough. |
 | `bypass` | Allow fallthrough without prompts; explicit deny and ask rules still apply. |
+
+## Inline Shell — `! <command>`
+
+Type `! <command>` at the REPL prompt to run the rest as a bash command with your TTY inherited. This is the explicit escape hatch for cases `BashTool` can't handle: `sudo`, TouchID, pagers, interactive editors. The harness does not capture inline-shell output for the model — you typed `!` to do something for yourself, not to feed state to the agent.
+
+```text
+> ! sudo launchctl list | grep com.example
+> ! git rebase -i HEAD~3
+> ! less /var/log/system.log
+```
+
+The `!` prefix runs *before* slash-command parsing so a hostile filename or skill name can never shadow it.
+
+## MCP Servers
+
+Configure stdio MCP servers in any settings layer (`mcpServers` is concatenated across layers; duplicate names across layers is an error):
+
+```json
+{
+  "mcpServers": {
+    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/safe/dir"] }
+  }
+}
+```
+
+Discovered tools register as `mcp__<server>__<tool>` and flow through the same `Tool` interface as native tools — same permission gating, same hooks. They default to deferred (their full schema is fetched on demand via the model's `ToolSearch` tool) so the system prompt token cost stays bounded as servers add tools.
+
+Connection failures log a one-line banner at session start and the affected tools simply don't appear; the rest of the session keeps running. Use `/context-budget` or `HarnessInfo`'s `mcp` section to inspect connection status, tool counts, and the configured invocation commands.
+
+## Hooks
+
+Configure `PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop` hooks under any settings layer's `hooks` key:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/abs/path/audit-bash.sh" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "/abs/path/lint-after-edit.sh", "timeout": 30 }] }
+    ]
+  }
+}
+```
+
+Each hook is a shell command that receives the event payload as JSON on stdin and returns a JSON decision on stdout. Exit code 2 means "block." `PreToolUse` hooks can return `permissionDecision: 'allow' | 'deny' | 'ask'` plus an optional `updatedInput` that transforms the tool input; `PostToolUse` can return `additionalContext` appended to the tool result the model sees.
+
+**First-use TTY consent.** When a configured hook fires for the first time on this machine, the user is prompted to allow or deny it; the decision is persisted in `~/.harness/shell-hooks-allowlist.json`. Without consent the hook is inert. Hooks always run with `shell: false` + argv-split — never as a shell-string concatenation.
 
 ## Memory
 
@@ -569,7 +629,7 @@ bun run test:semantic -- --judge anthropic-api     # API mode (needs ANTHROPIC_A
 
 **Fully isolated.** Each test runs in a fresh `mktemp -d` with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB. Cleaned up on success, failure, or crash. The judge subprocess is spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands`.
 
-**Coverage at a glance (30/30 pass):** 8 tool-dispatch cases, 4 slash-command pipeline paths (/help local, /commit, /init, /<skill>), 6 permission cases (deny/allow/deny-wins/bypass-honors/virtual-tool-name/layer-precedence), 4 refusal cases, 2 context-expansion cases, 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
+**Coverage at a glance (37/37 pass):** 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 5 slash-command pipeline paths (/help, /context-budget, /commit, /init, /<skill>), 6 permission cases (including virtual-tool-name mapping, layer-precedence, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
 
 ## Troubleshooting
 

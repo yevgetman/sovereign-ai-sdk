@@ -40,7 +40,9 @@ That shape is a load-bearing contract. It lets the REPL render partial model out
 System prompt assembly lives under `src/context/`. New sessions freeze a static-to-dynamic segmented prompt:
 
 - base runtime instructions
+- `<harness-self-doc>` — vendor-neutral runtime contracts (settings file paths and precedence, `permissions` / `hooks` / `mcpServers` schemas, the permission rule grammar including the `mcp__server` server-prefix form, the inline-shell `!` prefix, the slash-command list, ToolSearch's role)
 - available tool summary
+- skills index reminder (one line; full skill discovery via the `skills_list` tool)
 - bundle context and memory
 - runtime facts such as cwd, OS, shell, date, and git status
 - local user/project context from `AGENTS.md`, `CONTEXT.md`, `.cursorrules`, and user context files
@@ -50,6 +52,8 @@ Each segment has a `cacheable` marker. Providers that support prompt caching tra
 On resume, the session reuses the exact frozen system prompt from SQLite. Runtime facts and local context are not rebuilt for an existing session.
 
 Current-turn context is injected through the user message, not by mutating the frozen system prompt. That includes bounded memory snapshots and explicit references such as `@file:src/main.ts`.
+
+The `<harness-self-doc>` segment is deliberately vendor-neutral (uses `<harness-home>` rather than `~/.harness/` and avoids the "Sovereign AI" identity) so white-label deployments inherit the same prompt unchanged.
 
 ## Tool Execution
 
@@ -68,12 +72,20 @@ The default tool posture is conservative. If a tool does not explicitly opt into
 
 After tool results are assembled and pushed to history, the query loop evaluates microcompaction (see below). If stale tool results are cleared, the compacted history replaces the in-memory history before the next provider call.
 
+### Tool Observation Envelope
+
+`ToolResult<T>` carries an optional `observation` field shaped as `{status, summary, next_actions?, artifacts?}` (Phase 12.5). When present, the orchestrator's `formatToolResult` renders it as a plain-text header above the tool's `renderResult` output. `status: 'error'` forces `is_error: true` on the resulting `tool_result` block even when the tool's renderer didn't set it.
+
+The envelope is opt-in — tools that don't set it render exactly as before. Native tools that have been retrofitted: `BashTool`, `FileEditTool`, `FileWriteTool`, `FileReadTool`, `GlobTool`, `GrepTool`, `MemoryTool`, `SkillTool`, `SkillsListTool`, `SkillsViewTool`, `WebFetchTool`, `WebSearchTool`, `HarnessInfoTool`, `ToolSearchTool`. The MCP wrapper maps `CallToolResult.isError` and common error keywords into the envelope shape.
+
+The `next_actions` field is the highest-value piece on error paths — it gives the model a concrete recovery hint instead of a vague apology. `BashTool`'s envelope carries per-error-class hints (command-not-found, permission-denied, timeout, expect_token miss, privilege-escalation refusal); `FileEditTool` flips its missing-match and non-unique-match cases from throws to envelope-emitting returns specifically so the recovery hint reaches the model.
+
 ## Web Tools
 
 Two model-callable tools handle open-web reach:
 
 - `WebFetchTool` (`src/tools/WebFetchTool.ts`) — wraps `globalThis.fetch` with private-host blocking, timeout/size caps, redirect following, and an HTML→text reduction (strips `<script>`/`<style>`/comments, converts block tags to newlines, decodes basic entities). Sufficient for documentation pages, blog posts, news articles, raw markdown/JSON.
-- `WebSearchTool` (`src/tools/WebSearchTool.ts`) — pluggable search via Tavily (default) or Brave. API key resolves from `webSearch.apiKey` config, then `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY` env. Throws with a setup hint when no key is configured. Returns up to 20 `{title, url, snippet}` results.
+- `WebSearchTool` (`src/tools/WebSearchTool.ts`) — pluggable search via Tavily (default) or Brave. **Hidden when no API key is configured** (`isEnabled()` returns false), so the model never sees a tool it can't actually call. **Provider auto-detection from key shape:** an explicit `webSearch.provider` always wins, but when unset, the harness picks based on whichever signal carries a key — config-side `webSearch.apiKey` is classified by prefix (`tvly-` → Tavily, anything else → Brave); env-only setups dispatch by which env var is set (`TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY`). Returns up to 20 `{title, url, snippet}` results. The tool's `call()` retains the no-key error as defense in depth (tests, programmatic use, mid-session config drift).
 
 The tools run with `isReadOnly: true, isConcurrencySafe: true`. The user-only `@url:` context reference (Phase 6.7) and these model-callable tools coexist: the reference inlines a URL into the user message at the start of a turn, while `WebFetch` lets the model decide to fetch a URL it discovered mid-conversation.
 
@@ -94,6 +106,10 @@ The permission interface is intentionally transformable:
 ```
 
 That lets permission checks normalize or narrow inputs before the tool runs.
+
+### MCP Permission Rule Prefix
+
+MCP tools register as `mcp__<server>__<tool>` so a single server-prefix rule scopes a whole server: `deny: ["mcp__github"]` blocks every GitHub tool in one line; `deny: ["mcp__github__create_issue"]` targets one tool. `ruleMatchesTool()` resolves a server-prefix rule by checking `tool.isMcp` and matching `rule.tool === \`mcp__${tool.mcpInfo.serverName}\`` — the match runs off tool metadata, not name-string parsing, so server names containing `__` would still resolve correctly.
 
 ### Shell AST Analysis And Virtual Tool Mapping
 
@@ -214,6 +230,88 @@ The editor is the default when `process.stdin.isTTY === true`. Piped stdin falls
 
 Status-line writes (`[tool: ...]`, `[cleared ...]`, `[debug] ...`, `[error] ...`) all flow through a single `writeStatusLine` helper that enforces leading + trailing newlines so they never collide with adjacent assistant text. The compact tool slot tracks line count via ANSI cursor manipulation; when a new tool fires it clears any inter-tool preamble text and the previous slot line in one operation.
 
+## Runtime Introspection — `HarnessInfo`
+
+`src/tools/HarnessInfoTool.ts` is a native, read-only tool the model calls to answer meta-questions about the harness it's running in. Closure-injected (mirrors `ToolSearchTool`'s pattern); the snapshot getter reads live state at tool-call time so the result reflects the current MCP pool and tool inventory, not a stale snapshot.
+
+The snapshot covers:
+
+- `permissionMode` and the loaded settings layers (with paths and present/absent flags)
+- configured MCP servers with `status: 'connected' | 'failed' | 'not-attempted'`, tool counts, and the server's invocation command
+- the live native + MCP tool inventory split by `tool.isMcp`
+- the registered slash-command registry
+- an optional `budget` field carrying the Phase 12.6 context-budget audit
+
+A `section` input filters the response (`settings` / `mcp` / `tools` / `commands` / `budget`); the default `'all'` returns everything. The tool pairs with the `<harness-self-doc>` system-prompt segment — the prompt teaches the contracts, the tool exposes the live state.
+
+## Context Budget Audit
+
+`src/context/budget.ts` ships `auditContextBudget()` and `formatBudgetReport()` (Phase 12.6). The audit walks every component that occupies space in the model's context window — system-prompt segments, tool schemas (native + MCP), skills, bundle context, memory files — and emits per-component records:
+
+```ts
+type ComponentTokens = {
+  kind: 'system-segment' | 'tool-schema' | 'skill' | 'bundle' | 'memory'
+  name: string
+  path?: string
+  tokens: number
+  bloat: 'heavy' | 'extreme' | null
+  classification: 'always' | 'sometimes' | 'rarely'
+}
+```
+
+Token estimation reuses `src/core/tokenEstimate.ts`'s 4-chars-per-token heuristic; provider-exact tokenization would require shipping per-provider tokenizer libs and is overkill for triage. Bloat thresholds (skill 300/800, tool-schema 500/1500, system-segment 800/2000, memory 1000, bundle 1500/3000) match the build plan's table and are overridable via the `thresholds` opt and the prospective `~/.harness/config.json` `contextBudget.thresholds.*` block.
+
+Triage classification is conservative:
+
+- `always` — system-prompt boilerplate, `<available-tools>`, or skills whose `requires_*` matches the active toolset
+- `sometimes` — deferred MCP tools; skills with `requires_*` or `fallback_for_*` gates that aren't currently active
+- `rarely` — skills whose `fallback_for_*` intersects with active tools (the primary is winning); not in the visibility set
+
+The audit drives three surfaces: the `/context-budget` slash command (sectioned report with bloat flags), the `'budget'` section on `HarnessInfo`, and a `CommandContext.getBudgetReport()` hook the REPL plumbs through. Auto-warning at 60%+ utilization is deferred — Invariant #4 freezes the system prompt per session, so the warning would only appear at session start; the audit currently surfaces utilization on demand.
+
+## Hooks
+
+`src/hooks/runner.ts` is a JSON-stdio shell-hook runner registered at four lifecycle points: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, and `Stop`. Each hook is a user-configured shell command that receives the event payload as JSON on stdin and returns a JSON decision on stdout. Exit code 2 from the hook process means "block." `PreToolUse` hooks can return `permissionDecision: 'allow' | 'deny' | 'ask'` and an optional `updatedInput` that transforms the tool input before execution; `PostToolUse` can return `additionalContext` that's appended to the tool result the model sees.
+
+First-use TTY consent gates all hooks: when a configured hook fires for the first time on a given machine, the user is prompted to allow or deny it; the decision is persisted in `~/.harness/shell-hooks-allowlist.json`. Without consent the hook is inert. Hooks always run with `shell: false` + argv-split (Invariant #13) — never as a shell-string concatenation.
+
+Settings shape (under any layer's `hooks` key):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/abs/path/audit-bash.sh" }] }
+    ]
+  }
+}
+```
+
+## MCP Client
+
+`src/mcp/client.ts` connects to configured stdio MCP servers via `@modelcontextprotocol/sdk` at session start, discovers each server's tools, and wraps them into the harness's `Tool` interface. Servers that fail to connect are logged and skipped — one broken server doesn't prevent the rest of the session from running.
+
+Each wrapped tool registers as `mcp__<server>__<tool>` with `shouldDefer: true` so its full input schema isn't in the system prompt by default — the model retrieves the schema on demand via `ToolSearch`. This bounds prompt token cost as MCP servers add tens of tools.
+
+Per Invariant #5, MCP tools flow through the same `Tool<I,O>` pipe as native tools — same orchestration, same permission gating, same hooks. The permission rule prefix (`mcp__<server>` matches every tool from that server; `mcp__<server>__<tool>` matches one) lets MCP tools participate in the existing rule engine without a new code path.
+
+Settings shape:
+
+```json
+{
+  "mcpServers": {
+    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/safe/dir"] }
+  }
+}
+```
+
+## Sudo Guardrail And Inline Shell
+
+`BashTool` refuses `sudo`, `pkexec`, `doas`, and `su` upfront with a structured error (exit code 126). These commands need a TTY for password / TouchID prompts which a piped subprocess can't supply — without the guardrail the spawn would hang for two minutes until BashTool's timeout fires, leaving the agent stuck. The refusal envelope's `next_actions` tell the model to ask the user to run the command themselves.
+
+The `! <command>` REPL prefix is the explicit escape hatch for cases BashTool can't handle. The rest of the line runs as a bash command with the user's stdio inherited — sudo / TouchID / pagers / interactive editors all work as if typed at the user's regular shell. The harness does not capture inline-shell output; the user typed `! foo` to do something for themselves, not to feed state to the agent.
+
 ## Compaction
 
 Full compaction (`/compact`) summarizes message history into a child session. Proactive compaction fires automatically when `system_prompt + history > contextLength * proactiveThresholdPct` (default 75%). The compactor self-guards: when the system prompt alone exceeds the threshold, proactive compaction returns false instead of firing — it can only reduce message history, not the system prompt, so otherwise it would loop indefinitely against an oversized bundle.
@@ -241,19 +339,22 @@ A second test category lives under `tests/semantic/`, separate from the unit/int
 
 **Verdict shape.** The judge returns `{pass, reasoning, satisfiedCriteria, failedCriteria, costUsd, tokens, backend}`. The reporter shows `subscription` for `claude-code` zero-cost results and a dollar figure (informational under subscription) when the envelope reports one.
 
-**Coverage.** 30 tests spanning 8 tool-dispatch cases (Bash/Read/Edit/Write/Glob/Grep + error paths), 4 slash-command dispatch paths (/help local, /commit, /init, /<skill>), 6 permission cases (including the highest-stakes virtual-tool-name mapping and layer-precedence invariant), 4 refusal cases (anti-fabrication + prompt-injection resistance), 2 context-expansion cases, and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
+**Coverage.** 37 tests spanning 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 5 slash-command dispatch paths (including `/context-budget`), 6 permission cases (including the highest-stakes virtual-tool-name mapping, layer-precedence invariant, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
 
 ## Extension Surfaces
 
 The primary extension surfaces are:
 
-- `src/tools/` and `src/tool/` for native tools (including `virtualToolName` for cross-tool permission mapping)
+- `src/tools/` and `src/tool/` for native tools (including `virtualToolName` for cross-tool permission mapping and the optional `ToolObservation` envelope on results)
 - `src/providers/` for model providers
 - `src/commands/` for slash commands
 - `src/skills/` for markdown skills and skill discovery
+- `src/hooks/` for the shell-hook runner, consent allowlist, and orchestrator integration
+- `src/mcp/` for the MCP client pool and tool wrapper
+- `src/context/budget.ts` for the per-component context-window audit
 - `src/compact/microcompact.ts` for microcompaction config and compactable tool sets
 - `src/permissions/shellSemantics.ts` for shell command classification (add commands to the handler sets)
 - `src/agent/sessionDb.ts` for schema migrations
-- future `src/hooks/`, `src/mcp/`, `src/review/`, `src/router/`, and `src/trajectory/` phase landing zones
+- future `src/review/`, `src/router/`, and `src/trajectory/` phase landing zones
 
 See `docs/extending.md` for concrete recipes.

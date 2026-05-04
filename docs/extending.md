@@ -9,11 +9,12 @@ This guide covers common code changes. Keep changes narrow, preserve the async-g
 3. Export a tool built with `buildTool()`.
 4. Implement `call(input, ctx, onProgress?)`.
 5. Add `renderResult()` when structured output needs a user-facing transcript shape.
-6. Add `preparePermissionMatcher()` if permission rules should support tool-specific patterns.
-7. Add `virtualToolName(input)` if the tool's operations map to another tool's permission rules (e.g., a shell wrapper that does reads should return `'Read'`).
-8. Add `affectedPaths()`, `isReadOnly(input)`, and `isConcurrencySafe(input)` only when they are true for the actual invocation.
-8. Register the tool in `assembleToolPool()` in `src/tool/registry.ts`.
-9. Add focused tests under `tests/tools/` and orchestration tests if concurrency or path behavior matters.
+6. **Optional but encouraged:** populate the `observation` field on `ToolResult` with `{status, summary, next_actions?, artifacts?}` (Phase 12.5). The orchestrator renders it as a header above `renderResult` content; `status: 'error'` forces `is_error: true`. `next_actions` is most valuable on error paths — it gives the model a concrete recovery hint instead of a vague apology. See `BashTool`'s per-error-class envelope, or `FileEditTool`'s missing-match envelope, for examples.
+7. Add `preparePermissionMatcher()` if permission rules should support tool-specific patterns.
+8. Add `virtualToolName(input)` if the tool's operations map to another tool's permission rules (e.g., a shell wrapper that does reads should return `'Read'`).
+9. Add `affectedPaths()`, `isReadOnly(input)`, and `isConcurrencySafe(input)` only when they are true for the actual invocation.
+10. Register the tool in `assembleToolPool()` in `src/tool/registry.ts`.
+11. Add focused tests under `tests/tools/` and orchestration tests if concurrency or path behavior matters.
 
 Skeleton:
 
@@ -110,12 +111,45 @@ Preserve these invariants:
 Skills are markdown files loaded by `src/skills/loader.ts`. Runtime-visible skill behavior is split across:
 
 - `src/skills/types.ts` for the registry shape
+- `src/skills/whenToUse.ts` for the trigger-rigor heuristic (Phase 9.6)
 - `src/skills/visibility.ts` for active-tool and active-toolset gates
 - `src/skills/guard.ts` for trust-tier scanning
 - `src/tools/SkillsListTool.ts` and `src/tools/SkillsViewTool.ts` for progressive disclosure
 - `src/tools/SkillTool.ts` and `src/skills/commands.ts` for invocation
 
 New skill features should preserve progressive disclosure: the system prompt should carry a reminder, not the full skill body.
+
+### Trigger-rigor convention for `whenToUse`
+
+The skill loader runs `validateWhenToUse()` against every skill's `whenToUse` value at load time and emits a one-line warning per low-rigor entry (Phase 9.6, non-blocking). The rubric:
+
+- States a user-observable trigger condition (what the user did or said), not the skill's purpose.
+- Concrete enough to be matched as a predicate ("when the user mentions a commit, branch, or remote") rather than a description ("general git operations").
+- One sentence per condition; multiple conditions allowed but each independent. Use `;` to separate — `SkillsListTool` splits on `;` into a `string[]` array so the model sees discrete triggers.
+- Avoids meta-language ("call this skill when…") in favor of predicate language ("when the user X").
+
+Skills that fail the heuristic still load — the warning is a nudge, not a block.
+
+## Add A Shell Hook
+
+Hooks live in any settings layer's `hooks` key (`<cwd>/.harness/settings.local.json`, `<cwd>/.harness/settings.json`, or `$HARNESS_HOME/settings.json`). They're not authored under `src/`; they're external shell commands or scripts the user owns. The harness runtime is in `src/hooks/` (`runner.ts`, `consent.ts`, `types.ts`); changes there should preserve:
+
+- JSON-stdio interface (event payload in, decision out)
+- Exit code 2 = block
+- First-use TTY consent persisted to `~/.harness/shell-hooks-allowlist.json`
+- `shell: false` + argv-split (Invariant #13 — never shell-string concatenation)
+- `PreToolUse` can return `permissionDecision` and `updatedInput`; the orchestrator re-validates `updatedInput` before execution
+- `PostToolUse` can return `additionalContext` appended to the tool result the model sees
+
+## Add An MCP Server Integration
+
+`src/mcp/client.ts` connects to configured stdio MCP servers via `@modelcontextprotocol/sdk` at session start, discovers tools, and wraps each one through `buildTool()`. Per Invariant #5, MCP tools flow through the same `Tool<I,O>` pipe as native tools — same orchestration, same permissions, same hooks.
+
+Adding new transport support (HTTP/SSE/WebSocket — currently stdio-only) means extending `src/mcp/client.ts` to instantiate the SDK's transport variants. The wrapper layer (`src/mcp/toolWrapper.ts`) is transport-agnostic; nothing changes there.
+
+The wrapper translates an MCP `CallToolResult` into a `ToolResult<T>` with the Phase 12.5 observation envelope: `isError` → `status: 'error'`; first text line → `summary`; URL-shaped output lines → `artifacts`; common error keywords (`not found`, `unauthorized`, `rate limit`) → `next_actions` inferences. The MCP server doesn't supply `next_actions` directly, so the inference is best-effort.
+
+Permission rules participate via two prefix shapes: `mcp__<server>` matches every tool from one server; `mcp__<server>__<tool>` matches one specific tool. The matching is in `ruleMatchesTool()` (`src/config/rules.ts`) and uses `tool.isMcp` + `tool.mcpInfo.serverName` rather than name-string parsing.
 
 ## Add A Session Migration
 

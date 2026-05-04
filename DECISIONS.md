@@ -2,6 +2,74 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - Distribution: git+ssh, not npm
+
+The harness package and the repo it lives in are private. Distribution uses `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` directly against the private repo; SSH access is the access-control gate (same as cloning). `package.json` is marked `"private": true` so `npm publish` is impossible by mistake.
+
+Rejected alternatives:
+
+- **npm Pro / Teams ($7/mo).** Pays for hidden registry packages. Unnecessary when SSH-gated git installs achieve the same access control free.
+- **Public npm publish.** The harness binary is harmless to leak (it requires an Anthropic key to do anything; source posture stays "all rights reserved" via the `license` field), but the user explicitly asked for non-public access. Falling back to git+ssh respects that.
+- **GitHub Packages.** Adds `.npmrc` PAT-auth setup per machine. More friction than git+ssh for single-user / small-team distribution. Worth revisiting if a team distribution emerges.
+
+`sov upgrade` shells out to `bun install -g git+ssh://...` so users don't have to remember the URL. `--ref <ref>` pins to a tag, branch, or commit; `--dry-run` prints the command; `SOV_UPGRADE_URL` env var overrides for forks. The pure argv-builder is split from the spawning runner so unit tests don't actually re-install bin during test runs.
+
+## 2026-05-04 - Phase 12.6 Context Budget: Six Design Decisions
+
+`auditContextBudget()` (`src/context/budget.ts`) walks the live context inventory and reports per-component token estimates with bloat tier and triage classification. Choices:
+
+1. **Token estimation is the existing 4-chars-per-token heuristic from `src/core/tokenEstimate.ts`.** Provider-exact tokenization (CL100K, tiktoken, etc.) would require shipping per-provider tokenizer libs and is overkill for triage. The estimator is good enough to identify "this skill is heavy" without claiming exact token counts.
+
+2. **Bloat tiers (`heavy` / `extreme` / null) and per-kind thresholds.** Defaults from ECC's experience: skill 300/800, tool-schema 500/1500, system-segment 800/2000, memory 1000, bundle 1500/3000. Overridable via the `thresholds` opt and the prospective `~/.harness/config.json` `contextBudget.thresholds.*` block. Two tiers because the action differs — a heavy skill might be acceptable; an extreme one is almost certainly bloat.
+
+3. **Classification (`always` / `sometimes` / `rarely`)** uses skill `requires_tools` / `fallback_for_tools` against the active toolset, not just static analysis. "Recent invocation" as a classification signal is deferred until Phase 13.1 (trajectory) lands; until then classification is visibility-only.
+
+4. **HarnessInfo gains a `'budget'` section.** The model can call HarnessInfo to ask its own context-budget question — useful for meta-questions ("why is this session slow?", "what should I drop?"). Wraps the same `auditContextBudget()` so there's one source of truth.
+
+5. **Slash command surface is `/context-budget` (Info category).** Mirrors the per-section `/tools`, `/skills`, `/permissions` commands. The CommandContext gets a `getBudgetReport()` hook so the command and HarnessInfo share the same builder.
+
+6. **Auto-warning at 60%+ utilization deferred.** Invariant #4 freezes the system prompt per session — a `<runtime-context>` warning would only appear at session start, never mid-session as utilization climbs. The audit currently surfaces utilization on demand via `/context-budget`. A pre-prompt warning footer (similar to the existing pre-compaction warning) is the right shape if usage shows it's needed.
+
+## 2026-05-04 - Phase 12.5 Observation Envelope: Three Design Decisions
+
+`ToolResult<T>` gains an optional `observation: ToolObservation` field shaped as `{status, summary, next_actions?, artifacts?}`. The orchestrator renders it as a plain-text header above each tool's existing `renderResult` content. Choices:
+
+1. **Optional in v1, not required.** Tools opt in by populating the field; tools that don't render exactly as before. Once every native tool has been retrofitted (currently true for all 14 native tools + the MCP wrapper), a follow-up phase can flip the field to required. Keeping it optional means the retrofit lands incrementally without breaking changes.
+
+2. **Plain-text rendering, not JSON.** The envelope shows up in tool_result content as labeled lines (`status: error`, `summary: …`, `next_actions:` + bulleted list). Provider-agnostic — works identically across Anthropic, OpenAI, Ollama. Embedding structured JSON in tool_result content would be more parseable for the model but provider-specific work, and the model already parses labeled-line tool output reliably.
+
+3. **`FileEditTool`'s missing-match and non-unique-match cases flip from throws to envelope-emitting returns.** The throws path bypasses the envelope (the orchestrator's catch wraps the message into a generic is_error tool_result), so the model wouldn't see the recovery hint. Returning a structured `{data: {path, replacements: 0, error}, observation: {status: 'error', next_actions: ['Re-read…']}}` lets the existing `renderResult` show the error message and lets the orchestrator surface `is_error: true` from the envelope. Other FileEdit errors (file doesn't exist, identical strings, empty old_string) still throw — those represent invariant violations or input-shape errors where there's no actionable recovery hint, so the standard catch path is fine.
+
+## 2026-05-04 - Phase 9.6 Skill Trigger Rigor: Heuristic-Only
+
+`validateWhenToUse(value)` runs at skill-load time and emits a one-line warning per low-rigor `whenToUse` entry. Three checks: empty/too-short, low-rigor preamble (`use this skill`, `activate this skill`, `call this when`, …), and absence of any trigger verb from a 22-word allowlist (`asks`, `mentions`, `runs`, `edits`, …).
+
+Decisions:
+
+- **Heuristic, not schema.** No regex DSL or structured predicate AST — `whenToUse` stays a free-form string. The model matches naturally; we only nudge skill authors toward predicate-shaped phrasings via the warning.
+- **Warning, not block.** A low-rigor `whenToUse` still loads the skill. The user controls their bundle's quality bar; we surface the nudge but don't gate.
+- **Multi-trigger via `;`-separated values.** `SkillsListTool` splits on `;` into a `whenToUse: string[]` array so the model sees discrete predicates instead of one buried sentence. Single-trigger skills keep the original `string` shape — back-compat is the schema, the convention is the splitter.
+
+## 2026-05-04 - HarnessInfo + Self-Doc: Two Complementary Surfaces
+
+Two seams instead of one because they answer different questions. The `<harness-self-doc>` system-prompt segment teaches the *contracts* (settings paths, schemas, slash-command names) — stable, cacheable, vendor-neutral. `HarnessInfo` exposes the *live state* (which settings layers are present, which MCP servers connected, what tools are in the pool) — runtime-evaluated at call time. Either alone is incomplete: the prompt without the tool can't answer "what's connected right now"; the tool without the prompt requires the model to ask "what's the schema for adding an MCP server" without knowing what the answer should look like.
+
+The self-doc segment is deliberately vendor-neutral (`<harness-home>` not `~/.harness/`; no "Sovereign AI" identity) so white-label deployments inherit the same prompt unchanged — product identity comes from the bundle layer.
+
+## 2026-05-04 - WebSearch Hide-When-Disabled + Provider Auto-Detection
+
+`WebSearchTool.isEnabled()` returns false when no Tavily/Brave key is configured. Filtered out at `assembleToolPool` time so the model never sees a tool it can't actually call. The previous behavior surfaced WebSearch regardless and let the call fail with "needs an API key" on every search-shaped prompt — a worse UX than a missing tool because the model picks it up to ten times before giving up.
+
+The error path is preserved as defense-in-depth (test paths, programmatic use, mid-session config drift) but should never fire in normal operation.
+
+Provider auto-detection from key shape: Tavily keys begin with `tvly-` by Tavily's own convention; anything else routes to Brave. An explicit `webSearch.provider` always wins. Solves the user-pasted-Brave-key-into-Tavily-default failure mode without requiring two config commands.
+
+## 2026-05-04 - MCP Server-Prefix Permission Rule
+
+`ruleMatchesTool()` recognizes a server-scoped MCP rule when the tool is MCP and `rule.tool === \`mcp__${tool.mcpInfo.serverName}\``. The match runs off `tool.isMcp` + `tool.mcpInfo.serverName`, not name-string parsing — so server names containing `__` would still resolve correctly. Tool-level rules (`mcp__server__tool`) still hit the exact-match path.
+
+Phase 12's plan claimed "the rule matcher already does prefix matching" — it didn't. This decision corrects that and pins the contract: `mcp__<server>` is a server-scoped rule that matches every tool from that server.
+
 ## 2026-05-04 - Phase 12 MCP Client: Eleven Design Decisions
 
 Phase 12 ships the MCP client + deferred tool loading per `harness-build-plan.md` §"Phase 12" and `claude-code-reverse-engineering.md` §11. Eleven choices were locked during implementation; recording here so a future pass that revisits any of them sees the rationale.

@@ -48,9 +48,9 @@ When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harne
 
 ## Phases — where we are
 
-Phases 0 through 10 complete (2026-04-26). Phase 10.5b–e (REPL polish across four waves) complete (2026-05-03) — modal permission prompts, footer / context meter, inline diffs with line context, theme system (`dark` / `light` / `no-color`), 12 new slash commands, raw-mode picker, from-scratch input editor (multi-line, persistent history, Ctrl-R reverse search, Tab autocomplete, soft-wrap). Wave 5 (vim mode) deferred indefinitely.
+Phases 0 through 10 complete (2026-04-26). Phase 10.5b–e (REPL polish across four waves) complete (2026-05-03). Phase 11 (shell hooks) and Phase 12 (MCP client + deferred tool loading) complete (2026-05-03). Three follow-on polish phases shipped 2026-05-04: Phase 9.6 (skill `whenToUse` trigger rigor), Phase 12.5 (tool observation envelope), and Phase 12.6 (context budget audit + `/context-budget`). Semantic test suite is 37/37.
 
-**Next high-leverage targets** per the build plan: **Phase 11** (hooks), **Phase 12** (MCP client), **Phase 13.1** (trajectory capture — the actual Sovereign moat). Polish is at diminishing returns; the next 500 LOC spent on capability beats more polish. Do not start any of these phases unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
+**Next high-leverage targets** per the build plan: **Phase 13** (sub-agent runtime + AgentTool), **Phase 13.1** (trajectory capture — the actual Sovereign moat), **Phase 13.4** (continuous-learning observation stream + instinct corpus, derived from ECC). Do not start any of these phases unless explicitly requested. See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for per-phase deliverables; `runtime-scaffold-plan.md` covers the Phase-0 layout that this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.
