@@ -77,6 +77,7 @@ import {
 import { ContextMeter } from './contextMeter.js';
 import { renderToolDiff } from './diff.js';
 import { type FooterInfo, printPrePromptFooter } from './footer.js';
+import { isInlineShellInput, runInlineShell } from './inlineShell.js';
 import { InputEditor } from './inputEditor.js';
 import { InputHistory } from './inputHistory.js';
 import { getKeypressDispatcher } from './keypress.js';
@@ -514,6 +515,28 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     transcript?.record({ type: 'user_input', sessionId: activeSessionId, text: input });
     const trimmed = input.trim();
     if (trimmed === '') continue;
+
+    // Inline shell: `! <cmd>` runs the rest of the line in bash with the
+    // harness's TTY inherited. The escape hatch for sudo / TouchID / pagers
+    // / interactive prompts that BashTool can't service. By design the
+    // command's output is not captured into the conversation — it's a
+    // user-side affordance, not a tool call.
+    if (isInlineShellInput(trimmed)) {
+      const result = await runInlineShell(trimmed, { cwd: process.cwd() });
+      if (result.empty) {
+        process.stdout.write(chalk.gray('usage: ! <command>\n'));
+      } else {
+        process.stdout.write(chalk.gray(`[exit ${result.exitCode}]\n`));
+      }
+      transcript?.record({
+        type: 'inline_shell',
+        sessionId: activeSessionId,
+        command: trimmed,
+        exitCode: result.exitCode,
+        empty: result.empty,
+      });
+      continue;
+    }
 
     if (trimmed.startsWith('/')) {
       const result = await dispatchSlashCommand(trimmed, commandContext());
