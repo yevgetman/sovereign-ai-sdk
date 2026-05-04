@@ -157,7 +157,62 @@ function normalizeShellSegment(raw: string): string {
   return tokens.slice(cursor).join(' ');
 }
 
+/**
+ * Privilege-escalation commands that need a TTY for the password / TouchID
+ * prompt. The harness spawns bash with stdin piped, so these will always
+ * hang waiting for credentials. We detect and refuse before spawning.
+ *
+ * Detection scans every pipeline / `&&` / `||` / `;` segment, skips leading
+ * env-var assignments, and checks the first command word. We keep the set
+ * small and conservative — false positives mean a refusal the agent has to
+ * route around, but false negatives mean the actual hang we're trying to
+ * prevent.
+ */
+const PRIV_ESCALATION_COMMANDS = new Set<string>(['sudo', 'pkexec', 'doas', 'su']);
+
+export function detectPrivilegeEscalation(command: string): string | null {
+  const segments = command.split(/\|\||&&|;|\|/);
+  for (const raw of segments) {
+    const seg = raw.trim();
+    if (seg.length === 0) continue;
+    const tokens = seg.split(/\s+/).filter(Boolean);
+    let cursor = 0;
+    while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
+      cursor++;
+    }
+    const cmd = tokens[cursor];
+    if (!cmd) continue;
+    // Strip a leading absolute path so `/usr/bin/sudo` is caught.
+    const basename = cmd.includes('/') ? (cmd.split('/').pop() ?? cmd) : cmd;
+    if (PRIV_ESCALATION_COMMANDS.has(basename)) return basename;
+  }
+  return null;
+}
+
+/** Render a structured refusal Output for a privilege-escalation attempt.
+ *  Uses exit_code 126 (the conventional "command found but not executable"
+ *  shell convention — the closest match for "we found this command but
+ *  refuse to run it") so the model sees is_error and adapts. */
+function refusedPrivilegeEscalationOutput(command: string, escalator: string): Output {
+  const stderr = `Refused: this command uses \`${escalator}\` which the harness cannot run.\nReason: the harness spawns bash with no TTY, so password / TouchID prompts hang indefinitely.\nAction: run the command yourself in your terminal and paste the output back. On macOS, prefer \`launchctl list\` over \`sudo grep /etc/cron*\` for service queries.\nOriginal command: ${command}`;
+  return {
+    stdout: '',
+    stderr,
+    exit_code: 126,
+    timed_out: false,
+  };
+}
+
 async function runBash(input: Input, ctx: ToolContext): Promise<{ data: Output }> {
+  // Privilege-escalation guardrail. These commands need a TTY for password /
+  // TouchID prompts which a piped subprocess can't supply — the spawn would
+  // hang until BashTool's timeout fires, leaving the agent stuck for two
+  // minutes. Refuse upfront with a structured error so the agent adapts.
+  const escalator = detectPrivilegeEscalation(input.command);
+  if (escalator) {
+    return { data: refusedPrivilegeEscalationOutput(input.command, escalator) };
+  }
+
   const timeoutMs = input.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
   const timeoutCtl = new AbortController();

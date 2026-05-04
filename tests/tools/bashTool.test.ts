@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   BashTool,
+  detectPrivilegeEscalation,
   formatBashOutput,
   isBashError,
   isReadOnlyBashCommand,
@@ -164,5 +165,76 @@ describe('matchesBashPermissionPattern', () => {
   test('skips leading env assignments and rejects command substitution', () => {
     expect(matchesBashPermissionPattern('LC_ALL=C grep foo file.txt', 'grep * *')).toBe(true);
     expect(matchesBashPermissionPattern('echo $(rm -rf /)', 'echo *')).toBe(false);
+  });
+});
+
+describe('detectPrivilegeEscalation', () => {
+  test('flags top-level sudo', () => {
+    expect(detectPrivilegeEscalation('sudo grep foo /etc/cron*')).toBe('sudo');
+  });
+
+  test('flags sudo with flags', () => {
+    expect(detectPrivilegeEscalation('sudo -E -H ls')).toBe('sudo');
+  });
+
+  test('flags pkexec / doas / su', () => {
+    expect(detectPrivilegeEscalation('pkexec ls')).toBe('pkexec');
+    expect(detectPrivilegeEscalation('doas ls')).toBe('doas');
+    expect(detectPrivilegeEscalation('su -c "ls"')).toBe('su');
+  });
+
+  test('flags absolute-path invocations', () => {
+    expect(detectPrivilegeEscalation('/usr/bin/sudo ls')).toBe('sudo');
+  });
+
+  test('flags sudo inside a pipeline', () => {
+    expect(detectPrivilegeEscalation('cat foo.txt | sudo tee /etc/bar')).toBe('sudo');
+  });
+
+  test('flags sudo on the rhs of && / ||', () => {
+    expect(detectPrivilegeEscalation('echo ok && sudo ls')).toBe('sudo');
+    expect(detectPrivilegeEscalation('false || sudo ls')).toBe('sudo');
+  });
+
+  test('flags sudo after env-var assignment', () => {
+    expect(detectPrivilegeEscalation('LC_ALL=C sudo grep foo /etc/passwd')).toBe('sudo');
+  });
+
+  test('returns null for benign commands containing the substring "sudo"', () => {
+    expect(detectPrivilegeEscalation('echo sudo')).toBeNull();
+    expect(detectPrivilegeEscalation('cat /etc/sudoers.d/foo')).toBeNull();
+    expect(detectPrivilegeEscalation('grep sudo /var/log/auth.log')).toBeNull();
+  });
+
+  test('returns null for empty / whitespace input', () => {
+    expect(detectPrivilegeEscalation('')).toBeNull();
+    expect(detectPrivilegeEscalation('   ')).toBeNull();
+  });
+});
+
+describe('BashTool sudo guardrail', () => {
+  test('refuses sudo without spawning bash; surfaces explanation', async () => {
+    const result = await BashTool.call({ command: 'sudo ls /etc' }, ctx);
+    expect(result.data.exit_code).toBe(126);
+    expect(result.data.stdout).toBe('');
+    expect(result.data.stderr).toContain('Refused');
+    expect(result.data.stderr).toContain('sudo');
+    expect(result.data.stderr).toContain('run the command yourself');
+    expect(result.data.stderr).toContain('sudo ls /etc');
+    expect(isBashError(result.data)).toBe(true);
+  });
+
+  test('refusal happens fast (no bash spawn, no timeout wait)', async () => {
+    const start = performance.now();
+    const result = await BashTool.call({ command: 'sudo ls /etc' }, ctx);
+    const elapsed = performance.now() - start;
+    expect(result.data.exit_code).toBe(126);
+    expect(elapsed).toBeLessThan(50);
+  });
+
+  test('non-sudo commands continue to run normally', async () => {
+    const result = await BashTool.call({ command: 'echo not-sudo' }, ctx);
+    expect(result.data.exit_code).toBe(0);
+    expect(result.data.stdout.trim()).toBe('not-sudo');
   });
 });
