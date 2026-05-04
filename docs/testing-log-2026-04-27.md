@@ -1237,3 +1237,23 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - Follow-ups (mostly need new infrastructure): /rollback (could compose with multi-turn + a known-bad turn), microcompaction tool-result clearing (deterministic test hard without internal hooks), MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools with stubbing, CLAUDE.md context surface effects.
+
+## 2026-05-03 - Semantic suite: /rollback end-to-end (30/30)
+
+- Scope: First end-to-end /rollback coverage, paired with the existing /compact test path.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription; agent + judge sonnet 4.6.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass.
+  - Per-test filter: rollback-restores-parent-session (10.6s solo pass, $0.044).
+  - Full suite: 30/30 pass, 319.2s, $0.874 informational.
+- Manual coverage:
+  - Turn 1: agent acknowledges "rollback-test-token-mz4nq".
+  - Turn 2 (/compact): child session spawned, transcript shows session transition.
+  - Turn 3 (/rollback): per terminalRepl.ts:rollbackNow(), active-session pointer flipped back to parent, messages reloaded from DB, repair-orphaned-tool-results path runs if needed. Transcript shows "rolled back to parent session ... restored N messages".
+  - Turn 4: agent recalls the literal token from the restored parent history.
+- Result:
+  - 30/30 pass on first multi-turn /rollback run. The parent session's full message history is correctly restored after rollback; the agent has access to Turn 1's content via the restored DB messages.
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-ups (mostly need new infrastructure): microcompaction tool-result clearing (no external observable for deterministic test), MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools (need stubbing), CLAUDE.md context surface, sub-agent / Task tool dispatch (if wired).

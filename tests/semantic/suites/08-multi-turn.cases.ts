@@ -101,6 +101,37 @@ export const tests: SemanticTest[] = [
     timeoutMs: 180_000,
   },
   {
+    id: 'rollback-restores-parent-session',
+    name: '/rollback returns to the parent session and restores its full history',
+    description:
+      'End-to-end test of session rollback. Per terminalRepl.ts:rollbackNow(), /rollback switches the ' +
+      'active session back to the parent and restores its message history from the DB. This case ' +
+      'pairs /compact (which spawns a child) with /rollback (which returns to parent) and verifies ' +
+      'the agent can still reference the original Turn 1 fact afterwards. Bug class: /rollback fails ' +
+      'silently, parent session lost, history not restored, or active-session pointer not flipped.',
+    category: 'workflow',
+    prompt: [
+      'Please remember this distinctive token verbatim: rollback-test-token-mz4nq. Just confirm.',
+      '/compact',
+      '/rollback',
+      'What was the distinctive token I asked you to remember at the start?',
+    ],
+    judgeCriteria: {
+      mustSatisfy: [
+        'Turn 1: the agent confirms it has noted the token.',
+        'After Turn 2 (/compact): the transcript shows compaction occurring (session transition, "compacted", or similar).',
+        'After Turn 3 (/rollback): the transcript shows rollback firing (look for "rolled back to parent session", a session-id reference, or restored-message count).',
+        'Turn 4: the agent correctly recalls the literal token "rollback-test-token-mz4nq".',
+      ],
+      shouldNot: [
+        'The transcript shows /rollback being treated as unknown or producing a "no parent session" error.',
+        'Turn 4: the agent claims it has no memory of the token.',
+        'Turn 4: the agent fabricates a different token.',
+      ],
+    },
+    timeoutMs: 180_000,
+  },
+  {
     id: 'error-recovery-across-turns',
     name: 'Turn 1 fails (missing file); Turn 2 fixes the situation',
     description:

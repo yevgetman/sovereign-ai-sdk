@@ -1,5 +1,13 @@
 # Changelog
 
+## Semantic suite — /rollback end-to-end (30/30 pass) - 2026-05-03
+
+`workflow.rollback-restores-parent-session` — four-turn case proving `/rollback` returns to the parent session and restores its full history. Pairs with the existing /compact case: Turn 1 introduces a token, Turn 2 /compact (spawn child), Turn 3 /rollback (return to parent), Turn 4 recall the token. The agent recalls correctly from the restored parent history (per `terminalRepl.ts:rollbackNow()` — switches `activeSessionId`, reloads messages from the DB, repairs orphaned tool_results).
+
+Bug class: rollback fails silently, parent session lost, history not restored, or active-session pointer not flipped. First end-to-end coverage of the /compact + /rollback round-trip.
+
+Suite total: 30/30 pass, 5.3 minutes, $0.87 informational on subscription.
+
 ## Semantic suite — /compact end-to-end (29/29 pass) - 2026-05-03
 
 `workflow.compact-preserves-key-facts` — multi-turn case proving `/compact` summarizes prior turns AND preserves key facts through the child-session boundary. Three turns: introduce a distinctive token, fire `/compact` (auxiliary summarizer + child-session spawn), ask the agent to recall the token. The agent recalls correctly from the summary embedded in the child session. Bug class: compaction loses facts, child session starts blank, dispatch fires but subsequent turns hit the wrong session, or the auxiliary summarizer fails silently.
