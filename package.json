@@ -1,13 +1,39 @@
 {
-  "name": "sovereign-ai-harness",
-  "version": "0.0.1",
+  "name": "@yevgetman/sov",
+  "version": "0.1.0",
   "description": "Sovereign AI agent runtime — Claude-Code-style harness with Hermes-pattern learning layer.",
-  "private": true,
   "type": "module",
   "module": "src/main.ts",
   "bin": {
     "sov": "./src/main.ts"
   },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yevgetman/sovereign-ai-harness.git"
+  },
+  "homepage": "https://github.com/yevgetman/sovereign-ai-harness#readme",
+  "bugs": {
+    "url": "https://github.com/yevgetman/sovereign-ai-harness/issues"
+  },
+  "license": "UNLICENSED",
+  "keywords": [
+    "agent",
+    "ai",
+    "cli",
+    "claude",
+    "harness",
+    "llm",
+    "mcp"
+  ],
   "scripts": {
     "chat": "bun src/main.ts",
     "eval:website": "bun src/evals/websiteBuildEval.ts",
@@ -15,7 +41,8 @@
     "test:semantic": "bun tests/semantic/run.ts",
     "lint": "biome check src tests",
     "format": "biome format --write src tests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run lint && bun run typecheck && bun test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
