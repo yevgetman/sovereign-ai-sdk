@@ -1217,3 +1217,23 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - Follow-ups: MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools (need stubbing), CLAUDE.md system-prompt context surface, microcompaction tool-result clearing, /compact correctness across turns (would compose with multi-turn framework).
+
+## 2026-05-03 - Semantic suite: /compact end-to-end (29/29)
+
+- Scope: First end-to-end coverage of /compact. Multi-turn test composing the existing multi-turn framework with the compaction code path.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription; agent + judge sonnet 4.6.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun run test` — 690/690 pass.
+  - Per-test filter: compact-preserves-key-facts (13.7s solo pass, $0.046).
+  - Full suite: 29/29 pass, 327.7s, $0.862 informational. /compact case took 33.9s in the full suite (vs 13.7s solo) due to the auxiliary summarizer + child-session spawn + 3 model turns.
+- Manual coverage:
+  - Turn 1: agent acknowledges the token "compact-preservation-token-9zk7m".
+  - Turn 2 (/compact): auxiliary summarizer ran, child session spawned, transcript shows the session-id transition.
+  - Turn 3: agent recalled the literal token verbatim from the summary embedded in the child session.
+- Result:
+  - 29/29 pass on the first multi-turn /compact run.
+  - The summarizer preserved the distinctive token through the child-session boundary. End-to-end /compact behavior verified.
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-ups (mostly need new infrastructure): /rollback (could compose with multi-turn + a known-bad turn), microcompaction tool-result clearing (deterministic test hard without internal hooks), MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools with stubbing, CLAUDE.md context surface effects.

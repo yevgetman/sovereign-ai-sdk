@@ -1,5 +1,13 @@
 # Changelog
 
+## Semantic suite — /compact end-to-end (29/29 pass) - 2026-05-03
+
+`workflow.compact-preserves-key-facts` — multi-turn case proving `/compact` summarizes prior turns AND preserves key facts through the child-session boundary. Three turns: introduce a distinctive token, fire `/compact` (auxiliary summarizer + child-session spawn), ask the agent to recall the token. The agent recalls correctly from the summary embedded in the child session. Bug class: compaction loses facts, child session starts blank, dispatch fires but subsequent turns hit the wrong session, or the auxiliary summarizer fails silently.
+
+This case composes the multi-turn framework with the existing local-session-callback test path. First end-to-end coverage of `/compact` behavior.
+
+Suite total: 29/29 pass, 5.5 minutes, $0.86 informational on subscription.
+
 ## Semantic suite — /init + skill invocation (28/28 pass) - 2026-05-03
 
 Two more high-value adds, both filling complete-feature-coverage gaps:

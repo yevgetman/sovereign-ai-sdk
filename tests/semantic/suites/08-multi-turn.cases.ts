@@ -72,6 +72,35 @@ export const tests: SemanticTest[] = [
     timeoutMs: 120_000,
   },
   {
+    id: 'compact-preserves-key-facts',
+    name: '/compact summarizes prior turns and preserves key facts in the child session',
+    description:
+      'End-to-end test of context compaction. Turn 1 introduces a distinctive token; Turn 2 fires ' +
+      '/compact (which spawns a child session with summarized history); Turn 3 asks the agent to ' +
+      'recall the token. The agent should recall it from the summary embedded in the child session. ' +
+      'Bug class: compaction loses the fact, child session starts blank, /compact dispatches but ' +
+      'subsequent turns operate against the wrong session, or the auxiliary summarizer fails silently.',
+    category: 'workflow',
+    prompt: [
+      'Please remember this important token verbatim for later: compact-preservation-token-9zk7m. Just confirm you have it noted.',
+      '/compact',
+      'What was the important token I asked you to remember earlier?',
+    ],
+    judgeCriteria: {
+      mustSatisfy: [
+        'In Turn 1, the agent confirms it has noted the token.',
+        'After Turn 2 (/compact), the transcript shows compaction occurring — look for indicators like "compacted", "session", "child", a session-id transition arrow, or similar.',
+        'In Turn 3, the agent correctly recalls the literal token "compact-preservation-token-9zk7m" — proving the summarized history retained it through the child-session boundary.',
+      ],
+      shouldNot: [
+        'In Turn 3, the agent claims it has no memory of the token.',
+        'In Turn 3, the agent fabricates a different token.',
+        'The transcript shows /compact failing or being treated as an unknown command.',
+      ],
+    },
+    timeoutMs: 180_000,
+  },
+  {
     id: 'error-recovery-across-turns',
     name: 'Turn 1 fails (missing file); Turn 2 fixes the situation',
     description:
