@@ -207,12 +207,17 @@ async function main(argv: string[]): Promise<void> {
     .command('upgrade')
     .description('Pull the latest sov from the private repo and re-link the global binary')
     .option('--ref <ref>', 'branch, tag, or commit to install (default: the remote default branch)')
-    .option('--dry-run', 'print the bun command without running it')
+    .option('--dry-run', 'print the bun commands without running them')
+    .option(
+      '--skip-uninstall',
+      "skip the pre-uninstall step (faster, but Bun's git-cache may serve a stale SHA)",
+    )
     .action(async (opts) => {
       const { runUpgrade } = await import('./cli/upgrade.js');
       const result = runUpgrade({
         ...(opts.ref !== undefined ? { ref: opts.ref } : {}),
         ...(opts.dryRun === true ? { dryRun: true } : {}),
+        ...(opts.skipUninstall === true ? { skipUninstall: true } : {}),
       });
       process.exit(result.exitCode);
     });

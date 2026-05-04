@@ -7,57 +7,105 @@
 //
 // `SOV_UPGRADE_URL` env var overrides the default, useful for forks /
 // development clones or for users who maintain their own mirror.
+//
+// Why pre-uninstall: Bun caches the resolved git SHA per URL in
+// `~/bun.lock` and the package's `.bun-tag`. `bun install -g <url>`
+// re-installs that cached SHA without re-resolving against master, so a
+// freshly-pushed commit isn't picked up. We work around by uninstalling
+// the package first (failures ignored — covers the first-install case)
+// and then running the install. Lockfile evicts the stale SHA and Bun
+// re-resolves against the live remote.
 
 import { spawnSync } from 'node:child_process';
 
 export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git';
 
+/** Package name as published in package.json. The pre-uninstall step
+ *  needs this exact name to evict the lockfile entry. Hardcoded since
+ *  forks override the install URL but keep the package name. */
+export const PACKAGE_NAME = '@yevgetman/sov';
+
 export type UpgradeOpts = {
   /** Branch, tag, or commit hash to install. Default: whatever the
    *  remote's default branch resolves to. */
   ref?: string;
-  /** Print the command without running it. */
+  /** Print the commands without running them. */
   dryRun?: boolean;
+  /** Skip the pre-uninstall step. Bun's git-cache will then dictate
+   *  the resolved SHA. Useful when you actually want the cached version
+   *  and to save the ~1s of uninstall round-trip. */
+  skipUninstall?: boolean;
   /** Test seam — overrides DEFAULT_INSTALL_URL and SOV_UPGRADE_URL. */
   installUrl?: string;
 };
 
 export type UpgradeResult = {
   exitCode: number;
-  /** The argv that was (or would be) spawned. Useful for tests + dry-run. */
-  command: string[];
+  /** The argv list(s) that were (or would be) spawned. With pre-uninstall
+   *  enabled there are two; otherwise one. */
+  commands: string[][];
 };
 
-/** Pure helper: produce the argv we'd spawn. */
-export function buildUpgradeCommand(
+/** Pure helper: produce the argv list(s) we'd spawn. The first command
+ *  is the optional uninstall; the second is the install. With
+ *  `skipUninstall: true`, only the install command is returned. */
+export function buildUpgradeCommands(
   opts: UpgradeOpts = {},
   env: NodeJS.ProcessEnv = process.env,
-): string[] {
+): string[][] {
   const base = opts.installUrl ?? env.SOV_UPGRADE_URL ?? DEFAULT_INSTALL_URL;
   const url = opts.ref ? `${base}#${opts.ref}` : base;
-  return ['bun', 'install', '-g', url];
+  const install = ['bun', 'install', '-g', url];
+  if (opts.skipUninstall === true) return [install];
+  return [['bun', 'uninstall', '-g', PACKAGE_NAME], install];
 }
 
 /** Run the upgrade. stdio is inherited so the user sees Bun's progress
- *  output verbatim. Returns the spawn's exit code; the caller propagates
- *  it via process.exit so shell scripts can tell whether the upgrade
- *  succeeded. */
+ *  output verbatim. Returns the install's exit code; the caller
+ *  propagates it via process.exit so shell scripts can tell whether the
+ *  upgrade succeeded. The pre-uninstall is best-effort (its exit code is
+ *  ignored — we expect failures when sov isn't yet installed). */
 export function runUpgrade(
   opts: UpgradeOpts = {},
   out: NodeJS.WritableStream = process.stdout,
   err: NodeJS.WritableStream = process.stderr,
 ): UpgradeResult {
-  const command = buildUpgradeCommand(opts);
+  const commands = buildUpgradeCommands(opts);
   if (opts.dryRun === true) {
-    out.write(`would run: ${command.join(' ')}\n`);
-    return { exitCode: 0, command };
+    for (const cmd of commands) out.write(`would run: ${cmd.join(' ')}\n`);
+    return { exitCode: 0, commands };
   }
 
-  out.write(`upgrading sov via: ${command.join(' ')}\n`);
-  const [bin, ...args] = command;
+  // Pre-uninstall (when present) — failures intentionally ignored.
+  // Either the package wasn't installed (first install — fine), or
+  // bun is missing (the install step below will surface that error
+  // with the proper message).
+  if (commands.length > 1) {
+    const [uninstall, ...rest] = commands;
+    if (uninstall) {
+      const [ubin, ...uargs] = uninstall;
+      if (ubin) spawnSync(ubin, uargs, { stdio: 'inherit' });
+    }
+    return runInstall(rest[0], commands, out, err);
+  }
+  return runInstall(commands[0], commands, out, err);
+}
+
+function runInstall(
+  install: string[] | undefined,
+  commands: string[][],
+  out: NodeJS.WritableStream,
+  err: NodeJS.WritableStream,
+): UpgradeResult {
+  if (!install) {
+    err.write('sov upgrade: empty install command\n');
+    return { exitCode: 1, commands };
+  }
+  out.write(`upgrading sov via: ${install.join(' ')}\n`);
+  const [bin, ...args] = install;
   if (bin === undefined) {
     err.write('sov upgrade: empty command\n');
-    return { exitCode: 1, command };
+    return { exitCode: 1, commands };
   }
   const result = spawnSync(bin, args, { stdio: 'inherit' });
 
@@ -71,7 +119,7 @@ export function runUpgrade(
     } else {
       err.write(`sov upgrade: ${result.error.message}\n`);
     }
-    return { exitCode: 1, command };
+    return { exitCode: 1, commands };
   }
 
   const exitCode = result.status ?? 1;
@@ -80,5 +128,5 @@ export function runUpgrade(
   } else {
     err.write(`sov upgrade: bun install exited ${exitCode}\n`);
   }
-  return { exitCode, command };
+  return { exitCode, commands };
 }
