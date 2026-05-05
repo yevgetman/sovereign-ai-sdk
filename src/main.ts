@@ -120,6 +120,11 @@ function parsePositiveInt(raw: string): number {
   return n;
 }
 
+/** Commander helper for repeatable string flags like `--filter`. */
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 function parsePermissionMode(raw: string): PermissionMode {
   if (raw === 'default' || raw === 'ask' || raw === 'bypass') return raw;
   throw new InvalidArgumentError("must be 'default', 'ask', or 'bypass'");
@@ -274,6 +279,34 @@ async function main(argv: string[]): Promise<void> {
       );
       const result = importDefaultIntoProfile(name);
       process.stdout.write(formatImportResult(result, name));
+    });
+
+  const evalCmd = program
+    .command('eval')
+    .description('Run golden-task evaluations against a live `sov chat` subprocess');
+
+  evalCmd
+    .command('run')
+    .description('Run all goldens (or filter via --filter) and report pass/fail + budget verdict')
+    .option('--goldens <dir>', 'directory holding *.golden.ts modules', 'evals/goldens')
+    .option('--budget <path>', 'budget JSON path', 'evals/budget.json')
+    .option('--filter <substr>', 'filter goldens by id/name/category (repeatable)', collect, [])
+    .option('--binary <path>', "binary to spawn (default: 'sov')")
+    .option('--timeout <ms>', 'per-golden timeout override in milliseconds', parsePositiveInt)
+    .option('--include-slow', 'include goldens marked slow:true')
+    .option('--keep-sandbox', 'leave each sandbox tempdir on disk for debugging')
+    .action(async (opts) => {
+      const { runEvalCli } = await import('./cli/evalRun.js');
+      const result = await runEvalCli({
+        goldensDir: opts.goldens,
+        budgetPath: opts.budget,
+        ...(Array.isArray(opts.filter) && opts.filter.length > 0 ? { filters: opts.filter } : {}),
+        ...(opts.binary !== undefined ? { binary: opts.binary } : {}),
+        ...(opts.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
+        ...(opts.includeSlow === true ? { includeSlow: true } : {}),
+        ...(opts.keepSandbox === true ? { keepSandbox: true } : {}),
+      });
+      process.exit(result.exitCode);
     });
 
   const traceCmd = program

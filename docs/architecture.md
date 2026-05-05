@@ -183,6 +183,14 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+### Eval suite (Phase 10.5 part 2a)
+
+`sov eval run` is the declarative golden-task runner that builds on top of part 1's trace + summary infrastructure. Each golden lives at `evals/goldens/*.golden.ts` exporting a `GoldenSpec`: a sandbox seed map, a prompt (or array), and a list of code assertions. `src/eval/runner.ts` spawns `sov chat` in a per-golden tempdir with isolated `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`, pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses `Tool Calls:` and `Est. Cost:` from the session-summary footer, evaluates assertions, and returns a `GoldenResult`.
+
+`src/eval/assertions.ts` ships 12 pure assertion primitives (file state, transcript content, tool-call totals, exit code). `src/eval/budget.ts` enforces an opt-in `evals/budget.json` with four independent thresholds (`maxWallSeconds`, `maxCostUsd`, `maxToolErrors`, `minPassCount`). `src/cli/evalRun.ts` orchestrates: load goldens from a directory, filter by substring, run sequentially, print per-golden + summary report, exit non-zero on failure or budget violation.
+
+The eval suite is deliberately parallel to `tests/semantic/` (which uses an LLM judge for fuzzy scoring) — same overall shape (sandbox + spawn + capture) but different judging mechanism + cost model. Live-LLM goldens are not part of `bun test`; they're opt-in via `sov eval run`.
+
 ### Local-model router (Phase 10.6 part 1)
 
 `sov chat --provider router` activates `RouterProvider` (in `src/router/`), a meta-LLMProvider that wraps two child providers (one local, one frontier) and decides per-turn which to delegate to. The router lives at the LLMProvider boundary so the turn loop, orchestrator, hooks, and existing provider hardening (rate guards, credential pools) need no router-aware code paths — they see one provider with `name = 'router'`.

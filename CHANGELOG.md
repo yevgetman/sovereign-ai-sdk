@@ -1,5 +1,23 @@
 # Changelog
 
+## Phase 10.5 part 2a — Golden eval suite + `sov eval run` + budget - 2026-05-05
+
+`sov eval run` is the new CLI driver for declarative end-to-end goldens. Each golden lives at `evals/goldens/*.golden.ts` and exports a `GoldenSpec` describing a sandbox to spin up (seeded files), a prompt (or array for multi-turn), and a list of code assertions. The runner spawns `sov chat` in a per-golden tempdir with isolated `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`, pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses the session-summary footer for tool-call totals + cost, evaluates assertions, and reports pass/fail.
+
+12 assertion primitives: `fileExists`, `fileNotExists`, `fileContains`, `fileMatches`, `fileEquals`, `agentResponseContains`, `agentResponseMatches`, `agentResponseLacks`, `noToolErrors`, `minToolCalls`, `maxToolCalls`, `exitCode`. Pure functions; pass `{sandboxCwd, transcript, exitCode, toolCalls?}` and get `{pass, detail?}`.
+
+`evals/budget.json` is opt-in and declarative. Four independent thresholds: `maxWallSeconds`, `maxCostUsd`, `maxToolErrors`, `minPassCount`. The runner exits non-zero on any assertion fail, run abort (timeout/spawn error), or budget violation.
+
+Four seed goldens cover the most basic surfaces: read-and-summarize (Read tool), edit-config (Edit tool in-place), create-from-spec (Write tool), recover-from-error (refusal-on-missing). `evals/README.md` documents the format + the assertion catalog + when to extend.
+
+Adds: `src/eval/types.ts`, `src/eval/assertions.ts`, `src/eval/budget.ts`, `src/eval/sandbox.ts`, `src/eval/runner.ts`, `src/cli/evalRun.ts`. New `evals/` directory with goldens + budget + README. New `sov eval run` subcommand.
+
+51 new unit tests (assertions 26, budget 15, runner pure-helpers + sandbox 10). Suite total: **1059/1059**. Lint + typecheck clean.
+
+**Deferred to a Phase 10.5 part 2b:** replay fixtures + replay provider (deterministic CI mode — captures every StreamEvent + tool result from a live run, replays them against the same agent code path without spending tokens).
+
+**Deferred to a Phase 10.5 part 2c:** provider comparison mode (`sov eval run --compare local,frontier,router`).
+
 ## Phase 10.6 — Local-model router (part 1) - 2026-05-04
 
 `sov chat --provider router` now resolves to a meta-provider that routes each turn between two configured child providers (a `local` lane and a `frontier` lane) per a deterministic classifier, records every decision to a redacted JSONL audit log, and emits a `route_decision` StreamEvent so the runtime + UI know which lane handled each turn.

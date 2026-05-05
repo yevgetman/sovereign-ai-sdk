@@ -1,0 +1,6 @@
+{
+  "maxWallSeconds": 300,
+  "maxCostUsd": 1.5,
+  "maxToolErrors": 2,
+  "minPassCount": 3
+}

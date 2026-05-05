@@ -1424,3 +1424,23 @@ Implementation backlogs from these findings live in
   - No regressions.
   - **Deferred to Phase 10.6 part 2:** capability-profile lookup (per-model context length, JSON-mode reliability, recommended roles), per-lane concurrency guards (semaphores), interactive prompt UX for `escalationMode: 'ask'`, REPL banner rendering of `route_decision` events, and recent-error/schema-failure tracking from the orchestrator side (the classifier accepts these inputs but the wiring to populate them isn't built yet — they're provider-side observations the router doesn't see today).
   - Cosmetic: the splash card shows `router | API Key` in the auth-type slot. The router itself doesn't use an API key directly (its children do); minor cosmetic mismatch, defer to a UI follow-up.
+
+## 2026-05-05 - Phase 10.5 part 2a — golden eval suite + sov eval run + budget (unit suite 1059/1059)
+
+- Scope: New `src/eval/` (types + assertions + budget + sandbox + runner) and `src/cli/evalRun.ts` (CLI driver). New `evals/` directory with 4 seed goldens + budget.json + README. New `sov eval run [--filter] [--budget] [--include-slow] [--binary] [--timeout] [--keep-sandbox]` subcommand. The runner spawns `sov chat` per golden in an isolated tempdir, pipes prompts via stdin, captures stdout/stderr, parses the session-summary footer for tool-call totals + cost, evaluates 12 assertion primitives, applies an optional budget, and exits non-zero on any failure.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls (the seed goldens themselves require live LLM but are opt-in).
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1059/1059 pass (was 1008 before this slice). New test files: `tests/eval/assertions.test.ts` (26), `tests/eval/budget.test.ts` (15), `tests/eval/runner.test.ts` (10).
+  - End-to-end smoke: `sov eval run --filter zzz-no-match` exits 1 with "no goldens matched filter". `sov eval --help` and `sov eval run --help` produce clean usage output.
+- Manual coverage:
+  - 12 assertion primitives covered by table-driven tests with pass + fail cases each.
+  - Budget: loadBudget happy/missing/malformed paths, normalizeBudget validation (unknown fields, non-numeric, negative, NaN/Infinity), applyBudget against synthetic summaries, formatBudgetVerdict rendering.
+  - Runner pure helpers: stripAnsi (CSI + OSC), parseToolCalls (multiple footer formats), parseEstCost.
+  - Sandbox: tempdir tree creation + seed-file placement, escape-prevention (paths that try to break out of cwd are rejected), idempotent cleanup.
+- Result: 1059/1059 unit tests, lint + typecheck clean. The eval suite is shippable end-to-end. Goldens themselves are opt-in (live LLM, not part of `bun test`).
+- Regressions / follow-ups:
+  - No regressions.
+  - **Deferred to Phase 10.5 part 2b:** replay fixtures + replay provider (deterministic CI mode without spending tokens). Capture-then-replay round-trip needs care; live-LLM eval is the MVP that ships first.
+  - **Deferred to Phase 10.5 part 2c:** provider comparison mode (`sov eval run --compare local,frontier,router`). Small layer on top of 2a + 2b.
+  - Live runs of the 4 seed goldens are not yet exercised against a real LLM in this commit — that is a manual smoke that the user runs when they want to.

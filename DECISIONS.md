@@ -2,6 +2,24 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-05 - Phase 10.5 part 2a — `evals/goldens/` parallel to `tests/semantic/`, not folded in
+
+The build plan §10.5 calls for an `evals/golden/` directory. The repo already has `tests/semantic/` doing semantically similar work (live-LLM, sandboxed, end-to-end). Why two parallel suites instead of folding evals into the semantic infrastructure?
+
+1. **Different judges, different costs.** Semantic tests use an LLM judge that scores fuzzy criteria (~$0.05/test for the agent + judge round-trip). Goldens use deterministic code assertions (no judge LLM at all — just file-state and transcript regex checks). Mixing them in one runner conflates the cost models and the failure-mode interpretation.
+2. **Different invariants.** Semantic tests are about *meaning*: "did the agent understand the request?". Goldens are about *behavior*: "did the file end up with the right content?". Both matter; both should be added when shipping new surface area; the invariant being tested differs.
+3. **Different review cadence.** Semantic tests iterate on the judge prompt + the case prompt + the criteria; goldens iterate on the assertion list + the seed files. The two suites move at different speeds.
+
+Trade-off accepted: `tests/semantic/framework/` (sandbox, driver, ANSI strip) and `src/eval/runner.ts` duplicate ~100 lines of subprocess-spawn code. If the duplication grows, extract a shared `src/util/agentRunner.ts` in a follow-up. Today the duplication is small enough that it doesn't justify the indirection.
+
+A few smaller decisions inside this slice worth recording:
+
+- **Assertions are pure.** No tool execution inside the assertion evaluator (no "run X to verify Y"). The runner already executed the agent; assertions just observe the resulting state. Lets the assertion module stay test-friendly.
+- **Tool-call totals come from parsing the session-summary footer**, not from a structured event. The footer is what users see and what the trajectory capture also keys off of, so the same source of truth feeds the eval. If the footer format ever changes, both surfaces have to update — but that's already true.
+- **Budget JSON is opt-in, not auto-injected.** A missing `evals/budget.json` is a no-op (no checks). The runner only fails on budget when the file is present. Reason: not every project wants to track regressions on a budget; making it implicit would punish small repos.
+- **Live-LLM goldens are not part of `bun test`.** Same posture as the semantic suite: opt-in via `sov eval run`, never auto-runs. This keeps the unit suite cheap + offline. CI can run goldens explicitly when desired.
+- **Replay (deterministic CI mode) is intentionally deferred to part 2b.** The capture-then-replay path needs care to round-trip every StreamEvent + tool result faithfully. Shipping live goldens first gets the MVP into hands; replay adds the CI muscle on top.
+
 ## 2026-05-04 - Phase 10.6 part 1 — router as a meta-LLMProvider, deterministic classifier, audited
 
 The local-model router lives at the LLMProvider layer: `RouterProvider` implements the same `name + stream` interface as Anthropic / OpenAI / Ollama / OpenRouter, then per-call delegates to one of two child LLMProviders (a "local" lane and a "frontier" lane). Several decisions worth recording:

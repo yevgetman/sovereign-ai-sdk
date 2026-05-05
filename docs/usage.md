@@ -82,6 +82,47 @@ sov --no-cache
 | `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
+| `eval run [--filter] [--budget] [--include-slow]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
+
+## Eval Suite
+
+`sov eval run` is the declarative golden-test runner. Each golden lives at `evals/goldens/*.golden.ts` and exports a `GoldenSpec` describing a sandbox to spin up, a prompt (or array for multi-turn), and a list of code assertions. The runner spawns a fresh `sov chat` subprocess per golden in an isolated tempdir (separate `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`), pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses tool-call totals + cost from the session-summary footer, and evaluates the assertions.
+
+```bash
+# Run every golden, default budget at evals/budget.json:
+sov eval run
+
+# Filter by id/name/category:
+sov eval run --filter edit
+
+# Custom binary, longer timeout per golden:
+sov eval run --binary ./build/sov --timeout 120000
+
+# Keep sandboxes for debugging:
+sov eval run --keep-sandbox
+```
+
+**Assertion catalog.** `fileExists`, `fileNotExists`, `fileContains`, `fileMatches` (regex + flags), `fileEquals`, `agentResponseContains`, `agentResponseMatches` (regex + flags), `agentResponseLacks`, `noToolErrors`, `minToolCalls`, `maxToolCalls`, `exitCode`. Each is pure — takes `{sandboxCwd, transcript, exitCode, toolCalls?}` → `{pass, detail?}`.
+
+**Budget JSON.** `evals/budget.json` is opt-in. Four thresholds, all independent — omit any to skip:
+```json
+{
+  "maxWallSeconds": 300,
+  "maxCostUsd": 1.5,
+  "maxToolErrors": 2,
+  "minPassCount": 3
+}
+```
+The runner exits non-zero on any assertion fail, run abort (timeout/spawn error), or budget violation.
+
+**When to add a golden.** When shipping a new tool, a bug fix that should never regress (write the golden first, ship it failing alongside the fix), a new permission rule, hook, or skill that has a behavioral check.
+
+**Eval vs. semantic vs. unit.** Three suites with different roles:
+- `tests/` (unit) — pure logic, offline, runs on every `bun test`.
+- `tests/semantic/` (LLM-judged) — fuzzy meaning checks, opt-in via `bun run test:semantic`.
+- `evals/goldens/` (code-judged) — deterministic-ish file-state and transcript checks, opt-in via `sov eval run`.
+
+See `evals/README.md` for the full format documentation and seed-golden examples.
 
 ## Local-Model Router
 
