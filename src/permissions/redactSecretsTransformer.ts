@@ -23,18 +23,39 @@ import type { Tool } from '../tool/types.js';
 import type { InputTransformer } from './inputTransformer.js';
 import { redactSecrets } from './secretRedactor.js';
 
-/** Tools and the input fields whose string contents should be scanned. */
+/**
+ * Tools and the input fields whose string contents should be scanned.
+ * Keyed on both the canonical tool name (FileWrite, FileEdit) and the
+ * Claude-Code-style aliases (Write, Edit) so the transformer matches
+ * regardless of which name the orchestrator presents.
+ */
 const REDACTABLE_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['FileWrite', ['content']],
   ['Write', ['content']],
+  ['FileEdit', ['new_string']],
   ['Edit', ['new_string']],
   ['NotebookEdit', ['new_source']],
 ]);
+
+function resolveFields(tool: Tool<unknown, unknown>): readonly string[] | undefined {
+  const direct = REDACTABLE_FIELDS.get(tool.name);
+  if (direct) return direct;
+  // Tool definitions may declare aliases (e.g. FileWrite has alias 'Write').
+  // Check those too so a future rename can't silently disable the redactor.
+  const aliases = (tool as { aliases?: readonly string[] }).aliases;
+  if (!aliases) return undefined;
+  for (const alias of aliases) {
+    const fields = REDACTABLE_FIELDS.get(alias);
+    if (fields) return fields;
+  }
+  return undefined;
+}
 
 export const redactSecretsTransformer: InputTransformer = async (
   tool: Tool<unknown, unknown>,
   input: unknown,
 ) => {
-  const fields = REDACTABLE_FIELDS.get(tool.name);
+  const fields = resolveFields(tool);
   if (!fields) return undefined;
   if (input === null || typeof input !== 'object') return undefined;
 

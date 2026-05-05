@@ -4,9 +4,10 @@ import { redactSecretsTransformer } from '../../src/permissions/redactSecretsTra
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool } from '../../src/tool/types.js';
 
-function fakeTool(name: string): Tool<unknown, unknown> {
+function fakeTool(name: string, aliases?: readonly string[]): Tool<unknown, unknown> {
   return buildTool({
     name,
+    ...(aliases ? { aliases: [...aliases] } : {}),
     description: () => name,
     inputSchema: z.object({}).passthrough(),
     async call() {
@@ -18,6 +19,41 @@ function fakeTool(name: string): Tool<unknown, unknown> {
 const GH_TOKEN = 'gho_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 describe('redactSecretsTransformer — tool name gating', () => {
+  test('canonical FileWrite (the actual tool name) input is redacted', async () => {
+    // Regression: the harness's Write tool's `name` is `FileWrite`, with
+    // `Write` as an alias. The transformer must key on the canonical name
+    // (or fall through via aliases). Original wiring keyed only on the
+    // alias and silently no-op'd on every real tool dispatch.
+    const result = await redactSecretsTransformer(fakeTool('FileWrite'), {
+      file_path: '/tmp/x.txt',
+      content: GH_TOKEN,
+    });
+    const updated = result?.updatedInput as Record<string, string>;
+    expect(updated.content).toContain('<REDACTED:github-oauth>');
+    expect(updated.content).not.toContain(GH_TOKEN);
+  });
+
+  test('canonical FileEdit input.new_string is redacted', async () => {
+    const result = await redactSecretsTransformer(fakeTool('FileEdit'), {
+      file_path: '/tmp/x.txt',
+      old_string: 'placeholder',
+      new_string: GH_TOKEN,
+    });
+    const updated = result?.updatedInput as Record<string, string>;
+    expect(updated.new_string).toContain('<REDACTED:github-oauth>');
+  });
+
+  test('alias-only tool (Write alias on a non-FileWrite name) is redacted via alias resolution', async () => {
+    // A future tool that registers Write as an alias should still trigger
+    // redaction even if its canonical name is something we don't know.
+    const result = await redactSecretsTransformer(fakeTool('SomeOtherWriter', ['Write']), {
+      file_path: '/tmp/x.txt',
+      content: GH_TOKEN,
+    });
+    const updated = result?.updatedInput as Record<string, string>;
+    expect(updated.content).toContain('<REDACTED:github-oauth>');
+  });
+
   test('Write input.content with a secret is redacted', async () => {
     const result = await redactSecretsTransformer(fakeTool('Write'), {
       file_path: '/tmp/x.txt',
