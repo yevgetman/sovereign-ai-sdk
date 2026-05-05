@@ -31,7 +31,13 @@ export function createSandbox(opts: { setup?: TestSetup } = {}): Sandbox {
 
   mkdirSync(home, { recursive: true });
   mkdirSync(cwd, { recursive: true });
-  writeFileSync(cfg, '{}');
+  // Default to an empty user config; tests can override the contents
+  // via setup.userConfig to seed durable settings (router block,
+  // microcompaction tuning, etc.).
+  const initialConfig = opts.setup?.userConfig
+    ? JSON.stringify(opts.setup.userConfig, null, 2)
+    : '{}';
+  writeFileSync(cfg, initialConfig);
 
   for (const f of opts.setup?.files ?? []) {
     const target = resolve(cwd, f.path);

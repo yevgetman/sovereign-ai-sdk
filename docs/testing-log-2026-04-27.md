@@ -1444,3 +1444,21 @@ Implementation backlogs from these findings live in
   - **Deferred to Phase 10.5 part 2b:** replay fixtures + replay provider (deterministic CI mode without spending tokens). Capture-then-replay round-trip needs care; live-LLM eval is the MVP that ships first.
   - **Deferred to Phase 10.5 part 2c:** provider comparison mode (`sov eval run --compare local,frontier,router`). Small layer on top of 2a + 2b.
   - Live runs of the 4 seed goldens are not yet exercised against a real LLM in this commit — that is a manual smoke that the user runs when they want to.
+
+## 2026-05-05 - Router semantic test + model-swap bug fix (semantic 38/38)
+
+- Scope: Adding semantic coverage for Phase 10.6 part 1 (router) surfaced a real runtime bug: `RouterProvider.stream()` was passing `req.model` straight through to the child provider, which received the synthetic combined-model display string (`claude-haiku-4-5 | claude-sonnet-4-6`) and returned 404 from anthropic. Fix: swap req.model for the lane's configured model before delegating. New `tests/semantic/suites/13-router.cases.ts` with one case that catches this exact regression (verified by running it against the broken router first, then again against the fix). Also extended `tests/semantic/framework/types.ts` + `framework/sandbox.ts` with a new `setup.userConfig` field so tests can seed durable user config (router block, microcompaction, webSearch keys) in the per-test sandbox. Added `router` test category. Tightened `commands.context-budget-dispatch` criteria so the LLM judge stops oscillating between pass/fail on M2 + M3 — replaced "at least two of [...]" with explicit "BOTH system prompt AND tool schemas" to remove the equivocation surface.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; claude 2.1.126 subscription auth (judge); agent + judge both pinned to claude-sonnet-4-6 by default. Repo `.env` ANTHROPIC_API_KEY refreshed locally from `~/.harness/config.json` (the previous suite run was auth-blocked because .env held a stale key).
+- Commands:
+  - Filter run isolating router test: `bun run test:semantic -- --filter router-completes-turn` — 1/1 pass after the model-swap fix (was failing before the fix with 404 on the combined model string).
+  - Filter run isolating context-budget-dispatch: `bun run test:semantic -- --filter context-budget-dispatch` — 1/1 pass after tightening criteria.
+  - Full suite: `bun run test:semantic` → **38/38 pass, 0 fail, 0 error, 529.1s, $2.041 informational.**
+- Manual coverage:
+  - The router test confirms `--provider router` works end-to-end against a configured local + frontier (both pointing at anthropic with different models). The agent answers a simple question (2+2=4) without hitting any auth/model errors. The earlier model-swap regression would have hit 404 immediately on the agent's first turn.
+  - Re-running the previously-flaky `commands.context-budget-dispatch` confirms the tightened M2/M3 are now unambiguous — judge passes consistently across runs.
+  - Full-suite costs roughly doubled vs the last clean run ($0.87 → $2.04) — extra time mostly went to the new router case (live model call) and a couple of slow-tail permission tests. Within budget headroom.
+- Result: 38/38 semantic, 1059/1059 unit, lint + typecheck clean. Phase 10.6 part 1 now has end-to-end semantic coverage. The model-swap fix was caught by the new test on its first run — exactly the kind of regression catch the suite is supposed to provide.
+- Regressions / follow-ups:
+  - No regressions.
+  - The repo `.env` ANTHROPIC_API_KEY had drifted from the working key in `~/.harness/config.json`. Fixed locally (.env is gitignored). A nicer follow-up would be the test framework reading the apiKey from `~/.harness/config.json` directly so the .env key drift doesn't silently break test runs.
+  - Phases 10.7 (profile system) and 10.5 part 2a (eval suite) remain without semantic coverage. Both are CLI ergonomics / meta-test infrastructure with no agent-prompt surface; defensible to skip but worth revisiting if a real regression surfaces.

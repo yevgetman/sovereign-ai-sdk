@@ -10,7 +10,8 @@ export type TestCategory =
   | 'context'
   | 'workflow'
   | 'refusal'
-  | 'hooks';
+  | 'hooks'
+  | 'router';
 
 export interface TestSetupFile {
   /** Path relative to the test sandbox cwd. */
@@ -26,6 +27,11 @@ export interface TestSetup {
    *  tests have no need for this. Paths are relative to the sandbox's
    *  HARNESS_HOME (e.g. `shell-hooks-allowlist.json`). */
   homeFiles?: TestSetupFile[];
+  /** Seed the per-sandbox user config (HARNESS_CONFIG) with this object.
+   *  Default: `{}`. Used by tests that need durable settings — router
+   *  block (Phase 10.6), microcompaction tuning, webSearch keys, etc. —
+   *  to be active before the binary boots. */
+  userConfig?: Record<string, unknown>;
   /** Additional env vars merged on top of sandbox defaults — must not collide
    *  with HARNESS_HOME / HARNESS_CONFIG / HARNESS_BUNDLE (those are owned
    *  by the sandbox). */

@@ -20,8 +20,8 @@ export const tests: SemanticTest[] = [
     judgeCriteria: {
       mustSatisfy: [
         'The transcript contains the literal string "total estimate".',
-        'The output groups components by section — at least two of: "system prompt", "tool schemas", "skills", "bundle context", "memory files".',
-        'Each tool-schema entry shows a token count after a colon (e.g. "Bash: 280" or similar — the exact tools and counts vary, but every line has a name and a token number).',
+        'The output shows BOTH a "system prompt" section AND a "tool schemas" section as group headings. Additional sections like "skills" or "memory files" may be absent and that is expected — the test sandbox has none.',
+        'Each tool-schema entry begins with "Name: <number>" (e.g. "Bash: 280", "Read: 156" — exact tools and counts vary). Trailing annotations after the number such as "[sometimes]" or "[always]" are allowed and do NOT disqualify the line.',
       ],
       shouldNot: [
         'The agent treated /context-budget as a model prompt instead of dispatching it locally.',

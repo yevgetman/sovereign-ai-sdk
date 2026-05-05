@@ -1,5 +1,13 @@
 # Changelog
 
+## Router model-swap fix + semantic test - 2026-05-05
+
+`RouterProvider.stream()` now overrides `req.model` with the configured lane's model (`localModel` or `frontierModel`) before delegating to the child provider. Previously the synthetic combined-model string built for the splash card (`claude-haiku-4-5 | claude-sonnet-4-6`) leaked through to the underlying API call, producing 404s on `model not found`. Found by adding `router.router-completes-turn` to the semantic suite — first failure mode caught by the new test, fix landed in the same commit.
+
+Also adds: `tests/semantic/suites/13-router.cases.ts` (one case using the new `setup.userConfig` framework hook to seed a router block in the per-test sandbox), `setup.userConfig` field on the semantic-test framework's TestSetup, `router` test category. Tightened `commands.context-budget-dispatch` criteria so the LLM judge stops oscillating ("BOTH system prompt AND tool schemas" instead of "at least two of [...]"), removing one error-prone test.
+
+Semantic suite headline: **37 → 38** (full run 38/38 pass · 0 fail · 0 error · ~8.8 min · ~$2.04 informational).
+
 ## Phase 10.5 part 2a — Golden eval suite + `sov eval run` + budget - 2026-05-05
 
 `sov eval run` is the new CLI driver for declarative end-to-end goldens. Each golden lives at `evals/goldens/*.golden.ts` and exports a `GoldenSpec` describing a sandbox to spin up (seeded files), a prompt (or array for multi-turn), and a list of code assertions. The runner spawns `sov chat` in a per-golden tempdir with isolated `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`, pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses the session-summary footer for tool-call totals + cost, evaluates assertions, and reports pass/fail.

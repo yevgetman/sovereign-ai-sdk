@@ -40,9 +40,9 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (37/37 pass)
+## Coverage inventory (38/38 pass)
 
-The full suite runs in ~5.3 minutes and costs ~$0.87 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
+The full suite runs in ~8.8 minutes and costs ~$2.04 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
 ### Tool dispatch — 9 tests
 
@@ -119,6 +119,14 @@ Pairs the `<harness-self-doc>` system-prompt segment (`src/context/systemPrompt.
 | ID | Guards against |
 |---|---|
 | `tools.harness-info-config-and-extension-guidance` | Agent answers MCP-config questions with `~/.harness/config.json` / Claude-Desktop guidance instead of `.harness/settings.json` + the `mcpServers` schema; agent fails to identify the configured server |
+
+### Router — 1 test
+
+Phase 10.6 part 1. `--provider router` resolves a meta-LLMProvider that wraps two child providers (a configured local lane + frontier lane) and routes per turn via the deterministic classifier in `src/router/classifier.ts`. Unit tests in `tests/router/` cover the classifier, audit logger, and provider in isolation; this end-to-end test catches REPL-side regressions like the synthetic ResolvedProvider missing a field, the audit logger blocking session start, or the model-string swap (req.model passed through to a child without lane-specific override).
+
+| ID | Guards against |
+|---|---|
+| `router.router-completes-turn` | RouterProvider fails to wrap children, synthetic ResolvedProvider missing a field, audit logger crashes session boot, or the synthetic combined model string leaks to the child API call (404 from anthropic on an invalid model name) |
 
 ### Hooks — 2 tests
 
@@ -234,6 +242,7 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/ui/terminalRepl.ts:rollbackNow` | `--filter rollback` |
 | `src/hooks/` | `--filter hooks` (covers PreToolUse deny + PostToolUse additionalContext) |
 | `src/mcp/` | `--filter mcp` (covers MCP discovery + invocation + permission-rule blocking) |
+| `src/router/` | `--filter router` (covers `--provider router` end-to-end including model-swap) |
 | `src/tools/ToolSearchTool.ts` | `--filter mcp-tool-search` |
 | `src/tools/HarnessInfoTool.ts` | `--filter harness-info` |
 | `src/context/systemPrompt.ts` (self-doc segment) | `--filter harness-info` |
@@ -267,7 +276,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3737-pass), update the headline count (`37/37 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3838-pass), update the headline count (`37/37 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

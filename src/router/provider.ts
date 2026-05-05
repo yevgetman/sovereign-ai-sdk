@@ -95,8 +95,15 @@ export class RouterProvider implements LLMProvider {
     } as StreamEvent;
 
     const child = decision.lane === 'local' ? this.opts.localProvider : this.opts.frontierProvider;
+    // The caller (query.ts) doesn't know which lane will run, so it
+    // passes a synthetic model string ("local | frontier"). Swap that
+    // for the configured lane model before delegating, otherwise the
+    // child provider receives a bogus model name and the API rejects
+    // it. When the config didn't specify a per-lane model, the child's
+    // own default applies — pass empty to let the provider fill it in.
+    const childReq: ProviderRequest = delegatedModel ? { ...req, model: delegatedModel } : req;
     // delegate; preserve final return value for the caller's `for await of`.
-    return yield* child.stream(req);
+    return yield* child.stream(childReq);
   }
 }
 
