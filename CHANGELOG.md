@@ -1,5 +1,19 @@
 # Changelog
 
+## Phase 10.5 part 2b-i — Replay primitives (provider + tool wrapper) - 2026-05-05
+
+The deterministic-replay half of the eval surface. A `ReplayFixture` captures every StreamEvent the provider yielded plus every tool result the orchestrator received during a live run. `ReplayProvider` re-emits the captured events one turn per `stream()` call as a drop-in `LLMProvider`; `wrapToolsForReplay` returns wrapped tools whose `call()` returns the next captured result keyed by `(toolName, callIndex)`. The agent loop, orchestrator, permission gates, hooks, MCP wiring, and trace writer all run unchanged — only the provider + tool boundaries are stubbed.
+
+Adds: `src/eval/replay/types.ts`, `src/eval/replay/provider.ts`, `src/eval/replay/toolPool.ts`, `src/eval/replay/loader.ts` (read/write/validate fixture JSON, atomic write via temp+rename).
+
+Round-trip integration test drives a synthetic two-turn fixture (one tool call in turn 0, final text in turn 1) through `query()` with replay primitives, verifies the terminal reason + final assistant text are deterministic across runs, and confirms the live tool's body is never invoked.
+
+24 new unit tests (provider 5, toolPool 7, loader 8, integration 2, +2 misc). Suite total: **1083/1083**. Lint + typecheck clean. No semantic test added — replay is internal test infrastructure, not an agent-prompt-driven surface.
+
+**Deferred to Phase 10.5 part 2b-ii:** capture mode (a `CapturingProvider` + `wrapToolsForCapture` pair that wraps a real provider/tool pool to write a fixture file as a side-effect of a live run). Once 2b-ii lands, `sov eval run --capture <dir>` records goldens for later replay; `sov eval run --replay <fixture>` runs them deterministically without spending tokens.
+
+**Deferred to Phase 10.5 part 2c:** provider comparison mode (`sov eval run --compare local,frontier,router`).
+
 ## Router model-swap fix + semantic test - 2026-05-05
 
 `RouterProvider.stream()` now overrides `req.model` with the configured lane's model (`localModel` or `frontierModel`) before delegating to the child provider. Previously the synthetic combined-model string built for the splash card (`claude-haiku-4-5 | claude-sonnet-4-6`) leaked through to the underlying API call, producing 404s on `model not found`. Found by adding `router.router-completes-turn` to the semantic suite — first failure mode caught by the new test, fix landed in the same commit.

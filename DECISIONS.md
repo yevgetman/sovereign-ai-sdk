@@ -2,6 +2,22 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-05 - Phase 10.5 part 2b-i — replay stubs the provider + tool boundaries, nothing else
+
+The replay primitives (`ReplayProvider`, `wrapToolsForReplay`) drive the existing agent loop with canned events. The choice of *where* to stub is the load-bearing decision:
+
+1. **Stub at the provider boundary** — `ReplayProvider` implements `LLMProvider` and delegates nothing to a real upstream. Inside `query()`, the agent loop sees identical StreamEvents as a live run; permissions / hooks / orchestrator partitioning all fire normally because they consume the assistant message, not the bytes that produced it.
+2. **Stub at the tool boundary** — `wrapToolsForReplay` swaps `tool.call()` for a fixture lookup. The orchestrator's permission gates, schema validation, partitioning, and hook plumbing all run on the wrapped tool exactly as they would on the real tool. Only the work inside `call()` is canned.
+
+What we explicitly *don't* stub: the orchestrator, the turn loop, message schema, permissions, hooks, microcompaction, loop detector, trajectory writer, trace writer, or the REPL. They all run live. This means a replay can catch real regressions in any of those layers — if the orchestrator silently drops a tool result on rerun, the captured fixture from the prior good run replays differently and the test fails.
+
+Other decisions worth recording:
+
+- **Tool-result correlation by `(toolName, callIndex)`, not `(turnIndex, toolUseId)`.** The orchestrator doesn't expose tool_use_id to `tool.call()`; threading it through would be a bigger change. The simpler scheme works because replay drives the turns deterministically: if the agent makes the same calls in the same order, indexes line up. If the agent diverges (different tools, different counts), the wrapper throws — which is the desired loud failure for a replay drift.
+- **Fixture as one JSON object per session, not JSONL per turn.** Easier to read in a text editor and small enough today (a typical 10-turn session is well under 100 KB). If sessions get massive, split format becomes the natural follow-up.
+- **No semantic test in this slice.** Replay is internal test infrastructure, not an agent-prompt-driven surface — same posture as the eval-suite runner (2a) itself. The integration test (`tests/eval/replay/integration.test.ts`) is the round-trip evidence that replay primitives wire cleanly into `query()`.
+- **Capture mode deferred.** Today you can hand-write a fixture (the unit tests do this) or have a future capture wrapper produce one. Splitting capture into 2b-ii keeps this commit small + reviewable; the primitives ship + are testable on their own.
+
 ## 2026-05-05 - Phase 10.5 part 2a — `evals/goldens/` parallel to `tests/semantic/`, not folded in
 
 The build plan §10.5 calls for an `evals/golden/` directory. The repo already has `tests/semantic/` doing semantically similar work (live-LLM, sandboxed, end-to-end). Why two parallel suites instead of folding evals into the semantic infrastructure?

@@ -183,6 +183,10 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+### Replay primitives (Phase 10.5 part 2b-i)
+
+`src/eval/replay/` provides the deterministic-replay half of the eval surface. A `ReplayFixture` (one JSON file per session) captures every StreamEvent the provider yielded plus every tool result the orchestrator received during a live run. `ReplayProvider` re-emits the captured events one turn per `stream()` call as a drop-in `LLMProvider`; `wrapToolsForReplay` returns wrapped tools whose `call()` returns the next captured result keyed by `(toolName, callIndex)`. The agent loop, orchestrator, permission gates, hooks, MCP wiring, and trace writer all run unchanged — the deterministic surface is achieved by stubbing only the provider + tool boundaries. Capture mode (the recorder that produces fixtures from live runs) is deferred to a follow-up slice.
+
 ### Eval suite (Phase 10.5 part 2a)
 
 `sov eval run` is the declarative golden-task runner that builds on top of part 1's trace + summary infrastructure. Each golden lives at `evals/goldens/*.golden.ts` exporting a `GoldenSpec`: a sandbox seed map, a prompt (or array), and a list of code assertions. `src/eval/runner.ts` spawns `sov chat` in a per-golden tempdir with isolated `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`, pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses `Tool Calls:` and `Est. Cost:` from the session-summary footer, evaluates assertions, and returns a `GoldenResult`.

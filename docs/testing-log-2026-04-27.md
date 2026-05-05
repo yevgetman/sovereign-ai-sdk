@@ -1462,3 +1462,22 @@ Implementation backlogs from these findings live in
   - No regressions.
   - The repo `.env` ANTHROPIC_API_KEY had drifted from the working key in `~/.harness/config.json`. Fixed locally (.env is gitignored). A nicer follow-up would be the test framework reading the apiKey from `~/.harness/config.json` directly so the .env key drift doesn't silently break test runs.
   - Phases 10.7 (profile system) and 10.5 part 2a (eval suite) remain without semantic coverage. Both are CLI ergonomics / meta-test infrastructure with no agent-prompt surface; defensible to skip but worth revisiting if a real regression surfaces.
+
+## 2026-05-05 - Phase 10.5 part 2b-i — replay primitives (unit suite 1083/1083)
+
+- Scope: New `src/eval/replay/` directory with four modules — types (`ReplayFixture`, `ReplayTurn`, `ReplayToolResult`), provider (`ReplayProvider implements LLMProvider`, re-emits captured events one turn per stream() call), tool wrapper (`wrapToolsForReplay`, returns wrapped tools whose `call()` returns the next captured result keyed by `(toolName, callIndex)`), and loader (`loadReplayFixture` / `validateFixture` / `writeReplayFixture` with atomic temp+rename writes). Only the provider + tool boundaries are stubbed — agent loop / orchestrator / permissions / hooks / MCP / trace / trajectory all run live.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls (replay is fixture-driven by definition).
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1083/1083 pass (was 1059 before this slice). New test files: `tests/eval/replay/provider.test.ts` (5), `tests/eval/replay/toolPool.test.ts` (7), `tests/eval/replay/loader.test.ts` (8), `tests/eval/replay/integration.test.ts` (2). One failing-then-fixed test along the way: a regex `/no assistant_message/` that I wrote as `/no/` matching the wrong string; tightened to `/assistant_message/`.
+- Manual coverage:
+  - ReplayProvider yields every captured StreamEvent in order and returns the captured `assistant_message`. Verified.
+  - Throws on agent divergence — exhausted turns, missing assistant_message in a turn, or excess tool calls beyond what was captured. Verified.
+  - Tool wrapper preserves the orchestrator pipeline — only `tool.call()` is canned; permission gates and concurrency partitioning still run on the wrapped tool. Round-trip integration test drives a synthetic two-turn fixture (one tool call in turn 0, final text in turn 1) through `query()` with the live tool wired to throw — if the wrapper ever leaks, the test fails immediately. Verified across two consecutive runs producing identical terminal reasons.
+  - Loader/writer round-trip is deterministic (parse → write → parse → equal).
+- Result: 1083/1083 unit tests, lint + typecheck clean. The deterministic-CI half of the eval surface is ready for fixtures — once 2b-ii ships capture mode, goldens become CI-runnable without spending tokens.
+- Regressions / follow-ups:
+  - No regressions.
+  - **No semantic test added.** Replay is internal test infrastructure, not an agent-prompt-driven surface — same posture as the eval runner (2a) itself.
+  - **Deferred to 2b-ii:** `CapturingProvider` + `wrapToolsForCapture` + eval-runner integration so `sov eval run --capture <dir>` / `--replay <dir>` works end-to-end.
+  - **Deferred to 2c:** provider comparison mode.
