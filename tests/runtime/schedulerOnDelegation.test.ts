@@ -260,6 +260,73 @@ describe('scheduler child trajectory capture', () => {
     }
   });
 
+  test('errored child writes to failed.jsonl, not samples.jsonl', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'sov-child-traj-fail-'));
+    try {
+      // Provider that emits a message_start so AgentRunner appends a
+      // (synthetic) turn to messages, then aborts via the parent
+      // signal — the child terminates with reason=interrupted, which
+      // bucket-splits to failed.jsonl.
+      const ctl = new AbortController();
+      const scheduler = new SubagentScheduler({
+        agents: makeAgentRegistry([makeAgent()]),
+        laneSemaphores: new LaneSemaphores({}),
+        writeLock: new Semaphore(1),
+        resolveProvider: () => ({
+          transport: {
+            name: 'hang-then-abort',
+            async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+              yield { type: 'message_start' };
+              await new Promise((_resolve, reject) => {
+                ctl.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+                  once: true,
+                });
+              });
+              return { role: 'assistant', content: [] };
+            },
+          } as unknown as ResolvedProvider['transport'],
+          client: {},
+          baseUrl: 'fake://',
+          model: 'm',
+          contextLength: 32_000,
+          authType: 'none',
+          metadata: { provider: 'anthropic' },
+        }),
+        createChildSession: () => 'child-fail-1',
+        defaultProvider: 'anthropic',
+        defaultModel: 'm',
+        maxTokens: 256,
+        artifactsRoot: tmpDir,
+      });
+      setTimeout(() => ctl.abort(), 5);
+      await scheduler.delegate({
+        agentName: 'explore',
+        prompt: 'will be cancelled',
+        parentSessionId: 'parent',
+        parentSignal: ctl.signal,
+        parentToolPool: [],
+        parentToolContext: baseToolContext,
+      });
+      const samplesPath = join(tmpDir, 'trajectories', 'samples.jsonl');
+      const failedPath = join(tmpDir, 'trajectories', 'failed.jsonl');
+      const fs = await import('node:fs/promises');
+      // failed.jsonl should exist with the child's session id
+      const failed = await fs.readFile(failedPath, 'utf8').catch(() => '');
+      expect(failed).toContain('"sessionId":"child-fail-1"');
+      // samples.jsonl should NOT contain the failed child's record
+      const samplesExists = await fs
+        .access(samplesPath)
+        .then(() => true)
+        .catch(() => false);
+      if (samplesExists) {
+        const samples = await fs.readFile(samplesPath, 'utf8');
+        expect(samples).not.toContain('"sessionId":"child-fail-1"');
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test('skips child trajectory write when artifactsRoot is omitted', async () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
