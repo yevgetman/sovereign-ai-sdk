@@ -89,3 +89,11 @@ Append an entry to `docs/testing-log-2026-04-27.md` whenever harness testing is 
 ## Commit and push
 
 Same rule as the docs repo: autonomous add / commit / push after every working change. Push target is `origin/master` once the remote is configured.
+
+## Keep the global `sov` binary in sync
+
+After pushing changes that affect the runtime (anything under `src/` or `bundle-default/`), run `sov upgrade` so the global `sov` binary picks up the new master. The user's `sov` is a Path A install (`bun install -g git+ssh://…`) — a cached copy under `~/.bun/install/global/`, NOT a live symlink to this working tree. Without the upgrade step the user keeps running the previous SHA and any test the user runs against `sov` will hit stale code. As of 2026-05-05, `sov upgrade` defaults to wiping Bun's install cache, so it reliably installs latest master in one shot.
+
+Skip the upgrade only when the changes are confined to `tests/`, `docs/`, or other non-runtime paths — those don't affect the binary.
+
+When in doubt, run it. The cost is ~5–10 seconds; the cost of a stale binary is the user thinking they're testing your fix when they're actually testing the previous version.
