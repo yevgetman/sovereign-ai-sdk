@@ -52,6 +52,13 @@ export type CommandContext = {
   /** Phase 12.6: per-component context-window audit. Backs the
    *  `/context-budget` command. */
   getBudgetReport: () => BudgetReport;
+  /** Re-render the Nth-most-recent tool block with no truncation.
+   *  Returns true when a block at that position exists (and was
+   *  written to stdout via the slot's expand path), false when N is
+   *  out of range. Backs the `/expand` command — the user runs
+   *  `/expand` (most recent) or `/expand 3` (third-most-recent) to
+   *  see full content for blocks the inline renderer truncated. */
+  expandToolBlock: (n: number) => { ok: boolean; total: number };
 };
 
 /** Slash command that runs locally and returns display text. */

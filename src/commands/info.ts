@@ -49,6 +49,36 @@ export const permissionsCommand: LocalCommand = {
   call: async (_args, ctx) => formatPermissions(ctx),
 };
 
+export const expandCommand: LocalCommand = {
+  type: 'local',
+  name: 'expand',
+  description:
+    "Re-render a recent tool block with no truncation. Defaults to the most recent block; pass an index (1 = most recent, 2 = second-most-recent, …) to expand an older one. Useful when the inline renderer's '+N more lines' summary hid output you want to see.",
+  usage: '/expand [N]',
+  call: async (args, ctx) => {
+    const trimmed = args.trim();
+    let n = 1;
+    if (trimmed.length > 0) {
+      const parsed = Number.parseInt(trimmed, 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        return 'usage: /expand [N]   (N must be a positive integer; default 1 = most recent)';
+      }
+      n = parsed;
+    }
+    const result = ctx.expandToolBlock(n);
+    if (!result.ok) {
+      if (result.total === 0) {
+        return 'no tool blocks completed yet in this session';
+      }
+      return `out of range: ${n} > ${result.total} (this session has ${result.total} completed tool block${result.total === 1 ? '' : 's'})`;
+    }
+    // The slot wrote the expanded block directly to stdout; the
+    // command itself returns an empty string so the dispatch layer
+    // doesn't append a redundant trailer.
+    return '';
+  },
+};
+
 export const quitCommand: LocalCommand = {
   type: 'local',
   name: 'quit',
@@ -90,6 +120,7 @@ export const INFO_COMMANDS: LocalCommand[] = [
   skillsListCommand,
   statsCommand,
   permissionsCommand,
+  expandCommand,
   quitCommand,
   copyCommand,
   settingsCommand,

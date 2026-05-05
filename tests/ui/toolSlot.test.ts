@@ -241,6 +241,92 @@ describe('CompactToolSlot — multi-tool ordering (the parallel-tools fix)', () 
   });
 });
 
+describe('CompactToolSlot — expand() resurrects truncated content', () => {
+  test('returns false when no blocks have completed', () => {
+    const sink = new StringSink();
+    const slot = new CompactToolSlot(sink);
+    expect(slot.expand(1)).toBe(false);
+    expect(slot.completedCount()).toBe(0);
+  });
+
+  test('returns false for out-of-range N', () => {
+    const sink = new StringSink();
+    const slot = new CompactToolSlot(sink);
+    slot.begin('a', 'A', '');
+    slot.end('a', 'one\ntwo', false);
+    expect(slot.expand(0)).toBe(false);
+    expect(slot.expand(2)).toBe(false);
+  });
+
+  test('expands the most recent block with no truncation', () => {
+    const sink = new StringSink();
+    const slot = new CompactToolSlot(sink, { inlineLines: 2 });
+    slot.begin('a', 'Bash', 'big');
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n');
+    slot.end('a', lines, false);
+    sink.out = ''; // isolate the expand output
+
+    expect(slot.expand(1)).toBe(true);
+    const visible = strip(sink.out);
+    // All 10 lines should be visible (not truncated).
+    for (let i = 1; i <= 10; i++) {
+      expect(visible).toContain(`  line ${i}\n`);
+    }
+    // Footer should mention the expansion.
+    expect(visible).toContain('expanded · block 1 of 1');
+    // No "+ N more lines" — the expand path drops that suffix.
+    expect(visible).not.toContain('more lines');
+  });
+
+  test('1-indexed: expand(2) hits the second-most-recent block', () => {
+    const sink = new StringSink();
+    const slot = new CompactToolSlot(sink, { inlineLines: 1 });
+    slot.begin('a', 'A', '');
+    slot.end('a', 'a-content', false);
+    slot.begin('b', 'B', '');
+    slot.end('b', 'b-content', false);
+    sink.out = '';
+
+    expect(slot.expand(2)).toBe(true);
+    expect(strip(sink.out)).toContain('a-content');
+    expect(strip(sink.out)).not.toContain('b-content');
+
+    sink.out = '';
+    expect(slot.expand(1)).toBe(true);
+    expect(strip(sink.out)).toContain('b-content');
+  });
+
+  test('ring buffer caps retention; oldest blocks drop off', () => {
+    const sink = new StringSink();
+    const slot = new CompactToolSlot(sink, { inlineLines: 1, retain: 3 });
+    for (let i = 0; i < 5; i++) {
+      const id = `id-${i}`;
+      slot.begin(id, `T${i}`, '');
+      slot.end(id, `content-${i}`, false);
+    }
+    expect(slot.completedCount()).toBe(3);
+    // expand(1) = most recent (T4), expand(2) = T3, expand(3) = T2.
+    // T0 and T1 dropped off.
+    sink.out = '';
+    expect(slot.expand(3)).toBe(true);
+    expect(strip(sink.out)).toContain('content-2');
+    sink.out = '';
+    expect(slot.expand(4)).toBe(false); // T1 evicted
+  });
+
+  test('preserves error state on expansion (✗ marker re-renders)', () => {
+    const sink = new StringSink();
+    const slot = new CompactToolSlot(sink, { inlineLines: 1 });
+    slot.begin('a', 'Bash', 'fail');
+    slot.end('a', 'Error: nope', true);
+    sink.out = '';
+    expect(slot.expand(1)).toBe(true);
+    const visible = strip(sink.out);
+    expect(visible).toContain('✗');
+    expect(visible).toContain('Error: nope');
+  });
+});
+
 describe('CompactToolSlot — commit() is a no-op (back-compat)', () => {
   test('commit() does not throw and does not affect rendering', () => {
     const sink = new StringSink();

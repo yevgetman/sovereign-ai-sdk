@@ -37,6 +37,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   tools: 'info',
   skills: 'info',
   permissions: 'info',
+  expand: 'info',
   'context-budget': 'info',
   // model + config
   model: 'config',

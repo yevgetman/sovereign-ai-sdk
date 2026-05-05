@@ -84,6 +84,50 @@ describe('ThinkingIndicator', () => {
     ind.stop();
   });
 
+  test('single running tool surfaces as "Running Name(args) · Ns"', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    ind.addRunningTool('id-1', 'Bash', 'find / -name "*.ts"');
+    await delay(620);
+    ind.stop();
+    const text = strip(sink.out);
+    expect(text).toContain('Running');
+    expect(text).toContain('Bash');
+    expect(text).toContain('find /');
+    // Single-tool case should NOT use the "N tools" plural form.
+    expect(text).not.toMatch(/Running \d+ tools/);
+  });
+
+  test('multiple running tools surface as "Running N tools · A, B, C · Ns"', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    ind.addRunningTool('id-1', 'FileRead', 'src/auth.py');
+    ind.addRunningTool('id-2', 'Grep', '"foo"');
+    ind.addRunningTool('id-3', 'Glob', '*.ts');
+    await delay(620);
+    ind.stop();
+    const text = strip(sink.out);
+    expect(text).toContain('Running 3 tools');
+    expect(text).toContain('FileRead');
+    expect(text).toContain('Grep');
+    expect(text).toContain('Glob');
+  });
+
+  test('reverts to "Thinking" once all tools complete', async () => {
+    const sink = new StringSink();
+    const ind = new ThinkingIndicator(sink);
+    ind.start();
+    ind.addRunningTool('id-1', 'Bash', 'ls');
+    ind.removeRunningTool('id-1');
+    await delay(620);
+    ind.stop();
+    const text = strip(sink.out);
+    expect(text).toContain('Thinking');
+    expect(text).not.toContain('Running');
+  });
+
   test('does not render while a modal is active (prompt is sacred)', async () => {
     const indSink = new StringSink();
     const modalSink = new StringSink();

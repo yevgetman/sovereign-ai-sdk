@@ -808,6 +808,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     home: process.env.HOME,
     logStderr: (msg) => process.stderr.write(`${msg}\n`),
   });
+  // Tool slot lives at session scope (not per-turn) so /expand can
+  // surface tool blocks from earlier turns. The retention ring buffer
+  // (default 50) bounds memory; older blocks drop off as new ones
+  // complete. inlineLines comes from ui.toolOutput.inlineLines (default
+  // 10) and gates how much of each block lands inline at render time;
+  // /expand is the escape hatch for the truncated surplus.
+  const inlineLines = userSettings.ui?.toolOutput?.inlineLines ?? 10;
+  const toolSlot = new CompactToolSlot(process.stdout, { inlineLines });
   const commandContext = (): CommandContext => ({
     sessionId: activeSessionId,
     cwd: process.cwd(),
@@ -841,6 +849,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     },
     getBudgetReport: () =>
       harnessInfoSnapshot().budget ?? { components: [], totals: { estimated: 0 } },
+    expandToolBlock: (n) => {
+      // The /expand command writes the re-rendered block straight to
+      // stdout via the slot's expand path; we return ok/total so the
+      // command can produce a helpful error when the index is out of
+      // range without duplicating the slot's bookkeeping here.
+      const ok = toolSlot.expand(n);
+      return { ok, total: toolSlot.completedCount() };
+    },
   });
 
   writeBanner(
@@ -998,12 +1014,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     streamController = new AbortController();
     const mdStream = new MarkdownStream(process.stdout);
     const indicator = new ThinkingIndicator(process.stdout);
-    // Phase: claude-code-style polish. The tool slot now renders inline
-    // truncated output below each tool call. inlineLines (default 10)
-    // is the cap; users can tune via ui.toolOutput.inlineLines, or set
-    // 0 to revert to header + footer only with no inline content.
-    const inlineLines = userSettings.ui?.toolOutput?.inlineLines ?? 10;
-    const toolSlot = new CompactToolSlot(process.stdout, { inlineLines });
+    // toolSlot is hoisted to session scope (defined above the
+    // commandContext factory) so /expand can reach tool blocks from
+    // earlier turns. The slot's retention ring buffer holds them.
     /** tool_use_id → tool name. Populated when a tool_use block fires;
      *  consumed (and removed) when the matching tool_result block fires
      *  so the slot can pass the tool name to summarizeToolResult for a
@@ -1104,6 +1117,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                 renderToolResultPreview(block.content, block.is_error === true, true);
               } else {
                 toolUseNames.delete(block.tool_use_id);
+                // Spinner reverts to "Thinking …" once all running
+                // tools complete (Gap 1).
+                indicator.removeRunningTool(block.tool_use_id);
                 toolSlot.end(block.tool_use_id, block.content, block.is_error === true);
               }
               if (block.is_error === true) {
@@ -1207,6 +1223,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                 writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
               } else {
                 toolSlot.begin(block.id, block.name, preview);
+                // Tell the spinner what's running so the user sees
+                // "Running Bash(find /) · 12s" instead of an opaque
+                // "Thinking 12s" during the deferred-render window
+                // (Gap 1).
+                indicator.addRunningTool(block.id, block.name, preview);
               }
               textRunActive = false;
               transcript?.record({

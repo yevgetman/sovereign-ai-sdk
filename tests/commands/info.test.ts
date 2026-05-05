@@ -125,6 +125,77 @@ describe('/permissions', () => {
   });
 });
 
+describe('/expand', () => {
+  test('default arg expands the most recent block (n=1)', async () => {
+    const calls: number[] = [];
+    const ctx = makeCtx({
+      expandToolBlock: (n) => {
+        calls.push(n);
+        return { ok: true, total: 3 };
+      },
+    });
+    const result = await dispatchSlashCommand('/expand', ctx);
+    expect(calls).toEqual([1]);
+    if (result.kind !== 'local') throw new Error('expected local');
+    // The slot writes the expanded content to stdout directly; the
+    // command's output is empty so the dispatch layer doesn't append
+    // a redundant trailer.
+    expect(result.output).toBe('');
+  });
+
+  test('numeric arg routes to that index', async () => {
+    const calls: number[] = [];
+    const ctx = makeCtx({
+      expandToolBlock: (n) => {
+        calls.push(n);
+        return { ok: true, total: 5 };
+      },
+    });
+    await dispatchSlashCommand('/expand 3', ctx);
+    expect(calls).toEqual([3]);
+  });
+
+  test('returns helpful error when N is out of range', async () => {
+    const ctx = makeCtx({
+      expandToolBlock: () => ({ ok: false, total: 2 }),
+    });
+    const result = await dispatchSlashCommand('/expand 5', ctx);
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toContain('out of range');
+    expect(result.output).toContain('5');
+    expect(result.output).toContain('this session has 2');
+  });
+
+  test('returns helpful message when no blocks have completed', async () => {
+    const ctx = makeCtx({
+      expandToolBlock: () => ({ ok: false, total: 0 }),
+    });
+    const result = await dispatchSlashCommand('/expand', ctx);
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toContain('no tool blocks completed');
+  });
+
+  test('rejects non-positive N with usage hint', async () => {
+    let called = false;
+    const ctx = makeCtx({
+      expandToolBlock: () => {
+        called = true;
+        return { ok: true, total: 1 };
+      },
+    });
+    const result = await dispatchSlashCommand('/expand 0', ctx);
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toContain('usage:');
+    expect(called).toBe(false);
+  });
+
+  test('rejects non-numeric N with usage hint', async () => {
+    const result = await dispatchSlashCommand('/expand abc', makeCtx());
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toContain('usage:');
+  });
+});
+
 describe('/quit', () => {
   test('calls requestExit and returns goodbye', async () => {
     let exited = false;
