@@ -1318,14 +1318,24 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       source: `command:/${command.name}`,
       rules: parsePermissionRules('allow', command.allowedTools),
     };
-    const scopedCanUseTool = buildCanUseTool({
-      mode: permissionMode,
-      ask,
-      alwaysAllow,
-      ruleLayers: [...permissionSettings.layers, commandAllowLayer],
-      recordAlwaysAllow: (rule) =>
-        appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
-    });
+    // Same defense-in-depth wrapping as the default canUseTool path
+    // (see comment near `wrapCanUseToolWithTransformers` above). Without
+    // this wrapping, prompt-commands with allowedTools — like the
+    // /security-audit skill — would route through a redactor-free
+    // canUseTool, so an agent's Write calls during a slash-command
+    // turn could land plaintext secrets on disk even though the
+    // default chat path is protected.
+    const scopedCanUseTool = wrapCanUseToolWithTransformers(
+      buildCanUseTool({
+        mode: permissionMode,
+        ask,
+        alwaysAllow,
+        ruleLayers: [...permissionSettings.layers, commandAllowLayer],
+        recordAlwaysAllow: (rule) =>
+          appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
+      }),
+      [redactSecretsTransformer],
+    );
     const scoped = buildToolScope({
       allowedTools: command.allowedTools,
       tools: toolPool,
