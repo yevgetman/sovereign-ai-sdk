@@ -93,22 +93,49 @@ function padRight(line: string, width: number): string {
  *  terminal's right edge. Without it the box-drawing characters can
  *  visually crowd the edge even when they don't strictly wrap. */
 const SAFETY_MARGIN = 2;
+/** Gap between the logo and the card in side-by-side layout. */
+const GUTTER = 2;
+/** Minimum card-content width that still looks reasonable. Below
+ *  this, side-by-side isn't even attempted; we stack instead. */
+const MIN_CARD_BUDGET = 30;
 
 export function renderSplash(info: SplashInfo, terminalCols?: number): string {
   const cols = terminalCols ?? process.stdout.columns ?? 80;
   const logoWidth = LOGO_LINES[0]?.length ?? 0;
   const t = theme.tokens;
 
-  // The card width is dominated by the bundle path. Cap the in-card
-  // bundle line at the budget that lets the side-by-side layout fit;
-  // when even that wouldn't fit, we stack instead.
+  // Layout selection — measure first, decide second.
+  //
+  // The original heuristic ("side-by-side if budget for the card-content
+  // line is >= 30") let the layout sneak through at terminal widths
+  // where the rendered row was right at the edge. A font whose box-
+  // drawing characters are even slightly wider than one cell (a common
+  // condition with fallback fonts on box-drawing glyphs) then pushed
+  // the row past the right edge and the terminal wrapped each logo row
+  // mid-glyph, fragmenting the ASCII art into apparent garbage.
+  //
+  // Now: build the card at the side-by-side budget, then ask whether
+  // logo + gutter + actual cardWidth + safety margin fits inside cols.
+  // If not, fall through to stacked. This is correct by construction
+  // rather than threshold-by-trial.
   const sideBySideBudget = cols - logoWidth - SAFETY_MARGIN - 2 /* gutter */ - 4 /* card padding */;
   const stackedBudget = cols - SAFETY_MARGIN - 4 /* card padding */;
-  const useStacked = sideBySideBudget < 30; // card needs at least ~30 chars to look reasonable
+  // Build the side-by-side candidate first to measure its real width.
+  const sideBySideCard =
+    sideBySideBudget >= MIN_CARD_BUDGET
+      ? boxify(renderCard(info, sideBySideBudget), { padding: 2 })
+      : null;
+  const sideBySideCardWidth = sideBySideCard ? Math.max(...sideBySideCard.map(visibleWidth)) : 0;
+  const sideBySideRowWidth = logoWidth + GUTTER + sideBySideCardWidth;
+  // Use side-by-side only when the row fits comfortably. SAFETY_MARGIN
+  // protects against terminals that render box-drawing chars wider
+  // than one cell — without it we get the regression where the row
+  // visually overflows even though the cell math says it fits.
+  const useStacked = sideBySideCard === null || sideBySideRowWidth + SAFETY_MARGIN > cols;
 
-  const cardLines = boxify(renderCard(info, useStacked ? stackedBudget : sideBySideBudget), {
-    padding: 2,
-  });
+  const cardLines = useStacked
+    ? boxify(renderCard(info, stackedBudget), { padding: 2 })
+    : (sideBySideCard ?? boxify(renderCard(info, stackedBudget), { padding: 2 }));
   const cardWidth = Math.max(...cardLines.map(visibleWidth));
 
   const tips = t.textMuted(

@@ -60,6 +60,40 @@ describe('renderSplash', () => {
       expect(sideBySide.length).toBeGreaterThan(0);
     });
 
+    test('regression: stacks at typical 80-col terminals where side-by-side would overflow', () => {
+      // Prior heuristic ("budget >= 30") let side-by-side render at
+      // cols >= 69, but at 75-80 cols the row width logo + gutter +
+      // card was right at the terminal edge, and any font that renders
+      // box-drawing characters wider than 1 cell pushed the row past
+      // the wrap point — fragmenting the ASCII logo. Now: measure the
+      // built card, decide based on whether the row fits (with safety
+      // margin) inside cols.
+      //
+      // Tips/footer lines are intentionally not bounded by cols — they
+      // wrap if the terminal is narrow enough. The regression is the
+      // LOGO + CARD row overflowing, so we check those specifically.
+      for (const cols of [72, 75, 78, 80]) {
+        const out = strip(renderSplash(baseInfo, cols));
+        const lines = out.split('\n');
+        // At these widths the row would have been right at the edge —
+        // we want stacked, NOT a logo+card row.
+        const overlapping = lines.filter((l) => /[█╔]/.test(l) && l.includes('Sovereign AI'));
+        expect(overlapping.length, `cols=${cols} should stack, not side-by-side`).toBe(0);
+        // Lines containing logo or card-box characters must fit within
+        // the terminal — those are the rows whose mid-row wrap caused
+        // the visible "broken splash" regression.
+        for (const line of lines) {
+          const stripped = strip(line);
+          const isLogoOrCard = /[█╔╗╚╝║╭╮╰╯─]/.test(stripped);
+          if (!isLogoOrCard) continue;
+          expect(
+            stripped.length,
+            `cols=${cols}: logo/card line "${stripped.slice(0, 40)}…" of length ${stripped.length} exceeds cols`,
+          ).toBeLessThanOrEqual(cols);
+        }
+      }
+    });
+
     test('stacks logo above card at narrow terminals (50 cols)', () => {
       const out = strip(renderSplash(baseInfo, 50));
       const lines = out.split('\n');
