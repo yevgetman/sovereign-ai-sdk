@@ -199,13 +199,42 @@ export class SubagentScheduler {
             durationMs: Date.now() - startedAt,
           };
         }
+        const summary = extractSummary(result.finalAssistant);
+        // Phase 13.6 — on_delegation hook. Fire after a *successful*
+        // child completion so the parent's memory provider can capture
+        // the delegation as a learnable observation. We treat
+        // `completed` and `max_turns` as success here: max_turns means
+        // the child hit its iteration cap cleanly (the run was useful
+        // for as far as it got). Errors and interrupts skip the hook —
+        // those are not durable memory candidates. The hook receives
+        // the prompt and the rendered summary as `(task, result)`;
+        // richer metadata (childSessionId, durationMs, traceId) is
+        // captured separately via the trace stream.
+        if (
+          input.memoryManager !== undefined &&
+          (result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns')
+        ) {
+          // Best-effort — never block the scheduler return on a memory
+          // provider error. Failures route to the trace stream so the
+          // operator can diagnose without breaking the parent turn.
+          try {
+            await input.memoryManager.onDelegation(input.prompt, summary);
+          } catch (err) {
+            input.traceRecorder?.({
+              type: 'memory_error',
+              sessionId: childSessionId,
+              op: 'onDelegation',
+              message: err instanceof Error ? err.message : String(err),
+            } as unknown as TraceEvent);
+          }
+        }
         return {
           childSessionId,
           agentName: agent.name,
           resolvedProvider: providerName,
           resolvedModel: modelName,
           terminal: result.terminal,
-          summary: extractSummary(result.finalAssistant),
+          summary,
           ...(result.finalAssistant !== undefined ? { finalAssistant: result.finalAssistant } : {}),
           iterationsUsed: result.iterationsUsed,
           toolCallCount: result.toolCallCount,
