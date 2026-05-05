@@ -51,6 +51,18 @@ export type ToolContext = {
   skills?: import('../skills/types.js').SkillRegistry;
   /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
   agents?: import('../agents/types.js').AgentRegistry;
+  /** Phase 13.5 — sub-agent scheduler. AgentTool reads this; when absent,
+   *  AgentTool throws a clear error rather than failing silently. */
+  subagentScheduler?: import('../runtime/scheduler.js').SubagentScheduler;
+  /** Phase 13.5 — parent's full tool pool, captured at REPL bootstrap so
+   *  the scheduler can filter from it without reassembling per call. */
+  parentToolPool?: import('./types.js').Tool<unknown, unknown>[];
+  /** Phase 13.5 — parent's permission gate. The scheduler hands it to the
+   *  child's AgentRunner so the same policy applies. */
+  canUseTool?: import('../permissions/types.js').CanUseTool;
+  /** Phase 13.5 — parent's trace recorder. Children write into the same
+   *  trace stream so post-hoc analysis sees the lineage in one place. */
+  traceRecorder?: (event: import('../trace/types.js').TraceEvent) => void;
   activeToolNames?: string[];
   activeToolsets?: string[];
 };

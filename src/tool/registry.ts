@@ -15,6 +15,8 @@
 // Source of pattern: Claude Code src/tools.ts (assembleToolPool +
 // patchSchemasAgainstAvailable).
 
+import { z } from 'zod';
+import { AgentTool } from '../tools/AgentTool.js';
 import { BashTool } from '../tools/BashTool.js';
 import { FileEditTool } from '../tools/FileEditTool.js';
 import { FileReadTool } from '../tools/FileReadTool.js';
@@ -48,6 +50,7 @@ const REGISTERED_TOOLS = [
   StaticSiteValidateTool,
   WebFetchTool,
   WebSearchTool,
+  AgentTool,
 ] as unknown as Tool<unknown, unknown>[];
 
 export type AssembleToolPoolOpts = {
@@ -75,7 +78,6 @@ export function assembleToolPool(
   ctx: ToolContext,
   opts: AssembleToolPoolOpts = {},
 ): Tool<unknown, unknown>[] {
-  void ctx;
   const merged: Tool<unknown, unknown>[] = [...REGISTERED_TOOLS, ...(opts.mcpTools ?? [])];
   const enabled = merged.filter((t) => t.isEnabled());
   // ToolSearch must see every deferred tool in the final pool — including
@@ -87,22 +89,52 @@ export function assembleToolPool(
     ? (buildHarnessInfoTool(opts.harnessInfoSnapshot) as unknown as Tool<unknown, unknown>)
     : null;
   const withExtras = [...enabled, toolSearch, ...(harnessInfo ? [harnessInfo] : [])];
-  const patched = patchSchemasAgainstAvailable(withExtras);
+  // Phase 13.5 — patchSchemasAgainstAvailable() reads ctx.agents to
+  // populate AgentTool's `subagent_type` enum with only the agents that
+  // are actually loaded. When no agents are loaded (or the field is
+  // absent), AgentTool is dropped from the pool entirely so the model
+  // doesn't see a tool it can't successfully invoke.
+  const patched = patchSchemasAgainstAvailable(withExtras, ctx);
   return [...patched].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
- * Strip references to unavailable tools from every remaining tool's input
- * schema. Phase 4 placeholder — no current tool's input schema references
- * another tool by name, so this returns the input array unchanged. The
- * function is exported and called unconditionally so the wiring is in
- * place: Phase 12 (MCP) and Phase 13 (AgentTool with subagent_type enum)
- * are the first real users; both will mutate the relevant schema fields
- * here rather than scattering branching across the orchestrator. See
- * harness-build-plan.md § Phase 4 deepening 3.
+ * Rewrite tool input schemas that reference other tools or agents by name,
+ * dropping references to anything not actually present in this pool / the
+ * given context. Centralizing this here means cross-tool dependencies stay
+ * in one file rather than scattering branching across the orchestrator.
+ *
+ * Phase 13.5: AgentTool's `subagent_type` field is rewritten from an open
+ * `string` to a closed enum derived from `ctx.agents`. When no agents are
+ * loaded, AgentTool is dropped from the pool so the model never sees a
+ * tool it cannot successfully invoke. Source of pattern: Claude Code
+ * src/tools.ts (assembleToolPool + patchSchemasAgainstAvailable).
  */
 export function patchSchemasAgainstAvailable(
   tools: Tool<unknown, unknown>[],
+  ctx?: ToolContext,
 ): Tool<unknown, unknown>[] {
-  return tools;
+  const agentNames = ctx?.agents ? [...ctx.agents.byName.keys()].sort() : [];
+  if (agentNames.length === 0) {
+    // Drop AgentTool entirely when there are no agents — exposing a tool
+    // whose subagent_type enum is empty would let the model attempt calls
+    // that always fail.
+    return tools.filter((t) => t.name !== 'AgentTool');
+  }
+  return tools.map((t) => {
+    if (t.name !== 'AgentTool') return t;
+    const enumValues = agentNames as [string, ...string[]];
+    const newSchema = z.object({
+      subagent_type: z
+        .enum(enumValues)
+        .describe('The name of the loaded sub-agent to delegate to.'),
+      prompt: z
+        .string()
+        .min(1)
+        .describe(
+          'The task description for the sub-agent. Be specific — the agent runs as a separate session and only receives this prompt.',
+        ),
+    });
+    return { ...t, inputSchema: newSchema as unknown as typeof t.inputSchema };
+  });
 }

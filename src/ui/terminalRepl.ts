@@ -78,6 +78,9 @@ import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js
 import type { Transport } from '../providers/types.js';
 import { RouterAuditLogger } from '../router/auditLogger.js';
 import { RouterProvider } from '../router/provider.js';
+import { LaneSemaphores } from '../runtime/laneSemaphores.js';
+import { SubagentScheduler } from '../runtime/scheduler.js';
+import { Semaphore } from '../runtime/semaphore.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
@@ -685,6 +688,47 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // generated artifact (e.g. a security audit report). Set
   // HARNESS_REDACTION=off to disable globally.
   const canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
+
+  // Phase 13.5 — wire the sub-agent scheduler. AgentTool reads
+  // ctx.subagentScheduler at call time; the scheduler owns concurrency,
+  // lineage, and cancellation. Mutating toolContext (rather than
+  // rebuilding) is safe here because no consumer has captured the field
+  // set yet (the first query() call comes later).
+  if (loadedAgents.agents.length > 0) {
+    const laneSemaphores = new LaneSemaphores({
+      ...(settings.router?.maxConcurrentLocal !== undefined
+        ? { local: settings.router.maxConcurrentLocal }
+        : {}),
+      ...(settings.router?.maxConcurrentFrontier !== undefined
+        ? { frontier: settings.router.maxConcurrentFrontier }
+        : {}),
+    });
+    const subagentWriteLock = new Semaphore(1);
+    const subagentScheduler = new SubagentScheduler({
+      agents: loadedAgents,
+      laneSemaphores,
+      writeLock: subagentWriteLock,
+      resolveProvider: (name, model) => resolveProvider(name, model),
+      createChildSession: (input) =>
+        db.createSession({
+          provider: input.provider,
+          model: input.model,
+          parentSessionId: input.parentSessionId,
+          title: `subagent:${input.agentName}`,
+          systemPrompt: input.systemPrompt,
+          metadata: { agentName: input.agentName, kind: 'subagent' },
+        }),
+      defaultProvider: providerName,
+      defaultModel: activeModel,
+      maxTokens: opts.maxTokens,
+    });
+    type WritableToolContext = { -readonly [K in keyof ToolContext]: ToolContext[K] };
+    const writableCtx = toolContext as WritableToolContext;
+    writableCtx.subagentScheduler = subagentScheduler;
+    writableCtx.parentToolPool = toolPool;
+    writableCtx.canUseTool = canUseTool;
+    writableCtx.traceRecorder = (e) => traceWriter.record(e);
+  }
   // Phase 10.6 part 2b — install the interactive escalation asker on
   // the router (only meaningful when --provider router and the
   // configured `escalationMode` is 'ask'). The asker is built around
