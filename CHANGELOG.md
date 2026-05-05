@@ -1,5 +1,15 @@
 # Changelog
 
+## Phase 10.6 part 2b — Interactive escalation prompt - 2026-05-05
+
+When `escalationMode: 'ask'` and the classifier produces `local-with-escalation`, the router now prompts the user for a yes/no on the escalation. Returning `y` routes the turn to frontier; anything else stays on the default lane. Without a TTY (piped/CI sessions), the prompt yields empty and is treated as "no" — matches the pre-2b behavior for non-interactive runs.
+
+The asker wiring is two-sided: `RouterProvider` exposes `setEscalationAsker(fn)` (mirroring `setSessionId`) so the REPL can install the asker once the readline `question` source is ready (later than router construction). The asker is built around the same source used by the permission prompt, so the UX is consistent. A thrown asker is swallowed and falls through to the default lane — keeps a misbehaving TTY from crashing the run.
+
+Adds: `escalationAsker?` on `RouterProviderOpts`; `setEscalationAsker()` on `RouterProvider`; wiring in `terminalRepl.ts`. 6 new unit tests covering the no-asker / yes / no / no-prompt-on-plain-local / no-prompt-on-auto / thrown-asker paths. Suite total: **1110/1110**. Lint + typecheck clean.
+
+**Phase 10.6 explicitly closed.** The two remaining 10.6 part 2b items — capability profiles and per-lane concurrency — were judged premature: capability profiles need eval data we don't have yet (per-model TTFT, tool reliability, etc.), and per-lane concurrency would only matter once sub-agents (Phase 13) introduce parallel provider calls. Both are tracked as deferred-because-premature in the status doc.
+
 ## Eval runner — `--capture <dir>` / `--replay <dir>` CLI - 2026-05-05
 
 The promised follow-up to the Phase 10.5 part 2 capture/replay primitives. Both `sov chat` and `sov eval run` now expose first-class capture/replay surfaces:

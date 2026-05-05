@@ -1541,3 +1541,21 @@ Implementation backlogs from these findings live in
   - No regressions.
   - **No new unit tests added.** The wiring is straightforward CLI-flag plumbing on top of already-tested primitives (capture, replay, integration round-trip all covered in tests/eval/replay/). The end-to-end smoke is the verification.
   - **No semantic test added.** Replay mode bypasses the LLM entirely, so a semantic test (which spawns sov chat + judges agent behavior) doesn't apply. Capture mode is just live-mode-with-side-effect — covered by the existing live golden runs.
+
+## 2026-05-05 - Phase 10.6 part 2b — interactive escalation prompt (unit suite 1110/1110)
+
+- Scope: When `escalationMode: 'ask'` AND the classifier produces `local-with-escalation` AND a TTY asker is wired in, the router now prompts the user for a yes/no on the escalation. `y` routes the turn to frontier; anything else stays on the default lane. Without an asker (piped/CI sessions), `ask` falls through to the default lane (matches the pre-2b behavior). The asker wiring is two-sided: RouterProvider gets a `setEscalationAsker(fn)` setter mirroring `setSessionId`, and terminalRepl installs the asker once the readline `question` source is ready (later than router construction). The asker is built around the same source the permission prompt uses, so UX is consistent.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls (the asker path is exercised with mock asker functions).
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun test` — 1110/1110 pass (was 1104). New file: tests/router/interactiveAsk.test.ts (6 cases — no asker / yes / no / no prompt on plain local / no prompt on auto / thrown asker).
+- Manual coverage:
+  - The router prompts only when the classifier produces local-with-escalation. Plain `local` decisions never call the asker — verified.
+  - escalationMode `auto` ignores the asker entirely; the classifier output goes straight through. Verified.
+  - A thrown asker (TTY closed, abort signal, etc.) is swallowed and falls through to the default lane — keeps a misbehaving TTY from crashing the run.
+  - The reason field on the route_decision event records whether the user approved or declined: `"... user approved escalation"` or `"... user declined escalation, stay local"`. Audit log + StreamEvent + delegated-provider pick all see the post-decision lane.
+- Result: 1110/1110 unit tests, lint + typecheck clean. Phase 10.6 effectively closed — the router is now functional, observable, and interactive. The two remaining 10.6 part 2b items (capability profiles, per-lane concurrency) are tracked as deferred-because-premature: capability profiles need eval data we don't have yet, and per-lane concurrency only matters once Phase 13 sub-agents introduce parallel provider calls.
+- Regressions / follow-ups:
+  - No regressions.
+  - **No new semantic test added.** Interactive prompts fire DURING a turn, not between turns; the semantic-test driver pipes stdin (one prompt per turn) and doesn't support mid-turn interactive responses. The unit tests cover the router-side logic; the wiring is straightforward.
+  - **Phase 10.6 explicitly closed for now.** Capability profiles + per-lane concurrency tracked in phase-10x-status.md as deferred-because-premature, not as forgotten work.

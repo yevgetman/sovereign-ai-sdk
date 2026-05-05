@@ -661,6 +661,21 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     recordAlwaysAllow: (rule) =>
       appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
   });
+  // Phase 10.6 part 2b — install the interactive escalation asker on
+  // the router (only meaningful when --provider router and the
+  // configured `escalationMode` is 'ask'). The asker is built around
+  // the same `question` source used by the permission prompt; we
+  // present the user with a yes/no, route to frontier on yes, stay on
+  // default lane on no. Without a TTY the question source still works
+  // (returns empty string) and we treat that as "no" — matches the
+  // ask-falls-through-to-never posture for piped sessions.
+  if (routerHandle) {
+    routerHandle.setEscalationAsker(async (promptText: string) => {
+      const answer = await question(`${promptText} [y/N] `);
+      const trimmed = answer.trim().toLowerCase();
+      return trimmed === 'y' || trimmed === 'yes';
+    });
+  }
   // Hook subsystem (Phase 11). Built once per session; the consent allowlist
   // is read lazily on first prompt and cached for the session lifetime. When
   // no hooks are configured, we still build the runner — its first call cost

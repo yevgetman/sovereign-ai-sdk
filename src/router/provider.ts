@@ -29,19 +29,38 @@ export type RouterProviderOpts = {
   /** Per-call override hook the REPL/CLI can set to force a specific lane
    *  for the next stream() call. Cleared after consumption. */
   getNextOverride?: () => 'local' | 'frontier' | undefined;
+  /** Phase 10.6 part 2b — interactive escalation prompt. When
+   *  `escalationMode: 'ask'` AND the classifier produces
+   *  `local-with-escalation` AND this hook is supplied, the router
+   *  awaits a yes/no answer before deciding the lane. Returning `true`
+   *  routes to frontier; `false` stays on the configured default lane.
+   *  When the hook is undefined, `'ask'` falls through to the default
+   *  lane (matches the pre-2b behavior — useful for piped/CI sessions
+   *  where there's no TTY to prompt). */
+  escalationAsker?: (prompt: string) => Promise<boolean>;
 };
 
 export class RouterProvider implements LLMProvider {
   readonly name = 'router';
   private currentSessionId: string;
+  private currentAsker: ((prompt: string) => Promise<boolean>) | undefined;
   constructor(private readonly opts: RouterProviderOpts) {
     this.currentSessionId = opts.sessionId ?? 'unknown';
+    this.currentAsker = opts.escalationAsker;
   }
 
   /** Update the session id used in audit records. The REPL calls this
    *  once `activeSessionId` resolves out of `openOrResumeSession`. */
   setSessionId(sessionId: string): void {
     this.currentSessionId = sessionId;
+  }
+
+  /** Install or replace the escalation asker. The REPL builds the
+   *  router before the readline `question` source exists, so the
+   *  asker is wired in once that source is ready. Pass `undefined`
+   *  to remove (the router falls back to "stay on default lane"). */
+  setEscalationAsker(asker: ((prompt: string) => Promise<boolean>) | undefined): void {
+    this.currentAsker = asker;
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
@@ -59,6 +78,34 @@ export class RouterProvider implements LLMProvider {
         : {}),
       ...(userOverride !== undefined ? { userOverride } : {}),
     });
+
+    // Phase 10.6 part 2b — interactive escalation prompt. When the
+    // classifier flagged escalation and the user opted into 'ask',
+    // the asker decides the final lane. We mutate `decision.lane` in
+    // place so the audit log + StreamEvent + delegation downstream
+    // all see the user's chosen lane (not the default fallback).
+    if (
+      decision.classifierLane === 'local-with-escalation' &&
+      this.opts.config.escalationMode === 'ask' &&
+      this.currentAsker !== undefined
+    ) {
+      const promptForUser = `Local model is struggling (${decision.reason}). Escalate this turn to ${this.opts.config.frontierProvider}?`;
+      let escalate = false;
+      try {
+        escalate = await this.currentAsker(promptForUser);
+      } catch {
+        // Asker errored (TTY closed, abort, etc.) — fall through to
+        // the default lane. Don't crash the run.
+        escalate = false;
+      }
+      if (escalate) {
+        decision.lane = 'frontier';
+        decision.reason = `${decision.reason}; user approved escalation`;
+      } else {
+        decision.lane = this.opts.config.defaultLane ?? 'local';
+        decision.reason = `${decision.reason}; user declined escalation, stay ${decision.lane}`;
+      }
+    }
 
     const delegatedProvider =
       decision.lane === 'local'
