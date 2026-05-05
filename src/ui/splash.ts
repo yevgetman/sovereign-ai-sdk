@@ -47,13 +47,34 @@ export type SplashInfo = {
   exitHint: string;
 };
 
-function renderCard(info: SplashInfo): string[] {
+function renderCard(info: SplashInfo, maxWidth: number): string[] {
   const t = theme.tokens;
   const title = `${t.accent('>_')} ${t.textBold('Sovereign AI')} ${t.textMuted(`(v${PKG_VERSION})`)}`;
   const auth = `${info.providerLabel} ${t.textMuted('|')} ${info.authLabel}`;
   const model = `${info.model} ${t.textMuted('(/model to change)')}`;
-  const bundle = t.textMuted(info.bundlePath ?? 'no bundle');
+  const bundle = t.textMuted(
+    info.bundlePath ? abbreviatePath(info.bundlePath, maxWidth) : 'no bundle',
+  );
   return [title, auth, model, bundle];
+}
+
+/** Shorten a long bundle path by collapsing leading segments to "…/".
+ *  Keeps the last 1–2 path segments intact (the meaningful part to a
+ *  user). Returns the path unchanged when it already fits. */
+function abbreviatePath(path: string, maxWidth: number): string {
+  if (path.length <= maxWidth) return path;
+  const segments = path.split('/').filter((s) => s.length > 0);
+  if (segments.length === 0) return path;
+  // Try keeping more and more trailing segments; pick the longest tail
+  // that fits with the "…/" prefix.
+  for (let keep = Math.min(segments.length, 3); keep >= 1; keep--) {
+    const tail = segments.slice(-keep).join('/');
+    const candidate = `…/${tail}`;
+    if (candidate.length <= maxWidth) return candidate;
+  }
+  // Even one segment is too long — hard-truncate.
+  const last = segments[segments.length - 1] ?? path;
+  return `…/${last.slice(0, Math.max(1, maxWidth - 2))}`;
 }
 
 function padBlock(lines: string[], targetHeight: number, width: number): string[] {
@@ -68,14 +89,61 @@ function padRight(line: string, width: number): string {
   return `${line}${' '.repeat(fill)}`;
 }
 
-export function renderSplash(info: SplashInfo): string {
+/** Minimum spare-room margin between the splash content and the
+ *  terminal's right edge. Without it the box-drawing characters can
+ *  visually crowd the edge even when they don't strictly wrap. */
+const SAFETY_MARGIN = 2;
+
+export function renderSplash(info: SplashInfo, terminalCols?: number): string {
+  const cols = terminalCols ?? process.stdout.columns ?? 80;
   const logoWidth = LOGO_LINES[0]?.length ?? 0;
+  const t = theme.tokens;
+
+  // The card width is dominated by the bundle path. Cap the in-card
+  // bundle line at the budget that lets the side-by-side layout fit;
+  // when even that wouldn't fit, we stack instead.
+  const sideBySideBudget = cols - logoWidth - SAFETY_MARGIN - 2 /* gutter */ - 4 /* card padding */;
+  const stackedBudget = cols - SAFETY_MARGIN - 4 /* card padding */;
+  const useStacked = sideBySideBudget < 30; // card needs at least ~30 chars to look reasonable
+
+  const cardLines = boxify(renderCard(info, useStacked ? stackedBudget : sideBySideBudget), {
+    padding: 2,
+  });
+  const cardWidth = Math.max(...cardLines.map(visibleWidth));
+
+  const tips = t.textMuted(
+    'Tips: type / for slash commands · @file:path to inline files · /quit to exit',
+  );
+  const modeNote = info.permissionModeNote ?? '';
+  const footer = t.textDim(
+    `perms: ${info.permissionMode}${modeNote} · tools: ${info.toolCount} · cache: ${info.cacheOn ? 'on' : 'off'} · ${info.sessionLabel} · ${info.exitHint}`,
+  );
+
+  if (useStacked) {
+    // Narrow terminal: stack the logo above the card vertically. Drop
+    // the logo entirely when it's wider than the terminal — the box-
+    // drawing characters fragment when wrapped.
+    const coloredLogo =
+      logoWidth + SAFETY_MARGIN <= cols
+        ? LOGO_LINES.map((line, i) => (LOGO_GRADIENT[i] ?? chalk.cyan)(line))
+        : [];
+    return [
+      '',
+      ...coloredLogo,
+      ...(coloredLogo.length > 0 ? [''] : []),
+      ...cardLines,
+      '',
+      tips,
+      footer,
+      '',
+    ].join('\n');
+  }
+
+  // Side-by-side layout: logo on the left, card on the right.
   const coloredLogo = LOGO_LINES.map((line, i) => {
     const tint = LOGO_GRADIENT[i] ?? chalk.cyan;
     return tint(line);
   });
-  const cardLines = boxify(renderCard(info), { padding: 2 });
-  const cardWidth = Math.max(...cardLines.map(visibleWidth));
   const height = Math.max(coloredLogo.length, cardLines.length);
   const left = padBlock(coloredLogo, height, logoWidth);
   // Vertically center the card against the logo.
@@ -85,13 +153,5 @@ export function renderSplash(info: SplashInfo): string {
     right[cardOffset + i] = cardLines[i] ?? '';
   }
   const rows = left.map((l, i) => `${l}  ${padRight(right[i] ?? '', cardWidth)}`);
-  const t = theme.tokens;
-  const tips = t.textMuted(
-    'Tips: type / for slash commands · @file:path to inline files · /quit to exit',
-  );
-  const modeNote = info.permissionModeNote ?? '';
-  const footer = t.textDim(
-    `perms: ${info.permissionMode}${modeNote} · tools: ${info.toolCount} · cache: ${info.cacheOn ? 'on' : 'off'} · ${info.sessionLabel} · ${info.exitHint}`,
-  );
   return ['', ...rows, '', tips, footer, ''].join('\n');
 }

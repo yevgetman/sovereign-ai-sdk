@@ -19,3 +19,7 @@ dist/
 # Runtime outputs (if we ever write them here, belongs in a bundle's state/ instead)
 *.jsonl.tmp
 .harness/settings.local.json
+
+# Default bundle's state/ is runtime-generated; keep only the placeholder.
+bundle-default/state/*
+!bundle-default/state/.gitkeep

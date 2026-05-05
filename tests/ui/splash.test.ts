@@ -50,4 +50,56 @@ describe('renderSplash', () => {
     expect(out).toContain('no bundle');
     expect(out).not.toContain('/Users/test/code/example-bundle');
   });
+
+  describe('width-aware layout', () => {
+    test('uses side-by-side layout at wide terminals (120 cols)', () => {
+      const out = strip(renderSplash(baseInfo, 120));
+      const lines = out.split('\n');
+      // At least one line contains both a logo glyph and the card title.
+      const sideBySide = lines.filter((l) => /[█╔]/.test(l) && l.includes('Sovereign AI'));
+      expect(sideBySide.length).toBeGreaterThan(0);
+    });
+
+    test('stacks logo above card at narrow terminals (50 cols)', () => {
+      const out = strip(renderSplash(baseInfo, 50));
+      const lines = out.split('\n');
+      const logoIdx = lines.findIndex((l) => /[█╔]/.test(l));
+      const cardIdx = lines.findIndex((l) => l.includes('Sovereign AI'));
+      expect(logoIdx).toBeGreaterThan(-1);
+      expect(cardIdx).toBeGreaterThan(logoIdx);
+      // Logo and card never share a row in stacked mode.
+      const overlapping = lines.filter((l) => /[█╔]/.test(l) && l.includes('Sovereign AI'));
+      expect(overlapping.length).toBe(0);
+    });
+
+    test('drops the logo entirely when the terminal is narrower than the logo (25 cols)', () => {
+      const out = strip(renderSplash(baseInfo, 25));
+      expect(out).not.toMatch(/[█╔╗╚╝]/);
+      expect(out).toContain('Sovereign AI');
+      expect(out).toContain('anthropic');
+    });
+
+    test('abbreviates a long bundle path with a leading ellipsis', () => {
+      const longPath = '/Users/test/code/some/deeply/nested/very/long/bundle/path/here';
+      const out = strip(renderSplash({ ...baseInfo, bundlePath: longPath }, 90));
+      expect(out).toContain('…/');
+      expect(out).toContain('here');
+      expect(out).not.toContain('/Users/test/code/some/deeply');
+    });
+
+    test('keeps a short bundle path verbatim', () => {
+      const out = strip(renderSplash({ ...baseInfo, bundlePath: '/short' }, 120));
+      expect(out).toContain('/short');
+      expect(out).not.toContain('…/');
+    });
+
+    test('preserves tips and footer in every layout', () => {
+      for (const cols of [120, 50, 25]) {
+        const out = strip(renderSplash(baseInfo, cols));
+        expect(out).toContain('Tips:');
+        expect(out).toContain('perms:');
+        expect(out).toContain('tools:');
+      }
+    });
+  });
 });

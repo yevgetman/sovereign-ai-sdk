@@ -21,6 +21,18 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-05 - Splash narrow-terminal layout fix
+
+- Scope: REPL splash logo fragmented at narrow terminal widths because the side-by-side `logo + card` layout exceeded `process.stdout.columns`, causing the terminal to wrap each row mid-glyph. Reproduced from a user-shared screenshot.
+- Fix in `src/ui/splash.ts`:
+  - `renderSplash(info, terminalCols?)` — takes an optional column override (testability) and computes a side-by-side / stacked / no-logo layout based on available width.
+  - `abbreviatePath(path, maxWidth)` — collapses long bundle paths to `…/<tail>` form when the card budget would otherwise force the box to overflow.
+  - Three tiers: side-by-side (default), stacked-with-logo (narrow), card-only (logo wider than terminal).
+- Coverage: extended `tests/ui/splash.test.ts` with a `width-aware layout` describe — 6 new tests covering wide/narrow/very-narrow widths, path abbreviation, short-path verbatim, and tips/footer preservation across all layouts.
+- Commands: `bun test tests/ui/splash.test.ts` (10/10 pass), `bun run lint` (clean), `bun run typecheck` (clean), `bun test` (1130/1130 pass — was 1124, +6 splash).
+- Also: added `bundle-default/state/*` (sparing `.gitkeep`) to `.gitignore` — the default bundle's state/ directory accumulates trajectory artifacts at runtime and shouldn't be committed.
+- Result: pass. No regressions. Visual fix is layout-only, no behavior changes elsewhere.
+
 ## 2026-05-04 - Full semantic suite run — auth-blocked (35 fail / 1 pass / 1 error)
 
 - Scope: Verification run of the 37-case suite against today's session work (Phase 9.6 / 12.5 / 12.6 / HarnessInfo+self-doc / WebSearch UX / MCP rule fix / sov upgrade / git+ssh distribution).
