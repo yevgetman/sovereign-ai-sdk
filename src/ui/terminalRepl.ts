@@ -696,11 +696,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // set yet (the first query() call comes later).
   if (loadedAgents.agents.length > 0) {
     const laneSemaphores = new LaneSemaphores({
-      ...(settings.router?.maxConcurrentLocal !== undefined
-        ? { local: settings.router.maxConcurrentLocal }
+      ...(userSettings.router?.maxConcurrentLocal !== undefined
+        ? { local: userSettings.router.maxConcurrentLocal }
         : {}),
-      ...(settings.router?.maxConcurrentFrontier !== undefined
-        ? { frontier: settings.router.maxConcurrentFrontier }
+      ...(userSettings.router?.maxConcurrentFrontier !== undefined
+        ? { frontier: userSettings.router.maxConcurrentFrontier }
         : {}),
     });
     const subagentWriteLock = new Semaphore(1);
