@@ -49,6 +49,31 @@ describe('MarkdownStream', () => {
     expect(plain).toBe('use cat file.txt to read\n');
   });
 
+  test('inline code uses the active theme — cyan in dark (matches bullet/number color)', () => {
+    // Regression guard: renderer used to call chalk.yellow directly,
+    // bypassing the theme system entirely. Yellow conflicted with
+    // status-warning yellow and made code-heavy paragraphs look like
+    // walls of warnings. Now: theme.tokens.codeInline → cyan in dark
+    // theme, matching `accent` (which is what bullets/numbers use).
+    const { raw } = render('the `verify_token` function\n');
+    // Cyan foreground = ESC[36m.
+    expect(raw).toContain(`${ESC}[36m`);
+    // No yellow.
+    expect(raw).not.toContain(`${ESC}[33mverify_token`);
+  });
+
+  test('inline code matches bullet-marker color in the same render', () => {
+    // Concrete proof of the unification: a bullet line with inline
+    // code should color both the bullet glyph and the code span the
+    // same way (the user's stated goal — "same color as the number
+    // bullet points").
+    const { raw } = render('- use `verify_token` to check\n');
+    // Both should color spans appear within the same line.
+    // chalk.cyan opens with ESC[36m, closes with ESC[39m.
+    const cyanOpens = (raw.match(new RegExp(`${ESC}\\[36m`, 'g')) ?? []).length;
+    expect(cyanOpens).toBeGreaterThanOrEqual(2); // bullet + code
+  });
+
   test('bullet list renders bullet glyph', () => {
     const { plain } = render('- one\n- two\n');
     expect(plain).toBe('• one\n• two\n');

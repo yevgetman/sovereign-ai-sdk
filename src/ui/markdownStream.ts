@@ -9,6 +9,7 @@
 // bursts and reads fine.
 
 import chalk from 'chalk';
+import { theme } from './theme.js';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -26,7 +27,13 @@ const BOLD = /\*\*([^*]+)\*\*/g;
 const ITALIC = /(^|[^*])\*([^*\n]+)\*(?!\*)/g;
 
 function renderInline(text: string): string {
-  let out = text.replace(INLINE_CODE, (_m, code) => chalk.yellow(code));
+  // codeInline pulls from the active theme (cyan in dark, blue in
+  // light, identity in no-color) — not chalk.yellow as it was in the
+  // pre-wave-3 version. Yellow conflicted with status-warning yellow
+  // and made code-heavy paragraphs look alarmist; aligning with the
+  // accent color groups inline-code visually with the cyan bullets/
+  // numbers below.
+  let out = text.replace(INLINE_CODE, (_m, code) => theme.tokens.codeInline(code));
   out = out.replace(BOLD, (_m, inner) => chalk.bold(inner));
   out = out.replace(ITALIC, (_m, pre, inner) => `${pre}${chalk.italic(inner)}`);
   return out;

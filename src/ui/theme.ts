@@ -97,7 +97,14 @@ const darkTheme: Theme = {
     border: chalk.gray,
     borderAccent: chalk.cyan,
     borderWarning: chalk.yellow,
-    codeInline: chalk.yellow,
+    // Inline-code color matches `accent` (cyan in this theme). Originally
+    // yellow, but yellow conflicted visually with `borderWarning` /
+    // `statusWarning` (also yellow) and made markdown blocks with a lot
+    // of `code` spans look like one big warning. Aligning code with the
+    // accent color matches the bullet/number markers in the markdown
+    // renderer (also cyan via `accent`) — the eye reads "code" and
+    // "list-marker" as the same kind of structural emphasis.
+    codeInline: chalk.cyan,
     codeFence: chalk.gray,
     headerH1: compose(chalk.bold, chalk.underline),
     headerH2: chalk.bold,
@@ -106,8 +113,7 @@ const darkTheme: Theme = {
 };
 
 // Light theme: same role assignments, but darker primaries so cyan
-// doesn't disappear into a white background. Yellow becomes orange-ish
-// via rgb() so it has enough contrast.
+// doesn't disappear into a white background.
 const lightTheme: Theme = {
   name: 'light',
   description: 'Light theme — darker primaries for light terminals.',
@@ -130,7 +136,10 @@ const lightTheme: Theme = {
     border: chalk.gray,
     borderAccent: chalk.blue,
     borderWarning: chalk.rgb(180, 90, 0),
-    codeInline: chalk.rgb(150, 100, 0),
+    // Light theme: inline code matches accent (blue here), same
+    // rationale as dark theme's cyan — code and list markers share
+    // a consistent emphasis color, separate from warning yellows.
+    codeInline: chalk.blue,
     codeFence: chalk.gray,
     headerH1: compose(chalk.bold, chalk.underline),
     headerH2: chalk.bold,
