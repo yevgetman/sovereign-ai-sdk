@@ -103,6 +103,51 @@ describe('HarnessInfoTool — agents section (Phase 13)', () => {
     expect(rendered.content).toContain('(read-only)');
   });
 
+  test('rendered output surfaces whenToUse when present', async () => {
+    const snap = fixtureSnapshot({
+      agents: [
+        {
+          name: 'verify',
+          description: 'Independent claim checker',
+          whenToUse: 'when the parent has produced a claim that needs an independent check',
+          role: 'verify',
+          readOnly: true,
+          maxTurns: 25,
+          allowedTools: ['Read'],
+          source: 'bundle',
+          trustTier: 'builtin',
+        },
+      ],
+    });
+    const tool = buildHarnessInfoTool(() => snap);
+    const result = await tool.call({ section: 'agents' }, ctx);
+    const rendered = tool.renderResult?.(result.data) ?? { content: '' };
+    expect(rendered.content).toContain('when to use:');
+    expect(rendered.content).toContain('parent has produced a claim');
+  });
+
+  test('rendered output omits the whenToUse line when the field is absent', async () => {
+    const snap = fixtureSnapshot({
+      agents: [
+        {
+          name: 'minimal',
+          description: 'No trigger predicate',
+          role: 'explore',
+          readOnly: true,
+          maxTurns: 20,
+          allowedTools: ['Read'],
+          source: 'bundle',
+          trustTier: 'builtin',
+        },
+      ],
+    });
+    const tool = buildHarnessInfoTool(() => snap);
+    const result = await tool.call({ section: 'agents' }, ctx);
+    const rendered = tool.renderResult?.(result.data) ?? { content: '' };
+    expect(rendered.content).toContain('minimal');
+    expect(rendered.content).not.toContain('when to use:');
+  });
+
   test("section: 'all' includes the agents section in rendered output", async () => {
     const snap = fixtureSnapshot({
       agents: [

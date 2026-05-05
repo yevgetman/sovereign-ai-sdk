@@ -107,14 +107,19 @@ export function assembleToolPool(
  * Phase 13.5: AgentTool's `subagent_type` field is rewritten from an open
  * `string` to a closed enum derived from `ctx.agents`. When no agents are
  * loaded, AgentTool is dropped from the pool so the model never sees a
- * tool it cannot successfully invoke. Source of pattern: Claude Code
- * src/tools.ts (assembleToolPool + patchSchemasAgainstAvailable).
+ * tool it cannot successfully invoke. The enum's `describe(...)` text is
+ * enriched with each agent's `description` and (when present)
+ * `whenToUse` predicate — that's what the model sees in the schema every
+ * turn AgentTool is in scope, so it's the strongest place to surface the
+ * "when to delegate" guidance the bundle author wrote. Source of pattern:
+ * Claude Code src/tools.ts (assembleToolPool + patchSchemasAgainstAvailable).
  */
 export function patchSchemasAgainstAvailable(
   tools: Tool<unknown, unknown>[],
   ctx?: ToolContext,
 ): Tool<unknown, unknown>[] {
-  const agentNames = ctx?.agents ? [...ctx.agents.byName.keys()].sort() : [];
+  const registry = ctx?.agents;
+  const agentNames = registry ? [...registry.byName.keys()].sort() : [];
   if (agentNames.length === 0) {
     // Drop AgentTool entirely when there are no agents — exposing a tool
     // whose subagent_type enum is empty would let the model attempt calls
@@ -124,10 +129,9 @@ export function patchSchemasAgainstAvailable(
   return tools.map((t) => {
     if (t.name !== 'AgentTool') return t;
     const enumValues = agentNames as [string, ...string[]];
+    const enumDescription = buildSubagentTypeDescription(agentNames, registry);
     const newSchema = z.object({
-      subagent_type: z
-        .enum(enumValues)
-        .describe('The name of the loaded sub-agent to delegate to.'),
+      subagent_type: z.enum(enumValues).describe(enumDescription),
       prompt: z
         .string()
         .min(1)
@@ -137,4 +141,27 @@ export function patchSchemasAgainstAvailable(
     });
     return { ...t, inputSchema: newSchema as unknown as typeof t.inputSchema };
   });
+}
+
+/** Builds the `subagent_type` enum description. Lists every available
+ *  agent with its description and (when present) its `whenToUse`
+ *  predicate, so the model sees the trigger guidance in the schema. */
+function buildSubagentTypeDescription(
+  agentNames: string[],
+  registry: import('../agents/types.js').AgentRegistry | undefined,
+): string {
+  const header =
+    'The name of the loaded sub-agent to delegate to. Pick the one whose ' +
+    "purpose and 'when to use' predicate best matches the current task. " +
+    'Available sub-agents:';
+  const agentLines = agentNames.map((name) => {
+    const agent = registry?.byName.get(name);
+    if (!agent) return `- ${name}`;
+    const trigger =
+      agent.whenToUse !== undefined && agent.whenToUse.length > 0
+        ? ` Use when: ${agent.whenToUse}`
+        : '';
+    return `- ${name}: ${agent.description}${trigger}`;
+  });
+  return [header, ...agentLines].join('\n');
 }

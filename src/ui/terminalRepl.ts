@@ -574,6 +574,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       agents: loadedAgents.agents.map((a) => ({
         name: a.name,
         description: a.description,
+        ...(a.whenToUse !== undefined ? { whenToUse: a.whenToUse } : {}),
         ...(a.role !== undefined ? { role: a.role } : {}),
         ...(a.model !== undefined ? { model: a.model } : {}),
         readOnly: a.readOnly,

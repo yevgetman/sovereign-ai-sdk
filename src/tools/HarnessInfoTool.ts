@@ -48,6 +48,11 @@ export type HarnessInfoSnapshot = {
   agents: Array<{
     name: string;
     description: string;
+    /** Optional trigger predicate from the agent's frontmatter (e.g.
+     *  "when the user asks for an audit"). When the bundle author
+     *  wrote one, surfacing it here gives the model a sharper signal
+     *  than the description alone. */
+    whenToUse?: string;
     /** Optional capability role; when set, the scheduler resolves the
      *  agent's provider/model through the capability profile table. */
     role?: string;
@@ -170,6 +175,9 @@ function formatSnapshot(out: Output): string {
       const flags = a.readOnly ? ' (read-only)' : '';
       lines.push(`  ${a.name}${target}${flags}`);
       lines.push(`    ${a.description}`);
+      if (a.whenToUse !== undefined && a.whenToUse.length > 0) {
+        lines.push(`    when to use: ${a.whenToUse}`);
+      }
       lines.push(`    source: ${a.source} · trust: ${a.trustTier} · maxTurns: ${a.maxTurns}`);
       if (a.allowedTools.length > 0) {
         lines.push(`    allowedTools: ${a.allowedTools.join(', ')}`);
