@@ -571,6 +571,17 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         name: c.name,
         description: c.description,
       })),
+      agents: loadedAgents.agents.map((a) => ({
+        name: a.name,
+        description: a.description,
+        ...(a.role !== undefined ? { role: a.role } : {}),
+        ...(a.model !== undefined ? { model: a.model } : {}),
+        readOnly: a.readOnly,
+        maxTurns: a.maxTurns,
+        allowedTools: a.allowedTools,
+        source: a.source,
+        trustTier: a.trustTier,
+      })),
       budget: auditContextBudget({
         systemSegments: opened.systemPrompt,
         tools: finalToolPoolRef,

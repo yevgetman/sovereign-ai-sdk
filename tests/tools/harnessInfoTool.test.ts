@@ -37,9 +37,94 @@ function fixtureSnapshot(overrides: Partial<HarnessInfoSnapshot> = {}): HarnessI
       { name: 'help', description: 'List available slash commands.' },
       { name: 'config', description: 'View or change durable user-level config.' },
     ],
+    agents: [],
     ...overrides,
   };
 }
+
+describe('HarnessInfoTool — agents section (Phase 13)', () => {
+  test("section: 'agents' returns only the agents array", async () => {
+    const snap = fixtureSnapshot({
+      agents: [
+        {
+          name: 'explore',
+          description: 'Read-only codebase explorer',
+          role: 'explore',
+          readOnly: true,
+          maxTurns: 30,
+          allowedTools: ['Read', 'Grep'],
+          source: 'bundle',
+          trustTier: 'builtin',
+        },
+        {
+          name: 'verify',
+          description: 'Independent claim checker',
+          role: 'verify',
+          readOnly: true,
+          maxTurns: 25,
+          allowedTools: ['Read'],
+          source: 'bundle',
+          trustTier: 'builtin',
+        },
+      ],
+    });
+    const tool = buildHarnessInfoTool(() => snap);
+    const result = await tool.call({ section: 'agents' }, ctx);
+    expect(result.data.agents?.length).toBe(2);
+    expect(result.data.agents?.[0]?.name).toBe('explore');
+    // Other sections excluded.
+    expect(result.data.mcpServers).toBeUndefined();
+    expect(result.data.tools).toBeUndefined();
+  });
+
+  test('rendered output names each agent with description, role, and trust tier', async () => {
+    const snap = fixtureSnapshot({
+      agents: [
+        {
+          name: 'plan',
+          description: 'Implementation planning',
+          role: 'plan',
+          readOnly: true,
+          maxTurns: 40,
+          allowedTools: ['Read', 'Grep', 'Glob'],
+          source: 'bundle',
+          trustTier: 'builtin',
+        },
+      ],
+    });
+    const tool = buildHarnessInfoTool(() => snap);
+    const result = await tool.call({ section: 'agents' }, ctx);
+    const rendered = tool.renderResult?.(result.data) ?? { content: '' };
+    expect(rendered.content).toContain('sub-agents (1)');
+    expect(rendered.content).toContain('plan');
+    expect(rendered.content).toContain('Implementation planning');
+    expect(rendered.content).toContain('role: plan');
+    expect(rendered.content).toContain('trust: builtin');
+    expect(rendered.content).toContain('(read-only)');
+  });
+
+  test("section: 'all' includes the agents section in rendered output", async () => {
+    const snap = fixtureSnapshot({
+      agents: [
+        {
+          name: 'explore',
+          description: 'Read-only codebase explorer',
+          role: 'explore',
+          readOnly: true,
+          maxTurns: 30,
+          allowedTools: ['Read', 'Grep'],
+          source: 'bundle',
+          trustTier: 'builtin',
+        },
+      ],
+    });
+    const tool = buildHarnessInfoTool(() => snap);
+    const result = await tool.call({ section: 'all' }, ctx);
+    const rendered = tool.renderResult?.(result.data) ?? { content: '' };
+    expect(rendered.content).toContain('sub-agents (1)');
+    expect(rendered.content).toContain('explore');
+  });
+});
 
 describe('HarnessInfoTool', () => {
   test('section: all returns the full snapshot', async () => {

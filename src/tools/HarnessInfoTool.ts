@@ -39,13 +39,34 @@ export type HarnessInfoSnapshot = {
     mcp: string[];
   };
   slashCommands: Array<{ name: string; description: string }>;
+  /** Phase 13: loaded sub-agent definitions. Each entry corresponds to
+   *  one agent the parent can delegate to via AgentTool. The model
+   *  reads this section to answer "what sub-agents do I have access
+   *  to" — distinct from MCP servers (which are external tool sources)
+   *  and from skills (which are markdown procedures invoked in the
+   *  parent context). */
+  agents: Array<{
+    name: string;
+    description: string;
+    /** Optional capability role; when set, the scheduler resolves the
+     *  agent's provider/model through the capability profile table. */
+    role?: string;
+    /** Optional explicit model override; when set, the scheduler uses
+     *  this literal provider/model string instead of role resolution. */
+    model?: string;
+    readOnly: boolean;
+    maxTurns: number;
+    allowedTools: string[];
+    source: 'project' | 'user' | 'bundle';
+    trustTier: 'builtin' | 'trusted';
+  }>;
   /** Phase 12.6: per-component context-window audit. Optional — present
    *  when the snapshot getter has access to the system-prompt segments
    *  and tool pool. */
   budget?: BudgetReport;
 };
 
-const SECTIONS = ['all', 'settings', 'mcp', 'tools', 'commands', 'budget'] as const;
+const SECTIONS = ['all', 'settings', 'mcp', 'tools', 'commands', 'agents', 'budget'] as const;
 type Section = (typeof SECTIONS)[number];
 
 const inputSchema = z.object({
@@ -54,7 +75,9 @@ const inputSchema = z.object({
     .optional()
     .describe(
       "Which section to return. 'all' (default) returns everything. " +
-        "Use 'settings', 'mcp', 'tools', or 'commands' to scope the output.",
+        "Use 'settings', 'mcp', 'tools', 'commands', 'agents', or 'budget' to scope the output. " +
+        "Use 'agents' to list loaded sub-agents (delegated via AgentTool); use 'mcp' to list " +
+        'connected MCP servers (external tool sources). These are different things.',
     ),
 });
 
@@ -66,9 +89,12 @@ export function buildHarnessInfoTool(getSnapshot: () => HarnessInfoSnapshot): To
     name: 'HarnessInfo',
     description: () =>
       'Inspect the runtime state of the harness you are running inside: permission settings layers, ' +
-      'connected MCP servers and their tools, the native + MCP tool inventory, and registered slash ' +
-      'commands. Call this to answer "how is the harness configured here", "what MCP servers are ' +
-      'connected", or "what tools / commands are available" instead of guessing.',
+      'connected MCP servers and their tools, the native + MCP tool inventory, registered slash ' +
+      'commands, and loaded sub-agents (delegated to via AgentTool). Call this to answer "how is the ' +
+      'harness configured here", "what MCP servers are connected", "what sub-agents do I have ' +
+      'access to", or "what tools / commands are available" instead of guessing. Note: "sub-agents" ' +
+      'in this harness are the entries in the `agents` section (invoked via AgentTool with a ' +
+      'subagent_type), NOT the MCP servers — those are external tool sources, not delegated agents.',
     inputSchema,
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
@@ -98,6 +124,8 @@ function filterSnapshot(snap: HarnessInfoSnapshot, section: Section): Output {
       return { tools: snap.tools };
     case 'commands':
       return { slashCommands: snap.slashCommands };
+    case 'agents':
+      return { agents: snap.agents };
     case 'budget':
       return snap.budget !== undefined ? { budget: snap.budget } : {};
     default:
@@ -131,6 +159,22 @@ function formatSnapshot(out: Output): string {
     if (out.tools.native.length > 0) lines.push(`  ${out.tools.native.join(', ')}`);
     lines.push(`mcp tools (${out.tools.mcp.length}):`);
     if (out.tools.mcp.length > 0) lines.push(`  ${out.tools.mcp.join(', ')}`);
+  }
+  if (out.agents !== undefined) {
+    lines.push('', `sub-agents (${out.agents.length}) — delegated via AgentTool:`);
+    for (const a of out.agents) {
+      const targetParts: string[] = [];
+      if (a.role !== undefined) targetParts.push(`role: ${a.role}`);
+      if (a.model !== undefined) targetParts.push(`model: ${a.model}`);
+      const target = targetParts.length > 0 ? ` [${targetParts.join(', ')}]` : '';
+      const flags = a.readOnly ? ' (read-only)' : '';
+      lines.push(`  ${a.name}${target}${flags}`);
+      lines.push(`    ${a.description}`);
+      lines.push(`    source: ${a.source} · trust: ${a.trustTier} · maxTurns: ${a.maxTurns}`);
+      if (a.allowedTools.length > 0) {
+        lines.push(`    allowedTools: ${a.allowedTools.join(', ')}`);
+      }
+    }
   }
   if (out.budget !== undefined) {
     lines.push('', formatBudgetReport(out.budget));
