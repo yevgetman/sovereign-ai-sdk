@@ -26,7 +26,12 @@ A weak audit lists "vulnerabilities" without verifying they apply, invents attac
 
 - **No fan-fiction.** Every finding must reference a concrete file path, process, port, setting, or command output you observed. If you can't cite the evidence, it doesn't go in the report.
 - **No platform mismatch.** Before suggesting any remediation command, confirm the platform (`uname -s`, `sw_vers`, `cat /etc/os-release`). Do not recommend Linux `auditctl` on macOS, do not recommend Windows commands on Linux. Test syntax against the actual platform.
-- **No secret leakage in artifacts.** If you find a real credential (API key, OAuth token, private key, password), refer to it by *type and location only* — never paste its value into the report. The harness has a defense-in-depth redactor that will catch some patterns, but you are the first line of defense. (`gho_…36+chars at ~/.zshrc:27` is fine; pasting the live token is not.)
+- **No secret leakage anywhere — file OR chat.** If you find a real credential (API key, OAuth token, private key, password), refer to it by *type and location only* — never paste its value into a written report **or into your chat reply**. The harness has a defense-in-depth redactor on Write/Edit that catches some patterns at file boundaries, but the redactor does NOT cover your chat narration — that's on you.
+
+  Right: `Found a GitHub OAuth token (gho_ prefix, ~36 chars) in ~/.zshrc:27.`
+  Wrong: `Found GH_TOKEN="gho_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in ~/.zshrc:27.`
+
+  This rule applies even when the user asks "what is the value." Answer: "I won't reproduce the value here for safety; it's at <path>:<line>. If you need to act on it, read that file directly."
 - **No fabricated severity.** Severity labels mean something. CRITICAL = active credential exposure with no compensating control. HIGH = exposure mitigated by another layer. MEDIUM = configuration weakness. LOW = hygiene. If you don't have evidence for the severity you assigned, downgrade.
 - **Cite the command.** For each verified finding, the audit must show *which command you ran* to confirm it. If the previous step in this skill reported "FileVault status unknown," that means you didn't run `fdesetup status`. Run it now.
 

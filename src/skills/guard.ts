@@ -27,8 +27,14 @@ const GUARD_PATTERNS: GuardPattern[] = [
   { level: 'medium', category: 'prompt-injection', pattern: /\byou are now\b/i },
   { level: 'critical', category: 'destructive-operation', pattern: /\brm\s+-rf\s+\/(?:\s|$)/i },
   { level: 'critical', category: 'destructive-operation', pattern: /\bdd\s+if=/i },
-  { level: 'critical', category: 'destructive-operation', pattern: /\bshred\b/i },
-  { level: 'critical', category: 'destructive-operation', pattern: /\bformat\b/i },
+  { level: 'critical', category: 'destructive-operation', pattern: /\bshred\s+/i },
+  // `format` previously matched any occurrence of the word — including
+  // benign uses like "in this format:" — and silently blocked legitimate
+  // skills. Tighten to disk-format commands only: Windows `format C:` /
+  // `format X:`, Unix-ish `format /dev/...`, mkfs.* invocations.
+  { level: 'critical', category: 'destructive-operation', pattern: /\bformat\s+[A-Za-z]:\s/i },
+  { level: 'critical', category: 'destructive-operation', pattern: /\bformat\s+\/dev\//i },
+  { level: 'critical', category: 'destructive-operation', pattern: /\bmkfs\.[a-z0-9]+\s+\//i },
   { level: 'critical', category: 'destructive-sql', pattern: /\bDROP\s+(DATABASE|SCHEMA)\b/i },
   { level: 'critical', category: 'destructive-sql', pattern: /\bTRUNCATE\s+TABLE\b/i },
   { level: 'medium', category: 'persistence', pattern: /\bcrontab\b|\bcron\b/i },
