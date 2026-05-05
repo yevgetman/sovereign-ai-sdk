@@ -98,6 +98,10 @@ export class LoopDetectorState {
   }
 
   addAndCheck(turn: TurnSnapshot): LoopDetection | null {
+    // Global bypass for workloads that legitimately repeat the same tool
+    // many times (e.g. /security-audit running 30+ Bash verifications).
+    // Mirrors HARNESS_REDACTION=off as a kill-switch parallel.
+    if (process.env.HARNESS_LOOP_DETECTOR === 'off') return null;
     for (const call of turn.toolCalls) {
       this.toolCallHashes.push(hashToolCall(call));
       // Read-only inspection tools (FileRead/Read/Grep/Glob by default) don't

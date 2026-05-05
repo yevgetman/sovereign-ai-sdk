@@ -55,6 +55,55 @@ describe('LoopDetectorState — consecutive-identical tool calls', () => {
   });
 });
 
+describe('LoopDetectorState — env-var bypass', () => {
+  test('HARNESS_LOOP_DETECTOR=off short-circuits before any check', () => {
+    const original = process.env.HARNESS_LOOP_DETECTOR;
+    process.env.HARNESS_LOOP_DETECTOR = 'off';
+    try {
+      const state = new LoopDetectorState();
+      let detection = null;
+      for (let i = 0; i < 100; i++) {
+        detection = state.addAndCheck({
+          toolCalls: [{ name: 'Bash', input: { command: 'echo same' } }],
+          assistantText: '',
+        });
+      }
+      expect(detection).toBeNull();
+    } finally {
+      if (original === undefined) {
+        // biome-ignore lint/performance/noDelete: restore unset state
+        delete process.env.HARNESS_LOOP_DETECTOR;
+      } else {
+        process.env.HARNESS_LOOP_DETECTOR = original;
+      }
+    }
+  });
+
+  test('HARNESS_LOOP_DETECTOR set to anything else leaves detection on', () => {
+    const original = process.env.HARNESS_LOOP_DETECTOR;
+    process.env.HARNESS_LOOP_DETECTOR = 'on';
+    try {
+      const state = new LoopDetectorState();
+      let detection = null;
+      for (let i = 0; i < 5; i++) {
+        detection = state.addAndCheck({
+          toolCalls: [{ name: 'Bash', input: { command: 'echo same' } }],
+          assistantText: '',
+        });
+        if (detection) break;
+      }
+      expect(detection).not.toBeNull();
+    } finally {
+      if (original === undefined) {
+        // biome-ignore lint/performance/noDelete: restore unset state
+        delete process.env.HARNESS_LOOP_DETECTOR;
+      } else {
+        process.env.HARNESS_LOOP_DETECTOR = original;
+      }
+    }
+  });
+});
+
 describe('LoopDetectorState — action-stagnation', () => {
   test('fires on 12 same-tool calls regardless of args (default threshold)', () => {
     const state = new LoopDetectorState();
