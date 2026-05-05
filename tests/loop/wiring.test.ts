@@ -109,6 +109,62 @@ describe('query() ⊕ loop detector', () => {
     expect(guidanceMsg).toBeDefined();
   });
 
+  test('preserves tool_use → tool_result pairing when guidance is injected', async () => {
+    // Provider-validity invariant: every assistant message containing one or
+    // more `tool_use` blocks must be IMMEDIATELY followed by a user message
+    // containing matching `tool_result` blocks. Anthropic returns 400 with
+    // "tool_use ids were found without tool_result blocks immediately after"
+    // otherwise. The original loop-detector wiring violated this by pushing
+    // a text-only guidance message between the assistant's tool_use and the
+    // user's tool_result. This test catches that regression.
+    const gen = query({
+      provider: stuckProvider({ breakAt: 4 }),
+      model: 'm',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      canUseTool: async () => ({ behavior: 'allow' }),
+      maxTokens: 256,
+      maxTurns: 20,
+    });
+    const { events, terminal } = await drainCollecting(gen);
+    expect(terminal.reason).toBe('completed');
+
+    // Reconstruct the message timeline that would be sent to the provider on
+    // each turn — assistant messages (from `assistant_message` StreamEvents)
+    // and yielded user messages, in the order they would land in `history`.
+    const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'go' }] }];
+    for (const e of events) {
+      if ('type' in e && (e as StreamEvent).type === 'assistant_message') {
+        messages.push((e as Extract<StreamEvent, { type: 'assistant_message' }>).message);
+      } else if ('role' in e) {
+        messages.push(e);
+      }
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (!m || m.role !== 'assistant') continue;
+      const toolUseIds = m.content
+        .filter((b) => b.type === 'tool_use')
+        .map((b) => (b.type === 'tool_use' ? b.id : ''));
+      if (toolUseIds.length === 0) continue;
+      const next = messages[i + 1];
+      expect(next, `assistant tool_use at index ${i} must have a next message`).toBeDefined();
+      expect(next?.role).toBe('user');
+      const resultIds = (next?.content ?? [])
+        .filter((b) => b.type === 'tool_result')
+        .map((b) => (b.type === 'tool_result' ? b.tool_use_id : ''));
+      for (const id of toolUseIds) {
+        expect(
+          resultIds,
+          `tool_use ${id} (asst@${i}) must have a tool_result in user@${i + 1}`,
+        ).toContain(id);
+      }
+    }
+  });
+
   test('terminates with reason: error after the second detection', async () => {
     // Model never breaks out — same tool call forever. After the first
     // detection we inject guidance, but the next turn keeps repeating, so

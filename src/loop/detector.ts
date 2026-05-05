@@ -42,8 +42,18 @@ export type LoopDetectorOpts = {
    *  same args N times in a row." Hit fires at N. Default 4. */
   consecutiveIdenticalThreshold?: number;
   /** Threshold for "the model called the same tool name N times in a row,
-   *  regardless of args." Default 7. */
+   *  regardless of args." Default 12. (Was 7 in the original Qwen-derived
+   *  tuning; raised after real review sessions showed legitimate codebase
+   *  exploration triggering false positives. Same-input duplicates are
+   *  still caught by consecutive-identical at 4.) */
   actionStagnationThreshold?: number;
+  /** Tools that should NOT count toward action-stagnation. Read-only
+   *  inspection tools (FileRead/Read/Grep/Glob) are inherently fact-finding
+   *  and reading 30 different files in a row during a code review is
+   *  legitimate progress, not stagnation. Pass an empty set to restore the
+   *  pre-tuning behavior where every tool counts. Same-input duplicate reads
+   *  are still caught by consecutive-identical (threshold 4). */
+  actionStagnationExcludeTools?: ReadonlySet<string>;
   /** Chunk size (characters) for the content-loop detector. Default 200. */
   contentChunkSize?: number;
   /** Threshold for "this content chunk appeared N times in the last
@@ -54,9 +64,17 @@ export type LoopDetectorOpts = {
   contentWindowMultiplier?: number;
 };
 
+const DEFAULT_ACTION_STAGNATION_EXCLUDE: ReadonlySet<string> = new Set([
+  'FileRead',
+  'Read',
+  'Grep',
+  'Glob',
+]);
+
 const DEFAULT_OPTS: Required<LoopDetectorOpts> = {
   consecutiveIdenticalThreshold: 4,
-  actionStagnationThreshold: 7,
+  actionStagnationThreshold: 12,
+  actionStagnationExcludeTools: DEFAULT_ACTION_STAGNATION_EXCLUDE,
   contentChunkSize: 200,
   contentRepeatThreshold: 8,
   contentWindowMultiplier: 1.5,
@@ -82,7 +100,14 @@ export class LoopDetectorState {
   addAndCheck(turn: TurnSnapshot): LoopDetection | null {
     for (const call of turn.toolCalls) {
       this.toolCallHashes.push(hashToolCall(call));
-      this.toolNames.push(call.name);
+      // Read-only inspection tools (FileRead/Read/Grep/Glob by default) don't
+      // contribute to action-stagnation: the model walking many distinct
+      // files during a review is progress, not a stuck loop. They still
+      // contribute to consecutive-identical via toolCallHashes, so duplicate
+      // exact reads are caught.
+      if (!this.opts.actionStagnationExcludeTools.has(call.name)) {
+        this.toolNames.push(call.name);
+      }
     }
     if (turn.assistantText.length > 0) {
       for (const chunk of chunkText(turn.assistantText, this.opts.contentChunkSize)) {

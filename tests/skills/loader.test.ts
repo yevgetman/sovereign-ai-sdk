@@ -326,6 +326,53 @@ describe('expandSkillPrompt', () => {
       expect(expanded).toContain('[inline-shell error: exit 7');
     });
   });
+
+  test('appends args as a fallback suffix when the body has no {{args}} placeholder', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'skills/review.md'),
+        realpath: join(dir, 'skills/review.md'),
+        dir: join(dir, 'skills'),
+        body: 'Review the current project. No placeholder here.',
+      });
+
+      const expanded = await expandSkillPrompt(skill, {
+        args: '~/code/babyboard/',
+        cwd: dir,
+      });
+      expect(expanded).toContain('Review the current project. No placeholder here.');
+      expect(expanded).toContain('User arguments: ~/code/babyboard/');
+    });
+  });
+
+  test('does not append the fallback suffix when args is empty or whitespace', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'skills/review.md'),
+        realpath: join(dir, 'skills/review.md'),
+        dir: join(dir, 'skills'),
+        body: 'Review the current project. No placeholder here.',
+      });
+
+      const expanded = await expandSkillPrompt(skill, { args: '   ', cwd: dir });
+      expect(expanded).not.toContain('User arguments:');
+    });
+  });
+
+  test('does not append the fallback suffix when the body uses {{args}} explicitly', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'skills/echo.md'),
+        realpath: join(dir, 'skills/echo.md'),
+        dir: join(dir, 'skills'),
+        body: 'Echo this: {{args}}',
+      });
+
+      const expanded = await expandSkillPrompt(skill, { args: 'hello world', cwd: dir });
+      expect(expanded).toContain('Echo this: hello world');
+      expect(expanded).not.toContain('User arguments:');
+    });
+  });
 });
 
 describe('reloadSkill', () => {

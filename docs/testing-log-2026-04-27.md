@@ -1602,3 +1602,44 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - **`sov init` corpus design session queued as a follow-up.** Question: what files does `sov init` actually generate when reading a non-trivial repo? File-tree summary, language/framework inference, dependency hints, etc. v1 is minimal (just the README seed); richer seeding lands in a focused session.
+
+## 2026-05-05 - Two real-session bugs from `/review ~/code/babyboard/` transcript (unit suite 1134/1134)
+
+- Scope: investigated transcript `/Users/julie/.harness/debug/transcript-2026-05-05T13-19-59-120Z.jsonl`. Two bugs found, both fixed, both regression-tested.
+- **Bug 1 — slash-command argument silently dropped.** `/review ~/code/babyboard/` reached the model as just the bare review prompt; the path was discarded. Root cause: `expandSkillText` (`src/skills/loader.ts`) only substituted the `{{args}}` placeholder; the bundled `/review` skill body has no placeholder, so user args vanished. Fix: when `args` is non-empty AND the body lacks `{{args}}`, append `\n\nUser arguments: <args>` as a fallback. Skills that use `{{args}}` continue to get exact substitution with no duplication.
+- **Bug 2 — orphan `tool_use` 400 from Anthropic.** After 7 consecutive `FileRead` calls, the action-stagnation loop detector fired (threshold=7) and `query()` (`src/core/query.ts`) pushed a text-only `{role:'user', content:[text]}` guidance message between the assistant's `tool_use` and the orchestrator's `tool_result` user message. Anthropic rejected the next turn with `messages.106: tool_use ids were found without tool_result blocks immediately after`. Fix: defer guidance via a `pendingGuidanceText` slot and a `consumeGuidance(msg)` helper — the guidance is appended as a final text block on the next user message we yield (the tool_result message), which is provider-valid. Content-loop case (assistant emits no tool_use) still emits guidance as a standalone user message; nothing to orphan there. The synthesize-tool-result branches (max_tokens, missing tool pool, missing toolCtx, interrupt, orchestration error) all merge guidance through the same helper.
+- Why semantic tests didn't catch them:
+  - Bug 1: `tests/semantic/suites/02-commands.cases.ts` only exercised `/help`, `/init`, `/commit`, `/context-budget` — none with user-supplied arguments. `09-skills.cases.ts` exercised one no-args marker skill. No test asserted that args reach the model.
+  - Bug 2: `tests/loop/wiring.test.ts` used a `stuckProvider` stub that doesn't enforce Anthropic's tool_use → tool_result pairing invariant. The test asserted guidance was yielded but never reconstructed the message timeline that would be sent to a real provider.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work.
+- Commands:
+  - `bun run lint` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1134/1134 pass (was 1130). New tests:
+    - `tests/skills/loader.test.ts`: 3 cases for the args-fallback behavior (appended when no placeholder, suppressed when whitespace-only or when placeholder present).
+    - `tests/loop/wiring.test.ts`: 1 case asserting the tool_use → tool_result pairing invariant after loop-detector guidance is injected.
+  - `tests/semantic/suites/09-skills.cases.ts`: added `commands.skill-args-propagate-to-prompt` semantic case (echo-args skill with no `{{args}}` placeholder + a unique token; judge verifies the token appears in the model's reply). Will run on next semantic-suite invocation.
+  - `docs/semantic-testing.md` updated: headline 38 → 39, slash-command pipeline 5 → 6, new row in the coverage table.
+- Result: 1134/1134 unit, lint clean. Both bugs fixed at root cause; not symptom-patched. Semantic suite not re-run this session — added test will run on next semantic invocation.
+- Regressions / follow-ups:
+  - No regressions.
+  - Tuning question (deferred): action-stagnation threshold of 7 fired on 7 consecutive `FileRead` calls during a normal codebase review. That may be too aggressive for legitimate review/audit work. Worth revisiting after we have more real-session traces — not blocking.
+
+## 2026-05-05 - Loop-detector tuning after second `/review` run still tripped (unit suite 1137/1137)
+
+- Scope: a second `/review ~/code/babyboard` run (transcript `2026-05-05T13-52-25-396Z.jsonl`) survived the orphan-tool_use bug but still aborted with `aborted by loop detector after 2 detections (action-stagnation)`. The model legitimately read ~30 files and ran ~9 different `Bash` commands during a thorough review; both kinds of behavior tripped the heuristic.
+- Root cause: action-stagnation counted every tool call equally and fired at 7 consecutive same-name calls. Two patterns hit it in normal review work — long `FileRead` runs (file walking) and repeated `Bash` invocations (different commands probing the project).
+- Fix:
+  1. **Exempt read-only inspection tools by default.** New `actionStagnationExcludeTools` opt on `LoopDetectorOpts`, defaulting to `{FileRead, Read, Grep, Glob}`. These tools are inherently fact-finding; reading 30 different files in a row is progress, not stagnation. Same-input duplicate reads are still caught by consecutive-identical (threshold 4). Pass `new Set()` to restore the historical "every tool counts" behavior (covered by a new test).
+  2. **Raise default threshold from 7 to 12.** Even with reads exempt, the failing trace had 9 distinct `Bash` calls — over the old threshold. 12 gives headroom for typical investigative work while still catching truly stuck loops.
+- Why it wasn't covered:
+  - `tests/loop/detector.test.ts` only asserted firing on 7 same-name calls (using `Grep` — which is now exempt). No test covered "exemption" or "many distinct file reads should not fire."
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work.
+- Commands:
+  - `bun run lint` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1137/1137 pass (was 1134). New tests:
+    - `tests/loop/detector.test.ts`: 3 cases — read-only tools are exempt by default; exemption can be overridden; consecutive-identical still catches duplicate exact reads.
+  - Existing detector tests updated to use `Bash` (still subject to stagnation) instead of `Grep`/`Read` (now exempt) and to use threshold 12 instead of 7. Behavior asserted is identical; just exercised on non-exempt tool names.
+- Result: 1137/1137 unit, lint clean. Verified by replaying the failing trace's tool sequence: with reads exempt and threshold raised to 12, the 9 `Bash` calls + 30+ reads no longer fire the detector.
+- Regressions / follow-ups:
+  - No regressions.
+  - Action-stagnation is still a coarse heuristic. A better long-term design would require some signal of "no progress" (e.g., very similar reasoning text between consecutive bash calls) before firing. Deferred until we have more real-session traces showing the failure mode.

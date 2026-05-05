@@ -56,25 +56,25 @@ describe('LoopDetectorState — consecutive-identical tool calls', () => {
 });
 
 describe('LoopDetectorState — action-stagnation', () => {
-  test('fires on 7 same-tool calls regardless of args', () => {
+  test('fires on 12 same-tool calls regardless of args (default threshold)', () => {
     const state = new LoopDetectorState();
     let detection = null;
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 12; i++) {
       detection = state.addAndCheck({
-        toolCalls: [{ name: 'Grep', input: { pattern: `x${i}` } }],
+        toolCalls: [{ name: 'Bash', input: { command: `echo ${i}` } }],
         assistantText: '',
       });
     }
     expect(detection?.detector).toBe('action-stagnation');
-    expect(detection?.repetitionCount).toBeGreaterThanOrEqual(7);
+    expect(detection?.repetitionCount).toBeGreaterThanOrEqual(12);
   });
 
   test('does not fire below threshold', () => {
     const state = new LoopDetectorState();
     let detection = null;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 11; i++) {
       detection = state.addAndCheck({
-        toolCalls: [{ name: 'Grep', input: { pattern: `x${i}` } }],
+        toolCalls: [{ name: 'Bash', input: { command: `echo ${i}` } }],
         assistantText: '',
       });
     }
@@ -83,15 +83,15 @@ describe('LoopDetectorState — action-stagnation', () => {
 
   test('switching tool name resets the run', () => {
     const state = new LoopDetectorState();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 11; i++) {
       state.addAndCheck({
-        toolCalls: [{ name: 'Grep', input: { pattern: `x${i}` } }],
+        toolCalls: [{ name: 'Bash', input: { command: `echo ${i}` } }],
         assistantText: '',
       });
     }
-    state.addAndCheck({ toolCalls: [{ name: 'Read', input: { path: '/x' } }], assistantText: '' });
+    state.addAndCheck({ toolCalls: [{ name: 'Edit', input: { path: '/x' } }], assistantText: '' });
     const detection = state.addAndCheck({
-      toolCalls: [{ name: 'Grep', input: { pattern: 'y' } }],
+      toolCalls: [{ name: 'Bash', input: { command: 'echo y' } }],
       assistantText: '',
     });
     expect(detection).toBeNull();
@@ -107,7 +107,66 @@ describe('LoopDetectorState — action-stagnation', () => {
     let detection = null;
     for (let i = 0; i < 3; i++) {
       detection = state.addAndCheck({
-        toolCalls: [{ name: 'Grep', input: { pattern: 'same' } }],
+        toolCalls: [{ name: 'Bash', input: { command: 'same' } }],
+        assistantText: '',
+      });
+    }
+    expect(detection?.detector).toBe('consecutive-identical');
+  });
+
+  test('read-only inspection tools are exempt by default', () => {
+    // Reading 30 different files in a row is normal code-review behavior,
+    // not stagnation. The exempt set covers FileRead, Read, Grep, Glob.
+    // The consecutive-identical detector still catches duplicate exact reads
+    // (different test); only the "same name regardless of input" check is
+    // suppressed for these tools.
+    const state = new LoopDetectorState();
+    let detection = null;
+    for (let i = 0; i < 30; i++) {
+      detection = state.addAndCheck({
+        toolCalls: [{ name: 'FileRead', input: { path: `/file${i}.ts` } }],
+        assistantText: '',
+      });
+      if (detection) break;
+    }
+    expect(detection).toBeNull();
+
+    for (const name of ['Read', 'Grep', 'Glob']) {
+      const fresh = new LoopDetectorState();
+      let det = null;
+      for (let i = 0; i < 30; i++) {
+        det = fresh.addAndCheck({
+          toolCalls: [{ name, input: { q: `q${i}` } }],
+          assistantText: '',
+        });
+        if (det) break;
+      }
+      expect(det, `${name} must be exempt from action-stagnation`).toBeNull();
+    }
+  });
+
+  test('exemption can be overridden via actionStagnationExcludeTools', () => {
+    // Pass an empty exclusion set to restore the historical "every tool
+    // counts" behavior. Use the default threshold of 12.
+    const state = new LoopDetectorState({ actionStagnationExcludeTools: new Set() });
+    let detection = null;
+    for (let i = 0; i < 12; i++) {
+      detection = state.addAndCheck({
+        toolCalls: [{ name: 'FileRead', input: { path: `/file${i}.ts` } }],
+        assistantText: '',
+      });
+    }
+    expect(detection?.detector).toBe('action-stagnation');
+  });
+
+  test('consecutive-identical still catches duplicate exact reads even though Read is exempt from stagnation', () => {
+    // Exemption is scoped to action-stagnation only. Reading the SAME path
+    // four times in a row is still pathological and should fire.
+    const state = new LoopDetectorState();
+    let detection = null;
+    for (let i = 0; i < 4; i++) {
+      detection = state.addAndCheck({
+        toolCalls: [{ name: 'FileRead', input: { path: '/same.ts' } }],
         assistantText: '',
       });
     }

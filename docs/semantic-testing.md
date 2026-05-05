@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (38/38 pass)
+## Coverage inventory (39/39 pass)
 
 The full suite runs in ~8.8 minutes and costs ~$2.04 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -60,7 +60,7 @@ Verify each native tool dispatches correctly and the agent surfaces the result. 
 | `tools.glob-recursive-typescript-files` | Glob non-recursive (misses nested files) or wrong tool selection |
 | `tools.grep-finds-marker-content` | Grep dispatch broken or wrong file identified |
 
-### Slash-command pipeline — 5 tests
+### Slash-command pipeline — 6 tests
 
 The harness has four distinct slash-command dispatch paths. All four are exercised end-to-end through the spawned binary.
 
@@ -71,6 +71,7 @@ The harness has four distinct slash-command dispatch paths. All four are exercis
 | `commands.commit-on-non-git-directory` | Prompt-command + git tools | Agent fabricates a commit summary when no repo exists |
 | `commands.init-creates-context-md` | Prompt-command + multi-tool | /init scan/synthesize pipeline broken |
 | `commands.skill-invocation-via-slash-command` | Skill-sourced prompt-command | Loader → frontmatter parse → registry → dispatch → turn pipeline |
+| `commands.skill-args-propagate-to-prompt` | Skill-sourced prompt-command | Slash-command arguments silently dropped when the skill body has no `{{args}}` placeholder (the original `/review ~/path` regression) |
 
 ### Permissions — 6 tests
 

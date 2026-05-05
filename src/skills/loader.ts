@@ -139,10 +139,19 @@ export async function expandSkillText(
   text: string,
   opts: SkillExpansionOptions,
 ): Promise<string> {
-  const withVariables = text
-    .replace(/\{\{\s*args\s*\}\}/g, opts.args ?? '')
+  const args = opts.args ?? '';
+  const argsTrimmed = args.trim();
+  const hasPlaceholder = /\{\{\s*args\s*\}\}/.test(text);
+  let withVariables = text
+    .replace(/\{\{\s*args\s*\}\}/g, args)
     .replace(/\$\{HARNESS_SKILL_DIR\}/g, skill.dir)
     .replace(/\$\{HARNESS_SESSION_ID\}/g, opts.sessionId ?? '');
+  // Skills that don't reference {{args}} would otherwise silently drop the
+  // user-supplied slash arguments. Append them so the model still sees the
+  // path or topic the user typed (e.g. `/review ~/code/babyboard/`).
+  if (argsTrimmed && !hasPlaceholder) {
+    withVariables += `\n\nUser arguments: ${argsTrimmed}`;
+  }
   return interpolateShellCommands(withVariables, skill.dir);
 }
 

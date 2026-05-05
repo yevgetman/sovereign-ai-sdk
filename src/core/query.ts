@@ -191,6 +191,25 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       toolCalls: toolUseBlocks.map((b) => ({ name: b.name, input: b.input })),
       assistantText: assistantText(assistant),
     });
+    // `pendingGuidanceText` carries the loop-detector guidance into the next
+    // user message we emit this turn. Anthropic requires that an assistant
+    // message containing `tool_use` be IMMEDIATELY followed by a user message
+    // containing matching `tool_result` blocks — pushing a separate text-only
+    // guidance message between them produces "tool_use ids were found
+    // without tool_result blocks immediately after" (HTTP 400). When the
+    // assistant emitted no tool_use (content-only loop), we emit guidance as
+    // its own user message; nothing to orphan.
+    let pendingGuidanceText: string | undefined;
+    const consumeGuidance = (msg: Message): Message => {
+      if (!pendingGuidanceText || msg.role !== 'user') return msg;
+      const merged: Message = {
+        role: 'user',
+        content: [...msg.content, { type: 'text', text: pendingGuidanceText }],
+      };
+      pendingGuidanceText = undefined;
+      return merged;
+    };
+
     if (detection) {
       loopDetectionCount++;
       const info = {
@@ -208,20 +227,20 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         iso: nowIso(),
       });
       if (loopDetectionCount === 1) {
-        const guidance: Message = {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text:
-                'It looks like the same action is repeating. Stop and try a different approach: ' +
-                'check whether the prior step actually achieved the goal, change your tool, change ' +
-                'your inputs, or ask for clarification before continuing.',
-            },
-          ],
-        };
-        history.push(guidance);
-        yield guidance;
+        pendingGuidanceText =
+          'It looks like the same action is repeating. Stop and try a different approach: ' +
+          'check whether the prior step actually achieved the goal, change your tool, change ' +
+          'your inputs, or ask for clarification before continuing.';
+        if (toolUseBlocks.length === 0) {
+          // No tool_use to orphan — emit guidance as a standalone user message.
+          const guidance: Message = {
+            role: 'user',
+            content: [{ type: 'text', text: pendingGuidanceText }],
+          };
+          history.push(guidance);
+          yield guidance;
+          pendingGuidanceText = undefined;
+        }
       } else {
         await maybeFireStop('error');
         return {
@@ -235,9 +254,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
     if (stopReason === 'max_tokens') {
       if (toolUseBlocks.length > 0) {
-        const msg = synthesizeToolResultMessage(
-          toolUseBlocks,
-          'tool call was not executed because the assistant response hit max_tokens before completing the turn',
+        const msg = consumeGuidance(
+          synthesizeToolResultMessage(
+            toolUseBlocks,
+            'tool call was not executed because the assistant response hit max_tokens before completing the turn',
+          ),
         );
         history.push(msg);
         yield msg;
@@ -255,9 +276,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
 
     if (toolPool.length === 0) {
-      const msg = synthesizeToolResultMessage(
-        toolUseBlocks,
-        'tool call could not run: no tools were provided',
+      const msg = consumeGuidance(
+        synthesizeToolResultMessage(
+          toolUseBlocks,
+          'tool call could not run: no tools were provided',
+        ),
       );
       history.push(msg);
       yield msg;
@@ -271,9 +294,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
 
     if (!toolCtx) {
-      const msg = synthesizeToolResultMessage(
-        toolUseBlocks,
-        'tool call could not run: no toolContext was provided',
+      const msg = consumeGuidance(
+        synthesizeToolResultMessage(
+          toolUseBlocks,
+          'tool call could not run: no toolContext was provided',
+        ),
       );
       history.push(msg);
       yield msg;
@@ -298,8 +323,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         hookRunner,
         recordTrace,
       )) {
-        history.push(msg);
-        yield msg;
+        const out = consumeGuidance(msg);
+        history.push(out);
+        yield out;
       }
       // Microcompaction: clear stale tool results before the next provider call.
       const mcConfig = params.microcompactConfig ?? DEFAULT_MICROCOMPACT_CONFIG;
@@ -325,9 +351,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       }
     } catch (err) {
       if (signal?.aborted) {
-        const msg = synthesizeToolResultMessage(
-          toolUseBlocks,
-          'tool call interrupted before a result was available',
+        const msg = consumeGuidance(
+          synthesizeToolResultMessage(
+            toolUseBlocks,
+            'tool call interrupted before a result was available',
+          ),
         );
         history.push(msg);
         yield msg;
@@ -336,9 +364,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         return { reason: 'interrupted' };
       }
       const message = err instanceof Error ? err.message : String(err);
-      const msg = synthesizeToolResultMessage(
-        toolUseBlocks,
-        `tool orchestration failed before a result was available: ${message}`,
+      const msg = consumeGuidance(
+        synthesizeToolResultMessage(
+          toolUseBlocks,
+          `tool orchestration failed before a result was available: ${message}`,
+        ),
       );
       history.push(msg);
       yield msg;
