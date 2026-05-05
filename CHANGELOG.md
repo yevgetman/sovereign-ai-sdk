@@ -1,5 +1,11 @@
 # Changelog
 
+## docs: re-scope Phase 10.6 part 2b leftovers into Phase 13 - 2026-05-05
+
+Two items previously tracked as "Phase 10.6 part 2b deferred-because-premature" — per-model capability profile lookup and per-lane concurrency guards — are now Phase 13 deliverables. The router config has declared `maxConcurrentLocal` / `maxConcurrentFrontier` since Phase 10.6 part 1 but the harness has no parallel provider calls today; sub-agents (Phase 13) are the first surface that produces them, which makes Phase 13's scheduler the natural home for the per-lane semaphore primitive. Capability profiles get a second consumer in Phase 13: agent definitions can declare `role: explore` and have the runtime resolve to a real provider/model via the table, instead of every definition pinning a literal model id.
+
+Updates `harness-build-plan.md` (Phase 13 build items 4 and 10 now claim the deliverables; Phase 10.6 status line drops the deferred-leftover claim), `phase-10x-status.md` (drops the two deferred rows; replaces the "Deferred" subsection with a "Re-scoped to later phases" forwarding pointer; closes the 10.x lane with no remaining deferrals), CLAUDE.md / AGENTS.md / docs/usage.md (drop the deferred-because-premature framing). No code changes; this is purely a re-homing of two backlog items into the phase that has a real consumer for them.
+
 ## Phase 10.8 — Default bundle + bundleless invocation + `sov init` - 2026-05-05
 
 `sov` no longer requires a bundle on disk. Bundle resolution becomes a four-step fallthrough: explicit `--bundle <path>` → `HARNESS_BUNDLE` env → upward `index.yaml` walk from CWD → **default bundle**. The default bundle resolves itself in two steps: `<harness-home>/default-bundle/` (user override location, takes precedence) → shipped `bundle-default/` next to the runtime source (resolved via `realpathSync` of the entry script). "No bundle found" stops being a possible outcome in normal operation.

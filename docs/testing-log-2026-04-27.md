@@ -21,6 +21,15 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-05 - Re-scope Phase 10.6 part 2b leftovers → Phase 13 (docs only)
+
+- Scope: Closing out the 10.x lane on the scoreboard. The two items previously tracked as "Phase 10.6 part 2b deferred-because-premature" — per-model capability profile lookup and per-lane concurrency guards — were re-homed into Phase 13 (sub-agent runtime, build items 4 and 10) where they have a real consumer.
+- Rationale: The router config declared `maxConcurrentLocal` / `maxConcurrentFrontier` in Phase 10.6 part 1, but with no parallel provider calls today the semaphores were vestigial. Sub-agents are the first surface that introduces parallelism, so the per-lane semaphore primitive belongs in Phase 13's scheduler. Capability profiles get a second consumer in Phase 13: agent definitions with `role: explore` resolve through the capability table to a real provider/model.
+- Files touched: `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` (Phase 13 build items 4 and 10 claim the deliverables; Phase 10.6 status drops the deferred-leftover claim; Phase 13 "Check:" extended with semaphore + capability-profile probes); `~/code/sovereign-ai-docs/harness/docs/runtime/phase-10x-status.md` (drops the two deferred rows from the table; replaces "Deferred" with a "Re-scoped to later phases" forwarding pointer; folds the eval-runner capture/replay shipped note into 2b-ii's section); `CLAUDE.md` / `AGENTS.md` / `docs/usage.md` (drop the deferred-because-premature sentences); `CHANGELOG.md` (new entry at top).
+- Commands: none — pure documentation move. No code changes, no test runs.
+- Result: 10.x scoreboard now has zero deferred items. The two re-scoped items are visible at their new home (Phase 13 build items 4 and 10) and at their old home (`phase-10x-status.md` "Re-scoped to later phases" subsection serves as the forwarding pointer for anyone searching by the old name).
+- Regressions / follow-ups: none. Phase 13 work itself remains not-started — this commit only updates the planning records so the items are findable in the right place.
+
 ## 2026-05-05 - Splash narrow-terminal layout fix
 
 - Scope: REPL splash logo fragmented at narrow terminal widths because the side-by-side `logo + card` layout exceeded `process.stdout.columns`, causing the terminal to wrap each row mid-glyph. Reproduced from a user-shared screenshot.

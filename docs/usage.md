@@ -197,7 +197,7 @@ When the classifier output is `local-with-escalation`, the configured `escalatio
 
 Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt-in raw logging is deferred to a follow-up.) The same allowlist redactor that protects trajectories also protects the audit log against accidental secret-spillage.
 
-**Currently deferred:** capability-profile lookup (per-model context length / JSON reliability), per-lane concurrency caps, REPL-side rendering of the `route_decision` StreamEvent, and the interactive prompt for `escalationMode: 'ask'`. The router still works without these — they're polish for later.
+**Re-scoped to Phase 13:** capability-profile lookup (per-model context length / JSON reliability) and per-lane concurrency caps. Both will land alongside the sub-agent runtime, which is the first surface that actually needs them — capability profiles drive role-based agent definitions, and per-lane semaphores manage concurrent child agents. The router declares the config fields today; Phase 13 will populate them with real semantics.
 
 ## Bundleless Invocation + Default Bundle
 
