@@ -33,6 +33,8 @@ export const GlobTool = buildTool<Input, Output>({
   description: () =>
     'List files matching a glob pattern. Paths returned are relative to the scan root, sorted lexicographically.',
   inputSchema,
+  displayInput: (input) =>
+    input.path !== undefined ? `${input.pattern} in ${input.path}` : input.pattern,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   checkPermissions: async () => ({ behavior: 'allow' }),

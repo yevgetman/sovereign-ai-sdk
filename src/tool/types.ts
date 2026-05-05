@@ -106,6 +106,17 @@ export type ToolDef<I, O, P = void> = {
    * to mark the tool_result as `is_error: true` (e.g. non-zero bash exit). */
   renderResult?: (output: O) => { content: string; isError?: boolean };
 
+  /** Tool-specific compact preview of the call's input, shown next to the
+   *  tool name in the REPL's compact tool slot. Without it, the REPL
+   *  falls back to a generic `JSON.stringify(input)` form, which is
+   *  noisy for tools whose input has many fields (FileEdit, FileRead
+   *  with offset/limit, etc.). Implementations should produce a
+   *  Claude-Code-style readable form like `Read(path:offset-end)`,
+   *  `Edit(path)`, `Grep("pat" in path)`, etc. The result is rendered
+   *  inline as `→ ToolName(<displayInput-output>)` and may be truncated
+   *  by the renderer if too long. */
+  displayInput?: (input: I) => string;
+
   /** Path-scoped concurrency hint. Returns the absolute or cwd-relative
    * paths the call will read or write. When set, the orchestrator detects
    * overlaps within a concurrent batch and serializes a write against any

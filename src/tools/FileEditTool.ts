@@ -46,6 +46,7 @@ export const FileEditTool = buildTool<Input, Output>({
   description: () =>
     'Replace a substring in a file. Defaults to unique-match: old_string must appear exactly once. Set replace_all to rename every occurrence.',
   inputSchema,
+  displayInput: (input) => (input.replace_all === true ? `${input.path} (all)` : input.path),
   isReadOnly: () => false,
   isConcurrencySafe: () => true, // path-overlap detection serializes
   affectedPaths: (input) => [input.path],

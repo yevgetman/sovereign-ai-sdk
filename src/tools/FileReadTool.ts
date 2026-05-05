@@ -52,6 +52,12 @@ export const FileReadTool = buildTool<Input, Output>({
   description: () =>
     'Read a UTF-8 text file. Returns content with `cat -n`-style line numbers. Use offset/limit to page through large files.',
   inputSchema,
+  displayInput: (input) => {
+    if (input.offset === undefined && input.limit === undefined) return input.path;
+    const start = input.offset ?? 0;
+    if (input.limit === undefined) return `${input.path}:${start}+`;
+    return `${input.path}:${start}-${start + input.limit}`;
+  },
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   checkPermissions: async () => ({ behavior: 'allow' }),

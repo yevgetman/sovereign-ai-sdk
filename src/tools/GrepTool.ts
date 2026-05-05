@@ -57,6 +57,11 @@ export const GrepTool = buildTool<Input, Output>({
   description: () =>
     'Search files for a regex pattern using ripgrep. Returns matching lines (default), or a list of files with matches, or a per-file count.',
   inputSchema,
+  displayInput: (input) => {
+    const where = input.path !== undefined ? ` in ${input.path}` : '';
+    const filter = input.glob !== undefined ? ` (${input.glob})` : '';
+    return `"${input.pattern}"${where}${filter}`;
+  },
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   checkPermissions: async () => ({ behavior: 'allow' }),

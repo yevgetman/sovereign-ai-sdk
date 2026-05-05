@@ -47,6 +47,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
       'The sub-agent returns a concise summary; full traces live in the trace log, not in this result.',
     ].join(' '),
   inputSchema: AgentToolInputSchema,
+  displayInput: (input) => `${input.subagent_type}: ${input.prompt}`,
   isReadOnly: () => false,
   isConcurrencySafe: () => true,
   isDestructive: () => false,

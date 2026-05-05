@@ -31,6 +31,7 @@ export const FileWriteTool = buildTool<Input, Output>({
   description: () =>
     'Write content to a file, overwriting any existing file. Parent directory must already exist.',
   inputSchema,
+  displayInput: (input) => input.path,
   isReadOnly: () => false,
   // Concurrency-safe at the tool level — the orchestrator's path-overlap
   // detection serializes writes that target the same path. Two writes to

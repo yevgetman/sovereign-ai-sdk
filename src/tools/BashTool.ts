@@ -83,6 +83,7 @@ export const BashTool = buildTool<Input, Output>({
   description: () =>
     'Run a bash command. Returns combined stdout and stderr plus the exit code. Set `expect_token` to require a completion sentinel on stdout.',
   inputSchema,
+  displayInput: (input) => input.command,
   checkPermissions: async (input) =>
     isReadOnlyBashCommand(input.command)
       ? { behavior: 'allow', reason: 'read-only bash allowlist' }

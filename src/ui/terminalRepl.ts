@@ -1206,7 +1206,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
                   ...(preContent !== undefined ? { preContent } : {}),
                 });
               }
-              const preview = previewToolInput(block.input);
+              const tool = toolPool.find((t) => t.name === block.name);
+              const preview = formatToolInputForDisplay(tool, block.input);
               if (verbose) {
                 writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
               } else {
@@ -1237,13 +1238,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           contextMeter.update(ev.usage);
         }
         if (ev.type === 'microcompact') {
-          toolSlot.commit();
-          writeStatusLine(
-            chalk.gray(
-              `[cleared ${ev.info.cleared} stale tool result${ev.info.cleared === 1 ? '' : 's'}, ~${Math.round(ev.info.estimatedTokensSaved / 1000)}K tokens]`,
-            ),
-          );
-          textRunActive = false;
+          // Microcompact is internal optimization — the orchestrator
+          // clears stale tool_result content to keep context bounded.
+          // Inlining a status line per fire used to spam the screen on
+          // long sessions ("Cleared 2 stale tool results, ~80 tokens"
+          // repeated dozens of times — see the harness.png screenshot
+          // comparison vs. Claude Code). The trace stream still records
+          // every microcompact event for `sov trace show`, so forensic
+          // detail is preserved; the visible REPL just stays quiet.
+          // Verbose mode is for full *tool result* rendering, not for
+          // operational status events — it stays quiet too.
         }
         if (ev.type === 'route_decision') {
           // Phase 10.6 part 2 — surface the lane the router picked so the
@@ -1728,6 +1732,30 @@ function previewToolInput(input: unknown): string {
   } catch {
     return '';
   }
+}
+
+/** Format a tool's input for the compact REPL slot. Prefers the tool's
+ *  own `displayInput` (which can shape per-tool — e.g. `Read(src/foo.ts:50-70)`
+ *  instead of `{"path":"src/foo.ts","offset":50,"limit":20}`). Falls back
+ *  to the generic `previewToolInput` when the tool doesn't supply one,
+ *  preserving prior behavior for any tool that hasn't opted in.
+ *
+ *  Wrap the displayInput output in parens to match Claude Code's
+ *  `Bash(cmd)` / `Edit(path)` form — visually obvious at a glance that
+ *  the parenthesized text is the call's argument shape. */
+function formatToolInputForDisplay(
+  tool: Tool<unknown, unknown> | undefined,
+  input: unknown,
+): string {
+  if (tool?.displayInput) {
+    try {
+      const display = tool.displayInput(input);
+      if (display !== '') return `(${truncatePreview(display)})`;
+    } catch {
+      // Fall through to generic preview.
+    }
+  }
+  return previewToolInput(input);
 }
 
 function mutationEffect(
