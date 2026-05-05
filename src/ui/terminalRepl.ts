@@ -71,6 +71,7 @@ import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
+import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
 import {
   BracketedPasteTransform,
@@ -294,6 +295,25 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
   let activeSessionId = opened.sessionId;
   const { systemPrompt, history, resumed } = opened;
+  // Phase 10.5 — operational trace writer. One file per REPL invocation,
+  // keyed on the initial session id. Failures route to stderr but never
+  // block the session (Invariant #10). `/compact` and `/rollback` swap
+  // activeSessionId but reuse this writer so the full operational stream
+  // for one REPL run lives in one file.
+  const traceWriter = new TraceWriter({
+    sessionId: activeSessionId,
+    harnessHome,
+    log: (m) => process.stderr.write(`${m}\n`),
+  });
+  traceWriter.record({
+    type: 'session_start',
+    sessionId: activeSessionId,
+    provider: providerName,
+    model: activeModel,
+    cwd: process.cwd(),
+    ...(bundle ? { bundlePath: bundle.root } : {}),
+    iso: new Date().toISOString(),
+  });
   const contextMeter = new ContextMeter({
     contextLength: resolved.contextLength,
     warnAtPercent: meterWarnAt,
@@ -748,6 +768,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         hookRunner,
         sessionId: activeSessionId,
         cwd: process.cwd(),
+        traceRecorder: (e) => traceWriter.record(e),
       });
 
       for (;;) {
@@ -1157,6 +1178,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   await memoryManager.onSessionEnd(activeSessionId);
   await memoryManager.shutdown();
   if (mcpPool) await mcpPool.shutdown();
+  traceWriter.record({
+    type: 'session_end',
+    reason: lastTerminal?.reason ?? 'completed',
+    iso: new Date().toISOString(),
+  });
+  await traceWriter.close();
   db.close();
   process.stdout.write(
     renderSessionSummary({

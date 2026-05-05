@@ -1382,3 +1382,26 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - Follow-ups: REPL integration of `profileLock` (currently helper-only — concurrent sessions on the same profile keep working); a `sov profile delete <name>` verb (deferred — the destructive path needs a confirmation flow); banner display of the active profile in the REPL splash (cosmetic — would compose with the existing splash card).
+
+## 2026-05-04 - Phase 10.5 part 1 — operational traces + loop detector (unit suite 982/982)
+
+- Scope: New `src/trace/` (TraceEvent types + append-only TraceWriter + redaction via existing trajectory/redact.ts). New `src/loop/detector.ts` (LoopDetectorState with three heuristics: consecutive-identical, action-stagnation, content-loop). Trace recorder plumbed through `QueryParams` → `runTools` → `executeOne`. Loop detector instantiated per `query()` call; first detection injects guidance, second terminates. New `loop_detected` StreamEvent variant. New `sov trace show <session-id>` subcommand backed by `src/cli/traceShow.ts`. REPL wiring (terminalRepl.ts) creates the writer at session open, records session_start/session_end, closes on shutdown.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 982/982 pass (was 942 before this slice). New test files: `tests/trace/writer.test.ts` (8), `tests/trace/wiring.test.ts` (5), `tests/cli/traceShow.test.ts` (10), `tests/loop/detector.test.ts` (14), `tests/loop/wiring.test.ts` (2).
+  - End-to-end smoke against the local source: synthesized a JSONL fixture at `<HARNESS_HOME>/traces/sid-42.jsonl`, ran `sov trace show sid-42`, verified the rendered output matched the high-signal-path layout (session header, Turn N groupings, provider_request/response with usage, permission Bash: allow, Bash#tu_1: ok with duration + bytes, session_end: completed).
+- Manual coverage:
+  - Trace writer survives concurrent record() calls in order. Verified by `tests/trace/writer.test.ts:preserves order when many record() calls are issued back-to-back` (25 records).
+  - Trace writer redacts API-key shaped content. Verified by `tests/trace/writer.test.ts:redacts API-key-shaped content before append`.
+  - Trace writer logs but never throws on unwritable destination. Verified by `tests/trace/writer.test.ts:logs but never throws when the destination is unwritable` (`/dev/null/cant-write/` — ENOTDIR).
+  - Loop detector priority: consecutive-identical wins over action-stagnation when both would fire on the same call. Verified.
+  - Loop detector clears history after firing so a fresh run is required to refire. Verified.
+  - Trace event emission for tool_start / tool_end / tool_error / permission_check / provider_request / provider_response / turn_start. Verified by `tests/trace/wiring.test.ts`.
+  - Loop wiring: scripted "stuck" provider that repeats the same Echo tool call until the orchestrator terminates. First detection injects guidance + continues; if the model keeps looping, the second detection returns `reason: error`. Verified by `tests/loop/wiring.test.ts`.
+  - A thrown trace handler does not crash the run. Verified.
+- Result: 982/982 unit tests, lint + typecheck clean. Phase 10.5 part 1 functionality available end-to-end. The trajectory writer (Phase 13.1) and the trace writer (this slice) coexist cleanly — both write JSONL but to different roots and serve different downstream consumers.
+- Regressions / follow-ups:
+  - No regressions.
+  - **Deferred to Phase 10.5 part 2:** the golden-task suite (`evals/golden/`), the deterministic replay fixtures, `sov eval run`, the regression budget JSON, and provider-comparison mode. These are a substantial separate slice; tracked as Task 71 in the in-session task list.
+  - Cosmetic follow-ups: trace events for compaction_start/compaction_end (REPL-side wiring not done — `/compact` would need to record at the pivot), memory_write / skill_write (memory and skill writers don't plumb a trace recorder yet).

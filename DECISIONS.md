@@ -2,6 +2,24 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - Phase 10.5 part 1 — trace events + loop detector
+
+The trace layer is intentionally separate from the trajectory layer (Phase 13.1) even though both write JSONL. Trajectories are training-shaped session captures; traces are operational/audit logs for evals + `sov trace show`. Some choices worth recording:
+
+1. **One trace file per REPL invocation, not per session.** When `/compact` and `/rollback` swap `activeSessionId`, the trace writer keeps writing to the file keyed on the *initial* session id. Rationale: a single REPL run is the natural unit for "what happened operationally," and splitting by post-pivot session ids would scatter related events across files. We record `compaction_start` / `compaction_end` events with both parent and child session ids so a viewer can still reconstruct the lineage.
+
+2. **Trace recorder is a function, not a class.** `traceRecorder?: (event: TraceEvent) => void` on `QueryParams` lets tests inject an array push without constructing a real writer. The REPL wraps `TraceWriter.record` into the function shape. Function abstraction also lets future consumers (e.g., a metrics aggregator) hook the same pipe without touching the writer's class.
+
+3. **Recorder failures never block the session.** Per Invariant #10. `query()` wraps the user-supplied recorder in a try/catch shim so a misbehaving handler can't turn a working session into an error. The TraceWriter itself routes append failures to a log sink (defaults to swallowing).
+
+4. **Trace events go through the trajectory redactor.** The same `redact()` allowlist used for trajectories runs over every line before append. Prevents tool-error messages or input snapshots from leaking secrets into the trace file.
+
+5. **Loop detector clears its history per detector after firing.** The naive design — keep all hashes forever — re-fires the same detection on every subsequent no-op turn (the "stuck" run is still in state). Clearing the firing detector's array means a fresh run of repetitions is required to fire it again. Other detectors keep their state because they detect different signals; clearing all of them on any detection felt like over-resetting.
+
+6. **First detection injects guidance; second terminates.** Direct from the build plan. The orchestrator counts detections per `query()` invocation. The injected user message is a generic prompt to change approach (not detector-specific) — keeping the message constant means the detector logic stays separable from the guidance text.
+
+7. **`sov trace show <session-id>`, not `--session-id <id>`.** Positional arg matches the `git show`/`git log` ergonomics for a sessions-as-objects mental model. The subcommand cluster is open for a future `trace list`, `trace tail`, etc. without breaking the existing surface.
+
 ## 2026-05-04 - Phase 10.7 profile system: env-var-before-imports, with `default` reserved
 
 The profile system scopes `<harness-home>` to `<base>/profiles/<name>/` so the same machine can host disjoint setups (work / personal / lab) without aliasing config, credentials, sessions, rate-limit ledgers, memory, or skills. Several design choices worth recording:

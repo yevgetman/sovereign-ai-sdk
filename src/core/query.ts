@@ -20,9 +20,11 @@ import {
   microcompact,
   shouldMicrocompact,
 } from '../compact/microcompact.js';
+import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import type { TraceEvent } from '../trace/types.js';
 import { runTools } from './orchestrator.js';
 import type {
   AssistantMessage,
@@ -59,6 +61,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   const hookRunner = params.hookRunner;
   const sessionId = params.sessionId ?? toolCtx?.sessionId;
   const cwd = params.cwd ?? toolCtx?.cwd;
+  const recordTrace = makeTraceRecorder(params.traceRecorder);
+  const loopDetector = new LoopDetectorState();
+  let loopDetectionCount = 0;
   const originalUserText = latestUserText(messages);
   let history: Message[] = params.memoryManager
     ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
@@ -98,12 +103,28 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
+      recordTrace({ type: 'interrupt', stage: `turn-${turn}-pre-stream`, iso: nowIso() });
       await maybeFireStop('interrupted');
       return { reason: 'interrupted' };
     }
 
+    recordTrace({ type: 'turn_start', turn, iso: nowIso() });
+
     let assistant: AssistantMessage | undefined;
     let stopReason: StopReason | undefined;
+    let usage: import('./types.js').TokenUsage | undefined;
+    const requestStart = Date.now();
+    let firstEventAt: number | undefined;
+
+    recordTrace({
+      type: 'provider_request',
+      provider: provider.name,
+      model,
+      purpose: 'main',
+      messageCount: history.length,
+      systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
+      iso: nowIso(),
+    });
 
     try {
       for await (const event of provider.stream({
@@ -116,8 +137,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         ...(signal ? { signal } : {}),
         cacheEnabled,
       })) {
+        if (firstEventAt === undefined) firstEventAt = Date.now();
         if (event.type === 'assistant_message') {
           assistant = event.message;
+        }
+        if (event.type === 'usage_delta') {
+          usage = event.usage;
         }
         if (event.type === 'message_stop') {
           stopReason = event.stop_reason;
@@ -126,6 +151,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       }
     } catch (err) {
       if (signal?.aborted) {
+        recordTrace({ type: 'interrupt', stage: `turn-${turn}-stream`, iso: nowIso() });
         await maybeFireStop('interrupted');
         return { reason: 'interrupted' };
       }
@@ -133,6 +159,18 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       await maybeFireStop('error');
       return { reason: 'error', error };
     }
+
+    recordTrace({
+      type: 'provider_response',
+      provider: provider.name,
+      model,
+      purpose: 'main',
+      usage: usage ?? {},
+      latencyMs: Date.now() - requestStart,
+      ...(firstEventAt !== undefined ? { ttftMs: firstEventAt - requestStart } : {}),
+      stopReason: stopReason ?? 'end_turn',
+      iso: nowIso(),
+    });
 
     if (!assistant) {
       await maybeFireStop('error');
@@ -145,6 +183,55 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     history.push(assistant);
 
     const toolUseBlocks = assistant.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+
+    // Loop detection runs once per turn. Snapshot = this turn's tool calls
+    // + the concatenated assistant text. The first detection injects a
+    // guidance message and continues; the second terminates the run.
+    const detection = loopDetector.addAndCheck({
+      toolCalls: toolUseBlocks.map((b) => ({ name: b.name, input: b.input })),
+      assistantText: assistantText(assistant),
+    });
+    if (detection) {
+      loopDetectionCount++;
+      const info = {
+        detector: detection.detector,
+        hash: detection.hash,
+        repetitionCount: detection.repetitionCount,
+        occurrence: loopDetectionCount,
+      } as const;
+      yield { type: 'loop_detected', info } as StreamEvent;
+      recordTrace({
+        type: 'loop_detected',
+        detector: detection.detector,
+        repetitionCount: detection.repetitionCount,
+        hash: detection.hash,
+        iso: nowIso(),
+      });
+      if (loopDetectionCount === 1) {
+        const guidance: Message = {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                'It looks like the same action is repeating. Stop and try a different approach: ' +
+                'check whether the prior step actually achieved the goal, change your tool, change ' +
+                'your inputs, or ask for clarification before continuing.',
+            },
+          ],
+        };
+        history.push(guidance);
+        yield guidance;
+      } else {
+        await maybeFireStop('error');
+        return {
+          reason: 'error',
+          error: new Error(
+            `aborted by loop detector after ${loopDetectionCount} detections (${detection.detector})`,
+          ),
+        };
+      }
+    }
 
     if (stopReason === 'max_tokens') {
       if (toolUseBlocks.length > 0) {
@@ -203,7 +290,14 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
 
     try {
-      for await (const msg of runTools(toolUseBlocks, turnCtx, toolPool, canUseTool, hookRunner)) {
+      for await (const msg of runTools(
+        toolUseBlocks,
+        turnCtx,
+        toolPool,
+        canUseTool,
+        hookRunner,
+        recordTrace,
+      )) {
         history.push(msg);
         yield msg;
       }
@@ -219,6 +313,13 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (mcResult.cleared > 0) {
           history.length = 0;
           history.push(...compacted);
+          recordTrace({
+            type: 'microcompact',
+            cleared: mcResult.cleared,
+            estimatedTokensSaved: mcResult.estimatedTokensSaved,
+            keptRecent: mcResult.keptRecent,
+            iso: nowIso(),
+          });
           yield { type: 'microcompact', info: mcResult } as StreamEvent;
         }
       }
@@ -230,6 +331,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         );
         history.push(msg);
         yield msg;
+        recordTrace({ type: 'interrupt', stage: `turn-${turn}-tool-dispatch`, iso: nowIso() });
         await maybeFireStop('interrupted');
         return { reason: 'interrupted' };
       }
@@ -313,3 +415,22 @@ function synthesizeToolResultMessage(blocks: ToolUseBlock[], content: string): M
 // toToolSchemas + zodToJsonSchemaShallow moved to src/mcp/schemaSerialization.ts
 // in Phase 12 — they now also handle deferred-tool descriptions and
 // MCP-supplied JSON Schemas. Imported at the top of this file.
+
+/** Wrap an optional trace handler with a no-throw shim. Returns a no-op
+ *  recorder when none is supplied so call sites don't need null checks. */
+function makeTraceRecorder(
+  handler: ((event: TraceEvent) => void) | undefined,
+): (event: TraceEvent) => void {
+  if (!handler) return () => {};
+  return (event) => {
+    try {
+      handler(event);
+    } catch {
+      // A misbehaving recorder must not turn a working session into an error.
+    }
+  };
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}

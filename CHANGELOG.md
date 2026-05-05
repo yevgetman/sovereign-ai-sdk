@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 10.5 — Operational traces + loop detection (part 1) - 2026-05-04
+
+Adds an operational-observability layer beneath the user-facing turn loop. Every session now writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` covering session_start / turn_start / provider_request / provider_response / permission_check / tool_start / tool_end / tool_error / microcompact / interrupt / session_end / loop_detected. `sov trace show <sessionId>` renders the high-signal path (per-turn breakdown with usage, latency, TTFT, permission decisions, tool durations) for debugging or post-hoc investigation.
+
+A multi-heuristic **loop detector** runs alongside: consecutive-identical tool calls (SHA-256 of `<name>:<JSON.stringify(input)>`, threshold 4), action stagnation (same tool name regardless of args, threshold 7), and content-loop (chunk-hash repeats inside a windowed sample, threshold 8 within a 1.5× window). On the first detection the orchestrator yields a `loop_detected` StreamEvent, records it to the trace, and injects a guidance user message ("looks like the same action is repeating"); on the second detection the run terminates with `reason: error` and an explanatory error message. Each detector clears its own history after firing so the next detection requires a fresh run, not just one more no-op turn.
+
+Added: `src/trace/types.ts` (TraceEvent variants), `src/trace/writer.ts` (TraceWriter with sequential write chain, redaction, and best-effort error swallowing), `src/cli/traceShow.ts` (parseTraceFile + formatTrace + showTrace IO wrapper), `src/loop/detector.ts` (LoopDetectorState class). Wired `traceRecorder?` through `QueryParams` → `runTools` → `executeOne`. New `sov trace show <sessionId>` subcommand. New `loop_detected` StreamEvent variant.
+
+40 new unit tests (writer 8, wiring 5, traceShow 10, loop detector 14, loop wiring 2, miscellaneous 1). Suite total: 982/982. Lint + typecheck clean.
+
+**Deferred to a Phase 10.5 part 2:** the golden-task suite (`evals/golden/`), the deterministic replay fixtures, `sov eval run`, the regression budget, and provider-comparison mode. Tracked as Task 71 in the in-session task list.
+
 ## Phase 10.7 — Profile system - 2026-05-04
 
 `sov` now scopes its on-disk state to a named profile so the same machine can host disjoint setups (work / personal / lab) with separate config, credentials, sessions, rate-limit ledgers, memory, and skills. The mechanism is intentionally narrow: a top-level `-p/--profile` flag (or a persisted `<base>/active-profile` pin) sets `process.env.HARNESS_HOME` to `<base>/profiles/<name>/` before any module that captures the path at load time, and every existing call site that previously hardcoded `homedir() + '.harness/...'` now resolves through `getHarnessHome()`. Per Invariant #11 — profile = env var before imports.

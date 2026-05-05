@@ -36,6 +36,15 @@ export type MicrocompactInfo = {
   keptRecent: number;
 };
 
+export type LoopDetectionInfo = {
+  detector: 'consecutive-identical' | 'action-stagnation' | 'content-loop';
+  hash: string;
+  repetitionCount: number;
+  /** 1 = first detection (orchestrator injects guidance and continues),
+   *  2 = second detection (orchestrator breaks the loop). */
+  occurrence: number;
+};
+
 export type StreamEvent =
   | { type: 'message_start' }
   | { type: 'text_delta'; text: string }
@@ -44,7 +53,8 @@ export type StreamEvent =
   | { type: 'usage_delta'; usage: TokenUsage }
   | { type: 'message_stop'; stop_reason: StopReason }
   | { type: 'assistant_message'; message: AssistantMessage }
-  | { type: 'microcompact'; info: MicrocompactInfo };
+  | { type: 'microcompact'; info: MicrocompactInfo }
+  | { type: 'loop_detected'; info: LoopDetectionInfo };
 
 export type Terminal = {
   reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted';
@@ -94,4 +104,9 @@ export type QueryParams = {
   /** cwd used for hook event payloads. Required when hookRunner is set; falls
    *  back to toolContext.cwd when both are present. */
   cwd?: string;
+  /** Phase 10.5 — sink for operational trace events. When supplied, query.ts
+   *  records turn_start / provider_request / provider_response / microcompact
+   *  / interrupt; the orchestrator records permission_check / tool_start /
+   *  tool_end / tool_error. Best-effort: a thrown handler is swallowed. */
+  traceRecorder?: (event: import('../trace/types.js').TraceEvent) => void;
 };

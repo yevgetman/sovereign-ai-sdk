@@ -20,7 +20,15 @@ import type { HookRunner } from '../hooks/types.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
+import type { TraceEvent } from '../trace/types.js';
 import type { ContentBlock, Message, UserMessage } from './types.js';
+
+type TraceRecorder = (event: TraceEvent) => void;
+const NO_TRACE: TraceRecorder = () => {};
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
 type ToolResultBlock = Extract<ContentBlock, { type: 'tool_result' }>;
@@ -52,15 +60,25 @@ export async function* runTools(
   tools: Tool<unknown, unknown>[],
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
+  traceRecorder?: TraceRecorder,
 ): AsyncGenerator<Message, void> {
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const results: (ToolResultBlock | undefined)[] = new Array(blocks.length);
+  const recordTrace = traceRecorder ?? NO_TRACE;
 
   const partitions = partitionToolCalls(blocks, toolsByName);
 
   for (const partition of partitions) {
     if (partition.mode === 'serial') {
-      await runSerialPartition(partition.items, ctx, toolsByName, canUseTool, hookRunner, results);
+      await runSerialPartition(
+        partition.items,
+        ctx,
+        toolsByName,
+        canUseTool,
+        hookRunner,
+        recordTrace,
+        results,
+      );
     } else {
       await runConcurrentPartition(
         partition.items,
@@ -68,6 +86,7 @@ export async function* runTools(
         toolsByName,
         canUseTool,
         hookRunner,
+        recordTrace,
         results,
       );
     }
@@ -147,10 +166,18 @@ async function runSerialPartition(
   toolsByName: Map<string, Tool<unknown, unknown>>,
   canUseTool: CanUseTool | undefined,
   hookRunner: HookRunner | undefined,
+  recordTrace: TraceRecorder,
   out: (ToolResultBlock | undefined)[],
 ): Promise<void> {
   for (const item of items) {
-    out[item.index] = await executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner);
+    out[item.index] = await executeOne(
+      item.block,
+      ctx,
+      toolsByName,
+      canUseTool,
+      hookRunner,
+      recordTrace,
+    );
   }
 }
 
@@ -166,6 +193,7 @@ async function runConcurrentPartition(
   toolsByName: Map<string, Tool<unknown, unknown>>,
   canUseTool: CanUseTool | undefined,
   hookRunner: HookRunner | undefined,
+  recordTrace: TraceRecorder,
   out: (ToolResultBlock | undefined)[],
 ): Promise<void> {
   const subBatches = splitByPathOverlap(items, toolsByName, ctx.cwd);
@@ -175,7 +203,9 @@ async function runConcurrentPartition(
     for (let start = 0; start < batch.length; start += CONCURRENT_CAP) {
       const wave = batch.slice(start, start + CONCURRENT_CAP);
       const waveResults = await Promise.all(
-        wave.map((item) => executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner)),
+        wave.map((item) =>
+          executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner, recordTrace),
+        ),
       );
       for (let j = 0; j < wave.length; j++) {
         const item = wave[j];
@@ -298,6 +328,7 @@ async function executeOne(
   toolsByName: Map<string, Tool<unknown, unknown>>,
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
+  recordTrace: TraceRecorder = NO_TRACE,
 ): Promise<ToolResultBlock> {
   const tool = toolsByName.get(block.name);
   if (!tool) {
@@ -331,6 +362,14 @@ async function executeOne(
   }
   if (canUseTool) {
     const perm = await canUseTool(tool, callInput, ctx);
+    recordTrace({
+      type: 'permission_check',
+      tool: tool.name,
+      decision: perm.behavior === 'allow' ? 'allow' : 'deny',
+      ...(perm.reason !== undefined ? { reason: perm.reason } : {}),
+      transformed: perm.updatedInput !== undefined,
+      iso: nowIso(),
+    });
     if (perm.behavior === 'deny') {
       return {
         type: 'tool_result',
@@ -399,6 +438,8 @@ async function executeOne(
     }
   }
 
+  recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
+  const callStart = Date.now();
   let result: { data: unknown; observation?: ToolObservation };
   let toolError: Error | undefined;
   try {
@@ -407,6 +448,7 @@ async function executeOne(
     toolError = err instanceof Error ? err : new Error(String(err));
     result = { data: `tool threw: ${toolError.message}` };
   }
+  const callDuration = Date.now() - callStart;
 
   const formatted = toolError
     ? ({
@@ -416,6 +458,26 @@ async function executeOne(
         is_error: true,
       } as const)
     : formatToolResult(tool, block.id, result.data, result.observation);
+
+  if (toolError) {
+    recordTrace({
+      type: 'tool_error',
+      tool: tool.name,
+      toolUseId: block.id,
+      durationMs: callDuration,
+      message: toolError.message,
+      iso: nowIso(),
+    });
+  } else {
+    recordTrace({
+      type: 'tool_end',
+      tool: tool.name,
+      toolUseId: block.id,
+      durationMs: callDuration,
+      outputBytes: Buffer.byteLength(formatted.content, 'utf8'),
+      iso: nowIso(),
+    });
+  }
 
   // PostToolUse: runs whether the tool succeeded or threw. additionalContext
   // is appended to the tool_result content with a separator so the model

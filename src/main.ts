@@ -276,6 +276,24 @@ async function main(argv: string[]): Promise<void> {
       process.stdout.write(formatImportResult(result, name));
     });
 
+  const traceCmd = program
+    .command('trace')
+    .description('Inspect operational traces written under <harness-home>/traces/');
+
+  traceCmd
+    .command('show <session-id>')
+    .description('Render a session trace as a high-signal summary')
+    .action(async (sessionId: string) => {
+      const { showTrace } = await import('./cli/traceShow.js');
+      const result = showTrace({ sessionId });
+      if (!result.ok) {
+        process.stderr.write(`${result.error}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(result.output);
+      if (!result.output.endsWith('\n')) process.stdout.write('\n');
+    });
+
   program
     .command('upgrade')
     .description('Pull the latest sov from the private repo and re-link the global binary')

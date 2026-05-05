@@ -183,6 +183,14 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+### Operational traces + loop detection (Phase 10.5 part 1)
+
+Each REPL invocation writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` covering session lifecycle (session_start, session_end), turn boundaries (turn_start), provider roundtrips (provider_request, provider_response with usage / latency / TTFT), tool dispatch (tool_start, tool_end, tool_error, permission_check), and stream-level signals (microcompact, interrupt, loop_detected). Records flow through the same allowlist redactor used by trajectories — Invariant #15.
+
+`src/trace/types.ts` defines the discriminated `TraceEvent` union. `src/trace/writer.ts` is an append-only writer with a sequential write chain (concurrent `record()` calls land in order), best-effort error swallowing (Invariant #10), and a default path resolved through `getHarnessHome()`. The recorder is plumbed into `query()` via a `traceRecorder?: (event) => void` field on `QueryParams`; the orchestrator records permission and tool events, query records turn / provider / microcompact / interrupt events, and the REPL records session_start / session_end. `sov trace show <sessionId>` (in `src/cli/traceShow.ts`) reads the JSONL and renders a human-readable per-turn summary.
+
+`src/loop/detector.ts` ships a multi-heuristic loop detector instantiated per `query()` call. Three detectors run in priority order: consecutive-identical (SHA-256 of `<name>:<JSON.stringify(input)>`, threshold 4), action-stagnation (same tool name regardless of args, threshold 7), and content-loop (chunked-text repeats inside a `ceil(threshold * 1.5)` window, threshold 8). Each detector clears its own history after firing so a fresh run is required to refire. The orchestrator emits a `loop_detected` StreamEvent + records a `loop_detected` trace event on every detection; on the first detection it injects a guidance user message and continues, on the second it terminates with `reason: error`.
+
 ### Profile system (Phase 10.7)
 
 `<harness-home>` is profile-aware. The default state root is `<harness-home>/` itself; named profiles live under `<harness-home>/profiles/<name>/` with the same internal layout (config, credentials, sessions, memory, etc.). The active profile is selected by:
