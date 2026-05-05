@@ -24,11 +24,21 @@
 import { Database, SQLiteError } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { resolveHarnessHome } from '../config/paths.js';
 import type { ContentBlock, SystemSegment, TokenUsage } from '../core/types.js';
 
-export const DEFAULT_DB_PATH = join(homedir(), '.harness', 'sessions.db');
+/** Default DB path. Resolved at call time so a profile-aware
+ *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB
+ *  under the right profile root. Phase 10.7 — Invariant #11. */
+export function getDefaultDbPath(): string {
+  return join(resolveHarnessHome(), 'sessions.db');
+}
+
+/** @deprecated Eager const captured in import-order; profile-aware
+ *  callers should use `getDefaultDbPath()` instead. Retained as a
+ *  back-compat shim for tests that reference it directly. */
+export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
 const CURRENT_SCHEMA_VERSION = 3;
 
@@ -233,7 +243,7 @@ export class SessionDb {
   constructor(private readonly db: Database) {}
 
   static open(opts: OpenDbOpts = {}): SessionDb {
-    const path = opts.path ?? DEFAULT_DB_PATH;
+    const path = opts.path ?? getDefaultDbPath();
     if (path !== ':memory:') ensureParentDir(path);
     const db = new Database(path, { create: true });
     // WAL doesn't apply to :memory: (no journal file), but set anyway — SQLite

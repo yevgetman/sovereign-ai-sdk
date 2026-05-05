@@ -2,6 +2,24 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - Phase 10.7 profile system: env-var-before-imports, with `default` reserved
+
+The profile system scopes `<harness-home>` to `<base>/profiles/<name>/` so the same machine can host disjoint setups (work / personal / lab) without aliasing config, credentials, sessions, rate-limit ledgers, memory, or skills. Several design choices worth recording:
+
+1. **Profile selection is `process.env.HARNESS_HOME`, set BEFORE any module that captures the path at load time.** Per Invariant #11. The pre-import argv scan in `src/main.ts` translates `-p <name>` into `process.env.HARNESS_HOME = join(<base>, 'profiles', <name>)` before the static-import tree resolves. This means modules never need to plumb a "profile" argument; they just call `getHarnessHome()` and land under the right root.
+
+2. **`-p` short flag is reassigned from `--provider` (chat) to `--profile` (top-level).** The top-level concept (which state root to use) takes precedence over the chat-subcommand-specific concept (which provider to target). No tests or docs used the old short form, so the breakage is theoretical. Long-form `--provider` is unchanged.
+
+3. **The `'default'` profile name is reserved.** It maps to `<base>/` itself — the unscoped state root, which is also the pre-Phase-10.7 default. Reserving the name lets `sov profile use default` semantically mean "pin back to the unscoped root" without introducing a separate "no profile" concept. `assertProfileName('default')` deliberately throws so the reservation is enforced at every entry point.
+
+4. **`<base>/active-profile` persists the pinned selection.** A plain text file with the profile name (or empty for default). Read on startup when `-p` is absent. Chosen over a flag in `config.json` because a profile selection can't live inside the per-profile config file (chicken-and-egg: which config do we read first?).
+
+5. **The atomic-mkdir PID lock (`<profile>/.sov.lock/`) is shipped as a helper but NOT integrated into REPL startup.** The lock would prevent concurrent `sov` sessions on the same profile, but that's a behavioral change with no clear forcing function — SQLite's WAL mode and the atomic temp+rename pattern for credentials.json already cover the dominant write-collision cases. The helper exists for a future "guard mode" or advisory banner; turning it into a hard guard is a separate decision.
+
+6. **Profile-aware paths use functions, not module-load-time constants.** The first iteration kept eagerly-evaluated `DEFAULT_DB_PATH = join(homedir(), '.harness', 'sessions.db')`-style consts. Those locked in the wrong path when `-p` set HARNESS_HOME after the module was imported. Now every call site uses `getDefaultDbPath()` / `getDefaultCredentialStatePath()` / `defaultRateRoot()` and re-resolves at call time. The deprecated consts remain as back-compat shims (with `@deprecated` JSDoc) so external callers don't break, but in-tree code uses the function form.
+
+7. **`profile import-default` copies `config.json` + `credentials.json` only.** Sessions/trajectories/memory stay clean — a profile is meant to scope history per project, not duplicate it. Refuses to overwrite existing files in the target so re-running it is safe.
+
 ## 2026-05-04 - `sov upgrade` Bun-cache workaround: pre-uninstall + optional --purge-cache
 
 `bun install -g <git-url>` doesn't reliably re-resolve against the remote. Two layers of cache fight us:

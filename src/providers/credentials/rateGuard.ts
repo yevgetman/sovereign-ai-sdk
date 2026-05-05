@@ -2,8 +2,8 @@
 // sentinel so other sessions pause or fail fast instead of amplifying retries.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { resolveHarnessHome } from '../../config/paths.js';
 
 export type HeaderLike = Headers | Record<string, string | null | undefined>;
 
@@ -32,9 +32,14 @@ export class RateLimitGuardError extends Error {
   }
 }
 
-const DEFAULT_RATE_ROOT = join(homedir(), '.harness', 'rate_limits');
 const DEFAULT_MAX_SLEEP_SECONDS = 10 * 60;
 const DEFAULT_COOLDOWN_SECONDS = 60 * 60;
+
+/** Profile-aware default — resolves at construction time so profile-scoped
+ *  rate-limit state lands under the right HARNESS_HOME (Phase 10.7). */
+function defaultRateRoot(): string {
+  return join(resolveHarnessHome(), 'rate_limits');
+}
 
 export class RateLimitGuard {
   private readonly path: string;
@@ -45,7 +50,7 @@ export class RateLimitGuard {
     readonly provider: string,
     opts: RateLimitGuardOpts = {},
   ) {
-    const root = opts.root ?? DEFAULT_RATE_ROOT;
+    const root = opts.root ?? defaultRateRoot();
     this.path = join(root, `${provider}.json`);
     this.now = opts.now ?? (() => Date.now() / 1000);
     this.maxSleepSeconds = opts.maxSleepSeconds ?? DEFAULT_MAX_SLEEP_SECONDS;

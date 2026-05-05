@@ -1359,3 +1359,26 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - Follow-ups (mostly need new infrastructure): microcompaction tool-result clearing (no external observable for deterministic test), MCP tool dispatch (Phase 12), trajectory capture (Phase 13.1), web tools (need stubbing), CLAUDE.md context surface, sub-agent / Task tool dispatch (if wired).
+
+## 2026-05-04 - Phase 10.7 — Profile system (unit suite 942/942)
+
+- Scope: Six landing files + 53 new unit tests for the profile system. New helpers: `src/config/paths.ts` (profile-aware path API + `assertProfileName`), `src/cli/profileFlag.ts` (pure argv scanner), `src/cli/profileCommands.ts` (`list` / `create` / `use` / `show` / `import-default`), `src/config/profileLock.ts` (atomic-mkdir PID lock + stale-process detection). Rewired `src/agent/sessionDb.ts`, `src/config/store.ts`, `src/config/loader.ts`, `src/providers/credentials/pool.ts`, and `src/providers/credentials/rateGuard.ts` from eager `homedir()` consts to functions that re-resolve through `resolveHarnessHome()` at call time so a `-p` flag set after module import takes effect. Top-level `-p, --profile <name>` parsed in `src/main.ts` BEFORE static imports per Invariant #11.
+- CLI breaking change: dropped the `-p` short on `chat's `--provider` flag to free `-p` for the top-level `--profile`. No tests or docs used the short form. Long-form `--provider` unchanged.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` non-null-assertion warnings stay).
+  - `bun test` — 942/942 pass (was 889 before this phase). New files: `tests/cli/profileFlag.test.ts` (12), `tests/cli/profileCommands.test.ts` (15), `tests/config/profileLock.test.ts` (9), `tests/config/paths.test.ts` (17).
+  - End-to-end smoke against the local source: with `HARNESS_HOME=/tmp/sov-prof-smoke`,
+    - `sov --help` shows `-p, --profile <name>` documented under top-level Options.
+    - `sov -p work config path` resolves to `/tmp/sov-prof-smoke/profiles/work/config.json`.
+    - `sov profile create work` makes the dir; `sov profile use work` writes `<base>/active-profile`; `sov` without `-p` then resolves `config path` under `profiles/work/`.
+    - `sov profile import-default work` copies `config.json` from base, skips missing `credentials.json`, refuses to overwrite on second invocation.
+- Manual coverage:
+  - Default profile (no `-p`, no active-profile file) → state under `<base>/` directly. Verified via `config path`.
+  - Persisted active profile → `<base>/active-profile` content drives default resolution. Verified by writing `studio` to that file and observing the resolved path under `profiles/studio/`.
+  - Stale-lock reclamation: a planted `.sov.lock/pid` file holding a PID known to be dead is reclaimed on next `tryAcquireLock`. Verified by `tests/config/profileLock.test.ts:reclaims a stale lock whose PID is dead`.
+  - Reserved name: `assertProfileName('default')` throws; `setActiveProfile('default')` clears the file in place.
+- Result: 942/942 unit tests, lint + typecheck clean. Phase 10.7 functionality available end-to-end via the live source. Profile selection lands in the env BEFORE any module captures it (Invariant #11 holds).
+- Regressions / follow-ups:
+  - No regressions.
+  - Follow-ups: REPL integration of `profileLock` (currently helper-only — concurrent sessions on the same profile keep working); a `sov profile delete <name>` verb (deferred — the destructive path needs a confirmation flow); banner display of the active profile in the REPL splash (cosmetic — would compose with the existing splash card).

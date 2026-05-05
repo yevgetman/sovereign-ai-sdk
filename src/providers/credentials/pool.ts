@@ -2,8 +2,8 @@
 // config; ~/.harness/credentials.json stores status/cooldown/usage, never keys.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { resolveHarnessHome } from '../../config/paths.js';
 import type { AuthType } from '../types.js';
 
 export type PooledCredential = {
@@ -43,7 +43,16 @@ type StateFile = {
   credentials?: Record<string, Record<string, PooledCredential>>;
 };
 
-export const DEFAULT_CREDENTIAL_STATE_PATH = join(homedir(), '.harness', 'credentials.json');
+/** Profile-aware default credential-state path. Resolves at call time
+ *  so a profile-scoped HARNESS_HOME (Phase 10.7) lands the file under
+ *  the right profile root. */
+export function getDefaultCredentialStatePath(): string {
+  return join(resolveHarnessHome(), 'credentials.json');
+}
+
+/** @deprecated Eager const; profile-aware callers should use
+ *  `getDefaultCredentialStatePath()`. Retained for backward compat. */
+export const DEFAULT_CREDENTIAL_STATE_PATH = getDefaultCredentialStatePath();
 const DEFAULT_COOLDOWN_SECONDS = 60 * 60;
 
 export class CredentialPool {
@@ -59,7 +68,7 @@ export class CredentialPool {
     inputs: CredentialInput[],
     opts: CredentialPoolOpts = {},
   ) {
-    this.path = opts.path ?? DEFAULT_CREDENTIAL_STATE_PATH;
+    this.path = opts.path ?? getDefaultCredentialStatePath();
     this.now = opts.now ?? (() => Date.now() / 1000);
     this.strategy = opts.strategy ?? 'ROUND_ROBIN';
     this.state = readState(this.path);

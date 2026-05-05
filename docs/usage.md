@@ -48,6 +48,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 
 | Flag | Meaning |
 |---|---|
+| `-p, --profile <name>` | (Top-level — must precede the subcommand.) Pin the run to `<harness-home>/profiles/<name>/` for config / credentials / sessions / rate-limits / memory / skills. Use `default` for the unscoped base root. See [Profiles](#profiles). |
 | `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sov` runs as a generic agent when no bundle is found. |
 | `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, or `ollama`. |
 | `--model <name>` | Model override for the selected provider. |
@@ -79,6 +80,33 @@ sov --no-cache
 | `chat` (default) | Start the interactive REPL. Bare `sov` runs this. |
 | `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive picker. |
 | `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
+| `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
+
+## Profiles
+
+A profile is a named state-root scope. `sov -p work chat …` (or `sov --profile=work chat …`) pins the run to `<harness-home>/profiles/work/` instead of `<harness-home>/`, giving it a separate `config.json`, `credentials.json`, `sessions.db`, `rate_limits/`, memory, and skills. The same machine can host disjoint setups — work, personal, lab, per-client — without aliasing.
+
+**Activating a profile.** Two shapes:
+- **Per-invocation:** `sov -p work chat …` — affects this run only.
+- **Persisted:** `sov profile use work` writes `<harness-home>/active-profile`; subsequent `sov` calls (without `-p`) inherit it. `sov profile use default` clears it.
+
+The `default` name is reserved — it maps to `<harness-home>/` itself (the pre-Phase-10.7 unscoped root). `sov profile create default` is rejected.
+
+**Bootstrapping.** A fresh profile starts empty. To seed it with your existing config + credentials: `sov profile create work && sov profile import-default work`. Sessions, trajectories, and memory stay empty by design — the profile is meant to scope history per project, not duplicate it.
+
+**Listing.** `sov profile list` prints every profile (including the implicit `default`) with the active one marked:
+```text
+  default
+* work
+  personal
+```
+
+**Where things live.** With `HARNESS_HOME=$HOME/.harness` (the default):
+- Default root: `~/.harness/{config.json,credentials.json,sessions.db,…}`
+- `work` profile: `~/.harness/profiles/work/{config.json,credentials.json,sessions.db,…}`
+- Active profile pin: `~/.harness/active-profile` (single line, profile name, empty for default)
+
+**Locking.** Each profile has its own `<profile>/.sov.lock/` directory available as a helper for callers that want exclusivity (atomic mkdir + PID file with stale-process detection). The REPL itself does not currently acquire it — concurrent `sov` sessions on the same profile keep working.
 
 ## REPL UX
 

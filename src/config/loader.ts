@@ -4,8 +4,8 @@
 // Source of pattern: Claude Code src/schemas/ + settings layer convention.
 
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolveHarnessHome } from './paths.js';
 import { type Settings, SettingsSchema } from './schema.js';
 
 export type LoadSettingsOpts = {
@@ -15,7 +15,7 @@ export type LoadSettingsOpts = {
 
 export function loadSettings(opts: LoadSettingsOpts = {}): Settings {
   const env = opts.env ?? process.env;
-  const path = opts.path ?? env.HARNESS_CONFIG ?? join(homedir(), '.harness', 'config.json');
+  const path = opts.path ?? env.HARNESS_CONFIG ?? join(resolveHarnessHome(env), 'config.json');
   if (!existsSync(path)) return {};
   const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
   return SettingsSchema.parse(raw);

@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 10.7 — Profile system - 2026-05-04
+
+`sov` now scopes its on-disk state to a named profile so the same machine can host disjoint setups (work / personal / lab) with separate config, credentials, sessions, rate-limit ledgers, memory, and skills. The mechanism is intentionally narrow: a top-level `-p/--profile` flag (or a persisted `<base>/active-profile` pin) sets `process.env.HARNESS_HOME` to `<base>/profiles/<name>/` before any module that captures the path at load time, and every existing call site that previously hardcoded `homedir() + '.harness/...'` now resolves through `getHarnessHome()`. Per Invariant #11 — profile = env var before imports.
+
+Added: `src/config/paths.ts` (profile-aware helpers + `assertProfileName` validator), `src/cli/profileFlag.ts` (pure argv scanner extracted for testability), `src/cli/profileCommands.ts` (`list` / `create` / `use` / `show` / `import-default`), `src/config/profileLock.ts` (atomic mkdir-based PID lock with stale-lock reclamation; helper only — REPL integration deferred so existing concurrent-session usage isn't broken). Rewired `src/agent/sessionDb.ts`, `src/config/store.ts`, `src/config/loader.ts`, `src/providers/credentials/pool.ts`, and `src/providers/credentials/rateGuard.ts` from eager `homedir()` consts to profile-aware functions; the deprecated consts remain for back-compat.
+
+CLI breaking change: `chat`'s `-p` short flag for `--provider` was dropped to free `-p` for the top-level `--profile`. No tests or docs used the short form. `sov chat --provider <name>` is unchanged.
+
+53 new unit tests (paths 17, profileCommands 15, profileFlag 12, profileLock 9). Suite total: 942/942.
+
+Decisions recorded in DECISIONS.md.
+
 ## `sov upgrade --purge-cache` — defeat Bun's sticky URL→SHA cache - 2026-05-04
 
 Empirically discovered while verifying Phase 13.1 end-to-end: `sov upgrade` (post-pre-uninstall fix below) was still installing a cached commit instead of master HEAD. Root cause: Bun's binary install-cache at `~/.bun/install/cache/` contains both per-SHA git package extracts (`@G@<sha>/`) and opaque `.npm` manifest files holding `URL → SHA` mappings. Even `bun install --no-cache --force <url>#master` (with the lockfile evicted) re-uses the cached SHA from `.npm` rather than re-resolving against the live remote.

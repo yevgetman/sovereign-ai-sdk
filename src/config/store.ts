@@ -4,15 +4,15 @@
 // display. Used by `sov config ...` and the `/config` slash.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { resolveHarnessHome } from './paths.js';
 import { type Settings, SettingsSchema } from './schema.js';
 
 const SECRET_KEYS = new Set(['apiKey', 'token']);
 const SECRET_LIST_KEYS = new Set(['apiKeys']);
 
 export function resolveConfigPath(envOverride?: string): string {
-  return envOverride ?? process.env.HARNESS_CONFIG ?? join(homedir(), '.harness', 'config.json');
+  return envOverride ?? process.env.HARNESS_CONFIG ?? join(resolveHarnessHome(), 'config.json');
 }
 
 export function readConfig(path?: string): Settings {

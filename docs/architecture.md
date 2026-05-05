@@ -183,6 +183,17 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+### Profile system (Phase 10.7)
+
+`<harness-home>` is profile-aware. The default state root is `<harness-home>/` itself; named profiles live under `<harness-home>/profiles/<name>/` with the same internal layout (config, credentials, sessions, memory, etc.). The active profile is selected by:
+
+1. **Top-level `-p/--profile <name>` flag**, parsed in `src/main.ts` BEFORE any module-load-time path capture (Invariant #11). The flag sets `process.env.HARNESS_HOME = join(<base>, 'profiles', <name>)` and is stripped from argv before commander parses it. The `default` name is reserved and maps to `<base>/` itself.
+2. **Persisted active selection** at `<base>/active-profile`, written by `sov profile use <name>` and read on startup when no `-p` flag is supplied. An empty file or missing file means default.
+
+`src/config/paths.ts` is the single source of truth for path resolution (`getHarnessHome`, `getBaseHome`, `getProfileHome`, `getActiveProfile`, `setActiveProfile`, `assertProfileName`). Every disk-access call site in `src/agent/sessionDb.ts`, `src/config/store.ts`, `src/config/loader.ts`, `src/providers/credentials/pool.ts`, and `src/providers/credentials/rateGuard.ts` resolves paths through these helpers at call time, never at module load.
+
+`src/config/profileLock.ts` ships an atomic-mkdir-based PID lock with stale-process detection as a helper (`tryAcquireLock`, `readLockInfo`); REPL integration is deferred. `src/cli/profileCommands.ts` implements the `sov profile [list|create|use|show|import-default]` subcommand cluster — `import-default` copies the unscoped `config.json` + `credentials.json` into a target profile but leaves sessions/trajectories/memory empty (a profile is meant to scope history per project, not duplicate it).
+
 ## REPL UX Layer
 
 `src/ui/` contains the user-facing rendering for the streaming turn loop. The runtime stays UI-agnostic — REPL components consume `StreamEvent`s and `Message`s from `query()` without affecting tool/provider/permission semantics.

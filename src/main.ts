@@ -10,6 +10,8 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
+import { parseProfileFlag } from './cli/profileFlag.js';
+import { DEFAULT_PROFILE_NAME, getActiveProfile, getBaseHome } from './config/paths.js';
 import {
   formatValue,
   getAt,
@@ -59,6 +61,23 @@ function loadPackageEnv(): void {
 }
 
 loadPackageEnv();
+
+/**
+ * Apply the top-level profile flag (or the persisted active profile when no
+ * flag is given) by setting `process.env.HARNESS_HOME`. Per Invariant #11
+ * this runs before any module that captures HARNESS_HOME at load time, so
+ * every downstream `getHarnessHome()` call site lands under the right root.
+ */
+function resolveAndApplyProfile(argv: string[]): string[] {
+  const { flagValue, rest } = parseProfileFlag(argv);
+  const resolved = flagValue ?? getActiveProfile();
+  if (resolved !== DEFAULT_PROFILE_NAME) {
+    process.env.HARNESS_HOME = join(getBaseHome(), 'profiles', resolved);
+  }
+  return rest;
+}
+
+const PARSED_ARGV = resolveAndApplyProfile(process.argv);
 
 const VERSION = '0.0.1';
 const DEFAULT_MAX_TOKENS = 12000;
@@ -110,13 +129,17 @@ async function main(argv: string[]): Promise<void> {
   const program = new Command()
     .name('sov')
     .description('Sovereign AI agent runtime')
-    .version(VERSION);
+    .version(VERSION)
+    .option(
+      '-p, --profile <name>',
+      "scope the run to a named profile under <harness-home>/profiles/<name>/ (use 'default' for the unscoped root)",
+    );
 
   program
     .command('chat', { isDefault: true })
     .description('Start an interactive chat session against a harness bundle')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('-p, --provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -203,6 +226,56 @@ async function main(argv: string[]): Promise<void> {
       process.stdout.write(`unset ${dotpath}\n`);
     });
 
+  const profileCmd = program
+    .command('profile')
+    .description('Manage profile-scoped state roots under <harness-home>/profiles/');
+
+  profileCmd
+    .command('list')
+    .description("List all profiles (the active one marked with '*')")
+    .action(async () => {
+      const { listProfiles, formatProfileList } = await import('./cli/profileCommands.js');
+      process.stdout.write(formatProfileList(listProfiles()));
+    });
+
+  profileCmd
+    .command('show')
+    .description('Print the active profile name')
+    .action(async () => {
+      const { getActiveProfile: getActive } = await import('./config/paths.js');
+      process.stdout.write(`${getActive()}\n`);
+    });
+
+  profileCmd
+    .command('create <name>')
+    .description('Create a new profile directory under <harness-home>/profiles/<name>/')
+    .action(async (name: string) => {
+      const { createProfile } = await import('./cli/profileCommands.js');
+      const result = createProfile(name);
+      const verb = result.alreadyExisted ? 'already exists' : 'created';
+      process.stdout.write(`profile '${result.name}' ${verb} at ${result.path}\n`);
+    });
+
+  profileCmd
+    .command('use <name>')
+    .description("Set the persisted active profile (use 'default' to clear)")
+    .action(async (name: string) => {
+      const { useProfile } = await import('./cli/profileCommands.js');
+      const result = useProfile(name);
+      process.stdout.write(`active profile is now '${result.name}' (${result.path})\n`);
+    });
+
+  profileCmd
+    .command('import-default <name>')
+    .description('Copy the unscoped default-root config + credentials into a profile')
+    .action(async (name: string) => {
+      const { importDefaultIntoProfile, formatImportResult } = await import(
+        './cli/profileCommands.js'
+      );
+      const result = importDefaultIntoProfile(name);
+      process.stdout.write(formatImportResult(result, name));
+    });
+
   program
     .command('upgrade')
     .description('Pull the latest sov from the private repo and re-link the global binary')
@@ -230,7 +303,7 @@ async function main(argv: string[]): Promise<void> {
   await program.parseAsync(argv);
 }
 
-main(process.argv).catch((err: unknown) => {
+main(PARSED_ARGV).catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
   process.stderr.write(`sov: ${msg}\n`);
   process.exit(1);
