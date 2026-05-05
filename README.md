@@ -71,9 +71,9 @@ sov                                           # generic-agent mode, no bundle
 sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle (also private)
 ```
 
-**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. `--dry-run` prints the bun commands without running them. The first install still uses the explicit `bun install -g git+ssh://…` form above (you can't run `sov upgrade` until `sov` exists).
+**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand pre-uninstalls, **wipes Bun's install cache** (`~/.bun/install/cache/`), then reinstalls. The cache wipe is the default since 2026-05-05 because Bun's binary manifest cache otherwise pins a stale `URL → SHA` mapping for the harness git URL — `sov upgrade` would silently re-install the same SHA you already had. `--dry-run` prints the bun commands without running them. The first install still uses the explicit `bun install -g git+ssh://…` form above (you can't run `sov upgrade` until `sov` exists).
 
-If `sov upgrade` keeps installing an older commit than the current `master` HEAD, Bun's binary install-cache is holding a stale `URL → SHA` mapping. Run `sov upgrade --purge-cache` to wipe `~/.bun/install/cache/` before installing — that forces Bun to re-resolve against the live remote. The cache wipe also evicts other Bun-installed packages' manifests, but those regenerate on next install.
+The cache wipe also evicts other Bun-installed packages' manifests as a side-effect — those regenerate (small one-time slowdown on each package's next install, never broken). If you specifically want to preserve those manifests and accept the risk of a stale upgrade, `sov upgrade --keep-cache` opts out. The legacy `--purge-cache` flag is preserved for back-compat but is now a no-op (it's the default).
 
 Access control is the GitHub SSH key on the user's machine — exactly the same model the source clone uses. Nothing reaches a public registry.
 

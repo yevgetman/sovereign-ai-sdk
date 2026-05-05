@@ -14,14 +14,17 @@
 // requested. Uninstalling first evicts the lockfile entry so a fresh
 // install can resolve cleanly.
 //
-// Why --purge-cache: even after the lockfile is cleared, Bun's binary
-// manifest cache (`~/.bun/install/cache/*.npm`) keeps a `URL → SHA`
-// mapping. Subsequent `bun install -g <url>` re-uses the cached SHA
-// instead of re-resolving against the live remote. The flag wipes
-// `~/.bun/install/cache/` so the next install must re-fetch from
-// remote. This is the "I want LATEST master, no kidding" hammer; it
-// also evicts the npm-package manifest cache for every other package
-// (mostly harmless — Bun re-fetches on next install).
+// Why purge cache by DEFAULT (since 2026-05-05): even after the
+// lockfile is cleared, Bun's binary manifest cache
+// (`~/.bun/install/cache/*.npm`) keeps a `URL → SHA` mapping.
+// Subsequent `bun install -g <url>` re-uses the cached SHA instead of
+// re-resolving against the live remote. We were burned by this enough
+// times in real use that the silent-stale-install failure mode is
+// strictly worse than the cost of re-fetching every other package's
+// manifest on its next install (regenerable, never broken). So
+// `sov upgrade` purges the cache by default. `--keep-cache` opts out
+// when the user specifically wants to preserve cached manifests for
+// other Bun-installed packages.
 
 import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
@@ -46,15 +49,31 @@ export type UpgradeOpts = {
    *  and to save the ~1s of uninstall round-trip. */
   skipUninstall?: boolean;
   /** Wipe `~/.bun/install/cache/` before installing so Bun re-resolves
-   *  the git URL against the live remote. Use when `sov upgrade` keeps
-   *  serving an older SHA than the current `master` HEAD. Also evicts
-   *  every other Bun install's manifest cache (regenerable). */
+   *  the git URL against the live remote. **DEFAULT: true** — see file
+   *  header for why we burned ourselves enough times to flip the
+   *  default. The flag is preserved for explicit opt-in but is
+   *  effectively a no-op now (the default already does this). Pass
+   *  `keepCache: true` (or `--keep-cache` on the CLI) to opt out. */
   purgeCache?: boolean;
+  /** Opt out of the default cache wipe. Use only if you know you have
+   *  many other globally-installed Bun packages whose manifest caches
+   *  you specifically want to preserve and you trust that bun install
+   *  will resolve the git URL freshly anyway (in our experience it
+   *  often won't — that's why purge-cache is the default). */
+  keepCache?: boolean;
   /** Test seam — overrides DEFAULT_INSTALL_URL and SOV_UPGRADE_URL. */
   installUrl?: string;
   /** Test seam — overrides ~/.bun/install/cache for the purge step. */
   cacheDir?: string;
 };
+
+/** Resolve the effective cache-purge decision from the opt flags.
+ *  Default: purge. Explicit purgeCache:false OR keepCache:true wins. */
+export function shouldPurgeCache(opts: UpgradeOpts): boolean {
+  if (opts.keepCache === true) return false;
+  if (opts.purgeCache === false) return false;
+  return true;
+}
 
 export type UpgradeResult = {
   exitCode: number;
@@ -88,9 +107,12 @@ export function runUpgrade(
   err: NodeJS.WritableStream = process.stderr,
 ): UpgradeResult {
   const commands = buildUpgradeCommands(opts);
+  const willPurge = shouldPurgeCache(opts);
   if (opts.dryRun === true) {
-    if (opts.purgeCache === true) {
+    if (willPurge) {
       out.write(`would purge: ${cacheDirFor(opts)}\n`);
+    } else {
+      out.write('would skip cache purge (--keep-cache)\n');
     }
     for (const cmd of commands) out.write(`would run: ${cmd.join(' ')}\n`);
     return { exitCode: 0, commands };
@@ -106,10 +128,10 @@ export function runUpgrade(
       const [ubin, ...uargs] = uninstall;
       if (ubin) spawnSync(ubin, uargs, { stdio: 'inherit' });
     }
-    if (opts.purgeCache === true) purgeCache(opts, out);
+    if (willPurge) purgeCache(opts, out);
     return runInstall(rest[0], commands, out, err);
   }
-  if (opts.purgeCache === true) purgeCache(opts, out);
+  if (willPurge) purgeCache(opts, out);
   return runInstall(commands[0], commands, out, err);
 }
 

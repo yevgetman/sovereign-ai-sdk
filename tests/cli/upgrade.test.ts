@@ -121,4 +121,86 @@ describe('runUpgrade', () => {
     expect(result.exitCode).toBe(0);
     expect(chunks.join('')).toContain('would purge: /tmp/fake-bun-cache');
   });
+
+  test('purge is the default — dry-run reports a purge even without explicit purgeCache', () => {
+    const chunks: string[] = [];
+    const out = {
+      write: (chunk: string) => {
+        chunks.push(chunk);
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const err = { write: () => true } as unknown as NodeJS.WritableStream;
+    const result = runUpgrade({ dryRun: true, cacheDir: '/tmp/fake-bun-cache' }, out, err);
+    expect(result.exitCode).toBe(0);
+    // Default behavior wipes the cache — no flag required.
+    expect(chunks.join('')).toContain('would purge: /tmp/fake-bun-cache');
+  });
+
+  test('keepCache opts out of the default purge', () => {
+    const chunks: string[] = [];
+    const out = {
+      write: (chunk: string) => {
+        chunks.push(chunk);
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const err = { write: () => true } as unknown as NodeJS.WritableStream;
+    const result = runUpgrade(
+      { dryRun: true, keepCache: true, cacheDir: '/tmp/fake-bun-cache' },
+      out,
+      err,
+    );
+    expect(result.exitCode).toBe(0);
+    const stdout = chunks.join('');
+    expect(stdout).not.toContain('would purge:');
+    expect(stdout).toContain('would skip cache purge');
+  });
+
+  test('keepCache wins over an explicit purgeCache=true', () => {
+    const chunks: string[] = [];
+    const out = {
+      write: (chunk: string) => {
+        chunks.push(chunk);
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const err = { write: () => true } as unknown as NodeJS.WritableStream;
+    const result = runUpgrade(
+      {
+        dryRun: true,
+        keepCache: true,
+        purgeCache: true,
+        cacheDir: '/tmp/fake-bun-cache',
+      },
+      out,
+      err,
+    );
+    expect(result.exitCode).toBe(0);
+    const stdout = chunks.join('');
+    expect(stdout).not.toContain('would purge:');
+    expect(stdout).toContain('would skip cache purge');
+  });
+});
+
+describe('shouldPurgeCache', () => {
+  test('defaults to true (the safe-upgrade default since 2026-05-05)', async () => {
+    const { shouldPurgeCache } = await import('../../src/cli/upgrade.js');
+    expect(shouldPurgeCache({})).toBe(true);
+  });
+
+  test('keepCache: true → false', async () => {
+    const { shouldPurgeCache } = await import('../../src/cli/upgrade.js');
+    expect(shouldPurgeCache({ keepCache: true })).toBe(false);
+  });
+
+  test('purgeCache: false → false', async () => {
+    const { shouldPurgeCache } = await import('../../src/cli/upgrade.js');
+    expect(shouldPurgeCache({ purgeCache: false })).toBe(false);
+  });
+
+  test('keepCache: true wins over purgeCache: true', async () => {
+    const { shouldPurgeCache } = await import('../../src/cli/upgrade.js');
+    expect(shouldPurgeCache({ keepCache: true, purgeCache: true })).toBe(false);
+  });
 });

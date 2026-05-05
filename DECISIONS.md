@@ -2,6 +2,18 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-05 - `sov upgrade` now purges Bun cache by default
+
+Reversal of the 2026-05-04 default. Original rationale was: "punishing users who have other globally-installed Bun packages by wiping their manifest cache is too aggressive — make the cache wipe explicit." After three real-world recurrences (most recently a Phase 13 user who ran `sov upgrade` four times before realizing it was silently re-installing the same pre-Phase-13 SHA — the cached `URL → SHA` mapping kept winning), the calculus has flipped:
+
+- **Silent stale install is strictly worse than a manifest cache wipe.** The wiped cache is regenerable (Bun re-fetches manifests on the next install of each package). The stale install is functionally a broken upgrade — the user thinks they're on master and they're not.
+- **Other-package cost is one-time and small.** Bun's manifest cache is opaque hashes, not source. Re-fetching means each subsequent `bun install` runs ~1-3 s slower until the cache repopulates. Not a meaningful penalty.
+- **Surgical purge wasn't viable.** Cache files are named with content hashes (`<hash>.npm`); identifying which entry belongs to a specific git URL would require unpacking each `.npm` tarball or replicating Bun's internal hash-of-URL function. Brittle.
+
+So `sov upgrade` now wipes `~/.bun/install/cache/` by default. The previous `--purge-cache` flag is preserved as a no-op (back-compat) and a new `--keep-cache` flag opts back into the old behavior. The internal helper `shouldPurgeCache(opts)` resolves the decision: `keepCache: true` wins over `purgeCache: true`; both default to a purge.
+
+Rejected alternative: post-install verification + auto-retry on no-op. Would require comparing pre-install vs. post-install SHAs, but Bun strips `.git/` from extracted git installs so we'd need to bake a SHA stamp into the install (build step) or parse `~/.bun/install/global/bun.lock` (Bun-internal format we don't want to depend on). Switching the default is a one-line semantic change that achieves the same reliability without taking on Bun-version-specific maintenance.
+
 ## 2026-05-05 - Phase 13 — Sub-agent runtime: five design choices
 
 The sub-agent surface is mostly mechanical — registry, scheduler, AgentTool wrapper. A few choices were non-obvious enough to record:

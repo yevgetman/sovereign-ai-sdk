@@ -401,7 +401,11 @@ async function main(argv: string[]): Promise<void> {
     )
     .option(
       '--purge-cache',
-      'wipe ~/.bun/install/cache before install (use when bun keeps installing an older SHA than master HEAD)',
+      'wipe ~/.bun/install/cache before install [now the default — preserved for back-compat; use --keep-cache to opt out]',
+    )
+    .option(
+      '--keep-cache',
+      'preserve ~/.bun/install/cache (other Bun packages keep their cached manifests; risk: bun may re-install the same stale SHA)',
     )
     .action(async (opts) => {
       const { runUpgrade } = await import('./cli/upgrade.js');
@@ -410,6 +414,7 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.dryRun === true ? { dryRun: true } : {}),
         ...(opts.skipUninstall === true ? { skipUninstall: true } : {}),
         ...(opts.purgeCache === true ? { purgeCache: true } : {}),
+        ...(opts.keepCache === true ? { keepCache: true } : {}),
       });
       process.exit(result.exitCode);
     });
