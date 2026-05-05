@@ -219,7 +219,7 @@ describe('SubagentScheduler', () => {
     const trackingProvider = (n: number): ResolvedProvider => ({
       transport: {
         name: 'tracked',
-        async *stream(_req): AsyncGenerator<StreamEvent, AssistantMessage> {
+        async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
           order.push(n);
           await new Promise((r) => setTimeout(r, 10));
           for (const ev of completedTurnEvents()) yield ev;
@@ -285,7 +285,7 @@ describe('SubagentScheduler', () => {
         return {
           transport: {
             name: 'order-tracker',
-            async *stream(_req): AsyncGenerator<StreamEvent, AssistantMessage> {
+            async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
               order.push(`start-${tag}`);
               await new Promise((r) => setTimeout(r, 5));
               order.push(`end-${tag}`);
@@ -335,7 +335,7 @@ describe('SubagentScheduler', () => {
       resolveProvider: () => ({
         transport: {
           name: 'hang',
-          async *stream(_req): AsyncGenerator<StreamEvent, AssistantMessage> {
+          async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
             yield { type: 'message_start' };
             await new Promise((_resolve, reject) => {
               ctl.signal.addEventListener('abort', () => reject(new Error('aborted')), {
@@ -372,9 +372,7 @@ describe('SubagentScheduler', () => {
   test('resolves agent.role through capability profile', async () => {
     const records: SessionRecord[] = [];
     const scheduler = new SubagentScheduler({
-      agents: makeAgentRegistry([
-        makeAgent({ name: 'explore', role: 'explore', model: undefined }),
-      ]),
+      agents: makeAgentRegistry([makeAgent({ name: 'explore', role: 'explore' })]),
       laneSemaphores: new LaneSemaphores({}),
       writeLock: new Semaphore(1),
       resolveProvider: () => makeFakeResolved('whatever'),

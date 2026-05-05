@@ -60,7 +60,9 @@ Each phase should:
 
 ## Lint before committing
 
-Run `bun run lint` and `bun run test` before every commit. Commit atomically — one logical change per commit. This matches the rule in `sovereign-ai-docs/CLAUDE.md`.
+Run `bun run lint`, `bun run typecheck`, and `bun run test` before every commit. All three must pass. Commit atomically — one logical change per commit. This matches the rule in `sovereign-ai-docs/CLAUDE.md`.
+
+(Why all three: `bun run lint` runs Biome which catches style/format issues but does NOT do TypeScript type-checking. `bun run typecheck` runs `tsc --noEmit` and catches things like wrong-scope identifiers and `exactOptionalPropertyTypes` violations that would slip through Biome + Bun's runtime test executor.)
 
 ## Semantic test suite — when to run, when to extend
 

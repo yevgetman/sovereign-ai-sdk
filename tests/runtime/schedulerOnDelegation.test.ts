@@ -140,7 +140,7 @@ describe('scheduler on_delegation hook', () => {
       resolveProvider: () => ({
         transport: {
           name: 'hang',
-          async *stream(_req): AsyncGenerator<StreamEvent, AssistantMessage> {
+          async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
             yield { type: 'message_start' };
             await new Promise((_resolve, reject) => {
               ctl.signal.addEventListener('abort', () => reject(new Error('aborted')), {

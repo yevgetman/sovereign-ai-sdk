@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
 import type { AssistantMessage } from '../../src/core/types.js';
+import type { DelegateInput } from '../../src/runtime/scheduler.js';
 import type { ToolContext, ToolResult } from '../../src/tool/types.js';
 import { AgentTool } from '../../src/tools/AgentTool.js';
 
@@ -31,7 +32,9 @@ function makeRegistry(names: string[]): AgentRegistry {
   return { agents: names.map((n) => makeAgent(n)), byName };
 }
 
-type SchedulerStub = ToolContext['subagentScheduler'];
+// Use NonNullable so test fixtures can assign directly into the optional
+// ToolContext.subagentScheduler field under `exactOptionalPropertyTypes`.
+type SchedulerStub = NonNullable<ToolContext['subagentScheduler']>;
 
 function makeStubScheduler(
   opts: {
@@ -52,7 +55,7 @@ function makeStubScheduler(
 ): SchedulerStub {
   return {
     activeChildren: () => 0,
-    delegate: async (input) => {
+    delegate: async (input: DelegateInput) => {
       opts.delegateCalls?.push(input);
       const reason = opts.resultOverride?.terminalReason ?? 'completed';
       return {
