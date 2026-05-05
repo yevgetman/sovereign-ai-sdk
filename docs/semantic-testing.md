@@ -276,7 +276,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3838-pass), update the headline count (`37/37 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3838-pass), update the headline count (`38/38 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

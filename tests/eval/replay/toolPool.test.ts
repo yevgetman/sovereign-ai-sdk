@@ -69,7 +69,7 @@ describe('wrapToolsForReplay', () => {
       data: { echoed: 'replayed', source: 'fixture' },
     });
     const [echo] = wrapToolsForReplay([makeEcho()], fixture);
-    const result = await echo!.call({ text: 'live-input' }, ctx);
+    const result = await echo?.call({ text: 'live-input' }, ctx);
     expect(result).toEqual({ data: { echoed: 'replayed', source: 'fixture' } });
   });
 
@@ -80,9 +80,9 @@ describe('wrapToolsForReplay', () => {
       { toolName: 'Read', data: 'content of C' },
     );
     const [read] = wrapToolsForReplay([makeRead()], fixture);
-    const r1 = await read!.call({ path: '/x' }, ctx);
-    const r2 = await read!.call({ path: '/y' }, ctx);
-    const r3 = await read!.call({ path: '/z' }, ctx);
+    const r1 = await read?.call({ path: '/x' }, ctx);
+    const r2 = await read?.call({ path: '/y' }, ctx);
+    const r3 = await read?.call({ path: '/z' }, ctx);
     expect(r1).toEqual({ data: 'content of A' });
     expect(r2).toEqual({ data: 'content of B' });
     expect(r3).toEqual({ data: 'content of C' });
@@ -91,20 +91,20 @@ describe('wrapToolsForReplay', () => {
   test('throws when the agent makes more calls than were captured', async () => {
     const fixture = fixtureWith({ toolName: 'Read', data: 'one' });
     const [read] = wrapToolsForReplay([makeRead()], fixture);
-    await read!.call({ path: '/x' }, ctx);
-    await expect(read!.call({ path: '/y' }, ctx)).rejects.toThrow(/replay exhausted for tool Read/);
+    await read?.call({ path: '/x' }, ctx);
+    await expect(read?.call({ path: '/y' }, ctx)).rejects.toThrow(/replay exhausted for tool Read/);
   });
 
   test('captured `error` re-throws as a real error', async () => {
     const fixture = fixtureWith({ toolName: 'Read', data: '', error: 'permission denied' });
     const [read] = wrapToolsForReplay([makeRead()], fixture);
-    await expect(read!.call({ path: '/x' }, ctx)).rejects.toThrow(/permission denied/);
+    await expect(read?.call({ path: '/x' }, ctx)).rejects.toThrow(/permission denied/);
   });
 
   test('tools not present in the fixture pass through unchanged', async () => {
     const fixture = fixtureWith({ toolName: 'Read', data: 'x' });
     const wrapped = wrapToolsForReplay([makeEcho()], fixture);
-    const result = await wrapped[0]!.call({ text: 'live' }, ctx);
+    const result = await wrapped[0]?.call({ text: 'live' }, ctx);
     expect(result).toEqual({ data: { echoed: 'live', source: 'live' } });
   });
 
@@ -116,12 +116,12 @@ describe('wrapToolsForReplay', () => {
       { toolName: 'Echo', data: { echoed: 'e1', source: 'fx' } },
     );
     const [echo, read] = wrapToolsForReplay([makeEcho(), makeRead()], fixture);
-    expect(await read!.call({ path: '/a' }, ctx)).toEqual({ data: 'r0' });
-    expect(await echo!.call({ text: 'live' }, ctx)).toEqual({
+    expect(await read?.call({ path: '/a' }, ctx)).toEqual({ data: 'r0' });
+    expect(await echo?.call({ text: 'live' }, ctx)).toEqual({
       data: { echoed: 'e0', source: 'fx' },
     });
-    expect(await read!.call({ path: '/b' }, ctx)).toEqual({ data: 'r1' });
-    expect(await echo!.call({ text: 'live' }, ctx)).toEqual({
+    expect(await read?.call({ path: '/b' }, ctx)).toEqual({ data: 'r1' });
+    expect(await echo?.call({ text: 'live' }, ctx)).toEqual({
       data: { echoed: 'e1', source: 'fx' },
     });
   });
@@ -150,7 +150,7 @@ describe('wrapToolsForReplay', () => {
       ],
     };
     const [read] = wrapToolsForReplay([makeRead()], fixture);
-    const result = (await read!.call({ path: '/x' }, ctx)) as {
+    const result = (await read?.call({ path: '/x' }, ctx)) as {
       data: unknown;
       observation: { status: string };
     };

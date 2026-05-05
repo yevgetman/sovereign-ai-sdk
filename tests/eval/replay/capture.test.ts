@@ -171,8 +171,8 @@ describe('wrapToolsForCapture', () => {
     const sink = createCaptureSink({ sessionId: 's', provider: 'fake', model: 'm' });
     sink.startTurn(0);
     const [read] = wrapToolsForCapture([makeReadTool('hello')], sink);
-    await read!.call({ path: '/x' }, ctx);
-    await read!.call({ path: '/y' }, ctx);
+    await read?.call({ path: '/x' }, ctx);
+    await read?.call({ path: '/y' }, ctx);
     const fixture = sink.finish();
     const results = fixture.turns[0]?.toolResults ?? [];
     expect(results).toHaveLength(2);
@@ -184,9 +184,9 @@ describe('wrapToolsForCapture', () => {
     const sink = createCaptureSink({ sessionId: 's', provider: 'fake', model: 'm' });
     sink.startTurn(0);
     const [read, boom] = wrapToolsForCapture([makeReadTool('x'), makeBoomTool()], sink);
-    await read!.call({ path: '/a' }, ctx);
-    await expect(boom!.call({}, ctx)).rejects.toThrow();
-    await read!.call({ path: '/b' }, ctx);
+    await read?.call({ path: '/a' }, ctx);
+    await expect(boom?.call({}, ctx)).rejects.toThrow();
+    await read?.call({ path: '/b' }, ctx);
     const fixture = sink.finish();
     const results = fixture.turns[0]?.toolResults ?? [];
     expect(results).toHaveLength(3);
@@ -201,7 +201,7 @@ describe('wrapToolsForCapture', () => {
     const sink = createCaptureSink({ sessionId: 's', provider: 'fake', model: 'm' });
     sink.startTurn(0);
     const [boom] = wrapToolsForCapture([makeBoomTool()], sink);
-    await expect(boom!.call({}, ctx)).rejects.toThrow('intentional failure');
+    await expect(boom?.call({}, ctx)).rejects.toThrow('intentional failure');
     const fixture = sink.finish();
     const result = fixture.turns[0]?.toolResults[0];
     expect(result).toMatchObject({ toolName: 'Boom', callIndex: 0, error: 'intentional failure' });

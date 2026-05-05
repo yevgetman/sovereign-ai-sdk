@@ -104,14 +104,18 @@ tests/semantic/
 │   └── runner.ts                Load cases, orchestrate, aggregate
 ├── suites/
 │   ├── 01-tools.cases.ts          Bash, Read, Edit, Write — happy paths + error reporting
-│   ├── 02-commands.cases.ts       Slash command dispatch
+│   ├── 02-commands.cases.ts       Slash command dispatch (/help, /commit, /init, /context-budget, /skill)
 │   ├── 03-workflow.cases.ts       Multi-step + simple context + refusal-on-missing
-│   ├── 04-permissions.cases.ts    Deny / allow / deny-wins / bypass-honors-deny
+│   ├── 04-permissions.cases.ts    Deny / allow / deny-wins / bypass-honors-deny / virtual-tool / layer-precedence
 │   ├── 05-search.cases.ts         Glob, Grep
 │   ├── 06-context.cases.ts        @file expansion
 │   ├── 07-refusal.cases.ts        Zero-results, prompt-injection, verify-not-trust-user
-│   ├── 08-multi-turn.cases.ts     Cross-turn memory, refinement, error-recovery
-│   └── 09-skills.cases.ts         Markdown-skill invocation via .harness/skills/
+│   ├── 08-multi-turn.cases.ts     Cross-turn memory, refinement, error-recovery, /compact, /rollback
+│   ├── 09-skills.cases.ts         Markdown-skill invocation via .harness/skills/
+│   ├── 10-hooks.cases.ts          PreToolUse + PostToolUse hooks (Phase 11)
+│   ├── 11-mcp.cases.ts            MCP discovery + invocation + permission denial (Phase 12)
+│   ├── 12-harness-info.cases.ts   HarnessInfo + self-doc segment (Phase 12.7)
+│   └── 13-router.cases.ts         --provider router end-to-end (Phase 10.6)
 ├── run.ts                        Entry point
 └── README.md                     This file
 ```
@@ -126,9 +130,12 @@ tests/semantic/
   id: 'kebab-case-id',           // unique across the whole suite
   name: 'Short human title',
   description: 'Which bug class does this test guard against?',
-  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal',
+  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal' | 'hooks' | 'router',
   setup: {
     files: [{ path: 'foo.txt', content: 'bar' }],   // optional
+    homeFiles: [{ path: 'config.json', content: '{}' }],  // optional, written under HARNESS_HOME
+    userConfig: { router: { localProvider: 'anthropic' } },  // optional, overrides HARNESS_CONFIG (Phase 10.6)
+    env: { CUSTOM_VAR: 'value' },  // optional, merged on top of sandbox defaults
   },
   // Single string for one turn, or string[] for multi-turn (one prompt per turn).
   prompt: 'The single user prompt sent to the agent.',

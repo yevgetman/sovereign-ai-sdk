@@ -16,9 +16,20 @@ sov eval run --binary ./build/sov --timeout 120000
 
 # Keep sandboxes for debugging:
 sov eval run --keep-sandbox
+
+# Compare providers (grid output: rows = goldens, cols = providers):
+sov eval run --compare anthropic,ollama
+
+# Capture once with a live LLM, then replay forever in CI without an API key:
+sov eval run --capture /tmp/golden-fixtures
+sov eval run --replay  /tmp/golden-fixtures
 ```
 
 Exit code is non-zero when any assertion fails, any run aborts (timeout/spawn error), or the budget is violated.
+
+**Capture/replay.** `--capture <dir>` records a `ReplayFixture` per golden at `<dir>/<id>.fixture.json` while running live. `--replay <dir>` runs each golden against its captured fixture using `ReplayProvider` + `wrapToolsForReplay` — no LLM calls, no API keys needed. Goldens whose fixture is missing during replay are reported as aborted. Mutually exclusive with `--capture`.
+
+**Compare mode.** `--compare provider1,provider2,...` runs each golden once per provider (in order) and prints a grid (rows = goldens, cols = providers). Per-provider model selection falls through to each provider's configured default. The aggregate budget applies across the cross-product totals.
 
 ## Format
 

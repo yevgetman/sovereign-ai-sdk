@@ -182,6 +182,50 @@ Do not mutate the frozen system prompt after session creation. On resume, the st
 
 Injection-prone external text should be fenced, labeled, bounded, and screened before it reaches the model.
 
+## Add A Golden (Eval Test)
+
+Goldens are deterministic-ish end-to-end tests run by `sov eval run`. Unlike semantic tests (which use an LLM judge for fuzzy scoring), goldens use code assertions for strict scoring. Lives at `evals/goldens/*.golden.ts`.
+
+1. Create `evals/goldens/NN-my-test.golden.ts`.
+2. Export a `GoldenSpec` const (any export name — the loader picks up everything matching the spec shape):
+
+```ts
+import type { GoldenSpec } from '../../src/eval/types.js';
+
+export const myGolden: GoldenSpec = {
+  id: 'my-golden',                 // stable; also the filter substring
+  name: 'Short human-readable name',
+  description: 'What this exercises and why.',
+  category: 'tools',                // optional grouping tag
+  seed: {                           // optional sandbox files (relative paths)
+    'README.md': '# fixture\n',
+  },
+  prompt: 'Single-turn user prompt.',  // or string[] for multi-turn
+  assertions: [
+    { type: 'agentResponseContains', text: 'fixture' },
+    { type: 'fileExists', path: 'README.md' },
+    { type: 'noToolErrors' },
+  ],
+  // optional:
+  timeoutMs: 60_000,
+  extraArgs: ['--permission-mode', 'bypass'],
+  slow: false,
+};
+```
+
+3. Validate with `bun src/main.ts eval run --filter <your-id>` (live LLM, ~$0.05).
+4. Once green, optionally capture a fixture for CI: `sov eval run --filter <your-id> --capture <dir>`. Subsequent CI runs can replay from the fixture without spending tokens.
+
+Assertion catalog: `fileExists`, `fileNotExists`, `fileContains`, `fileMatches` (regex + flags), `fileEquals`, `agentResponseContains`, `agentResponseMatches` (regex + flags), `agentResponseLacks`, `noToolErrors`, `minToolCalls`, `maxToolCalls`, `exitCode`. Each is pure: `(sandboxCwd, transcript, exitCode, toolCalls?) → {pass, detail?}`.
+
+When to add a golden vs a semantic test vs a unit test:
+
+- **Unit (`tests/`):** pure-logic regressions. Runs on every `bun test`. No LLM.
+- **Semantic (`tests/semantic/`):** fuzzy meaning checks ("the agent didn't fabricate"). LLM-judged. Opt-in.
+- **Golden (`evals/goldens/`):** deterministic-ish file-state and transcript checks ("the agent created the file with the right contents"). Code-judged. Opt-in. Capturable.
+
+See [`evals/README.md`](../evals/README.md) for the full format documentation, the assertion catalog with examples, and the seed-golden inventory.
+
 ## Add A Semantic Test
 
 Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt (or array of prompts for multi-turn cases) + judge criteria designed to weed out a specific bug class. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory of existing tests, what each guards against, and the policy for when to add a new one (new tool / slash command / permission rule path / context surface, or a bug that should never regress).
@@ -194,8 +238,13 @@ Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a sing
   id: 'kebab-case-id',           // unique across the whole suite
   name: 'Short human title',
   description: 'Which bug class does this test guard against?',
-  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal',
-  setup: { files: [{ path: 'foo.txt', content: 'bar' }] }, // optional
+  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal' | 'hooks' | 'router',
+  setup: {
+    files: [{ path: 'foo.txt', content: 'bar' }],          // optional — sandbox cwd
+    homeFiles: [{ path: 'config.json', content: '{}' }],   // optional — under HARNESS_HOME
+    userConfig: { router: { localProvider: 'anthropic' } }, // optional — overrides HARNESS_CONFIG (Phase 10.6)
+    env: { MY_VAR: 'value' },                              // optional — merged on top of sandbox defaults
+  },
   // Single string for one turn, or string[] for multi-turn (one prompt per turn).
   prompt: 'The single user prompt sent to the agent.',
   judgeCriteria: {

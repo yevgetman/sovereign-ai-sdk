@@ -61,6 +61,8 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
 | `-v, --verbose` | Show full tool-result preview blocks instead of one-line summaries. |
 | `--legacy-input` | Force the readline-based input loop instead of the Wave-4 raw-mode editor. Safety hatch when the new editor misbehaves on a specific terminal. |
+| `--capture-fixture <path>` | (Phase 10.5 part 2.) Wrap the resolved provider + tools to write a deterministic-replay fixture at this path on session end. See [Eval Suite](#eval-suite). |
+| `--replay-fixture <path>` | (Phase 10.5 part 2.) Replay a previously-captured fixture instead of resolving a real provider. No LLM calls. Mutually exclusive with `--capture-fixture`. |
 
 Examples:
 
@@ -82,7 +84,7 @@ sov --no-cache
 | `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
-| `eval run [--filter] [--budget] [--include-slow]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
+| `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
 
 ## Eval Suite
 
@@ -100,9 +102,22 @@ sov eval run --binary ./build/sov --timeout 120000
 
 # Keep sandboxes for debugging:
 sov eval run --keep-sandbox
+
+# Compare two providers across the same goldens (grid output):
+sov eval run --compare anthropic,ollama
+
+# Capture once with a live LLM, then replay forever in CI without an API key:
+sov eval run --capture /tmp/golden-fixtures            # ~one fixture per golden
+sov eval run --replay  /tmp/golden-fixtures            # no LLM calls
 ```
 
 **Assertion catalog.** `fileExists`, `fileNotExists`, `fileContains`, `fileMatches` (regex + flags), `fileEquals`, `agentResponseContains`, `agentResponseMatches` (regex + flags), `agentResponseLacks`, `noToolErrors`, `minToolCalls`, `maxToolCalls`, `exitCode`. Each is pure — takes `{sandboxCwd, transcript, exitCode, toolCalls?}` → `{pass, detail?}`.
+
+**Compare mode.** `--compare provider1,provider2,...` runs each golden once per provider in sequence and reports a grid (rows = goldens, cols = providers, cells = `✓ 1.2s` or `✗ 4.5s`). Per-provider model selection falls through to each provider's configured default. The aggregate budget applies across the cross-product totals.
+
+**Capture / replay.** `--capture <dir>` records a `ReplayFixture` per golden at `<dir>/<id>.fixture.json` while running live. `--replay <dir>` skips `resolveProvider` entirely and replays each golden against its captured fixture using `ReplayProvider` + `wrapToolsForReplay` — the agent loop, orchestrator, permission gates, hooks, and tool dispatch all run unchanged; only the provider + tool call boundaries are stubbed. The replay path makes no LLM calls and needs no API keys, so it's CI-safe. Goldens whose fixture is missing during replay are reported as aborted. The two flags are mutually exclusive.
+
+The same primitives are exposed on the chat command directly: `sov chat --capture-fixture <path>` writes a single-session fixture; `sov chat --replay-fixture <path>` runs a single session against one. Useful for hand-crafted reproduction scenarios outside the eval suite.
 
 **Budget JSON.** `evals/budget.json` is opt-in. Four thresholds, all independent — omit any to skip:
 ```json
@@ -805,7 +820,7 @@ bun run test:semantic -- --judge anthropic-api     # API mode (needs ANTHROPIC_A
 
 **Fully isolated.** Each test runs in a fresh `mktemp -d` with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB. Cleaned up on success, failure, or crash. The judge subprocess is spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands`.
 
-**Coverage at a glance (37/37 pass):** 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 5 slash-command pipeline paths (/help, /context-budget, /commit, /init, /<skill>), 6 permission cases (including virtual-tool-name mapping, layer-precedence, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
+**Coverage at a glance (38/38 pass):** 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 5 slash-command pipeline paths (/help, /context-budget, /commit, /init, /<skill>), 6 permission cases (including virtual-tool-name mapping, layer-precedence, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case (Phase 10.6 — verifies `--provider router` resolves both lanes and the per-turn route-decision banner is observable), 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
 
 ## Troubleshooting
 

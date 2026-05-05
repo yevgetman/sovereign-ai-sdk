@@ -84,7 +84,7 @@ describe('RouterProvider — interactive ask', () => {
     expect(route.info.lane).toBe('local');
   });
 
-  test("escalates to frontier when asker returns true", async () => {
+  test('escalates to frontier when asker returns true', async () => {
     const askPrompts: string[] = [];
     const router = new RouterProvider({
       config: baseConfig,
@@ -111,7 +111,7 @@ describe('RouterProvider — interactive ask', () => {
     expect(askPrompts[0]).toContain('anthropic');
   });
 
-  test("stays on default lane when asker returns false", async () => {
+  test('stays on default lane when asker returns false', async () => {
     const router = new RouterProvider({
       config: baseConfig,
       localProvider: fakeProvider('local'),
@@ -176,7 +176,7 @@ describe('RouterProvider — interactive ask', () => {
     expect(askPrompts).toHaveLength(0);
   });
 
-  test("a thrown asker swallows the error and falls through to local (defensive)", async () => {
+  test('a thrown asker swallows the error and falls through to local (defensive)', async () => {
     const router = new RouterProvider({
       config: baseConfig,
       localProvider: fakeProvider('local'),

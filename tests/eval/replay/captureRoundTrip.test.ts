@@ -228,6 +228,6 @@ describe('capture → replay round-trip', () => {
       fixture,
     );
     const [boomReplay] = replayTools;
-    await expect(boomReplay!.call({}, ctx)).rejects.toThrow('boom');
+    await expect(boomReplay?.call({}, ctx)).rejects.toThrow('boom');
   });
 });
