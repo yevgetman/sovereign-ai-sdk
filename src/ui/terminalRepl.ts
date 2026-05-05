@@ -19,6 +19,7 @@ import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
+import { loadAgents } from '../agents/loader.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
@@ -334,6 +335,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     ...(bundle ? { bundleRoot: bundle.root } : {}),
     warn: (message) => process.stderr.write(chalk.yellow(`[skill] ${message}\n`)),
   });
+  const loadedAgents = await loadAgents({
+    harnessHome,
+    cwd: process.cwd(),
+    ...(bundle ? { bundleRoot: bundle.root } : {}),
+    warn: (message) => process.stderr.write(chalk.yellow(`[agent] ${message}\n`)),
+  });
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
   const resumeSession =
     opts.resumeId !== undefined ? (db.getSession(opts.resumeId) ?? undefined) : undefined;
@@ -398,6 +405,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     memoryManager,
     subdirectoryHintState,
     skills: loadedSkills,
+    agents: loadedAgents,
   };
   const preliminaryToolPool = assembleToolPool(preliminaryToolContext);
   const activeToolNames = preliminaryToolPool.map((tool) => tool.name);
@@ -491,6 +499,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     memoryManager,
     subdirectoryHintState,
     skills,
+    agents: loadedAgents,
     activeToolNames,
     activeToolsets,
   };

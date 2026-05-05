@@ -49,6 +49,8 @@ export type ToolContext = {
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
   subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
   skills?: import('../skills/types.js').SkillRegistry;
+  /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
+  agents?: import('../agents/types.js').AgentRegistry;
   activeToolNames?: string[];
   activeToolsets?: string[];
 };
