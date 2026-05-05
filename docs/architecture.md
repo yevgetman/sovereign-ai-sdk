@@ -183,6 +183,14 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+### Local-model router (Phase 10.6 part 1)
+
+`sov chat --provider router` activates `RouterProvider` (in `src/router/`), a meta-LLMProvider that wraps two child providers (one local, one frontier) and decides per-turn which to delegate to. The router lives at the LLMProvider boundary so the turn loop, orchestrator, hooks, and existing provider hardening (rate guards, credential pools) need no router-aware code paths — they see one provider with `name = 'router'`.
+
+`src/router/classifier.ts` runs a deterministic rule set per turn: user override > hard frontier triggers (recent tool errors ≥ 3, schema failures ≥ 2, context overflow heuristic) > default-local. When the raw output is `local-with-escalation`, the configured `escalationMode` (`ask` | `auto` | `never`) decides whether to actually escalate. Today `ask` and `never` both stay on `defaultLane`; the interactive prompt UX is deferred. `src/router/auditLogger.ts` writes append-only JSONL to `<harness-home>/router/audit.jsonl` with the lane, resolved provider/model, reason, and a SHA-256 of the prompt — raw prompt text is never logged by default.
+
+The router's `stream()` yields a `route_decision` StreamEvent before delegating, so any consumer (REPL banner, evals viewer, etc.) can observe lane changes per turn. `src/ui/terminalRepl.ts` builds the synthetic ResolvedProvider when `--provider router` is supplied: child providers resolved via the normal pipeline, contextLength conservatively the smaller of the two so the ContextMeter stays accurate on either lane, audit logger created and closed at session boundaries.
+
 ### Operational traces + loop detection (Phase 10.5 part 1)
 
 Each REPL invocation writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` covering session lifecycle (session_start, session_end), turn boundaries (turn_start), provider roundtrips (provider_request, provider_response with usage / latency / TTFT), tool dispatch (tool_start, tool_end, tool_error, permission_check), and stream-level signals (microcompact, interrupt, loop_detected). Records flow through the same allowlist redactor used by trajectories — Invariant #15.

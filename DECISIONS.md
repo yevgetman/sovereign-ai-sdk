@@ -2,6 +2,24 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-05-04 - Phase 10.6 part 1 — router as a meta-LLMProvider, deterministic classifier, audited
+
+The local-model router lives at the LLMProvider layer: `RouterProvider` implements the same `name + stream` interface as Anthropic / OpenAI / Ollama / OpenRouter, then per-call delegates to one of two child LLMProviders (a "local" lane and a "frontier" lane). Several decisions worth recording:
+
+1. **Router is itself a Provider, not a side-panel decision engine.** The query loop, orchestrator, hooks, MCP, permission gates, and existing provider hardening all see "one provider with a name=`router`" — they need no router-aware code paths. The classification + audit logic stays inside the RouterProvider's `stream()`. Reason: keep the turn-loop boundary simple. Anything that can be solved at the provider layer should be.
+
+2. **Deterministic, rule-based classifier — no keyword "vibes" matching.** Inputs are user override + frontier triggers (recent tool errors ≥ 3, schema failures ≥ 2, context overflow heuristic). Build plan §10.6 calls out "learned routing policy" as an explicit skip — the goal here is that the user can predict what the router will do. Adding fuzzy text matching would erode that.
+
+3. **`escalationMode: 'ask'` currently degrades to the default-lane fallback (no actual prompt).** The interactive prompt UX is deferred to a follow-up; today `'ask'` and `'never'` both stay on `defaultLane`. Reason: shipping the prompt-flow alongside the router doubled the surface area and pushed the commit out. The mode value is stable; just the user-interaction path lands later.
+
+4. **Raw prompts are NEVER recorded by default.** The audit log stores a SHA-256 of the prompt, never the prompt itself. Build-plan §10.6 keeps raw-prompt logging opt-in; that opt-in flag is deferred (probably a per-profile setting). Trade-off: less debugging signal in the audit file vs. zero risk of silent data-leak from a misconfigured logger.
+
+5. **Audit logger reuses TraceWriter's posture.** Append-only JSONL with a sequential write chain, redaction via the trajectory allowlist, best-effort no-throw on filesystem errors (Invariant #10). The pattern is now repeated three times (TraceWriter, RouterAuditLogger, TrajectoryWriter); a future refactor could consolidate, but the duplication is small and each module has subtly different schemas.
+
+6. **`localContextLength` is the only capability hint plumbed today.** The classifier's context-overflow rule needs the local provider's context cap to know when prompts can't fit. Per-model TTFT, JSON-mode reliability, and other capability metadata stay in the build plan but are deferred to Phase 10.6 part 2 — they need eval data to populate (Phase 10.5 part 2's golden tasks would feed them).
+
+7. **`getNextOverride` callback for per-call user override.** A function getter (rather than a field) keeps the override consumed-once semantic clean: the REPL's `/escalate` slash (TODO) writes to a closure, the router reads + clears via the next stream() call. No hidden state on the provider object.
+
 ## 2026-05-04 - Phase 10.5 part 1 — trace events + loop detector
 
 The trace layer is intentionally separate from the trajectory layer (Phase 13.1) even though both write JSONL. Trajectories are training-shaped session captures; traces are operational/audit logs for evals + `sov trace show`. Some choices worth recording:

@@ -1,5 +1,30 @@
 # Changelog
 
+## Phase 10.6 — Local-model router (part 1) - 2026-05-04
+
+`sov chat --provider router` now resolves to a meta-provider that routes each turn between two configured child providers (a `local` lane and a `frontier` lane) per a deterministic classifier, records every decision to a redacted JSONL audit log, and emits a `route_decision` StreamEvent so the runtime + UI know which lane handled each turn.
+
+The classifier runs a fixed rule set: explicit user override > frontier triggers (recent tool errors ≥ 3, schema failures ≥ 2, context-overflow heuristic) > default-local. When triggers fire, the configured `escalationMode` (`ask` | `auto` | `never`) decides whether to actually escalate. `auto` ships data to the frontier; `ask` (the default) and `never` keep the run on the configured default lane — no surprise data egress. Audit entries hash the prompt (SHA-256, raw text never recorded by default), include the lane, the resolved provider/model, the reason, and the context byte count.
+
+Added: `src/router/types.ts`, `src/router/classifier.ts` (12 tests), `src/router/auditLogger.ts` (8 tests), `src/router/provider.ts` (RouterProvider + 6 wiring tests). Settings schema gains a `router` block in `src/config/schema.ts` (user config). REPL build-resolves children + wraps in RouterProvider when `--provider router` is supplied; closes the audit logger at shutdown.
+
+User config example:
+```json
+{
+  "router": {
+    "localProvider": "ollama",
+    "localModel": "qwen2.5:14b",
+    "frontierProvider": "anthropic",
+    "frontierModel": "claude-sonnet-4-6",
+    "escalationMode": "ask"
+  }
+}
+```
+
+26 new unit tests. Suite total: **1008/1008**. Lint + typecheck clean.
+
+**Deferred to a Phase 10.6 part 2:** capability-profile lookup (per-model context length, JSON-mode reliability, recommended roles), per-lane concurrency guards (semaphores), interactive-prompt UX for `escalationMode: 'ask'`, REPL banner rendering of `route_decision` events, and recent-error/schema-failure tracking from the orchestrator side.
+
 ## Phase 10.5 — Operational traces + loop detection (part 1) - 2026-05-04
 
 Adds an operational-observability layer beneath the user-facing turn loop. Every session now writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` covering session_start / turn_start / provider_request / provider_response / permission_check / tool_start / tool_end / tool_error / microcompact / interrupt / session_end / loop_detected. `sov trace show <sessionId>` renders the high-signal path (per-turn breakdown with usage, latency, TTFT, permission decisions, tool durations) for debugging or post-hoc investigation.

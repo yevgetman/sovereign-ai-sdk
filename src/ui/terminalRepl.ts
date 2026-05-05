@@ -63,6 +63,9 @@ import { isContextOverflowError } from '../providers/errors.js';
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
+import type { Transport } from '../providers/types.js';
+import { RouterAuditLogger } from '../router/auditLogger.js';
+import { RouterProvider } from '../router/provider.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
@@ -168,6 +171,70 @@ function openPromptFrame(): { close: () => void } {
   return { close: () => process.stdout.write(`${rule}\n`) };
 }
 
+/** Phase 10.6 — when the user invokes `--provider router`, build a synthetic
+ *  ResolvedProvider whose transport is a RouterProvider wrapping two child
+ *  providers (local + frontier) resolved via the normal provider pipeline.
+ *  contextLength conservatively takes the smaller of the two children's
+ *  caps so the ContextMeter stays accurate on either lane. */
+function buildRouterResolvedProvider(
+  harnessHome: string,
+  setRefs: (logger: RouterAuditLogger, router: RouterProvider) => void,
+): ResolvedProvider {
+  const settings = readConfig();
+  if (!settings.router) {
+    throw new Error(
+      '--provider router requires a `router` block in config.json (configure with: sov config set router.localProvider <name>, etc.)',
+    );
+  }
+  const localResolved = resolveProvider(settings.router.localProvider, settings.router.localModel);
+  const frontierResolved = resolveProvider(
+    settings.router.frontierProvider,
+    settings.router.frontierModel,
+  );
+  const auditLogger = new RouterAuditLogger({
+    harnessHome,
+    log: (m) => process.stderr.write(`${m}\n`),
+  });
+  const routerConfig = {
+    localProvider: settings.router.localProvider,
+    frontierProvider: settings.router.frontierProvider,
+    ...(settings.router.localModel !== undefined ? { localModel: settings.router.localModel } : {}),
+    ...(settings.router.frontierModel !== undefined
+      ? { frontierModel: settings.router.frontierModel }
+      : {}),
+    ...(settings.router.defaultLane !== undefined
+      ? { defaultLane: settings.router.defaultLane }
+      : {}),
+    ...(settings.router.escalationMode !== undefined
+      ? { escalationMode: settings.router.escalationMode }
+      : {}),
+  };
+  const routerProvider = new RouterProvider({
+    config: routerConfig,
+    localProvider: localResolved.transport,
+    frontierProvider: frontierResolved.transport,
+    auditLogger,
+    sessionId: 'pending',
+    localContextLength: localResolved.contextLength,
+  });
+  setRefs(auditLogger, routerProvider);
+  return {
+    transport: routerProvider as unknown as Transport,
+    client: routerProvider,
+    baseUrl: 'router://',
+    model: `${localResolved.model} | ${frontierResolved.model}`,
+    contextLength: Math.min(localResolved.contextLength, frontierResolved.contextLength),
+    authType: 'none',
+    metadata: {
+      provider: 'router',
+      apiMode: 'router',
+      purpose: 'main',
+      localProvider: localResolved.metadata.provider,
+      frontierProvider: frontierResolved.metadata.provider,
+    },
+  };
+}
+
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundleIfPresent(opts.bundlePath ?? null);
   const harnessHome = resolveHarnessHome();
@@ -228,10 +295,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const storedProvider = resumeSession
     ? ((resumeSession.metadata as { provider?: string }).provider ?? resumeSession.provider)
     : undefined;
-  const resolved = resolveProvider(
-    opts.providerName ?? storedProvider,
-    opts.model ?? resumeSession?.model,
-  );
+  const requestedProvider = opts.providerName ?? storedProvider;
+  let routerAuditLogger: RouterAuditLogger | undefined;
+  let routerHandle: RouterProvider | undefined;
+  const resolved =
+    requestedProvider === 'router'
+      ? buildRouterResolvedProvider(harnessHome, (logger, router) => {
+          routerAuditLogger = logger;
+          routerHandle = router;
+        })
+      : resolveProvider(requestedProvider, opts.model ?? resumeSession?.model);
   const providerName = String(resolved.metadata.provider);
   let activeModel = resolved.model;
   const provider = resolved.transport;
@@ -294,6 +367,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   }
   const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
   let activeSessionId = opened.sessionId;
+  // Phase 10.6 — once the session id resolves, propagate it into the
+  // RouterProvider so subsequent audit-log entries record the actual id.
+  if (routerHandle) routerHandle.setSessionId(activeSessionId);
   const { systemPrompt, history, resumed } = opened;
   // Phase 10.5 — operational trace writer. One file per REPL invocation,
   // keyed on the initial session id. Failures route to stderr but never
@@ -1184,6 +1260,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     iso: new Date().toISOString(),
   });
   await traceWriter.close();
+  if (routerAuditLogger) await routerAuditLogger.close();
   db.close();
   process.stdout.write(
     renderSessionSummary({

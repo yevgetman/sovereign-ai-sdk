@@ -150,6 +150,20 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Phase 10.6 — local-first router config. When `--provider router` is
+     *  supplied, the runtime resolves the local + frontier child providers
+     *  per this block and routes per turn via `src/router/`. */
+    router: z
+      .object({
+        defaultLane: z.enum(['local', 'frontier']).optional(),
+        localProvider: z.string(),
+        localModel: z.string().optional(),
+        frontierProvider: z.string(),
+        frontierModel: z.string().optional(),
+        escalationMode: z.enum(['ask', 'auto', 'never']).optional(),
+      })
+      .strict()
+      .optional(),
     microcompaction: MicrocompactionSchema.optional(),
     compaction: CompactionSchema.optional(),
     debugMode: DebugModeSchema.optional(),

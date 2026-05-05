@@ -1405,3 +1405,22 @@ Implementation backlogs from these findings live in
   - No regressions.
   - **Deferred to Phase 10.5 part 2:** the golden-task suite (`evals/golden/`), the deterministic replay fixtures, `sov eval run`, the regression budget JSON, and provider-comparison mode. These are a substantial separate slice; tracked as Task 71 in the in-session task list.
   - Cosmetic follow-ups: trace events for compaction_start/compaction_end (REPL-side wiring not done — `/compact` would need to record at the pivot), memory_write / skill_write (memory and skill writers don't plumb a trace recorder yet).
+
+## 2026-05-04 - Phase 10.6 part 1 — local-model router (unit suite 1008/1008)
+
+- Scope: `sov chat --provider router` resolves to a meta-LLMProvider that delegates per-turn between two configured child providers. New `src/router/types.ts` (RouterConfig, RouteDecision, ClassifyOpts), `src/router/classifier.ts` (deterministic rules: user override → hard frontier triggers → default-local; escalationMode resolves to a concrete lane), `src/router/auditLogger.ts` (append-only JSONL with redaction + sequential write chain + best-effort error swallowing), `src/router/provider.ts` (RouterProvider class implementing LLMProvider, with setSessionId + getNextOverride hooks). `route_decision` StreamEvent variant. User config schema (`src/config/schema.ts`) gains a `router` block. `src/ui/terminalRepl.ts` builds a synthetic ResolvedProvider when `--provider router` is supplied: child providers resolved via the normal pipeline, contextLength conservatively the smaller of the two children's caps, audit logger closed at shutdown.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1008/1008 pass (was 982 before this slice). New test files: `tests/router/classifier.test.ts` (12), `tests/router/auditLogger.test.ts` (8), `tests/router/provider.test.ts` (6).
+  - End-to-end smoke: with `HARNESS_HOME=/tmp/sov-router-smoke/` and a config.json containing `router.localProvider=ollama` + `router.frontierProvider=anthropic`, `sov chat --provider router --no-preflight < /dev/null` opens a session whose splash card shows `router | ... | qwen2.5:3b | claude-haiku-4-5`. Status footer shows `router · qwen2.5:3b | claude-haiku-4-5`. Confirmed end-to-end startup works without surprises.
+- Manual coverage:
+  - Classifier priority: user override beats triggers; consecutive-identical / action-stagnation / context-overflow triggers each surface as `local-with-escalation`. Verified.
+  - escalationMode resolution: `auto` escalates to frontier; `ask` and `never` stay on defaultLane. Verified.
+  - Audit logger: writes one JSONL line per stream() call, preserves order under concurrent record() calls, redacts API-key shaped content. Verified.
+  - RouterProvider: emits `route_decision` StreamEvent before delegating, forwards the chosen child's AssistantMessage as the final return, consumes `getNextOverride` once per stream() call. Verified.
+- Result: 1008/1008 unit tests, lint + typecheck clean. Phase 10.6 part 1 functionality available end-to-end. The router lives at the LLMProvider boundary so the turn loop and existing provider hardening (rate guards, credential pools) stay unchanged.
+- Regressions / follow-ups:
+  - No regressions.
+  - **Deferred to Phase 10.6 part 2:** capability-profile lookup (per-model context length, JSON-mode reliability, recommended roles), per-lane concurrency guards (semaphores), interactive prompt UX for `escalationMode: 'ask'`, REPL banner rendering of `route_decision` events, and recent-error/schema-failure tracking from the orchestrator side (the classifier accepts these inputs but the wiring to populate them isn't built yet — they're provider-side observations the router doesn't see today).
+  - Cosmetic: the splash card shows `router | API Key` in the auth-type slot. The router itself doesn't use an API key directly (its children do); minor cosmetic mismatch, defer to a UI follow-up.

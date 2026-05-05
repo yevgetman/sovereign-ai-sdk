@@ -45,6 +45,16 @@ export type LoopDetectionInfo = {
   occurrence: number;
 };
 
+export type RouteDecisionInfo = {
+  lane: 'local' | 'frontier';
+  classifierLane: 'local' | 'frontier' | 'local-with-escalation';
+  reason: string;
+  /** Provider name the router delegated to for this turn. */
+  delegatedProvider: string;
+  /** Model name the router delegated to for this turn. */
+  delegatedModel: string;
+};
+
 export type StreamEvent =
   | { type: 'message_start' }
   | { type: 'text_delta'; text: string }
@@ -54,7 +64,8 @@ export type StreamEvent =
   | { type: 'message_stop'; stop_reason: StopReason }
   | { type: 'assistant_message'; message: AssistantMessage }
   | { type: 'microcompact'; info: MicrocompactInfo }
-  | { type: 'loop_detected'; info: LoopDetectionInfo };
+  | { type: 'loop_detected'; info: LoopDetectionInfo }
+  | { type: 'route_decision'; info: RouteDecisionInfo };
 
 export type Terminal = {
   reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted';

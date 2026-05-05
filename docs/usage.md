@@ -83,6 +83,65 @@ sov --no-cache
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
 
+## Local-Model Router
+
+`sov chat --provider router` activates a meta-provider that picks per turn between a configured **local** lane and a **frontier** lane. Every decision lands in `<harness-home>/router/audit.jsonl` so you can prove after the fact that data only left the box on turns where you expected it to.
+
+**Configure it once** (`sov config set router.localProvider ollama` etc., or edit `<harness-home>/config.json`):
+
+```json
+{
+  "router": {
+    "localProvider": "ollama",
+    "localModel": "qwen2.5:14b",
+    "frontierProvider": "anthropic",
+    "frontierModel": "claude-sonnet-4-6",
+    "escalationMode": "ask",
+    "defaultLane": "local"
+  }
+}
+```
+
+**Run it:**
+
+```bash
+sov chat --provider router
+```
+
+**How it routes.** The classifier is deterministic and conservative:
+
+1. **Explicit user override** wins (e.g. `getNextOverride` set by a slash command — interactive override pending).
+2. **Hard frontier triggers** flip to `local-with-escalation` automatically: recent tool errors ≥ 3, recent schema-validation failures ≥ 2, or a context-byte estimate that exceeds the local model's cap.
+3. **Default** is `local`.
+
+When the classifier output is `local-with-escalation`, the configured `escalationMode` decides:
+
+| Mode | Behavior |
+|---|---|
+| `auto` | Escalate to frontier without asking. |
+| `ask` (default) | Stay on `defaultLane` (today this matches `'never'` — interactive prompting lands in a later phase). |
+| `never` | Stay on `defaultLane`. |
+
+**What gets logged.** Each per-turn record in `audit.jsonl`:
+
+```json
+{
+  "iso": "2026-05-04T20:00:00.000Z",
+  "sessionId": "...",
+  "lane": "local",
+  "classifierLane": "local",
+  "reason": "default lane: local",
+  "provider": "ollama",
+  "model": "qwen2.5:14b",
+  "promptHash": "<sha256 of prompt>",
+  "contextByteCount": 4096
+}
+```
+
+Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt-in raw logging is deferred to a follow-up.) The same allowlist redactor that protects trajectories also protects the audit log against accidental secret-spillage.
+
+**Currently deferred:** capability-profile lookup (per-model context length / JSON reliability), per-lane concurrency caps, REPL-side rendering of the `route_decision` StreamEvent, and the interactive prompt for `escalationMode: 'ask'`. The router still works without these — they're polish for later.
+
 ## Profiles
 
 A profile is a named state-root scope. `sov -p work chat …` (or `sov --profile=work chat …`) pins the run to `<harness-home>/profiles/work/` instead of `<harness-home>/`, giving it a separate `config.json`, `credentials.json`, `sessions.db`, `rate_limits/`, memory, and skills. The same machine can host disjoint setups — work, personal, lab, per-client — without aliasing.
