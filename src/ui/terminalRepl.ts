@@ -230,6 +230,12 @@ function buildRouterResolvedProvider(
     ...(settings.router.escalationMode !== undefined
       ? { escalationMode: settings.router.escalationMode }
       : {}),
+    ...(settings.router.maxConcurrentLocal !== undefined
+      ? { maxConcurrentLocal: settings.router.maxConcurrentLocal }
+      : {}),
+    ...(settings.router.maxConcurrentFrontier !== undefined
+      ? { maxConcurrentFrontier: settings.router.maxConcurrentFrontier }
+      : {}),
   };
   const routerProvider = new RouterProvider({
     config: routerConfig,

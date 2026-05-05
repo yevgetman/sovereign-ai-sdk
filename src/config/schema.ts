@@ -161,6 +161,13 @@ export const SettingsSchema = z
         frontierProvider: z.string(),
         frontierModel: z.string().optional(),
         escalationMode: z.enum(['ask', 'auto', 'never']).optional(),
+        /** Phase 13.4 — global cap on concurrent local-lane provider calls.
+         *  Both the router (single-session escalations) and the sub-agent
+         *  scheduler (parent dispatching N children) acquire from the same
+         *  per-lane semaphore. Undefined = unbounded. */
+        maxConcurrentLocal: z.number().int().nonnegative().optional(),
+        /** Phase 13.4 — same as maxConcurrentLocal but for the frontier lane. */
+        maxConcurrentFrontier: z.number().int().nonnegative().optional(),
       })
       .strict()
       .optional(),

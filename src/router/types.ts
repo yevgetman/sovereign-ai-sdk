@@ -27,6 +27,13 @@ export type RouterConfig = {
    *  'auto': escalate to frontier without asking.
    *  'never': stay local. */
   escalationMode?: EscalationMode;
+  /** Phase 13.4 — global cap on concurrent local-lane provider calls.
+   *  Both the router (single-session escalations) and the sub-agent
+   *  scheduler (parent dispatching N children) acquire from the same
+   *  per-lane semaphore. Undefined = unbounded. */
+  maxConcurrentLocal?: number;
+  /** Phase 13.4 — same as maxConcurrentLocal but for the frontier lane. */
+  maxConcurrentFrontier?: number;
 };
 
 export type ClassifyOpts = {
