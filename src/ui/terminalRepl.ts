@@ -703,6 +703,37 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ? { frontier: userSettings.router.maxConcurrentFrontier }
         : {}),
     });
+    // Phase 13.5 — `availableProviders` controls capability-profile
+    // resolution for `role: <kind>` agent definitions. Without this, the
+    // scheduler defaults to all four registered providers and the
+    // cheapest match (typically an ollama model — costTier 0) wins even
+    // when the user has no ollama running. The right v0 default is to
+    // mirror what the parent session actually has wired up: in single-
+    // provider mode that's just `providerName`; in router mode it's both
+    // configured lanes from the resolved metadata.
+    const meta = resolved.metadata as {
+      localProvider?: string;
+      frontierProvider?: string;
+    };
+    const agentAvailableProviders =
+      providerName === 'router' && meta.localProvider && meta.frontierProvider
+        ? ([meta.localProvider, meta.frontierProvider] as const)
+        : ([providerName] as const);
+    // Default provider/model when an agent declares neither `model` nor
+    // `role` (or `role` doesn't match anything in the available
+    // capability-profile rows). In router mode `providerName === 'router'`
+    // isn't a real provider entry, so fall back to the frontier lane —
+    // it's the more capable lane and what the user already configured.
+    const subagentDefaultProvider =
+      providerName === 'router' && meta.frontierProvider ? meta.frontierProvider : providerName;
+    const subagentDefaultModel =
+      providerName === 'router'
+        ? // Parent's `activeModel` is the synthetic combined string
+          // `"<localModel> | <frontierModel>"`; the frontier model is
+          // the part after " | " (per buildRouterResolvedProvider line
+          // ~256: `${localResolved.model} | ${frontierResolved.model}`).
+          (activeModel.split(' | ')[1]?.trim() ?? activeModel)
+        : activeModel;
     const subagentWriteLock = new Semaphore(1);
     const subagentScheduler = new SubagentScheduler({
       agents: loadedAgents,
@@ -718,8 +749,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           systemPrompt: input.systemPrompt,
           metadata: { agentName: input.agentName, kind: 'subagent' },
         }),
-      defaultProvider: providerName,
-      defaultModel: activeModel,
+      availableProviders: agentAvailableProviders,
+      defaultProvider: subagentDefaultProvider,
+      defaultModel: subagentDefaultModel,
       maxTokens: opts.maxTokens,
     });
     type WritableToolContext = { -readonly [K in keyof ToolContext]: ToolContext[K] };
