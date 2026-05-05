@@ -66,9 +66,11 @@ export async function runGolden(
       ...(toolCalls ? { toolCalls } : {}),
     });
 
+    const provider = providerFromExtraArgs(opts.extraArgs);
     const baseResult: GoldenResult = {
       id: golden.id,
       name: golden.name,
+      ...(provider !== undefined ? { provider } : {}),
       pass: outcome.abortReason === undefined && assertionResults.every((r) => r.pass),
       durationMs: outcome.durationMs,
       ...(estCostUsd !== undefined ? { estCostUsd } : {}),
@@ -170,4 +172,15 @@ export function parseEstCost(transcript: string): number | undefined {
   if (!m) return undefined;
   const v = Number.parseFloat(m[1] ?? '');
   return Number.isFinite(v) ? v : undefined;
+}
+
+/** Recover the `--provider <name>` value from an extraArgs array, when
+ *  present. Used by `runGolden` to tag the GoldenResult so reports can
+ *  show which provider produced each outcome. */
+function providerFromExtraArgs(extraArgs: string[] | undefined): string | undefined {
+  if (!extraArgs) return undefined;
+  for (let i = 0; i < extraArgs.length - 1; i++) {
+    if (extraArgs[i] === '--provider') return extraArgs[i + 1];
+  }
+  return undefined;
 }

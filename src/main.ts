@@ -295,8 +295,19 @@ async function main(argv: string[]): Promise<void> {
     .option('--timeout <ms>', 'per-golden timeout override in milliseconds', parsePositiveInt)
     .option('--include-slow', 'include goldens marked slow:true')
     .option('--keep-sandbox', 'leave each sandbox tempdir on disk for debugging')
+    .option(
+      '--compare <providers>',
+      'comma-separated list of provider names to compare (e.g. anthropic,ollama)',
+    )
     .action(async (opts) => {
       const { runEvalCli } = await import('./cli/evalRun.js');
+      const compareProviders =
+        typeof opts.compare === 'string' && opts.compare.length > 0
+          ? opts.compare
+              .split(',')
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+          : undefined;
       const result = await runEvalCli({
         goldensDir: opts.goldens,
         budgetPath: opts.budget,
@@ -305,6 +316,7 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
         ...(opts.includeSlow === true ? { includeSlow: true } : {}),
         ...(opts.keepSandbox === true ? { keepSandbox: true } : {}),
+        ...(compareProviders !== undefined ? { compareProviders } : {}),
       });
       process.exit(result.exitCode);
     });

@@ -67,6 +67,9 @@ export type AssertionResult = {
 export type GoldenResult = {
   id: string;
   name: string;
+  /** Provider name when running in `--compare` mode; undefined for the
+   *  default single-provider run. */
+  provider?: string;
   pass: boolean;
   /** Wall-clock duration of the sov subprocess. */
   durationMs: number;

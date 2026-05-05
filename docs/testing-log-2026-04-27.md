@@ -1481,3 +1481,24 @@ Implementation backlogs from these findings live in
   - **No semantic test added.** Replay is internal test infrastructure, not an agent-prompt-driven surface — same posture as the eval runner (2a) itself.
   - **Deferred to 2b-ii:** `CapturingProvider` + `wrapToolsForCapture` + eval-runner integration so `sov eval run --capture <dir>` / `--replay <dir>` works end-to-end.
   - **Deferred to 2c:** provider comparison mode.
+
+## 2026-05-05 - Phase 10.5 part 2b-ii + 2c (unit suite 1099/1099)
+
+- Scope: 2b-ii — `src/eval/replay/capture.ts` (createCaptureSink, CapturingProvider, wrapToolsForCapture). Companion to 2b-i's replay primitives: a CaptureSink accumulates per-turn StreamEvents + tool results; CapturingProvider mirrors every event into the sink while forwarding them unchanged; wrapToolsForCapture records each tool call's result (or thrown error) keyed by (toolName, callIndex). Round-trip integration test drives a scripted live provider + real tool through query() with capture wrappers, snapshots the fixture, then replays it through 2b-i and asserts byte-for-byte StreamEvent equality. Replay-side tool body is wired to throw — leak test fails immediately.
+- 2c — `sov eval run --compare provider1,provider2,...`. The runner iterates each golden once per provider, injecting `--provider <name>` into the spawned `sov chat` args. Per-provider model selection falls through to each provider's configured default. Report is a grid (rows = goldens, cols = providers, cells = pass/fail + duration). formatCompareGrid() pure renderer exported for testability.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work, no live LLM calls.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1099/1099 pass (was 1083 before this slice). New tests: tests/eval/replay/capture.test.ts (10), tests/eval/replay/captureRoundTrip.test.ts (2), tests/eval/compareGrid.test.ts (4).
+  - End-to-end smoke: `sov eval run --help` shows the `--compare <providers>` flag. `sov eval run --compare anthropic,ollama --filter zzz-no-match` parses the flag and exits cleanly with "no goldens matched filter".
+- Manual coverage:
+  - CaptureSink: empty fixture, idempotent finish(), rejects events before startTurn or after finish(), startTurn closes the previous turn cleanly. Verified.
+  - CapturingProvider: forwards every event unchanged AND mirrors them into the sink; opens one turn per stream() call. Verified.
+  - wrapToolsForCapture: captures result data, captures thrown errors (and re-throws), per-tool counters are independent. Verified.
+  - Round-trip: live two-turn run captures a fixture; replaying it through ReplayProvider + wrapToolsForReplay produces byte-for-byte identical StreamEvents and the same terminal reason. Verified across two consecutive replay runs (deterministic).
+  - formatCompareGrid: header row alignment, multi-provider grouping, em-dash placeholder for absent (golden, provider) cells, golden-order preservation across rows. Verified.
+- Result: 1099/1099 unit tests, lint + typecheck clean. **Phase 10.5 part 2 complete.** The eval suite supports live golden runs (2a), deterministic replay (2b-i + 2b-ii), and provider comparison (2c).
+- Regressions / follow-ups:
+  - No regressions.
+  - **No semantic test added.** Capture, replay, and compare are internal test infrastructure — no agent-prompt-driven surface. Same posture as 2a + 2b-i.
+  - **Small follow-up remaining:** runner-side `sov eval run --capture <dir>` / `--replay <dir>` flags to write fixture files from real live sessions. Primitives are testable on their own; CLI plumbing is a focused ~150-LOC follow-up.

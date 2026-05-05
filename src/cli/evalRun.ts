@@ -26,6 +26,13 @@ export type EvalRunOpts = {
   includeSlow?: boolean;
   /** When true, leave each sandbox tempdir on disk for debugging. */
   keepSandbox?: boolean;
+  /** Phase 10.5 part 2c — provider comparison mode. When set, each
+   *  golden runs once per provider name in this list (in order). The
+   *  runner injects `--provider <name>` into the spawned `sov chat`
+   *  args; per-provider model selection falls through to each
+   *  provider's configured default. The summary table groups by
+   *  golden + provider; the budget applies to the cross-product totals. */
+  compareProviders?: string[];
   /** Report sink. Defaults to process.stdout / process.stderr. */
   out?: (s: string) => void;
   err?: (s: string) => void;
@@ -54,7 +61,16 @@ export async function runEvalCli(opts: EvalRunOpts = {}): Promise<EvalRunCliResu
     return { exitCode: 1, summary: emptySummary() };
   }
 
-  out(`eval: running ${filtered.length} golden${filtered.length === 1 ? '' : 's'}\n`);
+  const providerLanes =
+    opts.compareProviders && opts.compareProviders.length > 0 ? opts.compareProviders : [undefined];
+  const totalRuns = filtered.length * providerLanes.length;
+  if (providerLanes.length > 1) {
+    out(
+      `eval: running ${filtered.length} golden${filtered.length === 1 ? '' : 's'} × ${providerLanes.length} provider${providerLanes.length === 1 ? '' : 's'} (${totalRuns} runs)\n`,
+    );
+  } else {
+    out(`eval: running ${filtered.length} golden${filtered.length === 1 ? '' : 's'}\n`);
+  }
 
   const results: GoldenResult[] = [];
   let totalDuration = 0;
@@ -65,31 +81,36 @@ export async function runEvalCli(opts: EvalRunOpts = {}): Promise<EvalRunCliResu
   let aborted = 0;
 
   for (const golden of filtered) {
-    out(`  · ${golden.id} `);
-    const result = await runGolden(golden, {
-      ...(opts.binary !== undefined ? { binary: opts.binary } : {}),
-      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-      ...(opts.keepSandbox === true ? { keepSandbox: true } : {}),
-    });
-    results.push(result);
-    totalDuration += result.durationMs;
-    if (result.estCostUsd !== undefined) totalCost += result.estCostUsd;
-    if (result.toolCalls) totalToolErrors += result.toolCalls.err;
-    if (result.abortReason) aborted++;
-    if (result.pass) {
-      passed++;
-      out(`✓ pass (${(result.durationMs / 1000).toFixed(1)}s`);
-      if (result.estCostUsd !== undefined) out(`, $${result.estCostUsd.toFixed(3)}`);
-      out(')\n');
-    } else {
-      failed++;
-      out(`✗ fail (${(result.durationMs / 1000).toFixed(1)}s)\n`);
-      for (const ar of result.assertionResults) {
-        if (!ar.pass) {
-          out(`        - ${ar.assertion.type}: ${ar.detail ?? '(no detail)'}\n`);
+    for (const lane of providerLanes) {
+      const tag = lane !== undefined ? `${golden.id} [${lane}]` : golden.id;
+      out(`  · ${tag} `);
+      const extraArgs = lane !== undefined ? ['--provider', lane] : undefined;
+      const result = await runGolden(golden, {
+        ...(opts.binary !== undefined ? { binary: opts.binary } : {}),
+        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.keepSandbox === true ? { keepSandbox: true } : {}),
+        ...(extraArgs !== undefined ? { extraArgs } : {}),
+      });
+      results.push(result);
+      totalDuration += result.durationMs;
+      if (result.estCostUsd !== undefined) totalCost += result.estCostUsd;
+      if (result.toolCalls) totalToolErrors += result.toolCalls.err;
+      if (result.abortReason) aborted++;
+      if (result.pass) {
+        passed++;
+        out(`✓ pass (${(result.durationMs / 1000).toFixed(1)}s`);
+        if (result.estCostUsd !== undefined) out(`, $${result.estCostUsd.toFixed(3)}`);
+        out(')\n');
+      } else {
+        failed++;
+        out(`✗ fail (${(result.durationMs / 1000).toFixed(1)}s)\n`);
+        for (const ar of result.assertionResults) {
+          if (!ar.pass) {
+            out(`        - ${ar.assertion.type}: ${ar.detail ?? '(no detail)'}\n`);
+          }
         }
+        if (result.abortReason) out(`        - aborted: ${result.abortReason}\n`);
       }
-      if (result.abortReason) out(`        - aborted: ${result.abortReason}\n`);
     }
   }
 
@@ -107,8 +128,18 @@ export async function runEvalCli(opts: EvalRunOpts = {}): Promise<EvalRunCliResu
   };
 
   out('\n');
+  if (providerLanes.length > 1) {
+    out(
+      formatCompareGrid(
+        results,
+        providerLanes.filter((l): l is string => l !== undefined),
+      ),
+    );
+    out('\n');
+  }
+  const runsLabel = providerLanes.length > 1 ? 'runs' : 'goldens';
   out(
-    `${results.length} golden${results.length === 1 ? '' : 's'} · ${passed} pass · ${failed} fail · ${aborted} aborted · ${(totalDuration / 1000).toFixed(1)}s · $${totalCost.toFixed(3)}\n`,
+    `${results.length} ${runsLabel} · ${passed} pass · ${failed} fail · ${aborted} aborted · ${(totalDuration / 1000).toFixed(1)}s · $${totalCost.toFixed(3)}\n`,
   );
 
   // Optional budget check.
@@ -177,6 +208,52 @@ function applyFilters(
     );
   }
   return out;
+}
+
+/** Render a grid for compare mode: rows = goldens (in declaration
+ *  order), columns = providers (in `--compare` order), cells = pass/
+ *  fail with duration. Returns a single multi-line string ready to
+ *  print. */
+export function formatCompareGrid(results: GoldenResult[], providers: string[]): string {
+  if (results.length === 0 || providers.length === 0) return '';
+  // Group by golden id, preserving the order results were appended.
+  const goldenOrder: string[] = [];
+  const cells = new Map<string, Map<string, GoldenResult>>();
+  for (const r of results) {
+    if (!cells.has(r.id)) {
+      cells.set(r.id, new Map());
+      goldenOrder.push(r.id);
+    }
+    const provider = r.provider ?? '';
+    cells.get(r.id)?.set(provider, r);
+  }
+  const idColWidth = Math.max('golden'.length, ...goldenOrder.map((id) => id.length));
+  const colWidth = Math.max(
+    'provider'.length,
+    ...providers.map((p) => p.length),
+    ...providers.map(() => 'fail (99.9s)'.length),
+  );
+  const lines: string[] = [];
+  lines.push(
+    `${'golden'.padEnd(idColWidth)}  ${providers.map((p) => p.padEnd(colWidth)).join('  ')}`,
+  );
+  lines.push('-'.repeat(idColWidth + 2 + (colWidth + 2) * providers.length));
+  for (const id of goldenOrder) {
+    const row = cells.get(id);
+    const parts: string[] = [id.padEnd(idColWidth)];
+    for (const provider of providers) {
+      const r = row?.get(provider);
+      if (!r) {
+        parts.push('—'.padEnd(colWidth));
+        continue;
+      }
+      const symbol = r.pass ? '✓' : '✗';
+      const cell = `${symbol} ${(r.durationMs / 1000).toFixed(1)}s`;
+      parts.push(cell.padEnd(colWidth));
+    }
+    lines.push(parts.join('  '));
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function emptySummary(): EvalRunSummary {

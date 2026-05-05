@@ -1,5 +1,19 @@
 # Changelog
 
+## Phase 10.5 part 2b-ii + 2c — Capture mode + provider comparison - 2026-05-05
+
+**2b-ii: capture primitives.** `CapturingProvider` wraps a real `LLMProvider` and mirrors every StreamEvent into a `CaptureSink` while forwarding them unchanged to the caller. `wrapToolsForCapture` wraps tools to record each call's result (or thrown error) keyed by `(toolName, callIndex)` — same key shape as the replay-side wrapper so capture + replay round-trip cleanly. The companion round-trip integration test drives a scripted "live" provider + real tool through `query()` with capture wrappers, snapshots the resulting fixture, then re-runs the fixture through `ReplayProvider` + `wrapToolsForReplay` and asserts the second run's StreamEvents match the first byte-for-byte.
+
+Adds: `src/eval/replay/capture.ts` (`createCaptureSink`, `CapturingProvider`, `wrapToolsForCapture`).
+
+**2c: provider comparison mode.** `sov eval run --compare anthropic,ollama` runs each golden once per provider in sequence, injecting `--provider <name>` into the spawned `sov chat` args. Per-provider model selection falls through to each provider's configured default. The summary table is a grid (rows = goldens, cols = providers) showing pass/fail + duration per cell; the budget applies to the cross-product totals. `formatCompareGrid()` exported pure for testability.
+
+Adds: `compareProviders?: string[]` on `EvalRunOpts`; `--compare <providers>` CLI flag; `provider?: string` on `GoldenResult`; `formatCompareGrid()` pure renderer.
+
+16 new unit tests (capture 10, capture round-trip 2, compareGrid 4). Suite total: **1099/1099**. Lint + typecheck clean. No semantic test added — capture/replay/comparison are internal test infrastructure, not agent-prompt-driven surfaces (same posture as 2a + 2b-i).
+
+With 2a + 2b-i + 2b-ii + 2c shipped, **Phase 10.5 part 2 is complete**: the eval suite supports live golden runs, deterministic CI replay (once a fixture is captured), and provider comparison mode. The remaining piece would be eval-runner integration to write fixture files automatically during a live run; for now, fixtures are constructed programmatically in tests, and the primitives ship + are testable on their own.
+
 ## Phase 10.5 part 2b-i — Replay primitives (provider + tool wrapper) - 2026-05-05
 
 The deterministic-replay half of the eval surface. A `ReplayFixture` captures every StreamEvent the provider yielded plus every tool result the orchestrator received during a live run. `ReplayProvider` re-emits the captured events one turn per `stream()` call as a drop-in `LLMProvider`; `wrapToolsForReplay` returns wrapped tools whose `call()` returns the next captured result keyed by `(toolName, callIndex)`. The agent loop, orchestrator, permission gates, hooks, MCP wiring, and trace writer all run unchanged — only the provider + tool boundaries are stubbed.
