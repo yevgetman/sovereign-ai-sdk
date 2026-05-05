@@ -21,6 +21,22 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
 ```
 
+## 2026-05-05 - Phase 13 — Sub-agent runtime + AgentTool
+
+- Scope: Closing Phase 13 (build items 1, 2, 3, 4, 5, 6, 7, 8, 9, 10). Seven commits: agent loader + 3 reference agents, capability profile lookup, AgentRunner extraction, scheduler primitives (Semaphore + LaneSemaphores + RouterConfig fields), AgentTool + scheduler + exclusion set + REPL wiring, on_delegation hook + DB lineage verification, and this docs/semantic-test close.
+- Environment: `bun run test` (full unit suite), `bun run lint` (biome). Semantic suite not run at this stage — that's the next-step gate (see Regressions / follow-ups).
+- Commands:
+  - `bun run test` after each commit. Final headline: 1267/1267.
+  - `bun run lint` after each commit. Two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` carry over (unchanged).
+  - `git push origin master` after each commit.
+- Manual / REPL coverage: none in this batch. The unit + integration tests cover scheduler concurrency invariants (per-lane semaphore serialization with `maxConcurrentLocal: 1`, write-lock serialization for write-capable children, AbortSignal cancellation), and the new `tests/runtime/schedulerOnDelegation.test.ts` uses a real (in-memory) `SessionDb` to verify `parent_session_id` flows through the live write path. The semantic test (`16-agents.cases.ts`) is registry-discoverability only — no live child run.
+- Result: Unit suite 1267/1267 across 137 files. Lint clean (modulo 2 pre-existing warnings unrelated to Phase 13). Phase 13 marked complete in `harness-build-plan.md`. Two items originally tracked under Phase 10.6 part 2b (per-lane concurrency caps, capability profile lookup) landed here as build items 4 and 10 — the 10.6 deferred-because-premature framing is no longer accurate, and CLAUDE.md / README.md / CHANGELOG.md / phase-10x-status.md all reflect the current state.
+- Regressions / follow-ups:
+  - Run `bun run test:semantic` to validate `agents-bundle-default-discoverable` fires correctly against a real `sov` invocation. Doing so before merging the next phase is the conventional gate per the run-policy. Skipped at commit time because the suite costs ~5 minutes + ~$0.87 informational and the case is registry-discoverability only — the unit + integration suites already cover the load-bearing paths.
+  - `subagent_progress` StreamEvents are not surfaced to the parent UI in v0 — children show as a single tool-result block. Live progress streaming requires orchestrator `onProgress` plumbing (see DECISIONS.md, Phase 13 section).
+  - Pattern constraints inside agent `allowedTools` entries (e.g. `Bash(git log *)`) are not enforced at the scheduler in v0 — only name-level filtering. Tightening this requires layering agent rules into the canUseTool stack (see DECISIONS.md).
+  - Path lock is a single in-memory `Semaphore(1)` — per-path locking and cross-process coordination land later (Phase 16 daemon).
+
 ## 2026-05-05 - Re-scope Phase 10.6 part 2b leftovers → Phase 13 (docs only)
 
 - Scope: Closing out the 10.x lane on the scoreboard. The two items previously tracked as "Phase 10.6 part 2b deferred-because-premature" — per-model capability profile lookup and per-lane concurrency guards — were re-homed into Phase 13 (sub-agent runtime, build items 4 and 10) where they have a real consumer.

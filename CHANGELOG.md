@@ -1,5 +1,33 @@
 # Changelog
 
+## Phase 13 — Sub-agent runtime + AgentTool - 2026-05-05
+
+The model can now delegate focused work to bounded specialized agents that run as their own sessions, return concise summaries, and feed the parent's memory via the `on_delegation` hook. Three reference agents ship in `bundle-default/agents/`: `explore` (read-only codebase mapping), `verify` (independent claim checking), `plan` (implementation planning).
+
+Seven landed pieces, ordered by build sequence:
+
+1. **Agent definition format + loader** (`src/agents/loader.ts`, `src/agents/types.ts`). Markdown + YAML frontmatter, same shape and search paths as skills (`<cwd>/.harness/agents/`, `<harness-home>/agents/`, `<bundle>/agents/`) with project-precedence dedupe and realpath-based symlink collapse. Frontmatter fields: `name`, `description`, `whenToUse?`, `systemPrompt?` (frontmatter or markdown body), `allowedTools[]`, `model?` xor `role?`, `maxTurns` (default 50), `readOnly` (default false). `ToolContext.agents` registry mirrors the skills wiring.
+
+2. **Capability profile lookup** (`src/router/capabilities.ts`, deferred from Phase 10.6 part 2b). Hand-curated v0 table of `(provider, model)` records carrying `contextLength`, coarse `costTier`, tool-call + JSON reliability, and `recommendedRoles[]`. Two consumers: the router classifier reads `contextLength` (existing wiring); the sub-agent scheduler reads `recommendedRoles` to resolve `role: explore` to the cheapest capable model. Cross-consistency test pins the table against `src/providers/models.ts::contextLengthFor()` so the two cannot drift.
+
+3. **AgentRunner extraction** (`src/runtime/agentRunner.ts`). Focused wrapper around `query()` that owns the non-UI plumbing every agent execution needs — building the user message from a string prompt, wiring query() params, tracking the final assistant message, iteration count, tool-call count, and parent-child lineage carry. `query()` itself is unchanged (Invariant #1). The REPL keeps its inline `query()` call because UI is woven into the per-event loop and isn't pure plumbing; AgentRunner exists for sub-agents and future surfaces (background review, scheduled missions, daemon).
+
+4. **Scheduler primitives** (`src/runtime/semaphore.ts`, `src/runtime/laneSemaphores.ts`, deferred from Phase 10.6 part 2b). AbortSignal-aware FIFO Semaphore with idempotent release; `LaneSemaphores` per-lane wrapper holding one Semaphore per lane (local / frontier). RouterConfig + settings schema gain `maxConcurrentLocal` / `maxConcurrentFrontier`. `AbortSignal.any()` and `AbortSignal.timeout()` (Bun-native) compose for cancellation chaining + per-child timeouts in the scheduler.
+
+5. **AgentTool + scheduler + global exclusion set** (`src/agents/exclusions.ts`, `src/runtime/scheduler.ts`, `src/tools/AgentTool.ts`). `SUBAGENT_EXCLUDED_TOOLS` is a code-owned ReadonlySet covering recursive spawning (`AgentTool`), session-scoped scheduling (`cron_*`), and parent-side control plane (`task_stop`, `send_message`). The `SubagentScheduler` owns per-parent child cap (default 4), lane semaphore acquisition, write-lock acquisition for write-capable children, per-child wall-clock timeout, parent-child session lineage via the caller's `createChildSession` callback (the REPL passes `db.createSession` with `parentSessionId` set), tool filtering (parent pool ∩ `agent.allowedTools` name-only − exclusion set), and provider/model resolution (literal `model:` form or capability-profile lookup via `role:`). `AgentTool` is a thin `buildTool()` wrapper. `patchSchemasAgainstAvailable()` (in `src/tool/registry.ts`, formerly a no-op pass) now rewrites AgentTool's `subagent_type` field from open string to a closed enum from the loaded agents — and drops AgentTool entirely from the pool when no agents are loaded.
+
+6. **on_delegation hook + DB lineage verification** (`src/runtime/scheduler.ts`). After successful child completion (terminal `completed` or `max_turns`), the scheduler calls `parent.memoryManager.onDelegation(prompt, summary)`. Errors and interrupts skip the hook. Hook errors route to `traceRecorder` rather than failing the scheduler return (preserves the parent turn even when the memory backend hiccups). Two integration tests use a real (in-memory) `SessionDb` to confirm `parent_session_id` flows through the live write path: one child correctly links via `getSession(childId).parentSessionId`; two delegations from the same parent both link.
+
+7. **Phase close** — README + CHANGELOG + CLAUDE.md status; `phase-10x-status.md` reflects 10.6 part 2b items as landed in Phase 13; new semantic test (`16-agents.cases.ts`, agents-bundle-default-discoverable) guards against the agent registry not loading or AgentTool getting dropped from the pool; `DECISIONS.md` retroactive entries for the in-memory v0 path lock, hand-curated v0 capability profiles, AgentRunner-not-in-REPL scope, name-only `allowedTools` filtering with deferred pattern enforcement, the schema-patch fallback that drops AgentTool when no agents are loaded; testing-log entry.
+
+Tests: 50 new across the phase (12 loader, 1 bundle-default smoke, 12 capability profile, 6 AgentRunner, 6 Semaphore, 4 LaneSemaphores, 4 exclusion set, 9 scheduler scenarios, 6 AgentTool surfaces, 2 registry schema patches, 5 on_delegation + DB lineage, 1 semantic). Unit suite: 1267/1267. Lint clean.
+
+Known v0 gaps with follow-up notes in `DECISIONS.md`:
+- Pattern constraints inside `allowedTools` entries (e.g. `Bash(git log *)`) are not enforced at the scheduler layer; the parent's `canUseTool` still applies. Tightening this is a follow-up.
+- `subagent_progress` StreamEvents are not surfaced to the parent UI in v0 — children show up as a single tool-result block. Live progress streaming requires orchestrator `onProgress` plumbing; trace + trajectory still capture full child detail for post-hoc analysis.
+- Path lock is a single in-memory `Semaphore(1)` (the v0 path-lock primitive). Per-path locking and cross-process coordination land later (Phase 16 daemon).
+- Capability profile entries are hand-curated; Phase 13.4 (continuous-learning observation stream) will graduate refined entries to `source: 'eval'` from real-world usage.
+
 ## Defense-in-depth secret redactor + `/security-audit` skill - 2026-05-05
 
 Two harness-level changes that address a failure mode caught in real use: an agent doing a security audit reads a real credential while exploring, then accidentally reproduces that credential verbatim in the report it writes to disk. The fix is structural, not prompt-engineered.

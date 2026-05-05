@@ -40,9 +40,9 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (41/41 pass)
+## Coverage inventory (42/42 pass)
 
-The full suite runs in ~8.8 minutes and costs ~$2.04 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
+The full suite runs in ~9 minutes and costs ~$2.10 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
 ### Tool dispatch — 9 tests
 
@@ -145,6 +145,14 @@ The harness applies a permission-layer transformer to Write / Edit / NotebookEdi
 | ID | Guards against |
 |---|---|
 | `redaction.redactor-rewrites-write-content-on-disk` | Secret-redaction transformer regression — agent's Write input contains a token, but the on-disk file ends up with the live secret instead of `<REDACTED:kind>` (would mean the canUseTool wrapper or the field-target map broke). Verified via Read-back through the same transcript. |
+
+### Sub-agents — 1 test
+
+Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary. The test guards the model's awareness of the agent registry and the AgentTool surface — it doesn't actually drive a child end-to-end (that's covered by `tests/runtime/scheduler*.test.ts` unit + integration cases). Catches: agents/ directory not being scanned at startup, AgentTool getting dropped from the pool, the registry's `subagent_type` enum patch silently regressing, or model confusing sub-agents with skills.
+
+| ID | Guards against |
+|---|---|
+| `tools.agents-bundle-default-discoverable` | Agents/ directory not scanned at startup, AgentTool dropped from pool by `patchSchemasAgainstAvailable()`, `subagent_type` enum patch regressing, or model confusing sub-agents (delegated sessions) with skills (markdown procedures) |
 
 ### Security-audit skill — 1 test
 
@@ -260,6 +268,12 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/hooks/` | `--filter hooks` (covers PreToolUse deny + PostToolUse additionalContext) |
 | `src/mcp/` | `--filter mcp` (covers MCP discovery + invocation + permission-rule blocking) |
 | `src/router/` | `--filter router` (covers `--provider router` end-to-end including model-swap) |
+| `src/agents/loader.ts`, `src/agents/types.ts`, `src/agents/exclusions.ts` | `--filter agents` |
+| `src/runtime/scheduler.ts`, `src/runtime/agentRunner.ts`, `src/runtime/semaphore.ts`, `src/runtime/laneSemaphores.ts` | `--filter agents` |
+| `src/tools/AgentTool.ts` | `--filter agents` |
+| `src/tool/registry.ts` (`patchSchemasAgainstAvailable`) | `--filter agents` |
+| `src/router/capabilities.ts` | `--filter agents` (consumer is the scheduler) |
+| `bundle-default/agents/*.md` | `--filter agents` |
 | `src/permissions/secretRedactor.ts` | `--filter redaction` |
 | `src/permissions/inputTransformer.ts` | `--filter redaction` |
 | `src/permissions/redactSecretsTransformer.ts` | `--filter redaction` |
