@@ -50,6 +50,15 @@ import type {
   Terminal,
   TokenUsage,
 } from '../core/types.js';
+import {
+  type CaptureSink,
+  CapturingProvider,
+  createCaptureSink,
+  wrapToolsForCapture,
+} from '../eval/replay/capture.js';
+import { loadReplayFixture, writeReplayFixture } from '../eval/replay/loader.js';
+import { ReplayProvider } from '../eval/replay/provider.js';
+import { wrapToolsForReplay } from '../eval/replay/toolPool.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import { buildMcpClientPool } from '../mcp/client.js';
@@ -125,6 +134,16 @@ export type ReplOpts = {
   /** When true, use the legacy readline-based input loop instead of
    *  the Wave-4 raw-mode inputEditor. Default false. */
   legacyInput?: boolean;
+  /** Phase 10.5 part 2 — write a deterministic-replay fixture to this
+   *  path on session end. The provider + tools are wrapped with
+   *  capture observers; their outputs are replayed exactly when this
+   *  fixture is later loaded via replayFixturePath. */
+  captureFixturePath?: string;
+  /** Phase 10.5 part 2 — replace the resolved provider + tool pool
+   *  with replay primitives that re-emit the captured events from
+   *  this fixture. No LLM calls are made; the agent loop runs against
+   *  canned events deterministically. */
+  replayFixturePath?: string;
 };
 
 /** Write a bracketed status line (e.g. `[tool: ...]`, `[cleared ...]`,
@@ -235,6 +254,30 @@ function buildRouterResolvedProvider(
   };
 }
 
+/** Phase 10.5 part 2 — when --replay-fixture is supplied, skip
+ *  resolveProvider entirely and build a synthetic ResolvedProvider
+ *  whose transport is a ReplayProvider. The fixture's `provider`
+ *  metadata is surfaced in the splash + audit log so the user knows
+ *  this is a replay, not a live run. */
+function buildReplayResolvedProvider(fixturePath: string): ResolvedProvider {
+  const fixture = loadReplayFixture(fixturePath);
+  const replay = new ReplayProvider({ fixture, providerName: fixture.meta.provider });
+  return {
+    transport: replay as unknown as Transport,
+    client: replay,
+    baseUrl: 'replay://',
+    model: fixture.meta.model,
+    contextLength: 200_000,
+    authType: 'none',
+    metadata: {
+      provider: fixture.meta.provider,
+      apiMode: 'replay',
+      purpose: 'main',
+      replayFixture: fixturePath,
+    },
+  };
+}
+
 export async function runRepl(opts: ReplOpts): Promise<void> {
   const bundle = await loadBundleIfPresent(opts.bundlePath ?? null);
   const harnessHome = resolveHarnessHome();
@@ -295,16 +338,37 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   const storedProvider = resumeSession
     ? ((resumeSession.metadata as { provider?: string }).provider ?? resumeSession.provider)
     : undefined;
+  if (opts.captureFixturePath !== undefined && opts.replayFixturePath !== undefined) {
+    throw new Error('--capture-fixture and --replay-fixture are mutually exclusive');
+  }
   const requestedProvider = opts.providerName ?? storedProvider;
   let routerAuditLogger: RouterAuditLogger | undefined;
   let routerHandle: RouterProvider | undefined;
-  const resolved =
-    requestedProvider === 'router'
-      ? buildRouterResolvedProvider(harnessHome, (logger, router) => {
-          routerAuditLogger = logger;
-          routerHandle = router;
-        })
-      : resolveProvider(requestedProvider, opts.model ?? resumeSession?.model);
+  let resolved: ResolvedProvider;
+  if (opts.replayFixturePath !== undefined) {
+    resolved = buildReplayResolvedProvider(opts.replayFixturePath);
+  } else if (requestedProvider === 'router') {
+    resolved = buildRouterResolvedProvider(harnessHome, (logger, router) => {
+      routerAuditLogger = logger;
+      routerHandle = router;
+    });
+  } else {
+    resolved = resolveProvider(requestedProvider, opts.model ?? resumeSession?.model);
+  }
+  // Phase 10.5 part 2 — capture-mode wrapping. Replace the resolved
+  // transport with a CapturingProvider so every StreamEvent flowing
+  // through the agent loop gets mirrored into the sink. Tools get
+  // wrapped further down once the pool is assembled.
+  let captureSink: CaptureSink | undefined;
+  if (opts.captureFixturePath !== undefined) {
+    captureSink = createCaptureSink({
+      sessionId: 'pending', // updated once activeSessionId is known
+      provider: String(resolved.metadata.provider),
+      model: resolved.model,
+    });
+    const wrapped = new CapturingProvider(resolved.transport, captureSink);
+    resolved = { ...resolved, transport: wrapped as unknown as Transport };
+  }
   const providerName = String(resolved.metadata.provider);
   let activeModel = resolved.model;
   const provider = resolved.transport;
@@ -496,7 +560,19 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       }),
     };
   };
-  const toolPool = assembleToolPool(toolContext, { mcpTools, harnessInfoSnapshot });
+  let toolPool = assembleToolPool(toolContext, { mcpTools, harnessInfoSnapshot });
+  // Phase 10.5 part 2 — wrap the assembled pool when in capture or
+  // replay mode. The wrappers preserve every other property of the
+  // tool (schema, permissions, render hooks) and only override
+  // `call()`. Permission gates, hooks, and orchestrator partitioning
+  // run on the wrapped tool just like the live one.
+  if (captureSink !== undefined) {
+    toolPool = wrapToolsForCapture(toolPool, captureSink);
+  }
+  if (opts.replayFixturePath !== undefined) {
+    const fixture = loadReplayFixture(opts.replayFixturePath);
+    toolPool = wrapToolsForReplay(toolPool, fixture);
+  }
   finalToolPoolRef = toolPool;
 
   // Two input paths share the same `question(prompt) => Promise<string>`
@@ -1275,6 +1351,19 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   });
   await traceWriter.close();
   if (routerAuditLogger) await routerAuditLogger.close();
+  // Phase 10.5 part 2 — flush the capture sink to disk. The fixture
+  // is written atomically (temp + rename) so a crash mid-write can't
+  // leave a corrupt fixture.
+  if (captureSink !== undefined && opts.captureFixturePath !== undefined) {
+    try {
+      writeReplayFixture(opts.captureFixturePath, captureSink.finish());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[capture] failed to write fixture at ${opts.captureFixturePath}: ${msg}\n`,
+      );
+    }
+  }
   db.close();
   process.stdout.write(
     renderSessionSummary({

@@ -4,7 +4,7 @@
 // from `evals/budget.json`, prints a per-golden + summary report, and
 // exits non-zero on any failure.
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { applyBudget, formatBudgetVerdict, loadBudget } from '../eval/budget.js';
 import { runGolden } from '../eval/runner.js';
@@ -33,6 +33,18 @@ export type EvalRunOpts = {
    *  provider's configured default. The summary table groups by
    *  golden + provider; the budget applies to the cross-product totals. */
   compareProviders?: string[];
+  /** Phase 10.5 part 2 follow-up — capture mode. When set, each
+   *  golden's spawned `sov chat` runs live with capture wrappers and
+   *  writes a fixture file to `<captureDir>/<golden-id>.fixture.json`.
+   *  Subsequent runs with `replayDir` pointing at the same dir replay
+   *  the captured events deterministically. */
+  captureDir?: string;
+  /** Phase 10.5 part 2 follow-up — replay mode. When set, each
+   *  golden's spawned `sov chat` reads `<replayDir>/<golden-id>.fixture.json`
+   *  and runs against `ReplayProvider` + `wrapToolsForReplay`. No LLM
+   *  calls are made. Goldens whose fixture is missing are reported
+   *  as aborted. Mutually exclusive with `captureDir`. */
+  replayDir?: string;
   /** Report sink. Defaults to process.stdout / process.stderr. */
   out?: (s: string) => void;
   err?: (s: string) => void;
@@ -51,6 +63,17 @@ export async function runEvalCli(opts: EvalRunOpts = {}): Promise<EvalRunCliResu
 
   if (!existsSync(goldensDir)) {
     err(`eval: goldens directory not found: ${goldensDir}\n`);
+    return { exitCode: 1, summary: emptySummary() };
+  }
+  if (opts.captureDir !== undefined && opts.replayDir !== undefined) {
+    err('eval: --capture and --replay are mutually exclusive\n');
+    return { exitCode: 1, summary: emptySummary() };
+  }
+  if (opts.captureDir !== undefined) {
+    mkdirSync(resolve(opts.captureDir), { recursive: true });
+  }
+  if (opts.replayDir !== undefined && !existsSync(resolve(opts.replayDir))) {
+    err(`eval: replay directory not found: ${opts.replayDir}\n`);
     return { exitCode: 1, summary: emptySummary() };
   }
 
@@ -84,12 +107,28 @@ export async function runEvalCli(opts: EvalRunOpts = {}): Promise<EvalRunCliResu
     for (const lane of providerLanes) {
       const tag = lane !== undefined ? `${golden.id} [${lane}]` : golden.id;
       out(`  · ${tag} `);
-      const extraArgs = lane !== undefined ? ['--provider', lane] : undefined;
+      const extraArgs: string[] = [];
+      if (lane !== undefined) extraArgs.push('--provider', lane);
+      if (opts.captureDir !== undefined) {
+        extraArgs.push(
+          '--capture-fixture',
+          join(resolve(opts.captureDir), `${golden.id}.fixture.json`),
+        );
+      }
+      if (opts.replayDir !== undefined) {
+        const fixturePath = join(resolve(opts.replayDir), `${golden.id}.fixture.json`);
+        if (!existsSync(fixturePath)) {
+          out(`✗ skip (no fixture at ${fixturePath})\n`);
+          aborted++;
+          continue;
+        }
+        extraArgs.push('--replay-fixture', fixturePath);
+      }
       const result = await runGolden(golden, {
         ...(opts.binary !== undefined ? { binary: opts.binary } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts.keepSandbox === true ? { keepSandbox: true } : {}),
-        ...(extraArgs !== undefined ? { extraArgs } : {}),
+        ...(extraArgs.length > 0 ? { extraArgs } : {}),
       });
       results.push(result);
       totalDuration += result.durationMs;

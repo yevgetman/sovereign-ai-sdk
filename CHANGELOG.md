@@ -1,5 +1,21 @@
 # Changelog
 
+## Eval runner — `--capture <dir>` / `--replay <dir>` CLI - 2026-05-05
+
+The promised follow-up to the Phase 10.5 part 2 capture/replay primitives. Both `sov chat` and `sov eval run` now expose first-class capture/replay surfaces:
+
+**`sov chat --capture-fixture <path>`** wraps the resolved provider with `CapturingProvider` and the assembled tool pool with `wrapToolsForCapture`, then writes a `ReplayFixture` to `<path>` (atomic temp + rename) at session end. Every StreamEvent and every tool result are recorded with full fidelity.
+
+**`sov chat --replay-fixture <path>`** skips `resolveProvider` entirely and builds a synthetic `ResolvedProvider` whose transport is a `ReplayProvider`. The tool pool gets wrapped with `wrapToolsForReplay` so every `tool.call()` returns its captured result. No LLM calls are made; no API keys are needed; the agent loop runs against canned events deterministically. The two flags are mutually exclusive.
+
+**`sov eval run --capture <dir>`** — runs each golden live with the spawn injecting `--capture-fixture <dir>/<id>.fixture.json`. **`sov eval run --replay <dir>`** runs each golden against the matching fixture; goldens whose fixture is missing are reported as aborted with a clear message. The two flags are mutually exclusive.
+
+Smoke test: capturing the `create-from-spec` golden took 1.4s + $0.006; replaying the same fixture took 0.1s + $0 (reuses captured cost metadata). The replay's pass/fail outcome and assertion details are byte-identical to the live capture.
+
+Adds: `captureFixturePath` / `replayFixturePath` on `ReplOpts`; `buildReplayResolvedProvider()` helper in terminalRepl; capture-sink wiring at session start; fixture-write at session end. `captureDir` / `replayDir` on `EvalRunOpts`; per-golden fixture-path injection via `extraArgs`.
+
+No new unit tests added — the wiring is straightforward CLI-flag plumbing on top of already-tested primitives, and the manual smoke verifies the round-trip end-to-end. Suite still 1104/1104. Lint + typecheck clean.
+
 ## Phase 10.6 part 2 — Router polish (banner + recent-error tracking + splash) - 2026-05-05
 
 Three router-side improvements that make Phase 10.6 part 1's foundation pleasant to use:

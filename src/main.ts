@@ -160,6 +160,14 @@ async function main(argv: string[]): Promise<void> {
     .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
     .option('-v, --verbose', 'show full tool-result previews instead of one-line summaries')
     .option('--legacy-input', 'use the readline-based input (Wave-3 fallback for the new editor)')
+    .option(
+      '--capture-fixture <path>',
+      'wrap the provider + tools to record a deterministic-replay fixture at this path on session end',
+    )
+    .option(
+      '--replay-fixture <path>',
+      'replay a previously-captured fixture instead of resolving a real provider (no LLM calls)',
+    )
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
@@ -176,6 +184,8 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.transcript !== undefined ? { transcriptPath: opts.transcript } : {}),
         ...(opts.verbose === true ? { verbose: true } : {}),
         ...(opts.legacyInput === true ? { legacyInput: true } : {}),
+        ...(opts.captureFixture !== undefined ? { captureFixturePath: opts.captureFixture } : {}),
+        ...(opts.replayFixture !== undefined ? { replayFixturePath: opts.replayFixture } : {}),
       });
     });
 
@@ -299,6 +309,14 @@ async function main(argv: string[]): Promise<void> {
       '--compare <providers>',
       'comma-separated list of provider names to compare (e.g. anthropic,ollama)',
     )
+    .option(
+      '--capture <dir>',
+      'capture mode — write a deterministic-replay fixture per golden under this directory (one <id>.fixture.json file per golden)',
+    )
+    .option(
+      '--replay <dir>',
+      'replay mode — replay each golden against its matching <id>.fixture.json under this directory; no LLM calls',
+    )
     .action(async (opts) => {
       const { runEvalCli } = await import('./cli/evalRun.js');
       const compareProviders =
@@ -317,6 +335,8 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.includeSlow === true ? { includeSlow: true } : {}),
         ...(opts.keepSandbox === true ? { keepSandbox: true } : {}),
         ...(compareProviders !== undefined ? { compareProviders } : {}),
+        ...(opts.capture !== undefined ? { captureDir: opts.capture } : {}),
+        ...(opts.replay !== undefined ? { replayDir: opts.replay } : {}),
       });
       process.exit(result.exitCode);
     });

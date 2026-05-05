@@ -1520,3 +1520,24 @@ Implementation backlogs from these findings live in
   - No regressions.
   - Phase 10.6 part 2b remaining: per-model capability profiles, per-lane concurrency guards (semaphores), interactive prompt UX for `escalationMode: 'ask'`. None block the basic experience.
   - Small `sov eval run --capture <dir>` / `--replay <dir>` runner-CLI follow-up still pending.
+
+## 2026-05-05 - Eval runner capture/replay CLI integration (unit suite 1104/1104)
+
+- Scope: Promised follow-up to Phase 10.5 part 2 capture/replay primitives. Both `sov chat` and `sov eval run` now expose first-class capture/replay surfaces. `sov chat --capture-fixture <path>` wraps the resolved provider with CapturingProvider and the assembled tool pool with wrapToolsForCapture, then writes a ReplayFixture (atomic temp+rename) at session end. `sov chat --replay-fixture <path>` skips resolveProvider entirely, builds a synthetic ResolvedProvider whose transport is a ReplayProvider, and wraps the tool pool with wrapToolsForReplay. The two flags are mutually exclusive. `sov eval run --capture <dir>` and `--replay <dir>` add the per-golden fixture-path injection on top.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; live anthropic LLM call for the capture smoke (~$0.006).
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun test` — 1104/1104 pass (no new tests; CLI wiring is covered by manual smoke + the existing capture/replay unit tests).
+  - **End-to-end smoke (the load-bearing verification):**
+    - `bun src/main.ts eval run --filter create-from-spec --capture /tmp/sov-cap-fx` → 1.4s wall, $0.006 cost, fixture written (3100 bytes).
+    - `bun src/main.ts eval run --filter create-from-spec --replay /tmp/sov-cap-fx` → 0.1s wall, no LLM call, byte-identical pass/fail outcome (same assertion failures, same tool error count, same exit code) as the live capture. The replay reuses captured cost metadata so the budget verdict is identical.
+- Manual coverage:
+  - Capture writes fixture even when the captured run fails the golden — capture is independent of pass/fail.
+  - Replay reproduces failures faithfully (the create-from-spec golden hit a permission error during the live capture; replay reproduced the same error and the same assertion verdicts).
+  - Replay path runs with no API key requirement — verified by inspecting that no provider request is logged in the trace.
+  - `--capture` and `--replay` are mutually exclusive at both the chat-level and the eval-runner level. Goldens whose fixture is missing during replay are skipped with an "aborted" message rather than crashing.
+- Result: 1104/1104 unit tests, lint + typecheck clean. Capture/replay round-trip works end-to-end at the CLI level. Phase 10.5 part 2 fully complete + integrated.
+- Regressions / follow-ups:
+  - No regressions.
+  - **No new unit tests added.** The wiring is straightforward CLI-flag plumbing on top of already-tested primitives (capture, replay, integration round-trip all covered in tests/eval/replay/). The end-to-end smoke is the verification.
+  - **No semantic test added.** Replay mode bypasses the LLM entirely, so a semantic test (which spawns sov chat + judges agent behavior) doesn't apply. Capture mode is just live-mode-with-side-effect — covered by the existing live golden runs.
