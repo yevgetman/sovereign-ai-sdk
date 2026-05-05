@@ -222,6 +222,68 @@ describe('scheduler on_delegation hook', () => {
   });
 });
 
+describe('scheduler child trajectory capture', () => {
+  test('successful child writes a standalone samples.jsonl record', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'sov-child-traj-'));
+    try {
+      const scheduler = new SubagentScheduler({
+        agents: makeAgentRegistry([makeAgent()]),
+        laneSemaphores: new LaneSemaphores({}),
+        writeLock: new Semaphore(1),
+        resolveProvider: () => makeFakeResolved(),
+        createChildSession: () => 'child-traj-1',
+        defaultProvider: 'anthropic',
+        defaultModel: 'm',
+        maxTokens: 256,
+        artifactsRoot: tmpDir,
+      });
+      await scheduler.delegate({
+        agentName: 'explore',
+        prompt: 'find auth code',
+        parentSessionId: 'parent',
+        parentToolPool: [],
+        parentToolContext: baseToolContext,
+      });
+      const samplesPath = join(tmpDir, 'trajectories', 'samples.jsonl');
+      const failedPath = join(tmpDir, 'trajectories', 'failed.jsonl');
+      const fs = await import('node:fs/promises');
+      const samples = await fs.readFile(samplesPath, 'utf8');
+      expect(samples).toContain('"sessionId":"child-traj-1"');
+      // Successful run should NOT have written to failed.jsonl.
+      const failedExists = await fs
+        .access(failedPath)
+        .then(() => true)
+        .catch(() => false);
+      expect(failedExists).toBe(false);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('skips child trajectory write when artifactsRoot is omitted', async () => {
+    const scheduler = new SubagentScheduler({
+      agents: makeAgentRegistry([makeAgent()]),
+      laneSemaphores: new LaneSemaphores({}),
+      writeLock: new Semaphore(1),
+      resolveProvider: () => makeFakeResolved(),
+      createChildSession: () => 'child-no-traj',
+      defaultProvider: 'anthropic',
+      defaultModel: 'm',
+      maxTokens: 256,
+      // artifactsRoot intentionally omitted
+    });
+    // Should complete without throwing or writing anything.
+    const result = await scheduler.delegate({
+      agentName: 'explore',
+      prompt: 'p',
+      parentSessionId: 'parent',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    expect(result.terminal.reason).toBe('completed');
+  });
+});
+
 describe('scheduler parent-child DB lineage (integration)', () => {
   test('createChildSession via db.createSession persists parent_session_id', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'sov-scheduler-lineage-'));

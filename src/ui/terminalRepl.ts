@@ -735,6 +735,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           (activeModel.split(' | ')[1]?.trim() ?? activeModel)
         : activeModel;
     const subagentWriteLock = new Semaphore(1);
+    // Phase 13.1 — child trajectory capture. Same artifactsRoot the
+    // REPL uses for its own (parent) trajectory write at session end:
+    // <bundle>/state/artifacts when a bundle is loaded, else
+    // <harnessHome>. Write semantics + bucket split are uniform across
+    // parent and child sessions.
+    const subagentArtifactsRoot = bundle ? join(bundle.root, 'state', 'artifacts') : harnessHome;
     const subagentScheduler = new SubagentScheduler({
       agents: loadedAgents,
       laneSemaphores,
@@ -753,6 +759,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       defaultProvider: subagentDefaultProvider,
       defaultModel: subagentDefaultModel,
       maxTokens: opts.maxTokens,
+      artifactsRoot: subagentArtifactsRoot,
     });
     type WritableToolContext = { -readonly [K in keyof ToolContext]: ToolContext[K] };
     const writableCtx = toolContext as WritableToolContext;

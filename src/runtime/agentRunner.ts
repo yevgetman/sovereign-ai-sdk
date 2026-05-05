@@ -76,6 +76,13 @@ export type AgentRunnerResult = {
   finalAssistant?: AssistantMessage;
   iterationsUsed: number;
   toolCallCount: number;
+  /** Full message history of the run, including the seed user prompt,
+   *  every assistant message, and every tool_result-carrying user
+   *  message yielded between turns. The caller can pass this to the
+   *  trajectory writer (the SubagentScheduler does this) so child
+   *  sessions get captured as standalone trajectory records, not just
+   *  as summary text inside the parent's record. */
+  messages: Message[];
 };
 
 /** Runs an agent loop end-to-end starting from a single user prompt.
@@ -114,6 +121,14 @@ export class AgentRunner {
     let iterationsUsed = 0;
     let toolCallCount = 0;
     let terminal: Terminal = { reason: 'error', error: new Error('AgentRunner: never terminated') };
+    // Track the full conversation history for trajectory capture.
+    // query() yields:
+    //   - StreamEvents (with `type` field) — assistant_message carries
+    //     the assistant turn; we append to messages on those events.
+    //   - User Messages (with `role: 'user'`) — yielded between turns
+    //     to carry tool_result blocks; we append those directly.
+    // The seed user prompt is in messages from the start.
+    const messages: Message[] = [...seedMessages];
 
     try {
       for (;;) {
@@ -123,13 +138,18 @@ export class AgentRunner {
           break;
         }
         const ev = step.value;
-        if (ev && typeof ev === 'object' && 'type' in ev) {
-          if (ev.type === 'message_stop') iterationsUsed++;
-          if (ev.type === 'assistant_message') {
-            finalAssistant = ev.message;
-            for (const block of ev.message.content) {
-              if (block.type === 'tool_use') toolCallCount++;
+        if (ev && typeof ev === 'object') {
+          if ('type' in ev) {
+            if (ev.type === 'message_stop') iterationsUsed++;
+            if (ev.type === 'assistant_message') {
+              finalAssistant = ev.message;
+              messages.push(ev.message);
+              for (const block of ev.message.content) {
+                if (block.type === 'tool_use') toolCallCount++;
+              }
             }
+          } else if ('role' in ev && ev.role === 'user') {
+            messages.push(ev);
           }
         }
         yield ev;
@@ -147,6 +167,7 @@ export class AgentRunner {
       ...(finalAssistant !== undefined ? { finalAssistant } : {}),
       iterationsUsed,
       toolCallCount,
+      messages,
     };
   }
 }

@@ -30,6 +30,7 @@ import type { LLMProvider } from '../providers/types.js';
 import { findCapableModel } from '../router/capabilities.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
+import { tryWriteTrajectory } from '../trajectory/writer.js';
 import { AgentRunner } from './agentRunner.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
 import type { Semaphore } from './semaphore.js';
@@ -72,6 +73,14 @@ export type SubagentSchedulerOpts = {
   perChildTimeoutMs?: number;
   /** maxTokens to pass to the child's AgentRunner. */
   maxTokens: number;
+  /** Phase 13.1 trajectory archive root for child-session capture.
+   *  When set, every child completion writes a standalone trajectory
+   *  record to `<artifactsRoot>/trajectories/{samples,failed}.jsonl`.
+   *  The caller chooses the path: REPL uses
+   *  `<bundle>/state/artifacts` when a bundle is loaded, else
+   *  `<harnessHome>`. Omit to skip child trajectory writes (useful in
+   *  tests that don't want disk side-effects). */
+  artifactsRoot?: string;
 };
 
 export type DelegateInput = {
@@ -200,6 +209,36 @@ export class SubagentScheduler {
           };
         }
         const summary = extractSummary(result.finalAssistant);
+        // Phase 13.1 trajectory capture for child sessions. The REPL
+        // captures parent sessions at REPL exit; sub-agent sessions
+        // run inside SubagentScheduler.delegate() and never see that
+        // hook, so without an explicit write here children would only
+        // appear inside the parent's record as the rendered summary —
+        // their full conversation (turns, tool calls, reasoning) would
+        // be lost from the fine-tune archive. We write per-child here
+        // so each successful child becomes its own samples.jsonl entry.
+        // Errors land in failed.jsonl per the bucket-split contract.
+        // Best-effort: tryWriteTrajectory swallows filesystem errors
+        // (Invariant #10) — a child write failure must not break the
+        // parent turn.
+        if (this.opts.artifactsRoot !== undefined && result.messages.length > 0) {
+          await tryWriteTrajectory({
+            messages: result.messages,
+            terminal: result.terminal,
+            metadata: {
+              sessionId: childSessionId,
+              provider: providerName,
+              model: modelName,
+              toolCallCount: result.toolCallCount,
+              iterationsUsed: result.iterationsUsed,
+              // Per-child cost telemetry not currently aggregated by
+              // AgentRunner — leave as 0 in v0. Parent rolls up its
+              // own cost via the existing usage_delta path.
+              estimatedCostUsd: 0,
+            },
+            artifactsRoot: this.opts.artifactsRoot,
+          });
+        }
         // Phase 13.6 — on_delegation hook. Fire after a *successful*
         // child completion so the parent's memory provider can capture
         // the delegation as a learnable observation. We treat
@@ -322,6 +361,7 @@ async function drainRunner(
       finalAssistant?: AssistantMessage;
       iterationsUsed: number;
       toolCallCount: number;
+      messages: import('../core/types.js').Message[];
     }
   >,
 ): Promise<{
@@ -329,6 +369,7 @@ async function drainRunner(
   finalAssistant?: AssistantMessage;
   iterationsUsed: number;
   toolCallCount: number;
+  messages: import('../core/types.js').Message[];
 }> {
   for (;;) {
     const step = await gen.next();
