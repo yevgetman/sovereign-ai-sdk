@@ -130,6 +130,43 @@ The skill loader runs `validateWhenToUse()` against every skill's `whenToUse` va
 
 Skills that fail the heuristic still load — the warning is a nudge, not a block.
 
+## Add An Agent Definition
+
+Sub-agents (Phase 13) are markdown files loaded by `src/agents/loader.ts`. Same shape as skills (frontmatter + body) but consumed differently — an agent definition is loaded into `ToolContext.agents` and surfaces in `AgentTool`'s `subagent_type` enum. The model invokes `AgentTool({ subagent_type: '<name>', prompt: '...' })`; the scheduler in `src/runtime/scheduler.ts` spawns a child session with the agent's filtered toolset, runs it to terminal, and returns a bounded summary.
+
+Drop a markdown file into one of the three search paths (project `.harness/agents/` → user `<harness-home>/agents/` → bundle `<bundle>/agents/`):
+
+```yaml
+---
+name: explore                       # required; kebab-id, used as subagent_type
+description: Fast codebase explorer # required; surfaces in AgentTool's tool description
+whenToUse: |                        # optional; helps the model pick the right agent
+  Use when the parent task needs file search, symbol lookup, or surface mapping.
+allowedTools:                       # required; child's tool pool = parent pool ∩ this list
+  - Read
+  - Grep
+  - Glob
+  - Bash(git log *)                 # name-level filter only in v0; pattern not enforced at scheduler
+role: explore                       # OR `model: <provider>/<id>` — mutually exclusive
+maxTurns: 30                        # default 50
+readOnly: true                      # default false; write-capable children acquire the global write lock
+---
+
+You are an Explore agent. Your job is to answer specific lookup or mapping questions
+from a parent agent that delegated to you. Stay narrow — don't refactor or redesign.
+Search before reading. Cite paths and line numbers. Stop early.
+
+End with: Finding (1-2 sentences), Evidence (3-6 bullet points each `path:line`), Gaps (optional).
+```
+
+**Resolution.** When `model:` is set, the scheduler uses it literally (split on first `/` → provider + model). When `role:` is set, `findCapableModel(role, availableProviders)` queries `src/router/capabilities.ts` and picks the cheapest model whose `recommendedRoles` includes that role. When neither is set, the scheduler falls back to the parent's defaults.
+
+**Filtering.** The scheduler intersects the parent's tool pool with the agent's `allowedTools` (name-only — `Bash(git log *)` matches the `Bash` tool with the pattern left to the parent's `canUseTool` to enforce), then subtracts `SUBAGENT_EXCLUDED_TOOLS` (`src/agents/exclusions.ts`: `AgentTool` blocks recursive spawning; `cron_*` and `task_stop` / `send_message` are parent-side control plane).
+
+**Trust tiers.** Bundle agents → `'builtin'`. Project + user agents → `'trusted'`. v0 has no `'community'` tier and no guard scanner; if a `'community'` tier is added later, mirror the skills guard pattern (`src/skills/guard.ts`).
+
+**`bundle-default/agents/`** ships three reference agents (`explore`, `verify`, `plan`) — these are the authoring template; copy them when building a new agent.
+
 ## Add A Shell Hook
 
 Hooks live in any settings layer's `hooks` key (`<cwd>/.harness/settings.local.json`, `<cwd>/.harness/settings.json`, or `$HARNESS_HOME/settings.json`). They're not authored under `src/`; they're external shell commands or scripts the user owns. The harness runtime is in `src/hooks/` (`runner.ts`, `consent.ts`, `types.ts`); changes there should preserve:

@@ -40,9 +40,9 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (42/42 pass)
+## Coverage inventory (43/43 pass)
 
-The full suite runs in ~9 minutes and costs ~$2.10 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
+The full suite runs in ~10 minutes and costs ~$2.20 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
 ### Tool dispatch — 9 tests
 
@@ -146,13 +146,14 @@ The harness applies a permission-layer transformer to Write / Edit / NotebookEdi
 |---|---|
 | `redaction.redactor-rewrites-write-content-on-disk` | Secret-redaction transformer regression — agent's Write input contains a token, but the on-disk file ends up with the live secret instead of `<REDACTED:kind>` (would mean the canUseTool wrapper or the field-target map broke). Verified via Read-back through the same transcript. |
 
-### Sub-agents — 1 test
+### Sub-agents — 2 tests
 
-Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary. The test guards the model's awareness of the agent registry and the AgentTool surface — it doesn't actually drive a child end-to-end (that's covered by `tests/runtime/scheduler*.test.ts` unit + integration cases). Catches: agents/ directory not being scanned at startup, AgentTool getting dropped from the pool, the registry's `subagent_type` enum patch silently regressing, or model confusing sub-agents with skills.
+Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary wrapped in a `<subagent_result …>` envelope. The first test guards registry discoverability + the AgentTool surface (cheap, single-turn). The second is the end-to-end smoke for the full chain (parent → AgentTool → scheduler → child session → AgentRunner → child turns → renderResult → parent consumption); it adds the live-model layer that the unit + integration suites in `tests/runtime/scheduler*.test.ts` can't reach.
 
 | ID | Guards against |
 |---|---|
 | `tools.agents-bundle-default-discoverable` | Agents/ directory not scanned at startup, AgentTool dropped from pool by `patchSchemasAgainstAvailable()`, `subagent_type` enum patch regressing, or model confusing sub-agents (delegated sessions) with skills (markdown procedures) |
+| `tools.agents-explore-live-delegation` | AgentTool throws when called from a real model, scheduler fails to resolve a child provider, child session fails to start, child's tools end up wrong (allowedTools filter regression), `renderResult`'s `<subagent_result>` envelope breaks, or the parent model can't consume the wrapped child output |
 
 ### Security-audit skill — 1 test
 
@@ -311,7 +312,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-3838-pass), update the headline count (`38/38 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-4343-pass), update the headline count (`43/43 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

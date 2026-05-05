@@ -376,6 +376,52 @@ REPL wiring captures `lastTerminal` across all turns of the session and calls `t
 
 The trajectory directory is tier-3 per-installation state (Invariant #9). Phase 13.4 (continuous learning, planned) will read from this archive plus a parallel observation stream to synthesize an instinct corpus.
 
+## Sub-Agent Runtime
+
+Phase 13 introduces agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`, `<harness-home>/agents/`, or `<cwd>/.harness/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary plus the child session id. Three reference agents ship in `bundle-default/agents/`: `explore` (read-only codebase mapping), `verify` (independent claim checking), and `plan` (implementation planning).
+
+**Loader (`src/agents/loader.ts`).** Same pattern as `src/skills/loader.ts`: scans three roots in priority order (project `.harness/agents/` → user `<harness-home>/agents/` → bundle `<bundle>/agents/`), parses markdown + YAML frontmatter, dedupes by realpath (collapses symlinks) and by name (project beats user beats bundle on collisions). Returns `AgentRegistry` (`{ agents: AgentDefinition[]; byName: Map<string, AgentDefinition> }`) which lands in `ToolContext.agents`. v0 trust tiers are `'builtin'` (bundle) and `'trusted'` (project + user); a guard scanner is deferred until a `'community'` tier exists.
+
+Frontmatter shape:
+
+```yaml
+---
+name: explore                       # required, kebab-id
+description: Fast codebase explorer # required
+whenToUse: ...                      # optional; surfaces in AgentTool schema
+allowedTools: [Read, Grep, Glob, Bash(git log *)]
+model: anthropic/claude-haiku-4-5-20251001  # xor with role
+role: explore                       # xor with model
+maxTurns: 30                        # default 50
+readOnly: true                      # default false
+---
+
+System prompt body goes here (when not in a frontmatter `systemPrompt:` field).
+```
+
+**Capability profile (`src/router/capabilities.ts`).** Per-model record carrying `contextLength`, coarse `costTier`, tool-call + JSON reliability, and `recommendedRoles[]`. Two consumers: (a) the router classifier reads `contextLength` (existing wiring); (b) the scheduler resolves `role: explore` to the cheapest model whose `recommendedRoles` includes that role. Cross-consistency test pins the table against `src/providers/models.ts::contextLengthFor()` so the two cannot drift on shared data.
+
+**Scheduler (`src/runtime/scheduler.ts`).** Owns the entire sub-agent lifecycle:
+
+1. **Per-parent child cap** (default 4) — prevents a misbehaving parent from spawning unbounded children.
+2. **Per-lane concurrency caps** via `LaneSemaphores` — `maxConcurrentLocal` / `maxConcurrentFrontier` from the router config. Both the router (single-session escalations) and the scheduler (parent dispatching N children) acquire from the same instance so global limits apply.
+3. **Global write-path lock** — a single `Semaphore(1)` that write-capable children must acquire. Read-only children skip it. v0 path-lock primitive; per-path locking lands later when there's a real consumer.
+4. **Tool filtering** — parent pool ∩ `agent.allowedTools` (name-only) − `SUBAGENT_EXCLUDED_TOOLS` (`AgentTool` itself blocks recursive spawning; `cron_*` and `task_stop` / `send_message` are parent-side control plane).
+5. **Cancellation chaining** — parent's `AbortSignal` composes with a per-child `AbortSignal.timeout()` via `AbortSignal.any()`. Both parent abort and timeout terminate the child cleanly.
+6. **Provider/model resolution** — agent declares `model: <provider>/<id>` literally OR `role: <kind>` (the scheduler queries the capability table). Falls back to the parent's defaults when neither is set.
+7. **Parent-child session lineage** — caller-provided `createChildSession` callback writes the child row with `parent_session_id` set (the existing schema-v3 column).
+8. **`on_delegation` hook** — after successful child completion (terminal `completed` or `max_turns`), the scheduler calls `parent.memoryManager.onDelegation(prompt, summary)`. Errors and interrupts skip the hook. Hook errors route to `traceRecorder` rather than failing the scheduler return.
+
+**AgentRunner (`src/runtime/agentRunner.ts`).** Focused wrapper around `query()` that owns the non-UI plumbing: building the user message from a string prompt, wiring query() params, tracking the final assistant message, iteration count, tool-call count, and parent-child lineage carry. `query()` itself stays unchanged (Invariant #1). The REPL keeps its inline `query()` call because UI is woven into the per-event loop and isn't pure plumbing; AgentRunner exists for sub-agents and future surfaces (background review, scheduled missions, daemon).
+
+**AgentTool (`src/tools/AgentTool.ts`).** Thin `buildTool()` wrapper. The registry's `patchSchemasAgainstAvailable()` rewrites AgentTool's `subagent_type` field from open string to a closed enum derived from `ctx.agents`, and **drops the tool from the pool entirely when no agents are loaded** — exposing a tool whose enum is empty would let the model attempt calls that always fail. `renderResult` wraps the summary in `<subagent_result name="X" session="Y" lane="provider/model" turns="N" tool_calls="M" duration_ms="..." terminal="completed">…</subagent_result>` so the parent context shows lineage at a glance without the full transcript.
+
+**v0 known gaps (with follow-up notes in `DECISIONS.md`):**
+
+- Pattern constraints inside `allowedTools` entries (e.g. `Bash(git log *)`) are not enforced at the scheduler — only name-level filtering. The parent's `canUseTool` still applies. Tightening: layer agent-defined rules into the `canUseTool` stack.
+- `subagent_progress` StreamEvents are not surfaced to the parent UI in v0 — children show as a single tool-result block. Live streaming requires orchestrator `onProgress` plumbing; trace + trajectory still capture full child detail for post-hoc analysis.
+- Path lock is a single in-memory `Semaphore(1)`. Per-path locking and cross-process coordination wait for Phase 16 daemon.
+
 ## Compaction
 
 Full compaction (`/compact`) summarizes message history into a child session. Proactive compaction fires automatically when `system_prompt + history > contextLength * proactiveThresholdPct` (default 75%). The compactor self-guards: when the system prompt alone exceeds the threshold, proactive compaction returns false instead of firing — it can only reduce message history, not the system prompt, so otherwise it would loop indefinitely against an oversized bundle.
@@ -403,7 +449,7 @@ A second test category lives under `tests/semantic/`, separate from the unit/int
 
 **Verdict shape.** The judge returns `{pass, reasoning, satisfiedCriteria, failedCriteria, costUsd, tokens, backend}`. The reporter shows `subscription` for `claude-code` zero-cost results and a dollar figure (informational under subscription) when the envelope reports one.
 
-**Coverage.** 38 tests spanning 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 5 slash-command dispatch paths (including `/context-budget`), 6 permission cases (including the highest-stakes virtual-tool-name mapping, layer-precedence invariant, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case (Phase 10.6 — verifies `--provider router` resolves both lanes and the per-turn route-decision banner is observable), and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
+**Coverage.** 43 tests spanning 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 6 slash-command dispatch paths (including `/context-budget`), 6 permission cases (including the highest-stakes virtual-tool-name mapping, layer-precedence invariant, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case (Phase 10.6 — verifies `--provider router` resolves both lanes and the per-turn route-decision banner is observable), 1 secret-redaction case, 1 `/security-audit` skill case, 2 sub-agents cases (Phase 13 — registry discoverability + live end-to-end delegation), and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
 
 ## Extension Surfaces
 
@@ -421,6 +467,8 @@ The primary extension surfaces are:
 - `src/compact/microcompact.ts` for microcompaction config and compactable tool sets
 - `src/permissions/shellSemantics.ts` for shell command classification (add commands to the handler sets)
 - `src/agent/sessionDb.ts` for schema migrations
-- future `src/review/` and `src/router/` phase landing zones
+- `src/agents/` for agent definitions (loader + types + global exclusion set) and `src/runtime/` for the sub-agent runtime (AgentRunner, scheduler, semaphores)
+- `src/router/capabilities.ts` for the per-model capability profile table (consumed by the router classifier and the sub-agent role resolver)
+- future `src/review/` phase landing zone (Phase 13.3 background review daemon)
 
 See `docs/extending.md` for concrete recipes.

@@ -130,7 +130,7 @@ tests/semantic/
   id: 'kebab-case-id',           // unique across the whole suite
   name: 'Short human title',
   description: 'Which bug class does this test guard against?',
-  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal' | 'hooks' | 'router',
+  category: 'tools' | 'commands' | 'permissions' | 'context' | 'workflow' | 'refusal' | 'hooks' | 'router' | 'redaction' | 'security',
   setup: {
     files: [{ path: 'foo.txt', content: 'bar' }],   // optional
     homeFiles: [{ path: 'config.json', content: '{}' }],  // optional, written under HARNESS_HOME
