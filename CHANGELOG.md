@@ -1,5 +1,19 @@
 # Changelog
 
+## Phase 10.6 part 2 — Router polish (banner + recent-error tracking + splash) - 2026-05-05
+
+Three router-side improvements that make Phase 10.6 part 1's foundation pleasant to use:
+
+**Recent-error tracking.** `RouterProvider` now scans `req.messages` newest-first for the last 20 `tool_result` blocks, counting `is_error: true` entries (and the subset whose content matches a schema-failure regex like `input validation failed`). The counts feed into the classifier's `recentToolErrors` / `recentSchemaFailures` triggers — so when a local model starts erroring, the router actually escalates instead of just nominally being able to.
+
+**REPL banner for `route_decision`.** Each per-turn routing decision now renders as a one-line gray status banner — `[router · local (anthropic/claude-haiku-4-5) — default lane: local]` — so the user can see which lane every turn used. Frontier escalations get a `↗` arrow instead of a `·`. The audit log at `<harness-home>/router/audit.jsonl` still has the full record; this is the just-in-time UX signal.
+
+**Splash auth-type honesty.** The splash card's auth-type slot used to read `router | API Key`, which was a small lie (the router itself doesn't authenticate; its children do). It now reads `router | router-managed`. Cosmetic but accurate.
+
+Adds: 5 new unit tests in `tests/router/recentErrors.test.ts` covering the no-error / above-threshold / below-threshold / schema-failure / 'never'-stays-local paths. Tightened `router.router-completes-turn` semantic case to verify the banner is observable in the transcript. Suite total: **1104/1104 unit + 38/38 semantic**. Lint + typecheck clean.
+
+**Still deferred (Phase 10.6 part 2b):** capability-profile lookup table, per-lane concurrency guards (semaphores), interactive `ask` prompt UX. The router is now functional and observable — these are polish for later.
+
 ## Phase 10.5 part 2b-ii + 2c — Capture mode + provider comparison - 2026-05-05
 
 **2b-ii: capture primitives.** `CapturingProvider` wraps a real `LLMProvider` and mirrors every StreamEvent into a `CaptureSink` while forwarding them unchanged to the caller. `wrapToolsForCapture` wraps tools to record each call's result (or thrown error) keyed by `(toolName, callIndex)` — same key shape as the replay-side wrapper so capture + replay round-trip cleanly. The companion round-trip integration test drives a scripted "live" provider + real tool through `query()` with capture wrappers, snapshots the resulting fixture, then re-runs the fixture through `ReplayProvider` + `wrapToolsForReplay` and asserts the second run's StreamEvents match the first byte-for-byte.

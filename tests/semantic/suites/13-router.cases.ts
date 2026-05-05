@@ -39,6 +39,7 @@ export const tests: SemanticTest[] = [
       mustSatisfy: [
         'The agent successfully started a session in router mode (the splash card or status footer shows "router").',
         'The agent answered the question with the number 4 (or "four").',
+        'The transcript includes a per-turn router banner of the form "[router … local …]" that names the chosen lane and the resolved provider/model (Phase 10.6 part 2 surface).',
       ],
       shouldNot: [
         'The agent reported a configuration error like "router config missing", "unknown provider", or "router requires".',

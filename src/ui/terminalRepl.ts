@@ -1035,6 +1035,20 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           );
           textRunActive = false;
         }
+        if (ev.type === 'route_decision') {
+          // Phase 10.6 part 2 — surface the lane the router picked so the
+          // user is never surprised that data left the box. The audit log
+          // at <harness-home>/router/audit.jsonl has the full record;
+          // this is the just-in-time UX signal.
+          toolSlot.commit();
+          const arrow = ev.info.lane === 'frontier' ? '↗' : '·';
+          writeStatusLine(
+            chalk.gray(
+              `[router ${arrow} ${ev.info.lane} (${ev.info.delegatedProvider}/${ev.info.delegatedModel}) — ${ev.info.reason}]`,
+            ),
+          );
+          textRunActive = false;
+        }
         // message_start, thinking_delta, tool_use_delta, message_stop: silent.
         indicator.start();
       }
@@ -1295,8 +1309,11 @@ function writeBanner(
   layerAllowRuleCount: number,
 ): void {
   const providerName = String(resolved.metadata.provider);
-  const authLabel =
-    providerName === 'ollama' ? chalk.gray('local (no key)') : chalk.gray('API Key');
+  const authLabel = (() => {
+    if (providerName === 'ollama') return chalk.gray('local (no key)');
+    if (providerName === 'router') return chalk.gray('router-managed');
+    return chalk.gray('API Key');
+  })();
   const modeNote =
     permissionMode === 'bypass' ? chalk.red(' (fallthrough runs WITHOUT prompting)') : '';
   const sessionLabel = resumed

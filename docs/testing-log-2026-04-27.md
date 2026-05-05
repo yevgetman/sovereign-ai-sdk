@@ -1502,3 +1502,21 @@ Implementation backlogs from these findings live in
   - No regressions.
   - **No semantic test added.** Capture, replay, and compare are internal test infrastructure — no agent-prompt-driven surface. Same posture as 2a + 2b-i.
   - **Small follow-up remaining:** runner-side `sov eval run --capture <dir>` / `--replay <dir>` flags to write fixture files from real live sessions. Primitives are testable on their own; CLI plumbing is a focused ~150-LOC follow-up.
+
+## 2026-05-05 - Phase 10.6 part 2a — router polish (semantic 38/38, unit 1104/1104)
+
+- Scope: Three router-side improvements that make Phase 10.6 part 1 actually useful day-to-day. (1) RouterProvider scans req.messages newest-first for the last 20 tool_result blocks, counts is_error: true entries (and the subset matching a schema-failure regex like "input validation failed"), feeds the counts to the classifier as recentToolErrors / recentSchemaFailures so the local-with-escalation triggers in the classifier actually fire. (2) REPL renders a one-line gray banner per turn: `[router · local (provider/model) — reason]`; frontier escalations swap `·` for `↗` so the user can see at a glance whether data left the box. (3) Splash auth-type slot for `--provider router` reads `router-managed` instead of the slightly-wrong `API Key`.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; agent + judge claude-sonnet-4-6 default.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean.
+  - `bun test` — 1104/1104 pass (was 1099). New file: tests/router/recentErrors.test.ts (5 cases — no errors / above threshold / below threshold / schema failures / "never" mode stays local).
+  - `bun run test:semantic -- --filter router-completes-turn` — 1/1 pass (8.5s, $0.124). The existing case was tightened with a third must-satisfy criterion checking that the route-decision banner is observable in the transcript; the test now also catches a regression where the banner stops rendering.
+- Manual coverage:
+  - Splash card smoke (`HARNESS_HOME=... sov chat --provider router --no-preflight < /dev/null`): output line 3 reads "router | router-managed" instead of "router | API Key".
+  - Banner verification: the per-turn route_decision now appears in the transcript before the assistant's answer streams; the semantic test's judge reads it and confirms it.
+  - Recent-error escalation: a 3-error history triggers escalation under `escalationMode: auto`; a 2-error history does not. A 2-schema-failure history also escalates (separate threshold). With `escalationMode: never`, even 5 errors stay local — verified.
+- Result: 1104/1104 unit, 38/38 semantic, lint + typecheck clean. The router is now functional + observable end-to-end. Phase 10.6 part 2a complete.
+- Regressions / follow-ups:
+  - No regressions.
+  - Phase 10.6 part 2b remaining: per-model capability profiles, per-lane concurrency guards (semaphores), interactive prompt UX for `escalationMode: 'ask'`. None block the basic experience.
+  - Small `sov eval run --capture <dir>` / `--replay <dir>` runner-CLI follow-up still pending.

@@ -47,10 +47,13 @@ export class RouterProvider implements LLMProvider {
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
     const promptText = extractPromptText(req);
     const contextByteCount = estimateContextBytes(req);
+    const { recentToolErrors, recentSchemaFailures } = countRecentErrors(req.messages);
     const userOverride = this.opts.getNextOverride?.();
     const decision = classify(this.opts.config, {
       prompt: promptText,
       contextByteCount,
+      recentToolErrors,
+      recentSchemaFailures,
       ...(this.opts.localContextLength !== undefined
         ? { localContextLength: this.opts.localContextLength }
         : {}),
@@ -119,6 +122,43 @@ function extractPromptText(req: ProviderRequest): string {
   }
   return '';
 }
+
+/** Walk the message history and count recent tool errors. Looks back
+ *  through the last `RECENT_WINDOW` tool_result blocks; counts those
+ *  with `is_error: true`, and separately the subset whose content
+ *  matches a schema-validation failure pattern. The classifier uses
+ *  these to flip into `local-with-escalation` when a local model
+ *  starts struggling.
+ *
+ *  Window is bounded so a long-running session doesn't accumulate old
+ *  errors forever. Tool results are scanned newest-first; older
+ *  entries beyond the window are ignored. */
+function countRecentErrors(messages: readonly Message[]): {
+  recentToolErrors: number;
+  recentSchemaFailures: number;
+} {
+  let inspected = 0;
+  let toolErrors = 0;
+  let schemaFailures = 0;
+  for (let i = messages.length - 1; i >= 0 && inspected < RECENT_WINDOW; i--) {
+    const message = messages[i];
+    if (!message || message.role !== 'user') continue;
+    for (let j = message.content.length - 1; j >= 0 && inspected < RECENT_WINDOW; j--) {
+      const block = message.content[j];
+      if (!block || block.type !== 'tool_result') continue;
+      inspected++;
+      if (block.is_error !== true) continue;
+      toolErrors++;
+      if (typeof block.content === 'string' && SCHEMA_FAILURE_RE.test(block.content)) {
+        schemaFailures++;
+      }
+    }
+  }
+  return { recentToolErrors: toolErrors, recentSchemaFailures: schemaFailures };
+}
+
+const RECENT_WINDOW = 20;
+const SCHEMA_FAILURE_RE = /input validation failed|schema validation|hook-updated input/i;
 
 /** Conservative byte-count estimate: serialize the system + messages as
  *  JSON and count UTF-8 bytes. Used by the context-overflow heuristic. */
