@@ -11,7 +11,9 @@ export type TestCategory =
   | 'workflow'
   | 'refusal'
   | 'hooks'
-  | 'router';
+  | 'router'
+  | 'redaction'
+  | 'security';
 
 export interface TestSetupFile {
   /** Path relative to the test sandbox cwd. */

@@ -66,7 +66,9 @@ import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
+import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
+import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
 import type { PermissionMode } from '../permissions/types.js';
 import { isContextOverflowError } from '../providers/errors.js';
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
@@ -653,7 +655,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...event,
       }),
   });
-  const canUseTool = buildCanUseTool({
+  const baseCanUseTool = buildCanUseTool({
     mode: permissionMode,
     ask,
     alwaysAllow,
@@ -661,6 +663,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     recordAlwaysAllow: (rule) =>
       appendProjectLocalPermissionRule({ cwd: process.cwd(), rule, behavior: 'allow' }),
   });
+  // Defense-in-depth: redact well-known secret patterns from Write/Edit/
+  // NotebookEdit inputs before the orchestrator dispatches the tool.
+  // Catches the failure class where an agent reads a secret while
+  // exploring and then accidentally reproduces it verbatim into a
+  // generated artifact (e.g. a security audit report). Set
+  // HARNESS_REDACTION=off to disable globally.
+  const canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
   // Phase 10.6 part 2b — install the interactive escalation asker on
   // the router (only meaningful when --provider router and the
   // configured `escalationMode` is 'ask'). The asker is built around
