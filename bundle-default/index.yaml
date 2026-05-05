@@ -1,0 +1,26 @@
+repo: default-bundle
+description: |
+  Vendor-neutral default bundle shipped with the sov runtime. Used when no
+  other bundle is resolved (no --bundle flag, no HARNESS_BUNDLE env var, no
+  index.yaml found by walking up from CWD, and no user-installed override
+  at <harness-home>/default-bundle/). Carries a generic "coding assistant"
+  system prompt and a small set of starter skills, nothing more.
+updated: 2026-05-05
+reading_order:
+  - default-bundle-readme
+  - default-bundle-system-prompt
+documents:
+  - doc_id: default-bundle-readme
+    file: business/README.md
+    title: Default Bundle README
+    version: 1
+    status: active
+    summary: What the default bundle is, what's in it, and how to graduate
+      to a real bundle (sov init or write your own).
+  - doc_id: default-bundle-system-prompt
+    file: business/system-prompt.md
+    title: Default System Prompt
+    version: 1
+    status: active
+    summary: The vendor-neutral coding-assistant persona injected into the
+      system prompt when sov runs against the default bundle.

@@ -85,6 +85,7 @@ sov --no-cache
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
 | `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
+| `init [--force]` | (Phase 10.8.) Bootstrap the current directory into a real harness bundle. Writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. After `sov init`, running `sov chat` from the same directory auto-discovers the new bundle via the upward `index.yaml` walk. |
 
 ## Eval Suite
 
@@ -197,6 +198,42 @@ When the classifier output is `local-with-escalation`, the configured `escalatio
 Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt-in raw logging is deferred to a follow-up.) The same allowlist redactor that protects trajectories also protects the audit log against accidental secret-spillage.
 
 **Currently deferred:** capability-profile lookup (per-model context length / JSON reliability), per-lane concurrency caps, REPL-side rendering of the `route_decision` StreamEvent, and the interactive prompt for `escalationMode: 'ask'`. The router still works without these — they're polish for later.
+
+## Bundleless Invocation + Default Bundle
+
+`sov` runs without requiring a bundle on disk. Bundle resolution is a four-step fallthrough:
+
+1. Explicit `--bundle <path>` flag.
+2. `HARNESS_BUNDLE` env var.
+3. Upward `index.yaml` walk from the current directory.
+4. **Default bundle:**
+   1. `<harness-home>/default-bundle/` if it exists (user override — takes precedence).
+   2. The shipped `bundle-default/` directory next to the runtime source (always present in a healthy install).
+
+"No bundle found" stops being a possible outcome in normal operation.
+
+**The shipped default bundle is vendor-neutral.** It carries a generic coding-assistant system prompt, two starter skills (`/review`, `/summarize`), no schemas, an empty state directory. Nothing project-specific or product-specific. Anything Sovereign-AI-flavored ships only via real bundles authored by users.
+
+**Customizing the default.** Two paths:
+
+- **Drop an override at `<harness-home>/default-bundle/`.** Same shape as `bundle-default/` (an `index.yaml`, a `business/`, a `harness/`, a `state/`, optionally `skills/`). Lives outside the runtime install, so it survives upgrades. Useful for tweaking the system prompt or adding skills you want available everywhere.
+
+- **Graduate a directory into a real bundle with `sov init`.** Run from the project root; writes a minimal skeleton (`index.yaml` + `business/README.md` seeded from your repo's `README.md` if present + empty `harness/`, `state/`, `skills/`). After `sov init`, running `sov chat` from inside that directory discovers the bundle via the upward walk — no `--bundle` flag needed.
+
+`sov init` refuses to overwrite an existing `index.yaml` unless `--force` is passed.
+
+```bash
+# Run sov anywhere; the default bundle backs you up:
+cd /tmp
+sov chat
+
+# Graduate the current directory into a real bundle:
+cd ~/code/my-project
+sov init
+sov chat   # picks up the new bundle automatically
+```
+
+The corpus generator inside `sov init` is intentionally minimal in v1 — it seeds `business/README.md` from the cwd's `README.md` and that's it. Richer repo-aware seeding (file-tree summary, language/framework detection, dependency inference) is queued as a separate design session.
 
 ## Profiles
 

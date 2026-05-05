@@ -10,6 +10,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
+import { getDefaultBundlePath } from './bundle/defaultBundle.js';
 import { parseProfileFlag } from './cli/profileFlag.js';
 import { DEFAULT_PROFILE_NAME, getActiveProfile, getBaseHome } from './config/paths.js';
 import {
@@ -101,15 +102,26 @@ function findBundleUpwards(start: string): string | null {
 }
 
 /**
- * Resolve where to find the harness bundle. Returns null when no bundle is
- * provided via flag/env and none is found by walking up from CWD; the REPL
- * then runs as a generic agent with no bundle context attached.
+ * Resolve where to find the harness bundle. Four-step fallthrough (per
+ * Phase 10.8):
+ *
+ *   1. Explicit `--bundle <path>` flag.
+ *   2. `HARNESS_BUNDLE` env var.
+ *   3. Upward `index.yaml` walk from CWD.
+ *   4. Default bundle — `<harness-home>/default-bundle/` (user override)
+ *      or shipped `<runtime-repo>/bundle-default/` (fallback).
+ *
+ * Returns null only when even the default bundle is unreachable, which
+ * should be impossible in a healthy install. The REPL handles that
+ * case by running as a fully bundleless generic agent.
  */
 function resolveBundlePath(cliArg: string | undefined): string | null {
   if (cliArg) return cliArg;
   const env = process.env.HARNESS_BUNDLE;
   if (env) return env;
-  return findBundleUpwards(process.cwd());
+  const upward = findBundleUpwards(process.cwd());
+  if (upward !== null) return upward;
+  return getDefaultBundlePath();
 }
 
 function parsePositiveInt(raw: string): number {
@@ -289,6 +301,25 @@ async function main(argv: string[]): Promise<void> {
       );
       const result = importDefaultIntoProfile(name);
       process.stdout.write(formatImportResult(result, name));
+    });
+
+  program
+    .command('init')
+    .description('Bootstrap the current directory into a real harness bundle')
+    .option('--force', 'overwrite an existing index.yaml')
+    .action(async (opts) => {
+      const { runInit, formatInitResult } = await import('./cli/init.js');
+      const result = runInit({
+        ...(opts.force === true ? { force: true } : {}),
+      });
+      const out = formatInitResult(result);
+      if (result.ok) {
+        process.stdout.write(out);
+        process.exit(0);
+      } else {
+        process.stderr.write(out);
+        process.exit(1);
+      }
     });
 
   const evalCmd = program

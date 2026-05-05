@@ -1,5 +1,19 @@
 # Changelog
 
+## Phase 10.8 — Default bundle + bundleless invocation + `sov init` - 2026-05-05
+
+`sov` no longer requires a bundle on disk. Bundle resolution becomes a four-step fallthrough: explicit `--bundle <path>` → `HARNESS_BUNDLE` env → upward `index.yaml` walk from CWD → **default bundle**. The default bundle resolves itself in two steps: `<harness-home>/default-bundle/` (user override location, takes precedence) → shipped `bundle-default/` next to the runtime source (resolved via `realpathSync` of the entry script). "No bundle found" stops being a possible outcome in normal operation.
+
+The shipped default bundle is vendor-neutral: a coding-assistant system prompt, two starter skills (`/review`, `/summarize`), no schemas, an empty state directory. Per the design note ([`phase-10.8-default-bundle-design.md`](https://github.com/yevgetman/sovereign-ai-docs/blob/master/harness/docs/runtime/phase-10.8-default-bundle-design.md)), nothing Sovereign-AI-specific ships in the default — that identity lives only in real bundles authored by users.
+
+`sov init` graduates a directory into a real bundle. v1 contract: writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + empty `state/` + empty `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. Full corpus generator design (what files `sov init` actually generates when reading a non-trivial repo) is deferred to a separate follow-up session.
+
+Adds: `bundle-default/` (committed in the runtime repo), `src/bundle/defaultBundle.ts` (resolver: user override → shipped fallback), `src/cli/init.ts`, `bundle-default/skills/{review,summarize}.md` (with `whenToUse` frontmatter for Phase 9.6 compliance). Modifies `resolveBundlePath()` in `src/main.ts` to fall through to the default bundle.
+
+14 new unit tests (init 9, defaultBundle 5). Suite: **1124/1124**. Lint + typecheck clean. End-to-end smoke: `sov chat` from `/tmp` (no bundle anywhere upward) picks up the shipped default cleanly; `sov init` in a fresh dir produces a working bundle that `sov chat` then auto-discovers via the upward walk.
+
+**Phase 10 lane fully closed** — every 10.x sub-phase that's worth building today is shipped.
+
 ## Phase 10.6 part 2b — Interactive escalation prompt - 2026-05-05
 
 When `escalationMode: 'ask'` and the classifier produces `local-with-escalation`, the router now prompts the user for a yes/no on the escalation. Returning `y` routes the turn to frontier; anything else stays on the default lane. Without a TTY (piped/CI sessions), the prompt yields empty and is treated as "no" — matches the pre-2b behavior for non-interactive runs.

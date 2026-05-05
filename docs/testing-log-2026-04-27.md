@@ -1559,3 +1559,25 @@ Implementation backlogs from these findings live in
   - No regressions.
   - **No new semantic test added.** Interactive prompts fire DURING a turn, not between turns; the semantic-test driver pipes stdin (one prompt per turn) and doesn't support mid-turn interactive responses. The unit tests cover the router-side logic; the wiring is straightforward.
   - **Phase 10.6 explicitly closed for now.** Capability profiles + per-lane concurrency tracked in phase-10x-status.md as deferred-because-premature, not as forgotten work.
+
+## 2026-05-05 - Phase 10.8 — default bundle + bundleless invocation + sov init (unit suite 1124/1124)
+
+- Scope: `sov` no longer requires a bundle on disk. New `bundle-default/` directory committed in the runtime repo (vendor-neutral coding-assistant system prompt + 2 starter skills `/review` + `/summarize` + empty schemas/state). New `src/bundle/defaultBundle.ts` resolver: `<harness-home>/default-bundle/` (user override) → shipped `bundle-default/` via `realpathSync` of the entry script. `src/main.ts:resolveBundlePath` extended with the four-step fallthrough: --bundle → HARNESS_BUNDLE → upward index.yaml walk → default bundle. New `src/cli/init.ts` and `sov init` CLI subcommand: bootstraps a directory into a real bundle by writing minimal index.yaml + business/README.md (seeded from cwd README.md when present, else a stub) + empty harness/schemas/, state/, skills/. Refuses to overwrite existing index.yaml without --force.
+- Environment: Bun 1.3.13 / Darwin 25.2.0; pure unit-suite work plus end-to-end smokes.
+- Commands:
+  - `bun run lint` / `bun run typecheck` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1124/1124 pass (was 1110). New test files: `tests/bundle/defaultBundle.test.ts` (5), `tests/cli/init.test.ts` (9).
+  - **End-to-end smokes:**
+    - `cd /tmp/sov-default-test && bun /path/main.ts chat --no-preflight < /dev/null` — splash renders cleanly with the default bundle resolved (no warnings about missing whenToUse fields after frontmatter fix to skills).
+    - `cd /tmp/sov-init-smoke && echo "# coolproject" > README.md && bun /path/main.ts init` — produces index.yaml, business/README.md (with the seeded README content under "## Project README (seeded by sov init)"), harness/schemas/.gitkeep, state/.gitkeep, skills/.gitkeep.
+    - `cd /tmp/sov-init-smoke && bun /path/main.ts chat --no-preflight < /dev/null` — auto-discovers the just-created bundle via the upward walk; splash shows the new bundle path.
+- Manual coverage:
+  - User-override path: dropping a `<harness-home>/default-bundle/` with an index.yaml takes precedence over the shipped one (verified by tests/bundle/defaultBundle.test.ts).
+  - Shipped fallback: with no override, the shipped `bundle-default/` is found via `realpathSync` of the entry script (verified).
+  - Empty-override degenerate case: `<harness-home>/default-bundle/` exists but lacks an index.yaml → falls through to shipped (verified).
+  - sov init refuses to overwrite an existing index.yaml; --force overrides (verified).
+  - sov init seeds business/README.md from cwd README.md when present, stub when absent (verified).
+- Result: 1124/1124 unit tests, lint + typecheck clean. **Phase 10 lane fully closed** — every 10.x sub-phase that's worth building today is shipped. The two remaining 10.6 part 2b items (capability profiles, per-lane concurrency) stay deferred-because-premature; they need eval data and Phase 13 sub-agents respectively.
+- Regressions / follow-ups:
+  - No regressions.
+  - **`sov init` corpus design session queued as a follow-up.** Question: what files does `sov init` actually generate when reading a non-trivial repo? File-tree summary, language/framework inference, dependency hints, etc. v1 is minimal (just the README seed); richer seeding lands in a focused session.

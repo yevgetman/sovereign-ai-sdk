@@ -183,6 +183,14 @@ Runtime-local state belongs under `$HARNESS_HOME` by default:
 
 Bundle state is documented separately in `src/bundle/README.md`. The runtime must never write tier-1 business content or tier-2 schema/script content.
 
+### Default bundle + bundleless invocation (Phase 10.8)
+
+`sov` no longer requires a bundle on disk. `resolveBundlePath()` (in `src/main.ts`) is a four-step fallthrough: explicit `--bundle <path>` → `HARNESS_BUNDLE` env → upward `index.yaml` walk from CWD → default bundle. The default bundle resolver (`src/bundle/defaultBundle.ts`) checks `<harness-home>/default-bundle/` for a user override first, then falls back to the shipped `bundle-default/` directory next to the runtime source (resolved via `realpathSync` of the entry script — same trick `loadPackageEnv()` uses).
+
+The shipped default bundle is vendor-neutral: a coding-assistant system prompt, two starter skills (`/review`, `/summarize`), no schemas, an empty state directory. Per `phase-10.8-default-bundle-design.md` in the docs repo, nothing Sovereign-AI-specific ships in the default — that identity lives only in real bundles. A user can fork the default by dropping a directory at `<harness-home>/default-bundle/` (the override location takes precedence over the shipped one).
+
+`sov init` (`src/cli/init.ts`) graduates a directory into a real bundle. v1 contract: writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` without `--force`. The corpus generator is intentionally minimal in v1; richer repo-aware seeding is queued as a separate design session.
+
 ### Replay primitives (Phase 10.5 part 2b-i)
 
 `src/eval/replay/` provides the deterministic-replay half of the eval surface. A `ReplayFixture` (one JSON file per session) captures every StreamEvent the provider yielded plus every tool result the orchestrator received during a live run. `ReplayProvider` re-emits the captured events one turn per `stream()` call as a drop-in `LLMProvider`; `wrapToolsForReplay` returns wrapped tools whose `call()` returns the next captured result keyed by `(toolName, callIndex)`. The agent loop, orchestrator, permission gates, hooks, MCP wiring, and trace writer all run unchanged — the deterministic surface is achieved by stubbing only the provider + tool boundaries. Capture mode (the recorder that produces fixtures from live runs) is deferred to a follow-up slice.
