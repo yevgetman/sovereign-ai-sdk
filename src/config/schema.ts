@@ -88,6 +88,18 @@ const UiSchema = z
       })
       .strict()
       .optional(),
+    /** Compact tool slot — how the REPL renders each tool call's
+     *  inline output below the call header. Default 10 lines; the
+     *  surplus is summarized in the footer ("· +N more lines"). Set
+     *  inlineLines: 0 to revert to the pre-polish behavior of header
+     *  + footer only with no inline content. --verbose flag bypasses
+     *  this entirely and renders the full result. */
+    toolOutput: z
+      .object({
+        inlineLines: z.number().int().min(0).max(200).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

@@ -998,12 +998,22 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     streamController = new AbortController();
     const mdStream = new MarkdownStream(process.stdout);
     const indicator = new ThinkingIndicator(process.stdout);
-    const toolSlot = new CompactToolSlot(process.stdout);
-    // Non-verbose: count newlines in text_delta as they stream so that
-    // when the next tool fires we can ANSI-clear the just-streamed
-    // inter-tool preamble along with the previous slot line. Text still
-    // streams live (good UX); only inter-tool transitions clear it.
-    let interToolLines = 0;
+    // Phase: claude-code-style polish. The tool slot now renders inline
+    // truncated output below each tool call. inlineLines (default 10)
+    // is the cap; users can tune via ui.toolOutput.inlineLines, or set
+    // 0 to revert to header + footer only with no inline content.
+    const inlineLines = userSettings.ui?.toolOutput?.inlineLines ?? 10;
+    const toolSlot = new CompactToolSlot(process.stdout, { inlineLines });
+    /** tool_use_id → tool name. Populated when a tool_use block fires;
+     *  consumed (and removed) when the matching tool_result block fires
+     *  so the slot can pass the tool name to summarizeToolResult for a
+     *  per-tool footer (e.g. "read 250 lines", "found 47 files"). */
+    const toolUseNames = new Map<string, string>();
+    // (interToolLines bookkeeping removed when CompactToolSlot moved
+    // to deferred rendering — the slot no longer needs to ANSI-up past
+    // text the agent emitted between tools because each tool block
+    // now writes its own complete chunk on end(), no overwrite. Text
+    // between tools naturally stays in scrollback.)
     // Tracks whether we're currently in a continuous text-streaming
     // run. Used to prepend a single blank line before the first
     // text_delta of each agent response so the answer always has
@@ -1093,7 +1103,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               if (verbose) {
                 renderToolResultPreview(block.content, block.is_error === true, true);
               } else {
-                toolSlot.end(block.content, block.is_error === true);
+                toolUseNames.delete(block.tool_use_id);
+                toolSlot.end(block.tool_use_id, block.content, block.is_error === true);
               }
               if (block.is_error === true) {
                 metrics.toolErr++;
@@ -1146,16 +1157,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         if (ev.type === 'text_delta') {
           if (!textRunActive) {
             process.stdout.write('\n');
-            if (!verbose) interToolLines += 1;
             textRunActive = true;
           }
           mdStream.write(ev.text);
-          if (!verbose) {
-            // Count newlines actually written to stdout so a future
-            // toolSlot.begin can ANSI-clear them along with the prior
-            // slot. Trailing partial line is tracked at flush time.
-            interToolLines += (ev.text.match(/\n/g) ?? []).length;
-          }
           indicator.noteStreamedChars(ev.text.length);
           indicator.start();
           continue;
@@ -1174,23 +1178,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             content: snapshotContentForTranscript(ev.message.content),
           });
           if (!verbose) {
-            const hasToolUse = ev.message.content.some((b) => b.type === 'tool_use');
-            if (!hasToolUse) {
-              // Final-answer turn: any partial markdown line still
-              // sitting in mdStream's buffer needs to render; the
-              // streamed text stays visible in scrollback as the answer.
-              mdStream.flush();
-              toolSlot.commit();
-              interToolLines = 0;
-            }
-            // For tool-bearing messages: leave interToolLines as-is so
-            // the upcoming toolSlot.begin can clear it along with the
-            // previous slot. mdStream's partial buffer (if any) is
-            // discarded so it doesn't render later as a stray line.
-            else {
-              const flushed = mdStream.flush();
-              interToolLines += flushed;
-            }
+            // Flush any partial markdown line still in mdStream's
+            // buffer so it renders before the next tool block / final
+            // answer. The deferred toolSlot doesn't need any line-
+            // counting bookkeeping — each tool block writes its own
+            // complete chunk on end().
+            mdStream.flush();
+            toolSlot.commit();
           }
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
@@ -1208,11 +1202,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
               }
               const tool = toolPool.find((t) => t.name === block.name);
               const preview = formatToolInputForDisplay(tool, block.input);
+              toolUseNames.set(block.id, block.name);
               if (verbose) {
                 writeStatusLine(chalk.gray(`[tool: ${block.name}${preview ? ` ${preview}` : ''}]`));
               } else {
-                toolSlot.begin(block.name, preview, interToolLines);
-                interToolLines = 0;
+                toolSlot.begin(block.id, block.name, preview);
               }
               textRunActive = false;
               transcript?.record({
@@ -1735,14 +1729,13 @@ function previewToolInput(input: unknown): string {
 }
 
 /** Format a tool's input for the compact REPL slot. Prefers the tool's
- *  own `displayInput` (which can shape per-tool — e.g. `Read(src/foo.ts:50-70)`
- *  instead of `{"path":"src/foo.ts","offset":50,"limit":20}`). Falls back
- *  to the generic `previewToolInput` when the tool doesn't supply one,
- *  preserving prior behavior for any tool that hasn't opted in.
+ *  own `displayInput` (which can shape per-tool — e.g. `src/foo.ts:50-70`
+ *  for FileRead). Falls back to the generic `previewToolInput` when the
+ *  tool doesn't supply one, preserving prior behavior for any tool that
+ *  hasn't opted in.
  *
- *  Wrap the displayInput output in parens to match Claude Code's
- *  `Bash(cmd)` / `Edit(path)` form — visually obvious at a glance that
- *  the parenthesized text is the call's argument shape. */
+ *  Returns the raw arg string. The slot wraps it in `Tool(args)` form
+ *  to match Claude Code's display style. */
 function formatToolInputForDisplay(
   tool: Tool<unknown, unknown> | undefined,
   input: unknown,
@@ -1750,7 +1743,7 @@ function formatToolInputForDisplay(
   if (tool?.displayInput) {
     try {
       const display = tool.displayInput(input);
-      if (display !== '') return `(${truncatePreview(display)})`;
+      if (display !== '') return truncatePreview(display);
     } catch {
       // Fall through to generic preview.
     }
