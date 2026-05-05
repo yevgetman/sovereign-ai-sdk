@@ -1643,3 +1643,28 @@ Implementation backlogs from these findings live in
 - Regressions / follow-ups:
   - No regressions.
   - Action-stagnation is still a coarse heuristic. A better long-term design would require some signal of "no progress" (e.g., very similar reasoning text between consecutive bash calls) before firing. Deferred until we have more real-session traces showing the failure mode.
+
+## 2026-05-05 - Defense-in-depth secret redactor + `/security-audit` skill (unit suite 1181/1181)
+
+- Scope: response to a real-session failure where a separate harness instance running a security audit against this Mac mini wrote the live `gho_` GitHub token in plaintext into three desktop reports, ten times across the set. Two harness changes:
+  - **F1 — secret-redaction `InputTransformer` on Write/Edit/NotebookEdit.** Rewrites well-known patterns to `<REDACTED:kind>` at the canUseTool boundary, before the orchestrator dispatches the tool. The on-disk artifact never sees the live secret. Independent of model quality and skill prompt discipline. `HARNESS_REDACTION=off` bypasses for testing. Three new modules: `src/permissions/secretRedactor.ts` (pure detector — github-oauth, github-fine-grained, aws-access-key-id, stripe-secret-{live,test}, stripe-publishable, slack-token, google-api-key, jwt, private-key-block), `src/permissions/inputTransformer.ts` (generic `wrapCanUseToolWithTransformers` higher-order layer), `src/permissions/redactSecretsTransformer.ts` (Write/Edit/NotebookEdit field bridge). Wired in `terminalRepl.ts` between `buildCanUseTool` and the orchestrator. `Edit.old_string` is intentionally NOT redacted (legitimate "remove the secret" workflow needs the live value to match).
+  - **F2 — `/security-audit` skill** (`bundle-default/skills/security-audit.md`). Third shipped default skill alongside `/review` and `/summarize`. Threat-model scaffolding (actors T1–T6 / assets / exposure paths) + per-finding verification gate ("what command did I run, what was the output, why does this mean exposure") + hard rules (no fan-fiction, no platform mismatch, no live secrets in artifacts, cite the verification command). Skill prompt explicitly notes the F1 redactor as defense-in-depth.
+- Why no prior tests caught the original failure:
+  - No test covered "agent finds a secret and writes it back to disk."
+  - No test exercised a security-audit-class request — that surface didn't exist.
+- Environment: Bun 1.3.13 / Darwin 25.2.0.
+- Commands:
+  - `bun run lint` — clean (the 2 pre-existing `src/permissions/shellSemantics.ts` warnings remain).
+  - `bun test` — 1181/1181 pass (was 1137). +44 new unit cases across three test files:
+    - `tests/permissions/secretRedactor.test.ts` (21 cases): per-pattern coverage, multi-hit boundaries, false-positive guards (UUIDs, hex strings, plain text), env-var bypass.
+    - `tests/permissions/inputTransformer.test.ts` (9 cases): empty-list short-circuit, deny short-circuit before transformers, single rewrite, undefined no-op, multiple-transformer compose with reason concat, thrown-transformer skip, base reason preservation, base+transformer updatedInput merge.
+    - `tests/permissions/redactSecretsTransformer.test.ts` (14 cases): tool-name gating, `Edit.old_string` preservation, multi-secret reason text with kind list, singular/plural grammar, non-string/null/empty input handling.
+  - Two new semantic test files added (will run on next semantic invocation):
+    - `tests/semantic/suites/14-redaction.cases.ts` (new `redaction` category): drives Write-then-Read of a fake-shaped `gho_` token; judge verifies the read content shows `<REDACTED:github-oauth>` and not the original token shape.
+    - `tests/semantic/suites/15-security-audit.cases.ts` (new `security` category): agent asked to audit a dir with one fake-token file; judge verifies the agent runs read/search tools, identifies the credential, and does NOT inline the literal token in chat narration (the redactor only acts on file writes; chat narration is the skill prompt's responsibility).
+  - Doc updates same set: `docs/semantic-testing.md` headline 39 → 41 + new sections + 4 mapping-table rows; `docs/usage.md` headline 38 → 41, new "Secret Redaction (Defense in Depth)" subsection under Tool Permissions, new "Default-bundle skills" subsection under Skills; `README.md` headline 38 → 41 with the two new categories named; `CLAUDE.md` + `AGENTS.md` 38/38 → 41/41, unit 1130/1130 → 1181/1181, plus a new sentence noting the redactor and security-audit skill location; `CHANGELOG.md` new top entry.
+- Result: 1181/1181 unit, lint clean. Two new semantic cases pending verification on next semantic-suite invocation.
+- Regressions / follow-ups:
+  - No regressions.
+  - Out of scope: redaction in agent chat narration (the redactor acts on Write/Edit/NotebookEdit input only; chat-narration discipline is the `/security-audit` skill's job and lacks a structural backstop); Bash-command secret scrubbing (would require shell parsing; the original failure went through Write, which is covered).
+  - Generic high-entropy detection deliberately not added (false-positive risk on real code is high; vendor-prefix patterns are tight enough for the common cases). Adding a new pattern is a single entry in `PATTERNS` in `secretRedactor.ts`.

@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (39/39 pass)
+## Coverage inventory (41/41 pass)
 
 The full suite runs in ~8.8 minutes and costs ~$2.04 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -137,6 +137,22 @@ Phase 11 introduced user-configurable shell hooks at four lifecycle points (`Pre
 |---|---|
 | `hooks.hook-pretooluse-blocks-bash` | PreToolUse hook fires but its deny verdict is dropped, or the orchestrator skips PreToolUse entirely |
 | `hooks.hook-posttooluse-additional-context` | PostToolUse fires but its `additionalContext` is not appended to the tool_result that reaches the model |
+
+### Defense-in-depth secret redaction — 1 test
+
+The harness applies a permission-layer transformer to Write / Edit / NotebookEdit inputs that rewrites well-known secret patterns (GitHub OAuth, Stripe live/test, AWS access keys, Slack, Google API, JWTs, PEM private keys) to `<REDACTED:kind>` before the orchestrator dispatches the tool. This catches the failure class where an agent reads a real secret (from `~/.zshrc`, a config file, etc.) and accidentally reproduces it verbatim into a generated artifact like a security-audit report. Independent of model quality. Set `HARNESS_REDACTION=off` to disable globally (testing only).
+
+| ID | Guards against |
+|---|---|
+| `redaction.redactor-rewrites-write-content-on-disk` | Secret-redaction transformer regression — agent's Write input contains a token, but the on-disk file ends up with the live secret instead of `<REDACTED:kind>` (would mean the canUseTool wrapper or the field-target map broke). Verified via Read-back through the same transcript. |
+
+### Security-audit skill — 1 test
+
+The `/security-audit` skill (in `bundle-default/skills/`) provides threat-model scaffolding (actors → assets → exposure paths) and a per-finding verification gate to make a weaker model produce a defensible security audit. The skill prompt has hard rules: no fan-fiction, no platform mismatch (uname/sw_vers/etc/os-release first), no live secrets in artifacts, cite the verification command for every finding.
+
+| ID | Guards against |
+|---|---|
+| `security.security-audit-skill-triggers-and-verifies` | Skill not loaded / trigger mismatch / model fabricates findings on state that doesn't exist; chat narration leaks the literal token (the redactor only catches file writes, not chat output — so this is the skill prompt's job) |
 
 ### Workflow / multi-turn — 6 tests
 
@@ -244,6 +260,10 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/hooks/` | `--filter hooks` (covers PreToolUse deny + PostToolUse additionalContext) |
 | `src/mcp/` | `--filter mcp` (covers MCP discovery + invocation + permission-rule blocking) |
 | `src/router/` | `--filter router` (covers `--provider router` end-to-end including model-swap) |
+| `src/permissions/secretRedactor.ts` | `--filter redaction` |
+| `src/permissions/inputTransformer.ts` | `--filter redaction` |
+| `src/permissions/redactSecretsTransformer.ts` | `--filter redaction` |
+| `bundle-default/skills/security-audit.md` | `--filter security-audit` |
 | `src/tools/ToolSearchTool.ts` | `--filter mcp-tool-search` |
 | `src/tools/HarnessInfoTool.ts` | `--filter harness-info` |
 | `src/context/systemPrompt.ts` (self-doc segment) | `--filter harness-info` |

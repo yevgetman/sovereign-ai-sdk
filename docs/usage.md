@@ -563,6 +563,35 @@ Example:
 
 Rules are shaped as `Tool(pattern)` or just `Tool`. Aliases `Read`, `Write`, and `Edit` map to `FileRead`, `FileWrite`, and `FileEdit`. For MCP tools (`mcp__<server>__<tool>`), the rule shape `mcp__<server>` matches every tool from one server in one line — useful for blanket-deny of an entire MCP server. Tool-level rules use the full `mcp__<server>__<tool>` form.
 
+### Secret Redaction (Defense in Depth)
+
+The harness applies an `InputTransformer` after permission resolution that scans Write / Edit / NotebookEdit inputs for well-known secret patterns and rewrites matches to `<REDACTED:kind>` before the orchestrator dispatches the tool. The on-disk artifact never contains the live secret.
+
+| Kind | Pattern (prefix + length) |
+|---|---|
+| `github-oauth` | `gh[oprsu]_` + 36+ alphanumeric |
+| `github-fine-grained` | `github_pat_` + 82 chars (incl. `_`) |
+| `aws-access-key-id` | `AKIA` + 16 base32 |
+| `stripe-secret-live` / `stripe-secret-test` | `[sr]k_live_` / `[sr]k_test_` + 16+ alphanumeric |
+| `stripe-publishable` | `pk_(live\|test)_` + 16+ alphanumeric |
+| `slack-token` | `xox[abprs]-` + tokens |
+| `google-api-key` | `AIza` + 35 chars |
+| `jwt` | `eyJ…eyJ…<sig>` (header + payload + signature) |
+| `private-key-block` | PEM `-----BEGIN […] PRIVATE KEY-----` blocks |
+
+What this does NOT cover:
+- Bash commands (would require shell parsing). Use shell hooks or careful prompts.
+- Edit's `old_string` field — intentionally NOT redacted, since the legitimate workflow for *removing* a secret from a file passes the live value as `old_string` so Edit can match.
+- Chat narration / final response — the redactor only acts on tool inputs, not on the model's reply text. Skill prompts (e.g., `/security-audit`) discipline the model not to inline secrets there.
+- High-entropy strings without a known prefix. Generic detection is too noisy on real code.
+
+To disable for testing or debugging:
+```bash
+HARNESS_REDACTION=off sov chat
+```
+
+Source: `src/permissions/secretRedactor.ts` (detector), `src/permissions/inputTransformer.ts` (wrapper), `src/permissions/redactSecretsTransformer.ts` (Write/Edit/NotebookEdit field bridge).
+
 ### Shell Command Virtual Tool Mapping
 
 Read-only Bash commands automatically resolve against `Read` permission rules. If your allow rules include `Read` or `Read(*.ts)`, then `Bash("cat src/main.ts")` runs without prompting because the shell AST analyzer classifies `cat` as a read operation. Write and edit commands (`cp`, `rm`, `chmod`, etc.) do not benefit from this — they still follow Bash-specific rules. Command substitution (`$(...)`, backticks) is always treated as unsafe and requires explicit Bash rules.
@@ -713,6 +742,18 @@ Skill bodies and reference files support:
 
 Community and agent-created skills are scanned before loading.
 
+### Default-bundle skills
+
+The shipped `bundle-default/` provides three starter skills, all auto-discovered:
+
+| Skill | Purpose |
+|---|---|
+| `/review` | Walk a codebase and surface the highest-priority issues (correctness, security, design, tests) |
+| `/summarize` | Produce a tight, accurate summary of a file/directory/repo |
+| `/security-audit` | Run a security audit with explicit threat-model scaffolding (actors → assets → exposure paths), per-finding verification gate ("what command did I run, what was the output, why does it mean exposure"), and hard rules: no fan-fiction, no platform mismatch, no live secrets in artifacts. Pairs with the secret-redaction transformer above as defense in depth. |
+
+Override any of these in your own bundle by placing a same-named skill file in `<bundle>/skills/` — bundle skills shadow defaults. Override globally for all bundleless sessions by placing it under `<harness-home>/default-bundle/skills/`.
+
 ## Trajectory Capture
 
 Every completed session writes a ShareGPT-shaped JSONL record (Phase 13.1). Storage location:
@@ -857,7 +898,7 @@ bun run test:semantic -- --judge anthropic-api     # API mode (needs ANTHROPIC_A
 
 **Fully isolated.** Each test runs in a fresh `mktemp -d` with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB. Cleaned up on success, failure, or crash. The judge subprocess is spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands`.
 
-**Coverage at a glance (38/38 pass):** 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 5 slash-command pipeline paths (/help, /context-budget, /commit, /init, /<skill>), 6 permission cases (including virtual-tool-name mapping, layer-precedence, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case (Phase 10.6 — verifies `--provider router` resolves both lanes and the per-turn route-decision banner is observable), 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
+**Coverage at a glance (41/41 pass):** 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 6 slash-command pipeline paths (/help, /context-budget, /commit, /init, /<skill>, skill-args propagation), 6 permission cases (including virtual-tool-name mapping, layer-precedence, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case, 1 secret-redaction case (Write/Edit/NotebookEdit content with secret patterns is rewritten to `<REDACTED:kind>` before reaching disk), 1 `/security-audit` skill case (threat-model scaffolding + verification gate), 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
 
 ## Troubleshooting
 
