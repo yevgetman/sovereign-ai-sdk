@@ -7,6 +7,7 @@
 // definition file in bundle-default/agents/, not by this helper.
 
 import type { SubagentScheduler } from '../runtime/scheduler.js';
+import { REVIEW_ONLY_TOOLS } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 
@@ -41,13 +42,18 @@ function buildPrompt(agentName: ReviewAgentName, ctx: ReviewForkPromptContext): 
 }
 
 export async function runReviewFork(opts: RunReviewForkOpts): Promise<void> {
+  // Augment the parent's pool with review-only tools so the scheduler's
+  // filterToolsForChild can surface memory_propose / skill_propose for
+  // review-* agents (whose allowedTools declare them).
+  const augmentedPool: Tool<unknown, unknown>[] = [...opts.parentToolPool, ...REVIEW_ONLY_TOOLS];
+
   try {
     await opts.scheduler.delegate({
       agentName: opts.agentName,
       prompt: buildPrompt(opts.agentName, opts.promptContext),
       parentSessionId: opts.parentSessionId,
       parentSignal: opts.parentSignal,
-      parentToolPool: opts.parentToolPool,
+      parentToolPool: augmentedPool,
       parentToolContext: opts.parentToolContext,
       ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),
     });

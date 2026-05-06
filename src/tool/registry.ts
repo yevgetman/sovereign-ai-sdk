@@ -50,8 +50,6 @@ const REGISTERED_TOOLS = [
   GrepTool,
   GlobTool,
   MemoryTool,
-  MemoryProposeTool,
-  SkillProposeTool,
   SkillsListTool,
   SkillsViewTool,
   SkillManageTool,
@@ -66,6 +64,22 @@ const REGISTERED_TOOLS = [
   TaskStopTool,
   TaskOutputTool,
 ] as unknown as Tool<unknown, unknown>[];
+
+/** Phase 13.3 — review-only tools that are NOT part of the main agent's
+ *  pool. They live in a separate set and get injected into a review
+ *  fork's parentToolPool by `runReviewFork` before scheduler.delegate(...).
+ *  The scheduler's filterToolsForChild then surfaces them only for
+ *  review-* agents whose allowedTools include them.
+ *
+ *  Why separate: the main agent doesn't need (and shouldn't be tempted
+ *  by) tools that file proposals to a queue it doesn't manage. Hard
+ *  enforcement at the pool level beats description-based "review
+ *  sub-agents only" hints. ~530 tokens of schema budget freed.
+ */
+export const REVIEW_ONLY_TOOLS = [MemoryProposeTool, SkillProposeTool] as unknown as Tool<
+  unknown,
+  unknown
+>[];
 
 export type AssembleToolPoolOpts = {
   /** Phase 12: tools wrapped from connected MCP servers. Merged into the

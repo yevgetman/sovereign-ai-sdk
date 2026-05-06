@@ -50,6 +50,42 @@ describe('runReviewFork', () => {
     expect(call.prompt as string).toContain('10');
   });
 
+  test('augments parentToolPool with REVIEW_ONLY_TOOLS so child agents can use propose tools', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fakeScheduler = {
+      delegate: async (input: Record<string, unknown>) => {
+        calls.push(input);
+        return {
+          childSessionId: 'child-1',
+          agentName: 'review-memory',
+          resolvedProvider: 'fake',
+          resolvedModel: 'fake-1',
+          terminal: { reason: 'completed' as const },
+          summary: 'ok',
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          durationMs: 1,
+        };
+      },
+    } as unknown as SubagentScheduler;
+
+    await runReviewFork({
+      scheduler: fakeScheduler,
+      agentName: 'review-memory',
+      parentSessionId: 'parent-1',
+      parentSignal: new AbortController().signal,
+      parentToolPool: [] as Tool<unknown, unknown>[],
+      parentToolContext: fakeCtx(),
+      promptContext: { trajectoryPath: '/x', tracePath: '/y', recentTurnCount: 5 },
+    });
+
+    expect(calls.length).toBe(1);
+    const augmented = calls[0]?.parentToolPool as Array<{ name: string }>;
+    const names = new Set(augmented.map((t) => t.name));
+    expect(names.has('memory_propose')).toBe(true);
+    expect(names.has('skill_propose')).toBe(true);
+  });
+
   test('swallows scheduler errors silently — review never fails the parent', async () => {
     const fakeScheduler = {
       delegate: async () => {
