@@ -1704,3 +1704,27 @@ Implementation backlogs from these findings live in
 - The scheduler's per-parent child cap is best-effort under concurrent delegate() calls — known v0 limit, ownership belongs to Phase 13's scheduler atomicity (not 13.2).
 - TaskManager's controllers map never shrinks — known leak class flagged during T3 review; suitable for a small follow-up commit.
 - task_wait (await a task to terminal) not in scope; model can poll task_get in a tool batch if needed.
+
+## 2026-05-06 — Phase 13.3 background review daemon
+
+**Scope:** End-to-end Phase 13.3 shipping — proposal data model + paths (T1), `memory_propose` (T2) + `skill_propose` (T3) tools, three review reference agents in `bundle-default/agents/` (T4), review-fork factory + ReviewManager orchestrator (T5), turn-loop + REPL wiring with session-id guard (T6), `/review` slash command + harnessHome plumbing (T7), `on_delegation` distillation hook + recursion guard (T8), stall/no-op detection (T9), memory consolidation pass (T10), per-settings auto-promote opt-in (T11), end-to-end integration test (T12), semantic test suite (T13).
+
+**Environment:** Bun on darwin, master branch.
+
+**Commands run:**
+- `bun run lint` — clean (2 pre-existing warnings in shellSemantics.ts)
+- `bun run typecheck` — clean
+- `bun test` — 1444+ pass, 0 fail
+
+**Manual coverage:**
+- Spec compliance + code quality reviews ran after each implementation task.
+- Mid-stream architecture fix: removed `memory_propose` / `skill_propose` from `SUBAGENT_EXCLUDED_TOOLS` (commit `9296d54`) — they were blocking review forks themselves; per-agent `allowedTools` is the right gate.
+
+**Result:** Phase 13.3 closed. No regressions in 13.0 / 13.1 / 13.2 surfaces.
+
+**Follow-ups (v0 limitations documented in code comments):**
+- Memory consolidation appends the merged entry to MEMORY.md but doesn't delete the affected entries in place — user removes originals manually.
+- Auto-promote-after-N-passing-evals form (eval-gated promotion) deferred — current auto-promote is straight bypass via settings.
+- Stall detection's `decisionCount` is hard-coded 0 until decision-tracking infrastructure lands.
+- ReviewManager's signal is an inline AbortController never aborted — review forks bound by their own `maxTurns`. Cleanup path TBD.
+- Proposal `parentSessionId` is `null` in v0 — proper child-session lineage threading deferred.
