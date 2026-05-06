@@ -27,6 +27,7 @@ import { type HarnessInfoSnapshot, buildHarnessInfoTool } from '../tools/Harness
 import { MemoryProposeTool } from '../tools/MemoryProposeTool.js';
 import { MemoryTool } from '../tools/MemoryTool.js';
 import { SkillManageTool } from '../tools/SkillManageTool.js';
+import { SkillProposeTool } from '../tools/SkillProposeTool.js';
 import { SkillTool } from '../tools/SkillTool.js';
 import { SkillsListTool } from '../tools/SkillsListTool.js';
 import { SkillsViewTool } from '../tools/SkillsViewTool.js';
@@ -50,6 +51,7 @@ const REGISTERED_TOOLS = [
   GlobTool,
   MemoryTool,
   MemoryProposeTool,
+  SkillProposeTool,
   SkillsListTool,
   SkillsViewTool,
   SkillManageTool,
