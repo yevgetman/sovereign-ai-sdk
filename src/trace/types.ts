@@ -93,6 +93,14 @@ export type TraceEvent =
       repetitionCount: number;
       hash: string;
       iso: string;
+    }
+  | {
+      type: 'stall_detected';
+      /** Human-readable description of why stall was diagnosed. */
+      reason: string;
+      /** Turn index (0-based) at which the stall was detected. */
+      turn: number;
+      iso: string;
     };
 
 export type TraceEventType = TraceEvent['type'];

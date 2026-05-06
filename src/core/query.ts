@@ -23,6 +23,7 @@ import {
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
+import { type TurnSummary, detectStall } from '../review/stall.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { runTools } from './orchestrator.js';
@@ -64,6 +65,8 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   const recordTrace = makeTraceRecorder(params.traceRecorder);
   const loopDetector = new LoopDetectorState();
   let loopDetectionCount = 0;
+  // Phase 13.3 — sliding window of TurnSummary records for stall detection.
+  const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
   let history: Message[] = params.memoryManager
     ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
@@ -331,6 +334,49 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       // batch. Sub-agent calls are silently no-op'd by the session-id
       // guard inside ReviewManager, so this unconditional call is safe.
       toolCtx.reviewManager?.onToolIteration(toolCtx.sessionId);
+      // Phase 13.3 — stall / no-op detection. Tracks file edits, memory
+      // writes, decisions, and tool errors per turn over a 3-turn sliding
+      // window. Emits an advisory trace event on stall — never blocks.
+      {
+        const fileEditTools = new Set(['FileEdit', 'FileWrite']);
+        const memoryWriteTools = new Set(['memory', 'memory_propose']);
+        let fileEditCount = 0;
+        let memoryWriteCount = 0;
+        let toolErrorCount = 0;
+        for (const block of toolUseBlocks) {
+          if (fileEditTools.has(block.name)) fileEditCount += 1;
+          if (memoryWriteTools.has(block.name)) memoryWriteCount += 1;
+        }
+        // Tool errors are surfaced via tool_result blocks with is_error=true.
+        // Inspect the most recent user message (synthesized by runTools) for them.
+        const lastMsg = history[history.length - 1];
+        if (lastMsg?.role === 'user' && Array.isArray(lastMsg.content)) {
+          for (const c of lastMsg.content) {
+            if (
+              typeof c === 'object' &&
+              c !== null &&
+              'type' in c &&
+              c.type === 'tool_result' &&
+              'is_error' in c &&
+              c.is_error === true
+            ) {
+              toolErrorCount += 1;
+            }
+          }
+        }
+        const summary: TurnSummary = {
+          fileEditCount,
+          memoryWriteCount,
+          decisionCount: 0, // TODO(phase 13.3+): wire decision tracking when infrastructure lands
+          toolErrorCount,
+        };
+        recentTurnSummaries.push(summary);
+        if (recentTurnSummaries.length > 6) recentTurnSummaries.shift();
+        const stall = detectStall(recentTurnSummaries);
+        if (stall.stalled) {
+          recordTrace({ type: 'stall_detected', reason: stall.reason, turn, iso: nowIso() });
+        }
+      }
       // Microcompaction: clear stale tool results before the next provider call.
       const mcConfig = params.microcompactConfig ?? DEFAULT_MICROCOMPACT_CONFIG;
       const toolNameMap = buildToolNameMap(history);
