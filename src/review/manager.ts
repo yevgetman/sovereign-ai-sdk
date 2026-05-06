@@ -69,8 +69,9 @@ export class ReviewManager {
     }
   }
 
-  onUserTurn(): void {
+  onUserTurn(callerSessionId: string): void {
     if (!this.enabled) return;
+    if (callerSessionId !== this.sessionId) return;
     this.userTurnsSince += 1;
     if (this.userTurnsSince >= this.thresholds.userTurnsForMemoryReview) {
       this.userTurnsSince = 0;
@@ -78,8 +79,9 @@ export class ReviewManager {
     }
   }
 
-  onToolIteration(): void {
+  onToolIteration(callerSessionId: string): void {
     if (!this.enabled) return;
+    if (callerSessionId !== this.sessionId) return;
     this.toolIterationsSince += 1;
     if (this.toolIterationsSince >= this.thresholds.toolIterationsForSkillReview) {
       this.toolIterationsSince = 0;

@@ -58,6 +58,10 @@ export type ToolContext = {
    *  task_get / task_stop / task_output read this. When absent, those
    *  tools throw a clear error rather than failing silently. */
   taskManager?: import('../tasks/manager.js').TaskManager;
+  /** Phase 13.3 — review manager. core/query.ts calls onToolIteration after
+   *  each successful tool call. ReviewManager guards by sessionId so
+   *  sub-agent tool calls do not contaminate the parent's counter. */
+  reviewManager?: import('../review/manager.js').ReviewManager;
   /** Phase 13.5 — parent's full tool pool, captured at REPL bootstrap so
    *  the scheduler can filter from it without reassembling per call. */
   parentToolPool?: import('./types.js').Tool<unknown, unknown>[];

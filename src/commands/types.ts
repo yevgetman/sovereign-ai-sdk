@@ -52,6 +52,9 @@ export type CommandContext = {
   /** Phase 13.2 — task system manager. /tasks reads this directly to
    *  list / show / stop tasks for the current session. */
   taskManager?: import('../tasks/manager.js').TaskManager;
+  /** Phase 13.3 — review manager. Exposed so /review slash command and
+   *  propose tools can interact with the review system. */
+  reviewManager?: import('../review/manager.js').ReviewManager;
   /** Phase 12.6: per-component context-window audit. Backs the
    *  `/context-budget` command. */
   getBudgetReport: () => BudgetReport;

@@ -76,6 +76,7 @@ import { preflightProvider, preflightToolCalling } from '../providers/preflight.
 import { estimateCostUsd } from '../providers/pricing.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { Transport } from '../providers/types.js';
+import { ReviewManager } from '../review/manager.js';
 import { RouterAuditLogger } from '../router/auditLogger.js';
 import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores } from '../runtime/laneSemaphores.js';
@@ -709,6 +710,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // rebuilding) is safe here because no consumer has captured the field
   // set yet (the first query() call comes later).
   let taskManager: TaskManager | undefined;
+  let reviewManager: ReviewManager | undefined;
   if (loadedAgents.agents.length > 0) {
     const laneSemaphores = new LaneSemaphores({
       ...(userSettings.router?.maxConcurrentLocal !== undefined
@@ -794,6 +796,29 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       scheduler: subagentScheduler,
     });
     writableCtx.taskManager = taskManager;
+    // Phase 13.3 — review manager. Wired once the scheduler is live so
+    // dispatch can delegate review forks through the same infrastructure.
+    // pathsResolver is lazy so it captures the runtime-computed paths
+    // (trajectory goes to samples.jsonl within the artifacts root;
+    // trace path is the same writer used by the session). Both are
+    // informational; empty-string fallbacks are safe.
+    const artifactsRootForReview = bundle ? join(bundle.root, 'state', 'artifacts') : harnessHome;
+    reviewManager = new ReviewManager({
+      scheduler: subagentScheduler,
+      sessionId: activeSessionId,
+      signal: (() => {
+        const ac = new AbortController();
+        return ac.signal;
+      })(),
+      thresholds: {},
+      pathsResolver: () => ({
+        trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),
+        tracePath: traceWriter.path,
+      }),
+      parentToolPool: toolPool,
+      parentToolContext: writableCtx as ToolContext,
+    });
+    writableCtx.reviewManager = reviewManager;
   }
   // Phase 10.6 part 2b — install the interactive escalation asker on
   // the router (only meaningful when --provider router and the
@@ -852,6 +877,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     getMetrics: () => ({ ...metrics, sessionId: activeSessionId }),
     skills,
     ...(taskManager !== undefined ? { taskManager } : {}),
+    ...(reviewManager !== undefined ? { reviewManager } : {}),
     getLastAssistantText: () => extractLastAssistantText(history),
     getMessages: () => [...history],
     getPermissions: () => ({
@@ -965,11 +991,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         kind: result.kind,
         promptCommand: result.command.name,
       });
+      reviewManager?.onUserTurn(activeSessionId);
       await runModelTurn(result.content, result.command);
       continue;
     }
 
     const enrichedInput = await expandContextReferences(trimmed, { cwd: process.cwd() });
+    // Phase 13.3 — fire once per user prompt, before the model turn.
+    reviewManager?.onUserTurn(activeSessionId);
     await runModelTurn([{ type: 'text', text: enrichedInput }]);
   }
 

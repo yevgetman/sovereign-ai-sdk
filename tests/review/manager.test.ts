@@ -41,18 +41,18 @@ describe('ReviewManager triggers', () => {
       ...emptyParent(),
     });
 
-    mgr.onUserTurn();
-    mgr.onUserTurn();
+    mgr.onUserTurn('p');
+    mgr.onUserTurn('p');
     expect(calls.length).toBe(0);
 
-    mgr.onUserTurn(); // hits 3 → fires
+    mgr.onUserTurn('p'); // hits 3 → fires
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.length).toBe(1);
     expect(calls[0]?.agentName).toBe('review-memory');
 
     // counter reset
-    mgr.onUserTurn();
-    mgr.onUserTurn();
+    mgr.onUserTurn('p');
+    mgr.onUserTurn('p');
     expect(calls.length).toBe(1);
   });
 
@@ -67,9 +67,9 @@ describe('ReviewManager triggers', () => {
       ...emptyParent(),
     });
 
-    mgr.onToolIteration();
+    mgr.onToolIteration('p');
     expect(calls.length).toBe(0);
-    mgr.onToolIteration();
+    mgr.onToolIteration('p');
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.length).toBe(1);
     expect(calls[0]?.agentName).toBe('review-skill');
@@ -103,10 +103,30 @@ describe('ReviewManager triggers', () => {
       enabled: false,
       ...emptyParent(),
     });
-    mgr.onUserTurn();
-    mgr.onToolIteration();
+    mgr.onUserTurn('p');
+    mgr.onToolIteration('p');
     mgr.onChildCompletion({ childSessionId: 'c', taskId: 't', traceId: 'tr' });
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.length).toBe(0);
+  });
+
+  test('foreign sessionId is no-op (sub-agent tool calls do not increment counters)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'parent-1',
+      signal: new AbortController().signal,
+      thresholds: { userTurnsForMemoryReview: 1, toolIterationsForSkillReview: 1 },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+    mgr.onUserTurn('child-99'); // foreign session
+    mgr.onToolIteration('child-99'); // foreign session
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(0);
+    // matching session still works
+    mgr.onUserTurn('parent-1');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
   });
 });

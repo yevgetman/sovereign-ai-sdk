@@ -327,6 +327,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         history.push(out);
         yield out;
       }
+      // Phase 13.3 — notify the review manager after a successful tool
+      // batch. Sub-agent calls are silently no-op'd by the session-id
+      // guard inside ReviewManager, so this unconditional call is safe.
+      toolCtx.reviewManager?.onToolIteration(toolCtx.sessionId);
       // Microcompaction: clear stale tool results before the next provider call.
       const mcConfig = params.microcompactConfig ?? DEFAULT_MICROCOMPACT_CONFIG;
       const toolNameMap = buildToolNameMap(history);
