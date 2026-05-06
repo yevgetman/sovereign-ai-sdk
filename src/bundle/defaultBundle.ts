@@ -8,6 +8,9 @@
 // the bundle is found whether `sov` is run from a clone, a `bun link`
 // install, or a `bun install -g` install — the resolver always lands
 // on the bundle that lives next to the running source.
+//
+// Phase 13.3 (B2) — adds isDefaultBundlePath() predicate for routing
+// trajectory writes away from the stock bundle's tree.
 
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -44,5 +47,28 @@ export function shippedBundlePath(): string | null {
     return join(dirname(dirname(dirname(realMain))), 'bundle-default');
   } catch {
     return null;
+  }
+}
+
+/** Returns true when bundleRoot resolves to the same real path as the
+ *  stock default bundle (user-override or shipped). Used by terminalRepl
+ *  to route trajectories to <harnessHome>/ instead of
+ *  <bundle>/state/artifacts/ — the default bundle is system content, not
+ *  per-user state, so trajectory writes should not land inside it (they
+ *  would be wiped by `sov upgrade` and not be profile-scoped).
+ *
+ *  Compared via realpathSync so symlinked installs (bun install -g caches
+ *  packages under a content-addressed tree) resolve correctly.
+ *
+ *  Phase 13.3 (B2). */
+export function isDefaultBundlePath(bundleRoot: string): boolean {
+  const def = getDefaultBundlePath();
+  if (def === null) return false;
+  try {
+    return realpathSync(bundleRoot) === realpathSync(def);
+  } catch {
+    // realpath failures (broken symlinks, missing paths) — fall back to
+    // strict string compare so the predicate never throws.
+    return bundleRoot === def;
   }
 }

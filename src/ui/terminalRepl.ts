@@ -20,6 +20,7 @@ import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { loadAgents } from '../agents/loader.js';
+import { isDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
@@ -754,10 +755,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     const subagentWriteLock = new Semaphore(1);
     // Phase 13.1 — child trajectory capture. Same artifactsRoot the
     // REPL uses for its own (parent) trajectory write at session end:
-    // <bundle>/state/artifacts when a bundle is loaded, else
+    // <bundle>/state/artifacts when a client bundle is loaded, else
     // <harnessHome>. Write semantics + bucket split are uniform across
     // parent and child sessions.
-    const subagentArtifactsRoot = bundle ? join(bundle.root, 'state', 'artifacts') : harnessHome;
+    // Phase 13.3 (B2) — stock default bundle is system content; route its
+    // trajectories to <harnessHome>/ so sov upgrade doesn't wipe them and
+    // each profile gets its own state. Client bundles still own their state.
+    const subagentArtifactsRoot =
+      bundle && !isDefaultBundlePath(bundle.root)
+        ? join(bundle.root, 'state', 'artifacts')
+        : harnessHome;
     const subagentScheduler = new SubagentScheduler({
       agents: loadedAgents,
       laneSemaphores,
@@ -809,7 +816,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     // (trajectory goes to samples.jsonl within the artifacts root;
     // trace path is the same writer used by the session). Both are
     // informational; empty-string fallbacks are safe.
-    const artifactsRootForReview = bundle ? join(bundle.root, 'state', 'artifacts') : harnessHome;
+    // Phase 13.3 (B2) — stock default bundle is system content; route its
+    // trajectories to <harnessHome>/ so sov upgrade doesn't wipe them.
+    const artifactsRootForReview =
+      bundle && !isDefaultBundlePath(bundle.root)
+        ? join(bundle.root, 'state', 'artifacts')
+        : harnessHome;
     reviewManager = new ReviewManager({
       scheduler: subagentScheduler,
       sessionId: activeSessionId,
@@ -1553,7 +1565,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // user/assistant turns at all). Failures are swallowed via
   // tryWriteTrajectory — Invariant #10 (additive, non-blocking).
   if (history.length > 0) {
-    const artifactsRoot = bundle ? join(bundle.root, 'state', 'artifacts') : harnessHome;
+    // Phase 13.3 (B2) — stock default bundle is system content; route its
+    // trajectories to <harnessHome>/ so sov upgrade doesn't wipe them and
+    // each profile gets its own state. Client bundles still own their state.
+    const artifactsRoot =
+      bundle && !isDefaultBundlePath(bundle.root)
+        ? join(bundle.root, 'state', 'artifacts')
+        : harnessHome;
     await tryWriteTrajectory(
       {
         messages: history,
