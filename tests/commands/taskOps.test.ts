@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { TASK_OPS_COMMANDS } from '../../src/commands/taskOps.js';
 import type { CommandContext } from '../../src/commands/types.js';
 import type { TaskRecord } from '../../src/tasks/types.js';
+import { makeCtx } from './_makeCtx.js';
 
 chalk.level = 1;
 
@@ -35,14 +36,6 @@ function makeStubManager(
   } as unknown as NonNullable<CommandContext['taskManager']>;
 }
 
-const baseCtx: Partial<CommandContext> = {
-  sessionId: 'parent',
-  cwd: process.cwd(),
-  providerName: 'fake',
-  model: 'fake-model',
-  bundlePath: null,
-};
-
 const baseRecord: TaskRecord = {
   id: 't-aaaaaaaaaaaa',
   parentSessionId: 'parent',
@@ -57,10 +50,7 @@ describe('/tasks slash command', () => {
   test('default invocation lists active tasks', async () => {
     expect(tasksCmd?.type).toBe('local');
     if (tasksCmd?.type !== 'local') return;
-    const ctx = {
-      ...baseCtx,
-      taskManager: makeStubManager([baseRecord]),
-    } as unknown as CommandContext;
+    const ctx = makeCtx({ taskManager: makeStubManager([baseRecord]) });
     const out = strip(await tasksCmd.call('', ctx));
     expect(out).toContain('t-aaaaaa');
     expect(out).toContain('running');
@@ -69,10 +59,7 @@ describe('/tasks slash command', () => {
 
   test('reports "no active tasks" when list is empty', async () => {
     if (tasksCmd?.type !== 'local') return;
-    const ctx = {
-      ...baseCtx,
-      taskManager: makeStubManager([]),
-    } as unknown as CommandContext;
+    const ctx = makeCtx({ taskManager: makeStubManager([]) });
     const out = strip(await tasksCmd.call('', ctx));
     expect(out).toMatch(/no active tasks/i);
   });
@@ -80,10 +67,7 @@ describe('/tasks slash command', () => {
   test('"all" arg includes terminal-state tasks', async () => {
     if (tasksCmd?.type !== 'local') return;
     const completed: TaskRecord = { ...baseRecord, id: 't-completed', state: 'completed' };
-    const ctx = {
-      ...baseCtx,
-      taskManager: makeStubManager([baseRecord, completed]),
-    } as unknown as CommandContext;
+    const ctx = makeCtx({ taskManager: makeStubManager([baseRecord, completed]) });
     const out = strip(await tasksCmd.call('all', ctx));
     expect(out).toContain('t-completed'.slice(0, 12));
     expect(out).toContain('t-aaaaaa');
@@ -91,10 +75,7 @@ describe('/tasks slash command', () => {
 
   test('"show <id>" renders full record', async () => {
     if (tasksCmd?.type !== 'local') return;
-    const ctx = {
-      ...baseCtx,
-      taskManager: makeStubManager([baseRecord]),
-    } as unknown as CommandContext;
+    const ctx = makeCtx({ taskManager: makeStubManager([baseRecord]) });
     const out = strip(await tasksCmd.call(`show ${baseRecord.id}`, ctx));
     expect(out).toContain(baseRecord.id);
     expect(out).toContain('agent: explore');
@@ -105,10 +86,7 @@ describe('/tasks slash command', () => {
   test('"stop <id>" calls manager.stop and reports the record', async () => {
     if (tasksCmd?.type !== 'local') return;
     const stopCalls: string[] = [];
-    const ctx = {
-      ...baseCtx,
-      taskManager: makeStubManager([baseRecord], stopCalls),
-    } as unknown as CommandContext;
+    const ctx = makeCtx({ taskManager: makeStubManager([baseRecord], stopCalls) });
     const out = strip(await tasksCmd.call(`stop ${baseRecord.id}`, ctx));
     expect(stopCalls).toEqual([baseRecord.id]);
     expect(out).toContain('signaled');
@@ -116,7 +94,7 @@ describe('/tasks slash command', () => {
 
   test('reports "no task manager configured" when ctx lacks one', async () => {
     if (tasksCmd?.type !== 'local') return;
-    const ctx = { ...baseCtx } as unknown as CommandContext;
+    const ctx = makeCtx();
     const out = strip(await tasksCmd.call('', ctx));
     expect(out).toMatch(/no task manager/i);
   });

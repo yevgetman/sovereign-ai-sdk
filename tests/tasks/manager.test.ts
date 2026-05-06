@@ -209,7 +209,7 @@ describe('TaskManager.list / get', () => {
 });
 
 describe('TaskManager.output', () => {
-  test('returns summary and counters from the controller after completion', async () => {
+  test('returns persisted state and preview after completion (controller cleaned up)', async () => {
     const deferred = makeDeferred<DelegateResult>();
     const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
     const created = await manager.create({
@@ -230,12 +230,43 @@ describe('TaskManager.output', () => {
     await new Promise((r) => setTimeout(r, 0));
     const out = manager.output(created.id);
     expect(out?.state).toBe('completed');
-    expect(out?.summary).toBe('final result');
-    expect(out?.iterationsUsed).toBe(3);
-    expect(out?.toolCallCount).toBe(2);
-    expect(out?.durationMs).toBe(1234);
-    expect(out?.terminalReason).toBe('completed');
+    expect(out?.resultPreview).toBe('final result');
     expect(out?.childSessionId).toBe('child-out');
+    // After terminal, the controller is dropped — counters/summary/etc.
+    // are unavailable (would need to be persisted to the row to survive).
+    expect(out?.iterationsUsed).toBeUndefined();
+    expect(out?.toolCallCount).toBeUndefined();
+    expect(out?.durationMs).toBeUndefined();
+    expect(out?.terminalReason).toBeUndefined();
+    expect(out?.summary).toBeUndefined();
+    db.close();
+  });
+
+  test('returns running-state counters from the controller while still running', async () => {
+    const deferred = makeDeferred<DelegateResult>();
+    const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
+    const created = await manager.create({
+      parentSessionId: sessionId,
+      agentName: 'explore',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    // Drain microtasks so updateState('running') has landed but delegate
+    // hasn't resolved yet.
+    await Promise.resolve();
+    const out = manager.output(created.id);
+    expect(out?.state).toBe('running');
+    // The controller is still in the map; iterationsUsed starts at 0 — a
+    // legitimate zero, not "never updated". Reported now (was hidden by
+    // the > 0 heuristic before the post-Phase-13.2 polish pass).
+    expect(out?.iterationsUsed).toBe(0);
+    expect(out?.toolCallCount).toBe(0);
+    // Resolve and drain so the fire-and-forget handler completes its
+    // updateOnComplete call before we close the db.
+    seedChildSession(db, 'child-running');
+    deferred.resolve(makeCompletedResult('child-running', { reason: 'completed' }));
+    await new Promise((r) => setTimeout(r, 0));
     db.close();
   });
 

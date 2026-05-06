@@ -43,4 +43,31 @@ describe('TaskStopTool', () => {
     const r = result as ToolResult<TaskRecord>;
     expect(r.data.state).toBe('cancelled');
   });
+
+  test('throws when no taskManager is wired in ToolContext', async () => {
+    const ctx: ToolContext = { cwd: process.cwd(), sessionId: 'parent' };
+    await expect(TaskStopTool.call({ task_id: 't-1' }, ctx)).rejects.toThrow(/no task manager/);
+  });
+
+  test('throws when task id is unknown (manager.stop returned null)', async () => {
+    const calls: string[] = [];
+    const stub: NonNullable<ToolContext['taskManager']> = {
+      create: async () => record,
+      get: () => null,
+      list: () => [],
+      stop: async (id: string) => {
+        calls.push(id);
+        return null;
+      },
+      output: () => null,
+    } as unknown as NonNullable<ToolContext['taskManager']>;
+    const ctx: ToolContext = {
+      cwd: process.cwd(),
+      sessionId: 'parent',
+      taskManager: stub,
+    };
+    await expect(TaskStopTool.call({ task_id: 'no-such-id' }, ctx)).rejects.toThrow(
+      /no task with id/,
+    );
+  });
 });

@@ -47,6 +47,21 @@ describe('TaskOutputTool', () => {
     expect(r.observation?.artifacts).toContain('session:child-1');
   });
 
+  test('observation status is "error" for timed_out state', async () => {
+    const ctx: ToolContext = {
+      cwd: process.cwd(),
+      sessionId: 'parent',
+      taskManager: makeStubManager({
+        state: 'timed_out',
+        summary: 'too slow',
+        childSessionId: 'child-1',
+      }),
+    };
+    const result = await TaskOutputTool.call({ task_id: 't-1' }, ctx);
+    const r = result as ToolResult<TaskOutput>;
+    expect(r.observation?.status).toBe('error');
+  });
+
   test('throws for an unknown task id (manager.output returned null)', async () => {
     const ctx: ToolContext = {
       cwd: process.cwd(),

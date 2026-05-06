@@ -1,8 +1,12 @@
 // Phase 13.2 — TaskStore. CRUD over the `tasks` table introduced in schema
 // v4. Shares the SessionDb's underlying SQLite connection (single-writer
 // per file with WAL); the writes here implicitly compete with session and
-// message writes, which is fine because bun:sqlite serializes them and the
-// SessionDb's busy_timeout + retry envelope already covers contention.
+// message writes. Contention safety today is provided by the busy_timeout
+// PRAGMA shared on the SessionDb handle (1000 ms — see SessionDb.open).
+// The application-level jittered retry loop in SessionDb.writeWithRetry
+// is NOT shared here yet — TaskStore writes go through db.handle.run
+// directly. Phase 16's multi-writer wiring (CLI + cron + gateway) will
+// route TaskStore writes through a shared retry envelope.
 //
 // Boundary translation: the row stores created_at/updated_at as REAL epoch
 // seconds (matching the rest of the schema); the in-memory TaskRecord uses

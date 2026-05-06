@@ -16,6 +16,14 @@
 // our terminal-mapping then distinguishes 'cancelled' (userAborted=true)
 // from 'timed_out' (scheduler's per-child timeout fired without us).
 //
+// After a task reaches a terminal state, its TaskController is dropped
+// from the in-memory `controllers` map. `output()` for terminal tasks
+// returns the persisted record fields (state, childSessionId,
+// resultPreview) only — the live counter cache is gone. This keeps the
+// manager's memory bounded across long REPL sessions; a daemon scenario
+// that needs richer terminal observability would persist counters to the
+// `tasks` row instead.
+//
 // Known v0 limitation: the scheduler's per-parent child cap is best-
 // effort under concurrent delegate() calls — see the file-header note
 // in src/runtime/scheduler.ts. The manager surfaces that as a 'failed'
@@ -100,17 +108,16 @@ export class TaskManager {
     const record = this.opts.store.get(id);
     if (!record) return null;
     const controller = this.controllers.get(id);
+    // Once the task is terminal, the controller is dropped (see runDelegation).
+    // For running tasks, expose the live counter cache. For terminal tasks,
+    // return only the persisted fields (state + childSessionId + resultPreview).
     return {
       state: record.state,
       ...(record.childSessionId !== undefined ? { childSessionId: record.childSessionId } : {}),
       ...(record.resultPreview !== undefined ? { resultPreview: record.resultPreview } : {}),
       ...(controller?.summary !== undefined ? { summary: controller.summary } : {}),
-      ...(controller !== undefined && controller.iterationsUsed > 0
-        ? { iterationsUsed: controller.iterationsUsed }
-        : {}),
-      ...(controller !== undefined && controller.toolCallCount > 0
-        ? { toolCallCount: controller.toolCallCount }
-        : {}),
+      ...(controller !== undefined ? { iterationsUsed: controller.iterationsUsed } : {}),
+      ...(controller !== undefined ? { toolCallCount: controller.toolCallCount } : {}),
       ...(controller?.durationMs !== undefined ? { durationMs: controller.durationMs } : {}),
       ...(controller?.terminalReason !== undefined
         ? { terminalReason: controller.terminalReason }
@@ -127,7 +134,9 @@ export class TaskManager {
       this.opts.store.updateState(id, 'running');
     } catch {
       // The row was deleted between insert and the running-update — bail
-      // without further progress. Not expected in v0; leave silent.
+      // without further progress. Not expected in v0; leave silent. Drop
+      // the controller cache so the map doesn't leak entries here.
+      this.controllers.delete(id);
       return;
     }
     try {
@@ -154,6 +163,7 @@ export class TaskManager {
         traceId: result.childSessionId,
         resultPreview: bound(result.summary, PREVIEW_MAX_CHARS),
       });
+      this.controllers.delete(id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const finalState: TaskState = controller.userAborted ? 'cancelled' : 'failed';
@@ -162,6 +172,7 @@ export class TaskManager {
         state: finalState,
         resultPreview: bound(message, PREVIEW_MAX_CHARS),
       });
+      this.controllers.delete(id);
     }
   }
 }

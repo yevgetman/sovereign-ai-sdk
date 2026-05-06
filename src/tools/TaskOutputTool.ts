@@ -35,7 +35,7 @@ export const TaskOutputTool = buildTool<TaskOutputInput, TaskOutput>({
     return {
       data: out,
       observation: {
-        status: out.state === 'failed' ? 'error' : 'success',
+        status: out.state === 'failed' || out.state === 'timed_out' ? 'error' : 'success',
         summary: `${input.task_id.slice(0, 8)} ${out.state}${
           out.iterationsUsed !== undefined ? ` (${out.iterationsUsed} turns)` : ''
         }`,

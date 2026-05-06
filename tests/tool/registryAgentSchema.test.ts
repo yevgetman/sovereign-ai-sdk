@@ -120,3 +120,49 @@ describe('patchSchemasAgainstAvailable — AgentTool subagent_type enum', () => 
     expect(fieldDesc).not.toContain('Use when:');
   });
 });
+
+describe('patchSchemasAgainstAvailable — task_create subagent_type enum', () => {
+  test('drops task_create from the pool when no agents are loaded', () => {
+    const ctx: ToolContext = { cwd: process.cwd(), sessionId: 'parent' };
+    const pool = assembleToolPool(ctx);
+    expect(pool.find((t) => t.name === 'task_create')).toBeUndefined();
+  });
+
+  test('keeps task_create when agents are loaded and rewrites subagent_type to enum', () => {
+    const ctx: ToolContext = {
+      cwd: process.cwd(),
+      sessionId: 'parent',
+      agents: makeRegistry(['explore', 'verify', 'plan']),
+    };
+    const pool = assembleToolPool(ctx);
+    const taskCreate = pool.find((t) => t.name === 'task_create');
+    expect(taskCreate).toBeDefined();
+    const schema = taskCreate?.inputSchema as z.ZodObject<{
+      subagent_type: z.ZodEnum<[string, ...string[]]>;
+      prompt: z.ZodString;
+    }>;
+    // Valid agent name passes validation.
+    expect(() => schema.parse({ subagent_type: 'explore', prompt: 'hello' })).not.toThrow();
+    // Unknown agent name is rejected by the enum.
+    expect(() => schema.parse({ subagent_type: 'mystery', prompt: 'hello' })).toThrow();
+    // Each tool's own `prompt` description survives the rewrite — load-bearing
+    // assertion. AgentTool and task_create have DIFFERENT prompt descriptions;
+    // if rewriteSubagentTypeSchema hardcoded one tool's shape, this would fail.
+    const taskCreatePromptDesc = schema.shape.prompt.description ?? '';
+    expect(taskCreatePromptDesc).toBe(
+      'The task description for the sub-agent. The agent runs as a separate session and only receives this prompt.',
+    );
+    // Sanity-check that AgentTool's prompt description is different and also
+    // preserved through the same patching pass.
+    const agentTool = pool.find((t) => t.name === 'AgentTool');
+    const agentSchema = agentTool?.inputSchema as z.ZodObject<{
+      subagent_type: z.ZodEnum<[string, ...string[]]>;
+      prompt: z.ZodString;
+    }>;
+    const agentPromptDesc = agentSchema.shape.prompt.description ?? '';
+    expect(agentPromptDesc).toBe(
+      'The task description for the sub-agent. Be specific — the agent runs as a separate session and only receives this prompt.',
+    );
+    expect(agentPromptDesc).not.toBe(taskCreatePromptDesc);
+  });
+});
