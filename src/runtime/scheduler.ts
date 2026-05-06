@@ -171,6 +171,20 @@ export class SubagentScheduler {
 
         const systemPrompt: SystemSegment[] = [{ text: agent.systemPrompt, cacheable: true }];
 
+        // Phase 13.3 (B1) — inject the child's sessionId into every trace event
+        // the runner emits, so consolidated parent traces remain debuggable.
+        // Without this, child events arrive with sessionId: null and you can't
+        // filter "what did the child do" without correlating timestamps.
+        const wrappedTraceRecorder =
+          input.traceRecorder !== undefined
+            ? (event: TraceEvent) => {
+                input.traceRecorder?.({
+                  ...event,
+                  sessionId: childSessionId,
+                } as TraceEvent);
+              }
+            : undefined;
+
         const runner = new AgentRunner({
           provider: resolved.transport as unknown as LLMProvider,
           model: resolved.model,
@@ -180,7 +194,7 @@ export class SubagentScheduler {
           toolContext: childToolContext,
           ...(input.canUseTool !== undefined ? { canUseTool: input.canUseTool } : {}),
           ...(input.memoryManager !== undefined ? { memoryManager: input.memoryManager } : {}),
-          ...(input.traceRecorder !== undefined ? { traceRecorder: input.traceRecorder } : {}),
+          ...(wrappedTraceRecorder !== undefined ? { traceRecorder: wrappedTraceRecorder } : {}),
           maxTurns: agent.maxTurns,
           sessionId: childSessionId,
           parentSessionId: input.parentSessionId,
