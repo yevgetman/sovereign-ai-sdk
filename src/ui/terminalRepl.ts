@@ -712,6 +712,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // set yet (the first query() call comes later).
   let taskManager: TaskManager | undefined;
   let reviewManager: ReviewManager | undefined;
+  // Phase 13.3 (B4) — session-scoped controller for in-flight review forks.
+  // Aborted in the session-end path so reviews don't survive past /quit.
+  let reviewAbortController: AbortController | undefined;
   if (loadedAgents.agents.length > 0) {
     const laneSemaphores = new LaneSemaphores({
       ...(userSettings.router?.maxConcurrentLocal !== undefined
@@ -822,13 +825,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       bundle && !isDefaultBundlePath(bundle.root)
         ? join(bundle.root, 'state', 'artifacts')
         : harnessHome;
+    reviewAbortController = new AbortController();
     reviewManager = new ReviewManager({
       scheduler: subagentScheduler,
       sessionId: activeSessionId,
-      signal: (() => {
-        const ac = new AbortController();
-        return ac.signal;
-      })(),
+      signal: reviewAbortController.signal,
       thresholds: {
         ...(userSettings.review?.userTurnsForMemoryReview !== undefined
           ? { userTurnsForMemoryReview: userSettings.review.userTurnsForMemoryReview }
@@ -1559,6 +1560,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     disableBracketedPaste(process.stdout);
   }
   transcript?.record({ type: 'session_end', sessionId: activeSessionId });
+  // Phase 13.3 (B4) — cancel any in-flight review forks. The signal
+  // propagates through scheduler.delegate → AgentRunner; cooperative
+  // cancellation usually surfaces as a 'interrupted' terminal in the
+  // child trajectory. Failures are best-effort: abort never throws.
+  reviewAbortController?.abort();
   const finalCost = db.getSessionCost(activeSessionId);
   // Phase 13.1 — write a ShareGPT-shaped trajectory record before
   // shutting down dependencies. Skipped for empty sessions (no
