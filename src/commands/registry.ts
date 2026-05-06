@@ -19,6 +19,7 @@ import { visibleWidth } from '../ui/box.js';
 import { INFO_COMMANDS } from './info.js';
 import { PICKER_COMMANDS } from './pickers.js';
 import { SESSION_OPS_COMMANDS } from './sessionOps.js';
+import { TASK_OPS_COMMANDS } from './taskOps.js';
 import type { CommandContext, CommandDispatchResult, SlashCommand } from './types.js';
 
 /** Static category labels for /help. Skill-generated commands fall into
@@ -39,6 +40,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   permissions: 'info',
   expand: 'info',
   'context-budget': 'info',
+  tasks: 'session',
   // model + config
   model: 'config',
   config: 'config',
@@ -102,6 +104,7 @@ export const COMMANDS: SlashCommand[] = [
   ...PICKER_COMMANDS,
   ...INFO_COMMANDS,
   ...SESSION_OPS_COMMANDS,
+  ...TASK_OPS_COMMANDS,
   {
     type: 'local',
     name: 'config',

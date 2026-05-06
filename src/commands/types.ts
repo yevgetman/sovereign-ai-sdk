@@ -49,6 +49,9 @@ export type CommandContext = {
   /** Request graceful REPL exit. The REPL loop will close after the
    *  current command's output prints. */
   requestExit: () => void;
+  /** Phase 13.2 — task system manager. /tasks reads this directly to
+   *  list / show / stop tasks for the current session. */
+  taskManager?: import('../tasks/manager.js').TaskManager;
   /** Phase 12.6: per-component context-window audit. Backs the
    *  `/context-budget` command. */
   getBudgetReport: () => BudgetReport;
