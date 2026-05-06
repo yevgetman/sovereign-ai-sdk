@@ -25,8 +25,4 @@ export const SUBAGENT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set<string>([
   // Parent-side control plane.
   'task_stop',
   'send_message',
-  // Phase 13.3 — review proposal tools are review-fork-only; children
-  // must not propose recursively.
-  'memory_propose',
-  'skill_propose',
 ]);
