@@ -30,6 +30,11 @@ import { SkillTool } from '../tools/SkillTool.js';
 import { SkillsListTool } from '../tools/SkillsListTool.js';
 import { SkillsViewTool } from '../tools/SkillsViewTool.js';
 import { StaticSiteValidateTool } from '../tools/StaticSiteValidateTool.js';
+import { TaskCreateTool } from '../tools/TaskCreateTool.js';
+import { TaskGetTool } from '../tools/TaskGetTool.js';
+import { TaskListTool } from '../tools/TaskListTool.js';
+import { TaskOutputTool } from '../tools/TaskOutputTool.js';
+import { TaskStopTool } from '../tools/TaskStopTool.js';
 import { buildToolSearchTool } from '../tools/ToolSearchTool.js';
 import { WebFetchTool } from '../tools/WebFetchTool.js';
 import { WebSearchTool } from '../tools/WebSearchTool.js';
@@ -51,6 +56,11 @@ const REGISTERED_TOOLS = [
   WebFetchTool,
   WebSearchTool,
   AgentTool,
+  TaskCreateTool,
+  TaskListTool,
+  TaskGetTool,
+  TaskStopTool,
+  TaskOutputTool,
 ] as unknown as Tool<unknown, unknown>[];
 
 export type AssembleToolPoolOpts = {
@@ -98,6 +108,12 @@ export function assembleToolPool(
   return [...patched].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Tools whose `subagent_type` field is rewritten from an open string to a
+ *  closed enum at pool-assembly time. When no agents are loaded these tools
+ *  are dropped entirely so the model never sees a delegation surface it
+ *  cannot successfully invoke. */
+const SUBAGENT_TYPE_PATCH_TOOLS = ['AgentTool', 'task_create'] as const;
+
 /**
  * Rewrite tool input schemas that reference other tools or agents by name,
  * dropping references to anything not actually present in this pool / the
@@ -113,6 +129,11 @@ export function assembleToolPool(
  * turn AgentTool is in scope, so it's the strongest place to surface the
  * "when to delegate" guidance the bundle author wrote. Source of pattern:
  * Claude Code src/tools.ts (assembleToolPool + patchSchemasAgainstAvailable).
+ *
+ * Phase 13.2: the same transformation is applied to `task_create`, which
+ * also accepts a `subagent_type` argument (it dispatches the named agent
+ * to the background TaskManager rather than the synchronous scheduler).
+ * Both tools are dropped when no agents are loaded.
  */
 export function patchSchemasAgainstAvailable(
   tools: Tool<unknown, unknown>[],
@@ -120,27 +141,39 @@ export function patchSchemasAgainstAvailable(
 ): Tool<unknown, unknown>[] {
   const registry = ctx?.agents;
   const agentNames = registry ? [...registry.byName.keys()].sort() : [];
+  const patchNames = new Set<string>(SUBAGENT_TYPE_PATCH_TOOLS);
   if (agentNames.length === 0) {
-    // Drop AgentTool entirely when there are no agents — exposing a tool
-    // whose subagent_type enum is empty would let the model attempt calls
-    // that always fail.
-    return tools.filter((t) => t.name !== 'AgentTool');
+    // Drop the delegation tools entirely when there are no agents —
+    // exposing them with an empty subagent_type enum would let the model
+    // attempt calls that always fail.
+    return tools.filter((t) => !patchNames.has(t.name));
   }
+  const enumValues = agentNames as [string, ...string[]];
+  const enumDescription = buildSubagentTypeDescription(agentNames, registry);
   return tools.map((t) => {
-    if (t.name !== 'AgentTool') return t;
-    const enumValues = agentNames as [string, ...string[]];
-    const enumDescription = buildSubagentTypeDescription(agentNames, registry);
-    const newSchema = z.object({
-      subagent_type: z.enum(enumValues).describe(enumDescription),
-      prompt: z
-        .string()
-        .min(1)
-        .describe(
-          'The task description for the sub-agent. Be specific — the agent runs as a separate session and only receives this prompt.',
-        ),
-    });
-    return { ...t, inputSchema: newSchema as unknown as typeof t.inputSchema };
+    if (!patchNames.has(t.name)) return t;
+    return { ...t, inputSchema: rewriteSubagentTypeSchema(t, enumValues, enumDescription) };
   });
+}
+
+/** Replace the `subagent_type` field on a tool's input schema with the
+ *  given closed enum, preserving every other field on the original schema
+ *  (notably each tool's own `prompt` description). */
+function rewriteSubagentTypeSchema(
+  tool: Tool<unknown, unknown>,
+  enumValues: [string, ...string[]],
+  enumDescription: string,
+): typeof tool.inputSchema {
+  const schema = tool.inputSchema as unknown as z.ZodObject<z.ZodRawShape>;
+  const baseShape =
+    typeof schema?.shape === 'object' && schema.shape !== null
+      ? (schema.shape as z.ZodRawShape)
+      : ({} as z.ZodRawShape);
+  const nextShape: z.ZodRawShape = {
+    ...baseShape,
+    subagent_type: z.enum(enumValues).describe(enumDescription),
+  };
+  return z.object(nextShape) as unknown as typeof tool.inputSchema;
 }
 
 /** Builds the `subagent_type` enum description. Lists every available
