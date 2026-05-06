@@ -214,7 +214,7 @@ The two suites are complementary. Neither subsumes the other.
 | Bug classes caught | Logic, types, signatures, isolated paths | Tool surfacing, hallucination, prompt-pipeline coherence, multi-turn behavior, permission system end-to-end |
 | When to run | Every commit | Before releases; when touching tools, permissions, context handling, compaction, or slash-command dispatch |
 
-`bun test` continues to pass 690/690 alongside this suite — file naming (`*.cases.ts` vs `*.test.ts`) keeps the two completely separate.
+`bun test` continues to pass 1490/1490 alongside this suite — file naming (`*.cases.ts` vs `*.test.ts`) keeps the two completely separate.
 
 ## Architecture (one screen)
 
@@ -344,7 +344,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-4343-pass), update the headline count (`43/43 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-5454-pass), update the headline count (`54/54 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

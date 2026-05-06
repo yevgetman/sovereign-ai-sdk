@@ -165,7 +165,9 @@ End with: Finding (1-2 sentences), Evidence (3-6 bullet points each `path:line`)
 
 **Trust tiers.** Bundle agents → `'builtin'`. Project + user agents → `'trusted'`. v0 has no `'community'` tier and no guard scanner; if a `'community'` tier is added later, mirror the skills guard pattern (`src/skills/guard.ts`).
 
-**`bundle-default/agents/`** ships three reference agents (`explore`, `verify`, `plan`) — these are the authoring template; copy them when building a new agent.
+**`bundle-default/agents/`** ships six reference agents: `explore`, `verify`, and `plan` (general sub-agents — these are the authoring template) plus `review-memory`, `review-skill`, and `review-consolidate` (Phase 13.3 review agents — restricted toolsets, specialized system prompts). Copy the general agents when building a new sub-agent; copy the review agents only when building a review-pipeline variant.
+
+**Review agents have a special role.** The three `review-*` agents are invoked exclusively by `runReviewFork()` in `src/review/fork.ts`, never by the main agent directly. They receive an augmented tool pool that includes `REVIEW_ONLY_TOOLS` (`memory_propose` and `skill_propose`) — tools that are deliberately excluded from the main agent's pool via `src/tool/registry.ts`'s `REVIEW_ONLY_TOOLS` export. If you add a tool that should only be callable from review forks (not from main agent turns), add it to `REVIEW_ONLY_TOOLS` rather than `REGISTERED_TOOLS`, and declare it in the review agents' `allowedTools` frontmatter.
 
 ## Add A Shell Hook
 

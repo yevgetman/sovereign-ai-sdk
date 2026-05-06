@@ -346,6 +346,13 @@ Available config fields (top-level unless noted):
 | `ui.contextMeter.warnAtPercent` | int 0–100 | `60` | yellow zone threshold for the ctx % footer segment |
 | `ui.contextMeter.dangerAtPercent` | int 0–100 | `80` | red zone threshold for the ctx % footer segment |
 | `ui.diffRender.enabled` | bool | `true` | inline diff renderer for FileEdit / FileWrite |
+| `review.autoPromoteMemory` | bool | `false` | auto-approve memory proposals without human review |
+| `review.autoPromoteSkills` | bool | `false` | auto-approve skill proposals without human review |
+| `review.userTurnsForMemoryReview` | int | `10` | trigger a memory review fork every N user turns |
+| `review.toolIterationsForSkillReview` | int | `50` | trigger a skill review fork every M tool iterations |
+| `review.childReviewEveryN` | int | `5` | trigger a distillation review every N child completions |
+| `review.minIntervalMs` | int | `30000` | minimum ms between auto-dispatched review forks |
+| `review.disabled` | bool | `false` | disable all auto-review triggers for this session |
 
 ## Ollama Notes
 
@@ -526,6 +533,20 @@ Lines beginning with `/` are handled locally before normal model turns. `/help` 
 | Command | Behavior |
 |---|---|
 | `/commit` | Ask the model to stage and commit changes with git-only Bash scope. |
+
+### Review
+
+| Command | Behavior |
+|---|---|
+| `/review` | List pending proposals (equivalent to `/review list`). |
+| `/review list` | List all pending memory and skill proposals waiting for review. |
+| `/review show <id>` | Show the full body of a pending proposal by ID. |
+| `/review approve <id>` | Promote the proposal from `pending/` to `approved/`. |
+| `/review reject <id>` | Move the proposal to `rejected/`. |
+| `/review consolidate` | Dispatch a consolidation fork that merges redundant memory proposals into a single entry. |
+| `/review activity` | Show recent review forks from the sessions database. |
+
+Proposals are created automatically by background review forks (triggered by the ReviewManager on configured intervals) or manually requested via sub-agent delegation. The propose-then-promote lifecycle keeps human approval in the loop by default; set `review.autoPromoteMemory` / `review.autoPromoteSkills` in settings to bypass.
 
 Skill files registered as slash commands appear under their own category in `/help` output.
 
@@ -898,7 +919,7 @@ bun run test:semantic -- --judge anthropic-api     # API mode (needs ANTHROPIC_A
 
 **Fully isolated.** Each test runs in a fresh `mktemp -d` with its own `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB. Cleaned up on success, failure, or crash. The judge subprocess is spawned in `tmpdir()` with `--tools ""`, `--no-session-persistence`, `--disable-slash-commands`.
 
-**Coverage at a glance (43/43 pass):** 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 6 slash-command pipeline paths (/help, /context-budget, /commit, /init, /<skill>, skill-args propagation), 6 permission cases (including virtual-tool-name mapping, layer-precedence, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case, 1 secret-redaction case (Write/Edit/NotebookEdit content with secret patterns is rewritten to `<REDACTED:kind>` before reaching disk), 1 `/security-audit` skill case (threat-model scaffolding + verification gate), 2 sub-agents cases (Phase 13 — registry discoverability + live end-to-end delegation through AgentTool → scheduler → child session → renderResult), 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
+**Coverage at a glance (54/54 pass):** 10 tool-dispatch cases (including Phase 12.5 envelope-recovery and Phase 13.3 pool-separation guard), 6 slash-command pipeline paths, 6 permission cases, 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case, 1 secret-redaction case, 1 `/security-audit` skill case, 2 sub-agents cases, 4 task-system cases (Phase 13.2), 6 review-system cases (Phase 13.3 `/review` verbs), 6 workflow cases including end-to-end /compact and /rollback. Full test-by-test inventory and bug-class breakdown: [`docs/semantic-testing.md`](./semantic-testing.md). Design, isolation, porting guide, how to add tests / judge backends: [`tests/semantic/README.md`](../tests/semantic/README.md).
 
 ## Troubleshooting
 

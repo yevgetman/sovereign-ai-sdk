@@ -1727,4 +1727,95 @@ Implementation backlogs from these findings live in
 - Auto-promote-after-N-passing-evals form (eval-gated promotion) deferred — current auto-promote is straight bypass via settings.
 - Stall detection's `decisionCount` is hard-coded 0 until decision-tracking infrastructure lands.
 - ReviewManager's signal is an inline AbortController never aborted — review forks bound by their own `maxTurns`. Cleanup path TBD.
+
+## 2026-05-06 — Round-1 ad-hoc REPL testing (Phase 13.3 surfaces)
+
+- Scope: Smoke testing Phase 13.3 user-visible surfaces after the main body shipped. 8 manual REPL cases covering `/review list` on a fresh harness, `/review show <id>` with non-existent id, `/review activity`, bare `/review`, `/review unknown-verb`, review proposal lifecycle (approve + reject), consolidate dispatch, and HarnessInfo `tools` section confirming `memory_propose` / `skill_propose` absent from the main pool.
+- Environment: `sov` global binary (master), `~/.harness/` clean state, darwin 25.2.0.
+- Commands: Interactive `sov chat` sessions; no automated run.
+- Manual coverage: All 8 cases pass. Surfaced 3 issues for follow-up: (1) TraceWriter not injecting parent sessionId into child trace events (B1), (2) ReviewManager continuing after `signal.aborted` on session teardown (B4 precursor), (3) `/review activity` crashing on fresh harness with no `sessions` table rows.
+- Result: Core slash-command surface functional. Three follow-up issues filed → A-batch + B-batch work.
+- Regressions / follow-ups: Issues (1)–(3) addressed in commits e08566d (B1), 235130b (B4), and cc334cc (Fix #3). ~$0.21 informational.
+
+## 2026-05-06 — Efficiency batch A1+A2+A3
+
+- Scope: Three efficiency commits on top of Phase 13.3 main body. A1 (commit 5bd9541): throttle `onChildCompletion` — skip trivial child sessions (0 tool calls + 0 user turns) to avoid low-signal review dispatches. A2 (commit ec21277): hard REVIEW_ONLY_TOOLS pool-separation — `memory_propose` / `skill_propose` moved out of `REGISTERED_TOOLS` into a separate `REVIEW_ONLY_TOOLS` export; main agent's pool shrinks by ~530 tokens. A3 (commit ebaaa55): temporal lockout — consecutive back-to-back review dispatches within `minIntervalMs` (default 30s) are dropped without spawning a child.
+- Environment: local master, Bun on darwin.
+- Commands: `bun run lint`, `bun run typecheck`, `bun run test` after each commit. All pass.
+- Manual coverage: A2 verified via `HarnessInfo` tool — main agent tool pool no longer lists `memory_propose` or `skill_propose`. A1 and A3 verified by unit tests in `tests/review/`.
+- Result: ~530 tokens/turn freed from main agent context. Unit suite: 1444+ pass throughout. No regressions in Phase 13.0 / 13.1 / 13.2 surfaces.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Observability batch B1+B3
+
+- Scope: B1 (commit e08566d): inject `childSessionId` into child trace events — TraceWriter now writes `parentSessionId` on session_start so parent-child trace lineage is observable in `sov trace show`. B3 (commit f4676a9): surface auto-review activity in goodbye summary + add `/review activity` slash verb (lists recent review forks from the sessions DB via `listSessions` filtered by `task_type = 'review'`).
+- Environment: local master, Bun on darwin.
+- Commands: `bun run lint`, `bun run typecheck`, `bun run test`. All pass.
+- Manual coverage: B1 verified by reading `sov trace show <session-id>` after a sub-agent delegation — child trace now shows `parentSessionId`. B3 verified by running `/review activity` in a session that had completed review forks — list renders correctly.
+- Result: Trace lineage now end-to-end observable. Unit suite stable.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Hygiene batch B2+B4
+
+- Scope: B2 (commit 9d08cf6): route stock-bundle trajectories to `harnessHome` — `isDefaultBundlePath()` predicate added; when true, trajectory writer redirects to `<harnessHome>/trajectories/` instead of `<bundle>/state/artifacts/trajectories/` (keeps the shipped `bundle-default/state/` directory clean across upgrades). B4 (commit 235130b): cancel in-flight review forks on `session_end` — `ReviewManager.cancelAll()` called before REPL teardown so orphaned child sessions don't accumulate.
+- Environment: local master, Bun on darwin.
+- Commands: `bun run lint`, `bun run typecheck`, `bun run test`. All pass.
+- Manual coverage: B2 verified by checking `<harnessHome>/trajectories/` after a stock-bundle session — trajectory file appears there, not in `bundle-default/state/`. B4 verified by unit test in `tests/review/manager.test.ts` (`cancelAll` clears pending forks).
+- Result: Trajectory location correct; no orphaned review sessions on exit.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Round-2 ad-hoc REPL testing
+
+- Scope: 7 manual REPL cases after A+B batches: confirm `memory_propose` absent from main pool via HarnessInfo, `/review activity` on fresh + non-fresh harness, trace lineage visible in `sov trace show`, temporal lockout observable (second rapid dispatch dropped), stock-bundle trajectory in `harnessHome`, cancellation message on exit with in-flight review, and goodbye summary review-activity line.
+- Environment: `sov` global binary (post-B2 master), darwin 25.2.0.
+- Commands: Interactive `sov chat` sessions.
+- Manual coverage: 6 of 7 pass. 3 new issues surfaced: Fix #1 (TraceWriter not injecting parent sessionId on parent events — distinct from B1 child injection), Fix #2 (ReviewManager continuing past `signal.aborted` on REPL teardown in edge case), Fix #3 (`/review activity` showing phantom rows from in-progress sessions).
+- Result: 3 follow-up fixes queued. ~$0.07 informational.
+- Regressions / follow-ups: Addressed in commit cc334cc (round-2 follow-up batch).
+
+## 2026-05-06 — Round-2 follow-up batch (Fix #1 + #2 + #3)
+
+- Scope: Commit cc334cc. Fix #1: TraceWriter `parentSessionId` injection on parent-session `session_start` events (distinct from B1 which fixed child injection). Fix #2: ReviewManager `onChildCompletion` and `dispatchReview` now check `signal.aborted` before proceeding — prevents stale callbacks from firing after REPL teardown. Fix #3: `/review activity` phantom filter — lists only completed review sessions, not in-progress ones that haven't written a terminal event yet.
+- Environment: local master, Bun on darwin.
+- Commands: `bun run lint`, `bun run typecheck`, `bun run test`. All pass.
+- Manual coverage: 3 cases from round-2 retested and confirmed resolved.
+- Result: No new issues. Unit suite stable.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Round-3 verification (Fix #1 + #2 + #3 live)
+
+- Scope: 3 targeted REPL cases confirming each fix is live in the global binary post-upgrade: parent trace `session_start` shows `parentSessionId` for sub-agent parent, REPL exits cleanly without review callbacks firing after session_end, and `/review activity` shows only terminal sessions.
+- Environment: `sov` global binary (post-cc334cc upgrade), darwin 25.2.0.
+- Commands: Interactive REPL; `sov upgrade` before testing.
+- Manual coverage: All 3 confirm. ~$0.056 informational.
+- Result: Fixes confirmed live.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Semantic test additions (51 → 54)
+
+- Scope: Commit c0d6533. Three new semantic cases added to `tests/semantic/suites/17-review.cases.ts`: `commands.review-activity-empty-on-fresh-bundle` (B3 surface — `/review activity` on a fresh harness; guards against crash on absent sessions table), `commands.review-consolidate-dispatches-or-degrades` (T10 / consolidate verb), and `tools.main-agent-excludes-propose-tools` (A2 pool-separation regression guard — agent uses HarnessInfo to confirm `memory_propose` / `skill_propose` are absent from the live tool pool). Mapping table updated with `src/review/`, `src/commands/reviewOps.ts`, and `bundle-default/agents/review-*.md` rows.
+- Environment: local master, Bun on darwin.
+- Commands: `bun run test:semantic -- --filter review-activity`, `bun run test:semantic -- --filter review-consolidate`, `bun run test:semantic -- --filter main-agent-excludes-propose`. All 3 pass on first shot.
+- Manual coverage: Full-suite run not performed; targeted per-filter runs suffice for additive cases.
+- Result: Suite headline 51 → 54. `docs/semantic-testing.md` updated in same commit.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Phase 13.3 close-out (phantom cleanup + C2 provenance)
+
+- Scope: Commit e516a43. Phantom DB cleanup: removes review-fork session rows that were created but never reached a terminal state (orphaned by cancellation or crash before `session_end`) from the sessions DB on startup via a best-effort sweep. C2 auto-promote provenance preservation: when `review.autoPromoteMemory` or `review.autoPromoteSkills` is set, the auto-promote path now copies the full provenance frontmatter from the pending proposal into the approved file, so the `sessionId` + `traceId` + `sourceHash` chain of custody is intact even for automatically-promoted proposals.
+- Environment: local master, Bun on darwin.
+- Commands: `bun run lint`, `bun run typecheck`, `bun run test`. All pass.
+- Manual coverage: Phantom cleanup verified by unit test. C2 provenance verified by comparing approved-file frontmatter before/after auto-promote.
+- Result: Phase 13.3 closed. Semantic suite 54/54. Unit suite 1490/1490. Lint clean.
+- Regressions / follow-ups: None.
+
+## 2026-05-06 — Documentation audit pass (sync with Phase 13.3 close-out)
+
+- Scope: Comprehensive doc audit + update pass bringing all top-level and `docs/` files in sync with work shipped in commits ec21277 through e516a43 (Phase 13.3 close-out batch). No code changes.
+- Files updated: `CLAUDE.md`, `AGENTS.md`, `README.md`, `DECISIONS.md`, `CHANGELOG.md`, `docs/architecture.md` (new review pipeline section + REVIEW_ONLY_TOOLS description + updated semantic counts), `docs/usage.md` (new `/review` slash command table + `settings.review.*` config block + updated semantic count), `docs/extending.md` (review-* agent special role + REVIEW_ONLY_TOOLS note), `docs/semantic-testing.md` (stale count fixes), `docs/testing-log-2026-04-27.md` (this entry + all prior close-out entries).
+- Environment: local master, darwin 25.2.0.
+- Commands: `bun run lint` — pass (doc-only changes; Biome confirms markdown format clean). No code changes, no test runs needed.
+- Manual coverage: Grep verification of stale counts (1384, 43/43 in non-historical contexts), stale "next targets" lines, "three reference agents" counts. All resolved.
+- Result: All docs in sync with Phase 13.3 close-out state.
+- Regressions / follow-ups: None. `docs/phase-10-5-backlog.md` and `docs/post-phase-10-5-repl-backlog.md` are historical backlog records and intentionally left unchanged.
 - Proposal `parentSessionId` is `null` in v0 — proper child-session lineage threading deferred.

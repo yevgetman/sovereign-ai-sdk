@@ -1,5 +1,52 @@
 # Changelog
 
+## Phase 13.3 — Background review daemon + close-out - 2026-05-06
+
+The Hermes-pattern propose-then-promote learning loop ships as a background daemon. The main body (T1–T14) landed earlier in the day; the close-out batch (commits ec21277–e516a43) follows.
+
+**Main body (T1–T14):**
+
+- **Proposal data model + paths** (`src/review/proposal.ts`, `src/review/paths.ts`). YAML-frontmatter proposal files written to `$HARNESS_HOME/review/pending/{memory,skills}/` with provenance fields: `sessionId`, `traceId`, `sourceHash`, `sourceExcerpt`, `message-range`.
+- **`memory_propose` + `skill_propose` tools** (`src/tools/MemoryProposeTool.ts`, `src/tools/SkillProposeTool.ts`). Review-fork-only tools that file proposals to the pending queue. Full provenance frontmatter on write.
+- **Three review reference agents** in `bundle-default/agents/`: `review-memory` (reads trajectories + memory, files memory proposals), `review-skill` (reads trajectories + skills, files skill proposals), `review-consolidate` (reads pending proposals, files a merged entry). All three carry restricted `allowedTools`.
+- **ReviewManager + runReviewFork** (`src/review/manager.ts`, `src/review/fork.ts`). Counter-driven triggers: memory review every `userTurnsForMemoryReview` turns (default 10), skill review every `toolIterationsForSkillReview` tool iterations (default 50), distillation review every `childReviewEveryN` child completions (default 5). `runReviewFork` augments the parent pool with `REVIEW_ONLY_TOOLS` before delegating to the scheduler.
+- **Turn-loop + REPL wiring** — ReviewManager instantiated per session; session-id guard prevents dispatch before session is established; counters increment in the query loop.
+- **`/review` slash command** (`src/commands/reviewOps.ts`) — `list`, `show <id>`, `approve <id>`, `reject <id>`, `consolidate`, `activity` verbs.
+- **`on_delegation` distillation hook + recursion guard** — scheduler's `onChildCompletion` feeds ReviewManager; recursion guard skips `onChildCompletion` for review-* agents so they don't trigger their own follow-up reviews.
+- **Stall/no-op detection** (`src/review/stall.ts`) — 3-turn sliding window over child output; `stall_detected` trace event emitted when window is clear of decisions or tool calls.
+- **Memory consolidation pass** (`src/review/consolidate.ts` + `review-consolidate` agent) — dispatched by `/review consolidate`; reads pending memory proposals, merges related ones, writes a single combined `memory_propose`.
+- **Per-settings auto-promote opt-in** — `review.autoPromoteMemory`, `review.autoPromoteSkills` in `src/config/schema.ts`. Default: human-gated.
+- **End-to-end integration test** + **semantic tests** (51/51 at T13 close).
+
+**Close-out batch (A1–A3, B1–B4, follow-ups, phantom cleanup, C2):**
+
+- **A1** (5bd9541): throttle `onChildCompletion` — skip trivial children (0 tool calls + 0 user turns).
+- **A2** (ec21277): hard REVIEW_ONLY_TOOLS pool-separation — `memory_propose` / `skill_propose` moved to a separate export, excluded from `REGISTERED_TOOLS`. ~530 tokens freed from main agent context. New semantic case `tools.main-agent-excludes-propose-tools`.
+- **A3** (ebaaa55): temporal lockout — back-to-back dispatches within `minIntervalMs` (default 30s) dropped.
+- **B1** (e08566d): inject `childSessionId` into child trace events via TraceWriter.
+- **B2** (9d08cf6): stock-bundle trajectory routing to `harnessHome` via `isDefaultBundlePath()`.
+- **B3** (f4676a9): surface review activity in goodbye summary + `/review activity` verb.
+- **B4** (235130b): cancel in-flight reviews on `session_end` via `ReviewManager.cancelAll()`.
+- **Round-2 follow-ups** (cc334cc): Fix #1 TraceWriter parent sessionId injection on parent events; Fix #2 ReviewManager signal-aborted guards; Fix #3 `/review activity` phantom filter (completed sessions only).
+- **Semantic additions** (c0d6533): 3 new cases — `review-activity-empty-on-fresh-bundle`, `review-consolidate-dispatches-or-degrades`, `main-agent-excludes-propose-tools`. Suite 51 → 54.
+- **Close-out** (e516a43): phantom DB cleanup sweep on startup; C2 auto-promote provenance preservation (approved files carry full `sessionId` + `traceId` + `sourceHash` chain of custody).
+
+Tests: semantic suite 54/54; unit suite 1490/1490. Lint clean.
+
+Design choices (see `DECISIONS.md` Phase 13.3 section): REVIEW_ONLY_TOOLS hard enforcement, throttle strategy, soft vs. hard allowedTools enforcement, phantom row defense-in-depth, trajectory location split.
+
+## Phase 13.2 — Task system for parallel workers - 2026-05-06
+
+Fire-and-forget sub-agent dispatch with persistence and lifecycle control. The model invokes `task_create` (returns a task id immediately), observes via `task_list` / `task_get` / `task_output`, and cancels via `task_stop`. The `/tasks [all|show <id>|stop <id>]` slash command renders the same lifecycle from the user's perspective.
+
+- **Schema v4** — `tasks` table added to `sessions.db` alongside `sessions`. `TaskStore` shares the `SessionDb` handle (no second DB file).
+- **`TaskManager`** (`src/tasks/manager.ts`) — wraps `SubagentScheduler` with fire-and-forget delegation. Terminal-reason → `TaskState` mapping: `interrupted` splits into `cancelled` (when `userAborted`) vs `timed_out`; `completed` and `max_turns` both map to `completed`. Controllers map tracks abort controllers per task.
+- **Five tools**: `task_create`, `task_list`, `task_get`, `task_stop`, `task_output`. All registered in `assembleToolPool()`; `subagent_type` enum patching generalized across `AgentTool` + `task_create`.
+- **`task_stop`** added to `SUBAGENT_EXCLUDED_TOOLS` so children cannot cancel the parent's tasks.
+- **`/tasks` slash command** (`src/commands/taskOps.ts`) — `all`, `show <id>`, `stop <id>` verbs.
+
+Tests: 4 new semantic cases (create/list/get/stop lifecycle); unit suite 1384/1384 at close.
+
 ## Phase 13 — Sub-agent runtime + AgentTool - 2026-05-05
 
 The model can now delegate focused work to bounded specialized agents that run as their own sessions, return concise summaries, and feed the parent's memory via the `on_delegation` hook. Three reference agents ship in `bundle-default/agents/`: `explore` (read-only codebase mapping), `verify` (independent claim checking), `plan` (implementation planning).

@@ -378,7 +378,7 @@ The trajectory directory is tier-3 per-installation state (Invariant #9). Phase 
 
 ## Sub-Agent Runtime
 
-Phase 13 introduces agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`, `<harness-home>/agents/`, or `<cwd>/.harness/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary plus the child session id. Three reference agents ship in `bundle-default/agents/`: `explore` (read-only codebase mapping), `verify` (independent claim checking), and `plan` (implementation planning).
+Phase 13 introduces agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`, `<harness-home>/agents/`, or `<cwd>/.harness/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary plus the child session id. Six reference agents ship in `bundle-default/agents/`: `explore` (read-only codebase mapping), `verify` (independent claim checking), and `plan` (implementation planning) from Phase 13; `review-memory`, `review-skill`, and `review-consolidate` (review-only, restricted toolsets) from Phase 13.3.
 
 **Loader (`src/agents/loader.ts`).** Same pattern as `src/skills/loader.ts`: scans three roots in priority order (project `.harness/agents/` → user `<harness-home>/agents/` → bundle `<bundle>/agents/`), parses markdown + YAML frontmatter, dedupes by realpath (collapses symlinks) and by name (project beats user beats bundle on collisions). Returns `AgentRegistry` (`{ agents: AgentDefinition[]; byName: Map<string, AgentDefinition> }`) which lands in `ToolContext.agents`. v0 trust tiers are `'builtin'` (bundle) and `'trusted'` (project + user); a guard scanner is deferred until a `'community'` tier exists.
 
@@ -449,13 +449,48 @@ A second test category lives under `tests/semantic/`, separate from the unit/int
 
 **Verdict shape.** The judge returns `{pass, reasoning, satisfiedCriteria, failedCriteria, costUsd, tokens, backend}`. The reporter shows `subscription` for `claude-code` zero-cost results and a dollar figure (informational under subscription) when the envelope reports one.
 
-**Coverage.** 43 tests spanning 9 tool-dispatch cases (including the Phase 12.5 envelope-recovery case), 6 slash-command dispatch paths (including `/context-budget`), 6 permission cases (including the highest-stakes virtual-tool-name mapping, layer-precedence invariant, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case (Phase 10.6 — verifies `--provider router` resolves both lanes and the per-turn route-decision banner is observable), 1 secret-redaction case, 1 `/security-audit` skill case, 2 sub-agents cases (Phase 13 — registry discoverability + live end-to-end delegation), and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
+**Coverage.** 54 tests spanning 10 tool-dispatch cases (including the Phase 12.5 envelope-recovery case and the Phase 13.3 A2 pool-separation guard), 6 slash-command dispatch paths (including `/context-budget` and the Phase 13.3 `/review` verbs), 6 permission cases (including the highest-stakes virtual-tool-name mapping, layer-precedence invariant, and the `mcp__server` server-prefix denial), 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/HarnessInfo case, 1 router case, 1 secret-redaction case, 1 `/security-audit` skill case, 2 sub-agents cases (Phase 13 — registry discoverability + live end-to-end delegation), 4 task-system cases (Phase 13.2 — create/list/get/stop lifecycle), 6 review-system cases (Phase 13.3 — `/review` list/show/consolidate/activity/unknown-verb/bare-call), and 6 workflow cases including end-to-end `/compact` and `/rollback`. See [`docs/semantic-testing.md`](./semantic-testing.md) for the full inventory with bug-class breakdown per test, and [`tests/semantic/README.md`](../tests/semantic/README.md) for the developer-facing design and porting guide.
+
+## Review Pipeline
+
+Phase 13.3 ships the Hermes-pattern propose-then-promote learning loop as a background daemon:
+
+**ReviewManager** (`src/review/manager.ts`) owns the counter-driven trigger logic. After each user turn it increments a turn counter; after each orchestrator tool-iteration round it increments a tool counter. When the turn counter reaches `userTurnsForMemoryReview` (default 10), a memory review fork is dispatched; when the tool counter reaches `toolIterationsForSkillReview` (default 50), a skill review fork is dispatched. The `on_delegation` hook fires a distillation review whenever a sub-agent completes (every `childReviewEveryN` completions, default 5). A temporal lockout (`minIntervalMs`, default 30s) prevents back-to-back dispatches.
+
+**runReviewFork** (`src/review/fork.ts`) builds a review child session. It takes the parent's tool pool and augments it with `REVIEW_ONLY_TOOLS` (`memory_propose` and `skill_propose` — never in the main agent's pool) before passing the augmented pool to `SubagentScheduler.delegate()`. The scheduler's `filterToolsForChild` then intersects with the review agent's `allowedTools`, so only the correct propose tool reaches each agent.
+
+**Review reference agents** (`bundle-default/agents/review-*.md`) — three agents with restricted toolsets: `review-memory` (reads trajectories + memory, calls `memory_propose`), `review-skill` (reads trajectories + skills, calls `skill_propose`), `review-consolidate` (reads pending proposals, calls `memory_propose` to write the merged entry). All three are excluded from recursive spawning; the scheduler's recursion guard skips `onChildCompletion` for review-* agents.
+
+**Propose tools** — `memory_propose` and `skill_propose` write YAML-frontmatter proposal files to `$HARNESS_HOME/review/pending/{memory,skills}/` with full provenance: `sessionId`, `traceId`, `sourceHash`, `sourceExcerpt`, `message-range`. Proposals sit in `pending/` until the user approves (`/review approve <id>`), rejects (`/review reject <id>`), or the system auto-promotes them when `review.autoPromoteMemory` / `review.autoPromoteSkills` is set to `true` in settings.
+
+**Pool separation (REVIEW_ONLY_TOOLS).** `memory_propose` and `skill_propose` are exported separately from `REGISTERED_TOOLS` in `src/tool/registry.ts` and are never added to `assembleToolPool()`'s output. They appear only in the augmented pool that `runReviewFork` builds for review children. This hard enforcement at the pool level (~530 tokens freed from the main agent's context) is stronger than description-based "review-only" hints. The `tools.main-agent-excludes-propose-tools` semantic test guards against regression.
+
+**Stall detection** (`src/review/stall.ts`) runs a 3-turn sliding window over the child's output. If no decisions or tool calls appear in three consecutive turns, it emits a `stall_detected` trace event. The ReviewManager monitors for stalls and can abort the child early.
+
+**`/review` slash command** (`src/commands/reviewOps.ts`) exposes the lifecycle: `list` (pending proposals), `show <id>` (full proposal body), `approve <id>` (move to approved/), `reject <id>` (move to rejected/), `consolidate` (dispatch a consolidation fork), `activity` (recent review forks from the sessions DB). Bare `/review` is equivalent to `/review list`.
+
+**Trajectory routing (B2).** `isDefaultBundlePath()` (`src/bundle/defaultBundle.ts`) detects stock-bundle sessions and routes their trajectories to `<harnessHome>/trajectories/` instead of `<bundle>/state/artifacts/trajectories/`, keeping the shipped `bundle-default/state/` directory clean.
+
+**Session-end cleanup (B4).** `ReviewManager.cancelAll()` is called on `session_end` to abort any in-flight review forks. This prevents orphaned child sessions after the REPL exits.
+
+**Per-settings configuration.** Seven fields under `review` in `~/.harness/config.json` (or any settings layer):
+
+| Field | Default | Purpose |
+|---|---|---|
+| `autoPromoteMemory` | `false` | Auto-approve memory proposals without human review |
+| `autoPromoteSkills` | `false` | Auto-approve skill proposals without human review |
+| `userTurnsForMemoryReview` | `10` | Trigger a memory review every N user turns |
+| `toolIterationsForSkillReview` | `50` | Trigger a skill review every M tool iterations |
+| `childReviewEveryN` | `5` | Trigger a distillation review every N child completions |
+| `minIntervalMs` | `30000` | Minimum milliseconds between review dispatches |
+| `disabled` | `false` | Disable all auto-review triggers |
 
 ## Extension Surfaces
 
 The primary extension surfaces are:
 
 - `src/tools/` and `src/tool/` for native tools (including `virtualToolName` for cross-tool permission mapping and the optional `ToolObservation` envelope on results)
+- `src/tool/registry.ts` for the `REGISTERED_TOOLS` main pool and the `REVIEW_ONLY_TOOLS` separate set (tools injected only into review forks)
 - `src/providers/` for model providers
 - `src/commands/` for slash commands
 - `src/skills/` for markdown skills and skill discovery
@@ -469,6 +504,6 @@ The primary extension surfaces are:
 - `src/agent/sessionDb.ts` for schema migrations
 - `src/agents/` for agent definitions (loader + types + global exclusion set) and `src/runtime/` for the sub-agent runtime (AgentRunner, scheduler, semaphores)
 - `src/router/capabilities.ts` for the per-model capability profile table (consumed by the router classifier and the sub-agent role resolver)
-- future `src/review/` phase landing zone (Phase 13.3 background review daemon)
+- `src/review/` for the background review pipeline (ReviewManager, runReviewFork, ProposalStore, consolidation, stall detection)
 
 See `docs/extending.md` for concrete recipes.
