@@ -5,10 +5,11 @@
 // (later in Phase 13.3) copies SKILL.md to skills/agent-created/<name>/.
 // Excluded from SUBAGENT_EXCLUDED_TOOLS so review forks cannot recurse.
 
-import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
+import { hashSource, newProposalId } from '../review/idHelpers.js';
 import { ensureReviewDirs, skillProposalDir } from '../review/paths.js';
 import { type SkillProposalMeta, serializeSkillProposalMeta } from '../review/proposal.js';
 import { buildTool } from '../tool/buildTool.js';
@@ -33,27 +34,13 @@ export interface SkillProposeOutput {
   path: string;
 }
 
-function newProposalId(): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return `${date}-${randomBytes(4).toString('hex')}`;
-}
-
-function hashSource(excerpt: string, range: readonly [number, number]): string {
-  const h = createHash('sha256');
-  h.update(`${range[0]}:${range[1]}:${excerpt}`);
-  return `sha256:${h.digest('hex')}`;
-}
-
 function buildSkillFile(input: SkillProposeInput): string {
-  const fm = [
-    '---',
-    `name: ${input.skillName}`,
-    `description: ${input.description}`,
-    `whenToUse: ${input.whenToUse}`,
-    '---',
-    '',
-  ].join('\n');
-  return fm + input.body;
+  const frontmatter = stringifyYaml({
+    name: input.skillName,
+    description: input.description,
+    whenToUse: input.whenToUse,
+  });
+  return `---\n${frontmatter}---\n${input.body}`;
 }
 
 export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>({

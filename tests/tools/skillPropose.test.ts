@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { parseSkillProposalMeta } from '../../src/review/proposal.js';
 import type { ToolContext, ToolResult } from '../../src/tool/types.js';
 import { type SkillProposeOutput, SkillProposeTool } from '../../src/tools/SkillProposeTool.js';
@@ -90,5 +91,30 @@ describe('skill_propose tool', () => {
         badCtx,
       ),
     ).rejects.toThrow(/harnessHome/);
+  });
+
+  test('SKILL.md frontmatter survives the skill-loader YAML round-trip with tricky inputs', async () => {
+    const result = (await SkillProposeTool.call(
+      {
+        skillName: 'tricky-skill',
+        description: 'Two-phase: rename and backfill',
+        whenToUse: 'Step 1\nStep 2',
+        body: 'body',
+        sourceMessageRange: [0, 1],
+        sourceExcerpt: 'x',
+        traceId: 't',
+      },
+      makeCtx(home),
+    )) as ToolResult<SkillProposeOutput>;
+
+    const id = result.data.proposalId;
+    const skillPath = join(home, 'review', 'pending', 'skills', id, 'SKILL.md');
+    const raw = readFileSync(skillPath, 'utf-8');
+    const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+    expect(match).not.toBeNull();
+    const parsed = parseYaml(match?.[1] ?? '') as Record<string, string>;
+    expect(parsed.name).toBe('tricky-skill');
+    expect(parsed.description).toBe('Two-phase: rename and backfill');
+    expect(parsed.whenToUse).toBe('Step 1\nStep 2');
   });
 });

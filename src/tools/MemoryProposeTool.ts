@@ -4,10 +4,10 @@
 // USER.md. Excluded from SUBAGENT_EXCLUDED_TOOLS so review forks cannot
 // recurse.
 
-import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
+import { hashSource, newProposalId } from '../review/idHelpers.js';
 import { ensureReviewDirs, proposalPath } from '../review/paths.js';
 import { type MemoryProposal, serializeMemoryProposal } from '../review/proposal.js';
 import { buildTool } from '../tool/buildTool.js';
@@ -27,17 +27,6 @@ export type MemoryProposeInput = z.infer<typeof MemoryProposeInputSchema>;
 export interface MemoryProposeOutput {
   proposalId: string;
   path: string;
-}
-
-function newProposalId(): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return `${date}-${randomBytes(4).toString('hex')}`;
-}
-
-function hashSource(excerpt: string, range: readonly [number, number]): string {
-  const h = createHash('sha256');
-  h.update(`${range[0]}:${range[1]}:${excerpt}`);
-  return `sha256:${h.digest('hex')}`;
 }
 
 export const MemoryProposeTool = buildTool<MemoryProposeInput, MemoryProposeOutput>({
