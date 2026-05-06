@@ -24,6 +24,7 @@ import { FileWriteTool } from '../tools/FileWriteTool.js';
 import { GlobTool } from '../tools/GlobTool.js';
 import { GrepTool } from '../tools/GrepTool.js';
 import { type HarnessInfoSnapshot, buildHarnessInfoTool } from '../tools/HarnessInfoTool.js';
+import { MemoryProposeTool } from '../tools/MemoryProposeTool.js';
 import { MemoryTool } from '../tools/MemoryTool.js';
 import { SkillManageTool } from '../tools/SkillManageTool.js';
 import { SkillTool } from '../tools/SkillTool.js';
@@ -48,6 +49,7 @@ const REGISTERED_TOOLS = [
   GrepTool,
   GlobTool,
   MemoryTool,
+  MemoryProposeTool,
   SkillsListTool,
   SkillsViewTool,
   SkillManageTool,
