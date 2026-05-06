@@ -55,6 +55,9 @@ export type CommandContext = {
   /** Phase 13.3 — review manager. Exposed so /review slash command and
    *  propose tools can interact with the review system. */
   reviewManager?: import('../review/manager.js').ReviewManager;
+  /** Phase 13.3 — harness-home root for review/* paths. /review reads this
+   *  to locate $HARNESS_HOME/review/pending|approved|rejected/. */
+  harnessHome?: string;
   /** Phase 12.6: per-component context-window audit. Backs the
    *  `/context-budget` command. */
   getBudgetReport: () => BudgetReport;

@@ -878,6 +878,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     skills,
     ...(taskManager !== undefined ? { taskManager } : {}),
     ...(reviewManager !== undefined ? { reviewManager } : {}),
+    harnessHome,
     getLastAssistantText: () => extractLastAssistantText(history),
     getMessages: () => [...history],
     getPermissions: () => ({
