@@ -474,6 +474,43 @@ describe('ReviewManager getDispatchSummary (B3)', () => {
   });
 });
 
+describe('ReviewManager abort signal (B4 follow-up)', () => {
+  test('all triggers no-op when signal is aborted', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const ac = new AbortController();
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: ac.signal,
+      thresholds: {
+        userTurnsForMemoryReview: 1,
+        toolIterationsForSkillReview: 1,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    ac.abort();
+
+    mgr.onUserTurn('p');
+    mgr.onToolIteration('p');
+    mgr.onChildCompletion({
+      childSessionId: 'c',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    mgr.runConsolidationPass('/tmp');
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(calls.length).toBe(0);
+    expect(mgr.getDispatchSummary().totalDispatched).toBe(0);
+  });
+});
+
 describe('ReviewManager triggers', () => {
   test('foreign sessionId is no-op (sub-agent tool calls do not increment counters)', async () => {
     const calls: Array<Record<string, unknown>> = [];

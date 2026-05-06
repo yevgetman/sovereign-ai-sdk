@@ -236,6 +236,8 @@ describe('/review activity', () => {
           parentSessionId: 'other',
           title: 'subagent:review-memory',
           lastUpdated: 1762400000,
+          totalTokens: 1000,
+          msgCount: 3,
         },
         // matches: review-memory child of our parent
         {
@@ -243,6 +245,8 @@ describe('/review activity', () => {
           parentSessionId: 'parent-1',
           title: 'subagent:review-memory',
           lastUpdated: 1762400100,
+          totalTokens: 1000,
+          msgCount: 3,
         },
         // matches: review-skill child of our parent
         {
@@ -250,6 +254,8 @@ describe('/review activity', () => {
           parentSessionId: 'parent-1',
           title: 'subagent:review-skill',
           lastUpdated: 1762400200,
+          totalTokens: 1000,
+          msgCount: 3,
         },
         // not a review fork — explore child
         {
@@ -257,6 +263,8 @@ describe('/review activity', () => {
           parentSessionId: 'parent-1',
           title: 'subagent:explore',
           lastUpdated: 1762400300,
+          totalTokens: 1000,
+          msgCount: 3,
         },
       ],
     } as unknown as CommandContext;
@@ -277,17 +285,75 @@ describe('/review activity', () => {
           parentSessionId: 'parent-1',
           title: 'subagent:review-memory',
           lastUpdated: 1762400100,
+          totalTokens: 1000,
+          msgCount: 3,
         },
         {
           sessionId: 'rm-b',
           parentSessionId: 'parent-1',
           title: 'subagent:review-consolidate',
           lastUpdated: 1762400200,
+          totalTokens: 1000,
+          msgCount: 3,
         },
       ],
     } as unknown as CommandContext;
     const out = strip(await reviewCmd.call('activity', ctx));
     expect(out).toContain('2 review session(s)');
+  });
+
+  test('excludes phantom rows (zero tokens AND zero messages)', async () => {
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => [
+        // productive review-memory child
+        {
+          sessionId: 'rm-real',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-memory',
+          lastUpdated: 1762400100,
+          totalTokens: 1500,
+          msgCount: 4,
+        },
+        // phantom — got cancelled before streaming
+        {
+          sessionId: 'rm-phantom',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-memory',
+          lastUpdated: 1762400200,
+          totalTokens: 0,
+          msgCount: 0,
+        },
+      ],
+    } as unknown as CommandContext;
+
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(out).toContain('rm-real');
+    expect(out).not.toContain('rm-phantom');
+    expect(out).toMatch(/1 review session/);
+    expect(out).toContain('+1 phantom');
+  });
+
+  test('returns honest message when all rows are phantoms', async () => {
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => [
+        {
+          sessionId: 'rm-1',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-memory',
+          lastUpdated: 1762400100,
+          totalTokens: 0,
+          msgCount: 0,
+        },
+      ],
+    } as unknown as CommandContext;
+
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(out.toLowerCase()).toContain('no productive');
+    expect(out).toContain('1 phantom row');
   });
 });
 

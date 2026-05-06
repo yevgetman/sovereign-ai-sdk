@@ -35,6 +35,7 @@ export type TraceWriterOpts = {
 export class TraceWriter {
   readonly path: string;
   private readonly log: ((message: string) => void) | undefined;
+  private readonly sessionId: string;
   /** Sequential write chain so concurrent `record()` calls land in order. */
   private writeChain: Promise<void> = Promise.resolve();
   private closed = false;
@@ -44,6 +45,7 @@ export class TraceWriter {
   constructor(opts: TraceWriterOpts) {
     this.path = resolvePath(opts);
     this.log = opts.log;
+    this.sessionId = opts.sessionId;
   }
 
   /** Queue a redacted JSON-line append. Returns immediately; failures are
@@ -51,7 +53,14 @@ export class TraceWriter {
    *  on a stuck disk. */
   record(event: TraceEvent): void {
     if (this.closed) return;
-    const line = `${redact(JSON.stringify(event))}\n`;
+    // Phase 13.3 follow-up — inject sessionId on events that don't carry
+    // one so the consolidated trace remains programmatically filterable.
+    // The B1 child-recorder wrapper already injects childSessionId; this
+    // only fills in parent events that omit the field.
+    const tagged = (event as { sessionId?: string | null }).sessionId
+      ? event
+      : ({ ...event, sessionId: this.sessionId } as TraceEvent);
+    const line = `${redact(JSON.stringify(tagged))}\n`;
     this.writeChain = this.writeChain.then(async () => {
       try {
         if (!existsSync(this.path)) {

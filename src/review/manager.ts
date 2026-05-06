@@ -90,6 +90,7 @@ export class ReviewManager {
 
   onUserTurn(callerSessionId: string): void {
     if (!this.enabled) return;
+    if (this.signal.aborted) return;
     if (callerSessionId !== this.sessionId) return;
     this.userTurnsSince += 1;
     if (this.userTurnsSince >= this.thresholds.userTurnsForMemoryReview) {
@@ -100,6 +101,7 @@ export class ReviewManager {
 
   onToolIteration(callerSessionId: string): void {
     if (!this.enabled) return;
+    if (this.signal.aborted) return;
     if (callerSessionId !== this.sessionId) return;
     this.toolIterationsSince += 1;
     if (this.toolIterationsSince >= this.thresholds.toolIterationsForSkillReview) {
@@ -110,6 +112,7 @@ export class ReviewManager {
 
   onChildCompletion(evt: ChildCompletionEvent): void {
     if (!this.enabled) return;
+    if (this.signal.aborted) return;
 
     // Trivial-skip: a child that produced almost nothing has no learnable
     // signal. Only kick in when caller provided both metrics; absent metrics
@@ -134,6 +137,7 @@ export class ReviewManager {
   /** Fire-and-forget consolidation pass. Used by /review consolidate. */
   runConsolidationPass(harnessHome: string): void {
     if (!this.enabled) return;
+    if (this.signal.aborted) return;
     this.dispatchCounts.set(
       'review-consolidate',
       (this.dispatchCounts.get('review-consolidate') ?? 0) + 1,
@@ -163,6 +167,7 @@ export class ReviewManager {
 
   /** Dispatch a one-shot review pass for the given agent. Fire-and-forget. */
   private dispatch(agentName: ReviewAgentName): void {
+    if (this.signal.aborted) return;
     // Phase 13.3 (A3) — temporal lockout. If we dispatched the same agent
     // type within minIntervalMs, skip silently. Prevents back-to-back
     // re-reads of nearly-identical trajectory content (e.g., two

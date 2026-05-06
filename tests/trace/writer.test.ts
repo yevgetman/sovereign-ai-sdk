@@ -135,6 +135,47 @@ describe('TraceWriter', () => {
   });
 });
 
+describe('TraceWriter sessionId injection', () => {
+  test('injects bound sessionId when event has none', async () => {
+    const writer = new TraceWriter({ sessionId: 'parent-1', harnessHome: home });
+    writer.record({
+      type: 'turn_start',
+      turn: 0,
+      iso: '2026-05-06T00:00:00Z',
+    } as unknown as TraceEvent);
+    await writer.close();
+    const lines = readFileSync(writer.path, 'utf-8').trim().split('\n');
+    const parsed = JSON.parse(lines[0] ?? '{}');
+    expect(parsed.sessionId).toBe('parent-1');
+  });
+
+  test('preserves existing sessionId (e.g. child-injected) when present', async () => {
+    const writer = new TraceWriter({ sessionId: 'parent-1', harnessHome: home });
+    writer.record({
+      type: 'turn_start',
+      turn: 0,
+      iso: '2026-05-06T00:00:01Z',
+      sessionId: 'child-7',
+    } as unknown as TraceEvent);
+    await writer.close();
+    const parsed = JSON.parse(readFileSync(writer.path, 'utf-8').trim());
+    expect(parsed.sessionId).toBe('child-7'); // not overwritten
+  });
+
+  test('does not preserve null sessionId — treated as missing and replaced', async () => {
+    const writer = new TraceWriter({ sessionId: 'parent-2', harnessHome: home });
+    writer.record({
+      type: 'turn_start',
+      turn: 0,
+      iso: '2026-05-06T00:00:02Z',
+      sessionId: null,
+    } as unknown as TraceEvent);
+    await writer.close();
+    const parsed = JSON.parse(readFileSync(writer.path, 'utf-8').trim());
+    expect(parsed.sessionId).toBe('parent-2');
+  });
+});
+
 describe('findTracePath', () => {
   test('returns the path when the file exists', async () => {
     const writer = new TraceWriter({ sessionId: 'found', harnessHome: home });

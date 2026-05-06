@@ -230,22 +230,39 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     // (set by terminalRepl.ts createChildSession). Filter to review-* agents.
     const parentSessionId = ctx.sessionId;
     const sessions = ctx.listSessions(50);
-    const reviewChildren = sessions
-      .filter((s) => s.parentSessionId === parentSessionId)
-      .filter((s) => /^subagent:review-/.test(s.title ?? ''))
-      .slice(0, 10);
 
-    if (reviewChildren.length === 0) {
+    const reviewChildrenAll = sessions
+      .filter((s) => s.parentSessionId === parentSessionId)
+      .filter((s) => /^subagent:review-/.test(s.title ?? ''));
+
+    // Phase 13.3 follow-up — filter phantoms: rows with no tokens AND no
+    // messages came from dispatches that aborted before the AgentRunner
+    // streamed anything. They survived the cancellation only as DB rows.
+    const productive = reviewChildrenAll.filter(
+      (s) => (s.totalTokens ?? 0) > 0 || (s.msgCount ?? 0) > 0,
+    );
+    const phantomCount = reviewChildrenAll.length - productive.length;
+
+    if (productive.length === 0) {
+      if (phantomCount > 0) {
+        return chalk.dim(
+          `no productive review sessions for this parent (${phantomCount} phantom row${phantomCount === 1 ? '' : 's'} from cancelled dispatches)`,
+        );
+      }
       return chalk.dim('no review-fork sessions for this parent yet');
     }
 
-    const lines = reviewChildren.map((s) => {
+    const lines = productive.slice(0, 10).map((s) => {
       const id = s.sessionId.slice(0, 8);
-      const agentLabel = (s.title ?? 'subagent:?').replace(/^subagent:review-/, '').slice(0, 13);
+      const agent = (s.title ?? '?').replace(/^subagent:review-/, '');
       const time = new Date(s.lastUpdated * 1000).toISOString().replace('T', ' ').slice(0, 19);
-      return `  ${chalk.dim(id)}  ${chalk.cyan(agentLabel.padEnd(13))}  ${chalk.gray(time)}`;
+      return `  ${chalk.dim(id)}  ${chalk.cyan(agent.padEnd(13))}  ${chalk.gray(time)}`;
     });
-    return [chalk.bold(`${reviewChildren.length} review session(s)`), ...lines].join('\n');
+    const header =
+      phantomCount > 0
+        ? `${productive.length} review session(s) ${chalk.dim(`(+${phantomCount} phantom)`)}`
+        : `${productive.length} review session(s)`;
+    return [chalk.bold(header), ...lines].join('\n');
   }
 
   return chalk.yellow(USAGE);
