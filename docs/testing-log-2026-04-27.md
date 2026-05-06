@@ -1684,3 +1684,23 @@ Implementation backlogs from these findings live in
   - No regressions.
   - Out of scope: redaction in agent chat narration (the redactor acts on Write/Edit/NotebookEdit input only; chat-narration discipline is the `/security-audit` skill's job and lacks a structural backstop); Bash-command secret scrubbing (would require shell parsing; the original failure went through Write, which is covered).
   - Generic high-entropy detection deliberately not added (false-positive risk on real code is high; vendor-prefix patterns are tight enough for the common cases). Adding a new pattern is a single entry in `PATTERNS` in `secretRedactor.ts`.
+
+## 2026-05-06 — Phase 13.2 task system
+
+**Scope:** end-to-end task lifecycle (task_create / task_list / task_get / task_stop / task_output + /tasks slash command).
+
+**Environment:** local, master, fresh `bun install`.
+
+**Commands run:**
+- `bun run lint` — pass
+- `bun run typecheck` — pass
+- `bun run test` — pass
+
+**Manual coverage:** REPL smoke test recommended (`bun run sov chat`, `/tasks` should report no active tasks; `/help` should list /tasks under "session"). Optional given unit + integration coverage.
+
+**Result:** Phase 13.2 closed. Tasks persist in `tasks` table (schema v4); manager's fire-and-forget delegation maps terminal.reason to TaskState; cooperative cancellation transitions running tasks to 'cancelled' once the scheduler unwinds.
+
+**Regressions / follow-ups:**
+- The scheduler's per-parent child cap is best-effort under concurrent delegate() calls — known v0 limit, ownership belongs to Phase 13's scheduler atomicity (not 13.2).
+- TaskManager's controllers map never shrinks — known leak class flagged during T3 review; suitable for a small follow-up commit.
+- task_wait (await a task to terminal) not in scope; model can poll task_get in a tool batch if needed.
