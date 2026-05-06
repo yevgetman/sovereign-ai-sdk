@@ -143,6 +143,8 @@ function renderEvent(event: TraceEvent): string | null {
       return `interrupt at ${event.stage}`;
     case 'loop_detected':
       return `loop_detected (${event.detector}, ${event.repetitionCount}x; hash=${event.hash.slice(0, 12)}…)`;
+    case 'stall_detected':
+      return `stall_detected (turn=${event.turn}, reason="${event.reason}")`;
     case 'session_end':
       return `session_end: ${event.reason}`;
     case 'session_start':
