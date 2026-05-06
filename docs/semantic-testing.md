@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (47/47 pass)
+## Coverage inventory (51/51 pass)
 
 The full suite runs in ~10 minutes and costs ~$2.20 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -166,6 +166,17 @@ Phase 13.2 ships fire-and-forget sub-agent dispatch: the model invokes `task_cre
 | `tools.tasks-stop-cancels-running-task` | task_stop missing from the parent tool pool (it's correctly excluded from sub-agents but must be present for the parent), the abort signal not propagating from the controller to the scheduler, or the manager not surfacing cancellation in subsequent task_get calls |
 | `tools.tasks-unknown-subagent-type-errors-clearly` | task_create silently dropping unknown subagent_type calls or returning a fake task id; the schema-enum patch from `patchSchemasAgainstAvailable()` regressing; the tool-body defense-in-depth check missing |
 
+### Review system — 4 tests
+
+Phase 13.3 ships the `/review` slash command and the `memory_propose` / `skill_propose` tools. Unit + integration tests cover the ReviewManager, ProposalStore, and consolidation agent deterministically; these end-to-end tests cover the model-facing slash-command surface: does the model invoke the verbs correctly, and does the runtime surface meaningful errors on misuse. Auto-review forks (counter-driven internal dispatches) are not exercised here — they are not reachable via model-driven prompts and are covered by `tests/review/integration.test.ts`.
+
+| ID | Guards against |
+|---|---|
+| `commands.review-list-empty-on-fresh-bundle` | /review erroring on the absent review/ directory on a fresh harness; model fabricating proposals that don't exist |
+| `commands.review-show-nonexistent-id-errors-clearly` | Slash command swallowing a missing-id condition silently; model fabricating a proposal body for a non-existent id |
+| `commands.review-consolidate-dispatches-or-degrades` | /review consolidate throwing an unhandled stack trace when ReviewManager is absent; model falsely claiming consolidation produced concrete merged proposals |
+| `commands.review-unknown-verb-returns-usage` | Usage hint missing for unrecognized verbs; slash command silently treating unknown verb as the default (list) |
+
 ### Security-audit skill — 1 test
 
 The `/security-audit` skill (in `bundle-default/skills/`) provides threat-model scaffolding (actors → assets → exposure paths) and a per-finding verification gate to make a weaker model produce a defensible security audit. The skill prompt has hard rules: no fan-fiction, no platform mismatch (uname/sw_vers/etc/os-release first), no live secrets in artifacts, cite the verification command for every finding.
@@ -289,6 +300,9 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/tools/TaskCreateTool.ts`, `src/tools/TaskListTool.ts`, `src/tools/TaskGetTool.ts`, `src/tools/TaskOutputTool.ts`, `src/tools/TaskStopTool.ts` | `--filter tasks` |
 | `src/tasks/manager.ts`, `src/tasks/store.ts`, `src/tasks/types.ts` | `--filter tasks` |
 | `src/commands/taskOps.ts` (`/tasks` slash command) | `--filter tasks` |
+| `src/review/` | `bun run test:semantic -- --filter review` |
+| `src/commands/reviewOps.ts` | `bun run test:semantic -- --filter review` |
+| `bundle-default/agents/review-*.md` | `bun run test:semantic -- --filter review` |
 | `src/permissions/secretRedactor.ts` | `--filter redaction` |
 | `src/permissions/inputTransformer.ts` | `--filter redaction` |
 | `src/permissions/redactSecretsTransformer.ts` | `--filter redaction` |
