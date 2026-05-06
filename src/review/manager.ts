@@ -62,6 +62,8 @@ export class ReviewManager {
   private toolIterationsSince = 0;
   private childCompletionsSince = 0;
   private lastDispatchAtMs: Map<ReviewAgentName, number> = new Map();
+  /** Phase 13.3 (B3) — per-agent dispatch counts for the goodbye summary. */
+  private dispatchCounts: Map<ReviewAgentName | 'review-consolidate', number> = new Map();
   private readonly scheduler: SubagentScheduler;
   private readonly sessionId: string;
   private readonly signal: AbortSignal;
@@ -132,6 +134,10 @@ export class ReviewManager {
   /** Fire-and-forget consolidation pass. Used by /review consolidate. */
   runConsolidationPass(harnessHome: string): void {
     if (!this.enabled) return;
+    this.dispatchCounts.set(
+      'review-consolidate',
+      (this.dispatchCounts.get('review-consolidate') ?? 0) + 1,
+    );
     void runConsolidation({
       scheduler: this.scheduler,
       parentSessionId: this.sessionId,
@@ -141,6 +147,18 @@ export class ReviewManager {
       parentToolContext: this.parentToolContext,
       ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
     });
+  }
+
+  /** Phase 13.3 (B3) — session-end summary. Returns total dispatches and
+   *  a per-agent breakdown for the goodbye card. */
+  getDispatchSummary(): { totalDispatched: number; byAgent: Record<string, number> } {
+    const byAgent: Record<string, number> = {};
+    let totalDispatched = 0;
+    for (const [agent, count] of this.dispatchCounts) {
+      byAgent[agent] = count;
+      totalDispatched += count;
+    }
+    return { totalDispatched, byAgent };
   }
 
   /** Dispatch a one-shot review pass for the given agent. Fire-and-forget. */
@@ -154,6 +172,7 @@ export class ReviewManager {
       return;
     }
     this.lastDispatchAtMs.set(agentName, Date.now());
+    this.dispatchCounts.set(agentName, (this.dispatchCounts.get(agentName) ?? 0) + 1);
 
     const paths = this.pathsResolver();
     void runReviewFork({

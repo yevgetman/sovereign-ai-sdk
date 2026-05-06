@@ -25,6 +25,12 @@ export type SessionMetrics = {
     cacheWrite: number;
     estimatedCostUsd: number;
   };
+  /** Phase 13.3 (B3) — count of review-fork dispatches that happened
+   *  during the session. Rendered as a "Reviews" section when nonzero. */
+  reviews?: {
+    totalDispatched: number;
+    byAgent: Record<string, number>;
+  };
 };
 
 function formatDuration(ms: number): string {
@@ -95,6 +101,18 @@ export function renderSessionSummary(m: SessionMetrics): string {
     if (t.estimatedCostUsd > 0) {
       body.push(`${chalk.gray('Est. Cost:')}     ${chalk.yellow(formatUsd(t.estimatedCostUsd))}`);
     }
+  }
+
+  if (m.reviews && m.reviews.totalDispatched > 0) {
+    const breakdown = Object.entries(m.reviews.byAgent)
+      .filter(([, n]) => n > 0)
+      .map(([agent, n]) => `${agent.replace(/^review-/, '')}=${n}`)
+      .join(' · ');
+    body.push('');
+    body.push(chalk.bold('Reviews'));
+    body.push(
+      `${chalk.gray('Dispatched:')}    ${chalk.bold(String(m.reviews.totalDispatched))}  ${chalk.gray(`(${breakdown})`)}`,
+    );
   }
 
   return ['', ...boxify(body), ''].join('\n');

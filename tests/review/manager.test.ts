@@ -373,7 +373,108 @@ describe('ReviewManager triggers', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(calls.length).toBe(2); // consolidation is user-invoked; no throttle
   });
+});
 
+describe('ReviewManager getDispatchSummary (B3)', () => {
+  test('returns empty summary when nothing has been dispatched', () => {
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler([]),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: { userTurnsForMemoryReview: 9999, toolIterationsForSkillReview: 9999 },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    expect(mgr.getDispatchSummary()).toEqual({ totalDispatched: 0, byAgent: {} });
+  });
+
+  test('tracks dispatches per agent type', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 1,
+        toolIterationsForSkillReview: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onUserTurn('p');
+    mgr.onToolIteration('p');
+    await new Promise((r) => setTimeout(r, 30));
+
+    const summary = mgr.getDispatchSummary();
+    expect(summary.totalDispatched).toBe(2);
+    expect(summary.byAgent['review-memory']).toBe(1);
+    expect(summary.byAgent['review-skill']).toBe(1);
+  });
+
+  test('runConsolidationPass increments review-consolidate count', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: { userTurnsForMemoryReview: 9999, toolIterationsForSkillReview: 9999 },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.runConsolidationPass('/tmp/home');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(mgr.getDispatchSummary().byAgent['review-consolidate']).toBe(1);
+    expect(mgr.getDispatchSummary().totalDispatched).toBe(1);
+  });
+
+  test('multiple consolidation passes accumulate correctly', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: { userTurnsForMemoryReview: 9999, toolIterationsForSkillReview: 9999 },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.runConsolidationPass('/tmp/home');
+    mgr.runConsolidationPass('/tmp/home');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(mgr.getDispatchSummary().byAgent['review-consolidate']).toBe(2);
+    expect(mgr.getDispatchSummary().totalDispatched).toBe(2);
+  });
+
+  test('lockout does not increment count for suppressed dispatches', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 1,
+        toolIterationsForSkillReview: 9999,
+        minIntervalMs: 60_000, // long lockout
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onUserTurn('p'); // fires
+    mgr.onUserTurn('p'); // locked out — NOT counted
+    await new Promise((r) => setTimeout(r, 30));
+
+    const summary = mgr.getDispatchSummary();
+    expect(summary.byAgent['review-memory']).toBe(1);
+    expect(summary.totalDispatched).toBe(1);
+  });
+});
+
+describe('ReviewManager triggers', () => {
   test('foreign sessionId is no-op (sub-agent tool calls do not increment counters)', async () => {
     const calls: Array<Record<string, unknown>> = [];
     const mgr = new ReviewManager({

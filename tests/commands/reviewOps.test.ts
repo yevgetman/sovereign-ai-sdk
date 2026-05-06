@@ -205,6 +205,92 @@ describe('/review consolidate', () => {
   });
 });
 
+describe('/review activity', () => {
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-rv-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('reports no review sessions when listSessions returns empty', async () => {
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => [],
+    } as unknown as CommandContext;
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(out.toLowerCase()).toContain('no review-fork');
+  });
+
+  test('lists review children of the current parent session', async () => {
+    // title is stored as "subagent:<agentName>" by terminalRepl.ts
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => [
+        // unrelated session — different parent
+        {
+          sessionId: 'unrelated',
+          parentSessionId: 'other',
+          title: 'subagent:review-memory',
+          lastUpdated: 1762400000,
+        },
+        // matches: review-memory child of our parent
+        {
+          sessionId: 'rm-child-1',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-memory',
+          lastUpdated: 1762400100,
+        },
+        // matches: review-skill child of our parent
+        {
+          sessionId: 'rs-child-1',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-skill',
+          lastUpdated: 1762400200,
+        },
+        // not a review fork — explore child
+        {
+          sessionId: 'expl-child',
+          parentSessionId: 'parent-1',
+          title: 'subagent:explore',
+          lastUpdated: 1762400300,
+        },
+      ],
+    } as unknown as CommandContext;
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(out).toContain('rm-child');
+    expect(out).toContain('rs-child');
+    expect(out).not.toContain('expl-child'); // non-review children excluded
+    expect(out).not.toContain('unrelated'); // wrong parent excluded
+  });
+
+  test('shows correct session count in header', async () => {
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => [
+        {
+          sessionId: 'rm-a',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-memory',
+          lastUpdated: 1762400100,
+        },
+        {
+          sessionId: 'rm-b',
+          parentSessionId: 'parent-1',
+          title: 'subagent:review-consolidate',
+          lastUpdated: 1762400200,
+        },
+      ],
+    } as unknown as CommandContext;
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(out).toContain('2 review session(s)');
+  });
+});
+
 describe('/review unknown verb', () => {
   let home: string;
   beforeEach(() => {

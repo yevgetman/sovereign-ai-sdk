@@ -156,7 +156,7 @@ function applyConsolidationApproval(home: string, raw: string): void {
   // originals manually. Documented in DECISIONS.md follow-ups.
 }
 
-const USAGE = 'usage: /review [list|show <id>|approve <id>|reject <id>|consolidate]';
+const USAGE = 'usage: /review [list|show <id>|approve <id>|reject <id>|consolidate|activity]';
 
 async function handleReview(rawArgs: string, ctx: CommandContext): Promise<string> {
   const home = ctx.harnessHome;
@@ -224,6 +224,30 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     return chalk.dim('consolidation pass dispatched (results will appear in /review list)');
   }
 
+  if (verb === 'activity') {
+    // Query sessions for review-fork children of the current parent.
+    // agentName is stored in the session title as "subagent:<agentName>"
+    // (set by terminalRepl.ts createChildSession). Filter to review-* agents.
+    const parentSessionId = ctx.sessionId;
+    const sessions = ctx.listSessions(50);
+    const reviewChildren = sessions
+      .filter((s) => s.parentSessionId === parentSessionId)
+      .filter((s) => /^subagent:review-/.test(s.title ?? ''))
+      .slice(0, 10);
+
+    if (reviewChildren.length === 0) {
+      return chalk.dim('no review-fork sessions for this parent yet');
+    }
+
+    const lines = reviewChildren.map((s) => {
+      const id = s.sessionId.slice(0, 8);
+      const agentLabel = (s.title ?? 'subagent:?').replace(/^subagent:review-/, '').slice(0, 13);
+      const time = new Date(s.lastUpdated * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      return `  ${chalk.dim(id)}  ${chalk.cyan(agentLabel.padEnd(13))}  ${chalk.gray(time)}`;
+    });
+    return [chalk.bold(`${reviewChildren.length} review session(s)`), ...lines].join('\n');
+  }
+
   return chalk.yellow(USAGE);
 }
 
@@ -232,7 +256,7 @@ export const REVIEW_OPS_COMMANDS: SlashCommand[] = [
     type: 'local',
     name: 'review',
     description: 'List, show, approve, or reject pending review proposals.',
-    usage: '/review [list|show <id>|approve <id>|reject <id>|consolidate]',
+    usage: '/review [list|show <id>|approve <id>|reject <id>|consolidate|activity]',
     call: async (rawArgs, ctx) => handleReview(rawArgs, ctx),
   },
 ];

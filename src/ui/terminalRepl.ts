@@ -1595,6 +1595,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     }
   }
   db.close();
+  const reviewSummary = reviewManager?.getDispatchSummary();
   process.stdout.write(
     renderSessionSummary({
       ...metrics,
@@ -1607,6 +1608,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         cacheWrite: finalCost.cacheCreationInputTokens,
         estimatedCostUsd: finalCost.estimatedCostUsd + finalCost.estimatedCompactionCostUsd,
       },
+      ...(reviewSummary !== undefined && reviewSummary.totalDispatched > 0
+        ? { reviews: reviewSummary }
+        : {}),
     }),
   );
   const resumeHint =
