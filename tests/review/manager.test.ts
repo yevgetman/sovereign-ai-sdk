@@ -75,17 +75,138 @@ describe('ReviewManager triggers', () => {
     expect(calls[0]?.agentName).toBe('review-skill');
   });
 
-  test('onChildCompletion always fires once per call (review-memory)', async () => {
+  test('onChildCompletion fires every Nth qualifying call (default 3)', async () => {
     const calls: Array<Record<string, unknown>> = [];
     const mgr = new ReviewManager({
       scheduler: fakeScheduler(calls),
       sessionId: 'p',
       signal: new AbortController().signal,
       thresholds: { userTurnsForMemoryReview: 9999, toolIterationsForSkillReview: 9999 },
-      pathsResolver: () => ({ trajectoryPath: '/t/x', tracePath: '/t/y' }),
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
       ...emptyParent(),
     });
 
+    // First two non-trivial completions: counter accumulates, no dispatch
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    mgr.onChildCompletion({
+      childSessionId: 'c2',
+      taskId: 't2',
+      traceId: 'tr2',
+      iterationsUsed: 4,
+      toolCallCount: 2,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(0);
+
+    // Third fires
+    mgr.onChildCompletion({
+      childSessionId: 'c3',
+      taskId: 't3',
+      traceId: 'tr3',
+      iterationsUsed: 3,
+      toolCallCount: 2,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.agentName).toBe('review-memory');
+  });
+
+  test('onChildCompletion respects custom childReviewEveryN', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.agentName).toBe('review-memory');
+  });
+
+  test('onChildCompletion skips trivial children (low iterations or zero tool calls)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    // iterationsUsed < 2 → skip
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 1,
+      toolCallCount: 5,
+    });
+    // toolCallCount === 0 → skip
+    mgr.onChildCompletion({
+      childSessionId: 'c2',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 0,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(0);
+
+    // Non-trivial → fires (childReviewEveryN=1)
+    mgr.onChildCompletion({
+      childSessionId: 'c3',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 5,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.agentName).toBe('review-memory');
+  });
+
+  test('onChildCompletion without iterationsUsed/toolCallCount falls through to counter (back-compat)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    // No metrics → trivial-skip can't trigger; counter fires
     mgr.onChildCompletion({ childSessionId: 'c', taskId: 't', traceId: 'tr' });
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.length).toBe(1);

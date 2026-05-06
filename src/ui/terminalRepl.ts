@@ -824,6 +824,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...(userSettings.review?.toolIterationsForSkillReview !== undefined
           ? { toolIterationsForSkillReview: userSettings.review.toolIterationsForSkillReview }
           : {}),
+        ...(userSettings.review?.childReviewEveryN !== undefined
+          ? { childReviewEveryN: userSettings.review.childReviewEveryN }
+          : {}),
       },
       pathsResolver: () => ({
         trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),

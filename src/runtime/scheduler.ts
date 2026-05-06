@@ -279,6 +279,8 @@ export class SubagentScheduler {
               childSessionId,
               taskId: childSessionId, // v0: no separate task id concept here; sessionId doubles
               traceId: childSessionId, // trace files are keyed by sessionId
+              iterationsUsed: result.iterationsUsed,
+              toolCallCount: result.toolCallCount,
             });
           } catch (err) {
             input.traceRecorder?.({

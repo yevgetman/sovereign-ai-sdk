@@ -11,6 +11,7 @@ import { type ReviewAgentName, runReviewFork } from './fork.js';
 export interface ReviewThresholds {
   userTurnsForMemoryReview: number;
   toolIterationsForSkillReview: number;
+  childReviewEveryN: number;
 }
 
 export interface ReviewPaths {
@@ -22,6 +23,10 @@ export interface ChildCompletionEvent {
   childSessionId: string;
   taskId: string;
   traceId: string;
+  /** Phase 13.3+ throttle inputs — used by ReviewManager to skip trivial
+   *  children that produced no learnable signal. */
+  iterationsUsed?: number;
+  toolCallCount?: number;
 }
 
 export interface ReviewManagerOpts {
@@ -39,13 +44,18 @@ export interface ReviewManagerOpts {
 const DEFAULT_THRESHOLDS: ReviewThresholds = {
   userTurnsForMemoryReview: 10,
   toolIterationsForSkillReview: 50,
+  childReviewEveryN: 3,
 };
+
+const TRIVIAL_MIN_ITERATIONS = 2;
+const TRIVIAL_MIN_TOOL_CALLS = 1;
 
 const DEFAULT_RECENT_TURN_COUNT = 10;
 
 export class ReviewManager {
   private userTurnsSince = 0;
   private toolIterationsSince = 0;
+  private childCompletionsSince = 0;
   private readonly scheduler: SubagentScheduler;
   private readonly sessionId: string;
   private readonly signal: AbortSignal;
@@ -90,9 +100,27 @@ export class ReviewManager {
     }
   }
 
-  onChildCompletion(_evt: ChildCompletionEvent): void {
+  onChildCompletion(evt: ChildCompletionEvent): void {
     if (!this.enabled) return;
-    this.dispatch('review-memory');
+
+    // Trivial-skip: a child that produced almost nothing has no learnable
+    // signal. Only kick in when caller provided both metrics; absent metrics
+    // mean we fall through to the counter (back-compat for any caller that
+    // doesn't yet thread them through).
+    if (
+      evt.iterationsUsed !== undefined &&
+      evt.toolCallCount !== undefined &&
+      (evt.iterationsUsed < TRIVIAL_MIN_ITERATIONS || evt.toolCallCount < TRIVIAL_MIN_TOOL_CALLS)
+    ) {
+      return;
+    }
+
+    // Counter throttle: only fire every Nth qualifying completion.
+    this.childCompletionsSince += 1;
+    if (this.childCompletionsSince >= this.thresholds.childReviewEveryN) {
+      this.childCompletionsSince = 0;
+      this.dispatch('review-memory');
+    }
   }
 
   /** Fire-and-forget consolidation pass. Used by /review consolidate. */

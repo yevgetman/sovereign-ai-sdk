@@ -192,6 +192,7 @@ export const SettingsSchema = z
         autoPromoteSkills: z.boolean().optional(),
         userTurnsForMemoryReview: z.number().int().positive().optional(),
         toolIterationsForSkillReview: z.number().int().positive().optional(),
+        childReviewEveryN: z.number().int().positive().optional(),
         disabled: z.boolean().optional(),
       })
       .strict()
