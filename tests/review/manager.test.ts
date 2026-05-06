@@ -110,6 +110,23 @@ describe('ReviewManager triggers', () => {
     expect(calls.length).toBe(0);
   });
 
+  test('runConsolidationPass dispatches review-consolidate agent', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: { userTurnsForMemoryReview: 9999, toolIterationsForSkillReview: 9999 },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.runConsolidationPass('/tmp/home');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.agentName).toBe('review-consolidate');
+  });
+
   test('foreign sessionId is no-op (sub-agent tool calls do not increment counters)', async () => {
     const calls: Array<Record<string, unknown>> = [];
     const mgr = new ReviewManager({

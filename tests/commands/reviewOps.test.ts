@@ -181,9 +181,27 @@ describe('/review consolidate', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test('returns a clear "not yet wired" or "queued" message — implementation lands in Task 10', async () => {
-    const out = strip(await reviewCmd.call('consolidate', makeCtx(home)));
-    expect(out.toLowerCase()).toMatch(/consolidat|queued|task 10|not yet/);
+  test('dispatches via reviewManager.runConsolidationPass when manager is present', async () => {
+    const calls: string[] = [];
+    const fakeManager = {
+      runConsolidationPass: (h: string) => {
+        calls.push(h);
+      },
+    } as unknown as import('../../src/review/manager.js').ReviewManager;
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'sess-1',
+      reviewManager: fakeManager,
+    } as unknown as CommandContext;
+    const out = strip(await reviewCmd.call('consolidate', ctx));
+    expect(out.toLowerCase()).toContain('dispatched');
+    expect(calls).toEqual([home]);
+  });
+
+  test('clear error when reviewManager is missing', async () => {
+    const ctx = { harnessHome: home, sessionId: 'sess-1' } as unknown as CommandContext;
+    const out = strip(await reviewCmd.call('consolidate', ctx));
+    expect(out.toLowerCase()).toContain('not available');
   });
 });
 

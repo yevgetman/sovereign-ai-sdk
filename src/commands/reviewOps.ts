@@ -217,11 +217,11 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
   }
 
   if (verb === 'consolidate') {
-    // v0 stub: real implementation lands in Task 10. Surface a clear
-    // status so users know the verb is recognized but not yet wired.
-    return chalk.dim(
-      'consolidation pass not yet wired (Task 10 will dispatch the review-consolidate agent)',
-    );
+    if (!ctx.reviewManager) {
+      return chalk.red('review manager not available — open a session first');
+    }
+    ctx.reviewManager.runConsolidationPass(home);
+    return chalk.dim('consolidation pass dispatched (results will appear in /review list)');
   }
 
   return chalk.yellow(USAGE);

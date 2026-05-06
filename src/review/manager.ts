@@ -5,6 +5,7 @@
 import type { SubagentScheduler } from '../runtime/scheduler.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
+import { runConsolidation } from './consolidate.js';
 import { type ReviewAgentName, runReviewFork } from './fork.js';
 
 export interface ReviewThresholds {
@@ -92,6 +93,20 @@ export class ReviewManager {
   onChildCompletion(_evt: ChildCompletionEvent): void {
     if (!this.enabled) return;
     this.dispatch('review-memory');
+  }
+
+  /** Fire-and-forget consolidation pass. Used by /review consolidate. */
+  runConsolidationPass(harnessHome: string): void {
+    if (!this.enabled) return;
+    void runConsolidation({
+      scheduler: this.scheduler,
+      parentSessionId: this.sessionId,
+      parentSignal: this.signal,
+      harnessHome,
+      parentToolPool: this.parentToolPool,
+      parentToolContext: this.parentToolContext,
+      ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
+    });
   }
 
   /** Dispatch a one-shot review pass for the given agent. Fire-and-forget. */
