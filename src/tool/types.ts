@@ -54,6 +54,10 @@ export type ToolContext = {
   /** Phase 13.5 — sub-agent scheduler. AgentTool reads this; when absent,
    *  AgentTool throws a clear error rather than failing silently. */
   subagentScheduler?: import('../runtime/scheduler.js').SubagentScheduler;
+  /** Phase 13.2 — task system manager. Tools task_create / task_list /
+   *  task_get / task_stop / task_output read this. When absent, those
+   *  tools throw a clear error rather than failing silently. */
+  taskManager?: import('../tasks/manager.js').TaskManager;
   /** Phase 13.5 — parent's full tool pool, captured at REPL bootstrap so
    *  the scheduler can filter from it without reassembling per call. */
   parentToolPool?: import('./types.js').Tool<unknown, unknown>[];
