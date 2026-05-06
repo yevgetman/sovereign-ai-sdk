@@ -54,7 +54,20 @@ export const MemoryProposeTool = buildTool<MemoryProposeInput, MemoryProposeOutp
       const memDir = join(home, 'memory');
       mkdirSync(memDir, { recursive: true });
       const target = join(memDir, input.target);
-      const block = `\n\n<!-- proposal:${proposalId} (auto-promoted) -->\n${input.body}\n`;
+      // Phase 13.3 follow-up (C2) — preserve full provenance even on the
+      // auto-promote bypass path. The HTML comment is invisible in rendered
+      // markdown but lets /review tooling and audit scripts trace this
+      // entry back to its origin session, trace event, and source excerpt.
+      const provenanceFields = [
+        `proposal:${proposalId}`,
+        'auto-promoted',
+        `session:${ctx.sessionId}`,
+        `trace:${input.traceId}`,
+        `hash:${sourceHash}`,
+        `range:${input.sourceMessageRange[0]}-${input.sourceMessageRange[1]}`,
+        `excerpt:${escapeForHtmlComment(input.sourceExcerpt)}`,
+      ];
+      const block = `\n\n<!-- ${provenanceFields.join(' ')} -->\n${input.body}\n`;
       if (existsSync(target)) {
         appendFileSync(target, block);
       } else {
@@ -110,3 +123,12 @@ export const MemoryProposeTool = buildTool<MemoryProposeInput, MemoryProposeOutp
     };
   },
 }) as unknown as Tool<unknown, unknown>;
+
+/** Sanitize a string for safe embedding inside an HTML comment.
+ *  HTML comments must not contain '--'. Replace any double-dash with a
+ *  single dash, then truncate long excerpts to 200 chars. The hash field
+ *  provides full integrity — the excerpt is for human readability only. */
+function escapeForHtmlComment(s: string): string {
+  const safe = s.replace(/--/g, '-');
+  return safe.length > 200 ? `${safe.slice(0, 200)}...` : safe;
+}

@@ -87,7 +87,17 @@ describe('skill_propose tool', () => {
 
     const skillFile = join(home, 'skills', 'agent-created', 'auto-promoted', 'SKILL.md');
     expect(existsSync(skillFile)).toBe(true);
-    expect(readFileSync(skillFile, 'utf-8')).toContain('auto-promoted body');
+    const skillBody = readFileSync(skillFile, 'utf-8');
+    expect(skillBody).toContain('auto-promoted body');
+
+    // C2 — provenance comment present
+    expect(skillBody).toContain('proposal:');
+    expect(skillBody).toContain('auto-promoted');
+    expect(skillBody).toContain('session:sess-1');
+    expect(skillBody).toContain('hash:sha256:');
+    expect(skillBody).toContain('trace:t');
+    expect(skillBody).toContain('range:0-1');
+    expect(skillBody).toContain('excerpt:x');
 
     // Should NOT have written to pending/
     expect(existsSync(join(home, 'review', 'pending', 'skills'))).toBe(false);

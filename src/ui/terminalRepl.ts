@@ -355,6 +355,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     warn: (message) => process.stderr.write(chalk.yellow(`[agent] ${message}\n`)),
   });
   const db = SessionDb.open(opts.dbPath !== undefined ? { path: opts.dbPath } : {});
+  // Phase 13.3 follow-up — sweep phantom review-fork rows from prior sessions
+  // that ended via /quit while a review was mid-dispatch (B4 abort path).
+  // Fix #3 hides them from /review activity; this prevents indefinite DB growth.
+  const phantomsCleaned = db.cleanupPhantomReviews();
+  if (phantomsCleaned > 0) {
+    process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
+  }
   const resumeSession =
     opts.resumeId !== undefined ? (db.getSession(opts.resumeId) ?? undefined) : undefined;
   const storedProvider = resumeSession

@@ -102,10 +102,46 @@ describe('memory_propose tool', () => {
 
     const memFile = join(home, 'memory', 'MEMORY.md');
     expect(existsSync(memFile)).toBe(true);
-    expect(readFileSync(memFile, 'utf-8')).toContain('auto-promoted entry body');
+    const content = readFileSync(memFile, 'utf-8');
+    expect(content).toContain('auto-promoted entry body');
+
+    // C2 — provenance preserved as HTML comment
+    expect(content).toContain('proposal:');
+    expect(content).toContain('auto-promoted');
+    expect(content).toContain('session:sess-1');
+    expect(content).toContain('trace:t');
+    expect(content).toContain('hash:sha256:');
+    expect(content).toContain('range:0-1');
+    expect(content).toContain('excerpt:x');
 
     // Should NOT have written to pending/
     expect(existsSync(join(home, 'review', 'pending', 'memory'))).toBe(false);
+  });
+
+  test('auto-promote provenance escapes -- to avoid HTML comment parser confusion', async () => {
+    const ctx = {
+      cwd: '/tmp',
+      sessionId: 'sess-1',
+      harnessHome: home,
+      reviewAutoPromoteMemory: true,
+    } as ToolContext;
+
+    await MemoryProposeTool.call(
+      {
+        target: 'MEMORY.md',
+        memoryType: 'project',
+        body: 'body',
+        sourceMessageRange: [0, 1],
+        sourceExcerpt: 'this contains -- a double dash',
+        traceId: 't',
+      },
+      ctx,
+    );
+
+    const content = readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8');
+    // Double-dash must be squashed to single dash inside the HTML comment.
+    expect(content).not.toContain('-- a double dash');
+    expect(content).toContain('- a double dash');
   });
 
   test('writes USER.md target distinctly from MEMORY.md target', async () => {

@@ -43,6 +43,42 @@ function buildSkillFile(input: SkillProposeInput): string {
   return `---\n${frontmatter}---\n${input.body}`;
 }
 
+/** Phase 13.3 follow-up (C2) — build a SKILL.md with a provenance comment
+ *  injected between the frontmatter and the body. Mirrors the memory auto-
+ *  promote path so audit tooling can trace auto-promoted skills back to their
+ *  origin session, trace event, and source excerpt. */
+function buildSkillFileWithProvenance(
+  input: SkillProposeInput,
+  proposalId: string,
+  sourceHash: string,
+  sessionId: string,
+): string {
+  const frontmatter = stringifyYaml({
+    name: input.skillName,
+    description: input.description,
+    whenToUse: input.whenToUse,
+  });
+  const provenance = [
+    `proposal:${proposalId}`,
+    'auto-promoted',
+    `session:${sessionId}`,
+    `trace:${input.traceId}`,
+    `hash:${sourceHash}`,
+    `range:${input.sourceMessageRange[0]}-${input.sourceMessageRange[1]}`,
+    `excerpt:${escapeForHtmlComment(input.sourceExcerpt)}`,
+  ];
+  return `---\n${frontmatter}---\n<!-- ${provenance.join(' ')} -->\n${input.body}`;
+}
+
+/** Sanitize a string for safe embedding inside an HTML comment.
+ *  HTML comments must not contain '--'. Replace any double-dash with a
+ *  single dash, then truncate long excerpts to 200 chars. The hash field
+ *  provides full integrity — the excerpt is for human readability only. */
+function escapeForHtmlComment(s: string): string {
+  const safe = s.replace(/--/g, '-');
+  return safe.length > 200 ? `${safe.slice(0, 200)}...` : safe;
+}
+
 export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>({
   name: 'skill_propose',
   searchHint: 'Propose a new reusable skill for human review.',
@@ -69,7 +105,12 @@ export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>
       const skillDir = join(home, 'skills', 'agent-created', input.skillName);
       mkdirSync(skillDir, { recursive: true });
       const skillPath = join(skillDir, 'SKILL.md');
-      writeFileSync(skillPath, buildSkillFile(input));
+      // Phase 13.3 follow-up (C2) — embed full provenance comment so audit
+      // tooling can trace auto-promoted skills back to their origin.
+      writeFileSync(
+        skillPath,
+        buildSkillFileWithProvenance(input, proposalId, sourceHash, ctx.sessionId),
+      );
       return {
         data: { proposalId, path: skillDir },
         observation: {

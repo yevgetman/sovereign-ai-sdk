@@ -291,6 +291,29 @@ export class SessionDb {
     this.db.close();
   }
 
+  /** Phase 13.3 follow-up — delete phantom review-fork session rows.
+   *  Phantom = subagent:review-* with zero tokens, zero messages, older
+   *  than maxAgeMs. These come from B4 aborting reviews mid-dispatch
+   *  before the AgentRunner streams. Returns count of deleted rows.
+   *
+   *  Called during session boot so the DB doesn't grow indefinitely.
+   *  The 1-hour default leaves any still-active review alone.
+   *
+   *  created_at is stored as Unix epoch seconds (Date.now() / 1000). */
+  cleanupPhantomReviews(maxAgeMs = 3_600_000): number {
+    const cutoffSec = (Date.now() - maxAgeMs) / 1000;
+    const result = this.db
+      .prepare(
+        `DELETE FROM sessions
+         WHERE title LIKE 'subagent:review-%'
+           AND (input_tokens + output_tokens) = 0
+           AND (SELECT COUNT(*) FROM messages WHERE session_id = sessions.session_id) = 0
+           AND created_at < ?`,
+      )
+      .run(cutoffSec);
+    return result.changes ?? 0;
+  }
+
   createSession(input: CreateSessionInput): string {
     const sessionId = randomUUID();
     const now = Date.now() / 1000;

@@ -339,3 +339,95 @@ describe('schema v4 — tasks table', () => {
     db.close();
   });
 });
+
+// Phase 13.3 follow-up — cleanupPhantomReviews
+describe('SessionDb.cleanupPhantomReviews', () => {
+  test('removes zero-token review rows older than threshold', () => {
+    const db = openMem();
+    // Insert a phantom: title matches, zero tokens (default), no messages, backdated 2h.
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'subagent:review-memory',
+    });
+    const oldSec = (Date.now() - 7_200_000) / 1000; // 2 hours ago
+    db.handle.prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?').run(oldSec, id);
+
+    const deleted = db.cleanupPhantomReviews();
+    expect(deleted).toBeGreaterThanOrEqual(1);
+    expect(
+      db.handle.prepare('SELECT count(*) AS n FROM sessions WHERE session_id = ?').get(id),
+    ).toEqual({ n: 0 });
+    db.close();
+  });
+
+  test('preserves productive review rows (has tokens)', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'subagent:review-memory',
+    });
+    const oldSec = (Date.now() - 7_200_000) / 1000;
+    db.handle
+      .prepare(
+        'UPDATE sessions SET created_at = ?, input_tokens = 100, output_tokens = 50 WHERE session_id = ?',
+      )
+      .run(oldSec, id);
+
+    const deleted = db.cleanupPhantomReviews();
+    expect(deleted).toBe(0);
+    db.close();
+  });
+
+  test('preserves recent phantoms (within 1h threshold)', () => {
+    const db = openMem();
+    // No backdate — created_at is now-ish, well within the default 1-hour window.
+    db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'subagent:review-memory',
+    });
+
+    const deleted = db.cleanupPhantomReviews();
+    expect(deleted).toBe(0);
+    db.close();
+  });
+
+  test('preserves non-review subagent rows (title mismatch)', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'subagent:explore',
+    });
+    const oldSec = (Date.now() - 7_200_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?').run(oldSec, id);
+
+    const deleted = db.cleanupPhantomReviews();
+    expect(deleted).toBe(0);
+    db.close();
+  });
+
+  test('respects custom maxAgeMs threshold', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'subagent:review-skill',
+    });
+    // Backdate by 30 minutes — older than a 15-minute threshold, newer than 1h.
+    const thirtyMinAgoSec = (Date.now() - 1_800_000) / 1000;
+    db.handle
+      .prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?')
+      .run(thirtyMinAgoSec, id);
+
+    // Default 1h threshold — should not delete (row is 30min old).
+    expect(db.cleanupPhantomReviews()).toBe(0);
+
+    // Custom 15-minute threshold — should now delete.
+    const deleted = db.cleanupPhantomReviews(900_000); // 15 min
+    expect(deleted).toBe(1);
+    db.close();
+  });
+});
