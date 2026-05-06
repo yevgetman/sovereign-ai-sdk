@@ -77,6 +77,37 @@ describe('memory_propose tool', () => {
     ).rejects.toThrow(/harnessHome/);
   });
 
+  test('auto-promote bypass writes directly to MEMORY.md when reviewAutoPromoteMemory is true', async () => {
+    const ctx = {
+      cwd: '/tmp',
+      sessionId: 'sess-1',
+      harnessHome: home,
+      reviewAutoPromoteMemory: true,
+    } as ToolContext;
+
+    const result = await MemoryProposeTool.call(
+      {
+        target: 'MEMORY.md',
+        memoryType: 'project',
+        body: 'auto-promoted entry body',
+        sourceMessageRange: [0, 1],
+        sourceExcerpt: 'x',
+        traceId: 't',
+      },
+      ctx,
+    );
+
+    expect(result.observation?.status).toBe('success');
+    expect(result.observation?.summary).toContain('auto-promoted');
+
+    const memFile = join(home, 'memory', 'MEMORY.md');
+    expect(existsSync(memFile)).toBe(true);
+    expect(readFileSync(memFile, 'utf-8')).toContain('auto-promoted entry body');
+
+    // Should NOT have written to pending/
+    expect(existsSync(join(home, 'review', 'pending', 'memory'))).toBe(false);
+  });
+
   test('writes USER.md target distinctly from MEMORY.md target', async () => {
     const result = await MemoryProposeTool.call(
       {

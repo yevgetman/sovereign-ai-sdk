@@ -4,8 +4,8 @@
 // USER.md. Excluded from SUBAGENT_EXCLUDED_TOOLS so review forks cannot
 // recurse.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { hashSource, newProposalId } from '../review/idHelpers.js';
 import { ensureReviewDirs, proposalPath } from '../review/paths.js';
@@ -49,6 +49,26 @@ export const MemoryProposeTool = buildTool<MemoryProposeInput, MemoryProposeOutp
 
     const proposalId = newProposalId();
     const sourceHash = hashSource(input.sourceExcerpt, input.sourceMessageRange);
+
+    if (ctx.reviewAutoPromoteMemory === true) {
+      const memDir = join(home, 'memory');
+      mkdirSync(memDir, { recursive: true });
+      const target = join(memDir, input.target);
+      const block = `\n\n<!-- proposal:${proposalId} (auto-promoted) -->\n${input.body}\n`;
+      if (existsSync(target)) {
+        appendFileSync(target, block);
+      } else {
+        writeFileSync(target, block.trimStart());
+      }
+      return {
+        data: { proposalId, path: target },
+        observation: {
+          status: 'success',
+          summary: `auto-promoted memory entry to ${input.target}`,
+          artifacts: [`memory:${input.target}`],
+        },
+      };
+    }
 
     // TODO(phase 13.3+): thread parentSessionId from AgentRunner so child
     //   sessions populate it; null is correct for v0 since main-session

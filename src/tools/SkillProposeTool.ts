@@ -65,6 +65,21 @@ export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>
     const proposalId = newProposalId();
     const sourceHash = hashSource(input.sourceExcerpt, input.sourceMessageRange);
 
+    if (ctx.reviewAutoPromoteSkills === true) {
+      const skillDir = join(home, 'skills', 'agent-created', input.skillName);
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, 'SKILL.md');
+      writeFileSync(skillPath, buildSkillFile(input));
+      return {
+        data: { proposalId, path: skillDir },
+        observation: {
+          status: 'success',
+          summary: `auto-promoted skill ${input.skillName}`,
+          artifacts: [`skill:${input.skillName}`],
+        },
+      };
+    }
+
     // TODO(phase 13.3+): thread parentSessionId from AgentRunner so child
     //   sessions populate it; null is correct for v0.
     const meta: SkillProposalMeta = {

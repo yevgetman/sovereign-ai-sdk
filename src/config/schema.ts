@@ -186,6 +186,16 @@ export const SettingsSchema = z
     microcompaction: MicrocompactionSchema.optional(),
     compaction: CompactionSchema.optional(),
     debugMode: DebugModeSchema.optional(),
+    review: z
+      .object({
+        autoPromoteMemory: z.boolean().optional(),
+        autoPromoteSkills: z.boolean().optional(),
+        userTurnsForMemoryReview: z.number().int().positive().optional(),
+        toolIterationsForSkillReview: z.number().int().positive().optional(),
+        disabled: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     ui: UiSchema.optional(),
   })
   .strict();

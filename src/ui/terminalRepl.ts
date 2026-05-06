@@ -796,6 +796,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       scheduler: subagentScheduler,
     });
     writableCtx.taskManager = taskManager;
+    // Phase 13.3 T11 — auto-promote opt-ins from settings.review.
+    if (userSettings.review?.autoPromoteMemory === true) {
+      writableCtx.reviewAutoPromoteMemory = true;
+    }
+    if (userSettings.review?.autoPromoteSkills === true) {
+      writableCtx.reviewAutoPromoteSkills = true;
+    }
     // Phase 13.3 — review manager. Wired once the scheduler is live so
     // dispatch can delegate review forks through the same infrastructure.
     // pathsResolver is lazy so it captures the runtime-computed paths
@@ -810,13 +817,21 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         const ac = new AbortController();
         return ac.signal;
       })(),
-      thresholds: {},
+      thresholds: {
+        ...(userSettings.review?.userTurnsForMemoryReview !== undefined
+          ? { userTurnsForMemoryReview: userSettings.review.userTurnsForMemoryReview }
+          : {}),
+        ...(userSettings.review?.toolIterationsForSkillReview !== undefined
+          ? { toolIterationsForSkillReview: userSettings.review.toolIterationsForSkillReview }
+          : {}),
+      },
       pathsResolver: () => ({
         trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),
         tracePath: traceWriter.path,
       }),
       parentToolPool: toolPool,
       parentToolContext: writableCtx as ToolContext,
+      enabled: !(userSettings.review?.disabled === true),
     });
     writableCtx.reviewManager = reviewManager;
   }

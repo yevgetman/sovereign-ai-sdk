@@ -61,6 +61,38 @@ describe('skill_propose tool', () => {
     expect(skillBody).toContain('1. Add new column nullable');
   });
 
+  test('auto-promote bypass writes SKILL.md directly to skills/agent-created/<name>/ when reviewAutoPromoteSkills is true', async () => {
+    const ctx = {
+      cwd: '/tmp',
+      sessionId: 'sess-1',
+      harnessHome: home,
+      reviewAutoPromoteSkills: true,
+    } as ToolContext;
+
+    const result = (await SkillProposeTool.call(
+      {
+        skillName: 'auto-promoted',
+        description: 'auto-promoted skill',
+        whenToUse: 'demo',
+        body: 'auto-promoted body',
+        sourceMessageRange: [0, 1],
+        sourceExcerpt: 'x',
+        traceId: 't',
+      },
+      ctx,
+    )) as ToolResult<SkillProposeOutput>;
+
+    expect(result.observation?.status).toBe('success');
+    expect(result.observation?.summary).toContain('auto-promoted');
+
+    const skillFile = join(home, 'skills', 'agent-created', 'auto-promoted', 'SKILL.md');
+    expect(existsSync(skillFile)).toBe(true);
+    expect(readFileSync(skillFile, 'utf-8')).toContain('auto-promoted body');
+
+    // Should NOT have written to pending/
+    expect(existsSync(join(home, 'review', 'pending', 'skills'))).toBe(false);
+  });
+
   test('rejects invalid skillName via input schema', () => {
     expect(() => {
       SkillProposeTool.inputSchema.parse({

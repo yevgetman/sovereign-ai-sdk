@@ -62,6 +62,12 @@ export type ToolContext = {
    *  each successful tool call. ReviewManager guards by sessionId so
    *  sub-agent tool calls do not contaminate the parent's counter. */
   reviewManager?: import('../review/manager.js').ReviewManager;
+  /** Phase 13.3 T11 — when true, memory_propose skips the pending queue and
+   *  appends the body directly to MEMORY.md / USER.md. */
+  reviewAutoPromoteMemory?: boolean;
+  /** Phase 13.3 T11 — when true, skill_propose skips pending and writes
+   *  SKILL.md directly to skills/agent-created/<name>/. */
+  reviewAutoPromoteSkills?: boolean;
   /** Phase 13.5 — parent's full tool pool, captured at REPL bootstrap so
    *  the scheduler can filter from it without reassembling per call. */
   parentToolPool?: import('./types.js').Tool<unknown, unknown>[];
