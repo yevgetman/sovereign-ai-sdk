@@ -40,6 +40,29 @@ describe('memory proposal round-trip', () => {
       '---\nproposalId: x\ntype: memory\ntarget: MEMORY.md\nmemoryType: invalid\nsessionId: s\nparentSessionId: ~\ntraceId: t\nsourceMessageRange: [0,1]\nsourceHash: s\nsourceExcerpt: e\nauthor: a\ncreatedAt: 2026-01-01T00:00:00Z\nstatus: pending\n---\nbody';
     expect(() => parseMemoryProposal(bad)).toThrow(/memoryType/);
   });
+
+  test('round-trips empty-string fields (e.g. empty sourceExcerpt)', () => {
+    const original: MemoryProposal = {
+      proposalId: '2026-05-06-empty',
+      type: 'memory',
+      target: 'MEMORY.md',
+      memoryType: 'project',
+      sessionId: 'sess-1',
+      parentSessionId: null,
+      traceId: 'trace-1',
+      sourceMessageRange: [0, 0],
+      sourceHash: 'sha256:empty',
+      sourceExcerpt: '',
+      author: 'review-memory',
+      createdAt: '2026-05-06T10:30:00Z',
+      status: 'pending',
+      body: 'body content',
+    };
+
+    const serialized = serializeMemoryProposal(original);
+    const parsed = parseMemoryProposal(serialized);
+    expect(parsed).toEqual(original);
+  });
 });
 
 describe('skill proposal meta round-trip', () => {

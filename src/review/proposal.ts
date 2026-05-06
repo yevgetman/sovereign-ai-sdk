@@ -122,7 +122,7 @@ function serializeYamlValue(v: unknown): string {
     return `\n${v.map((item) => `  - ${item}`).join('\n')}`;
   }
   const s = String(v);
-  if (/[:\n#]/.test(s) || s.trim() !== s) return `"${s.replace(/"/g, '\\"')}"`;
+  if (s === '' || /[:\n#]/.test(s) || s.trim() !== s) return `"${s.replace(/"/g, '\\"')}"`;
   return s;
 }
 
