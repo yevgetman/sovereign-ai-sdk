@@ -100,4 +100,50 @@ export const tests: SemanticTest[] = [
     },
     timeoutMs: 30_000,
   },
+  {
+    id: 'review-activity-empty-on-fresh-bundle',
+    name: '/review activity reports no review-fork sessions on a fresh harness',
+    description:
+      'On a fresh harness with no prior delegation, /review activity should return a clean ' +
+      "'no review-fork sessions for this parent yet' message (or, if some phantom rows from " +
+      "cancelled dispatches exist, the equivalent 'no productive review sessions' branch). " +
+      'Guards against: the slash command erroring on the absent sessions table, the listSessions ' +
+      'bridge breaking, or the model fabricating review activity that never happened.',
+    category: 'commands',
+    prompt: '/review activity',
+    judgeCriteria: {
+      mustSatisfy: [
+        "The transcript contains either 'no review-fork sessions' (the empty path) or 'no productive review sessions' (the all-phantoms path) — both are valid outcomes on a fresh harness.",
+      ],
+      shouldNot: [
+        'The transcript fabricates a list of review sessions that never occurred.',
+        'The transcript contains a stack trace or unhandled exception.',
+        "The transcript contains 'unknown command' referring to /review activity.",
+      ],
+    },
+    timeoutMs: 30_000,
+  },
+  {
+    id: 'review-consolidate-dispatches-or-degrades',
+    name: '/review consolidate dispatches a pass or degrades cleanly',
+    description:
+      'When invoked on a session with a wired ReviewManager, /review consolidate dispatches the ' +
+      'review-consolidate sub-agent and surfaces a "dispatched" status. When the manager is not ' +
+      'available (e.g., agents not loaded in the sandbox), it should degrade with a clear ' +
+      "'not available' message. Either is acceptable; the failure mode is silent success or a " +
+      'stack trace.',
+    category: 'commands',
+    prompt: '/review consolidate',
+    judgeCriteria: {
+      mustSatisfy: [
+        "The transcript includes either 'dispatched' (with mention of /review list) or 'not available' (graceful degradation) — never both.",
+      ],
+      shouldNot: [
+        'The transcript claims that consolidation completed and produced concrete merge proposals (it cannot — only the dispatch fires synchronously).',
+        'The transcript fabricates a list of consolidation proposals.',
+        'The transcript contains a stack trace or unhandled exception.',
+      ],
+    },
+    timeoutMs: 30_000,
+  },
 ];

@@ -40,11 +40,11 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (51/51 pass)
+## Coverage inventory (54/54 pass)
 
-The full suite runs in ~10 minutes and costs ~$2.20 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
+The full suite runs in ~10 minutes and costs ~$2.40 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
-### Tool dispatch — 9 tests
+### Tool dispatch — 10 tests
 
 Verify each native tool dispatches correctly and the agent surfaces the result. Includes happy-path and error-path coverage.
 
@@ -59,6 +59,7 @@ Verify each native tool dispatches correctly and the agent surfaces the result. 
 | `tools.envelope-recovery-from-edit-mismatch` | **Phase 12.5.** FileEdit mismatch → agent retries the same wrong old_string blindly. The observation envelope's `next_actions` should make recovery reliable; this test catches regressions in the envelope renderer or in FileEditTool's error path |
 | `tools.glob-recursive-typescript-files` | Glob non-recursive (misses nested files) or wrong tool selection |
 | `tools.grep-finds-marker-content` | Grep dispatch broken or wrong file identified |
+| `tools.main-agent-excludes-propose-tools` | **Phase 13.3 A2 (commit ec21277).** `memory_propose` / `skill_propose` accidentally re-added to `REGISTERED_TOOLS` (they must only appear in `REVIEW_ONLY_TOOLS` and be injected into review-fork sub-agents). Agent uses HarnessInfo to verify the live tool pool rather than guessing from training data. |
 
 ### Slash-command pipeline — 6 tests
 
@@ -166,7 +167,7 @@ Phase 13.2 ships fire-and-forget sub-agent dispatch: the model invokes `task_cre
 | `tools.tasks-stop-cancels-running-task` | task_stop missing from the parent tool pool (it's correctly excluded from sub-agents but must be present for the parent), the abort signal not propagating from the controller to the scheduler, or the manager not surfacing cancellation in subsequent task_get calls |
 | `tools.tasks-unknown-subagent-type-errors-clearly` | task_create silently dropping unknown subagent_type calls or returning a fake task id; the schema-enum patch from `patchSchemasAgainstAvailable()` regressing; the tool-body defense-in-depth check missing |
 
-### Review system — 4 tests
+### Review system — 6 tests
 
 Phase 13.3 ships the `/review` slash command and the `memory_propose` / `skill_propose` tools. Unit + integration tests cover the ReviewManager, ProposalStore, and consolidation agent deterministically; these end-to-end tests cover the model-facing slash-command surface: does the model invoke the verbs correctly, and does the runtime surface meaningful errors on misuse. Auto-review forks (counter-driven internal dispatches) are not exercised here — they are not reachable via model-driven prompts and are covered by `tests/review/integration.test.ts`.
 
@@ -174,8 +175,10 @@ Phase 13.3 ships the `/review` slash command and the `memory_propose` / `skill_p
 |---|---|
 | `commands.review-list-empty-on-fresh-bundle` | /review erroring on the absent review/ directory on a fresh harness; model fabricating proposals that don't exist |
 | `commands.review-show-nonexistent-id-errors-clearly` | Slash command swallowing a missing-id condition silently; model fabricating a proposal body for a non-existent id |
-| `commands.review-consolidate-dispatches-or-degrades` | /review consolidate throwing an unhandled stack trace when ReviewManager is absent; model falsely claiming consolidation produced concrete merged proposals |
+| `commands.review-consolidate-dispatches-or-degrades` | /review consolidate throwing an unhandled stack trace when ReviewManager is absent; model falsely claiming consolidation produced concrete merged proposals (T10, commit 2de1490) |
 | `commands.review-unknown-verb-returns-usage` | Usage hint missing for unrecognized verbs; slash command silently treating unknown verb as the default (list) |
+| `commands.review-activity-empty-on-fresh-bundle` | /review activity erroring on the absent sessions table; listSessions bridge breaking; model fabricating review activity that never happened (B3, commit f4676a9) |
+| `commands.review-bare-call-shows-list-or-empty` | Bare /review triggering the unknown-verb fallback instead of the list-equivalent path |
 
 ### Security-audit skill — 1 test
 
@@ -295,13 +298,14 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/runtime/scheduler.ts`, `src/runtime/agentRunner.ts`, `src/runtime/semaphore.ts`, `src/runtime/laneSemaphores.ts` | `--filter agents` |
 | `src/tools/AgentTool.ts` | `--filter agents` |
 | `src/tool/registry.ts` (`patchSchemasAgainstAvailable`) | `--filter agents` |
+| `src/tool/registry.ts` (`REVIEW_ONLY_TOOLS` export) | `--filter main-agent-excludes-propose` (pool-separation regression guard) |
 | `src/router/capabilities.ts` | `--filter agents` (consumer is the scheduler) |
 | `bundle-default/agents/*.md` | `--filter agents` |
 | `src/tools/TaskCreateTool.ts`, `src/tools/TaskListTool.ts`, `src/tools/TaskGetTool.ts`, `src/tools/TaskOutputTool.ts`, `src/tools/TaskStopTool.ts` | `--filter tasks` |
 | `src/tasks/manager.ts`, `src/tasks/store.ts`, `src/tasks/types.ts` | `--filter tasks` |
 | `src/commands/taskOps.ts` (`/tasks` slash command) | `--filter tasks` |
 | `src/review/` | `bun run test:semantic -- --filter review` |
-| `src/commands/reviewOps.ts` | `bun run test:semantic -- --filter review` |
+| `src/commands/reviewOps.ts` | `bun run test:semantic -- --filter review` (covers list/show/consolidate/activity/unknown-verb/bare-call) |
 | `bundle-default/agents/review-*.md` | `bun run test:semantic -- --filter review` |
 | `src/permissions/secretRedactor.ts` | `--filter redaction` |
 | `src/permissions/inputTransformer.ts` | `--filter redaction` |
