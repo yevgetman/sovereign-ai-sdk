@@ -85,6 +85,8 @@ import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
+import { TaskManager } from '../tasks/manager.js';
+import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
@@ -706,6 +708,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // lineage, and cancellation. Mutating toolContext (rather than
   // rebuilding) is safe here because no consumer has captured the field
   // set yet (the first query() call comes later).
+  let taskManager: TaskManager | undefined;
   if (loadedAgents.agents.length > 0) {
     const laneSemaphores = new LaneSemaphores({
       ...(userSettings.router?.maxConcurrentLocal !== undefined
@@ -779,6 +782,18 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     writableCtx.parentToolPool = toolPool;
     writableCtx.canUseTool = canUseTool;
     writableCtx.traceRecorder = (e) => traceWriter.record(e);
+    // Phase 13.2 — task manager. Wraps the SubagentScheduler with
+    // lifecycle persistence so the model can dispatch background work
+    // via task_create and observe it via task_list / task_get /
+    // task_output. Gated on loadedAgents.agents.length > 0 (same
+    // guard as the scheduler) — task delegation only makes sense when
+    // there are actually agents to delegate to.
+    const taskStore = new TaskStore(db);
+    taskManager = new TaskManager({
+      store: taskStore,
+      scheduler: subagentScheduler,
+    });
+    writableCtx.taskManager = taskManager;
   }
   // Phase 10.6 part 2b — install the interactive escalation asker on
   // the router (only meaningful when --provider router and the
@@ -836,6 +851,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     listSessions: (limit) => db.listSessions(limit),
     getMetrics: () => ({ ...metrics, sessionId: activeSessionId }),
     skills,
+    ...(taskManager !== undefined ? { taskManager } : {}),
     getLastAssistantText: () => extractLastAssistantText(history),
     getMessages: () => [...history],
     getPermissions: () => ({
