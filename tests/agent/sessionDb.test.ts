@@ -55,7 +55,7 @@ describe('createSession + getSession', () => {
     expect(session?.title).toBe('pilot session');
     expect(session?.systemPrompt).toEqual(sysPrompt);
     expect(session?.metadata).toEqual({ bundleRoot: '/tmp/bundle', note: 42 });
-    expect(session?.schemaVersion).toBe(3);
+    expect(session?.schemaVersion).toBe(4);
     expect(session?.parentSessionId).toBeNull();
     expect(session?.inputTokens).toBe(0);
     expect(session?.estimatedCostUsd).toBe(0);
@@ -284,10 +284,58 @@ describe('cost accounting', () => {
 });
 
 describe('schema versioning', () => {
-  test('new DB reports schema_version = 3 via sessions.schemaVersion', () => {
+  test('new DB reports schema_version = 4 via sessions.schemaVersion', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(3);
+    expect(db.getSession(id)?.schemaVersion).toBe(4);
+    db.close();
+  });
+});
+
+describe('schema v4 — tasks table', () => {
+  test('tasks table exists after migration and supports a basic insert', () => {
+    const db = openMem();
+    const sessionId = db.createSession({ model: 'm', provider: 'p' });
+    // The Database getter is exposed so the new TaskStore can share this
+    // connection. Reaching into it from a test is acceptable here — the
+    // test exercises the migration directly, not store APIs.
+    const handle = db.handle;
+    handle.run(
+      `INSERT INTO tasks (
+        task_id, parent_session_id, agent, prompt,
+        state, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ['t-1', sessionId, 'explore', 'find auth', 'queued', 1, 1],
+    );
+    const row = handle
+      .query<{ task_id: string; state: string }, []>(
+        `SELECT task_id, state FROM tasks WHERE task_id = 't-1'`,
+      )
+      .get();
+    expect(row?.task_id).toBe('t-1');
+    expect(row?.state).toBe('queued');
+    db.close();
+  });
+
+  test('tasks.state CHECK constraint rejects unknown states', () => {
+    const db = openMem();
+    const sessionId = db.createSession({ model: 'm', provider: 'p' });
+    expect(() =>
+      db.handle.run(
+        `INSERT INTO tasks (
+          task_id, parent_session_id, agent, prompt,
+          state, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['t-bad', sessionId, 'explore', 'x', 'wat', 1, 1],
+      ),
+    ).toThrow();
+    db.close();
+  });
+
+  test('newly created sessions report schema_version 4', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    expect(db.getSession(id)?.schemaVersion).toBe(4);
     db.close();
   });
 });

@@ -40,7 +40,7 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 type Migration = { from: number; to: number; sql: string };
 
@@ -120,6 +120,26 @@ const MIGRATIONS: Migration[] = [
         PRIMARY KEY (parent_session_id, child_session_id)
       );
       CREATE INDEX idx_session_compactions_parent ON session_compactions(parent_session_id, created_at);
+    `,
+  },
+  {
+    from: 3,
+    to: 4,
+    sql: `
+      CREATE TABLE tasks (
+        task_id TEXT PRIMARY KEY,
+        parent_session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+        child_session_id TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
+        agent TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('queued','running','completed','failed','cancelled','timed_out')),
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        trace_id TEXT,
+        result_preview TEXT
+      );
+      CREATE INDEX idx_tasks_parent_session ON tasks(parent_session_id, created_at);
+      CREATE INDEX idx_tasks_state ON tasks(state);
     `,
   },
 ];
@@ -254,6 +274,17 @@ export class SessionDb {
     db.exec('PRAGMA foreign_keys = ON;');
     applyPendingMigrations(db);
     return new SessionDb(db);
+  }
+
+  /** Underlying SQLite handle. Exposed so colocated tables (Phase 13.2
+   *  tasks, future Phase 13.3 review pending rows) can share the same
+   *  connection — bun:sqlite is single-writer per file with WAL, and
+   *  reusing the WAL/busy_timeout/foreign_keys PRAGMAs the constructor
+   *  already set is cheaper than opening a parallel handle. Callers
+   *  MUST treat the handle as borrowed: do not close it; SessionDb.close()
+   *  owns lifecycle. */
+  get handle(): Database {
+    return this.db;
   }
 
   close(): void {
