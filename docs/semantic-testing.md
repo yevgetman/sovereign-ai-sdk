@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (43/43 pass)
+## Coverage inventory (47/47 pass)
 
 The full suite runs in ~10 minutes and costs ~$2.20 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -154,6 +154,17 @@ Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `s
 |---|---|
 | `tools.agents-bundle-default-discoverable` | Agents/ directory not scanned at startup, AgentTool dropped from pool by `patchSchemasAgainstAvailable()`, `subagent_type` enum patch regressing, or model confusing sub-agents (delegated sessions) with skills (markdown procedures) |
 | `tools.agents-explore-live-delegation` | AgentTool throws when called from a real model, scheduler fails to resolve a child provider, child session fails to start, child's tools end up wrong (allowedTools filter regression), `renderResult`'s `<subagent_result>` envelope breaks, or the parent model can't consume the wrapped child output |
+
+### Task system — 4 tests
+
+Phase 13.2 ships fire-and-forget sub-agent dispatch: the model invokes `task_create` (returns immediately with a task id), observes via `task_list` / `task_get` / `task_output`, and cancels via `task_stop`. The `/tasks` slash command renders the same lifecycle from the user's POV. Five tools + one slash command shipped without semantic coverage; this suite closes that gap. The task system wraps the Phase 13 `SubagentScheduler` with persistence (the `tasks` SQLite table) and lifecycle-aware controllers; unit + integration tests in `tests/tasks/` cover the manager and store deterministically with fake providers, while these end-to-end tests catch regressions in the live tool surface (description quality, schema enum patching for `subagent_type`, the manager not wiring into `ToolContext`, abort propagation through the scheduler, etc.). Cases intentionally do NOT require the task to have completed in the test window — task_create is fire-and-forget, so the assertions check that the right tools dispatched and surfaced sensible state, not that the child finished within N seconds.
+
+| ID | Guards against |
+|---|---|
+| `tools.tasks-create-list-output-flow` | task_create not registering tasks under the parent session id, task_list missing in-flight tasks, task_output's bounded payload not surfacing state/summary, or the manager dropping tasks between create and observation |
+| `tools.tasks-get-roundtrip-by-id` | task_get missing from the tool pool, the store losing rows between insert and read, or the model fabricating a round-trip claim without invoking task_get |
+| `tools.tasks-stop-cancels-running-task` | task_stop missing from the parent tool pool (it's correctly excluded from sub-agents but must be present for the parent), the abort signal not propagating from the controller to the scheduler, or the manager not surfacing cancellation in subsequent task_get calls |
+| `tools.tasks-unknown-subagent-type-errors-clearly` | task_create silently dropping unknown subagent_type calls or returning a fake task id; the schema-enum patch from `patchSchemasAgainstAvailable()` regressing; the tool-body defense-in-depth check missing |
 
 ### Security-audit skill — 1 test
 
@@ -275,6 +286,9 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/tool/registry.ts` (`patchSchemasAgainstAvailable`) | `--filter agents` |
 | `src/router/capabilities.ts` | `--filter agents` (consumer is the scheduler) |
 | `bundle-default/agents/*.md` | `--filter agents` |
+| `src/tools/TaskCreateTool.ts`, `src/tools/TaskListTool.ts`, `src/tools/TaskGetTool.ts`, `src/tools/TaskOutputTool.ts`, `src/tools/TaskStopTool.ts` | `--filter tasks` |
+| `src/tasks/manager.ts`, `src/tasks/store.ts`, `src/tasks/types.ts` | `--filter tasks` |
+| `src/commands/taskOps.ts` (`/tasks` slash command) | `--filter tasks` |
 | `src/permissions/secretRedactor.ts` | `--filter redaction` |
 | `src/permissions/inputTransformer.ts` | `--filter redaction` |
 | `src/permissions/redactSecretsTransformer.ts` | `--filter redaction` |
@@ -336,9 +350,7 @@ The suite now spans every accessible-without-new-infrastructure surface. The rem
 - **CLAUDE.md context surface** — needs a bundle fixture; doable with modest infrastructure work.
 - **Microcompaction tool-result clearing** — no clean external observable for a deterministic test without internal hooks.
 - **Web tools (WebFetch / WebSearch)** — need stubbing; real-network tests would be flaky.
-- **Sub-agent / Task tool** — depends on AgentTool wiring (current sov build).
-- **MCP tool dispatch** — waits on Phase 12 capability.
-- **Trajectory capture** — waits on Phase 13.1 capability.
+- **Trajectory capture observable assertions** — Phase 13.1 ships trajectory capture, but external assertions on the captured artifact need a fixture path; coverage of capture behavior currently lives in unit + integration suites under `tests/trace/`.
 
 The natural next leverage is capability work, not more tests against the current surface area.
 
