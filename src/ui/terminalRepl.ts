@@ -827,6 +827,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...(userSettings.review?.childReviewEveryN !== undefined
           ? { childReviewEveryN: userSettings.review.childReviewEveryN }
           : {}),
+        ...(userSettings.review?.minIntervalMs !== undefined
+          ? { minIntervalMs: userSettings.review.minIntervalMs }
+          : {}),
       },
       pathsResolver: () => ({
         trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),

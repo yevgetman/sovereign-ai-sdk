@@ -193,6 +193,10 @@ export const SettingsSchema = z
         userTurnsForMemoryReview: z.number().int().positive().optional(),
         toolIterationsForSkillReview: z.number().int().positive().optional(),
         childReviewEveryN: z.number().int().positive().optional(),
+        /** Phase 13.3 (A3) — minimum ms between two dispatches of the same
+         *  review-fork agent type. Auto-triggered dispatches respect this
+         *  floor; /review consolidate bypasses. Default 30000 (30s). */
+        minIntervalMs: z.number().int().positive().optional(),
         disabled: z.boolean().optional(),
       })
       .strict()

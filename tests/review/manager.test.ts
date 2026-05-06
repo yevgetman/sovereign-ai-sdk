@@ -248,6 +248,132 @@ describe('ReviewManager triggers', () => {
     expect(calls[0]?.agentName).toBe('review-consolidate');
   });
 
+  test('A3 temporal lockout: rapid same-agent dispatches are deduped', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 1000, // 1s lockout for the test
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    // First non-trivial completion fires (counter=1, no prior dispatch)
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+
+    // Second non-trivial completion 50ms later — counter=1 again (childReviewEveryN=1),
+    // but lockout is 1s → dispatch deduped
+    mgr.onChildCompletion({
+      childSessionId: 'c2',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1); // still 1 — second was deduped
+  });
+
+  test('A3 temporal lockout: dispatch fires again after minIntervalMs elapses', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 100, // 100ms lockout for the test
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+
+    // Wait past lockout
+    await new Promise((r) => setTimeout(r, 150));
+
+    mgr.onChildCompletion({
+      childSessionId: 'c2',
+      taskId: 't',
+      traceId: 'tr',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.length).toBe(2);
+  });
+
+  test('A3 temporal lockout: review-memory and review-skill have independent timers', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 1,
+        toolIterationsForSkillReview: 1,
+        childReviewEveryN: 1,
+        minIntervalMs: 60_000, // 60s
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    // memory + skill within ms of each other — both fire (different agents)
+    mgr.onUserTurn('p');
+    mgr.onToolIteration('p');
+    await new Promise((r) => setTimeout(r, 20));
+    const names = calls.map((c) => c.agentName).sort();
+    expect(names).toEqual(['review-memory', 'review-skill']);
+  });
+
+  test('A3 temporal lockout does NOT apply to runConsolidationPass', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 9999,
+        minIntervalMs: 60_000, // huge lockout
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.runConsolidationPass('/tmp/home');
+    mgr.runConsolidationPass('/tmp/home');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.length).toBe(2); // consolidation is user-invoked; no throttle
+  });
+
   test('foreign sessionId is no-op (sub-agent tool calls do not increment counters)', async () => {
     const calls: Array<Record<string, unknown>> = [];
     const mgr = new ReviewManager({

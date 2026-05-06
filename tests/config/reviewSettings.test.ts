@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { SettingsSchema } from '../../src/config/schema.js';
 
 describe('settings.review block', () => {
-  test('accepts all fields including childReviewEveryN', () => {
+  test('accepts all fields including childReviewEveryN and minIntervalMs', () => {
     const parsed = SettingsSchema.parse({
       review: {
         autoPromoteMemory: true,
@@ -10,6 +10,7 @@ describe('settings.review block', () => {
         userTurnsForMemoryReview: 5,
         toolIterationsForSkillReview: 30,
         childReviewEveryN: 2,
+        minIntervalMs: 15000,
         disabled: false,
       },
     });
@@ -18,6 +19,7 @@ describe('settings.review block', () => {
     expect(parsed.review?.userTurnsForMemoryReview).toBe(5);
     expect(parsed.review?.toolIterationsForSkillReview).toBe(30);
     expect(parsed.review?.childReviewEveryN).toBe(2);
+    expect(parsed.review?.minIntervalMs).toBe(15000);
     expect(parsed.review?.disabled).toBe(false);
   });
 
@@ -31,6 +33,11 @@ describe('settings.review block', () => {
     expect(() => SettingsSchema.parse({ review: { toolIterationsForSkillReview: 0 } })).toThrow();
     expect(() => SettingsSchema.parse({ review: { childReviewEveryN: 0 } })).toThrow();
     expect(() => SettingsSchema.parse({ review: { childReviewEveryN: -5 } })).toThrow();
+  });
+
+  test('rejects negative minIntervalMs', () => {
+    expect(() => SettingsSchema.parse({ review: { minIntervalMs: -1 } })).toThrow();
+    expect(() => SettingsSchema.parse({ review: { minIntervalMs: 0 } })).toThrow();
   });
 
   test('rejects unknown fields (strict)', () => {

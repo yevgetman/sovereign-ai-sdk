@@ -12,6 +12,10 @@ export interface ReviewThresholds {
   userTurnsForMemoryReview: number;
   toolIterationsForSkillReview: number;
   childReviewEveryN: number;
+  /** Phase 13.3 (A3) — minimum milliseconds between two dispatches of
+   *  the same review-fork agent. Auto-triggered dispatches respect this
+   *  lockout; manual runConsolidationPass bypasses. */
+  minIntervalMs: number;
 }
 
 export interface ReviewPaths {
@@ -45,6 +49,7 @@ const DEFAULT_THRESHOLDS: ReviewThresholds = {
   userTurnsForMemoryReview: 10,
   toolIterationsForSkillReview: 50,
   childReviewEveryN: 3,
+  minIntervalMs: 30_000, // 30s
 };
 
 const TRIVIAL_MIN_ITERATIONS = 2;
@@ -56,6 +61,7 @@ export class ReviewManager {
   private userTurnsSince = 0;
   private toolIterationsSince = 0;
   private childCompletionsSince = 0;
+  private lastDispatchAtMs: Map<ReviewAgentName, number> = new Map();
   private readonly scheduler: SubagentScheduler;
   private readonly sessionId: string;
   private readonly signal: AbortSignal;
@@ -139,6 +145,16 @@ export class ReviewManager {
 
   /** Dispatch a one-shot review pass for the given agent. Fire-and-forget. */
   private dispatch(agentName: ReviewAgentName): void {
+    // Phase 13.3 (A3) — temporal lockout. If we dispatched the same agent
+    // type within minIntervalMs, skip silently. Prevents back-to-back
+    // re-reads of nearly-identical trajectory content (e.g., two
+    // AgentTool calls landing within seconds both triggering counter).
+    const last = this.lastDispatchAtMs.get(agentName);
+    if (last !== undefined && Date.now() - last < this.thresholds.minIntervalMs) {
+      return;
+    }
+    this.lastDispatchAtMs.set(agentName, Date.now());
+
     const paths = this.pathsResolver();
     void runReviewFork({
       scheduler: this.scheduler,
