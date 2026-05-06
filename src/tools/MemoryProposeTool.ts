@@ -16,7 +16,6 @@ import type { Tool } from '../tool/types.js';
 const MemoryProposeInputSchema = z.object({
   target: z.enum(['MEMORY.md', 'USER.md']),
   memoryType: z.enum(['user', 'feedback', 'project', 'reference']),
-  title: z.string().min(1),
   body: z.string().min(1),
   sourceMessageRange: z.tuple([z.number(), z.number()]),
   sourceExcerpt: z.string(),

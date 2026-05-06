@@ -31,7 +31,6 @@ describe('memory_propose tool', () => {
       {
         target: 'MEMORY.md',
         memoryType: 'project',
-        title: 'Use pnpm not npm in this repo',
         body: 'Use pnpm not npm in this repo\n\n**Why:** lockfile is pnpm-only.\n\n**How to apply:** any install/update command.',
         sourceMessageRange: [4, 8],
         sourceExcerpt: 'user said pnpm',
@@ -68,7 +67,6 @@ describe('memory_propose tool', () => {
         {
           target: 'MEMORY.md',
           memoryType: 'project',
-          title: 't',
           body: 'b',
           sourceMessageRange: [0, 0],
           sourceExcerpt: 'x',
@@ -84,7 +82,6 @@ describe('memory_propose tool', () => {
       {
         target: 'USER.md',
         memoryType: 'user',
-        title: 'go expert',
         body: 'User has 10y of Go.',
         sourceMessageRange: [0, 1],
         sourceExcerpt: 'go',
