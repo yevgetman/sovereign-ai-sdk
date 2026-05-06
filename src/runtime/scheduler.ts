@@ -267,6 +267,28 @@ export class SubagentScheduler {
             } as unknown as TraceEvent);
           }
         }
+        // Phase 13.3 — review-fork notify. Forwards user-invoked child
+        // completions to the parent's ReviewManager so the child's trajectory
+        // feeds into the review pipeline. Skipped for review-* agents to
+        // prevent recursion (the review fork itself is a child) and for
+        // non-success terminal reasons. The reviewManager lives on the parent's
+        // ToolContext (set in terminalRepl.ts at session boot).
+        if (shouldFireReviewOnDelegation(agent.name, result.terminal.reason)) {
+          try {
+            input.parentToolContext.reviewManager?.onChildCompletion({
+              childSessionId,
+              taskId: childSessionId, // v0: no separate task id concept here; sessionId doubles
+              traceId: childSessionId, // trace files are keyed by sessionId
+            });
+          } catch (err) {
+            input.traceRecorder?.({
+              type: 'memory_error',
+              sessionId: childSessionId,
+              op: 'onChildCompletion',
+              message: err instanceof Error ? err.message : String(err),
+            } as unknown as TraceEvent);
+          }
+        }
         return {
           childSessionId,
           agentName: agent.name,
@@ -318,6 +340,21 @@ export class SubagentScheduler {
     }
     return { providerName: this.opts.defaultProvider, modelName: this.opts.defaultModel };
   }
+}
+
+/** Phase 13.3 — guard for the review-fork notify branch in delegate(). The
+ *  guard skips review-* agents (preventing infinite recursion) and skips
+ *  non-success terminal reasons (errors / interrupts / max_tokens are not
+ *  durable distillation candidates). */
+export function shouldFireReviewOnDelegation(agentName: string, terminalReason: string): boolean {
+  if (
+    agentName === 'review-memory' ||
+    agentName === 'review-skill' ||
+    agentName === 'review-consolidate'
+  ) {
+    return false;
+  }
+  return terminalReason === 'completed' || terminalReason === 'max_turns';
 }
 
 function laneFor(providerName: string): 'local' | 'frontier' {
