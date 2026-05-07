@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (54/54 pass)
+## Coverage inventory (58/58 pass)
 
 The full suite runs in ~10 minutes and costs ~$2.40 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -180,6 +180,17 @@ Phase 13.3 ships the `/review` slash command and the `memory_propose` / `skill_p
 | `commands.review-activity-empty-on-fresh-bundle` | /review activity erroring on the absent sessions table; listSessions bridge breaking; model fabricating review activity that never happened (B3, commit f4676a9) |
 | `commands.review-bare-call-shows-list-or-empty` | Bare /review triggering the unknown-verb fallback instead of the list-equivalent path |
 
+### Phase 13.4 — Learning system — 4 tests
+
+Phase 13.4 ships the instinct corpus, the `LEARNING_ONLY_TOOLS` pool export (four tools: `instinct_list` / `instinct_view` / `instinct_propose` / `instinct_update_confidence`), and the `instinct-synthesizer` bundled sub-agent. CLI subcommands (`harness learning status / prune / export`) are not exercised here — they run outside the in-chat semantic runner and have unit-level coverage in `tests/cli/learningCommands.test.ts`. These four cases target the user-visible contract: tool-pool isolation, agent discoverability, and correct user-facing guidance about the CLI vs slash-command split.
+
+| ID | Guards against |
+|---|---|
+| `tools.main-agent-excludes-instinct-tools` | The four `instinct_*` tools accidentally re-added to `REGISTERED_TOOLS` (they must live only in `LEARNING_ONLY_TOOLS` and be injected into the instinct-synthesizer sub-agent's pool). Agent uses HarnessInfo to verify the live pool rather than guessing from training data. Same structure as Phase 13.3's `main-agent-excludes-propose-tools` guard. |
+| `tools.instinct-synthesizer-agent-bundled` | `bundle-default/agents/instinct-synthesizer.md` not scanned at startup, or `AgentTool`'s `subagent_type` enum patch dropping the new agent — agent uses HarnessInfo agents section to confirm discoverability. |
+| `tools.learning-cli-not-confused-with-slash-command` | Agent fabricates output for `/learning status` (not a slash command) or claims it is a registered slash command; the correct invocation is `harness learning status` / `sov learning status` at the CLI level. |
+| `tools.instinct-tools-described-as-internal-only` | Main agent incorrectly claims it can call `instinct_propose` or `instinct_update_confidence` directly; correct behavior is to report them absent from its pool (verified via HarnessInfo) and describe them as synthesizer-internal. |
+
 ### Security-audit skill — 1 test
 
 The `/security-audit` skill (in `bundle-default/skills/`) provides threat-model scaffolding (actors → assets → exposure paths) and a per-finding verification gate to make a weaker model produce a defensible security audit. The skill prompt has hard rules: no fan-fiction, no platform mismatch (uname/sw_vers/etc/os-release first), no live secrets in artifacts, cite the verification command for every finding.
@@ -299,6 +310,9 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/tools/AgentTool.ts` | `--filter agents` |
 | `src/tool/registry.ts` (`patchSchemasAgainstAvailable`) | `--filter agents` |
 | `src/tool/registry.ts` (`REVIEW_ONLY_TOOLS` export) | `--filter main-agent-excludes-propose` (pool-separation regression guard) |
+| `src/tool/registry.ts` (`LEARNING_ONLY_TOOLS` export) | `--filter main-agent-excludes-instinct` (pool-separation regression guard for Phase 13.4) |
+| `src/learning/`, `src/tools/Instinct*Tool.ts` | `--filter learning` |
+| `bundle-default/agents/instinct-synthesizer.md` | `--filter instinct-synthesizer` |
 | `src/router/capabilities.ts` | `--filter agents` (consumer is the scheduler) |
 | `bundle-default/agents/*.md` | `--filter agents` |
 | `src/tools/TaskCreateTool.ts`, `src/tools/TaskListTool.ts`, `src/tools/TaskGetTool.ts`, `src/tools/TaskOutputTool.ts`, `src/tools/TaskStopTool.ts` | `--filter tasks` |
@@ -344,7 +358,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-5454-pass), update the headline count (`54/54 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-5858-pass), update the headline count (`58/58 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).
