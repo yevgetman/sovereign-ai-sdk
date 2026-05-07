@@ -1,0 +1,67 @@
+# State of the build — 2026-05-07 close-out
+
+**Master HEAD:** `4789de7`
+**Suite:** 1716/1716 unit + 58/58 semantic
+**Sov binary:** in sync with master
+
+This is a session close-out snapshot. The next session boots from CLAUDE.md and should read this file to know where things stand without rederiving from `git log`.
+
+## Where we are
+
+Phases 0 through 13.4 are shipped. The canonical build plan's next item is **Phase 13.5** (scheduled-mission sub-agents — file-contract + loader/writer + `--state-dir` flag for overnight autonomous missions), independently shippable, no upstream dependency.
+
+The 2026-05-06 → 2026-05-07 sessions ran a sustained backlog burn against `docs/post-phase-13-4-backlog.md`. **20 of 24 items closed.** All P0 / P1 / P2 items closed. The remaining 4 are P3+, each warranting a focused session.
+
+## What shipped today (2026-05-07)
+
+Pulled forward from session start at `fa3a353`:
+
+| Item | Commit | Summary |
+|---|---|---|
+| 8 (P2) | `1001237` | Per-child trace files at `<harnessHome>/traces/<childSessionId>.jsonl` alongside the consolidated parent trace; back-compat preserved when scheduler omits `harnessHome`. |
+| 10 (P2) | `a8d4ce3` | Synthesizer fires on tool-iteration burst rhythm too. New `learning.synthesizerEveryNToolIterations` setting (default 50). User-turn and tool-iteration counters are independent. |
+| 11 (P2) | `8e86e61` | POSIX atomic-append verified safe for multi-process observation writes (2-proc + 3-proc stress, 0 torn lines). No code change needed; test pins the contract. |
+| 7 (P2) | `2df9da7` | `onChildCompletion` triages skill-shaped children (≥4 calls AND ≥3 distinct tools) → fires `review-skill` in addition to `review-memory`. AgentRunner tracks `distinctToolNames`; threaded through `DelegateResult` → `ChildCompletionEvent.distinctToolCount`. |
+| 19 (P1) | `db967ed` → `ee24536` → `d6f62bd` → `07fca2f` → `07cb263` (5 commits) | **Two-tier MEMORY.md** — global `<harnessHome>/memory/MEMORY.md` (existing, untouched) + per-project `<harnessHome>/memory/projects/<projectId>/MEMORY.md`. USER.md untouched. `MemoryTool.scope: 'global' \| 'project'` argument; default = `'project'` when bundle / git repo detected, else `'global'`. New system-prompt segment tells the agent the rules. Project ID from bundle manifest `projectId` → bundle path hash → git remote, in that order. |
+
+Net suite delta: **1645 → 1716** (+71). Lint + typecheck clean. Pushed to origin/master after each item; `sov upgrade` ran after each runtime-affecting commit.
+
+## Open backlog
+
+4 items remain — see `docs/post-phase-13-4-backlog.md` for full detail.
+
+| # | Priority | Effort | Title |
+|---|---|---|---|
+| 12 | P3 | half-day | Microcompaction (Phase 10 deepening — qwen-amendment) |
+| 13 | P3 | half-day | Shell AST analysis (Phase 7 deepening — qwen-amendment) |
+| 17 | P4 | multi-day | Eval-gated auto-promote (would warrant its own phase) |
+| 24 | P3 | half-day | `maxToolCallsBeforeCheckin` knob for vague-prompt cost control |
+
+None of these block Phase 13.5.
+
+## Behavioral notes worth knowing next session
+
+1. **`bundle-default` is loaded by default.** Item 19's `kind: 'none'` branch (true general-purpose harness mode with no memory) is rarely reached via the CLI because `sov chat` always loads `bundle-default` when no `--bundle` flag is passed. Non-git scratch-dirs share a single "default-bundle" project memory namespace via the bundle path hash. That's still an isolation win between real projects, but it's not "no memory." If this becomes a problem, revisit Item 19's close-out note.
+
+2. **`HARNESS_HOME` env-prefix-pipeline footgun (Item 20).** `HARNESS_HOME=/path printf ... | sov chat` silently routes `sov chat` to the user's live `~/.harness/` because the env binding scopes only to `printf`. Use `export HARNESS_HOME=...` (or `env HARNESS_HOME=... sov chat <args>`) for tests. Documented in `docs/usage.md`.
+
+3. **WebSearch is `apiKey`-gated (Item 21).** Tool count is 21 baseline, climbs to 22 when `webSearch.apiKey` (or `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY`) is set. Tests that pin exact tool counts must clear those credentials in setup or accept the 21-vs-22 range.
+
+4. **Lesson logged (parallel agents).** Parallel sub-agent batches that touch shared files (especially `src/commands/reviewOps.ts` or other heavily-cross-cutting files) caused transient git stash/restore interference during a 6-agent batch on 2026-05-07. Resolution worked out fine, but: in future batches, if multiple tasks would touch the same file, run them sequentially. Round-by-round dispatch with non-overlapping file targets per round is the safe pattern.
+
+## Where to start the next session
+
+- **If continuing the build plan:** read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and start Phase 13.5 (scheduled-mission sub-agents).
+- **If picking up backlog:** read `docs/post-phase-13-4-backlog.md` for any of items 12, 13, 17, 24. Each merits a focused session.
+- **If running a soak / validation round:** the seven-batch close means a fresh ad-hoc REPL soak (similar to 2026-05-07's 7-agent run) would surface any regressions before the next phase. Recommended before starting Phase 13.5.
+
+## Test-gate baseline
+
+```
+bun run typecheck   # tsc --noEmit, must exit 0
+bun run lint        # biome check, 2 pre-existing warnings in src/permissions/shellSemantics.ts (non-null assertions) — accept those
+bun test            # 1716/1716 unit
+bun run test:semantic   # 58/58 (~5 min, ~$0.87 informational on subscription)
+```
+
+A green local run pinning these numbers means master is in good shape.
