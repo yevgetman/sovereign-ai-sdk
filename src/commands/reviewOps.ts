@@ -16,6 +16,7 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import chalk from 'chalk';
+import { MEMORY_CAPS, type MemoryFile } from '../memory/bounded.js';
 import { proposalPath, reviewDir, skillProposalDir } from '../review/paths.js';
 import {
   parseConsolidationProposal,
@@ -120,17 +121,42 @@ function moveTo(state: 'approved' | 'rejected', home: string, found: FoundPropos
   rmSync(found.path);
 }
 
-function applyMemoryApproval(home: string, raw: string): void {
+/** Phase 13.3 follow-up (backlog Item 1) — pre-flight the bounded memory
+ *  cap before appending. Returns an error message when appending `block`
+ *  would exceed the cap; returns null when safe to write. */
+function checkCapBeforeAppend(
+  target: string,
+  currentSize: number,
+  blockLength: number,
+): string | null {
+  const file = target as MemoryFile;
+  const cap = MEMORY_CAPS[file];
+  if (cap === undefined) return null; // unknown file — caller decides
+  const projected = currentSize + blockLength;
+  if (projected <= cap) return null;
+  return `cap exceeded for ${target}: would grow ${currentSize} → ${projected} chars (cap ${cap}). Run /review consolidate to merge entries, or trim ${target} manually.`;
+}
+
+function applyMemoryApproval(home: string, raw: string): string | null {
   const parsed = parseMemoryProposal(raw);
   const memDir = join(home, 'memory');
   mkdirSync(memDir, { recursive: true });
   const target = join(memDir, parsed.target);
   const block = `\n\n<!-- proposal:${parsed.proposalId} -->\n${parsed.body}\n`;
+
+  // Phase 13.3 follow-up — pre-flight cap
+  const currentSize = existsSync(target) ? readFileSync(target, 'utf-8').length : 0;
+  const capError = checkCapBeforeAppend(parsed.target, currentSize, block.length);
+  if (capError !== null) {
+    return capError;
+  }
+
   if (existsSync(target)) {
     appendFileSync(target, block);
   } else {
     writeFileSync(target, block.trimStart());
   }
+  return null;
 }
 
 function applySkillApproval(home: string, dir: string): void {
@@ -140,12 +166,20 @@ function applySkillApproval(home: string, dir: string): void {
   copyFileSync(join(dir, 'SKILL.md'), join(skillDir, 'SKILL.md'));
 }
 
-function applyConsolidationApproval(home: string, raw: string): void {
+function applyConsolidationApproval(home: string, raw: string): string | null {
   const parsed = parseConsolidationProposal(raw);
   const memDir = join(home, 'memory');
   mkdirSync(memDir, { recursive: true });
   const target = join(memDir, parsed.target);
   const block = `\n\n<!-- consolidation:${parsed.proposalId} affected:${parsed.affectedEntries.join(',')} -->\n${parsed.body}\n`;
+
+  // Phase 13.3 follow-up — pre-flight cap
+  const currentSize = existsSync(target) ? readFileSync(target, 'utf-8').length : 0;
+  const capError = checkCapBeforeAppend(parsed.target, currentSize, block.length);
+  if (capError !== null) {
+    return capError;
+  }
+
   if (existsSync(target)) {
     appendFileSync(target, block);
   } else {
@@ -154,6 +188,7 @@ function applyConsolidationApproval(home: string, raw: string): void {
   // NOTE: actually deleting the affected entries from MEMORY.md is left
   // as a follow-up. v0 appends the consolidation result; user removes
   // originals manually. Documented in DECISIONS.md follow-ups.
+  return null;
 }
 
 const USAGE = 'usage: /review [list|show <id>|approve <id>|reject <id>|consolidate|activity]';
@@ -198,11 +233,17 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     const found = findProposal(home, 'pending', rest);
     if (!found) return chalk.red(`proposal ${rest} not found`);
     if (found.kind === 'memory') {
-      applyMemoryApproval(home, readFileSync(found.path, 'utf-8'));
+      const err = applyMemoryApproval(home, readFileSync(found.path, 'utf-8'));
+      if (err !== null) {
+        return chalk.red(err);
+      }
     } else if (found.kind === 'skills') {
       applySkillApproval(home, found.path);
     } else {
-      applyConsolidationApproval(home, readFileSync(found.path, 'utf-8'));
+      const err = applyConsolidationApproval(home, readFileSync(found.path, 'utf-8'));
+      if (err !== null) {
+        return chalk.red(err);
+      }
     }
     moveTo('approved', home, found);
     return chalk.green(`approved ${rest}`);

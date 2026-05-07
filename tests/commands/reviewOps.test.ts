@@ -152,6 +152,36 @@ describe('/review approve', () => {
     expect(existsSync(join(home, 'review', 'pending', 'skills', '2026-05-06-eee'))).toBe(false);
     expect(existsSync(join(home, 'review', 'approved', 'skills', '2026-05-06-eee'))).toBe(true);
   });
+
+  test('memory proposal: rejects when MEMORY.md cap would be exceeded', async () => {
+    // Pre-fill MEMORY.md to near-capacity
+    const memFile = join(home, 'memory', 'MEMORY.md');
+    mkdirSync(join(home, 'memory'), { recursive: true });
+    writeFileSync(memFile, 'x'.repeat(2100)); // close to 2200 cap
+
+    // Seed a proposal whose body would push past the cap
+    const id = '2026-05-07-cap-test';
+    seedMemoryProposal(home, id, 'y'.repeat(500));
+
+    const out = strip(await reviewCmd.call(`approve ${id}`, makeCtx(home)));
+    expect(out.toLowerCase()).toContain('cap exceeded');
+    expect(out).toContain('MEMORY.md');
+    expect(out.toLowerCase()).toContain('consolidate');
+
+    // MEMORY.md size unchanged
+    expect(readFileSync(memFile, 'utf-8').length).toBe(2100);
+    // Proposal still in pending/, not approved/
+    expect(existsSync(join(home, 'review', 'pending', 'memory', `${id}.md`))).toBe(true);
+    expect(existsSync(join(home, 'review', 'approved', 'memory', `${id}.md`))).toBe(false);
+  });
+
+  test('memory proposal: succeeds when within cap (regression — happy path)', async () => {
+    seedMemoryProposal(home, '2026-05-07-ok', 'tiny note');
+    const out = strip(await reviewCmd.call('approve 2026-05-07-ok', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('approved');
+    expect(existsSync(join(home, 'memory', 'MEMORY.md'))).toBe(true);
+    expect(readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8')).toContain('tiny note');
+  });
 });
 
 describe('/review reject', () => {
