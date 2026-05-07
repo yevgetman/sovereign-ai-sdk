@@ -1,9 +1,10 @@
 # Bug: Loop Detector Second-Strike Leaves Orphaned `tool_use` Blocks in History
 
-**Status:** Open  
+**Status:** Resolved (2026-05-07)  
 **Severity:** Medium-High  
 **Affected file:** `src/core/query.ts`  
-**Discovered:** 2026-05-07 via transcript `~/.harness/debug/transcript-2026-05-07T14-05-19-946Z.jsonl`
+**Discovered:** 2026-05-07 via transcript `~/.harness/debug/transcript-2026-05-07T14-05-19-946Z.jsonl`  
+**Fix:** Second-strike `else` branch now synthesizes `tool_result` blocks for any pending `tool_use` and yields the message before returning. Regression test in `tests/loop/wiring.test.ts` (`second-strike abort yields synthetic tool_result for orphaned tool_use`) reconstructs the persisted message timeline and asserts the Anthropic invariant holds.
 
 ---
 

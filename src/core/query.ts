@@ -245,6 +245,21 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           pendingGuidanceText = undefined;
         }
       } else {
+        // Second-strike abort: if this turn's assistant message contained
+        // tool_use blocks, we must yield matching tool_result blocks before
+        // returning. Anthropic requires every tool_use to be IMMEDIATELY
+        // followed by a tool_result; without this the persisted history
+        // (REPL turnMessages, sessionDb) is left in a 400-rejected state
+        // and the next user message is unrecoverable. Mirrors the
+        // signal-aborted dispatch path below.
+        if (toolUseBlocks.length > 0) {
+          const msg = synthesizeToolResultMessage(
+            toolUseBlocks,
+            'tool call interrupted by loop detector',
+          );
+          history.push(msg);
+          yield msg;
+        }
         await maybeFireStop('error');
         return {
           reason: 'error',
