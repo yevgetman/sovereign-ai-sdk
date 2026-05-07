@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import chalk from 'chalk';
 import { REVIEW_OPS_COMMANDS } from '../../src/commands/reviewOps.js';
 import type { CommandContext } from '../../src/commands/types.js';
-import { serializeMemoryProposal, serializeSkillProposalMeta } from '../../src/review/proposal.js';
+import {
+  serializeConsolidationProposal,
+  serializeMemoryProposal,
+  serializeSkillProposalMeta,
+} from '../../src/review/proposal.js';
 
 chalk.level = 1;
 
@@ -38,6 +42,32 @@ function seedMemoryProposal(home: string, id: string, body = 'Use pnpm not npm')
       sourceExcerpt: 'snippet',
       author: 'review-memory',
       createdAt: '2026-05-06T00:00:00Z',
+      status: 'pending',
+      body,
+    }),
+  );
+}
+
+function seedConsolidationProposal(
+  home: string,
+  proposalId: string,
+  affectedEntries: string[],
+  body: string,
+) {
+  const dir = join(home, 'review', 'pending', 'consolidation');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${proposalId}.md`),
+    serializeConsolidationProposal({
+      proposalId,
+      type: 'consolidation',
+      target: 'MEMORY.md',
+      affectedEntries,
+      sessionId: 'sess',
+      parentSessionId: null,
+      traceId: 'trace',
+      author: 'review-consolidate',
+      createdAt: '2026-05-07T00:00:00Z',
       status: 'pending',
       body,
     }),
@@ -467,6 +497,110 @@ describe('/review revoke', () => {
     expect(existsSync(join(home, 'review', 'rejected', 'memory', '2026-05-07-stale.md'))).toBe(
       true,
     );
+  });
+});
+
+describe('/review approve — consolidation deletes originals (Item 4)', () => {
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-cons-del-'));
+    mkdirSync(join(home, 'memory'), { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('approving a consolidation removes affected entries + appends consolidated block', async () => {
+    seedMemoryProposal(home, '2026-05-07-orig-a', 'Original A content');
+    seedMemoryProposal(home, '2026-05-07-orig-b', 'Original B content');
+    await reviewCmd.call('approve 2026-05-07-orig-a', makeCtx(home));
+    await reviewCmd.call('approve 2026-05-07-orig-b', makeCtx(home));
+
+    const memBefore = readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8');
+    expect(memBefore).toContain('Original A content');
+    expect(memBefore).toContain('Original B content');
+
+    seedConsolidationProposal(
+      home,
+      '2026-05-07-cons-1',
+      ['2026-05-07-orig-a', '2026-05-07-orig-b'],
+      'Merged note: combines A and B',
+    );
+
+    const out = strip(await reviewCmd.call('approve 2026-05-07-cons-1', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('approved');
+    expect(out).toContain('merged 2 entries');
+
+    const memAfter = readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8');
+    expect(memAfter).not.toContain('Original A content');
+    expect(memAfter).not.toContain('Original B content');
+    expect(memAfter).toContain('Merged note: combines A and B');
+  });
+
+  test('consolidation that shrinks the file passes cap check even when originals were at cap', async () => {
+    // Pre-fill MEMORY.md to near-capacity via an approval
+    seedMemoryProposal(home, '2026-05-07-fat', 'x'.repeat(2000));
+    await reviewCmd.call('approve 2026-05-07-fat', makeCtx(home));
+    expect(readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8').length).toBeGreaterThan(1900);
+
+    seedConsolidationProposal(
+      home,
+      '2026-05-07-cons-shrink',
+      ['2026-05-07-fat'],
+      'short merged note',
+    );
+
+    const out = strip(await reviewCmd.call('approve 2026-05-07-cons-shrink', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('approved');
+    // After shrinking, file should be much smaller than before
+    expect(readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8').length).toBeLessThan(500);
+  });
+
+  test('consolidation rejects when post-deletion content + new block still exceeds cap', async () => {
+    // Set up: one original at moderate size we won't delete, plus a small one we will.
+    seedMemoryProposal(home, '2026-05-07-keep', 'y'.repeat(800));
+    seedMemoryProposal(home, '2026-05-07-del', 'z'.repeat(200));
+    await reviewCmd.call('approve 2026-05-07-keep', makeCtx(home));
+    await reviewCmd.call('approve 2026-05-07-del', makeCtx(home));
+    // MEMORY.md ~ 1100 chars now (cap is 2200)
+
+    // A consolidation that deletes only -del (~200 chars) but appends a giant block (~2000)
+    // would push past cap (1100 - 200 + 2000 ~ 2900 > 2200).
+    seedConsolidationProposal(home, '2026-05-07-cons-bloat', ['2026-05-07-del'], 'a'.repeat(2000));
+
+    const out = strip(await reviewCmd.call('approve 2026-05-07-cons-bloat', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('cap exceeded');
+    // File state unchanged — no partial deletion
+    const memAfter = readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8');
+    expect(memAfter).toContain('z'.repeat(50)); // original -del content still present
+    // Proposal still pending
+    expect(
+      existsSync(join(home, 'review', 'pending', 'consolidation', '2026-05-07-cons-bloat.md')),
+    ).toBe(true);
+    expect(
+      existsSync(join(home, 'review', 'approved', 'consolidation', '2026-05-07-cons-bloat.md')),
+    ).toBe(false);
+  });
+
+  test('missing affectedEntry is non-fatal: continues with the rest', async () => {
+    seedMemoryProposal(home, '2026-05-07-real', 'Real entry');
+    await reviewCmd.call('approve 2026-05-07-real', makeCtx(home));
+
+    seedConsolidationProposal(
+      home,
+      '2026-05-07-cons-mixed',
+      ['2026-05-07-real', '2026-05-07-ghost'],
+      'Merged from real + ghost (ghost was already gone)',
+    );
+
+    const out = strip(await reviewCmd.call('approve 2026-05-07-cons-mixed', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('approved');
+    // Only one entry was actually removed (the ghost was missing), so the
+    // success annotation should reflect that.
+    expect(out).toContain('merged 1 entry');
+    const memAfter = readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8');
+    expect(memAfter).not.toContain('Real entry');
+    expect(memAfter).toContain('Merged from real + ghost');
   });
 });
 

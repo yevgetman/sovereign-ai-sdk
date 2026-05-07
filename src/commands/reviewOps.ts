@@ -166,29 +166,48 @@ function applySkillApproval(home: string, dir: string): void {
   copyFileSync(join(dir, 'SKILL.md'), join(skillDir, 'SKILL.md'));
 }
 
-function applyConsolidationApproval(home: string, raw: string): string | null {
+type ConsolidationResult = { ok: true; removed: string[] } | { ok: false; error: string };
+
+function applyConsolidationApproval(home: string, raw: string): ConsolidationResult {
   const parsed = parseConsolidationProposal(raw);
   const memDir = join(home, 'memory');
   mkdirSync(memDir, { recursive: true });
   const target = join(memDir, parsed.target);
+
+  // Phase 13.3 follow-up (Item 4) — remove the original blocks listed in
+  // affectedEntries BEFORE computing the cap-check or appending. The
+  // consolidated entry replaces them, so the post-state file size should
+  // reflect that. Cap-check then runs against the post-deletion size,
+  // letting net-shrinking consolidations succeed even when the pre-state
+  // was at cap.
+  let working = existsSync(target) ? readFileSync(target, 'utf-8') : '';
+  const removed: string[] = [];
+  for (const affectedId of parsed.affectedEntries) {
+    const after = removeProposalBlock(working, affectedId);
+    if (after !== null) {
+      working = after;
+      removed.push(affectedId);
+    }
+    // Missing affectedEntry is non-fatal — could be the user already
+    // manually removed it, or a sibling consolidation already merged it.
+  }
+
   const block = `\n\n<!-- consolidation:${parsed.proposalId} affected:${parsed.affectedEntries.join(',')} -->\n${parsed.body}\n`;
 
-  // Phase 13.3 follow-up — pre-flight cap
-  const currentSize = existsSync(target) ? readFileSync(target, 'utf-8').length : 0;
-  const capError = checkCapBeforeAppend(parsed.target, currentSize, block.length);
+  // Cap-check uses the WORKING content size (post-deletion), not the
+  // original file size. Consolidations that net-shrink should always
+  // pass, even when the pre-deletion file was at cap.
+  const capError = checkCapBeforeAppend(parsed.target, working.length, block.length);
   if (capError !== null) {
-    return capError;
+    return { ok: false, error: capError };
   }
 
-  if (existsSync(target)) {
-    appendFileSync(target, block);
-  } else {
-    writeFileSync(target, block.trimStart());
-  }
-  // NOTE: actually deleting the affected entries from MEMORY.md is left
-  // as a follow-up. v0 appends the consolidation result; user removes
-  // originals manually. Documented in DECISIONS.md follow-ups.
-  return null;
+  // Atomic write: deletions + append in a single writeFileSync. If the
+  // target was previously empty/missing, trim the leading newlines on
+  // the first block so we don't start the file with blank lines.
+  const newContent = working === '' ? block.trimStart() : working + block;
+  writeFileSync(target, newContent);
+  return { ok: true, removed };
 }
 
 /** Phase 13.3 follow-up (backlog Item 3) — remove the block in MEMORY.md /
@@ -288,6 +307,7 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     if (!rest) return 'usage: /review approve <id>';
     const found = findProposal(home, 'pending', rest);
     if (!found) return chalk.red(`proposal ${rest} not found`);
+    let mergedNote = '';
     if (found.kind === 'memory') {
       const err = applyMemoryApproval(home, readFileSync(found.path, 'utf-8'));
       if (err !== null) {
@@ -296,13 +316,16 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     } else if (found.kind === 'skills') {
       applySkillApproval(home, found.path);
     } else {
-      const err = applyConsolidationApproval(home, readFileSync(found.path, 'utf-8'));
-      if (err !== null) {
-        return chalk.red(err);
+      const result = applyConsolidationApproval(home, readFileSync(found.path, 'utf-8'));
+      if (!result.ok) {
+        return chalk.red(result.error);
+      }
+      if (result.removed.length > 0) {
+        mergedNote = ` (merged ${result.removed.length} ${result.removed.length === 1 ? 'entry' : 'entries'})`;
       }
     }
     moveTo('approved', home, found);
-    return chalk.green(`approved ${rest}`);
+    return chalk.green(`approved ${rest}${mergedNote}`);
   }
 
   if (verb === 'reject') {
