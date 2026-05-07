@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `c6412ce`. Suite 1613/1613 unit + 58/58 semantic. Items 1, 2, 5, 6, 22, 23 closed in two batches (commits `f7c9c69`, `47993ec`, `d2e1e92`, then `d24efee`, `64e5eef`, `c6412ce`). Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
+**Last sync:** 2026-05-07. Master at `409fe9c`. Suite 1623/1623 unit + 58/58 semantic. Items 1, 2, 3, 4, 5, 6, 22, 23 closed in three batches (commits `f7c9c69`, `47993ec`, `d2e1e92`, then `d24efee`, `64e5eef`, `c6412ce`, then `7015b8c`, `409fe9c`). Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
 
 ## Priority order
 
@@ -13,8 +13,8 @@ P0 (correctness / data integrity):
 2. ~~Auto-promote provenance preservation gap audit~~ **— closed `47993ec` (no real gap; C2 fix verified)**
 
 P1 (UX / observability):
-3. `/review revoke <id>` undo path
-4. Consolidation deletes original entries (currently appends only)
+3. ~~`/review revoke <id>` undo path~~ **— closed `7015b8c`**
+4. ~~Consolidation deletes original entries~~ **— closed `409fe9c` (post-deletion cap check + audit-trail success message)**
 5. ~~Status mapping at observer site upgraded to 4-state~~ **— closed `64e5eef`**
 6. ~~Better confidence ramp-up for cross-project promotion~~ **— closed `d24efee` (tunables exposed; defaults preserved pending soak data)**
 19. MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped) **[soak 2026-05-07]**
@@ -80,7 +80,7 @@ P4 (small ergonomics + nits):
 ### 3. `/review revoke <id>` undo path
 
 - Priority: P1
-- Status: open
+- Status: **complete (2026-05-07, commit `7015b8c`)** — new `/review revoke <id>` verb. Memory + consolidation revoke: finds the appended block via `<!-- proposal:<id>` prefix match (handles auto-promoted richer comments), strips with leading-blank-line absorption (no separator drift after multi-revoke), moves proposal `approved/` → `rejected/` with status field updated. Skill revoke: rmRf the `skills/agent-created/<name>/` dir + moves the proposal. Idempotent on already-removed blocks. New `removeProposalBlock` helper became the foundation for Item 4. 6 new tests; suite 1619/1619.
 - Source: original C3 follow-up (deferred from Phase 13.3 polish batches)
 - Recommendation: New verb `/review revoke <id>` that removes the appended block from `MEMORY.md` (using the `<!-- proposal:<id> -->` marker as a delimiter) and moves the proposal from `approved/` to `rejected/`. Track which IDs were approved so revoke can find the block.
 - Evidence: No undo on accidental approvals; user must hand-edit MEMORY.md.
@@ -93,7 +93,7 @@ P4 (small ergonomics + nits):
 ### 4. Consolidation deletes original entries
 
 - Priority: P1
-- Status: open
+- Status: **complete (2026-05-07, commit `409fe9c`)** — `applyConsolidationApproval` now parses `affectedEntries` and walks each via `removeProposalBlock` (helper from Item 3) BEFORE the cap check + append. Cap-check uses post-deletion content size, so net-shrinking consolidations always pass even when pre-state was at cap. Atomic single-write at the end (deletions + append in one writeFileSync). Missing affectedEntries are non-fatal. Return shape upgraded to `{ ok: true, removed: string[] } | { ok: false, error }` so the success message annotates "merged N entries" — useful audit trail. 4 new tests; suite 1623/1623.
 - Source: original C4 follow-up; code comment in `applyConsolidationApproval` says "actually deleting the affected entries from MEMORY.md is left as a follow-up. v0 appends the consolidation result; user removes originals manually."
 - Recommendation: When approving a `ConsolidationProposal`, parse `affectedEntries` from frontmatter, find each entry's `<!-- proposal:<id> -->` marker in MEMORY.md, remove those blocks, then append the consolidated entry. Bonus: emit a one-line summary of which originals were removed.
 - Evidence: `src/commands/reviewOps.ts:applyConsolidationApproval` only appends.
