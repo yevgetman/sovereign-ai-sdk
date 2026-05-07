@@ -140,11 +140,77 @@ describe('AgentRunner', () => {
     expect((result as { toolCallCount: number }).toolCallCount).toBe(1);
     expect((result as { iterationsUsed: number }).iterationsUsed).toBe(2);
     expect((result as { terminal: { reason: string } }).terminal.reason).toBe('completed');
+    // Phase 13.4 follow-up (Item 7) — distinctToolNames captured the
+    // single tool the child invoked.
+    expect((result as { distinctToolNames: string[] }).distinctToolNames).toEqual(['Echo']);
     // The yielded stream should include text_delta events from the final turn
     const textDeltas = events.filter(
       (e) => 'type' in e && (e as StreamEvent).type === 'text_delta',
     );
     expect(textDeltas.length).toBeGreaterThan(0);
+  });
+
+  test('distinctToolNames is empty when no tools are invoked', async () => {
+    const runner = new AgentRunner({
+      provider: scriptedTurns([completedTurn]),
+      model: 'fake-model',
+      systemPrompt: baseSystemPrompt,
+      maxTokens: 256,
+      sessionId: 'child-no-tools',
+      toolContext: baseToolContext,
+    });
+    const { result } = await drain(runner.run('chat only'));
+    expect((result as { distinctToolNames: string[] }).distinctToolNames).toEqual([]);
+  });
+
+  test('distinctToolNames deduplicates and sorts repeated tool calls', async () => {
+    // Three tool_use blocks across two turns; two distinct names (Echo, Beep)
+    // → distinctToolNames = ['Beep', 'Echo'] (sorted).
+    const turn1: StreamEvent[] = [
+      { type: 'message_start' },
+      { type: 'message_stop', stop_reason: 'tool_use' },
+      {
+        type: 'assistant_message',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 't1', name: 'Echo', input: { text: 'a' } },
+            { type: 'tool_use', id: 't2', name: 'Beep', input: { text: 'b' } },
+          ],
+        },
+      },
+    ];
+    const turn2: StreamEvent[] = [
+      { type: 'message_start' },
+      { type: 'message_stop', stop_reason: 'tool_use' },
+      {
+        type: 'assistant_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't3', name: 'Echo', input: { text: 'c' } }],
+        },
+      },
+    ];
+    const beepTool = buildTool({
+      name: 'Beep',
+      description: () => 'beep',
+      inputSchema: z.object({ text: z.string() }),
+      async call() {
+        return { data: { ok: true } };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    const runner = new AgentRunner({
+      provider: scriptedTurns([turn1, turn2, completedTurn]),
+      model: 'fake-model',
+      systemPrompt: baseSystemPrompt,
+      maxTokens: 256,
+      sessionId: 'child-multi-tools',
+      tools: [makeEchoTool(), beepTool],
+      toolContext: baseToolContext,
+    });
+    const { result } = await drain(runner.run('use tools'));
+    expect((result as { toolCallCount: number }).toolCallCount).toBe(3);
+    expect((result as { distinctToolNames: string[] }).distinctToolNames).toEqual(['Beep', 'Echo']);
   });
 
   test('honors maxTurns by terminating with reason max_turns', async () => {

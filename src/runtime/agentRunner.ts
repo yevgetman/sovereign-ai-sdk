@@ -76,6 +76,12 @@ export type AgentRunnerResult = {
   finalAssistant?: AssistantMessage;
   iterationsUsed: number;
   toolCallCount: number;
+  /** Phase 13.4 follow-up (Item 7) — distinct tool names invoked across
+   *  the child's run, deduplicated and sorted for stable serialization.
+   *  Used by ReviewManager to triage skill-shaped children (>= 4 calls
+   *  AND >= 3 distinct tools fires review-skill in addition to
+   *  review-memory). May be empty when the child made zero tool calls. */
+  distinctToolNames: string[];
   /** Full message history of the run, including the seed user prompt,
    *  every assistant message, and every tool_result-carrying user
    *  message yielded between turns. The caller can pass this to the
@@ -120,6 +126,9 @@ export class AgentRunner {
     let finalAssistant: AssistantMessage | undefined;
     let iterationsUsed = 0;
     let toolCallCount = 0;
+    // Phase 13.4 follow-up (Item 7) — track distinct tool names alongside
+    // the call counter so ReviewManager can triage skill-shaped children.
+    const distinctTools = new Set<string>();
     let terminal: Terminal = { reason: 'error', error: new Error('AgentRunner: never terminated') };
     // Track the full conversation history for trajectory capture.
     // query() yields:
@@ -145,7 +154,10 @@ export class AgentRunner {
               finalAssistant = ev.message;
               messages.push(ev.message);
               for (const block of ev.message.content) {
-                if (block.type === 'tool_use') toolCallCount++;
+                if (block.type === 'tool_use') {
+                  toolCallCount++;
+                  distinctTools.add(block.name);
+                }
               }
             }
           } else if ('role' in ev && ev.role === 'user') {
@@ -167,6 +179,7 @@ export class AgentRunner {
       ...(finalAssistant !== undefined ? { finalAssistant } : {}),
       iterationsUsed,
       toolCallCount,
+      distinctToolNames: Array.from(distinctTools).sort(),
       messages,
     };
   }

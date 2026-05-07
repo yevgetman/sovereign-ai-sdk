@@ -72,6 +72,7 @@ const makeCompletedResult = (id: string, terminal: Terminal): DelegateResult => 
   summary: 'fake summary',
   iterationsUsed: 1,
   toolCallCount: 0,
+  distinctToolNames: [],
   durationMs: 5,
 });
 

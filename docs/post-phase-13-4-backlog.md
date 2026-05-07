@@ -141,7 +141,7 @@ P4 (small ergonomics + nits):
 ### 7. Pick `review-memory` vs `review-skill` based on child shape
 
 - Priority: P2
-- Status: open
+- Status: done (2026-05-07)
 - Source: original D1 follow-up
 - Recommendation: `onChildCompletion` currently always fires `review-memory`. Add a heuristic: if the child made `tool_call_count >= 4` AND used 3+ distinct tools, ALSO fire `review-skill`. Or: pick based on the child's session shape (multiple tools = procedural, candidate skill; single tool repeated = pattern, candidate memory).
 - Evidence: Skill-extractable workflows go un-distilled because `review-skill` only fires on `onToolIteration` (every 50 tool calls), not on child completions.

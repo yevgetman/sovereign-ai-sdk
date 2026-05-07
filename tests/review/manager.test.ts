@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { ReviewManager } from '../../src/review/manager.js';
+import {
+  ReviewManager,
+  SKILL_SHAPED_MIN_DISTINCT_TOOLS,
+  SKILL_SHAPED_MIN_TOOL_CALLS,
+  isSkillShaped,
+} from '../../src/review/manager.js';
 import type { SubagentScheduler } from '../../src/runtime/scheduler.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
 
@@ -719,5 +724,303 @@ describe('ReviewManager triggers', () => {
     mgr.onUserTurn('parent-1');
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.length).toBe(1);
+  });
+});
+
+describe('onChildCompletion — skill-shaped triage (Item 7)', () => {
+  test('skill-shaped child fires review-memory AND review-skill', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 6,
+      distinctToolCount: 4,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const memoryDispatches = calls.filter((c) => c.agentName === 'review-memory');
+    const skillDispatches = calls.filter((c) => c.agentName === 'review-skill');
+    expect(memoryDispatches.length).toBe(1);
+    expect(skillDispatches.length).toBe(1);
+  });
+
+  test('memory-shaped child fires review-memory only (not review-skill)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    // Six calls but only one distinct tool — repeated invocation, not a
+    // procedural workflow; below distinct-tool threshold.
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 6,
+      distinctToolCount: 1,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1);
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(0);
+  });
+
+  test('threshold edge: tools=4 distinct=3 IS skill-shaped (boundary inclusive)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 4,
+      distinctToolCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1);
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(1);
+  });
+
+  test('threshold edge: tools=3 distinct=3 is NOT skill-shaped (calls below threshold)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 3,
+      distinctToolCount: 3,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1);
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(0);
+  });
+
+  test('threshold edge: tools=4 distinct=2 is NOT skill-shaped (distinct below threshold)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 4,
+      distinctToolCount: 2,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1);
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(0);
+  });
+
+  test('missing distinctToolCount falls back to memory-only (back-compat)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    // No distinctToolCount — caller hasn't been updated to thread it. The
+    // back-compat path skips the skill dispatch entirely.
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 6,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1);
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(0);
+  });
+
+  test('back-to-back skill-shaped children respect minIntervalMs throttle', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 1,
+        minIntervalMs: 60_000, // long lockout — both agents throttled on second call
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      ...emptyParent(),
+    });
+
+    mgr.onChildCompletion({
+      childSessionId: 'c1',
+      taskId: 't1',
+      traceId: 'tr1',
+      iterationsUsed: 5,
+      toolCallCount: 6,
+      distinctToolCount: 4,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1);
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(1);
+
+    // Second skill-shaped child within the 60s lockout: per-agent throttle
+    // suppresses BOTH dispatches.
+    mgr.onChildCompletion({
+      childSessionId: 'c2',
+      taskId: 't2',
+      traceId: 'tr2',
+      iterationsUsed: 5,
+      toolCallCount: 6,
+      distinctToolCount: 4,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.filter((c) => c.agentName === 'review-memory').length).toBe(1); // still 1
+    expect(calls.filter((c) => c.agentName === 'review-skill').length).toBe(1); // still 1
+  });
+});
+
+describe('isSkillShaped() pure function', () => {
+  test('exported thresholds match the documented heuristic', () => {
+    expect(SKILL_SHAPED_MIN_TOOL_CALLS).toBe(4);
+    expect(SKILL_SHAPED_MIN_DISTINCT_TOOLS).toBe(3);
+  });
+
+  test('returns true when tools >= 4 AND distinct >= 3', () => {
+    expect(
+      isSkillShaped({
+        childSessionId: 'a',
+        taskId: 't',
+        traceId: 'tr',
+        toolCallCount: 4,
+        distinctToolCount: 3,
+      }),
+    ).toBe(true);
+    expect(
+      isSkillShaped({
+        childSessionId: 'a',
+        taskId: 't',
+        traceId: 'tr',
+        toolCallCount: 10,
+        distinctToolCount: 5,
+      }),
+    ).toBe(true);
+  });
+
+  test('returns false when below either threshold', () => {
+    expect(
+      isSkillShaped({
+        childSessionId: 'a',
+        taskId: 't',
+        traceId: 'tr',
+        toolCallCount: 3,
+        distinctToolCount: 3,
+      }),
+    ).toBe(false);
+    expect(
+      isSkillShaped({
+        childSessionId: 'a',
+        taskId: 't',
+        traceId: 'tr',
+        toolCallCount: 4,
+        distinctToolCount: 2,
+      }),
+    ).toBe(false);
+    expect(
+      isSkillShaped({
+        childSessionId: 'a',
+        taskId: 't',
+        traceId: 'tr',
+        toolCallCount: 1,
+        distinctToolCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  test('returns false when fields are missing', () => {
+    expect(isSkillShaped({ childSessionId: 'a', taskId: 't', traceId: 'tr' })).toBe(false);
+    expect(
+      isSkillShaped({ childSessionId: 'a', taskId: 't', traceId: 'tr', toolCallCount: 5 }),
+    ).toBe(false);
+    expect(
+      isSkillShaped({ childSessionId: 'a', taskId: 't', traceId: 'tr', distinctToolCount: 5 }),
+    ).toBe(false);
   });
 });

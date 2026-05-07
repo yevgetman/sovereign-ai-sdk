@@ -114,6 +114,11 @@ export type DelegateResult = {
   finalAssistant?: AssistantMessage;
   iterationsUsed: number;
   toolCallCount: number;
+  /** Phase 13.4 follow-up (Item 7) — distinct tool names invoked by the
+   *  child, deduplicated and sorted. Threaded from AgentRunnerResult so
+   *  ReviewManager can triage skill-shaped children downstream. Empty
+   *  when the child never reached the runner (e.g. early-error paths). */
+  distinctToolNames: string[];
   durationMs: number;
 };
 
@@ -247,6 +252,7 @@ export class SubagentScheduler {
             summary: `[child interrupted: ${message}]`,
             iterationsUsed: 0,
             toolCallCount: 0,
+            distinctToolNames: [],
             durationMs: Date.now() - startedAt,
           };
         }
@@ -323,6 +329,10 @@ export class SubagentScheduler {
               traceId: childSessionId, // trace files are keyed by sessionId
               iterationsUsed: result.iterationsUsed,
               toolCallCount: result.toolCallCount,
+              // Phase 13.4 follow-up (Item 7) — surface distinct-tool count
+              // so ReviewManager can fire review-skill alongside review-memory
+              // when the child's shape suggests a procedural workflow.
+              distinctToolCount: result.distinctToolNames.length,
             });
           } catch (err) {
             input.traceRecorder?.({
@@ -343,6 +353,7 @@ export class SubagentScheduler {
           ...(result.finalAssistant !== undefined ? { finalAssistant: result.finalAssistant } : {}),
           iterationsUsed: result.iterationsUsed,
           toolCallCount: result.toolCallCount,
+          distinctToolNames: result.distinctToolNames,
           durationMs: Date.now() - startedAt,
         };
       } finally {
@@ -446,6 +457,7 @@ async function drainRunner(
       finalAssistant?: AssistantMessage;
       iterationsUsed: number;
       toolCallCount: number;
+      distinctToolNames: string[];
       messages: import('../core/types.js').Message[];
     }
   >,
@@ -454,6 +466,7 @@ async function drainRunner(
   finalAssistant?: AssistantMessage;
   iterationsUsed: number;
   toolCallCount: number;
+  distinctToolNames: string[];
   messages: import('../core/types.js').Message[];
 }> {
   for (;;) {

@@ -41,6 +41,14 @@ export interface ChildCompletionEvent {
    *  children that produced no learnable signal. */
   iterationsUsed?: number;
   toolCallCount?: number;
+  /** Phase 13.4 follow-up (Item 7) — count of distinct tool names the
+   *  child invoked. ReviewManager uses this to triage skill-shaped
+   *  children (>= SKILL_SHAPED_MIN_TOOL_CALLS calls AND
+   *  >= SKILL_SHAPED_MIN_DISTINCT_TOOLS distinct tools fires
+   *  review-skill alongside review-memory). Optional for back-compat
+   *  with callers that haven't been updated yet — when absent, only
+   *  the default review-memory dispatch fires. */
+  distinctToolCount?: number;
 }
 
 export interface ReviewManagerOpts {
@@ -75,6 +83,32 @@ const DEFAULT_THRESHOLDS: ReviewThresholds = {
 
 const TRIVIAL_MIN_ITERATIONS = 2;
 const TRIVIAL_MIN_TOOL_CALLS = 1;
+
+/** Phase 13.4 follow-up (Item 7) — heuristic boundaries for triaging a
+ *  completed child as "skill-shaped" (a procedural workflow worth
+ *  proposing as a skill). These are intentionally hardcoded rather than
+ *  surfaced through ReviewThresholds — they're project-wide stability
+ *  boundaries, not per-session knobs. */
+export const SKILL_SHAPED_MIN_TOOL_CALLS = 4;
+export const SKILL_SHAPED_MIN_DISTINCT_TOOLS = 3;
+
+/** Pure helper — returns true when a child's shape suggests a procedural
+ *  workflow (>= SKILL_SHAPED_MIN_TOOL_CALLS calls AND
+ *  >= SKILL_SHAPED_MIN_DISTINCT_TOOLS distinct tools). Falls back to
+ *  false when either field is absent so older callers that don't thread
+ *  distinctToolCount through still get the original memory-only
+ *  behavior.
+ *
+ *  Exported for direct unit-testing. */
+export function isSkillShaped(evt: ChildCompletionEvent): boolean {
+  if (evt.toolCallCount === undefined || evt.distinctToolCount === undefined) {
+    return false;
+  }
+  return (
+    evt.toolCallCount >= SKILL_SHAPED_MIN_TOOL_CALLS &&
+    evt.distinctToolCount >= SKILL_SHAPED_MIN_DISTINCT_TOOLS
+  );
+}
 
 const DEFAULT_RECENT_TURN_COUNT = 10;
 
@@ -190,6 +224,15 @@ export class ReviewManager {
     if (this.childCompletionsSince >= this.thresholds.childReviewEveryN) {
       this.childCompletionsSince = 0;
       this.dispatch('review-memory');
+      // Phase 13.4 follow-up (Item 7) — additionally fire review-skill
+      // when the child's shape suggests a procedural workflow. Memory
+      // dispatches stay unchanged on every counter trip; this is purely
+      // additive. The per-agent lastDispatchAtMs throttle inside
+      // dispatch() prevents back-to-back skill firings when many
+      // skill-shaped children land in quick succession.
+      if (isSkillShaped(evt)) {
+        this.dispatch('review-skill');
+      }
     }
   }
 
