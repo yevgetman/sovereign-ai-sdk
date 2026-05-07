@@ -387,6 +387,89 @@ describe('/review activity', () => {
   });
 });
 
+describe('/review revoke', () => {
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-revoke-'));
+    mkdirSync(join(home, 'memory'), { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('revokes a memory approval: removes block + moves proposal to rejected/', async () => {
+    seedMemoryProposal(home, '2026-05-07-rev', 'My durable note');
+    await reviewCmd.call('approve 2026-05-07-rev', makeCtx(home));
+    expect(readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8')).toContain('My durable note');
+
+    const out = strip(await reviewCmd.call('revoke 2026-05-07-rev', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('revoked');
+
+    expect(readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8')).not.toContain(
+      'My durable note',
+    );
+    expect(existsSync(join(home, 'review', 'approved', 'memory', '2026-05-07-rev.md'))).toBe(false);
+    expect(existsSync(join(home, 'review', 'rejected', 'memory', '2026-05-07-rev.md'))).toBe(true);
+  });
+
+  test('revokes a skill approval: deletes skills/agent-created/<name>/ + moves proposal', async () => {
+    seedSkillProposal(home, '2026-05-07-skill-rev', 'my-test-skill');
+    await reviewCmd.call('approve 2026-05-07-skill-rev', makeCtx(home));
+    expect(existsSync(join(home, 'skills', 'agent-created', 'my-test-skill', 'SKILL.md'))).toBe(
+      true,
+    );
+
+    const out = strip(await reviewCmd.call('revoke 2026-05-07-skill-rev', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('revoked');
+
+    expect(existsSync(join(home, 'skills', 'agent-created', 'my-test-skill'))).toBe(false);
+    expect(existsSync(join(home, 'review', 'rejected', 'skills', '2026-05-07-skill-rev'))).toBe(
+      true,
+    );
+  });
+
+  test('errors clearly when revoke target id is not found in approved/', async () => {
+    const out = strip(await reviewCmd.call('revoke 9999-99-99-zzz', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('not found');
+  });
+
+  test('errors clearly when no id given', async () => {
+    const out = strip(await reviewCmd.call('revoke', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('usage');
+    expect(out).toContain('revoke <id>');
+  });
+
+  test('removes the right block when MEMORY.md contains multiple approvals', async () => {
+    seedMemoryProposal(home, '2026-05-07-a', 'First note FOO');
+    seedMemoryProposal(home, '2026-05-07-b', 'Second note BAR');
+    seedMemoryProposal(home, '2026-05-07-c', 'Third note BAZ');
+    await reviewCmd.call('approve 2026-05-07-a', makeCtx(home));
+    await reviewCmd.call('approve 2026-05-07-b', makeCtx(home));
+    await reviewCmd.call('approve 2026-05-07-c', makeCtx(home));
+
+    await reviewCmd.call('revoke 2026-05-07-b', makeCtx(home));
+
+    const memContent = readFileSync(join(home, 'memory', 'MEMORY.md'), 'utf-8');
+    expect(memContent).toContain('First note FOO');
+    expect(memContent).not.toContain('Second note BAR');
+    expect(memContent).toContain('Third note BAZ');
+  });
+
+  test('idempotent on already-removed block: still moves proposal to rejected/', async () => {
+    seedMemoryProposal(home, '2026-05-07-stale', 'stale note');
+    await reviewCmd.call('approve 2026-05-07-stale', makeCtx(home));
+    // User manually removed the block:
+    writeFileSync(join(home, 'memory', 'MEMORY.md'), 'unrelated content\n');
+
+    const out = strip(await reviewCmd.call('revoke 2026-05-07-stale', makeCtx(home)));
+    expect(out.toLowerCase()).toContain('not found');
+    expect(out.toLowerCase()).toContain('rejected');
+    expect(existsSync(join(home, 'review', 'rejected', 'memory', '2026-05-07-stale.md'))).toBe(
+      true,
+    );
+  });
+});
+
 describe('/review unknown verb', () => {
   let home: string;
   beforeEach(() => {

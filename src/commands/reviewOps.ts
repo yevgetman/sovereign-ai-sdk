@@ -17,7 +17,7 @@ import {
 import { basename, join } from 'node:path';
 import chalk from 'chalk';
 import { MEMORY_CAPS, type MemoryFile } from '../memory/bounded.js';
-import { proposalPath, reviewDir, skillProposalDir } from '../review/paths.js';
+import { type ReviewState, proposalPath, reviewDir, skillProposalDir } from '../review/paths.js';
 import {
   parseConsolidationProposal,
   parseMemoryProposal,
@@ -85,7 +85,7 @@ function listPending(home: string): PendingItem[] {
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function findProposal(home: string, state: 'pending', id: string): FoundProposal | null {
+function findProposal(home: string, state: ReviewState, id: string): FoundProposal | null {
   const memPath = proposalPath(home, state, 'memory', id);
   if (existsSync(memPath)) return { kind: 'memory', path: memPath };
   const consPath = proposalPath(home, state, 'consolidation', id);
@@ -191,7 +191,63 @@ function applyConsolidationApproval(home: string, raw: string): string | null {
   return null;
 }
 
-const USAGE = 'usage: /review [list|show <id>|approve <id>|reject <id>|consolidate|activity]';
+/** Phase 13.3 follow-up (backlog Item 3) — remove the block in MEMORY.md /
+ *  USER.md that starts with `<!-- proposal:<id>` (memory) or
+ *  `<!-- consolidation:<id>` (consolidation) and runs through the next
+ *  proposal/consolidation marker (or EOF). Returns the new file content
+ *  with the block removed (including any leading blank lines preceding
+ *  the marker). Returns null when the marker isn't found.
+ *
+ *  Block contract per applyMemoryApproval / applyConsolidationApproval:
+ *  each appended block starts with two newlines, then the comment line,
+ *  then the body. We strip the leading newlines so the file doesn't
+ *  accumulate blank-line drift after multiple revokes.
+ *
+ *  Auto-promoted blocks (from MemoryProposeTool's auto-promote path)
+ *  have richer comments like `<!-- proposal:<id> auto-promoted session:...
+ *  trace:... hash:... range:... excerpt:... -->`. The prefix match still
+ *  succeeds because we only require `<!-- proposal:<id>` at the start. */
+function removeProposalBlock(fileContent: string, proposalId: string): string | null {
+  // Try memory marker first, then consolidation marker.
+  const memMarker = `<!-- proposal:${proposalId}`;
+  const consMarker = `<!-- consolidation:${proposalId}`;
+  let markerStart = fileContent.indexOf(memMarker);
+  let markerLen = memMarker.length;
+  if (markerStart === -1) {
+    markerStart = fileContent.indexOf(consMarker);
+    markerLen = consMarker.length;
+  }
+  if (markerStart === -1) return null;
+
+  // Walk back to absorb any leading blank lines that were inserted to
+  // separate this block from the previous one.
+  let blockStart = markerStart;
+  while (blockStart > 0 && fileContent[blockStart - 1] === '\n') {
+    blockStart--;
+  }
+
+  // Walk forward to the next `<!-- proposal:` OR `<!-- consolidation:`
+  // marker OR EOF. Both kinds delimit a block.
+  const searchFrom = markerStart + markerLen;
+  const nextProp = fileContent.indexOf('<!-- proposal:', searchFrom);
+  const nextCons = fileContent.indexOf('<!-- consolidation:', searchFrom);
+  const candidates = [nextProp, nextCons].filter((i) => i !== -1);
+  const nextMarker = candidates.length === 0 ? -1 : Math.min(...candidates);
+
+  let blockEnd = nextMarker === -1 ? fileContent.length : nextMarker;
+  // When we found a next marker, walk back to absorb the blank lines
+  // belonging to the next block's leading separator.
+  if (nextMarker !== -1) {
+    while (blockEnd > 0 && fileContent[blockEnd - 1] === '\n') {
+      blockEnd--;
+    }
+  }
+
+  return fileContent.slice(0, blockStart) + fileContent.slice(blockEnd);
+}
+
+const USAGE =
+  'usage: /review [list|show <id>|approve <id>|reject <id>|revoke <id>|consolidate|activity]';
 
 async function handleReview(rawArgs: string, ctx: CommandContext): Promise<string> {
   const home = ctx.harnessHome;
@@ -257,6 +313,53 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     return chalk.yellow(`rejected ${rest}`);
   }
 
+  if (verb === 'revoke') {
+    if (!rest) return 'usage: /review revoke <id>';
+    // Only approved entries can be revoked — pending ones use /review reject.
+    const found = findProposal(home, 'approved', rest);
+    if (!found) return chalk.red(`approved proposal ${rest} not found`);
+
+    if (found.kind === 'memory' || found.kind === 'consolidation') {
+      const raw = readFileSync(found.path, 'utf-8');
+      const parsed =
+        found.kind === 'memory' ? parseMemoryProposal(raw) : parseConsolidationProposal(raw);
+      const memDir = join(home, 'memory');
+      const target = join(memDir, parsed.target);
+      if (!existsSync(target)) {
+        // Target file gone; still record user intent by moving the proposal.
+        moveTo('rejected', home, found);
+        return chalk.yellow(
+          `target ${parsed.target} does not exist; proposal ${rest} moved to rejected/`,
+        );
+      }
+      const before = readFileSync(target, 'utf-8');
+      const after = removeProposalBlock(before, parsed.proposalId);
+      if (after === null) {
+        // Block not in file — proposal may have been manually edited away.
+        // Still move the proposal to rejected/ so the queue reflects intent.
+        moveTo('rejected', home, found);
+        return chalk.yellow(
+          `block for ${rest} not found in ${parsed.target} (already removed?); proposal moved to rejected/`,
+        );
+      }
+      writeFileSync(target, after);
+      moveTo('rejected', home, found);
+      return chalk.green(`revoked ${rest}`);
+    }
+
+    if (found.kind === 'skills') {
+      const meta = parseSkillProposalMeta(readFileSync(join(found.path, 'meta.json'), 'utf-8'));
+      const skillDir = join(home, 'skills', 'agent-created', meta.skillName);
+      if (existsSync(skillDir)) {
+        rmSync(skillDir, { recursive: true, force: true });
+      }
+      moveTo('rejected', home, found);
+      return chalk.green(`revoked skill ${meta.skillName} (${rest})`);
+    }
+
+    return chalk.red(`unknown proposal kind for ${rest}`);
+  }
+
   if (verb === 'consolidate') {
     if (!ctx.reviewManager) {
       return chalk.red('review manager not available — open a session first');
@@ -313,8 +416,8 @@ export const REVIEW_OPS_COMMANDS: SlashCommand[] = [
   {
     type: 'local',
     name: 'review',
-    description: 'List, show, approve, or reject pending review proposals.',
-    usage: '/review [list|show <id>|approve <id>|reject <id>|consolidate|activity]',
+    description: 'List, show, approve, reject, or revoke review proposals.',
+    usage: '/review [list|show <id>|approve <id>|reject <id>|revoke <id>|consolidate|activity]',
     call: async (rawArgs, ctx) => handleReview(rawArgs, ctx),
   },
 ];
