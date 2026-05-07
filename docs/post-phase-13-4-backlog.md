@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `1001237`. Suite 1650/1650 unit + 58/58 semantic. Items 1-6, 8-11, 14-16, 18, 20-23 closed across five batches. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
+**Last sync:** 2026-05-07. Master at `2df9da7`. Suite 1663/1663 unit + 58/58 semantic. Items 1-11, 14-16, 18, 20-23 closed across six batches. Remaining open: 12, 13, 17, 19, 24. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
 
 ## Priority order
 
@@ -353,8 +353,8 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 
 Pick any item by priority + effort match for your session length:
 - 30-min slot: (none currently open)
-- 1-2 hr slot: items 1, 2, 4
-- Half-day slot: items 3, 7, 12, 13, 19, 24
+- 1-2 hr slot: (none currently open)
+- Half-day slot: items 12, 13, 19, 24
 - Multi-day: item 17
 
 Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.
