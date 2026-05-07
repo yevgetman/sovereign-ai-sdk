@@ -390,6 +390,49 @@ async function main(argv: string[]): Promise<void> {
       if (!result.output.endsWith('\n')) process.stdout.write('\n');
     });
 
+  const learningCmd = program
+    .command('learning')
+    .description('Inspect and maintain the per-project instinct corpus (Phase 13.4)');
+
+  learningCmd
+    .command('status')
+    .description('Per-project instinct counts + confidence histogram')
+    .option('--project <id>', 'limit to a single project id (default: all projects)')
+    .action(async (opts) => {
+      const { getLearningStatus, formatLearningStatus } = await import('./cli/learningStatus.js');
+      const statuses = getLearningStatus({
+        ...(opts.project !== undefined ? { project: opts.project } : {}),
+      });
+      process.stdout.write(formatLearningStatus(statuses));
+    });
+
+  learningCmd
+    .command('prune')
+    .description('Drop sub-threshold instincts past their aging window')
+    .option('--project <id>', 'limit to a single project id (default: all projects)')
+    .option('--dry-run', 'list candidates without removing them')
+    .action(async (opts) => {
+      const { runLearningPrune, formatPruneResult } = await import('./cli/learningPrune.js');
+      const result = runLearningPrune({
+        ...(opts.project !== undefined ? { project: opts.project } : {}),
+        ...(opts.dryRun === true ? { dryRun: true } : {}),
+      });
+      process.stdout.write(formatPruneResult(result));
+    });
+
+  learningCmd
+    .command('export <project-id>')
+    .description('Emit each instinct as a .md file (--output <dir>) or summary count (no --output)')
+    .option('--output <dir>', 'directory to write per-instinct .md files into')
+    .action(async (projectId: string, opts) => {
+      const { runLearningExport, formatExportResult } = await import('./cli/learningExport.js');
+      const result = runLearningExport({
+        projectId,
+        ...(opts.output !== undefined ? { output: opts.output } : {}),
+      });
+      process.stdout.write(formatExportResult(result));
+    });
+
   program
     .command('upgrade')
     .description('Pull the latest sov from the private repo and re-link the global binary')
