@@ -1,15 +1,18 @@
 // Bounded memory file tests: missing files read empty, replacements persist,
 // and over-cap writes fail without truncating.
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_CAPS,
   normalizeMemoryFile,
+  projectMemoryPath,
   readMemoryFile,
+  readProjectMemoryFile,
   replaceMemoryFile,
+  replaceProjectMemoryFile,
 } from '../../src/memory/bounded.js';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -55,5 +58,73 @@ describe('bounded memory files', () => {
       }
       expect(readMemoryFile('USER.md', dir).content).toBe('');
     });
+  });
+});
+
+describe('per-project memory paths', () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-pmem-'));
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('projectMemoryPath returns <home>/memory/projects/<id>/MEMORY.md', () => {
+    expect(projectMemoryPath(home, 'abc123')).toBe(
+      join(home, 'memory', 'projects', 'abc123', 'MEMORY.md'),
+    );
+  });
+
+  test('readProjectMemoryFile returns empty content when file does not exist', () => {
+    const result = readProjectMemoryFile('abc123', home);
+    expect(result.content).toBe('');
+    expect(result.current_chars).toBe(0);
+    expect(result.cap).toBe(2200);
+    expect(result.file).toBe('MEMORY.md');
+    expect(result.path).toBe(projectMemoryPath(home, 'abc123'));
+  });
+
+  test('replaceProjectMemoryFile creates the projects/<id>/ dir and writes content', () => {
+    const result = replaceProjectMemoryFile('abc123', '# hello\n', home);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content).toBe('# hello\n');
+      expect(result.current_chars).toBe(8);
+    }
+    const reread = readProjectMemoryFile('abc123', home);
+    expect(reread.content).toBe('# hello\n');
+  });
+
+  test('replaceProjectMemoryFile rejects content exceeding the cap (2200)', () => {
+    const big = 'x'.repeat(2201);
+    const result = replaceProjectMemoryFile('abc123', big, home);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/capacity/i);
+      expect(result.cap).toBe(2200);
+    }
+  });
+
+  test('different projectIds get isolated files', () => {
+    replaceProjectMemoryFile('proj-a', 'A content', home);
+    replaceProjectMemoryFile('proj-b', 'B content', home);
+    expect(readProjectMemoryFile('proj-a', home).content).toBe('A content');
+    expect(readProjectMemoryFile('proj-b', home).content).toBe('B content');
+  });
+
+  test('per-project file does NOT collide with global MEMORY.md', () => {
+    replaceMemoryFile('MEMORY.md', 'global content', home);
+    replaceProjectMemoryFile('proj-a', 'project content', home);
+    expect(readMemoryFile('MEMORY.md', home).content).toBe('global content');
+    expect(readProjectMemoryFile('proj-a', home).content).toBe('project content');
+  });
+
+  test('per-project write does NOT touch USER.md (global)', () => {
+    replaceMemoryFile('USER.md', 'user dossier', home);
+    replaceProjectMemoryFile('proj-a', 'project notes', home);
+    expect(readMemoryFile('USER.md', home).content).toBe('user dossier');
   });
 });

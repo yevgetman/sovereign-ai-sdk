@@ -12,6 +12,9 @@ export const MEMORY_CAPS: Record<MemoryFile, number> = {
   'USER.md': 1_375,
 };
 
+const PROJECT_DIR_NAME = 'projects';
+const PROJECT_MEMORY_FILE: MemoryFile = 'MEMORY.md';
+
 export type MemoryReadResult = {
   file: MemoryFile;
   path: string;
@@ -86,4 +89,45 @@ export function replaceMemoryFile(
   mkdirSync(join(harnessHome, 'memory'), { recursive: true });
   writeFileSync(path, content, 'utf8');
   return { ok: true, ...readMemoryFile(file, harnessHome) };
+}
+
+export function projectMemoryPath(harnessHome: string, projectId: string): string {
+  return join(harnessHome, 'memory', PROJECT_DIR_NAME, projectId, PROJECT_MEMORY_FILE);
+}
+
+export function readProjectMemoryFile(
+  projectId: string,
+  harnessHome = resolveHarnessHome(),
+): MemoryReadResult {
+  const path = projectMemoryPath(harnessHome, projectId);
+  const content = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  return {
+    file: PROJECT_MEMORY_FILE,
+    path,
+    content,
+    current_chars: content.length,
+    cap: MEMORY_CAPS[PROJECT_MEMORY_FILE],
+  };
+}
+
+export function replaceProjectMemoryFile(
+  projectId: string,
+  content: string,
+  harnessHome = resolveHarnessHome(),
+): MemoryReplaceResult {
+  const path = projectMemoryPath(harnessHome, projectId);
+  const cap = MEMORY_CAPS[PROJECT_MEMORY_FILE];
+  if (content.length > cap) {
+    return {
+      ok: false,
+      file: PROJECT_MEMORY_FILE,
+      path,
+      error: 'at capacity; use replace to consolidate',
+      current_chars: content.length,
+      cap,
+    };
+  }
+  mkdirSync(join(harnessHome, 'memory', PROJECT_DIR_NAME, projectId), { recursive: true });
+  writeFileSync(path, content, 'utf8');
+  return { ok: true, ...readProjectMemoryFile(projectId, harnessHome) };
 }
