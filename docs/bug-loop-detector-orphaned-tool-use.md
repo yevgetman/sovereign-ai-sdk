@@ -1,10 +1,10 @@
 # Bug: Loop Detector Second-Strike Leaves Orphaned `tool_use` Blocks in History
 
-**Status:** Resolved (2026-05-07)  
+**Status:** ✅ Resolved (2026-05-07, commit `db1c5eb`)  
 **Severity:** Medium-High  
 **Affected file:** `src/core/query.ts`  
 **Discovered:** 2026-05-07 via transcript `~/.harness/debug/transcript-2026-05-07T14-05-19-946Z.jsonl`  
-**Fix:** Second-strike `else` branch now synthesizes `tool_result` blocks for any pending `tool_use` and yields the message before returning. Regression test in `tests/loop/wiring.test.ts` (`second-strike abort yields synthetic tool_result for orphaned tool_use`) reconstructs the persisted message timeline and asserts the Anthropic invariant holds.
+**Fixed in:** `db1c5eb` — second-strike `else` branch now synthesizes `tool_result` blocks for any pending `tool_use`, pushes them to history, and yields the message before returning. Regression test added in `tests/loop/wiring.test.ts` (`second-strike abort yields synthetic tool_result for orphaned tool_use`).
 
 ---
 
@@ -78,26 +78,37 @@ in the next message.\"}"}
 
 ---
 
-## Fix
+## Fix (shipped in `db1c5eb`)
 
-In the second-strike `else` branch (~line 248), synthesize and push `tool_result` blocks before
-returning, mirroring the dispatch-abort path:
+In the second-strike `else` branch, synthesize a `tool_result` message for any pending
+`tool_use` blocks, push it to internal history, **and yield it** so the caller (REPL)
+appends it to its persisted history and the session DB. Mirrors the `signal?.aborted`
+dispatch path.
 
 ```typescript
-// ~line 248, inside the else { } block, before returning:
-if (toolUseBlocks.length > 0) {
-  const syntheticResult = synthesizeToolResultMessage(
-    toolUseBlocks,
-    "tool call interrupted by loop detector"
-  );
-  history.push(syntheticResult);
+} else {
+  if (toolUseBlocks.length > 0) {
+    const msg = synthesizeToolResultMessage(
+      toolUseBlocks,
+      'tool call interrupted by loop detector',
+    );
+    history.push(msg);
+    yield msg;
+  }
+  await maybeFireStop('error');
+  return {
+    reason: 'error',
+    error: new Error(
+      `aborted by loop detector after ${loopDetectionCount} detections (${detection.detector})`,
+    ),
+  };
 }
-// existing return:
-yield* maybeFireStop("error", "aborted by loop detector after 2 detections ...");
-return;
 ```
 
-This is consistent with the `signal?.aborted` path at ~line 360–365, which does exactly this.
+The `yield msg` step is load-bearing: without it, the synthetic `tool_result` lives only
+in `query()`'s internal `history` (which is discarded on return). The REPL's
+`turnMessages` and the session DB never see it, so the orphan re-appears on the next
+provider call and on session resume.
 
 ---
 
