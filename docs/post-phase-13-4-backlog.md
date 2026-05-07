@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-06. Master at `55b966a`. Suite 1583/1583 unit + 58/58 semantic.
+**Last sync:** 2026-05-07. Master at `0c15acb`. Suite 1583/1583 unit + 58/58 semantic. Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
 
 ## Priority order
 
@@ -17,6 +17,9 @@ P1 (UX / observability):
 4. Consolidation deletes original entries (currently appends only)
 5. Status mapping at observer site upgraded to 4-state (denied + cancelled)
 6. Better confidence ramp-up for cross-project promotion (defaults are too conservative for typical use)
+19. MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped) **[soak 2026-05-07]**
+22. Mid-turn context pruning anomaly during long autonomous exploration **[soak 2026-05-07]**
+23. FileRead throws instead of returning `{status: error}` envelope on missing file **[soak 2026-05-07]**
 
 P2 (architectural extensions):
 7. Pick `review-memory` vs `review-skill` based on child shape (currently always `review-memory`)
@@ -28,12 +31,16 @@ P2 (architectural extensions):
 P3 (qwen-amendment deepenings — orthogonal to 13.x):
 12. Microcompaction (Phase 10 deepening)
 13. Shell AST analysis (Phase 7 deepening)
+24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control **[soak 2026-05-07]**
 
 P4 (small ergonomics + nits):
 14. `_resetProjectIdCache` test helper exported from production code
 15. `nameFromRemote` heuristic loses nested-namespace context
 16. `cleanupPhantomReviews` runs only at session boot (long sessions accumulate)
 17. Eval-gated auto-promote (currently auto-promote is straight bypass)
+18. Glob inline tool block: count footer drifts vs. summary line **[soak 2026-05-07]**
+20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs) **[soak 2026-05-07]**
+21. Tool-count drift between live vs. fresh `harness-home` config (investigation) **[soak 2026-05-07]**
 
 ---
 
@@ -254,12 +261,111 @@ These are documented in `~/code/sovereign-ai-docs/harness/docs/runtime/qwen-amen
 
 ---
 
+## Items discovered during 2026-05-07 ad-hoc REPL soak
+
+Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that exercised tool surface, sub-agent runtime + tasks, slash commands, CLI subcommands, state persistence, Phase 13.4 instinct corpus, and error/edge/multi-turn cases. **All 41 test cases passed.** These items are gaps or polish concerns observed while running, not failures.
+
+### 18. Glob inline tool block — count footer drifts vs. summary line
+
+- Priority: P4
+- Status: open
+- Source: 2026-05-07 soak Agent A (tool surface battery), case A4 (Glob + Grep in temp project)
+- Evidence: Glob's status envelope reported `summary: "1 file"` but the rendered inline footer in the REPL output said `"found 4 files"` for the same call. The actual filesystem state matched the summary (1 file by the specific pattern asked). The footer aggregates differently from the summary.
+- Likely code areas:
+  - `src/ui/` (inline tool block renderer — the footer aggregation logic that picks a count to display)
+- Recommendation: Trace which renderer path emits the footer count vs. the summary line; reconcile to the same source value (probably `result.data.length` or the artifact array length).
+- Impact: User-visible UI inconsistency; no correctness issue (status envelope is correct).
+- Effort: ~30 min
+
+### 19. MEMORY.md cross-pollinates unrelated projects
+
+- Priority: P1
+- Status: open (design discussion needed)
+- Source: 2026-05-07 soak Agent A, cases A4 + A6
+- Evidence: A fresh session running tests in `/tmp/sov-soak-A` had its commentary colored by content from `~/.harness/memory/MEMORY.md` describing an unrelated project (`resume-as-code` module tree). The agent referenced "the core resume-as-code module tree" while doing a generic Glob test that had nothing to do with that project. The memory file is loaded globally regardless of cwd / project_id.
+- Question for design discussion: Is global memory the intended model, or should `MEMORY.md` be project-scoped (loaded only when cwd matches the originating project)? The auto-memory subsystem already has a project_id concept (Phase 13.4) — could we route project-scoped memory entries through a per-project path while keeping `USER.md` truly global?
+- Likely code areas:
+  - `src/memory/bounded.ts` (path resolution)
+  - `src/memory/provider.ts` (load logic)
+- Recommendation: Triage with the user. If project-scoped memory is desired, split MEMORY.md → `<harnessHome>/memory/MEMORY.md` (global) + `<harnessHome>/memory/projects/<projectId>/MEMORY.md` (per-project). Loader unions them at session start, with the project version taking precedence on conflict.
+- Impact: Currently low-frequency leak (most users don't switch projects often), but for users working across multiple projects this is mildly confusing.
+- Effort: Discussion + ~2-3 hrs implementation if pursued.
+
+### 20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun
+
+- Priority: P4
+- Status: open
+- Source: 2026-05-07 soak Agent F's setup (HARNESS_HOME override for Phase 13.4 testing)
+- Evidence: `HARNESS_HOME=/tmp/sov-soak-F/harness-home printf 'prompt' | sov chat ...` silently routes `sov chat` to the user's live `~/.harness/`, because the env binding scopes only to `printf` (the first command in the pipeline). The override is silently ignored. The tester only noticed when the synthesizerEveryN override didn't take effect.
+- Recommendation:
+  - **(a) Documentation:** Add a "scoping HARNESS_HOME for tests" note to `docs/usage.md` explaining that `export HARNESS_HOME=…` (or `env HARNESS_HOME=… sov chat <args>`) is required.
+  - **(b) Optional UX:** A startup banner showing the resolved `HARNESS_HOME` path (already shown in the top-of-session info card per the existing UI) — verify it's prominent enough that a user would catch a mis-scoped env.
+- Likely code areas:
+  - `docs/usage.md`
+- Impact: Test ergonomics + occasional debugging confusion. Not a runtime bug.
+- Effort: ~15 min docs
+
+### 21. Tool-count drift between live config and fresh `harness-home`
+
+- Priority: P4
+- Status: open (investigation)
+- Source: 2026-05-07 soak Agent F. First (mis-routed) run reported `tools: 22` from live config; second (correctly-routed) run with bare override config reported `tools: 21`.
+- Hypothesis: One of: (a) MCP server registration in live config that's absent from override, (b) `webSearch.apiKey` enables an extra tool variant, (c) something in `~/.harness/config.json` (`debugMode.transcript: true`) registers an extra surface. Worth grepping `assembleToolPool` against both configs to find the differential.
+- Recommendation: Investigate which exact tool the live config has that the bare config doesn't; document the deterministic baseline (probably 21 tools). If the differential is `webSearch` enabled vs disabled, that's intentional — note it.
+- Likely code areas:
+  - `src/tool/registry.ts` (`assembleToolPool`)
+  - `src/config/schema.ts`
+- Impact: Mild — affects test reproducibility when tests reference exact tool counts.
+- Effort: ~30 min investigation + brief docs note
+
+### 22. Mid-turn context pruning anomaly during long autonomous exploration
+
+- Priority: P1
+- Status: open (potential regression)
+- Source: 2026-05-07 soak Agent G, case G4 (vague "do something useful" prompt)
+- Evidence: The agent ran 14 tool calls during autonomous exploration. In its own narration it self-noted: *"I was spinning in circles running commands that kept getting cleared."* This suggests Phase 10.5b microcompaction is over-aggressively clearing tool results mid-turn when the iteration count grows, even though those results are still needed downstream.
+- Hypothesis: `src/core/query.ts`'s microcompact logic (Phase 10.5b) clears stale tool results before the next provider call to keep the context window manageable. The clearing heuristic may be too eager when a single user turn spans many tool iterations — it might be evicting tool results that the *current* turn still references.
+- Recommendation: Review `src/core/query.ts` microcompact triggers. Specifically check: does microcompaction fire mid-turn (between tool batches within the same user turn) or only between turns? If mid-turn, what's the eviction window? Consider increasing the "keep recent N tool results" floor or only firing microcompaction at turn boundaries.
+- Likely code areas:
+  - `src/core/query.ts` (microcompact integration with the turn loop)
+  - `src/compact/microcompactor.ts` (eviction heuristic)
+- Impact: Potentially significant — could be quietly degrading agent performance on long exploration tasks. Worth confirming whether this is real microcompaction misbehavior or an LLM-side context-management quirk.
+- Effort: ~1-2 hrs investigation + targeted fix if confirmed.
+
+### 23. FileRead throws on missing file instead of returning `{status: error}` envelope
+
+- Priority: P1
+- Status: open (envelope contract violation)
+- Source: 2026-05-07 soak Agent G, case G5 (mid-multi-turn error)
+- Evidence: FileRead on a non-existent file produced `tool threw: file does not exist: /private/tmp/sov-soak-G/cwd-G5/nonexistent.txt` rather than a clean Phase 12.5 envelope (`status: error, summary: ..., next_actions: [...]`). The agent handled it correctly downstream (no fabrication, honest "did not succeed" report), but the envelope contract is inconsistent with peer tools (Bash returns `status: error` with exit code, etc., per soak A2).
+- Recommendation: Normalize FileRead's missing-file path to return `{status: 'error', summary: 'file not found at <path>', next_actions: ['verify path with Glob or ls'], data: null}` rather than throwing. Same family as Bash's exit-1 pattern.
+- Likely code areas:
+  - `src/tools/FileReadTool.ts` (the file-not-found branch)
+- Impact: Inconsistency makes "all tools surface errors via envelope" rule (Phase 12.5) less reliable for downstream consumers — anything that checks `result.observation?.status === 'error'` would miss FileRead's misses.
+- Effort: ~30 min
+
+### 24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control
+
+- Priority: P3
+- Status: open (discussion)
+- Source: 2026-05-07 soak Agent G, case G4
+- Evidence: Vague prompt "do something useful" triggered 2-minute autonomous exploration with 14 tool calls costing $0.05. Reasonable agent behavior, but cost-aware users might want a configurable check-in point ("ask the user before continuing past N tool calls in a single turn").
+- Recommendation: Add `settings.behavior.maxToolCallsBeforeCheckin: number` (default unset = no limit). When set, the orchestrator interrupts the turn after N tool calls and emits a guidance message asking the user whether to continue. Could pair with a `/continue` slash verb that resumes the same turn.
+- Likely code areas:
+  - `src/config/schema.ts` (settings field)
+  - `src/core/query.ts` (turn-iteration counter check)
+  - New slash verb `/continue` to resume
+- Impact: Cost-control feature; not a bug. Some users would value this; others would find it annoying. Worth an opt-in default.
+- Effort: ~3 hrs
+
+---
+
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 30-min slot: items 5, 10, 14, 15, 16
-- 1-2 hr slot: items 1, 2, 4, 6, 8, 11
-- Half-day slot: items 3, 7, 9, 12, 13
+- 30-min slot: items 5, 10, 14, 15, 16, 18, 20, 21, 23
+- 1-2 hr slot: items 1, 2, 4, 6, 8, 11, 22
+- Half-day slot: items 3, 7, 9, 12, 13, 19, 24
 - Multi-day: item 17
 
 Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.
