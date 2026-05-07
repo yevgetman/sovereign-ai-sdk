@@ -81,19 +81,27 @@ describe('FileReadTool', () => {
     });
   });
 
-  test('throws when the file does not exist', async () => {
+  test('returns {status: error} envelope when the file does not exist', async () => {
     await withTmp(async (dir) => {
-      await expect(
-        FileReadTool.call({ path: join(dir, 'missing.txt') }, makeCtx(dir)),
-      ).rejects.toThrow(/does not exist/);
+      const result = await FileReadTool.call({ path: join(dir, 'missing.txt') }, makeCtx(dir));
+      expect(result.observation?.status).toBe('error');
+      expect(result.observation?.summary).toContain('does not exist');
+      expect(result.observation?.next_actions).toBeDefined();
+      expect(result.observation?.next_actions?.length).toBeGreaterThan(0);
+      expect(result.data.lines).toEqual([]);
+      expect(result.data.totalLines).toBe(0);
     });
   });
 
-  test('throws when path points to a directory', async () => {
+  test('returns {status: error} envelope when path points to a directory', async () => {
     await withTmp(async (dir) => {
-      await expect(FileReadTool.call({ path: dir }, makeCtx(dir))).rejects.toThrow(
-        /directory, not a file/,
-      );
+      const result = await FileReadTool.call({ path: dir }, makeCtx(dir));
+      expect(result.observation?.status).toBe('error');
+      expect(result.observation?.summary).toContain('directory, not a file');
+      expect(result.observation?.next_actions).toBeDefined();
+      expect(result.observation?.next_actions?.length).toBeGreaterThan(0);
+      expect(result.data.lines).toEqual([]);
+      expect(result.data.totalLines).toBe(0);
     });
   });
 

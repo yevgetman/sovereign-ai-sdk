@@ -68,11 +68,31 @@ export const FileReadTool = buildTool<Input, Output>({
   async call(input, ctx) {
     const abs = resolveToolPath(input.path, ctx.cwd);
     if (!existsSync(abs)) {
-      throw new Error(`file does not exist: ${abs}`);
+      return {
+        data: { path: abs, lines: [], startLine: 1, totalLines: 0 },
+        observation: {
+          status: 'error',
+          summary: `file does not exist: ${abs}`,
+          next_actions: [
+            'verify the path with Glob or `ls`; confirm the working directory',
+            'check for typos or incorrect path separators',
+          ],
+        },
+      };
     }
     const stat = statSync(abs);
     if (stat.isDirectory()) {
-      throw new Error(`path is a directory, not a file: ${abs}`);
+      return {
+        data: { path: abs, lines: [], startLine: 1, totalLines: 0 },
+        observation: {
+          status: 'error',
+          summary: `path is a directory, not a file: ${abs}`,
+          next_actions: [
+            'use Glob to list files in this directory',
+            'specify a file path within the directory',
+          ],
+        },
+      };
     }
     if (stat.size > MAX_BYTES) {
       throw new Error(
