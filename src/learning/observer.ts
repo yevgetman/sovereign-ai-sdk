@@ -1,0 +1,122 @@
+// src/learning/observer.ts
+// Phase 13.4 — async fire-and-forget observation writer. Bounded buffer;
+// on overflow, drops the newest record (silently, with a counter for
+// diagnostics). Disk writes serialize via a write chain (mirrors
+// TraceWriter pattern). Invariant #10 — never blocks the turn.
+
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { ensureLearningDirs, observationsPath } from './paths.js';
+import { getProjectId } from './project.js';
+import type { Observation, ObservationStatus } from './types.js';
+
+export interface LearningObserverOpts {
+  harnessHome: string;
+  cwd: string;
+  sessionId: string;
+  bufferSize?: number;
+  enabled?: boolean;
+}
+
+export interface ObserveInput {
+  toolName: string;
+  toolInput: unknown;
+  status: ObservationStatus;
+  durationMs: number;
+  observationEnvelope?: { status: 'success' | 'warning' | 'error'; summary: string };
+  traceId?: string;
+}
+
+const DEFAULT_BUFFER = 200;
+const SUMMARY_MAX = 256;
+
+export class LearningObserver {
+  private writeChain: Promise<void> = Promise.resolve();
+  private buffered = 0;
+  private dropped = 0;
+  private readonly harnessHome: string;
+  private readonly cwd: string;
+  private readonly sessionId: string;
+  private readonly enabled: boolean;
+  private readonly bufferSize: number;
+
+  constructor(opts: LearningObserverOpts) {
+    this.harnessHome = opts.harnessHome;
+    this.cwd = opts.cwd;
+    this.sessionId = opts.sessionId;
+    this.enabled = opts.enabled ?? true;
+    this.bufferSize = opts.bufferSize ?? DEFAULT_BUFFER;
+  }
+
+  observe(input: ObserveInput): void {
+    if (!this.enabled) return;
+    if (this.buffered >= this.bufferSize) {
+      this.dropped += 1;
+      return; // backpressure — drop silently
+    }
+    this.buffered += 1;
+    const observation = this.buildObservation(input);
+    this.writeChain = this.writeChain.then(async () => {
+      try {
+        const project = getProjectId(this.cwd);
+        const path = observationsPath(this.harnessHome, project.id);
+        if (!existsSync(dirname(path))) {
+          mkdirSync(dirname(path), { recursive: true });
+          ensureLearningDirs(this.harnessHome, project.id);
+        }
+        await appendFile(path, `${JSON.stringify(observation)}\n`, 'utf-8');
+      } catch {
+        // Invariant #10: never block. Swallow disk failures.
+      } finally {
+        this.buffered -= 1;
+      }
+    });
+  }
+
+  /** Drain the buffer. Best-effort; safe to call multiple times. */
+  async drain(): Promise<void> {
+    await this.writeChain;
+  }
+
+  /** Diagnostic: count of records dropped due to buffer overflow. */
+  getDroppedCount(): number {
+    return this.dropped;
+  }
+
+  private buildObservation(input: ObserveInput): Observation {
+    const project = getProjectId(this.cwd);
+    const id = `obs-${new Date().toISOString().slice(0, 10)}-${randomBytes(4).toString('hex')}`;
+    const inputJson = safeStringify(input.toolInput);
+    const tool_input_hash = `sha256:${createHash('sha256').update(inputJson).digest('hex')}`;
+    const tool_input_summary =
+      inputJson.length > SUMMARY_MAX ? `${inputJson.slice(0, SUMMARY_MAX - 3)}...` : inputJson;
+    return {
+      id,
+      ts: new Date().toISOString(),
+      project_id: project.id,
+      project_name: project.name,
+      session_id: this.sessionId,
+      tool_name: input.toolName,
+      tool_input_hash,
+      tool_input_summary,
+      status: input.status,
+      duration_ms: input.durationMs,
+      ...(input.observationEnvelope !== undefined
+        ? { observation_envelope: input.observationEnvelope }
+        : {}),
+      ...(input.traceId !== undefined ? { trace_id: input.traceId } : {}),
+    };
+  }
+}
+
+/** JSON.stringify hardened against circular refs / BigInts so the observer
+ *  never throws on weird tool inputs. Invariant #10. */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? '';
+  } catch {
+    return '"<unserializable>"';
+  }
+}

@@ -68,6 +68,11 @@ export type ToolContext = {
   /** Phase 13.3 T11 — when true, skill_propose skips pending and writes
    *  SKILL.md directly to skills/agent-created/<name>/. */
   reviewAutoPromoteSkills?: boolean;
+  /** Phase 13.4 — internal observation writer. Orchestrator calls
+   *  ctx.learningObserver?.observe(...) after each tool call so every
+   *  tool invocation lands in the per-project corpus. Fire-and-forget;
+   *  never blocks the turn. */
+  learningObserver?: import('../learning/observer.js').LearningObserver;
   /** Phase 13.5 — parent's full tool pool, captured at REPL bootstrap so
    *  the scheduler can filter from it without reassembling per call. */
   parentToolPool?: import('./types.js').Tool<unknown, unknown>[];

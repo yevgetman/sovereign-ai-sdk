@@ -17,6 +17,7 @@
 
 import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
 import type { HookRunner } from '../hooks/types.js';
+import type { ObservationStatus } from '../learning/types.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
@@ -500,6 +501,38 @@ async function executeOne(
     if (post.additionalContext) {
       final = { ...final, content: `${final.content}\n\n---\n${post.additionalContext}` };
     }
+  }
+
+  // Phase 13.4 — internal observation intercept. Fires after PostToolUse so
+  // we capture the terminal state the model actually sees. Fire-and-forget
+  // by contract — `observe()` never throws and never blocks.
+  //
+  // Status mapping: at this site we only have a 2-state success/error
+  // distinction (toolError truthy means the tool threw, otherwise the
+  // tool returned — possibly with `observation.status === 'error'` which
+  // we treat as error too). Permission denials and signal-driven
+  // cancellations short-circuit BEFORE this point with `is_error: true`
+  // tool_results, so they never reach the observer in this iteration —
+  // documented limitation; follow-up is to thread the four-state
+  // ObservationStatus from each early-return path.
+  if (ctx.learningObserver) {
+    const observedStatus: ObservationStatus =
+      toolError !== undefined || result.observation?.status === 'error' ? 'error' : 'success';
+    ctx.learningObserver.observe({
+      toolName: tool.name,
+      toolInput: callInput,
+      status: observedStatus,
+      durationMs: callDuration,
+      ...(result.observation !== undefined
+        ? {
+            observationEnvelope: {
+              status: result.observation.status,
+              summary: result.observation.summary,
+            },
+          }
+        : {}),
+      ...(block.id !== undefined ? { traceId: block.id } : {}),
+    });
   }
 
   return maybeAppendHints(tool.name, callInput, ctx, final);

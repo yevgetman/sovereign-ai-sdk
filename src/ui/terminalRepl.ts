@@ -63,6 +63,7 @@ import { ReplayProvider } from '../eval/replay/provider.js';
 import { wrapToolsForReplay } from '../eval/replay/toolPool.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
+import { LearningObserver } from '../learning/observer.js';
 import { buildMcpClientPool } from '../mcp/client.js';
 import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
@@ -722,6 +723,18 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // Phase 13.3 (B4) — session-scoped controller for in-flight review forks.
   // Aborted in the session-end path so reviews don't survive past /quit.
   let reviewAbortController: AbortController | undefined;
+  // Phase 13.4 — internal observation writer. Mounts on the tool context so
+  // the orchestrator can call ctx.learningObserver?.observe(...) after each
+  // tool call. Drained at session-end before trajectory write so this
+  // session's observations land on disk first. Defaults: bufferSize=200,
+  // enabled=true. Settings overrides land in T7.
+  const learningObserver = new LearningObserver({
+    harnessHome,
+    cwd: process.cwd(),
+    sessionId: activeSessionId,
+  });
+  type WritableToolContext = { -readonly [K in keyof ToolContext]: ToolContext[K] };
+  (toolContext as WritableToolContext).learningObserver = learningObserver;
   if (loadedAgents.agents.length > 0) {
     const laneSemaphores = new LaneSemaphores({
       ...(userSettings.router?.maxConcurrentLocal !== undefined
@@ -1572,6 +1585,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // cancellation usually surfaces as a 'interrupted' terminal in the
   // child trajectory. Failures are best-effort: abort never throws.
   reviewAbortController?.abort();
+  // Phase 13.4 — flush in-flight observations before any further teardown.
+  // Drain after abort (so cancelled reviews don't block) and before the
+  // trajectory write (so this session's observations are durably on disk
+  // first). Best-effort: drain never throws.
+  await learningObserver.drain();
   const finalCost = db.getSessionCost(activeSessionId);
   // Phase 13.1 — write a ShareGPT-shaped trajectory record before
   // shutting down dependencies. Skipped for empty sessions (no
