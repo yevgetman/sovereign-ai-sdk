@@ -268,6 +268,12 @@ function removeProposalBlock(fileContent: string, proposalId: string): string | 
 const USAGE =
   'usage: /review [list|show <id>|approve <id>|reject <id>|revoke <id>|consolidate|activity]';
 
+/** Phase 13.3 follow-up (Item 16) — phantom rows above this threshold
+ *  trigger an opportunistic `cleanupPhantomReviews()` when the user runs
+ *  `/review activity`. Hand-tuned default; ties cleanup cost to user-
+ *  facing inspection rather than a periodic background tax. */
+const PHANTOM_CLEANUP_THRESHOLD = 10;
+
 async function handleReview(rawArgs: string, ctx: CommandContext): Promise<string> {
   const home = ctx.harnessHome;
   if (!home) {
@@ -396,25 +402,54 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
     // agentName is stored in the session title as "subagent:<agentName>"
     // (set by terminalRepl.ts createChildSession). Filter to review-* agents.
     const parentSessionId = ctx.sessionId;
-    const sessions = ctx.listSessions(50);
 
-    const reviewChildrenAll = sessions
-      .filter((s) => s.parentSessionId === parentSessionId)
-      .filter((s) => /^subagent:review-/.test(s.title ?? ''));
+    const collectReviewChildren = () =>
+      ctx
+        .listSessions(50)
+        .filter((s) => s.parentSessionId === parentSessionId)
+        .filter((s) => /^subagent:review-/.test(s.title ?? ''));
 
     // Phase 13.3 follow-up — filter phantoms: rows with no tokens AND no
     // messages came from dispatches that aborted before the AgentRunner
     // streamed anything. They survived the cancellation only as DB rows.
-    const productive = reviewChildrenAll.filter(
-      (s) => (s.totalTokens ?? 0) > 0 || (s.msgCount ?? 0) > 0,
-    );
-    const phantomCount = reviewChildrenAll.length - productive.length;
+    const splitProductive = (rows: ReturnType<typeof collectReviewChildren>) => {
+      const productive = rows.filter((s) => (s.totalTokens ?? 0) > 0 || (s.msgCount ?? 0) > 0);
+      return { productive, phantomCount: rows.length - productive.length };
+    };
+
+    let reviewChildrenAll = collectReviewChildren();
+    let { productive, phantomCount } = splitProductive(reviewChildrenAll);
+
+    // Phase 13.3 follow-up (Item 16) — opportunistic phantom cleanup.
+    // Long-running sessions accumulate phantom rows during their own
+    // lifetime, and the boot-time sweep never re-fires. Tying cleanup to
+    // /review activity invocation pays the cost only when the user looks
+    // at the queue. We refresh the local view post-sweep so the displayed
+    // counts reflect the cleaned state.
+    let cleanedThisInvocation = 0;
+    if (phantomCount > PHANTOM_CLEANUP_THRESHOLD && ctx.cleanupPhantomReviews !== undefined) {
+      cleanedThisInvocation = ctx.cleanupPhantomReviews();
+      if (cleanedThisInvocation > 0) {
+        reviewChildrenAll = collectReviewChildren();
+        ({ productive, phantomCount } = splitProductive(reviewChildrenAll));
+      }
+    }
+
+    const cleanedNote =
+      cleanedThisInvocation > 0
+        ? ` ${chalk.dim(`(cleaned ${cleanedThisInvocation} phantom row${cleanedThisInvocation === 1 ? '' : 's'})`)}`
+        : '';
 
     if (productive.length === 0) {
       if (phantomCount > 0) {
-        return chalk.dim(
-          `no productive review sessions for this parent (${phantomCount} phantom row${phantomCount === 1 ? '' : 's'} from cancelled dispatches)`,
+        return (
+          chalk.dim(
+            `no productive review sessions for this parent (${phantomCount} phantom row${phantomCount === 1 ? '' : 's'} from cancelled dispatches)`,
+          ) + cleanedNote
         );
+      }
+      if (cleanedThisInvocation > 0) {
+        return chalk.dim('no review-fork sessions for this parent yet') + cleanedNote;
       }
       return chalk.dim('no review-fork sessions for this parent yet');
     }
@@ -425,10 +460,11 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
       const time = new Date(s.lastUpdated * 1000).toISOString().replace('T', ' ').slice(0, 19);
       return `  ${chalk.dim(id)}  ${chalk.cyan(agent.padEnd(13))}  ${chalk.gray(time)}`;
     });
-    const header =
+    const baseHeader =
       phantomCount > 0
         ? `${productive.length} review session(s) ${chalk.dim(`(+${phantomCount} phantom)`)}`
         : `${productive.length} review session(s)`;
+    const header = `${baseHeader}${cleanedNote}`;
     return [chalk.bold(header), ...lines].join('\n');
   }
 

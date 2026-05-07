@@ -941,6 +941,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     tools: toolPool,
     registry: commandRegistry,
     listSessions: (limit) => db.listSessions(limit),
+    cleanupPhantomReviews: () => db.cleanupPhantomReviews(),
     getMetrics: () => ({ ...metrics, sessionId: activeSessionId }),
     skills,
     ...(taskManager !== undefined ? { taskManager } : {}),

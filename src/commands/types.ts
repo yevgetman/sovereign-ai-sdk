@@ -27,6 +27,12 @@ export type CommandContext = {
   registry: CommandRegistry;
   /** Recent sessions, newest-first. Used by /resume. */
   listSessions: (limit?: number) => SessionListEntry[];
+  /** Phase 13.3 follow-up (Item 16) — opportunistic phantom-row cleanup
+   *  triggered from /review activity when the queue exceeds threshold.
+   *  Returns the number of phantom rows deleted. Optional so existing
+   *  CommandContext consumers (and tests) can omit it; the activity
+   *  verb skips cleanup when undefined. */
+  cleanupPhantomReviews?: () => number;
   /** Active session metrics — same shape the goodbye summary uses, but
    *  evaluated mid-session for /stats. */
   getMetrics: () => Omit<SessionMetrics, 'endedAtMs'>;

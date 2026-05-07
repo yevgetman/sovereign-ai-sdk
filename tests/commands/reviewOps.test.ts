@@ -415,6 +415,105 @@ describe('/review activity', () => {
     expect(out.toLowerCase()).toContain('no productive');
     expect(out).toContain('1 phantom row');
   });
+
+  // Phase 13.3 follow-up (Item 16) — opportunistic phantom cleanup.
+  test('cleanupPhantomReviews fires when phantom count exceeds threshold', async () => {
+    let cleanupCalled = 0;
+    const phantoms = Array.from({ length: 15 }, (_, i) => ({
+      sessionId: `phantom-${i}`,
+      parentSessionId: 'parent-1',
+      title: 'subagent:review-memory',
+      lastUpdated: 1762400000 + i,
+      totalTokens: 0,
+      msgCount: 0,
+    }));
+    let listResult = phantoms;
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => listResult,
+      cleanupPhantomReviews: () => {
+        cleanupCalled += 1;
+        // Pretend the sweep cleaned all 15 phantoms — refresh stub list.
+        listResult = [];
+        return 15;
+      },
+    } as unknown as CommandContext;
+
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(cleanupCalled).toBe(1);
+    expect(out.toLowerCase()).toContain('cleaned');
+    expect(out).toContain('15 phantom rows');
+  });
+
+  test('cleanupPhantomReviews does NOT fire when phantom count is below threshold', async () => {
+    let cleanupCalled = 0;
+    const phantoms = Array.from({ length: 5 }, (_, i) => ({
+      sessionId: `phantom-${i}`,
+      parentSessionId: 'parent-1',
+      title: 'subagent:review-memory',
+      lastUpdated: 1762400000 + i,
+      totalTokens: 0,
+      msgCount: 0,
+    }));
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => phantoms,
+      cleanupPhantomReviews: () => {
+        cleanupCalled += 1;
+        return 5;
+      },
+    } as unknown as CommandContext;
+
+    await reviewCmd.call('activity', ctx);
+    expect(cleanupCalled).toBe(0); // 5 phantoms <= threshold (10)
+  });
+
+  test('cleanupPhantomReviews does NOT fire when exactly at threshold', async () => {
+    let cleanupCalled = 0;
+    const phantoms = Array.from({ length: 10 }, (_, i) => ({
+      sessionId: `phantom-${i}`,
+      parentSessionId: 'parent-1',
+      title: 'subagent:review-memory',
+      lastUpdated: 1762400000 + i,
+      totalTokens: 0,
+      msgCount: 0,
+    }));
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => phantoms,
+      cleanupPhantomReviews: () => {
+        cleanupCalled += 1;
+        return 10;
+      },
+    } as unknown as CommandContext;
+
+    await reviewCmd.call('activity', ctx);
+    expect(cleanupCalled).toBe(0); // 10 is NOT strictly greater than 10
+  });
+
+  test('activity verb works without cleanupPhantomReviews on context (existing callers)', async () => {
+    // Many phantoms, but no cleanup callback wired. Should not throw.
+    const phantoms = Array.from({ length: 15 }, (_, i) => ({
+      sessionId: `phantom-${i}`,
+      parentSessionId: 'parent-1',
+      title: 'subagent:review-memory',
+      lastUpdated: 1762400000 + i,
+      totalTokens: 0,
+      msgCount: 0,
+    }));
+    const ctx = {
+      harnessHome: home,
+      sessionId: 'parent-1',
+      listSessions: () => phantoms,
+    } as unknown as CommandContext;
+
+    const out = strip(await reviewCmd.call('activity', ctx));
+    expect(out).toContain('15 phantom row');
+    expect(out.toLowerCase()).not.toContain('cleaned');
+  });
 });
 
 describe('/review revoke', () => {
