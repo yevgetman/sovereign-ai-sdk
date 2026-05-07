@@ -112,7 +112,78 @@ describe('summarizeToolResult', () => {
     expect(out.primary).toBe('no matches');
   });
 
-  test('Glob reports file count', () => {
+  test('Glob reports file count from envelope summary, not rendered line count', () => {
+    // Reproduces backlog item 18 (soak case A4): Glob's envelope says
+    // "1 file" but the rendered content is the envelope header (~3 lines)
+    // + a blank separator + 1 path line — totalLines = 5. The footer
+    // must report 1, matching the envelope, not 5.
+    const content = ['status: success', 'summary: 1 file', '', 'src/a/x.ts'].join('\n');
+    const out = summarizeToolResult({
+      toolName: 'Glob',
+      content,
+      isError: false,
+      totalLines: 4,
+    });
+    expect(out.primary).toBe('found 1 file');
+  });
+
+  test('Glob multi-file envelope: footer count matches summary count', () => {
+    const content = [
+      'status: success',
+      'summary: 4 files',
+      '',
+      'src/a/x.ts',
+      'src/a/y.ts',
+      'src/b/p.ts',
+      'src/c/m.ts',
+    ].join('\n');
+    const out = summarizeToolResult({
+      toolName: 'Glob',
+      content,
+      isError: false,
+      totalLines: 7,
+    });
+    expect(out.primary).toBe('found 4 files');
+  });
+
+  test('Glob truncated envelope still reports the canonical count', () => {
+    const content = [
+      'status: success',
+      'summary: 50 files (truncated)',
+      'next_actions:',
+      '  - raise head_limit, or narrow the pattern to reduce result count',
+      '',
+      'src/a.ts',
+      // ...truncated for brevity in test fixture
+    ].join('\n');
+    const out = summarizeToolResult({
+      toolName: 'Glob',
+      content,
+      isError: false,
+      totalLines: 6,
+    });
+    expect(out.primary).toBe('found 50 files');
+  });
+
+  test('Glob with no matches reports "no files matched" from envelope', () => {
+    const content = [
+      'status: warning',
+      'summary: no files matched **/*.foo',
+      'next_actions:',
+      '  - broaden the pattern',
+      '',
+      '(no matches)',
+    ].join('\n');
+    const out = summarizeToolResult({
+      toolName: 'Glob',
+      content,
+      isError: false,
+      totalLines: 6,
+    });
+    expect(out.primary).toBe('no files matched');
+  });
+
+  test('Glob without envelope falls back to totalLines (back-compat)', () => {
     const out = summarizeToolResult({
       toolName: 'Glob',
       content: 'a.ts\nb.ts\nc.ts',
@@ -122,7 +193,7 @@ describe('summarizeToolResult', () => {
     expect(out.primary).toBe('found 3 files');
   });
 
-  test('Glob with no matches reports "no files matched"', () => {
+  test('Glob without envelope and no lines reports "no files matched"', () => {
     const out = summarizeToolResult({
       toolName: 'Glob',
       content: '',

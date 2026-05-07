@@ -74,6 +74,18 @@ export function summarizeToolResult(opts: {
       return { primary: `matched ${pluralLines(totalLines)}` };
     }
     case 'Glob': {
+      // Pull the canonical file count from the Phase 12.5 observation
+      // envelope's `summary: <n> file(s)` line. Don't fall back to
+      // totalLines: that includes the envelope header rows + a blank
+      // separator, so a 1-file result reports ~4 lines and the footer
+      // would say "found 4 files" while the envelope correctly says
+      // "1 file" (soak finding, backlog item 18).
+      const globCount = extractGlobFileCount(content);
+      if (globCount === 0) return { primary: 'no files matched' };
+      if (globCount !== null) {
+        return { primary: `found ${globCount} file${globCount === 1 ? '' : 's'}` };
+      }
+      // Pre-envelope or unrecognized summary shape: best-effort fallback.
       if (totalLines === 0) return { primary: 'no files matched' };
       return { primary: `found ${totalLines} file${totalLines === 1 ? '' : 's'}` };
     }
@@ -153,6 +165,27 @@ function countDistinctGrepFiles(content: string): number {
     if (m?.[1] !== undefined) files.add(m[1]);
   }
   return files.size;
+}
+
+function extractGlobFileCount(content: string): number | null {
+  // Glob's observation envelope writes:
+  //   summary: <n> file(s)[ (truncated)]
+  // for matches, or:
+  //   summary: no files matched <pattern>
+  // for empty results. The envelope header is always at the top of the
+  // rendered content, so the first matching line wins.
+  for (const line of content.split('\n')) {
+    if (!line.startsWith('summary:')) continue;
+    const rest = line.slice('summary:'.length).trimStart();
+    if (rest.startsWith('no files matched')) return 0;
+    const match = rest.match(/^(\d+)\s+files?\b/);
+    if (match?.[1] !== undefined) {
+      const n = Number.parseInt(match[1], 10);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+  return null;
 }
 
 function extractSubagentSummary(content: string): string | null {
