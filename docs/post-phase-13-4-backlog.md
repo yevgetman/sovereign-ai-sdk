@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `47993ec`. Suite 1592/1592 unit + 58/58 semantic. Items 1, 2, 23 closed in this batch (commits `f7c9c69`, `47993ec`, `d2e1e92`). Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
+**Last sync:** 2026-05-07. Master at `c6412ce`. Suite 1613/1613 unit + 58/58 semantic. Items 1, 2, 5, 6, 22, 23 closed in two batches (commits `f7c9c69`, `47993ec`, `d2e1e92`, then `d24efee`, `64e5eef`, `c6412ce`). Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
 
 ## Priority order
 
@@ -15,10 +15,10 @@ P0 (correctness / data integrity):
 P1 (UX / observability):
 3. `/review revoke <id>` undo path
 4. Consolidation deletes original entries (currently appends only)
-5. Status mapping at observer site upgraded to 4-state (denied + cancelled)
-6. Better confidence ramp-up for cross-project promotion (defaults are too conservative for typical use)
+5. ~~Status mapping at observer site upgraded to 4-state~~ **— closed `64e5eef`**
+6. ~~Better confidence ramp-up for cross-project promotion~~ **— closed `d24efee` (tunables exposed; defaults preserved pending soak data)**
 19. MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped) **[soak 2026-05-07]**
-22. ~~Mid-turn context pruning anomaly during long autonomous exploration~~ **[soak 2026-05-07] — closed 2026-05-07 (current-turn boundary protection in microcompact)**
+22. ~~Mid-turn context pruning anomaly during long autonomous exploration~~ **[soak 2026-05-07] — closed `c6412ce` (real bug; current-turn boundary protection in microcompact)**
 23. ~~FileRead throws instead of returning `{status: error}` envelope on missing file~~ **— closed `d2e1e92`**
 
 P2 (architectural extensions):
@@ -105,7 +105,7 @@ P4 (small ergonomics + nits):
 ### 5. Status mapping at observer site upgraded to 4-state
 
 - Priority: P1
-- Status: open
+- Status: **complete (2026-05-07, commit `64e5eef`)** — extracted `notifyLearningObserver` helper and wired into every early-return path in `executeOne`. All 4 ObservationStatus values now reach the corpus: `success` (post-call), `error` (input validation, hook-updated input, post-call thrown), `denied` (permission gate + PreToolUse hook block), `cancelled` (pre-call signal abort + mid-call abort coinciding with `toolError`). 11 new tests; 1613/1613 full suite.
 - Source: T2 implementer's "concerns" report on commit `429a4ff`; T2 status mapping is 2-state only
 - Recommendation: Thread `denied` and `cancelled` ObservationStatus values through to the orchestrator's PostToolUse intercept site. Currently those terminal states early-return before PostToolUse fires. Either:
   - Tag the observed status from each early-return path with a `let observedStatus: ObservationStatus = 'success'` variable updated as we walk through error/denied/cancelled branches, then read it at PostToolUse
@@ -119,7 +119,7 @@ P4 (small ergonomics + nits):
 ### 6. Better confidence ramp-up for cross-project promotion
 
 - Priority: P1
-- Status: open
+- Status: **complete (2026-05-07, commit `d24efee`)** — exposed `ConfidenceTuning` parameter on `reinforce` / `contradict` (4 optional knobs: `reinforcementCurveK`, `contradictionDelta`, `confidenceCap`, `initialConfidenceBaseline`). New `src/learning/tuning.ts` bridges `settings.learning.*` → `ConfidenceTuning` keeping `confidence.ts` I/O-free. `InstinctProposeTool` + `InstinctUpdateConfidenceTool` now load tuning from settings. **Defaults intentionally preserved** — point of this commit is to make tuning *possible*, not pick new values without soak data. Future work: once a real soak surfaces typical confidence ranges, land a defaults-tuning commit using these settings. `crossProjectMinConfidence` settings field also added but not wired to a production caller (no caller of `findPromotionCandidates` outside tests yet). 21 new tests; full suite 1613/1613.
 - Source: T11 integration test note + T13 testing-log follow-up
 - Recommendation: Re-tune `REINFORCEMENT_K` (currently 0.04) OR start instincts at a higher initial confidence floor. Today, `reinforce(0, 12)` produces ~0.10 — meaning a single instinct with 12 supporting observations is well below the 0.7 cross-project promotion threshold. Reaching 0.7 requires many synthesizer reinforcement passes, which only happens with sustained reinforcement across multiple sessions. Real-world behavior: cross-project promotion may never fire on typical 1-2 hour usage patterns.
 - Options:
