@@ -172,4 +172,132 @@ describe('microcompact', () => {
       expect(compacted[i]?.content.length).toBe(messages[i]?.content.length);
     }
   });
+
+  // Backlog Item 22 — soak case G4: an autonomous burst inside a SINGLE
+  // user prompt was triggering microcompact to clear mid-burst tool results
+  // before the agent's next assistant message could reference them. The
+  // current-turn boundary protection ensures tool_results produced after
+  // the latest text-bearing user message are never evicted.
+  test('does not evict tool_results from the current user turn', () => {
+    // Build: [user "old prompt"] then 30 (tool_use, tool_result) pairs ALL
+    // belonging to that single user turn. With keepRecent=3 and no current-
+    // turn protection, the old behaviour would clear 27 of those 30 results
+    // — exactly the failure mode case G4 surfaced.
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'do something useful in this repo' }] },
+    ];
+    for (let i = 0; i < 30; i++) {
+      const id = `tool-${i}`;
+      messages.push(toolUse(id, 'Bash'));
+      messages.push(toolResult(id, `bash output ${i} `.repeat(80)));
+    }
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 3 };
+
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+
+    // Nothing should be cleared — the entire 30-result burst is in the
+    // current turn (after the latest user-text message).
+    expect(result.cleared).toBe(0);
+    expect(result.estimatedTokensSaved).toBe(0);
+
+    const liveResults = compacted.flatMap((m) =>
+      m.content.filter(
+        (b) => b.type === 'tool_result' && !b.content.startsWith('[Tool result cleared'),
+      ),
+    );
+    expect(liveResults.length).toBe(30);
+  });
+
+  test('clears prior-turn tool_results but preserves current-turn ones', () => {
+    // Two user prompts: 5 tool calls in turn A, then a new user prompt,
+    // then 3 tool calls in turn B. With keepRecent=2, prior-turn results
+    // should be evicted down to (keepRecent) but current-turn results
+    // stay untouched regardless of count.
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first prompt' }] },
+    ];
+    for (let i = 0; i < 5; i++) {
+      const id = `prior-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `prior content ${i} `.repeat(60)));
+    }
+    messages.push({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done with first prompt' }],
+    });
+    messages.push({ role: 'user', content: [{ type: 'text', text: 'second prompt' }] });
+    for (let i = 0; i < 3; i++) {
+      const id = `current-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `current content ${i} `.repeat(60)));
+    }
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 2 };
+
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+
+    // Eligible candidates = 5 prior-turn results. keepRecent=2 of those.
+    // So 3 prior-turn results should be cleared. The 3 current-turn
+    // results are NOT in the candidate pool — they all stay live.
+    expect(result.cleared).toBe(3);
+
+    // Verify all 3 current-turn results are still live.
+    const currentTurnResults = compacted
+      .flatMap((m) => m.content)
+      .filter(
+        (b) =>
+          b.type === 'tool_result' &&
+          typeof b.tool_use_id === 'string' &&
+          b.tool_use_id.startsWith('current-') &&
+          !b.content.startsWith('[Tool result cleared'),
+      );
+    expect(currentTurnResults.length).toBe(3);
+
+    // And exactly 3 prior-turn results were cleared (out of 5).
+    const priorClearedCount = compacted
+      .flatMap((m) => m.content)
+      .filter(
+        (b) =>
+          b.type === 'tool_result' &&
+          typeof b.tool_use_id === 'string' &&
+          b.tool_use_id.startsWith('prior-') &&
+          b.content.startsWith('[Tool result cleared'),
+      ).length;
+    expect(priorClearedCount).toBe(3);
+  });
+
+  test('treats standalone guidance message as a turn boundary', () => {
+    // A standalone loop-detector guidance message is text-only and
+    // user-role. We treat it as a boundary — anything after it is part of
+    // the post-guidance burst and should not be evicted. (This is a
+    // deliberately conservative call: false-negative eviction on guidance
+    // borders is harmless; false-positive eviction on a real burst is the
+    // bug case G4 surfaced.)
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first prompt' }] },
+    ];
+    for (let i = 0; i < 4; i++) {
+      const id = `prior-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `pre-guidance ${i} `.repeat(60)));
+    }
+    messages.push({
+      role: 'user',
+      content: [{ type: 'text', text: 'guidance: stop, change approach' }],
+    });
+    for (let i = 0; i < 6; i++) {
+      const id = `post-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `post-guidance ${i} `.repeat(60)));
+    }
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 2 };
+
+    const { result } = microcompact(messages, toolNames, config);
+
+    // 4 prior-turn results are eligible; keepRecent=2; so 2 cleared.
+    // 6 post-guidance results are protected by the boundary.
+    expect(result.cleared).toBe(2);
+  });
 });

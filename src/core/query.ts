@@ -377,7 +377,13 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           recordTrace({ type: 'stall_detected', reason: stall.reason, turn, iso: nowIso() });
         }
       }
-      // Microcompaction: clear stale tool results before the next provider call.
+      // Microcompaction: clear stale tool results before the next provider
+      // call. Fires INSIDE the turn loop (mid-prompt), but tool_results
+      // from the current user-prompt burst are protected by a turn-boundary
+      // exclusion in `collectCompactableRefs` so the agent can still
+      // reference them in the next iteration's assistant message. See
+      // src/compact/microcompact.ts header for the rationale (backlog
+      // Item 22, soak case G4).
       const mcConfig = params.microcompactConfig ?? DEFAULT_MICROCOMPACT_CONFIG;
       const toolNameMap = buildToolNameMap(history);
       if (shouldMicrocompact(history, mcConfig, toolNameMap)) {

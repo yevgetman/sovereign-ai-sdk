@@ -18,7 +18,7 @@ P1 (UX / observability):
 5. Status mapping at observer site upgraded to 4-state (denied + cancelled)
 6. Better confidence ramp-up for cross-project promotion (defaults are too conservative for typical use)
 19. MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped) **[soak 2026-05-07]**
-22. Mid-turn context pruning anomaly during long autonomous exploration **[soak 2026-05-07]**
+22. ~~Mid-turn context pruning anomaly during long autonomous exploration~~ **[soak 2026-05-07] — closed 2026-05-07 (current-turn boundary protection in microcompact)**
 23. ~~FileRead throws instead of returning `{status: error}` envelope on missing file~~ **— closed `d2e1e92`**
 
 P2 (architectural extensions):
@@ -321,16 +321,17 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 22. Mid-turn context pruning anomaly during long autonomous exploration
 
 - Priority: P1
-- Status: open (potential regression)
+- Status: **complete (2026-05-07)** — investigation confirmed a real harness bug; targeted fix shipped. See investigation summary below.
 - Source: 2026-05-07 soak Agent G, case G4 (vague "do something useful" prompt)
-- Evidence: The agent ran 14 tool calls during autonomous exploration. In its own narration it self-noted: *"I was spinning in circles running commands that kept getting cleared."* This suggests Phase 10.5b microcompaction is over-aggressively clearing tool results mid-turn when the iteration count grows, even though those results are still needed downstream.
-- Hypothesis: `src/core/query.ts`'s microcompact logic (Phase 10.5b) clears stale tool results before the next provider call to keep the context window manageable. The clearing heuristic may be too eager when a single user turn spans many tool iterations — it might be evicting tool results that the *current* turn still references.
-- Recommendation: Review `src/core/query.ts` microcompact triggers. Specifically check: does microcompaction fire mid-turn (between tool batches within the same user turn) or only between turns? If mid-turn, what's the eviction window? Consider increasing the "keep recent N tool results" floor or only firing microcompaction at turn boundaries.
-- Likely code areas:
-  - `src/core/query.ts` (microcompact integration with the turn loop)
-  - `src/compact/microcompactor.ts` (eviction heuristic)
-- Impact: Potentially significant — could be quietly degrading agent performance on long exploration tasks. Worth confirming whether this is real microcompaction misbehavior or an LLM-side context-management quirk.
-- Effort: ~1-2 hrs investigation + targeted fix if confirmed.
+- Evidence: The agent ran 14 tool calls during autonomous exploration. In its own narration it self-noted: *"I was spinning in circles running commands that kept getting cleared."*
+- **Investigation result (real harness bug):**
+  - Microcompaction fires INSIDE the `for (let turn...)` loop in `src/core/query.ts:380-401`, AFTER `runTools` and BEFORE the next iteration's `provider.stream()` call. So it runs mid-prompt, between sub-turns of a single user message.
+  - Eviction policy: `DEFAULT_MICROCOMPACT_CONFIG.keepRecent = 5`, applied GLOBALLY across the entire history (no notion of "current turn" in `collectCompactableRefs`).
+  - Trigger: total compactable tool_result tokens > 40% of total context tokens.
+  - Failure mode: a single user prompt that triggers a 14-call autonomous burst → after turn ~6, microcompact kicks in and clears all but the most recent 5 results — including 9 results created in the SAME user-prompt loop. The agent's next assistant message wants to reference earlier outputs, finds `[Tool result cleared — Bash]` placeholders, and either re-runs the tool or loops in confusion.
+- **Fix:** Added `findCurrentTurnBoundary()` to `src/compact/microcompact.ts`. The boundary is the index of the most recent user message containing a `text` block (real user prompts always carry text; runTools-synthesized tool_result-only messages do not). `collectCompactableRefs` now skips messages at or after that boundary, so tool_results from the in-flight user prompt are never eligible for eviction regardless of count. KeepRecent semantics are unchanged for older history.
+- **Tests:** 3 new cases in `tests/compact/microcompact.test.ts`: 30-result single-burst preservation (the case G4 reproduction), two-prompt boundary respect, standalone-guidance boundary handling.
+- Files: `src/compact/microcompact.ts`, `src/core/query.ts` (comment update), `tests/compact/microcompact.test.ts`
 
 ### 23. FileRead throws on missing file instead of returning `{status: error}` envelope
 

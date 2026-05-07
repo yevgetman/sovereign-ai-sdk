@@ -5,6 +5,18 @@
 // Source of pattern: Qwen Code microcompact.ts (per-part clearing, compactable
 // tool set, keep-recent logic). Trigger is context-percentage-based rather
 // than Qwen's idle-timeout, better suited for continuous agent work.
+//
+// Current-turn protection (backlog Item 22, soak case G4): tool_results
+// produced AFTER the latest real user prompt are excluded from eviction
+// candidates regardless of how many older results are above the keepRecent
+// floor. Without this, a single user prompt that triggers a 14-tool
+// autonomous burst could see mid-burst results cleared before the agent's
+// next assistant message references them, producing the "spinning in
+// circles, results kept getting cleared" failure mode. The boundary is the
+// index of the most recent user message that contains a `text` block —
+// real user prompts always carry text; runTools-synthesized messages are
+// pure tool_result. Standalone loop-guidance messages are also text-only
+// and act as legitimate boundaries.
 
 import { estimateBlockTokens, estimateMessagesTokens } from '../core/tokenEstimate.js';
 import type { ContentBlock, Message } from '../core/types.js';
@@ -112,8 +124,13 @@ function collectCompactableRefs(
   toolNames: ReadonlyMap<string, string>,
   compactableTools: ReadonlySet<string>,
 ): ToolResultRef[] {
+  const currentTurnBoundary = findCurrentTurnBoundary(messages);
   const refs: ToolResultRef[] = [];
   for (let mi = 0; mi < messages.length; mi++) {
+    // Tool results produced after the latest real user prompt belong to the
+    // current burst and must not be evicted — the agent's next assistant
+    // message may still reference them. See file header for rationale.
+    if (mi >= currentTurnBoundary) continue;
     const msg = messages[mi];
     if (!msg || msg.role !== 'user') continue;
     for (let bi = 0; bi < msg.content.length; bi++) {
@@ -132,6 +149,25 @@ function collectCompactableRefs(
     }
   }
   return refs;
+}
+
+/**
+ * Returns the index of the most recent user message that contains a `text`
+ * content block — i.e. the start of the current user-prompt burst. Tool
+ * results at or after this index are part of the in-flight turn and are
+ * NOT eligible for eviction. When no such message exists (e.g. very early
+ * history or a synthetic test fixture with only tool messages), returns
+ * `messages.length` so the boundary excludes nothing — preserving the
+ * pre-fix behaviour for those edge cases.
+ */
+function findCurrentTurnBoundary(messages: readonly Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg || msg.role !== 'user') continue;
+    const hasText = msg.content.some((block) => block.type === 'text');
+    if (hasText) return i;
+  }
+  return messages.length;
 }
 
 export function buildToolNameMap(messages: readonly Message[]): Map<string, string> {

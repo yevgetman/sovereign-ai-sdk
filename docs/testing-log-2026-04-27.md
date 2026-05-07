@@ -1861,3 +1861,20 @@ Implementation backlogs from these findings live in
 - Contradiction detection's "instead, do X" NL parsing is best-effort string matching only.
 - Observer's status mapping at orchestrator site is 2-state (success/error) — denied/cancelled mapping deferred.
 - Cross-project promotion is one-shot per synthesizer run; no incremental threshold-crossing logic.
+
+## 2026-05-07 — Backlog Item 22 (microcompaction current-turn protection)
+
+**Scope:** Investigated and fixed backlog Item 22 — soak case G4's "tool results getting cleared mid-turn" complaint. Confirmed real harness bug: microcompaction in `src/core/query.ts:380-401` fires inside the per-turn loop, and `collectCompactableRefs` (`src/compact/microcompact.ts`) had no notion of "current user turn," so a single autonomous burst of 14+ tool calls would see results 6+ get evicted while the agent was still iterating on them. Fix: added `findCurrentTurnBoundary()` (last user message containing a `text` block) and excluded messages at-or-after that index from the eviction candidate list. KeepRecent semantics for older history unchanged.
+
+**Environment:** Bun on darwin, master branch.
+
+**Commands run:**
+- `bun run lint` — clean (2 pre-existing warnings in shellSemantics.ts; no new ones)
+- `bun run typecheck` — clean
+- `bun test` — 1613/1613 pass (3 new tests added to `tests/compact/microcompact.test.ts`)
+
+**Manual coverage:** Direct test of the eviction-during-turn property via 30-result single-burst case (would have evicted 25 pre-fix; evicts 0 post-fix). Two-prompt case verifies cross-turn eviction still works correctly. Standalone-guidance case verifies text-only loop-detector messages act as boundaries.
+
+**Result:** Item 22 closed. No regressions to existing microcompact tests (12/12 still pass with same expected eviction counts since their fixtures lack a text-bearing user message — boundary defaults to `messages.length` which excludes nothing, preserving pre-fix behaviour for those edge cases).
+
+**Files:** `src/compact/microcompact.ts`, `src/core/query.ts`, `tests/compact/microcompact.test.ts`, `docs/post-phase-13-4-backlog.md`.
