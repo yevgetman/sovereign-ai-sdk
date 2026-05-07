@@ -38,7 +38,7 @@ P4 (small ergonomics + nits):
 15. `nameFromRemote` heuristic loses nested-namespace context
 16. `cleanupPhantomReviews` runs only at session boot (long sessions accumulate)
 17. Eval-gated auto-promote (currently auto-promote is straight bypass)
-18. Glob inline tool block: count footer drifts vs. summary line **[soak 2026-05-07]**
+18. ~~Glob inline tool block: count footer drifts vs. summary line~~ **[soak 2026-05-07] — closed `d52fb75` (footer reads canonical count from envelope summary)**
 20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs) **[soak 2026-05-07]**
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
 
@@ -268,14 +268,8 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 18. Glob inline tool block — count footer drifts vs. summary line
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-07, commit `d52fb75`)** — root cause was `src/ui/toolFooter.ts` reading `totalLines` (the rendered block's line count) as the file count. Phase 12.5's observation envelope prepends `status:` + `summary:` (+ optional `next_actions:`) and a blank separator before the body, so `totalLines = paths.length + envelope rows`. A 1-file result rendered ~4 lines, hence the soak's `summary: 1 file` vs. footer `found 4 files`. Live repro showed a 2-file Glob with `summary: 2 files` next to footer `found 5 files`. Fix: new `extractGlobFileCount` parses the envelope's `summary: <n> file(s)` line and feeds the canonical count to the footer; pre-envelope content shape kept as fallback. Tests: 4 envelope cases in `tests/ui/toolFooter.test.ts` + a parameterized end-to-end test in `tests/tools/globTool.test.ts` that runs the real GlobTool, reconstructs the rendered block, and pins envelope-summary == footer-count for N=1/4/50.
 - Source: 2026-05-07 soak Agent A (tool surface battery), case A4 (Glob + Grep in temp project)
-- Evidence: Glob's status envelope reported `summary: "1 file"` but the rendered inline footer in the REPL output said `"found 4 files"` for the same call. The actual filesystem state matched the summary (1 file by the specific pattern asked). The footer aggregates differently from the summary.
-- Likely code areas:
-  - `src/ui/` (inline tool block renderer — the footer aggregation logic that picks a count to display)
-- Recommendation: Trace which renderer path emits the footer count vs. the summary line; reconcile to the same source value (probably `result.data.length` or the artifact array length).
-- Impact: User-visible UI inconsistency; no correctness issue (status envelope is correct).
-- Effort: ~30 min
 
 ### 19. MEMORY.md cross-pollinates unrelated projects
 
