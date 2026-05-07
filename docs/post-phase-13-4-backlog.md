@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `2df9da7`. Suite 1663/1663 unit + 58/58 semantic. Items 1-11, 14-16, 18, 20-23 closed across six batches. Remaining open: 12, 13, 17, 19, 24. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
+**Last sync:** 2026-05-07. Master at `07cb263`. Suite 1716/1716 unit + 58/58 semantic. Items 1-11, 14-16, 18-23 closed across seven batches. Remaining open: 12, 13, 17, 24. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
 
 ## Priority order
 
@@ -268,16 +268,9 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 19. MEMORY.md cross-pollinates unrelated projects
 
 - Priority: P1
-- Status: open (design discussion needed)
+- Status: **complete (2026-05-07, commits `db967ed` → `07cb263`)** — five commits across three rounds shipped via subagent-driven dispatch. Two-tier MEMORY.md model: global `<harnessHome>/memory/MEMORY.md` (existing, untouched) + new per-project `<harnessHome>/memory/projects/<projectId>/MEMORY.md`. USER.md untouched (always global). Routing decided by `MemoryTool.scope: 'global' | 'project'` argument; default = `'project'` when a project context is detected (bundle manifest `projectId` → bundle path hash → git remote, in that order), else `'global'`. `MemoryTool` rejects `scope: 'project'` with a clean envelope when no projectId is available. New system-prompt segment tells the agent the routing rules. Provider snapshot includes both layers when a project is detected (global block then project block, project closer to user message for soft "later wins" precedence). Existing global MEMORY.md content is preserved as global; no automatic migration. **+33 tests** across `tests/memory/scope.test.ts` (11) + `tests/memory/bounded.test.ts` (7) + `tests/memory/injection.test.ts` (7) + `tests/memory/provider.test.ts` (6) + `tests/tools/memoryTool.test.ts` (16) + `tests/context/systemPrompt.test.ts` (4) — was 1683/1683 before Round 1, now 1716/1716. Suite gates clean; pushed to origin/master and `sov upgrade` ran. Design memo at `docs/superpowers/plans/2026-05-07-memory-project-scoping.md`.
+- **Behavioral note (smoke test finding):** `sov chat` always loads the default bundle when no `--bundle` is passed, so the `kind: 'none'` branch (true general-purpose harness mode with no memory at all) is rarely reached via the CLI in practice. Most non-git scratch-dir sessions get a stable "default-bundle" projectId via the canonical-path hash path, and their memory lives at `<harnessHome>/memory/projects/<defaultBundleHash>/MEMORY.md`. Different from before (single global MEMORY.md sees everything) but not the same as "no memory" — it's effectively a single shared "general purpose" memory namespace. Acceptable for v1; revisit if it surfaces as a separate problem.
 - Source: 2026-05-07 soak Agent A, cases A4 + A6
-- Evidence: A fresh session running tests in `/tmp/sov-soak-A` had its commentary colored by content from `~/.harness/memory/MEMORY.md` describing an unrelated project (`resume-as-code` module tree). The agent referenced "the core resume-as-code module tree" while doing a generic Glob test that had nothing to do with that project. The memory file is loaded globally regardless of cwd / project_id.
-- Question for design discussion: Is global memory the intended model, or should `MEMORY.md` be project-scoped (loaded only when cwd matches the originating project)? The auto-memory subsystem already has a project_id concept (Phase 13.4) — could we route project-scoped memory entries through a per-project path while keeping `USER.md` truly global?
-- Likely code areas:
-  - `src/memory/bounded.ts` (path resolution)
-  - `src/memory/provider.ts` (load logic)
-- Recommendation: Triage with the user. If project-scoped memory is desired, split MEMORY.md → `<harnessHome>/memory/MEMORY.md` (global) + `<harnessHome>/memory/projects/<projectId>/MEMORY.md` (per-project). Loader unions them at session start, with the project version taking precedence on conflict.
-- Impact: Currently low-frequency leak (most users don't switch projects often), but for users working across multiple projects this is mildly confusing.
-- Effort: Discussion + ~2-3 hrs implementation if pursued.
 
 ### 20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun
 
@@ -354,7 +347,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 Pick any item by priority + effort match for your session length:
 - 30-min slot: (none currently open)
 - 1-2 hr slot: (none currently open)
-- Half-day slot: items 12, 13, 19, 24
+- Half-day slot: items 12, 13, 24
 - Multi-day: item 17
 
 Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.
