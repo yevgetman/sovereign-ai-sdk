@@ -39,10 +39,7 @@ function buildPrompt(opts: RunSynthesizerOpts): string {
 }
 
 export async function runSynthesizer(opts: RunSynthesizerOpts): Promise<void> {
-  const augmentedPool: Tool<unknown, unknown>[] = [
-    ...opts.parentToolPool,
-    ...LEARNING_ONLY_TOOLS,
-  ];
+  const augmentedPool: Tool<unknown, unknown>[] = [...opts.parentToolPool, ...LEARNING_ONLY_TOOLS];
   try {
     await opts.scheduler.delegate({
       agentName: 'instinct-synthesizer',
