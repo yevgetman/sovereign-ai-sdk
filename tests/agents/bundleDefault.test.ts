@@ -84,6 +84,37 @@ describe('bundle-default reference agents', () => {
     }
   });
 
+  test('review-memory + review-skill allowedTools include the read-only instinct tools (Phase 13.4 T8)', async () => {
+    const tmpHome = mkdtempSync(join(tmpdir(), 'sovereign-review-instinct-'));
+    try {
+      const registry = await loadAgents({
+        cwd: tmpHome,
+        harnessHome: tmpHome,
+        bundleRoot: BUNDLE_DEFAULT_ROOT,
+      });
+
+      const mem = registry.byName.get('review-memory');
+      const skill = registry.byName.get('review-skill');
+      const cons = registry.byName.get('review-consolidate');
+
+      expect(mem?.allowedTools).toContain('instinct_list');
+      expect(mem?.allowedTools).toContain('instinct_view');
+      expect(mem?.allowedTools).not.toContain('instinct_propose');
+      expect(mem?.allowedTools).not.toContain('instinct_update_confidence');
+
+      expect(skill?.allowedTools).toContain('instinct_list');
+      expect(skill?.allowedTools).toContain('instinct_view');
+      expect(skill?.allowedTools).not.toContain('instinct_propose');
+      expect(skill?.allowedTools).not.toContain('instinct_update_confidence');
+
+      // review-consolidate doesn't read instincts — it operates on MEMORY.md
+      expect(cons?.allowedTools).not.toContain('instinct_list');
+      expect(cons?.allowedTools).not.toContain('instinct_view');
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
   test('instinct-synthesizer loads with restricted toolset', async () => {
     const tmpHome = mkdtempSync(join(tmpdir(), 'sovereign-synthesizer-'));
     try {

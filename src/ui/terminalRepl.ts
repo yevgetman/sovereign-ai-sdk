@@ -64,6 +64,7 @@ import { wrapToolsForReplay } from '../eval/replay/toolPool.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import { LearningObserver } from '../learning/observer.js';
+import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
 import { buildMcpClientPool } from '../mcp/client.js';
 import { wrapMcpTool } from '../mcp/toolWrapper.js';
@@ -870,10 +871,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           ? { synthesizerEveryN: userSettings.learning.synthesizerEveryN }
           : {}),
       },
-      pathsResolver: () => ({
-        trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),
-        tracePath: traceWriter.path,
-      }),
+      pathsResolver: () => {
+        const project = getProjectId(process.cwd());
+        return {
+          trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),
+          tracePath: traceWriter.path,
+          instinctsDir: instinctsDir(harnessHome, project.id),
+        };
+      },
       parentToolPool: toolPool,
       parentToolContext: writableCtx as ToolContext,
       enabled: !(userSettings.review?.disabled === true),

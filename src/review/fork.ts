@@ -7,7 +7,7 @@
 // definition file in bundle-default/agents/, not by this helper.
 
 import type { SubagentScheduler } from '../runtime/scheduler.js';
-import { REVIEW_ONLY_TOOLS } from '../tool/registry.js';
+import { LEARNING_ONLY_TOOLS, REVIEW_ONLY_TOOLS } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 
@@ -16,6 +16,11 @@ export type ReviewAgentName = 'review-memory' | 'review-skill' | 'review-consoli
 export interface ReviewForkPromptContext {
   trajectoryPath: string;
   tracePath: string;
+  /** Phase 13.4 — when present, the review fork is told to prefer the
+   *  instinct corpus (curated, evidence-backed, confidence-graduated)
+   *  over raw trajectory slices. Falls back to trajectory when no
+   *  instincts have been promoted yet. */
+  instinctsDir?: string;
   recentTurnCount: number;
 }
 
@@ -31,21 +36,37 @@ export interface RunReviewForkOpts {
 }
 
 function buildPrompt(agentName: ReviewAgentName, ctx: ReviewForkPromptContext): string {
-  return [
-    `You are operating as a review sub-agent (${agentName}).`,
-    `Trajectory file: ${ctx.trajectoryPath}`,
+  const lines = [`You are operating as a review sub-agent (${agentName}).`];
+  if (ctx.instinctsDir !== undefined) {
+    lines.push(`Instincts directory (preferred input): ${ctx.instinctsDir}`);
+  }
+  lines.push(
+    `Trajectory file${ctx.instinctsDir !== undefined ? ' (fallback)' : ''}: ${ctx.trajectoryPath}`,
     `Trace file: ${ctx.tracePath}`,
     `Recent turn count to focus on: ${ctx.recentTurnCount}`,
     '',
-    'Read the trajectory and trace, then file proposals via your allowed proposal tool. Be conservative.',
-  ].join('\n');
+    ctx.instinctsDir !== undefined
+      ? 'When instincts are available, prefer them — they are pre-clustered, evidence-backed, and confidence-graduated. Use the trajectory only as a fallback or to confirm specific evidence.'
+      : 'Read the trajectory and trace, then file proposals via your allowed proposal tool. Be conservative.',
+  );
+  return lines.join('\n');
 }
 
 export async function runReviewFork(opts: RunReviewForkOpts): Promise<void> {
   // Augment the parent's pool with review-only tools so the scheduler's
   // filterToolsForChild can surface memory_propose / skill_propose for
   // review-* agents (whose allowedTools declare them).
-  const augmentedPool: Tool<unknown, unknown>[] = [...opts.parentToolPool, ...REVIEW_ONLY_TOOLS];
+  //
+  // Phase 13.4 — also augment with LEARNING_ONLY_TOOLS so review forks
+  // can call instinct_list / instinct_view (read-only). The
+  // synthesizer-only writers in the same pool (instinct_propose,
+  // instinct_update_confidence) are filtered out by the scheduler's
+  // agent.allowedTools enforcement — review-* agents don't list them.
+  const augmentedPool: Tool<unknown, unknown>[] = [
+    ...opts.parentToolPool,
+    ...REVIEW_ONLY_TOOLS,
+    ...LEARNING_ONLY_TOOLS,
+  ];
 
   try {
     await opts.scheduler.delegate({

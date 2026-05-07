@@ -86,6 +86,122 @@ describe('runReviewFork', () => {
     expect(names.has('skill_propose')).toBe(true);
   });
 
+  test('augments parentToolPool with LEARNING_ONLY_TOOLS so review agents can call instinct_list/view', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fakeScheduler = {
+      delegate: async (input: Record<string, unknown>) => {
+        calls.push(input);
+        return {
+          childSessionId: 'c',
+          agentName: 'review-memory',
+          resolvedProvider: 'fake',
+          resolvedModel: 'fake-1',
+          terminal: { reason: 'completed' as const },
+          summary: '',
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          durationMs: 1,
+        };
+      },
+    } as unknown as SubagentScheduler;
+
+    await runReviewFork({
+      scheduler: fakeScheduler,
+      agentName: 'review-memory',
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      parentToolPool: [] as Tool<unknown, unknown>[],
+      parentToolContext: { cwd: '/tmp', sessionId: 'p' } as ToolContext,
+      promptContext: {
+        trajectoryPath: '/x',
+        tracePath: '/y',
+        instinctsDir: '/learning/proj/instincts',
+        recentTurnCount: 5,
+      },
+    });
+
+    const augmented = calls[0]?.parentToolPool as Array<{ name: string }>;
+    const names = new Set(augmented.map((t) => t.name));
+    expect(names.has('instinct_list')).toBe(true);
+    expect(names.has('instinct_view')).toBe(true);
+    // Writers are present in the pool but filtered out by agent.allowedTools.
+    expect(names.has('instinct_propose')).toBe(true);
+    expect(names.has('instinct_update_confidence')).toBe(true);
+  });
+
+  test('prompt mentions instincts directory when provided + says "preferred input"', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fakeScheduler = {
+      delegate: async (input: Record<string, unknown>) => {
+        calls.push(input);
+        return {
+          childSessionId: 'c',
+          agentName: 'review-memory',
+          resolvedProvider: 'fake',
+          resolvedModel: 'fake-1',
+          terminal: { reason: 'completed' as const },
+          summary: '',
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          durationMs: 1,
+        };
+      },
+    } as unknown as SubagentScheduler;
+
+    await runReviewFork({
+      scheduler: fakeScheduler,
+      agentName: 'review-memory',
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      parentToolPool: [],
+      parentToolContext: { cwd: '/tmp', sessionId: 'p' } as ToolContext,
+      promptContext: {
+        trajectoryPath: '/traj',
+        tracePath: '/trace',
+        instinctsDir: '/learning/proj/instincts',
+        recentTurnCount: 5,
+      },
+    });
+
+    const prompt = calls[0]?.prompt as string;
+    expect(prompt).toContain('/learning/proj/instincts');
+    expect(prompt.toLowerCase()).toContain('preferred input');
+  });
+
+  test('prompt omits instincts mention when instinctsDir absent (back-compat)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fakeScheduler = {
+      delegate: async (input: Record<string, unknown>) => {
+        calls.push(input);
+        return {
+          childSessionId: 'c',
+          agentName: 'review-memory',
+          resolvedProvider: 'fake',
+          resolvedModel: 'fake-1',
+          terminal: { reason: 'completed' as const },
+          summary: '',
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          durationMs: 1,
+        };
+      },
+    } as unknown as SubagentScheduler;
+
+    await runReviewFork({
+      scheduler: fakeScheduler,
+      agentName: 'review-memory',
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      parentToolPool: [],
+      parentToolContext: { cwd: '/tmp', sessionId: 'p' } as ToolContext,
+      promptContext: { trajectoryPath: '/traj', tracePath: '/trace', recentTurnCount: 5 },
+    });
+
+    const prompt = calls[0]?.prompt as string;
+    expect(prompt.toLowerCase()).not.toContain('preferred input');
+    expect(prompt.toLowerCase()).not.toContain('instincts directory');
+  });
+
   test('swallows scheduler errors silently — review never fails the parent', async () => {
     const fakeScheduler = {
       delegate: async () => {

@@ -24,6 +24,9 @@ export interface ReviewThresholds {
 export interface ReviewPaths {
   trajectoryPath: string;
   tracePath: string;
+  /** Phase 13.4 — optional instinct corpus directory. Reviewer agents
+   *  prefer it over raw trajectory slices when present. */
+  instinctsDir?: string;
 }
 
 export interface ChildCompletionEvent {
@@ -227,6 +230,7 @@ export class ReviewManager {
       promptContext: {
         trajectoryPath: paths.trajectoryPath,
         tracePath: paths.tracePath,
+        ...(paths.instinctsDir !== undefined ? { instinctsDir: paths.instinctsDir } : {}),
         recentTurnCount: DEFAULT_RECENT_TURN_COUNT,
       },
       ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
