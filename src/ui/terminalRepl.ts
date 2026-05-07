@@ -64,6 +64,7 @@ import { wrapToolsForReplay } from '../eval/replay/toolPool.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import { LearningObserver } from '../learning/observer.js';
+import { getProjectId } from '../learning/project.js';
 import { buildMcpClientPool } from '../mcp/client.js';
 import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
@@ -727,11 +728,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // the orchestrator can call ctx.learningObserver?.observe(...) after each
   // tool call. Drained at session-end before trajectory write so this
   // session's observations land on disk first. Defaults: bufferSize=200,
-  // enabled=true. Settings overrides land in T7.
+  // enabled=true. settings.learning.* overrides applied here.
   const learningObserver = new LearningObserver({
     harnessHome,
     cwd: process.cwd(),
     sessionId: activeSessionId,
+    bufferSize: userSettings.learning?.observationBufferSize ?? 200,
+    enabled: !(userSettings.learning?.disabled === true),
   });
   type WritableToolContext = { -readonly [K in keyof ToolContext]: ToolContext[K] };
   (toolContext as WritableToolContext).learningObserver = learningObserver;
@@ -863,6 +866,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...(userSettings.review?.minIntervalMs !== undefined
           ? { minIntervalMs: userSettings.review.minIntervalMs }
           : {}),
+        ...(userSettings.learning?.synthesizerEveryN !== undefined
+          ? { synthesizerEveryN: userSettings.learning.synthesizerEveryN }
+          : {}),
       },
       pathsResolver: () => ({
         trajectoryPath: join(artifactsRootForReview, 'trajectories', 'samples.jsonl'),
@@ -871,6 +877,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       parentToolPool: toolPool,
       parentToolContext: writableCtx as ToolContext,
       enabled: !(userSettings.review?.disabled === true),
+      projectIdentity: () => getProjectId(process.cwd()),
+      harnessHome,
     });
     writableCtx.reviewManager = reviewManager;
   }

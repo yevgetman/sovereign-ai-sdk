@@ -2,6 +2,7 @@
 // fire-and-forgets review-fork dispatches via SubagentScheduler. Triggers
 // snapshot state and never block the parent's main turn.
 
+import { runSynthesizer } from '../learning/synthesizer.js';
 import type { SubagentScheduler } from '../runtime/scheduler.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
@@ -16,6 +17,8 @@ export interface ReviewThresholds {
    *  the same review-fork agent. Auto-triggered dispatches respect this
    *  lockout; manual runConsolidationPass bypasses. */
   minIntervalMs: number;
+  /** Phase 13.4 — synthesizer fires every Nth user turn. Default 20. */
+  synthesizerEveryN: number;
 }
 
 export interface ReviewPaths {
@@ -43,6 +46,15 @@ export interface ReviewManagerOpts {
   parentToolContext: ToolContext;
   enabled?: boolean;
   traceRecorder?: (event: TraceEvent) => void;
+  /** Phase 13.4 — stable per-project identity used to route the
+   *  synthesizer at the right project's observations.jsonl. When
+   *  absent, synthesizer dispatch is suppressed (e.g., harness running
+   *  without a session-rooted project context). */
+  projectIdentity?: () => { id: string; name: string };
+  /** Phase 13.4 — root for learning artifacts (passed to the
+   *  synthesizer to compute its observations path). Required alongside
+   *  `projectIdentity` for the synthesizer to fire. */
+  harnessHome?: string;
 }
 
 const DEFAULT_THRESHOLDS: ReviewThresholds = {
@@ -50,6 +62,7 @@ const DEFAULT_THRESHOLDS: ReviewThresholds = {
   toolIterationsForSkillReview: 50,
   childReviewEveryN: 3,
   minIntervalMs: 30_000, // 30s
+  synthesizerEveryN: 20,
 };
 
 const TRIVIAL_MIN_ITERATIONS = 2;
@@ -61,9 +74,15 @@ export class ReviewManager {
   private userTurnsSince = 0;
   private toolIterationsSince = 0;
   private childCompletionsSince = 0;
+  /** Phase 13.4 — synthesizer turn counter; independent of memory review. */
+  private synthesizerSince = 0;
   private lastDispatchAtMs: Map<ReviewAgentName, number> = new Map();
-  /** Phase 13.3 (B3) — per-agent dispatch counts for the goodbye summary. */
-  private dispatchCounts: Map<ReviewAgentName | 'review-consolidate', number> = new Map();
+  /** Phase 13.3 (B3) — per-agent dispatch counts for the goodbye summary.
+   *  Phase 13.4 — extended to include 'instinct-synthesizer'. */
+  private dispatchCounts: Map<
+    ReviewAgentName | 'review-consolidate' | 'instinct-synthesizer',
+    number
+  > = new Map();
   private readonly scheduler: SubagentScheduler;
   private readonly sessionId: string;
   private readonly signal: AbortSignal;
@@ -73,6 +92,8 @@ export class ReviewManager {
   private readonly parentToolContext: ToolContext;
   private readonly enabled: boolean;
   private readonly traceRecorder?: (event: TraceEvent) => void;
+  private readonly projectIdentity?: () => { id: string; name: string };
+  private readonly harnessHome?: string;
 
   constructor(opts: ReviewManagerOpts) {
     this.scheduler = opts.scheduler;
@@ -86,6 +107,12 @@ export class ReviewManager {
     if (opts.traceRecorder !== undefined) {
       this.traceRecorder = opts.traceRecorder;
     }
+    if (opts.projectIdentity !== undefined) {
+      this.projectIdentity = opts.projectIdentity;
+    }
+    if (opts.harnessHome !== undefined) {
+      this.harnessHome = opts.harnessHome;
+    }
   }
 
   onUserTurn(callerSessionId: string): void {
@@ -96,6 +123,16 @@ export class ReviewManager {
     if (this.userTurnsSince >= this.thresholds.userTurnsForMemoryReview) {
       this.userTurnsSince = 0;
       this.dispatch('review-memory');
+    }
+
+    // Phase 13.4 — synthesizer fires every Nth user turn (independent
+    // of review-memory). Skipped when no projectIdentity / harnessHome
+    // configured (e.g. the harness is running without a session-rooted
+    // project context).
+    this.synthesizerSince += 1;
+    if (this.synthesizerSince >= this.thresholds.synthesizerEveryN) {
+      this.synthesizerSince = 0;
+      this.dispatchSynthesizer();
     }
   }
 
@@ -192,6 +229,31 @@ export class ReviewManager {
         tracePath: paths.tracePath,
         recentTurnCount: DEFAULT_RECENT_TURN_COUNT,
       },
+      ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
+    });
+  }
+
+  /** Phase 13.4 — fire-and-forget dispatch of the instinct-synthesizer
+   *  sub-agent. Early-returns when project identity / harness home are
+   *  absent (no learning context configured) or the signal is aborted. */
+  private dispatchSynthesizer(): void {
+    if (!this.projectIdentity || !this.harnessHome) return;
+    if (this.signal.aborted) return;
+    const project = this.projectIdentity();
+    this.dispatchCounts.set(
+      'instinct-synthesizer',
+      (this.dispatchCounts.get('instinct-synthesizer') ?? 0) + 1,
+    );
+    void runSynthesizer({
+      scheduler: this.scheduler,
+      parentSessionId: this.sessionId,
+      parentSignal: this.signal,
+      parentToolPool: this.parentToolPool,
+      parentToolContext: this.parentToolContext,
+      harnessHome: this.harnessHome,
+      projectId: project.id,
+      projectName: project.name,
+      recentObservationCount: 50,
       ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
     });
   }

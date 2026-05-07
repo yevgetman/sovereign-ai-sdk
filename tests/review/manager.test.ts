@@ -352,6 +352,102 @@ describe('ReviewManager triggers', () => {
     expect(names).toEqual(['review-memory', 'review-skill']);
   });
 
+  test('synthesizer fires every Nth user turn (default 20)', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        synthesizerEveryN: 3,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      projectIdentity: () => ({ id: 'proj-abc', name: 'sovereign' }),
+      harnessHome: '/tmp/h',
+      ...emptyParent(),
+    });
+
+    mgr.onUserTurn('p');
+    mgr.onUserTurn('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.length).toBe(0); // 2 turns, threshold 3 — counter not yet hit
+
+    mgr.onUserTurn('p'); // 3rd → fires
+    await new Promise((r) => setTimeout(r, 30));
+    const synthCalls = calls.filter((c) => c.agentName === 'instinct-synthesizer');
+    expect(synthCalls.length).toBe(1);
+  });
+
+  test('synthesizer does not fire when projectIdentity is absent', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        synthesizerEveryN: 1,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      // intentionally NOT setting projectIdentity / harnessHome
+      ...emptyParent(),
+    });
+
+    mgr.onUserTurn('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(0);
+  });
+
+  test('getDispatchSummary counts synthesizer dispatches', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        synthesizerEveryN: 1,
+        minIntervalMs: 0,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      projectIdentity: () => ({ id: 'proj', name: 'p' }),
+      harnessHome: '/tmp',
+      ...emptyParent(),
+    });
+    mgr.onUserTurn('p');
+    mgr.onUserTurn('p');
+    await new Promise((r) => setTimeout(r, 30));
+    const summary = mgr.getDispatchSummary();
+    expect(summary.byAgent['instinct-synthesizer']).toBe(2);
+  });
+
+  test('signal-aborted blocks synthesizer dispatch', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const ac = new AbortController();
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: ac.signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        synthesizerEveryN: 1,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      projectIdentity: () => ({ id: 'proj', name: 'p' }),
+      harnessHome: '/tmp',
+      ...emptyParent(),
+    });
+    ac.abort();
+    mgr.onUserTurn('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(0);
+  });
+
   test('A3 temporal lockout does NOT apply to runConsolidationPass', async () => {
     const calls: Array<Record<string, unknown>> = [];
     const mgr = new ReviewManager({

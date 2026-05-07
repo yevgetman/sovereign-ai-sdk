@@ -201,6 +201,28 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Phase 13.4 — continuous-learning observation stream + instinct
+     *  corpus. All fields optional; defaults documented in the
+     *  ReviewManager / LearningObserver code. */
+    learning: z
+      .object({
+        /** When false, observation writer is a no-op + synthesizer never
+         *  fires. Defaults to true. */
+        disabled: z.boolean().optional(),
+        /** Synthesizer runs every Nth user turn. Default 20. */
+        synthesizerEveryN: z.number().int().positive().optional(),
+        /** In-memory observation buffer cap before backpressure drops the
+         *  oldest. Default 200. */
+        observationBufferSize: z.number().int().positive().optional(),
+        /** Confidence threshold below which instincts age out via
+         *  `harness learning prune`. Default 0.3. */
+        pruneBelowConfidence: z.number().min(0).max(1).optional(),
+        /** Days without reinforcement after which sub-threshold instincts
+         *  are pruned. Default 30. */
+        pruneAgeDays: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
     ui: UiSchema.optional(),
   })
   .strict();
