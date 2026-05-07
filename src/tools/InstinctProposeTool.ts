@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { reinforce } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
+import { loadConfidenceTuning } from '../learning/tuning.js';
 import { type Instinct, InstinctDomainSchema, InstinctScopeSchema } from '../learning/types.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { Tool } from '../tool/types.js';
@@ -56,11 +57,12 @@ export const InstinctProposeTool = buildTool<InstinctProposeInput, { instinct: I
       throw new Error('instinct_propose: project-scoped instincts require a non-null project_id');
     }
     const now = new Date().toISOString();
+    const tuning = loadConfidenceTuning();
     const instinct: Instinct = {
       id: newInstinctId(),
       trigger: input.trigger,
       action: input.action,
-      confidence: reinforce(0, input.evidence_count),
+      confidence: reinforce(0, input.evidence_count, tuning),
       evidence_count: input.evidence_count,
       domain: input.domain,
       scope: input.scope,

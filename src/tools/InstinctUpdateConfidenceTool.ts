@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { contradict, reinforce } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
+import { loadConfidenceTuning } from '../learning/tuning.js';
 import type { Instinct } from '../learning/types.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { Tool } from '../tool/types.js';
@@ -42,10 +43,11 @@ export const InstinctUpdateConfidenceTool = buildTool<
     const store = new InstinctStore(home);
     const { instinct: prior, body } = store.readWithBody(input.project_id, input.id);
     const evidenceWeight = input.evidence_count ?? 1;
+    const tuning = loadConfidenceTuning();
     const nextConfidence =
       input.action === 'reinforce'
-        ? reinforce(prior.confidence, evidenceWeight)
-        : contradict(prior.confidence, evidenceWeight);
+        ? reinforce(prior.confidence, evidenceWeight, tuning)
+        : contradict(prior.confidence, evidenceWeight, tuning);
     const updated: Instinct = {
       ...prior,
       confidence: nextConfidence,

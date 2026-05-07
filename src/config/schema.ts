@@ -220,6 +220,22 @@ export const SettingsSchema = z
         /** Days without reinforcement after which sub-threshold instincts
          *  are pruned. Default 30. */
         pruneAgeDays: z.number().int().positive().optional(),
+        /** Backlog Item 6 — tunable confidence math. All optional;
+         *  defaults preserved when omitted. Future soak data should
+         *  drive any changes here, not speculative tuning. */
+        /** Logarithmic reinforcement coefficient. Default 0.04. */
+        reinforcementCurveK: z.number().min(0).optional(),
+        /** Per-unit contradiction drop. Default −0.2. Must be ≤ 0. */
+        contradictionDelta: z.number().max(0).optional(),
+        /** Confidence ceiling. Default 0.9. */
+        confidenceCap: z.number().min(0).max(1).optional(),
+        /** Starting-floor for newly proposed instincts. Default unset
+         *  (effectively 0). When set, reinforce() treats current
+         *  confidence as max(current, baseline) before the curve. */
+        initialConfidenceBaseline: z.number().min(0).max(1).optional(),
+        /** Cross-project promotion threshold (synthesizer surfaces
+         *  candidates with confidence ≥ this). Default 0.7. */
+        crossProjectMinConfidence: z.number().min(0).max(1).optional(),
       })
       .strict()
       .optional(),

@@ -58,6 +58,52 @@ describe('contradict', () => {
   });
 });
 
+describe('reinforce — tunable', () => {
+  test('custom reinforcementCurveK accelerates the curve', () => {
+    const defaultK = reinforce(0, 5);
+    const fastK = reinforce(0, 5, { reinforcementCurveK: 0.15 });
+    expect(fastK).toBeGreaterThan(defaultK);
+  });
+
+  test('initialConfidenceBaseline bumps the starting floor', () => {
+    const noFloor = reinforce(0, 5);
+    const withFloor = reinforce(0, 5, { initialConfidenceBaseline: 0.4 });
+    // With floor=0.4, startFrom = max(0, 0.4) = 0.4, then +log curve.
+    // Without floor, startFrom = 0, then +log curve.
+    expect(withFloor).toBeGreaterThan(noFloor + 0.3);
+  });
+
+  test('initialConfidenceBaseline is a floor, not an override', () => {
+    // currentConfidence already above baseline → no change from baseline.
+    const noBaseline = reinforce(0.6, 3);
+    const withBaseline = reinforce(0.6, 3, { initialConfidenceBaseline: 0.4 });
+    expect(withBaseline).toBe(noBaseline);
+  });
+
+  test('confidenceCap respected when set below default', () => {
+    expect(reinforce(0.85, 1_000_000, { confidenceCap: 0.8 })).toBe(0.8);
+  });
+
+  test('omitted tuning preserves default behavior', () => {
+    // Smoke-check: reinforce(0, 5) returns the same value with or without {}.
+    const a = reinforce(0, 5);
+    const b = reinforce(0, 5, {});
+    expect(a).toBe(b);
+  });
+});
+
+describe('contradict — tunable', () => {
+  test('custom contradictionDelta', () => {
+    expect(contradict(0.5, 1, { contradictionDelta: -0.4 })).toBe(0.1);
+  });
+
+  test('omitted tuning preserves default behavior', () => {
+    const a = contradict(0.6, 1);
+    const b = contradict(0.6, 1, {});
+    expect(a).toBe(b);
+  });
+});
+
 describe('shouldPrune', () => {
   test('returns false when confidence is at or above threshold', () => {
     const oldTs = new Date(Date.now() - 365 * 86_400_000).toISOString();
