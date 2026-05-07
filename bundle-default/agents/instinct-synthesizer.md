@@ -51,7 +51,18 @@ Pick the best fit; not every observation belongs to a clean domain:
 
 ## Cross-project promotion
 
-When you spot an instinct that already exists at confidence ≥ 0.7 in another project's corpus (use `instinct_list` with `scope: 'project'` for each known project), call `instinct_propose` with `scope: 'global'` and `project_id: null`. The same human-approval gate (Phase 13.3's `/review approve`) governs global promotion.
+After per-project clustering, check whether any of your proposed / reinforced instincts also exist at confidence ≥ 0.7 in other projects:
+
+1. Use `instinct_list` with `scope: 'project'` for each known project (call once per project_id you've seen in observations).
+2. For each (trigger, action, domain) triple appearing in ≥ 2 projects at confidence ≥ 0.7, call `instinct_propose` with:
+   - `scope: 'global'`
+   - `project_id: null`
+   - `project_name: null`
+   - `evidence_count`: sum of evidence counts across the matching project instincts
+   - `observation_ids`: a representative sample (≤ 10) drawn from the highest-confidence project's instinct
+3. The promoted global instinct gates real promotion to `MEMORY.md` / `USER.md` through Phase 13.3's `/review approve` — silent global promotion is explicitly forbidden.
+
+Be conservative on cross-project promotion. A match across 2 projects is necessary; matching across 3+ at high confidence is the strongest signal.
 
 ## Stop condition
 
