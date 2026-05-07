@@ -228,8 +228,9 @@ export class ReviewManager {
       parentToolPool: this.parentToolPool,
       parentToolContext: this.parentToolContext,
       promptContext: {
-        trajectoryPath: paths.trajectoryPath,
-        tracePath: paths.tracePath,
+        // Review forks: primary = trajectory file, secondary = trace file.
+        primaryFile: paths.trajectoryPath,
+        secondaryFile: paths.tracePath,
         ...(paths.instinctsDir !== undefined ? { instinctsDir: paths.instinctsDir } : {}),
         recentTurnCount: DEFAULT_RECENT_TURN_COUNT,
       },

@@ -34,12 +34,13 @@ export async function runConsolidation(opts: RunConsolidationOpts): Promise<void
     parentToolPool: opts.parentToolPool,
     parentToolContext: opts.parentToolContext,
     promptContext: {
-      // We re-purpose the trajectory/trace fields as MEMORY.md / USER.md
-      // paths. The review-consolidate.md agent prompt knows it's reading
-      // memory files. A future cleanup could add explicit fields, but
-      // for v0 this keeps runReviewFork's interface stable.
-      trajectoryPath: join(memDir, 'MEMORY.md'),
-      tracePath: join(memDir, 'USER.md'),
+      // Consolidation: primary = MEMORY.md, secondary = USER.md. The
+      // review-consolidate.md agent prompt knows it's reading memory
+      // files; ReviewForkPromptContext's generic primary/secondary
+      // naming makes the role-specific mapping explicit at the call
+      // site instead of overloading trajectory/trace semantics.
+      primaryFile: join(memDir, 'MEMORY.md'),
+      secondaryFile: join(memDir, 'USER.md'),
       recentTurnCount: 0,
     },
     ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),

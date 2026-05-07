@@ -1,7 +1,9 @@
 // Phase 13.3 — review fork factory. One-shot dispatch wrapper around
 // SubagentScheduler.delegate that builds the review-agent's prompt from
-// trajectory/trace paths and silently swallows scheduler errors so the
-// parent session never sees a review failure.
+// generic primary/secondary file paths (re-purposed per agent role —
+// trajectory/trace for review forks, MEMORY.md/USER.md for consolidate)
+// and silently swallows scheduler errors so the parent session never
+// sees a review failure.
 //
 // The agent's maxTurns / restricted toolset are enforced by its
 // definition file in bundle-default/agents/, not by this helper.
@@ -14,13 +16,22 @@ import type { TraceEvent } from '../trace/types.js';
 export type ReviewAgentName = 'review-memory' | 'review-skill' | 'review-consolidate';
 
 export interface ReviewForkPromptContext {
-  trajectoryPath: string;
-  tracePath: string;
+  /** The agent's primary input file. For review forks, this is the
+   *  trajectory file path. For consolidation, this is the MEMORY.md
+   *  path. The agent's body prompt knows what to expect based on its
+   *  role. */
+  primaryFile: string;
+  /** Optional companion file. For review forks, this is the trace
+   *  file. For consolidation, this is USER.md. May be omitted when
+   *  the agent only reads one file. */
+  secondaryFile?: string;
   /** Phase 13.4 — when present, the review fork is told to prefer the
    *  instinct corpus (curated, evidence-backed, confidence-graduated)
-   *  over raw trajectory slices. Falls back to trajectory when no
-   *  instincts have been promoted yet. */
+   *  over raw trajectory slices. Falls back to the primary file when
+   *  no instincts have been promoted yet. */
   instinctsDir?: string;
+  /** How many recent turns the agent should focus on (informational —
+   *  the agent reads the file directly; this is a hint about scope). */
   recentTurnCount: number;
 }
 
@@ -41,13 +52,17 @@ function buildPrompt(agentName: ReviewAgentName, ctx: ReviewForkPromptContext): 
     lines.push(`Instincts directory (preferred input): ${ctx.instinctsDir}`);
   }
   lines.push(
-    `Trajectory file${ctx.instinctsDir !== undefined ? ' (fallback)' : ''}: ${ctx.trajectoryPath}`,
-    `Trace file: ${ctx.tracePath}`,
+    `Primary file${ctx.instinctsDir !== undefined ? ' (fallback)' : ''}: ${ctx.primaryFile}`,
+  );
+  if (ctx.secondaryFile !== undefined) {
+    lines.push(`Secondary file: ${ctx.secondaryFile}`);
+  }
+  lines.push(
     `Recent turn count to focus on: ${ctx.recentTurnCount}`,
     '',
     ctx.instinctsDir !== undefined
-      ? 'When instincts are available, prefer them — they are pre-clustered, evidence-backed, and confidence-graduated. Use the trajectory only as a fallback or to confirm specific evidence.'
-      : 'Read the trajectory and trace, then file proposals via your allowed proposal tool. Be conservative.',
+      ? 'When instincts are available, prefer them — they are pre-clustered, evidence-backed, and confidence-graduated. Use the primary/secondary files as fallback or to confirm specific evidence.'
+      : 'Read the primary file and (when present) the secondary file, then file proposals via your allowed proposal tool. Be conservative.',
   );
   return lines.join('\n');
 }

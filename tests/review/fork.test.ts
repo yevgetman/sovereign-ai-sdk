@@ -35,8 +35,8 @@ describe('runReviewFork', () => {
       parentToolPool: [] as Tool<unknown, unknown>[],
       parentToolContext: fakeCtx(),
       promptContext: {
-        trajectoryPath: '/tmp/samples.jsonl',
-        tracePath: '/tmp/trace.jsonl',
+        primaryFile: '/tmp/samples.jsonl',
+        secondaryFile: '/tmp/trace.jsonl',
         recentTurnCount: 10,
       },
     });
@@ -76,7 +76,7 @@ describe('runReviewFork', () => {
       parentSignal: new AbortController().signal,
       parentToolPool: [] as Tool<unknown, unknown>[],
       parentToolContext: fakeCtx(),
-      promptContext: { trajectoryPath: '/x', tracePath: '/y', recentTurnCount: 5 },
+      promptContext: { primaryFile: '/x', secondaryFile: '/y', recentTurnCount: 5 },
     });
 
     expect(calls.length).toBe(1);
@@ -113,8 +113,8 @@ describe('runReviewFork', () => {
       parentToolPool: [] as Tool<unknown, unknown>[],
       parentToolContext: { cwd: '/tmp', sessionId: 'p' } as ToolContext,
       promptContext: {
-        trajectoryPath: '/x',
-        tracePath: '/y',
+        primaryFile: '/x',
+        secondaryFile: '/y',
         instinctsDir: '/learning/proj/instincts',
         recentTurnCount: 5,
       },
@@ -156,8 +156,8 @@ describe('runReviewFork', () => {
       parentToolPool: [],
       parentToolContext: { cwd: '/tmp', sessionId: 'p' } as ToolContext,
       promptContext: {
-        trajectoryPath: '/traj',
-        tracePath: '/trace',
+        primaryFile: '/traj',
+        secondaryFile: '/trace',
         instinctsDir: '/learning/proj/instincts',
         recentTurnCount: 5,
       },
@@ -194,7 +194,7 @@ describe('runReviewFork', () => {
       parentSignal: new AbortController().signal,
       parentToolPool: [],
       parentToolContext: { cwd: '/tmp', sessionId: 'p' } as ToolContext,
-      promptContext: { trajectoryPath: '/traj', tracePath: '/trace', recentTurnCount: 5 },
+      promptContext: { primaryFile: '/traj', secondaryFile: '/trace', recentTurnCount: 5 },
     });
 
     const prompt = calls[0]?.prompt as string;
@@ -218,8 +218,8 @@ describe('runReviewFork', () => {
       parentToolPool: [],
       parentToolContext: fakeCtx(),
       promptContext: {
-        trajectoryPath: '/tmp/x',
-        tracePath: '/tmp/y',
+        primaryFile: '/tmp/x',
+        secondaryFile: '/tmp/y',
         recentTurnCount: 5,
       },
     });
