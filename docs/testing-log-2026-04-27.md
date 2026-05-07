@@ -1819,3 +1819,45 @@ Implementation backlogs from these findings live in
 - Result: All docs in sync with Phase 13.3 close-out state.
 - Regressions / follow-ups: None. `docs/phase-10-5-backlog.md` and `docs/post-phase-10-5-repl-backlog.md` are historical backlog records and intentionally left unchanged.
 - Proposal `parentSessionId` is `null` in v0 — proper child-session lineage threading deferred.
+
+## 2026-05-06 — Phase 13.4 instinct corpus
+
+**Scope:** End-to-end Phase 13.4 implementation across 13 atomic tasks (commits `ae95724` through `1229cda`):
+- T1: foundation (types/paths/project)
+- T2: observation writer + orchestrator wiring
+- T3: instinct store + cluster keys
+- T4: pure confidence math
+- T5: 4 instinct tools + LEARNING_ONLY_TOOLS pool
+- T6: instinct-synthesizer agent
+- T7: synthesizer dispatcher + ReviewManager trigger
+- T8: review fork instinct integration
+- T9: harness learning {status/prune/export} CLI
+- T10: cross-project promotion logic
+- T11: integration test
+- T12: semantic test suite
+- T13: docs + close-out (this entry)
+
+**Environment:** Bun on darwin, master branch. Subagent-Driven Development (Opus 4.7 for most tasks, Sonnet 4.6 for mechanical template tasks per user instruction).
+
+**Commands run:**
+- `bun run lint` — clean (2 pre-existing warnings in shellSemantics.ts)
+- `bun run typecheck` — clean
+- `bun test` — 1583/1583 pass
+- `bun run test:semantic` (Phase 13.4 cases filtered) — 4/4 pass after `sov upgrade` (one initial fail from pre-upgrade staleness)
+- `git push origin master` — 16 commits in sync
+- `sov upgrade` — binary current at `1229cda`
+
+**Manual coverage:**
+- Spec compliance + code quality reviews after each task per Subagent-Driven Development skill.
+- Mid-stream Zod-strict tightening on T1 (`552bc4b`) for forward-compat.
+- Mid-stream observer hardening on T2 (`0581828`) — drop unserializable observations + drain timeout + dead-code removal.
+- Mid-stream Biome formatter fix on T7 (`de7170a`).
+
+**Result:** Phase 13.4 closed. No regressions in 13.0 / 13.1 / 13.2 / 13.3 surfaces.
+
+**Follow-ups (v0 limits documented in code comments):**
+- Cross-project promotion exercised only in unit tests with synthetic corpora.
+- Default thresholds + initial `reinforce(0, n)` produce ~0.10 confidence; reaching 0.7 requires many synthesizer reinforcement passes (matches "learn gradually" intent).
+- Contradiction detection's "instead, do X" NL parsing is best-effort string matching only.
+- Observer's status mapping at orchestrator site is 2-state (success/error) — denied/cancelled mapping deferred.
+- Cross-project promotion is one-shot per synthesizer run; no incremental threshold-crossing logic.

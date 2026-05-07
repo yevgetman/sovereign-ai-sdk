@@ -86,6 +86,9 @@ sov --no-cache
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
 | `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
 | `init [--force]` | (Phase 10.8.) Bootstrap the current directory into a real harness bundle. Writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. After `sov init`, running `sov chat` from the same directory auto-discovers the new bundle via the upward `index.yaml` walk. |
+| `learning status [--project <id>]` | (Phase 13.4.) Show per-project instinct counts + confidence histogram for the current (or specified) project. |
+| `learning prune [--project <id>] [--dry-run]` | (Phase 13.4.) Drop sub-threshold instincts that have exceeded their aging window. `--dry-run` lists candidates without deleting. |
+| `learning export <project-id> [--output <dir>]` | (Phase 13.4.) Emit each instinct as a `.md` file into `<dir>` (defaults to `./instincts-export`). Useful for external review or archiving. |
 
 ## Eval Suite
 
@@ -353,6 +356,11 @@ Available config fields (top-level unless noted):
 | `review.childReviewEveryN` | int | `5` | trigger a distillation review every N child completions |
 | `review.minIntervalMs` | int | `30000` | minimum ms between auto-dispatched review forks |
 | `review.disabled` | bool | `false` | disable all auto-review triggers for this session |
+| `learning.disabled` | bool | `false` | when true, observer is a no-op + synthesizer never fires |
+| `learning.synthesizerEveryN` | int > 0 | `20` | synthesizer dispatches every Nth user turn |
+| `learning.observationBufferSize` | int > 0 | `200` | in-memory buffer cap before backpressure drops the oldest |
+| `learning.pruneBelowConfidence` | 0..1 | `0.3` | threshold below which instincts age out via `sov learning prune` |
+| `learning.pruneAgeDays` | int > 0 | `30` | days without reinforcement before sub-threshold instincts are pruned |
 
 ## Ollama Notes
 

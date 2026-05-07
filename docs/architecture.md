@@ -485,6 +485,46 @@ Phase 13.3 ships the Hermes-pattern propose-then-promote learning loop as a back
 | `minIntervalMs` | `30000` | Minimum milliseconds between review dispatches |
 | `disabled` | `false` | Disable all auto-review triggers |
 
+## Learning Pipeline (Phase 13.4)
+
+The harness captures every tool call into a per-project observation corpus and clusters those observations into atomic, confidence-weighted instincts. Instincts sit between raw observations and durable memory/skill changes — they never auto-promote; Phase 13.3's `/review approve` gate governs all promotions.
+
+**Layers (top-down):**
+
+1. **`LearningObserver`** (`src/learning/observer.ts`) — internal `PostToolUse` intercept fires after every tool call. Writes one record per call to `$HARNESS_HOME/learning/<projectId>/observations.jsonl`. Async fire-and-forget; bounded buffer drops on overflow rather than blocking. Invariant #10: never blocks the turn.
+
+2. **Project identity** (`src/learning/project.ts`) — stable hash via `git remote get-url origin` → `realpath(cwd)` fallback chain. Cached for session lifetime.
+
+3. **Observation corpus** — `<harnessHome>/learning/<projectId>/observations.jsonl` accumulates JSON lines, each conforming to the Zod-strict `ObservationSchema`.
+
+4. **`runSynthesizer`** (`src/learning/synthesizer.ts`) — fire-and-forget dispatcher mirroring `runReviewFork`. Augments parent's tool pool with `LEARNING_ONLY_TOOLS` before delegating to the bundled `instinct-synthesizer` agent.
+
+5. **`instinct-synthesizer`** (`bundle-default/agents/instinct-synthesizer.md`) — restricted-toolset sub-agent. Reads recent observations, clusters them via deterministic `(tool_name, action-pattern, status)` keying, proposes / reinforces / contradicts instincts. Cross-project promotion fires when the same trigger+action+domain appears in 2+ projects at confidence ≥ 0.7.
+
+6. **Confidence math** (`src/learning/confidence.ts`) — pure `reinforce` (logarithmic, capped 0.9) + `contradict` (sharp drop, floor 0) + `shouldPrune` (sub-threshold AND past aging window). All instinct mutations route through these.
+
+7. **`InstinctStore`** (`src/learning/instinctStore.ts`) — round-trips `Instinct` records to/from `<harnessHome>/learning/<projectId>/instincts/<id>.md` (YAML frontmatter + body). Strict Zod parsing on every read; malformed records skipped during `list()`.
+
+8. **`LEARNING_ONLY_TOOLS` pool isolation** — `instinct_list / instinct_view / instinct_propose / instinct_update_confidence` are NOT in `REGISTERED_TOOLS`. Injected into the synthesizer's parentToolPool by `runSynthesizer` AND into the review fork's pool by `runReviewFork`. Agent-level `allowedTools` then filters: review forks see only the read-only pair (list/view); synthesizer sees all four.
+
+9. **Review fork integration** — `review-memory` and `review-skill` agents (Phase 13.3) now declare `instinct_list` + `instinct_view` in their `allowedTools` and prefer the instinct corpus over raw trajectory slices when present.
+
+10. **CLI surface** (`src/cli/learningStatus.ts`, `learningPrune.ts`, `learningExport.ts`) — `sov learning {status [--project <id>], prune [--project <id>] [--dry-run], export <project-id> [--output <dir>]}`.
+
+**Settings** (`settings.learning.*`):
+- `disabled: boolean` — when true, observer is a no-op AND synthesizer never fires
+- `synthesizerEveryN: number` — default 20 user turns
+- `observationBufferSize: number` — default 200
+- `pruneBelowConfidence: number` — default 0.3
+- `pruneAgeDays: number` — default 30
+
+**Skip-list compliance (build plan §2106):**
+- No auto-promote of instincts to memory/skills (Qwen "dream" anti-pattern); all promotions gated by `/review approve`.
+- No embedding-based clustering (deterministic keys only).
+- No realtime confidence updates (batched during synthesizer pass).
+- No cross-user instinct sharing.
+- No instinct UI/TUI viewer.
+
 ## Extension Surfaces
 
 The primary extension surfaces are:
