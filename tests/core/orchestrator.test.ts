@@ -9,11 +9,14 @@ import { homedir } from 'node:os';
 import { z } from 'zod';
 import {
   CONCURRENT_CAP,
+  notifyLearningObserver,
   partitionToolCalls,
   runTools,
   splitByPathOverlap,
 } from '../../src/core/orchestrator.js';
 import type { ContentBlock } from '../../src/core/types.js';
+import type { LearningObserver, ObserveInput } from '../../src/learning/observer.js';
+import type { ObservationStatus } from '../../src/learning/types.js';
 import type { CanUseTool } from '../../src/permissions/types.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
@@ -589,5 +592,209 @@ describe('runTools — concurrency cap', () => {
     const results = await collectResults(blocks, [tool]);
     expect(results).toHaveLength(25);
     expect(results.map((r) => Number(r.content))).toEqual(Array.from({ length: 25 }, (_, i) => i));
+  });
+});
+
+// ─── Backlog item 5: 4-state ObservationStatus mapping ───────────────────
+//
+// Phase 13.4's observer accepts success / error / denied / cancelled, but
+// the orchestrator initially only mapped success / error because denied and
+// cancelled outcomes short-circuited before the PostToolUse intercept.
+// These tests pin the corrected behavior: every early-return path AND the
+// post-call intercept land in the observer with the right ObservationStatus.
+
+type ObserverCall = ObserveInput;
+
+function makeFakeObserver(): { observer: LearningObserver; calls: ObserverCall[] } {
+  const calls: ObserverCall[] = [];
+  // Minimal stub — only the methods the orchestrator's notify path touches.
+  // We intentionally do not extend LearningObserver because its constructor
+  // touches the filesystem (project-id resolution); a structural cast is
+  // sufficient since only `observe()` is called from runTools.
+  const observer = {
+    observe(input: ObserveInput) {
+      calls.push(input);
+    },
+    drain: async () => {},
+    getDroppedCount: () => 0,
+  } as unknown as LearningObserver;
+  return { observer, calls };
+}
+
+describe('runTools — observer 4-state ObservationStatus mapping', () => {
+  test('success: tool returns cleanly → observer captures status: success', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const ctxWithObserver: ToolContext = { ...ctx, learningObserver: observer };
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'ok-1', name: 'Echo', input: { text: 'hi' } },
+    ];
+    for await (const _ of runTools(blocks, ctxWithObserver, [makeEchoTool()])) {
+      // drain
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('success');
+    expect(calls[0]?.toolName).toBe('Echo');
+    expect(calls[0]?.traceId).toBe('ok-1');
+  });
+
+  test('error: tool throws → observer captures status: error', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const ctxWithObserver: ToolContext = { ...ctx, learningObserver: observer };
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'e-1', name: 'Broken', input: {} }];
+    for await (const _ of runTools(blocks, ctxWithObserver, [makeThrowingTool()])) {
+      // drain
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('error');
+  });
+
+  test('denied: permission gate denies → observer captures status: denied', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const ctxWithObserver: ToolContext = { ...ctx, learningObserver: observer };
+    let toolCalled = false;
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'echo',
+      inputSchema: z.object({ text: z.string() }),
+      async call() {
+        toolCalled = true;
+        return { data: 'nope' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    const denyAll: CanUseTool = async () => ({ behavior: 'deny', reason: 'policy' });
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'd-1', name: 'Echo', input: { text: 'x' } },
+    ];
+    for await (const _ of runTools(blocks, ctxWithObserver, [tool], denyAll)) {
+      // drain
+    }
+    expect(toolCalled).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('denied');
+    expect(calls[0]?.toolName).toBe('Echo');
+    expect(calls[0]?.traceId).toBe('d-1');
+  });
+
+  test('cancelled: pre-aborted signal short-circuits → observer captures status: cancelled', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const controller = new AbortController();
+    controller.abort();
+    let toolCalled = false;
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'echo',
+      inputSchema: z.object({ text: z.string() }),
+      async call() {
+        toolCalled = true;
+        return { data: 'should not run' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    const ctxWithObserver: ToolContext = {
+      ...ctx,
+      learningObserver: observer,
+      signal: controller.signal,
+    };
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'c-1', name: 'Echo', input: { text: 'x' } },
+    ];
+    for await (const _ of runTools(blocks, ctxWithObserver, [tool])) {
+      // drain
+    }
+    expect(toolCalled).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('cancelled');
+    expect(calls[0]?.toolName).toBe('Echo');
+    expect(calls[0]?.traceId).toBe('c-1');
+  });
+
+  test('unknown tool: observer captures status: error (negative-example signal)', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const ctxWithObserver: ToolContext = { ...ctx, learningObserver: observer };
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'u-1', name: 'DoesNotExist', input: {} }];
+    for await (const _ of runTools(blocks, ctxWithObserver, [makeEchoTool()])) {
+      // drain
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('error');
+    expect(calls[0]?.toolName).toBe('DoesNotExist');
+  });
+
+  test('input validation failure: observer captures status: error', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const ctxWithObserver: ToolContext = { ...ctx, learningObserver: observer };
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'iv-1', name: 'Echo', input: { text: 42 } as unknown },
+    ];
+    for await (const _ of runTools(blocks, ctxWithObserver, [makeEchoTool()])) {
+      // drain
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('error');
+  });
+
+  test('observation envelope status:error → observer captures status: error', async () => {
+    const { observer, calls } = makeFakeObserver();
+    const ctxWithObserver: ToolContext = { ...ctx, learningObserver: observer };
+    const tool = buildTool({
+      name: 'EnvErr',
+      description: () => 'returns error envelope',
+      inputSchema: z.object({}),
+      async call() {
+        return {
+          data: 'data',
+          observation: { status: 'error' as const, summary: 'failed' },
+        };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'env-1', name: 'EnvErr', input: {} }];
+    for await (const _ of runTools(blocks, ctxWithObserver, [tool])) {
+      // drain
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe('error');
+    expect(calls[0]?.observationEnvelope?.status).toBe('error');
+  });
+
+  test('absent observer: dispatch path is a no-op (no throws, no calls recorded)', async () => {
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'na-1', name: 'Echo', input: { text: 'hi' } },
+    ];
+    // ctx has no learningObserver — should not throw.
+    const results: unknown[] = [];
+    for await (const msg of runTools(blocks, ctx, [makeEchoTool()])) {
+      results.push(msg);
+    }
+    expect(results.length).toBeGreaterThan(0);
+  });
+});
+
+// Unit tests for the extracted notifyLearningObserver helper. Verifies that
+// each ObservationStatus value flows through unchanged and that the helper
+// is a no-op when the observer is absent.
+describe('notifyLearningObserver helper', () => {
+  test('forwards each of the 4 ObservationStatus values verbatim', () => {
+    const { observer, calls } = makeFakeObserver();
+    const fakeCtx: ToolContext = { ...ctx, learningObserver: observer };
+    const states: ObservationStatus[] = ['success', 'error', 'denied', 'cancelled'];
+    for (const status of states) {
+      notifyLearningObserver(fakeCtx, 'T', { x: 1 }, status, 7, { traceId: `tid-${status}` });
+    }
+    expect(calls.map((c) => c.status)).toEqual(states);
+    expect(calls.map((c) => c.traceId)).toEqual(states.map((s) => `tid-${s}`));
+    expect(calls.every((c) => c.durationMs === 7)).toBe(true);
+  });
+
+  test('no-op when ctx.learningObserver is absent', () => {
+    expect(() =>
+      notifyLearningObserver(ctx, 'T', {}, 'denied', 0, { traceId: 'tid' }),
+    ).not.toThrow();
+  });
+
+  test('omits traceId when not provided', () => {
+    const { observer, calls } = makeFakeObserver();
+    const fakeCtx: ToolContext = { ...ctx, learningObserver: observer };
+    notifyLearningObserver(fakeCtx, 'T', {}, 'success', 0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.traceId).toBeUndefined();
   });
 });

@@ -331,12 +331,43 @@ async function executeOne(
   hookRunner?: HookRunner,
   recordTrace: TraceRecorder = NO_TRACE,
 ): Promise<ToolResultBlock> {
+  // Phase 13.4 follow-up (backlog item 5) — track the terminal observation
+  // status so every early-return path in this dispatcher can notify the
+  // learning observer with the correct ObservationStatus value. Without this
+  // bookkeeping the corpus would only ever see success/error; denied and
+  // cancelled outcomes (which short-circuit before tool.call() runs) would
+  // silently disappear and the synthesizer could not learn negative
+  // examples ("user rejects this pattern").
+  const dispatchStart = Date.now();
   const tool = toolsByName.get(block.name);
   if (!tool) {
+    // Unknown-tool: no schema-validated input to record, but observer's
+    // null-tolerant serializer accepts the raw block input. Still fire so
+    // the corpus reflects model attempts to call non-existent tools — a
+    // useful negative-example signal in itself.
+    notifyLearningObserver(ctx, block.name, block.input, 'error', Date.now() - dispatchStart, {
+      traceId: block.id,
+    });
     return {
       type: 'tool_result',
       tool_use_id: block.id,
       content: `unknown tool: ${block.name}`,
+      is_error: true,
+    };
+  }
+
+  // Pre-call cancellation: if the turn was already aborted by the time we
+  // reach this block (fast-failing Promise.all wave or Ctrl-C between
+  // partitions), surface the result as cancelled rather than running the
+  // tool with an aborted signal.
+  if (ctx.signal?.aborted) {
+    notifyLearningObserver(ctx, tool.name, block.input, 'cancelled', Date.now() - dispatchStart, {
+      traceId: block.id,
+    });
+    return {
+      type: 'tool_result',
+      tool_use_id: block.id,
+      content: 'tool dispatch cancelled before execution',
       is_error: true,
     };
   }
@@ -352,6 +383,9 @@ async function executeOne(
   } else {
     const parsed = tool.inputSchema.safeParse(block.input);
     if (!parsed.success) {
+      notifyLearningObserver(ctx, tool.name, block.input, 'error', Date.now() - dispatchStart, {
+        traceId: block.id,
+      });
       return {
         type: 'tool_result',
         tool_use_id: block.id,
@@ -372,6 +406,9 @@ async function executeOne(
       iso: nowIso(),
     });
     if (perm.behavior === 'deny') {
+      notifyLearningObserver(ctx, tool.name, callInput, 'denied', Date.now() - dispatchStart, {
+        traceId: block.id,
+      });
       return {
         type: 'tool_result',
         tool_use_id: block.id,
@@ -386,6 +423,14 @@ async function executeOne(
       } else {
         const updated = tool.inputSchema.safeParse(perm.updatedInput);
         if (!updated.success) {
+          notifyLearningObserver(
+            ctx,
+            tool.name,
+            perm.updatedInput,
+            'error',
+            Date.now() - dispatchStart,
+            { traceId: block.id },
+          );
           return {
             type: 'tool_result',
             tool_use_id: block.id,
@@ -414,6 +459,12 @@ async function executeOne(
       ctx.signal,
     );
     if (pre.block) {
+      // Hook denials are semantically equivalent to permission denials —
+      // a policy-layer rejection of the call. Surface as 'denied' so the
+      // corpus treats both gates uniformly.
+      notifyLearningObserver(ctx, tool.name, callInput, 'denied', Date.now() - dispatchStart, {
+        traceId: block.id,
+      });
       return {
         type: 'tool_result',
         tool_use_id: block.id,
@@ -427,6 +478,14 @@ async function executeOne(
       } else {
         const updated = tool.inputSchema.safeParse(pre.updatedInput);
         if (!updated.success) {
+          notifyLearningObserver(
+            ctx,
+            tool.name,
+            pre.updatedInput,
+            'error',
+            Date.now() - dispatchStart,
+            { traceId: block.id },
+          );
           return {
             type: 'tool_result',
             tool_use_id: block.id,
@@ -507,17 +566,25 @@ async function executeOne(
   // we capture the terminal state the model actually sees. Fire-and-forget
   // by contract — `observe()` never throws and never blocks.
   //
-  // Status mapping: at this site we only have a 2-state success/error
-  // distinction (toolError truthy means the tool threw, otherwise the
-  // tool returned — possibly with `observation.status === 'error'` which
-  // we treat as error too). Permission denials and signal-driven
-  // cancellations short-circuit BEFORE this point with `is_error: true`
-  // tool_results, so they never reach the observer in this iteration —
-  // documented limitation; follow-up is to thread the four-state
-  // ObservationStatus from each early-return path.
+  // Backlog item 5 (resolved) — full 4-state ObservationStatus mapping:
+  //   - 'success'   — tool returned cleanly, no error envelope
+  //   - 'error'     — tool threw, returned `observation.status === 'error'`,
+  //                   or input validation / unknown-tool short-circuit fired
+  //   - 'denied'    — permission gate or PreToolUse hook denied (notified
+  //                   from the early-return path above this site)
+  //   - 'cancelled' — turn was aborted before tool.call() began OR the
+  //                   tool threw with an already-aborted signal (the post-
+  //                   hoc check below)
+  // The denied / error early-return paths fire their own observe() calls
+  // before returning so they never reach this site; the cancelled-mid-call
+  // case is detected by inspecting ctx.signal.aborted alongside toolError.
   if (ctx.learningObserver) {
-    const observedStatus: ObservationStatus =
-      toolError !== undefined || result.observation?.status === 'error' ? 'error' : 'success';
+    const observedStatus: ObservationStatus = (() => {
+      if (toolError !== undefined) {
+        return ctx.signal?.aborted === true ? 'cancelled' : 'error';
+      }
+      return result.observation?.status === 'error' ? 'error' : 'success';
+    })();
     ctx.learningObserver.observe({
       toolName: tool.name,
       toolInput: callInput,
@@ -536,6 +603,34 @@ async function executeOne(
   }
 
   return maybeAppendHints(tool.name, callInput, ctx, final);
+}
+
+/**
+ * Fire-and-forget bridge to the learning observer for early-return paths
+ * inside `executeOne`. Centralized so all four ObservationStatus values
+ * flow through identical plumbing — by extracting this helper we keep the
+ * status-mapping logic out of every short-circuit branch and ensure that
+ * adding a new early-return path is a one-line change.
+ *
+ * Exported for unit tests that exercise the 4-state mapping without
+ * spinning up the full orchestrator.
+ */
+export function notifyLearningObserver(
+  ctx: ToolContext,
+  toolName: string,
+  toolInput: unknown,
+  status: ObservationStatus,
+  durationMs: number,
+  extras: { traceId?: string } = {},
+): void {
+  if (!ctx.learningObserver) return;
+  ctx.learningObserver.observe({
+    toolName,
+    toolInput,
+    status,
+    durationMs,
+    ...(extras.traceId !== undefined ? { traceId: extras.traceId } : {}),
+  });
 }
 
 function maybeAppendHints(
