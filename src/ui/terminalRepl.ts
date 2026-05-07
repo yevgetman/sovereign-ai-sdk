@@ -870,6 +870,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         ...(userSettings.learning?.synthesizerEveryN !== undefined
           ? { synthesizerEveryN: userSettings.learning.synthesizerEveryN }
           : {}),
+        ...(userSettings.learning?.synthesizerEveryNToolIterations !== undefined
+          ? {
+              synthesizerEveryNToolIterations:
+                userSettings.learning.synthesizerEveryNToolIterations,
+            }
+          : {}),
       },
       pathsResolver: () => {
         const project = getProjectId(process.cwd());

@@ -19,6 +19,10 @@ export interface ReviewThresholds {
   minIntervalMs: number;
   /** Phase 13.4 — synthesizer fires every Nth user turn. Default 20. */
   synthesizerEveryN: number;
+  /** Phase 13.4 follow-up (Item 10) — synthesizer also fires every Nth
+   *  tool iteration. Independent from synthesizerEveryN (user-turn rhythm).
+   *  Either counter can trip a dispatch. Default 50. */
+  synthesizerEveryNToolIterations: number;
 }
 
 export interface ReviewPaths {
@@ -66,6 +70,7 @@ const DEFAULT_THRESHOLDS: ReviewThresholds = {
   childReviewEveryN: 3,
   minIntervalMs: 30_000, // 30s
   synthesizerEveryN: 20,
+  synthesizerEveryNToolIterations: 50,
 };
 
 const TRIVIAL_MIN_ITERATIONS = 2;
@@ -79,6 +84,9 @@ export class ReviewManager {
   private childCompletionsSince = 0;
   /** Phase 13.4 — synthesizer turn counter; independent of memory review. */
   private synthesizerSince = 0;
+  /** Phase 13.4 follow-up (Item 10) — synthesizer tool-iteration counter.
+   *  Independent from synthesizerSince — neither resets the other. */
+  private synthesizerToolIterationsSince = 0;
   private lastDispatchAtMs: Map<ReviewAgentName, number> = new Map();
   /** Phase 13.3 (B3) — per-agent dispatch counts for the goodbye summary.
    *  Phase 13.4 — extended to include 'instinct-synthesizer'. */
@@ -147,6 +155,17 @@ export class ReviewManager {
     if (this.toolIterationsSince >= this.thresholds.toolIterationsForSkillReview) {
       this.toolIterationsSince = 0;
       this.dispatch('review-skill');
+    }
+
+    // Phase 13.4 follow-up (Item 10) — synthesizer also ticks on tool
+    // iteration so activity bursts within a single user turn (e.g., one
+    // prompt → 30 AgentTool calls) trip the synthesizer mid-burst rather
+    // than waiting for the next user turn. Independent counter from
+    // synthesizerSince — either trips a dispatch.
+    this.synthesizerToolIterationsSince += 1;
+    if (this.synthesizerToolIterationsSince >= this.thresholds.synthesizerEveryNToolIterations) {
+      this.synthesizerToolIterationsSince = 0;
+      this.dispatchSynthesizer();
     }
   }
 

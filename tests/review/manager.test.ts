@@ -448,6 +448,99 @@ describe('ReviewManager triggers', () => {
     expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(0);
   });
 
+  test('synthesizer fires on Nth tool iteration even without user turn', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 9999,
+        minIntervalMs: 0,
+        synthesizerEveryN: 9999,
+        synthesizerEveryNToolIterations: 5,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      projectIdentity: () => ({ id: 'proj', name: 'sov' }),
+      harnessHome: '/tmp',
+      ...emptyParent(),
+    });
+
+    for (let i = 0; i < 4; i++) mgr.onToolIteration('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(0);
+
+    mgr.onToolIteration('p'); // 5th — fires
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(1);
+  });
+
+  test('user-turn and tool-iteration synthesizer counters are independent', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: new AbortController().signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 9999,
+        minIntervalMs: 0,
+        synthesizerEveryN: 3,
+        synthesizerEveryNToolIterations: 5,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      projectIdentity: () => ({ id: 'proj', name: 'sov' }),
+      harnessHome: '/tmp',
+      ...emptyParent(),
+    });
+
+    // 3 tool iterations — doesn't trip the tool-iteration counter (5 needed)
+    // and doesn't trip the user-turn counter (no user turns)
+    for (let i = 0; i < 3; i++) mgr.onToolIteration('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(0);
+
+    // 3 user turns — trips the user-turn counter
+    for (let i = 0; i < 3; i++) mgr.onUserTurn('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(1);
+
+    // 2 more tool iterations — counter now at 5; trips
+    mgr.onToolIteration('p');
+    mgr.onToolIteration('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(2);
+  });
+
+  test('signal-aborted blocks synthesizer dispatch on tool-iteration path too', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const ac = new AbortController();
+    const mgr = new ReviewManager({
+      scheduler: fakeScheduler(calls),
+      sessionId: 'p',
+      signal: ac.signal,
+      thresholds: {
+        userTurnsForMemoryReview: 9999,
+        toolIterationsForSkillReview: 9999,
+        childReviewEveryN: 9999,
+        minIntervalMs: 0,
+        synthesizerEveryN: 9999,
+        synthesizerEveryNToolIterations: 1,
+      },
+      pathsResolver: () => ({ trajectoryPath: '/x', tracePath: '/y' }),
+      projectIdentity: () => ({ id: 'proj', name: 'sov' }),
+      harnessHome: '/tmp',
+      ...emptyParent(),
+    });
+    ac.abort();
+    mgr.onToolIteration('p');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.agentName === 'instinct-synthesizer').length).toBe(0);
+  });
+
   test('A3 temporal lockout does NOT apply to runConsolidationPass', async () => {
     const calls: Array<Record<string, unknown>> = [];
     const mgr = new ReviewManager({

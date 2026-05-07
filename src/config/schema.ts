@@ -211,6 +211,10 @@ export const SettingsSchema = z
         disabled: z.boolean().optional(),
         /** Synthesizer runs every Nth user turn. Default 20. */
         synthesizerEveryN: z.number().int().positive().optional(),
+        /** Backlog Item 10 — synthesizer also runs every Nth tool
+         *  iteration. Independent from synthesizerEveryN — either counter
+         *  can trip a dispatch. Default 50. */
+        synthesizerEveryNToolIterations: z.number().int().positive().optional(),
         /** In-memory observation buffer cap before backpressure drops the
          *  oldest. Default 200. */
         observationBufferSize: z.number().int().positive().optional(),
