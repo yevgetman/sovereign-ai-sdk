@@ -2,8 +2,9 @@
 // External providers can plug in later; only one non-builtin provider may be
 // active at once to keep tool/schema bloat bounded.
 
-import { readAllMemory } from './bounded.js';
+import { readAllMemory, readProjectMemoryFile } from './bounded.js';
 import { formatMemorySnapshot } from './injection.js';
+import type { ProjectScope } from './scope.js';
 
 export interface MemoryProvider {
   readonly id: string;
@@ -32,7 +33,13 @@ export class BuiltinMarkdownMemoryProvider implements MemoryProvider {
   readonly id = 'builtin-markdown';
   readonly builtin = true;
 
-  constructor(private readonly harnessHome: string) {}
+  private readonly harnessHome: string;
+  private readonly projectScope?: ProjectScope;
+
+  constructor(harnessHome: string, projectScope?: ProjectScope) {
+    this.harnessHome = harnessHome;
+    if (projectScope !== undefined) this.projectScope = projectScope;
+  }
 
   isAvailable(): boolean {
     return true;
@@ -56,9 +63,16 @@ export class BuiltinMarkdownMemoryProvider implements MemoryProvider {
 
   async prefetchSnapshot(_userMsg: string): Promise<string> {
     const all = readAllMemory(this.harnessHome);
+    const projectPart = (() => {
+      if (!this.projectScope || this.projectScope.kind !== 'project') return undefined;
+      const proj = readProjectMemoryFile(this.projectScope.id, this.harnessHome);
+      if (!proj.content.trim()) return undefined;
+      return { content: proj.content, name: this.projectScope.name };
+    })();
     return formatMemorySnapshot({
       user: all['USER.md'].content,
       memory: all['MEMORY.md'].content,
+      ...(projectPart !== undefined ? { projectMemory: projectPart } : {}),
     });
   }
 }
@@ -127,8 +141,11 @@ export class MemoryManager {
   }
 }
 
-export function createDefaultMemoryManager(harnessHome: string): MemoryManager {
+export function createDefaultMemoryManager(
+  harnessHome: string,
+  projectScope?: ProjectScope,
+): MemoryManager {
   const manager = new MemoryManager();
-  manager.addProvider(new BuiltinMarkdownMemoryProvider(harnessHome));
+  manager.addProvider(new BuiltinMarkdownMemoryProvider(harnessHome, projectScope));
   return manager;
 }
