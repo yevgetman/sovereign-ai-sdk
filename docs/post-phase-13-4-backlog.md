@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `94eea94`. Suite 1647/1647 unit + 58/58 semantic. Items 1-6, 9, 11, 14-16, 18, 20-23 closed across four batches. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
+**Last sync:** 2026-05-07. Master at `1001237`. Suite 1650/1650 unit + 58/58 semantic. Items 1-6, 8-11, 14-16, 18, 20-23 closed across five batches. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
 
 ## Priority order
 
@@ -154,15 +154,9 @@ P4 (small ergonomics + nits):
 ### 8. Per-child trace files in addition to consolidated
 
 - Priority: P2
-- Status: open
+- Status: **complete (2026-05-07, commit `1001237`)** — `SubagentSchedulerOpts` gains optional `harnessHome`. When set, `delegate()` constructs a per-child `TraceWriter` writing to `<harnessHome>/traces/<childSessionId>.jsonl`. The wrapped trace recorder forks every tagged event into BOTH the parent recorder (existing Fix #1 behavior) AND the new child writer. Drained via `await childTraceWriter?.close()` in the inner `finally` so the file is flushed before `delegate()` returns. The wrapper now activates when EITHER a parent recorder OR a child writer is present (previously only when parent recorder was present), so headless sessions still get child files. `terminalRepl` passes the existing `harnessHome` through to scheduler construction. `sov trace show` is unchanged — it already reads `<harnessHome>/traces/<sessionId>.jsonl` for any sessionId, so the new file is the fast-path resolution. 3 new tests pin: (a) child file exists + child-only events when `harnessHome` set, (b) back-compat when `harnessHome` omitted (test fakes), (c) child file written even when parent recorder is undefined.
 - Source: original D2 follow-up; round-2 REPL testing finding
-- Recommendation: Keep the consolidated parent timeline (works well for `sov trace show`), but ALSO write a small per-child file with just that child's events to `<harnessHome>/traces/<childSessionId>.jsonl`. Parent file remains the source of truth for chronology; child files give a fast path for `sov trace show <childId>` without filtering the parent.
-- Evidence: Round-2 testing found that child events are tagged with `sessionId` (Fix #1, `cc334cc`) but separate files don't exist. Filtering `~/.harness/traces/<parent>.jsonl` works but isn't elegant.
-- Impact: Operator UX — `sov trace show <childId>` requires parent context to find the file.
-- Likely code areas:
-  - `src/runtime/scheduler.ts` (where the wrapped traceRecorder lives)
-  - `src/trace/writer.ts` (could spin up a per-child writer)
-- Effort: ~2 hrs
+- Files: `src/runtime/scheduler.ts`, `src/ui/terminalRepl.ts`, `tests/runtime/scheduler.perChildTrace.test.ts`
 
 ### 9. `ReviewForkPromptContext` field rename
 
@@ -181,14 +175,9 @@ P4 (small ergonomics + nits):
 ### 10. Synthesizer dispatch on activity-burst rhythm
 
 - Priority: P2
-- Status: open
+- Status: **complete (2026-05-07, commit `a8d4ce3`)** — independent `synthesizerToolIterationsSince` counter ticks in `onToolIteration` (default threshold 50). Either counter tripping fires `dispatchSynthesizer()` — the user-turn rhythm and the tool-iteration rhythm now run in parallel without resetting each other. New `settings.learning.synthesizerEveryNToolIterations` field exposes the threshold; wired through `terminalRepl`. `signal.aborted` and `enabled` flag short-circuits propagate naturally through the shared dispatch path. 3 new tests cover: (a) tool-iteration trip alone with no user turns, (b) independence (both counters fire separately, neither resets the other), (c) `signal.aborted` blocks both paths.
 - Source: testing-log Phase 13.4 entry
-- Recommendation: Currently `synthesizerEveryN` triggers on user-turn count only. A 30-tool-call burst inside a single user turn doesn't fire the synthesizer mid-turn. Add an `onToolIteration` counter for the synthesizer too, OR make the trigger a max-of-the-two ("fire when either user-turn OR tool-iteration counter trips").
-- Evidence: A user can do a substantial chunk of work in one turn (e.g., one prompt → 30 AgentTool calls) and the synthesizer never fires until the next user turn.
-- Impact: Synthesizer is reactive to user-typing rhythm rather than actual learning signal.
-- Likely code areas:
-  - `src/review/manager.ts` (extend `onToolIteration` to also tick `synthesizerSince`)
-- Effort: ~30 min
+- Files: `src/review/manager.ts`, `src/config/schema.ts`, `src/ui/terminalRepl.ts`, `tests/review/manager.test.ts`
 
 ### 11. Concurrency between multiple `sov` sessions writing to observations.jsonl
 
@@ -363,9 +352,9 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 30-min slot: items 10, 14, 15, 16, 18, 20
-- 1-2 hr slot: items 1, 2, 4, 6, 8, 22
-- Half-day slot: items 3, 7, 9, 12, 13, 19, 24
+- 30-min slot: (none currently open)
+- 1-2 hr slot: items 1, 2, 4
+- Half-day slot: items 3, 7, 12, 13, 19, 24
 - Multi-day: item 17
 
 Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.
