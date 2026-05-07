@@ -264,6 +264,33 @@ The `default` name is reserved — it maps to `<harness-home>/` itself (the pre-
 
 **Locking.** Each profile has its own `<profile>/.sov.lock/` directory available as a helper for callers that want exclusivity (atomic mkdir + PID file with stale-process detection). The REPL itself does not currently acquire it — concurrent `sov` sessions on the same profile keep working.
 
+### Scoping `HARNESS_HOME` for tests
+
+`HARNESS_HOME` controls where the harness reads and writes all state (config, sessions, traces, trajectories, learning corpus). When driving `sov` non-interactively — for testing, eval scripts, or CI — take care that the env var actually reaches the `sov` process.
+
+**Footgun pattern (override silently ignored):**
+```bash
+HARNESS_HOME=/tmp/test-home printf 'prompt\n/quit\n' | sov chat ...
+```
+Here `HARNESS_HOME` binds only to `printf`. The downstream `sov chat` process runs with the default `HARNESS_HOME` (typically `~/.harness/`) and silently ignores the override. Symptoms: state writes land in `~/.harness/` instead of your sandbox; expected per-test config (e.g. `learning.synthesizerEveryN: 2`) is not applied; tests that depend on isolated state appear to pass while polluting the live harness home.
+
+**Correct patterns:**
+```bash
+# (a) export in the current shell — preferred
+export HARNESS_HOME=/tmp/test-home
+printf 'prompt\n/quit\n' | sov chat ...
+
+# (b) pipe stdin from a file or heredoc, assign env only to sov
+HARNESS_HOME=/tmp/test-home sov chat ... < input.txt
+
+# (c) repeat the var on each command in the pipeline
+HARNESS_HOME=/tmp/test-home printf 'prompt\n/quit\n' | HARNESS_HOME=/tmp/test-home sov chat ...
+```
+
+Pattern (a) is preferred — single assignment, unambiguous scope, works correctly in subshells. Pattern (b) avoids the pipeline entirely by redirecting stdin from a file, so the env var only needs to appear once on `sov`. Pattern (c) works but requires duplicating the var on every pipeline stage.
+
+**Why this happens:** the `VAR=value cmd` prefix syntax binds `VAR` only to `cmd`, not to the rest of a pipeline. Each command in a pipeline runs in its own subshell with its own environment. `printf` gets the override; `sov chat` does not.
+
 ## REPL UX
 
 Visual surfaces you'll see in a normal session:
