@@ -65,15 +65,18 @@ describe('LearningObserver', () => {
     expect(existsSync(observationsPath(home, project.id))).toBe(false);
   });
 
-  test('bounded buffer drops on overflow + counter reflects drops', () => {
+  test('bounded buffer drops on overflow', async () => {
     const obs = new LearningObserver({
       harnessHome: home,
       cwd,
       sessionId: 'sess-1',
-      bufferSize: 5,
+      bufferSize: 3,
     });
-    // Fire 12 in fast succession before any can drain (synchronous loop).
-    for (let i = 0; i < 12; i++) {
+    // Fire 10 synchronously; with bufferSize=3 and the write-chain async,
+    // at least 7 should be dropped before the chain has a chance to drain
+    // one slot. The exact count depends on microtask scheduling, but the
+    // floor is well above zero.
+    for (let i = 0; i < 10; i++) {
       obs.observe({
         toolName: 'Bash',
         toolInput: { i },
@@ -81,13 +84,28 @@ describe('LearningObserver', () => {
         durationMs: 0,
       });
     }
-    // The buffer is in-flight via writeChain; some are queued and accepted,
-    // others are dropped. Since the chain is async, drops happen for
-    // entries beyond the buffer when the prior writes haven't finished.
-    expect(obs.getDroppedCount()).toBeGreaterThanOrEqual(0);
-    // (Tighter assertion isn't reliable because the write-chain runs
-    // microtasks during the loop. The key contract is: getDroppedCount
-    // is monotonically tracked and never throws.)
+    // Some accepted records have already started writing; allow them to
+    // settle before asserting on dropped count.
+    await obs.drain();
+    expect(obs.getDroppedCount()).toBeGreaterThanOrEqual(7);
+  });
+
+  test('unserializable inputs increment drop counter', async () => {
+    const obs = new LearningObserver({
+      harnessHome: home,
+      cwd,
+      sessionId: 'sess-1',
+    });
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+    obs.observe({
+      toolName: 'Bash',
+      toolInput: circular,
+      status: 'success',
+      durationMs: 0,
+    });
+    await obs.drain();
+    expect(obs.getDroppedCount()).toBe(1);
   });
 
   test('serialized writes preserve order in the JSONL file', async () => {

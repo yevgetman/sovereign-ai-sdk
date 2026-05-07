@@ -56,8 +56,14 @@ export class LearningObserver {
       this.dropped += 1;
       return; // backpressure — drop silently
     }
-    this.buffered += 1;
     const observation = this.buildObservation(input);
+    if (observation === null) {
+      // Unserializable input (circular ref, BigInt edge case). Drop silently
+      // rather than poisoning the corpus with a sentinel hash collision.
+      this.dropped += 1;
+      return;
+    }
+    this.buffered += 1;
     this.writeChain = this.writeChain.then(async () => {
       try {
         const project = getProjectId(this.cwd);
@@ -75,20 +81,27 @@ export class LearningObserver {
     });
   }
 
-  /** Drain the buffer. Best-effort; safe to call multiple times. */
-  async drain(): Promise<void> {
-    await this.writeChain;
+  /** Drain the buffer. Best-effort; safe to call multiple times.
+   *  Bounded by `timeoutMs` (default 2000) so a slow disk cannot hang
+   *  shutdown paths like `/quit`. */
+  async drain(timeoutMs = 2000): Promise<void> {
+    await Promise.race([
+      this.writeChain,
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
   }
 
-  /** Diagnostic: count of records dropped due to buffer overflow. */
+  /** Diagnostic: count of records dropped due to buffer overflow or
+   *  unserializable input. */
   getDroppedCount(): number {
     return this.dropped;
   }
 
-  private buildObservation(input: ObserveInput): Observation {
+  private buildObservation(input: ObserveInput): Observation | null {
+    const inputJson = this.trySerializeInput(input.toolInput);
+    if (inputJson === null) return null;
     const project = getProjectId(this.cwd);
     const id = `obs-${new Date().toISOString().slice(0, 10)}-${randomBytes(4).toString('hex')}`;
-    const inputJson = safeStringify(input.toolInput);
     const tool_input_hash = `sha256:${createHash('sha256').update(inputJson).digest('hex')}`;
     const tool_input_summary =
       inputJson.length > SUMMARY_MAX ? `${inputJson.slice(0, SUMMARY_MAX - 3)}...` : inputJson;
@@ -109,14 +122,17 @@ export class LearningObserver {
       ...(input.traceId !== undefined ? { trace_id: input.traceId } : {}),
     };
   }
-}
 
-/** JSON.stringify hardened against circular refs / BigInts so the observer
- *  never throws on weird tool inputs. Invariant #10. */
-function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? '';
-  } catch {
-    return '"<unserializable>"';
+  // Returns null when input cannot be serialized; caller drops the
+  // observation rather than poisoning the corpus with a sentinel hash.
+  private trySerializeInput(input: unknown): string | null {
+    try {
+      const result = JSON.stringify(input, (_key, value) =>
+        typeof value === 'bigint' ? value.toString() : value,
+      );
+      return result ?? null;
+    } catch {
+      return null;
+    }
   }
 }

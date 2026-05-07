@@ -531,7 +531,7 @@ async function executeOne(
             },
           }
         : {}),
-      ...(block.id !== undefined ? { traceId: block.id } : {}),
+      traceId: block.id, // tool_use_id, always present
     });
   }
 
