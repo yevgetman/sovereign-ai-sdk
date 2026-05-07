@@ -40,7 +40,7 @@ P4 (small ergonomics + nits):
 17. Eval-gated auto-promote (currently auto-promote is straight bypass)
 18. Glob inline tool block: count footer drifts vs. summary line **[soak 2026-05-07]**
 20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs) **[soak 2026-05-07]**
-21. Tool-count drift between live vs. fresh `harness-home` config (investigation) **[soak 2026-05-07]**
+21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
 
 ---
 
@@ -308,15 +308,15 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 21. Tool-count drift between live config and fresh `harness-home`
 
 - Priority: P4
-- Status: open (investigation)
+- Status: **complete (2026-05-07)** — investigated, intentional gating confirmed. No code change required. See resolution below.
 - Source: 2026-05-07 soak Agent F. First (mis-routed) run reported `tools: 22` from live config; second (correctly-routed) run with bare override config reported `tools: 21`.
-- Hypothesis: One of: (a) MCP server registration in live config that's absent from override, (b) `webSearch.apiKey` enables an extra tool variant, (c) something in `~/.harness/config.json` (`debugMode.transcript: true`) registers an extra surface. Worth grepping `assembleToolPool` against both configs to find the differential.
-- Recommendation: Investigate which exact tool the live config has that the bare config doesn't; document the deterministic baseline (probably 21 tools). If the differential is `webSearch` enabled vs disabled, that's intentional — note it.
-- Likely code areas:
-  - `src/tool/registry.ts` (`assembleToolPool`)
-  - `src/config/schema.ts`
+- **Resolution:** The single-tool differential is **`WebSearch`** (244-token schema). It is gated by `WebSearchTool.isEnabled = () => resolveProviderSettings().apiKey !== undefined` in `src/tools/WebSearchTool.ts:182`. The live `~/.harness/config.json` has `webSearch.apiKey` set; the bare override config does not, so `isEnabled()` returns `false` and `assembleToolPool` filters it out at `src/tool/registry.ts:128`. Verified by toggle test: adding `webSearch.apiKey` to the bare config flipped the count `21 → 22` and `WebSearch: 244` appeared in `/context-budget` output. `WebFetch` is *not* gated (always present, 256 tokens) — only `WebSearch` requires a provider API key. Hypotheses (a) MCP and (c) `debugMode.transcript` were ruled out: no other tool registers a `isEnabled()` predicate (grep result: `WebSearchTool.ts` is the only file with a non-default `isEnabled`), and `debugMode` only affects logging, not pool assembly.
+- **Verdict:** Intentional behavior. Exposing `WebSearch` without an API key would cause 100% failed invocations — the gating is correct. The deterministic baseline is **21 tools** with no provider-keyed config; it climbs to 22 when `webSearch.apiKey` (or `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY` env var, per `resolveProviderSettings`) is present. Tests that pin exact tool counts should either (i) clear `webSearch.apiKey` + the two env vars in setup, or (ii) accept the 21-vs-22 range. No follow-up filed.
+- Likely code areas (for reference):
+  - `src/tool/registry.ts:128` (`assembleToolPool` filter step)
+  - `src/tools/WebSearchTool.ts:182` (the only `isEnabled` predicate in the tool tree)
 - Impact: Mild — affects test reproducibility when tests reference exact tool counts.
-- Effort: ~30 min investigation + brief docs note
+- Effort: ~30 min investigation (actual: ~20 min)
 
 ### 22. Mid-turn context pruning anomaly during long autonomous exploration
 
@@ -364,7 +364,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 30-min slot: items 5, 10, 14, 15, 16, 18, 20, 21, 23
+- 30-min slot: items 10, 14, 15, 16, 18, 20
 - 1-2 hr slot: items 1, 2, 4, 6, 8, 11, 22
 - Half-day slot: items 3, 7, 9, 12, 13, 19, 24
 - Multi-day: item 17
