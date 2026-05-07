@@ -187,6 +187,71 @@ describe('buildSystemSegments', () => {
       expect(segments.some((s) => s.text.includes('<available-tools>'))).toBe(true);
     });
   });
+
+  // Phase 13.4 follow-up (Item 19) — memory-scope segment.
+  test('memory-scope segment in harness mode (no project) describes general-purpose contract', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+      });
+      const all = segments.map((s) => s.text).join('\n\n');
+      expect(all).toContain('<memory-scope>');
+      expect(all).toContain('no project context');
+      expect(all).toContain("scope='project'");
+      // Cacheable: scope is stable for the session.
+      const scopeSeg = segments.find((s) => s.text.includes('<memory-scope>'));
+      expect(scopeSeg?.cacheable).toBe(true);
+    });
+  });
+
+  test('memory-scope segment in project mode names the project + describes the routing default', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+        projectScope: { kind: 'project', id: 'sov-docs', name: 'sovereign-ai-docs' },
+      });
+      const all = segments.map((s) => s.text).join('\n\n');
+      expect(all).toContain('sovereign-ai-docs');
+      expect(all).toContain('sov-docs');
+      expect(all).toContain("defaults to scope='project'");
+      expect(all).toContain('USER.md is always global');
+      const scopeSeg = segments.find((s) => s.text.includes('<memory-scope>'));
+      expect(scopeSeg?.cacheable).toBe(true);
+    });
+  });
+
+  test('memory-scope segment with kind=none uses harness-mode wording', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+        projectScope: { kind: 'none' },
+      });
+      const all = segments.map((s) => s.text).join('\n\n');
+      expect(all).toContain('no project context');
+      expect(all).not.toContain("defaults to scope='project'");
+    });
+  });
+
+  test('memory-scope segment respects cacheEnabled=false', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        cwd: dir,
+        homeDir: dir,
+        cacheEnabled: false,
+        warn: () => {},
+        projectScope: { kind: 'project', id: 'p1', name: 'project-one' },
+      });
+      const scopeSeg = segments.find((s) => s.text.includes('<memory-scope>'));
+      expect(scopeSeg).toBeDefined();
+      expect(scopeSeg?.cacheable).toBe(false);
+    });
+  });
 });
 
 describe('formatTools', () => {

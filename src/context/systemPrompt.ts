@@ -3,6 +3,7 @@
 
 import type { Bundle } from '../bundle/types.js';
 import type { SystemSegment } from '../core/types.js';
+import type { ProjectScope } from '../memory/scope.js';
 import type { Skill } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
@@ -18,6 +19,11 @@ export type BuildSystemSegmentsOptions = {
   homeDir?: string;
   cacheEnabled?: boolean;
   warn?: (message: string) => void;
+  /** Phase 13.4 follow-up (Item 19) — informs the memory-scope segment of
+   *  the prompt about whether per-project memory is available and what the
+   *  default routing is. Optional — when absent, the segment uses the
+   *  harness-mode wording (no project context). */
+  projectScope?: ProjectScope;
 };
 
 const BASE_INSTRUCTIONS = `\
@@ -117,6 +123,27 @@ read the relevant settings file directly, (3) consult this block.
 </harness-self-doc>
 `.trim();
 
+// Phase 13.4 follow-up (Item 19) — memory-scope segment. Tells the agent
+// whether the session has a per-project memory layer and the rule of thumb
+// for choosing scope when calling MemoryTool. Cacheable: the resolved scope
+// is stable for the session.
+function buildMemoryScopeSegment(scope: ProjectScope | undefined): string {
+  if (!scope || scope.kind !== 'project') {
+    return [
+      '<memory-scope>',
+      "Memory scope: this session has no project context (no harness bundle and no git repository detected). MemoryTool's project scope is unavailable — all memory writes go to global MEMORY.md and USER.md only. Do NOT pass scope='project' to memory; it will be rejected.",
+      '</memory-scope>',
+    ].join('\n');
+  }
+  return [
+    '<memory-scope>',
+    `Memory scope: this session has a project identity ("${scope.name}", id ${scope.id}). MemoryTool defaults to scope='project' and writes to <harness-home>/memory/projects/<id>/MEMORY.md. Pass scope='global' explicitly to write cross-cutting notes (user preferences, conventions, etc.) to the global MEMORY.md instead. USER.md is always global regardless of scope. The agent sees both global and project MEMORY.md content in every snapshot — write a note to the layer where it belongs:`,
+    "  - scope='project' for project-specific facts (file layouts, build commands, domain terms, this codebase's conventions)",
+    "  - scope='global' for facts that apply across projects (user's communication preferences, languages they know, tools they use everywhere)",
+    '</memory-scope>',
+  ].join('\n');
+}
+
 export function buildSystemSegments(
   optionsOrBundle?: BuildSystemSegmentsOptions | Bundle,
 ): SystemSegment[] {
@@ -125,6 +152,7 @@ export function buildSystemSegments(
   const segments: SystemSegment[] = [
     { text: BASE_INSTRUCTIONS, cacheable: cacheEnabled },
     { text: HARNESS_SELF_DOC, cacheable: cacheEnabled },
+    { text: buildMemoryScopeSegment(options.projectScope), cacheable: cacheEnabled },
   ];
 
   const toolText = formatTools(options.tools ?? []);

@@ -70,6 +70,7 @@ import { buildMcpClientPool } from '../mcp/client.js';
 import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
+import { resolveProjectScope } from '../memory/scope.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
@@ -341,7 +342,16 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       : permissionSettings.mode !== 'default'
         ? permissionSettings.mode
         : (userSettings.permissionMode ?? 'default');
-  const memoryManager = createDefaultMemoryManager(harnessHome);
+  // Phase 13.4 follow-up (Item 19) — resolve the session's project identity
+  // exactly once at boot. The same instance threads through MemoryManager,
+  // ToolContext, and buildSystemSegments so the snapshot, MemoryTool routing,
+  // and the system-prompt scope segment all agree.
+  const projectScope = resolveProjectScope({
+    cwd: process.cwd(),
+    bundle: bundle ?? null,
+    harnessHome,
+  });
+  const memoryManager = createDefaultMemoryManager(harnessHome, projectScope);
   await memoryManager.initialize();
   await memoryManager.onSessionStart();
   const subdirectoryHintState = createSubdirectoryHintState();
@@ -429,6 +439,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     subdirectoryHintState,
     skills: loadedSkills,
     agents: loadedAgents,
+    projectScope,
   };
   const preliminaryToolPool = assembleToolPool(preliminaryToolContext);
   const activeToolNames = preliminaryToolPool.map((tool) => tool.name);
@@ -462,7 +473,15 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       throw new Error(preflight.message);
     }
   }
-  const opened = openOrResumeSession(db, opts, bundle, resolved, finalPreliminaryToolPool, skills);
+  const opened = openOrResumeSession(
+    db,
+    opts,
+    bundle,
+    resolved,
+    finalPreliminaryToolPool,
+    skills,
+    projectScope,
+  );
   let activeSessionId = opened.sessionId;
   // Phase 10.6 — once the session id resolves, propagate it into the
   // RouterProvider so subsequent audit-log entries record the actual id.
@@ -525,6 +544,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     agents: loadedAgents,
     activeToolNames,
     activeToolsets,
+    projectScope,
   };
   // Phase 12: connect to configured MCP servers and wrap each discovered
   // tool. Connection failures log + continue (one bad server doesn't take
@@ -1765,6 +1785,7 @@ function openOrResumeSession(
   resolved: ResolvedProvider,
   tools: import('../tool/types.js').Tool<unknown, unknown>[],
   skills: SkillRegistry,
+  projectScope: import('../memory/scope.js').ProjectScope,
 ): SessionOpen {
   if (opts.resumeId === undefined) {
     const systemPrompt = buildSystemSegments({
@@ -1773,6 +1794,7 @@ function openOrResumeSession(
       skills: skills.skills,
       cwd: process.cwd(),
       cacheEnabled: opts.noCache !== true,
+      projectScope,
     });
     const sessionId = db.createSession({
       model: resolved.model,
