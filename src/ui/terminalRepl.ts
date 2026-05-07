@@ -811,6 +811,11 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       defaultModel: subagentDefaultModel,
       maxTokens: opts.maxTokens,
       artifactsRoot: subagentArtifactsRoot,
+      // Backlog Item 8 — also write a per-child trace file at
+      // <harnessHome>/traces/<childSessionId>.jsonl so `sov trace show
+      // <childId>` has a fast path that doesn't filter the parent
+      // timeline. Parent recorder still receives every tagged event.
+      harnessHome,
     });
     type WritableToolContext = { -readonly [K in keyof ToolContext]: ToolContext[K] };
     const writableCtx = toolContext as WritableToolContext;

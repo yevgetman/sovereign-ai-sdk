@@ -30,6 +30,7 @@ import type { LLMProvider } from '../providers/types.js';
 import { findCapableModel } from '../router/capabilities.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
+import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
 import { AgentRunner } from './agentRunner.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
@@ -81,6 +82,14 @@ export type SubagentSchedulerOpts = {
    *  `<harnessHome>`. Omit to skip child trajectory writes (useful in
    *  tests that don't want disk side-effects). */
   artifactsRoot?: string;
+  /** Backlog Item 8 — when set, every child delegation also gets its
+   *  own per-child trace file at `<harnessHome>/traces/<childSessionId>
+   *  .jsonl`, in addition to the wrapped events flowing through the
+   *  parent's recorder. Gives `sov trace show <childId>` a fast path
+   *  that doesn't need to filter the parent timeline. Omit in tests
+   *  that don't want disk side-effects — the parent recorder still
+   *  receives every tagged event. */
+  harnessHome?: string;
 };
 
 export type DelegateInput = {
@@ -153,6 +162,19 @@ export class SubagentScheduler {
 
       this.childCounts.set(input.parentSessionId, current + 1);
 
+      // Backlog Item 8 — per-child trace file lives alongside the
+      // consolidated parent trace. We construct it once per delegation
+      // and drain it in the finally below so every event the child
+      // emits ends up in `<harnessHome>/traces/<childSessionId>.jsonl`
+      // before delegate() returns.
+      const childTraceWriter =
+        this.opts.harnessHome !== undefined
+          ? new TraceWriter({
+              sessionId: childSessionId,
+              harnessHome: this.opts.harnessHome,
+            })
+          : undefined;
+
       try {
         const resolved = this.opts.resolveProvider(providerName, modelName);
 
@@ -175,13 +197,19 @@ export class SubagentScheduler {
         // the runner emits, so consolidated parent traces remain debuggable.
         // Without this, child events arrive with sessionId: null and you can't
         // filter "what did the child do" without correlating timestamps.
+        //
+        // Backlog Item 8 — when a per-child writer exists, also fork the
+        // tagged event into the child's own file. Either parent recorder
+        // or child writer may be absent independently; both are best-effort.
         const wrappedTraceRecorder =
-          input.traceRecorder !== undefined
+          input.traceRecorder !== undefined || childTraceWriter !== undefined
             ? (event: TraceEvent) => {
-                input.traceRecorder?.({
+                const tagged = {
                   ...event,
                   sessionId: childSessionId,
-                } as TraceEvent);
+                } as TraceEvent;
+                input.traceRecorder?.(tagged);
+                childTraceWriter?.record(tagged);
               }
             : undefined;
 
@@ -321,6 +349,10 @@ export class SubagentScheduler {
         const after = this.childCounts.get(input.parentSessionId) ?? 1;
         if (after <= 1) this.childCounts.delete(input.parentSessionId);
         else this.childCounts.set(input.parentSessionId, after - 1);
+        // Backlog Item 8 — drain the per-child trace writer so every queued
+        // append lands on disk before delegate() returns. Best-effort: the
+        // writer swallows fs errors internally so this never throws.
+        await childTraceWriter?.close();
       }
     } finally {
       writeLockRelease?.();
