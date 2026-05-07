@@ -24,6 +24,10 @@ import { FileWriteTool } from '../tools/FileWriteTool.js';
 import { GlobTool } from '../tools/GlobTool.js';
 import { GrepTool } from '../tools/GrepTool.js';
 import { type HarnessInfoSnapshot, buildHarnessInfoTool } from '../tools/HarnessInfoTool.js';
+import { InstinctListTool } from '../tools/InstinctListTool.js';
+import { InstinctProposeTool } from '../tools/InstinctProposeTool.js';
+import { InstinctUpdateConfidenceTool } from '../tools/InstinctUpdateConfidenceTool.js';
+import { InstinctViewTool } from '../tools/InstinctViewTool.js';
 import { MemoryProposeTool } from '../tools/MemoryProposeTool.js';
 import { MemoryTool } from '../tools/MemoryTool.js';
 import { SkillManageTool } from '../tools/SkillManageTool.js';
@@ -80,6 +84,20 @@ export const REVIEW_ONLY_TOOLS = [MemoryProposeTool, SkillProposeTool] as unknow
   unknown,
   unknown
 >[];
+
+/** Phase 13.4 — learning-only tools that are NOT in the main agent's
+ *  pool. Injected into the synthesizer's tool pool (Task 7) and the
+ *  review fork's tool pool (Task 8) by callers via the same pattern as
+ *  REVIEW_ONLY_TOOLS. The synthesizer-only writers (instinct_propose,
+ *  instinct_update_confidence) are still listed here — agent-level
+ *  allowedTools enforcement keeps the review fork from invoking them.
+ */
+export const LEARNING_ONLY_TOOLS = [
+  InstinctListTool,
+  InstinctViewTool,
+  InstinctProposeTool,
+  InstinctUpdateConfidenceTool,
+] as unknown as Tool<unknown, unknown>[];
 
 export type AssembleToolPoolOpts = {
   /** Phase 12: tools wrapped from connected MCP servers. Merged into the
