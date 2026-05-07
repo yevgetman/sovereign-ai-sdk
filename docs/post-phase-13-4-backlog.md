@@ -4,13 +4,13 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `0c15acb`. Suite 1583/1583 unit + 58/58 semantic. Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
+**Last sync:** 2026-05-07. Master at `47993ec`. Suite 1592/1592 unit + 58/58 semantic. Items 1, 2, 23 closed in this batch (commits `f7c9c69`, `47993ec`, `d2e1e92`). Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
 
 ## Priority order
 
 P0 (correctness / data integrity):
-1. MEMORY.md cap enforcement on `/review approve`
-2. Auto-promote provenance preservation gap audit (verify cc334cc fix is complete)
+1. ~~MEMORY.md cap enforcement on `/review approve`~~ **— closed `f7c9c69`**
+2. ~~Auto-promote provenance preservation gap audit~~ **— closed `47993ec` (no real gap; C2 fix verified)**
 
 P1 (UX / observability):
 3. `/review revoke <id>` undo path
@@ -19,7 +19,7 @@ P1 (UX / observability):
 6. Better confidence ramp-up for cross-project promotion (defaults are too conservative for typical use)
 19. MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped) **[soak 2026-05-07]**
 22. Mid-turn context pruning anomaly during long autonomous exploration **[soak 2026-05-07]**
-23. FileRead throws instead of returning `{status: error}` envelope on missing file **[soak 2026-05-07]**
+23. ~~FileRead throws instead of returning `{status: error}` envelope on missing file~~ **— closed `d2e1e92`**
 
 P2 (architectural extensions):
 7. Pick `review-memory` vs `review-skill` based on child shape (currently always `review-memory`)
@@ -49,7 +49,7 @@ P4 (small ergonomics + nits):
 ### 1. MEMORY.md cap enforcement on `/review approve`
 
 - Priority: P0
-- Status: open
+- Status: **complete (2026-05-07, commit `f7c9c69`)** — `applyMemoryApproval` and `applyConsolidationApproval` pre-flight the cap via the new `checkCapBeforeAppend` helper. On overflow, both return a red error message naming the target file + projected size + `/review consolidate` suggestion. Proposal stays in `pending/` until the user makes room. 2 new tests cover rejection + within-cap regression.
 - Source: original C1 follow-up (deferred from Phase 13.3 polish batches)
 - Recommendation: Pre-flight the bounded-memory cap (`src/memory/bounded.ts:10-13` defines `MEMORY.md=2200`, `USER.md=1375`) before `appendFileSync` in `src/commands/reviewOps.ts`'s `applyMemoryApproval`. If approval would exceed, return a clear error suggesting `/review consolidate` or manual trimming. Alternatively, emit a warning + still append (current silent truncate-on-load is the worst of both).
 - Evidence: `applyMemoryApproval` blindly appends; `src/memory/bounded.ts` enforces the cap at *load* time but no one stops approval from blowing past it. End result: approval succeeds, then the memory loader silently truncates on next session start. User has no warning.
@@ -62,7 +62,7 @@ P4 (small ergonomics + nits):
 ### 2. Auto-promote provenance preservation gap audit
 
 - Priority: P0 (verification, not new code)
-- Status: open
+- Status: **complete (2026-05-07, commit `47993ec`)** — added `tests/tools/memoryProposeAudit.test.ts` (4 cases) + `tests/tools/skillProposeAudit.test.ts` (3 cases) round-tripping auto-promoted MEMORY.md / SKILL.md through `readMemoryFile` and `loadSkillFromPath`. C2 (commit `e516a43`) confirmed correct: `--` in source excerpts gets squashed to `-` in the comment body; HTML comment delimiters are preserved; memory + skill loaders parse the resulting files cleanly. No real gap surfaced. 7 new tests; full suite 1592/1592.
 - Source: testing-log entry for commit `e516a43`; code comment in `MemoryProposeTool.ts` auto-promote branch
 - Recommendation: Walk through the auto-promote bypass path with one of each input shape (memory proposal with empty `sourceExcerpt`, with `--` in excerpt, with very long body) and confirm the provenance HTML comment renders correctly in `MEMORY.md` AND survives a round-trip through `parseMarkdownFrontmatter`-equivalent on the next session boot. The C2 fix (commit `e516a43`) added the comment but no integration test verifies the comment is parser-tolerant.
 - Evidence: Code comment in `escapeForHtmlComment` says "double-dashes squashed to single to avoid HTML comment parser confusion" — implies a real concern, but no test loads the resulting `MEMORY.md` through the memory loader.
@@ -335,7 +335,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 23. FileRead throws on missing file instead of returning `{status: error}` envelope
 
 - Priority: P1
-- Status: open (envelope contract violation)
+- Status: **complete (2026-05-07, commit `d2e1e92`)** — 2 throw → envelope conversions in `src/tools/FileReadTool.ts` (missing-file + is-directory paths). `next_actions` arrays match Bash's tone ("verify the path with Glob or `ls`; confirm the working directory") for cross-tool consistency. File-too-large stays as a throw per the user-input vs. system-limit distinction (could be revisited if soak surfaces the case). 2 existing tests migrated from `.rejects.toThrow` to envelope-shape assertions.
 - Source: 2026-05-07 soak Agent G, case G5 (mid-multi-turn error)
 - Evidence: FileRead on a non-existent file produced `tool threw: file does not exist: /private/tmp/sov-soak-G/cwd-G5/nonexistent.txt` rather than a clean Phase 12.5 envelope (`status: error, summary: ..., next_actions: [...]`). The agent handled it correctly downstream (no fabrication, honest "did not succeed" report), but the envelope contract is inconsistent with peer tools (Bash returns `status: error` with exit code, etc., per soak A2).
 - Recommendation: Normalize FileRead's missing-file path to return `{status: 'error', summary: 'file not found at <path>', next_actions: ['verify path with Glob or ls'], data: null}` rather than throwing. Same family as Bash's exit-1 pattern.
