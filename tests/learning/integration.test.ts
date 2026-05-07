@@ -12,7 +12,7 @@ import { reinforce } from '../../src/learning/confidence.js';
 import { InstinctStore } from '../../src/learning/instinctStore.js';
 import { LearningObserver } from '../../src/learning/observer.js';
 import { observationsPath } from '../../src/learning/paths.js';
-import { _resetProjectIdCache, getProjectId } from '../../src/learning/project.js';
+import { __test_resetProjectIdCache, getProjectId } from '../../src/learning/project.js';
 import { findPromotionCandidates } from '../../src/learning/promotion.js';
 import { runSynthesizer } from '../../src/learning/synthesizer.js';
 import type { Instinct } from '../../src/learning/types.js';
@@ -49,7 +49,7 @@ describe('Phase 13.4 — end-to-end Check (synthetic)', () => {
   let cwd: string;
 
   beforeEach(() => {
-    _resetProjectIdCache();
+    __test_resetProjectIdCache();
     home = mkdtempSync(join(tmpdir(), 'sov-13.4-int-home-'));
     cwd = mkdtempSync(join(tmpdir(), 'sov-13.4-int-cwd-'));
   });

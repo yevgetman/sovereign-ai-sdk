@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LearningObserver } from '../../src/learning/observer.js';
 import { observationsPath } from '../../src/learning/paths.js';
-import { _resetProjectIdCache, getProjectId } from '../../src/learning/project.js';
+import { __test_resetProjectIdCache, getProjectId } from '../../src/learning/project.js';
 
 describe('LearningObserver', () => {
   let home: string;
   let cwd: string;
 
   beforeEach(() => {
-    _resetProjectIdCache();
+    __test_resetProjectIdCache();
     home = mkdtempSync(join(tmpdir(), 'sov-obs-home-'));
     cwd = mkdtempSync(join(tmpdir(), 'sov-obs-cwd-'));
   });
