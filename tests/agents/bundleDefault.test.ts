@@ -25,6 +25,7 @@ describe('bundle-default reference agents', () => {
       const names = registry.agents.map((a) => a.name).sort();
       expect(names).toEqual([
         'explore',
+        'instinct-synthesizer',
         'plan',
         'review-consolidate',
         'review-memory',
@@ -78,6 +79,39 @@ describe('bundle-default reference agents', () => {
       expect(cons?.allowedTools).toContain('Glob');
       expect(cons?.maxTurns).toBe(8);
       expect(cons?.role).toBe('review');
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  test('instinct-synthesizer loads with restricted toolset', async () => {
+    const tmpHome = mkdtempSync(join(tmpdir(), 'sovereign-synthesizer-'));
+    try {
+      const registry = await loadAgents({
+        cwd: tmpHome,
+        harnessHome: tmpHome,
+        bundleRoot: BUNDLE_DEFAULT_ROOT,
+      });
+
+      const synth = registry.byName.get('instinct-synthesizer');
+      expect(synth).toBeDefined();
+      expect(synth?.maxTurns).toBe(8);
+      expect(synth?.role).toBe('synthesizer');
+
+      // Required: read-only inspection + the four instinct tools
+      expect(synth?.allowedTools).toContain('Read');
+      expect(synth?.allowedTools).toContain('Grep');
+      expect(synth?.allowedTools).toContain('instinct_list');
+      expect(synth?.allowedTools).toContain('instinct_view');
+      expect(synth?.allowedTools).toContain('instinct_propose');
+      expect(synth?.allowedTools).toContain('instinct_update_confidence');
+
+      // Excluded: dangerous / write-path tools — synthesizer only mutates via instinct tools
+      expect(synth?.allowedTools).not.toContain('FileWrite');
+      expect(synth?.allowedTools).not.toContain('FileEdit');
+      expect(synth?.allowedTools).not.toContain('Bash');
+      expect(synth?.allowedTools).not.toContain('memory');
+      expect(synth?.allowedTools).not.toContain('memory_propose');
     } finally {
       rmSync(tmpHome, { recursive: true, force: true });
     }
