@@ -15,17 +15,10 @@ export function getProjectId(cwd: string): { id: string; name: string } {
   if (cached) return cached;
 
   // 1. git remote
-  const gitResult = spawnSync('git', ['-C', cwd, 'remote', 'get-url', 'origin'], {
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
-  if (gitResult.status === 0 && gitResult.stdout.trim().length > 0) {
-    const remote = gitResult.stdout.trim();
-    const id = createHash('sha256').update(remote).digest('hex').slice(0, 16);
-    const name = nameFromRemote(remote);
-    const result = { id, name };
-    cache.set(cwd, result);
-    return result;
+  const gitResult = tryGitProjectId(cwd);
+  if (gitResult !== null) {
+    cache.set(cwd, gitResult);
+    return gitResult;
   }
 
   // 2. realpath(cwd) fallback
@@ -41,6 +34,32 @@ export function getProjectId(cwd: string): { id: string; name: string } {
   const result = { id, name };
   cache.set(cwd, result);
   return result;
+}
+
+/**
+ * Strict git-only project-id lookup. Returns the {id, name} pair derived
+ * from `git remote get-url origin` when the cwd is inside a git repo with
+ * an `origin` remote configured; returns `null` otherwise.
+ *
+ * Unlike `getProjectId`, this helper does NOT fall back to a realpath
+ * hash — callers that need a "is this cwd a git project?" yes/no signal
+ * (e.g., the memory subsystem's project-scope resolver) want a strict
+ * negative answer when no remote is set, not a synthetic hash-based id.
+ *
+ * The id is a 16-char SHA-256 hex slice of the remote URL — same format
+ * as `getProjectId` so identifiers stay comparable across the two paths.
+ */
+export function tryGitProjectId(cwd: string): { id: string; name: string } | null {
+  const gitResult = spawnSync('git', ['-C', cwd, 'remote', 'get-url', 'origin'], {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (gitResult.status !== 0) return null;
+  const remote = gitResult.stdout.trim();
+  if (remote.length === 0) return null;
+  const id = createHash('sha256').update(remote).digest('hex').slice(0, 16);
+  const name = nameFromRemote(remote);
+  return { id, name };
 }
 
 /**

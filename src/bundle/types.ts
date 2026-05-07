@@ -12,6 +12,12 @@ export type BundleIndex = {
   repo?: string;
   description?: string;
   updated?: string;
+  /** Phase 13.4 follow-up (Item 19) — operator-declared stable identity for
+   *  this bundle. When present, used by the memory subsystem to scope per-
+   *  project MEMORY.md. When absent, the canonical bundle path is hashed
+   *  instead. Optional; bundles that don't set it still get a stable
+   *  per-machine identity. */
+  projectId?: string;
   reading_order?: string[];
   documents?: BundleDocEntry[];
 };
