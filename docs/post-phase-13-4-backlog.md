@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `409fe9c`. Suite 1623/1623 unit + 58/58 semantic. Items 1, 2, 3, 4, 5, 6, 22, 23 closed in three batches (commits `f7c9c69`, `47993ec`, `d2e1e92`, then `d24efee`, `64e5eef`, `c6412ce`, then `7015b8c`, `409fe9c`). Items 18-24 added from 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed; cross-cutting findings added below).
+**Last sync:** 2026-05-07. Master at `94eea94`. Suite 1642/1642 unit + 58/58 semantic. Items 1-6, 9, 14-16, 18, 20-23 closed across four batches. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
 
 ## Priority order
 
@@ -24,7 +24,7 @@ P1 (UX / observability):
 P2 (architectural extensions):
 7. Pick `review-memory` vs `review-skill` based on child shape (currently always `review-memory`)
 8. Per-child trace files in addition to consolidated parent trace
-9. `ReviewForkPromptContext` field rename (`trajectoryPath`/`tracePath` re-purposed for consolidation)
+9. ~~`ReviewForkPromptContext` field rename~~ **— closed `94eea94` (renamed to primaryFile/secondaryFile)**
 10. Synthesizer dispatch rhythm — currently user-turn only; activity-burst trigger missing
 11. Concurrency between multiple `sov` sessions writing to same observations.jsonl
 
@@ -34,12 +34,12 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control **[soak 2026-05-07]**
 
 P4 (small ergonomics + nits):
-14. `_resetProjectIdCache` test helper exported from production code
-15. `nameFromRemote` heuristic loses nested-namespace context
-16. `cleanupPhantomReviews` runs only at session boot (long sessions accumulate)
+14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
+15. ~~`nameFromRemote` heuristic loses nested-namespace context~~ **— closed `f3ee05f` (last-two-segments)**
+16. ~~`cleanupPhantomReviews` runs only at session boot~~ **— closed `ac4dc74` (event-driven sweep on /review activity)**
 17. Eval-gated auto-promote (currently auto-promote is straight bypass)
 18. ~~Glob inline tool block: count footer drifts vs. summary line~~ **[soak 2026-05-07] — closed `d52fb75` (footer reads canonical count from envelope summary)**
-20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs) **[soak 2026-05-07]**
+20. ~~`HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs)~~ **[soak 2026-05-07] — closed `e677676`**
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
 
 ---
@@ -167,7 +167,7 @@ P4 (small ergonomics + nits):
 ### 9. `ReviewForkPromptContext` field rename
 
 - Priority: P2
-- Status: open
+- Status: **complete (2026-05-07, commit `94eea94`)** — pure rename: `trajectoryPath → primaryFile` and `tracePath → secondaryFile` (now optional). `buildPrompt` updated to emit "Primary file" / "Secondary file" labels and skip the secondary line when omitted. Call sites in `manager.ts` and `consolidate.ts` updated. `synthesizer.ts` unchanged (uses different field names already). `bundle-default/agents/*.md` unchanged (semantic file references, not field-name references). No behavior change.
 - Source: original C5 follow-up; T10 noted the smell
 - Recommendation: Currently `trajectoryPath` and `tracePath` are re-purposed for consolidation (mapped to MEMORY.md / USER.md paths). Rename to `primaryFile` / `secondaryFile` OR add a typed `kind: 'review' | 'consolidation' | 'synthesizer'` discriminator with explicit fields per kind.
 - Evidence: Comment in `src/review/consolidate.ts` acknowledges: "We re-purpose the trajectory/trace fields as MEMORY.md / USER.md paths."
@@ -229,7 +229,7 @@ These are documented in `~/code/sovereign-ai-docs/harness/docs/runtime/qwen-amen
 ### 14. `_resetProjectIdCache` test helper exported from production code
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-07, commit `f3ee05f`)** — renamed `_resetProjectIdCache → __test_resetProjectIdCache` with `@internal` JSDoc warning. Double-underscore + `test_` prefix gives stronger lexical signal than single-underscore. All 3 test-file callers updated. Bundled with Item 15 in the same commit.
 - Source: T1 spec review
 - Recommendation: Move `_resetProjectIdCache` from `src/learning/project.ts` to a `tests/learning/_helpers.ts` module. Production code shouldn't expose `_`-prefixed test helpers.
 - Effort: ~15 min
@@ -237,7 +237,7 @@ These are documented in `~/code/sovereign-ai-docs/harness/docs/runtime/qwen-amen
 ### 15. `nameFromRemote` loses nested-namespace context
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-07, commit `f3ee05f`)** — `nameFromRemote` now returns last-two path segments. Handles SSH (`git@host:owner/repo.git` → `owner/repo`), HTTPS (with/without `.git`, with/without trailing slash), GitLab subgroup nested (`host/group/sub/repo` → `sub/repo`), and bare-host single-segment (`host/repo.git` → `repo`). 8 new test cases pin the URL-shape coverage. Bundled with Item 14 in the same commit.
 - Source: T1 implementer flag
 - Recommendation: Currently `nameFromRemote('https://example.com/group/sub/repo.git')` yields `repo`. For nested namespaces we lose `group/sub` context. Could switch to `last-two-segments` if we want to preserve org/repo distinction.
 - Impact: Project name in `harness learning status` output may collide for projects with the same trailing path component.
@@ -246,7 +246,7 @@ These are documented in `~/code/sovereign-ai-docs/harness/docs/runtime/qwen-amen
 ### 16. `cleanupPhantomReviews` runs only at session boot
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-07, commit `ac4dc74`)** — `/review activity` now triggers cleanup when `phantomCount > 10`. `CommandContext` gains optional `cleanupPhantomReviews?: () => number` callback (same function-binding pattern as `listSessions`). `terminalRepl` populates from `db.cleanupPhantomReviews()`. Activity verb header annotates "(cleaned N phantom rows)" when cleanup ran. Threshold strictly greater than 10 (10 doesn't trigger; 11+ does). 4 new tests cover all branches.
 - Source: not exercised in build; theoretical
 - Recommendation: Currently the cleanup sweep (`SessionDb.cleanupPhantomReviews`, commit `e516a43`) fires once per `sov chat` invocation. A long-running session that never reboots accumulates phantoms during its own lifetime. Add a periodic sweep — e.g., every N user turns OR on `/review activity` invocation if `>10` phantoms detected.
 - Effort: ~30 min
@@ -288,7 +288,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-07, commit `e677676`)** — added "Scoping `HARNESS_HOME` for tests" subsection at the end of `## Profiles` in `docs/usage.md`. Documents the footgun pattern (env scope binds only to `printf`, not the downstream `sov`), shows three correct alternatives (export-then-pipe, redirect from file, repeat env on each pipeline stage), and explains WHY (each command in a pipeline runs in its own subshell with its own environment). Docs-only commit.
 - Source: 2026-05-07 soak Agent F's setup (HARNESS_HOME override for Phase 13.4 testing)
 - Evidence: `HARNESS_HOME=/tmp/sov-soak-F/harness-home printf 'prompt' | sov chat ...` silently routes `sov chat` to the user's live `~/.harness/`, because the env binding scopes only to `printf` (the first command in the pipeline). The override is silently ignored. The tester only noticed when the synthesizerEveryN override didn't take effect.
 - Recommendation:
