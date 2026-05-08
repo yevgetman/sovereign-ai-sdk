@@ -1878,3 +1878,20 @@ Implementation backlogs from these findings live in
 **Result:** Item 22 closed. No regressions to existing microcompact tests (12/12 still pass with same expected eviction counts since their fixtures lack a text-bearing user message — boundary defaults to `messages.length` which excludes nothing, preserving pre-fix behaviour for those edge cases).
 
 **Files:** `src/compact/microcompact.ts`, `src/core/query.ts`, `tests/compact/microcompact.test.ts`, `docs/post-phase-13-4-backlog.md`.
+
+## 2026-05-08 — Memory retrieval gaps spec
+
+**Scope:** Added `docs/memory-retrieval-gaps-spec.md` as a draft anchor for future memory retrieval improvements. The spec records the gaps identified while comparing the harness's current memory system with the 2026-05-08 memory article review: need detection, ranking/packing, semantic retrieval, temporal validity, write redaction, retrieval evals, API surface, cross-scope policy, and observation-corpus retrieval.
+
+**Environment:** Bun on darwin, local master branch.
+
+**Commands run:**
+- `bun run lint` — pass; 2 pre-existing warnings in `src/permissions/shellSemantics.ts`.
+- `bun run typecheck` — pass.
+- `bun run test` — 1717/1717 pass.
+
+**Manual coverage:** Read-through of the new spec for scope discipline, ASCII-only formatting, and alignment with shipped Phase 13.4 + two-tier memory behavior.
+
+**Result:** Documentation-only anchor added. No runtime behavior changed.
+
+**Regressions / follow-ups:** None.
