@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-07. Master at `07cb263`. Suite 1716/1716 unit + 58/58 semantic. Items 1-11, 14-16, 18-23 closed across seven batches. Remaining open: 12, 13, 17, 24. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
+**Last sync:** 2026-05-08. Runtime close-out reached `4789de7`; post-closeout docs-only baseline `526610c` is 1717/1717 unit + 58/58 semantic. Items 1-11, 14-16, 18-23 closed across seven batches. Remaining open: 12, 13, 17, 24. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
 
 ## Priority order
 
@@ -17,16 +17,16 @@ P1 (UX / observability):
 4. ~~Consolidation deletes original entries~~ **— closed `409fe9c` (post-deletion cap check + audit-trail success message)**
 5. ~~Status mapping at observer site upgraded to 4-state~~ **— closed `64e5eef`**
 6. ~~Better confidence ramp-up for cross-project promotion~~ **— closed `d24efee` (tunables exposed; defaults preserved pending soak data)**
-19. MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped) **[soak 2026-05-07]**
+19. ~~MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped)~~ **[soak 2026-05-07] — closed `db967ed` → `07cb263`**
 22. ~~Mid-turn context pruning anomaly during long autonomous exploration~~ **[soak 2026-05-07] — closed `c6412ce` (real bug; current-turn boundary protection in microcompact)**
 23. ~~FileRead throws instead of returning `{status: error}` envelope on missing file~~ **— closed `d2e1e92`**
 
 P2 (architectural extensions):
-7. Pick `review-memory` vs `review-skill` based on child shape (currently always `review-memory`)
-8. Per-child trace files in addition to consolidated parent trace
+7. ~~Pick `review-memory` vs `review-skill` based on child shape~~ **— closed `2df9da7`**
+8. ~~Per-child trace files in addition to consolidated parent trace~~ **— closed `1001237`**
 9. ~~`ReviewForkPromptContext` field rename~~ **— closed `94eea94` (renamed to primaryFile/secondaryFile)**
-10. Synthesizer dispatch rhythm — currently user-turn only; activity-burst trigger missing
-11. Concurrency between multiple `sov` sessions writing to same observations.jsonl
+10. ~~Synthesizer dispatch rhythm — currently user-turn only; activity-burst trigger missing~~ **— closed `a8d4ce3`**
+11. ~~Concurrency between multiple `sov` sessions writing to same observations.jsonl~~ **— closed `8e86e61` (verified safe)**
 
 P3 (qwen-amendment deepenings — orthogonal to 13.x):
 12. Microcompaction (Phase 10 deepening)

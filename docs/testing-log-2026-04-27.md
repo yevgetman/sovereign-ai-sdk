@@ -1895,3 +1895,20 @@ Implementation backlogs from these findings live in
 **Result:** Documentation-only anchor added. No runtime behavior changed.
 
 **Regressions / follow-ups:** None.
+
+## 2026-05-08 — Phase 13.4/13.5 status reconciliation
+
+**Scope:** Reconciled runtime status docs against `git log` and the implemented code after the 13.4/13.5 discrepancy surfaced. Updated harness docs to mark Phase 13.4 as shipped, Phase 13.5 as the next canonical phase, and the post-13.4 backlog as 20/24 closed with remaining items 12, 13, 17, and 24. Also updated the sister docs repo build plan/status pages in commit `cee4969`.
+
+**Environment:** Bun on darwin, local master branch.
+
+**Commands run:**
+- `bun run lint` — pass; 2 pre-existing warnings in `src/permissions/shellSemantics.ts`.
+- `bun run typecheck` — pass.
+- `bun run test` — 1717/1717 pass.
+
+**Manual coverage:** `rg` scan for stale non-historical references to Phase 13.4 as "next/planned", stale 54/54 semantic count in current coverage docs, stale six-agent references, stale 1716/1716 current-suite references, and unstruck completed backlog items.
+
+**Result:** Status docs now distinguish runtime close-out (`4789de7`), post-closeout docs-only baseline (`526610c`), Phase 13.4 completion, and Phase 13.5 as next.
+
+**Regressions / follow-ups:** None.

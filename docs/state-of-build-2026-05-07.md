@@ -1,8 +1,9 @@
 # State of the build — 2026-05-07 close-out
 
-**Master HEAD:** `4789de7`
-**Suite:** 1716/1716 unit + 58/58 semantic
-**Sov binary:** in sync with master
+**Runtime close-out HEAD:** `4789de7`
+**Post-closeout docs-only baseline:** `526610c`
+**Suite:** 1717/1717 unit + 58/58 semantic
+**Sov binary:** in sync with latest runtime-affecting master (`4789de7`)
 
 This is a session close-out snapshot. The next session boots from CLAUDE.md and should read this file to know where things stand without rederiving from `git log`.
 
@@ -60,7 +61,7 @@ None of these block Phase 13.5.
 ```
 bun run typecheck   # tsc --noEmit, must exit 0
 bun run lint        # biome check, 2 pre-existing warnings in src/permissions/shellSemantics.ts (non-null assertions) — accept those
-bun test            # 1716/1716 unit
+bun test            # 1717/1717 unit
 bun run test:semantic   # 58/58 (~5 min, ~$0.87 informational on subscription)
 ```
 
