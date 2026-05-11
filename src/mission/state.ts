@@ -8,6 +8,7 @@ import {
   readFileSync,
   renameSync,
   rmdirSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import {
@@ -33,15 +34,7 @@ export function loadMissionState(dir: string): MissionFiles {
   const missionPath = missionMdPath(dir);
   if (!existsSync(missionPath)) throw new Error(`mission.md not found in ${dir}`);
 
-  const statePath = stateJsonPath(dir);
-  if (!existsSync(statePath)) throw new Error(`state.json not found in ${dir}`);
-
-  let state: MissionStateJson;
-  try {
-    state = JSON.parse(readFileSync(statePath, 'utf8')) as MissionStateJson;
-  } catch {
-    throw new Error(`state.json in ${dir} is not valid JSON`);
-  }
+  const state = readState(dir);
   if (!VALID_FSM_STATES.has(state.fsmState)) {
     throw new Error(`invalid fsmState "${state.fsmState}" in ${dir}/state.json`);
   }
@@ -57,10 +50,22 @@ export function loadMissionState(dir: string): MissionFiles {
 }
 
 export function writeMissionState(dir: string, patch: Partial<MissionStateJson>): void {
-  const statePath = stateJsonPath(dir);
-  const current: MissionStateJson = JSON.parse(readFileSync(statePath, 'utf8')) as MissionStateJson;
+  const current = readState(dir);
   const updated: MissionStateJson = { ...current, ...patch };
-  atomicWrite(statePath, JSON.stringify(updated, null, 2));
+  if (!VALID_FSM_STATES.has(updated.fsmState)) {
+    throw new Error(`invalid fsmState "${updated.fsmState}"`);
+  }
+  atomicWrite(stateJsonPath(dir), JSON.stringify(updated, null, 2));
+}
+
+function readState(dir: string): MissionStateJson {
+  const statePath = stateJsonPath(dir);
+  if (!existsSync(statePath)) throw new Error(`state.json not found in ${dir}`);
+  try {
+    return JSON.parse(readFileSync(statePath, 'utf8')) as MissionStateJson;
+  } catch {
+    throw new Error(`state.json in ${dir} is not valid JSON`);
+  }
 }
 
 export function appendWakeLog(dir: string, entry: WakeLogEntry): void {
@@ -88,7 +93,16 @@ export function releaseLock(dir: string): void {
 function atomicWrite(path: string, content: string): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, content, 'utf8');
-  renameSync(tmp, path);
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // best-effort cleanup
+    }
+    throw err;
+  }
 }
 
 function readRecentWakeLog(dir: string): WakeLogEntry[] {
@@ -100,7 +114,13 @@ function readRecentWakeLog(dir: string): WakeLogEntry[] {
       .map((l) => l.trim())
       .filter(Boolean);
     const tail = lines.slice(-WAKE_LOG_TAIL_LIMIT);
-    return tail.map((l) => JSON.parse(l) as WakeLogEntry);
+    return tail.flatMap((l) => {
+      try {
+        return [JSON.parse(l) as WakeLogEntry];
+      } catch {
+        return [];
+      }
+    });
   } catch {
     return [];
   }

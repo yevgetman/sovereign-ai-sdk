@@ -18,7 +18,7 @@ import {
   releaseLock,
   writeMissionState,
 } from '../../src/mission/state.js';
-import type { MissionStateJson, WakeLogEntry } from '../../src/mission/types.js';
+import type { MissionFsmState, MissionStateJson, WakeLogEntry } from '../../src/mission/types.js';
 
 describe('mission paths', () => {
   test('missionMdPath returns correct path', () => {
@@ -124,6 +124,27 @@ describe('loadMissionState', () => {
     expect(files.recentWakeLog[0]?.wakeNumber).toBe(3);
     expect(files.recentWakeLog[4]?.wakeNumber).toBe(7);
   });
+
+  test('skips malformed lines in wake_log.jsonl without discarding good entries', () => {
+    const dir = makeTestDir();
+    writeFileSync(join(dir, 'mission.md'), '# Test');
+    writeFileSync(join(dir, 'state.json'), JSON.stringify(VALID_STATE));
+    const goodEntry: WakeLogEntry = {
+      wakeNumber: 1,
+      timestamp: '2026-05-11T00:00:00.000Z',
+      fsmStateBefore: 'active',
+      fsmStateAfter: 'active',
+      durationMs: 1000,
+    };
+    writeFileSync(
+      join(dir, 'wake_log.jsonl'),
+      `${JSON.stringify(goodEntry)}\nNOT_JSON\n${JSON.stringify({ ...goodEntry, wakeNumber: 2 })}\n`,
+    );
+    const files = loadMissionState(dir);
+    expect(files.recentWakeLog).toHaveLength(2);
+    expect(files.recentWakeLog[0]?.wakeNumber).toBe(1);
+    expect(files.recentWakeLog[1]?.wakeNumber).toBe(2);
+  });
 });
 
 describe('writeMissionState', () => {
@@ -141,6 +162,15 @@ describe('writeMissionState', () => {
     expect(files.state.fsmState).toBe('active');
     expect(files.state.wakeCount).toBe(1);
     expect(files.state.goal).toBe(VALID_STATE.goal);
+  });
+
+  test('throws on invalid fsmState in patch', () => {
+    const dir = makeTestDir();
+    writeFileSync(join(dir, 'mission.md'), '# Test');
+    writeFileSync(join(dir, 'state.json'), JSON.stringify(VALID_STATE));
+    expect(() => writeMissionState(dir, { fsmState: 'bogus' as MissionFsmState })).toThrow(
+      /invalid fsmState/,
+    );
   });
 });
 
