@@ -65,6 +65,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   const recordTrace = makeTraceRecorder(params.traceRecorder);
   const loopDetector = new LoopDetectorState();
   let loopDetectionCount = 0;
+  let totalToolCallCount = 0;
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
@@ -419,6 +420,15 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           });
           yield { type: 'microcompact', info: mcResult } as StreamEvent;
         }
+      }
+      // Backlog item 24 — checkin guard. Accumulate per-turn tool-call count
+      // after microcompaction so history is clean before we pause.
+      totalToolCallCount += toolUseBlocks.length;
+      if (
+        params.maxToolCallsBeforeCheckin !== undefined &&
+        totalToolCallCount >= params.maxToolCallsBeforeCheckin
+      ) {
+        return { reason: 'checkin', toolCallCount: totalToolCallCount };
       }
     } catch (err) {
       if (signal?.aborted) {

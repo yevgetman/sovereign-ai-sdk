@@ -9,7 +9,7 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { query } from '../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
+import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../src/core/types.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
@@ -66,6 +66,34 @@ function oneToolThenDoneProvider(onRequest: (req: ProviderRequest) => void): LLM
       return completedAnswer;
     },
   };
+}
+
+/** Provider that returns N consecutive tool-use turns, then a final completion. */
+function nToolTurnsThenDoneProvider(toolTurns: number): LLMProvider {
+  let calls = 0;
+  return {
+    name: 'n-tool-then-done',
+    async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      calls++;
+      if (calls <= toolTurns) {
+        yield { type: 'message_start' };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        yield { type: 'assistant_message', message: toolUseAnswer };
+        return toolUseAnswer;
+      }
+      for (const ev of completedEvents) yield ev;
+      return completedAnswer;
+    },
+  };
+}
+
+async function drainToTerminal(
+  gen: AsyncGenerator<StreamEvent | Message, Terminal>,
+): Promise<Terminal> {
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) return step.value;
+  }
 }
 
 const completedAnswer: AssistantMessage = {
@@ -456,5 +484,60 @@ describe('query() — Phase 2 turn loop', () => {
     const step = await gen.next();
     expect(step.done).toBe(true);
     expect((step.value as { reason: string }).reason).toBe('error');
+  });
+});
+
+describe('maxToolCallsBeforeCheckin', () => {
+  const seed: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'go' }] }];
+
+  test('returns checkin terminal when tool-call count reaches limit', async () => {
+    // 3 tool-use turns; limit 2 → checkin fires after turn 2
+    const provider = nToolTurnsThenDoneProvider(3);
+    const gen = query({
+      provider,
+      model: 'test',
+      messages: seed,
+      systemPrompt: [{ text: 'sys', cacheable: false }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 1000,
+      maxToolCallsBeforeCheckin: 2,
+    });
+    const terminal = await drainToTerminal(gen);
+    expect(terminal.reason).toBe('checkin');
+    expect(terminal.toolCallCount).toBe(2);
+  });
+
+  test('does not checkin when limit is not reached', async () => {
+    // 1 tool-use turn then completes; limit 5 → runs to completion
+    const provider = nToolTurnsThenDoneProvider(1);
+    const gen = query({
+      provider,
+      model: 'test',
+      messages: seed,
+      systemPrompt: [{ text: 'sys', cacheable: false }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 1000,
+      maxToolCallsBeforeCheckin: 5,
+    });
+    const terminal = await drainToTerminal(gen);
+    expect(terminal.reason).toBe('completed');
+  });
+
+  test('without maxToolCallsBeforeCheckin set, never checkins', async () => {
+    // 5 tool-use turns; no limit → runs to completion
+    const provider = nToolTurnsThenDoneProvider(5);
+    const gen = query({
+      provider,
+      model: 'test',
+      messages: seed,
+      systemPrompt: [{ text: 'sys', cacheable: false }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 1000,
+    });
+    const terminal = await drainToTerminal(gen);
+    expect(terminal.reason).toBe('completed');
   });
 });
