@@ -26,6 +26,7 @@ export type AgentDefinition = {
   role?: string;
   maxTurns: number;
   readOnly: boolean;
+  supportsMissionState: boolean;
   path: string;
   realpath: string;
   dir: string;

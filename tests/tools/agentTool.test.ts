@@ -18,6 +18,7 @@ function makeAgent(name: string): AgentDefinition {
     allowedTools: ['Read'],
     maxTurns: 5,
     readOnly: true,
+    supportsMissionState: false,
     path: `/tmp/${name}.md`,
     realpath: `/tmp/${name}.md`,
     dir: '/tmp',

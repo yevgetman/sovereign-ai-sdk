@@ -32,6 +32,7 @@ const FrontmatterSchema = z
     role: z.string().optional(),
     maxTurns: z.number().int().positive().default(DEFAULT_MAX_TURNS),
     readOnly: z.boolean().default(false),
+    supportsMissionState: z.boolean().default(false),
   })
   .passthrough();
 
@@ -135,6 +136,7 @@ async function loadAgentFile(
       ...(frontmatter.role !== undefined ? { role: frontmatter.role } : {}),
       maxTurns: frontmatter.maxTurns,
       readOnly: frontmatter.readOnly,
+      supportsMissionState: frontmatter.supportsMissionState,
       path,
       realpath: rp,
       dir: dirname(path),

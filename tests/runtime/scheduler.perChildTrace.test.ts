@@ -32,6 +32,7 @@ function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
     allowedTools: [],
     maxTurns: 5,
     readOnly: true,
+    supportsMissionState: false,
     path: '/tmp/explore.md',
     realpath: '/tmp/explore.md',
     dir: '/tmp',

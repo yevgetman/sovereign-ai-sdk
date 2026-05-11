@@ -23,6 +23,7 @@ function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
     allowedTools: ['Read', 'Grep'],
     maxTurns: 5,
     readOnly: true,
+    supportsMissionState: false,
     path: '/tmp/explore.md',
     realpath: '/tmp/explore.md',
     dir: '/tmp',

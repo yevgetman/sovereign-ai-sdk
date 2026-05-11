@@ -30,6 +30,7 @@ describe('bundle-default reference agents', () => {
         'review-consolidate',
         'review-memory',
         'review-skill',
+        'scheduled-mission',
         'verify',
       ]);
       for (const a of registry.agents) {
@@ -37,7 +38,11 @@ describe('bundle-default reference agents', () => {
         expect(a.trustTier).toBe('builtin');
         expect(a.systemPrompt.length).toBeGreaterThan(100);
         expect(a.allowedTools.length).toBeGreaterThan(0);
-        expect(a.role).toBeDefined();
+        // scheduled-mission is name-invoked (--agent scheduled-mission), not
+        // capability-routed via a role, so role is intentionally absent.
+        if (a.name !== 'scheduled-mission') {
+          expect(a.role).toBeDefined();
+        }
       }
     } finally {
       rmSync(tmpHome, { recursive: true, force: true });
