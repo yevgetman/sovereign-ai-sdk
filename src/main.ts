@@ -180,6 +180,14 @@ async function main(argv: string[]): Promise<void> {
       '--replay-fixture <path>',
       'replay a previously-captured fixture instead of resolving a real provider (no LLM calls)',
     )
+    .option(
+      '--agent <name>',
+      "run as a named agent (uses the agent definition's system prompt and allowed tools)",
+    )
+    .option(
+      '--state-dir <path>',
+      'scheduled-mission mode: path to a mission directory (requires --agent with supportsMissionState:true)',
+    )
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
@@ -198,6 +206,8 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.legacyInput === true ? { legacyInput: true } : {}),
         ...(opts.captureFixture !== undefined ? { captureFixturePath: opts.captureFixture } : {}),
         ...(opts.replayFixture !== undefined ? { replayFixturePath: opts.replayFixture } : {}),
+        ...(opts.agent !== undefined ? { agentName: opts.agent } : {}),
+        ...(opts.stateDir !== undefined ? { stateDir: opts.stateDir } : {}),
       });
     });
 
@@ -460,6 +470,36 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.keepCache === true ? { keepCache: true } : {}),
       });
       process.exit(result.exitCode);
+    });
+
+  const missionCmd = program.command('mission').description('Manage scheduled autonomous missions');
+
+  missionCmd
+    .command('init <dir>')
+    .description('Scaffold a new mission directory with mission.md, plan.md, notes.md, state.json')
+    .option('--goal <text>', 'mission goal statement (required)')
+    .option('--per-wake-turns <n>', 'tool-call budget per wake', parsePositiveInt, 10)
+    .option('--force', 'overwrite an existing state.json')
+    .action(async (dir: string, opts) => {
+      if (opts.goal === undefined) {
+        process.stderr.write('sov mission init: --goal <text> is required\n');
+        process.exit(1);
+      }
+      const { runMissionInit, formatMissionInitResult } = await import('./cli/missionInit.js');
+      const result = runMissionInit({
+        dir,
+        goal: opts.goal,
+        ...(opts.perWakeTurns !== undefined ? { perWakeTurnBudget: opts.perWakeTurns } : {}),
+        ...(opts.force === true ? { force: true } : {}),
+      });
+      const out = formatMissionInitResult(result);
+      if (result.ok) {
+        process.stdout.write(out);
+        process.exit(0);
+      } else {
+        process.stderr.write(out);
+        process.exit(1);
+      }
     });
 
   await program.parseAsync(argv);

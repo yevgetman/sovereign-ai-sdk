@@ -6,7 +6,8 @@
   "type": "module",
   "module": "src/main.ts",
   "bin": {
-    "sov": "./src/main.ts"
+    "sov": "./src/main.ts",
+    "harness": "./src/main.ts"
   },
   "engines": {
     "bun": ">=1.2.0"

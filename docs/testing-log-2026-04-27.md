@@ -1912,3 +1912,25 @@ Implementation backlogs from these findings live in
 **Result:** Status docs now distinguish runtime close-out (`4789de7`), post-closeout docs-only baseline (`526610c`), Phase 13.4 completion, and Phase 13.5 as next.
 
 **Regressions / follow-ups:** None.
+
+## 2026-05-11 — Phase 13.5 Task 7 (mission init CLI + chat agent/state-dir flags)
+
+**Scope:** Added `sov mission init <dir> --goal "..."` subcommand for scaffolding mission directories, wired `--agent <name>` and `--state-dir <path>` flags into `sov chat` (forwarded to `runRepl({...})`), and exposed a `harness` bin alias alongside `sov` in `package.json`.
+
+**Environment:** Bun on darwin, local master branch.
+
+**Commands run:**
+- `bun test tests/mission/missionInit.test.ts` — 6/6 pass (TDD RED then GREEN cycle).
+- `bun run typecheck` — pass.
+- `bun run lint` — pass (2 pre-existing warnings in `src/permissions/shellSemantics.ts`; new files clean after `biome check --fix` for import ordering).
+- `bun run test` — 1769/1769 pass (was 1717/1717; +52 net counted from new mission tests + earlier 13.5 task counts already on master).
+
+**Manual coverage:**
+- `bun src/main.ts mission --help` — confirmed `init` subcommand registered.
+- `bun src/main.ts mission init --help` — confirmed `--goal`, `--per-wake-turns`, `--force` options.
+- `bun src/main.ts chat --help | grep -E "agent|state-dir"` — confirmed both new flags registered.
+- End-to-end smoke: `bun src/main.ts mission init /tmp/.../smoke --goal "Smoke test goal."` produced mission.md / plan.md / notes.md / state.json with `fsmState: planning`, `wakeCount: 0`, `perWakeTurnBudget: 10`.
+
+**Result:** Mission scaffolding works end-to-end; `--agent` / `--state-dir` plumb through to `runRepl`. Bundled `scheduled-mission` agent is now reachable via the CLI.
+
+**Regressions / follow-ups:** None.
