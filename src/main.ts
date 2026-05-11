@@ -83,6 +83,11 @@ const PARSED_ARGV = resolveAndApplyProfile(process.argv);
 const VERSION = '0.0.1';
 const DEFAULT_MAX_TOKENS = 12000;
 const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
+// Must match DEFAULT_PER_WAKE_TURN_BUDGET exported from src/cli/missionInit.ts.
+// Defined here as a literal because missionInit.ts is imported lazily (inside
+// the action handler) and Commander's .option() default must be a value, not
+// a promise.
+const DEFAULT_PER_WAKE_TURN_BUDGET = 10;
 
 /**
  * Walk up from `start` looking for a directory that contains `index.yaml`
@@ -478,7 +483,12 @@ async function main(argv: string[]): Promise<void> {
     .command('init <dir>')
     .description('Scaffold a new mission directory with mission.md, plan.md, notes.md, state.json')
     .option('--goal <text>', 'mission goal statement (required)')
-    .option('--per-wake-turns <n>', 'tool-call budget per wake', parsePositiveInt, 10)
+    .option(
+      '--per-wake-turns <n>',
+      'tool-call budget per wake',
+      parsePositiveInt,
+      DEFAULT_PER_WAKE_TURN_BUDGET,
+    )
     .option('--force', 'overwrite an existing state.json')
     .action(async (dir: string, opts) => {
       if (opts.goal === undefined) {

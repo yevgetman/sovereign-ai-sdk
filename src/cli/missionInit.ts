@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
 import { missionMdPath, notesMdPath, planMdPath, stateJsonPath } from '../mission/paths.js';
 import type { MissionStateJson } from '../mission/types.js';
 
+export const DEFAULT_PER_WAKE_TURN_BUDGET = 10;
+
 export type MissionInitOpts = {
   dir: string;
   goal: string;
@@ -53,7 +55,7 @@ export function runMissionInit(opts: MissionInitOpts): MissionInitResult {
   const state: MissionStateJson = {
     fsmState: 'planning',
     wakeCount: 0,
-    perWakeTurnBudget: opts.perWakeTurnBudget ?? 10,
+    perWakeTurnBudget: opts.perWakeTurnBudget ?? DEFAULT_PER_WAKE_TURN_BUDGET,
     goal: opts.goal,
     createdAt: now,
     updatedAt: now,

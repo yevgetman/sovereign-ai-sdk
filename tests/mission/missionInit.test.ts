@@ -1,14 +1,24 @@
 // tests/mission/missionInit.test.ts
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { formatMissionInitResult, runMissionInit } from '../../src/cli/missionInit.js';
 
+const dirsToClean: string[] = [];
+
+afterEach(() => {
+  for (const dir of dirsToClean) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  dirsToClean.length = 0;
+});
+
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `sov-mission-init-test-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
+  dirsToClean.push(dir);
   return dir;
 }
 
