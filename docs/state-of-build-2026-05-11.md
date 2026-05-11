@@ -10,7 +10,7 @@ This is a session close-out snapshot. The next session boots from CLAUDE.md and 
 
 Phases 0 through 13.5 are shipped. The harness can now run overnight autonomous missions: `sov chat --agent scheduled-mission --state-dir <path>` acquires an overlap lock, loads prior mission state, injects it into the system prompt, runs one bounded wake, parses the `MISSION_TRANSITION=<state>` sentinel, writes back state + wake log, and exits — ready to be woken again by launchd/cron.
 
-The 4 open P3+ backlog items (12, 13, 17, 24) remain untouched. None block further build-plan phases.
+Backlog items 12 and 13 closed 2026-05-11 (microcompaction settings wiring + post-compaction guard; shell AST analysis confirmed done). 2 open P3+ backlog items remain (17, 24). None block further build-plan phases.
 
 ## What shipped today (2026-05-11)
 
@@ -61,7 +61,7 @@ Unchanged from the 2026-05-07 snapshot. See `docs/post-phase-13-4-backlog.md`.
 ## Where to start the next session
 
 - **If continuing the build plan:** read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and start the next phase after 13.5.
-- **If picking up backlog:** items 12, 13, 24 are half-day each; item 17 is multi-day.
+- **If picking up backlog:** items 12 and 13 are closed; item 24 done; item 17 is multi-day.
 - **If doing a soak / validation:** run a live mission end-to-end: `sov mission init /tmp/sov-soak --goal "Count .ts files under src/ and write the count to count.txt" && sov chat --agent scheduled-mission --state-dir /tmp/sov-soak` — one wake should create the file.
 
 ## Test-gate baseline

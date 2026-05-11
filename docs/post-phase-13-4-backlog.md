@@ -205,16 +205,14 @@ These are documented in `~/code/sovereign-ai-docs/harness/docs/runtime/qwen-amen
 ### 12. Microcompaction (Phase 10 deepening)
 
 - Priority: P3
-- Status: open
+- Status: **complete (2026-05-11, commits `194b4e3` → `cd5a37c`)** — `src/compact/microcompact.ts` (184 lines) delivered the full qwen-amendment spec: context-percentage trigger, per-part clearing, compactable tool set, keep-recent, current-turn protection. Two gaps discovered during backlog audit and closed 2026-05-11: (1) `userSettings.microcompaction` was parsed but never passed to `query()` — fixed by adding `buildMicrocompactConfig()` and wiring it at the call site; (2) post-compaction guard (run microcompaction on freshly rebuilt `[summary, ...tail]` after full compaction) was unimplemented — added to `compactNow()` in `terminalRepl.ts`.
 - Source: qwen-amendment-build-plan
-- Notes: We already have basic microcompaction (`src/core/query.ts:330+`). The qwen-amendment deepening adds tool-result-aware compaction strategies. ~1 session.
 
 ### 13. Shell AST analysis (Phase 7 deepening)
 
 - Priority: P3
-- Status: open
+- Status: **complete (2026-04-28, commit `194b4e3`)** — `src/permissions/shellSemantics.ts` (437 lines, 233 test lines) delivered the full qwen-amendment spec: hand-written quote-aware tokenizer, 60+ command handlers (read/write/edit/web/git), transparent prefix stripping (sudo/timeout/env/nice/nohup), redirect-aware write promotion, pattern-first grep path extraction, unsafe-pattern detection. Backlog status was stale — implementation predated the backlog item.
 - Source: qwen-amendment-build-plan
-- Notes: Adds AST-based shell-command analysis (e.g., `rm -rf` detection at the AST level rather than regex). ~1 session.
 
 ---
 
