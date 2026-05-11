@@ -1,36 +1,37 @@
 # State of the build — 2026-05-11 close-out
 
-**Phase 13.5 HEAD:** `9aef892`
-**Suite:** 1769/1769 unit + 58/58 semantic (semantic suite unchanged — agents discoverability test extended to cover `scheduled-mission`)
-**Sov binary:** in sync with master (`9aef892`), `harness` alias installed alongside `sov`
+**Phase 16.0a HEAD:** `21ee4c2`
+**Suite:** 1805/1805 unit + 58/58 semantic (semantic suite unchanged — Phase 16.0a has no agent-facing surfaces)
+**Sov binary:** in sync with master (`21ee4c2`), `harness` alias installed alongside `sov`
 
 This is a session close-out snapshot. The next session boots from CLAUDE.md and should read this file first.
 
 ## Where we are
 
-Phases 0 through 13.5 are shipped. The harness can now run overnight autonomous missions: `sov chat --agent scheduled-mission --state-dir <path>` acquires an overlap lock, loads prior mission state, injects it into the system prompt, runs one bounded wake, parses the `MISSION_TRANSITION=<state>` sentinel, writes back state + wake log, and exits — ready to be woken again by launchd/cron.
+Phases 0 through 13.5 and Phase 16.0a are shipped. The harness can now run overnight autonomous missions (Phase 13.5) and has the daemon infrastructure skeleton (Phase 16.0a): channel types, LRU session cache, approval queue, typed event bus, `startDaemon()` runner, and `harness daemon` CLI command. Phase 16.0b (Ink TUI as foreground subscriber of the daemon bus) is the logical next step.
 
 Backlog items 12 and 13 closed 2026-05-11 (microcompaction settings wiring + post-compaction guard; shell AST analysis confirmed done). 1 open P3+ backlog item remains (17). None block further build-plan phases.
 
 ## What shipped today (2026-05-11)
 
-Phase 13.5 — scheduled-mission sub-agents. Eight tasks via subagent-driven development.
+### Phase 16.0a — Daemon infrastructure skeleton. Five tasks via subagent-driven development.
 
 | Commit | Summary |
 |---|---|
-| `fdf60d7` | `src/mission/types.ts` + `src/mission/paths.ts` — all mission types and 6 canonical path helpers |
-| `6adc7d9` | `src/mission/state.ts` — `loadMissionState`, `writeMissionState`, `appendWakeLog`, `acquireLock`, `releaseLock` |
-| `5e51baa` | Fix state.ts: per-line malformed-entry isolation in wake-log reader, `.tmp` cleanup on rename failure, `fsmState` validation in writer |
-| `d8685f8` | `src/mission/fsm.ts` — `shouldRun`, `applyTransition`, full transition table |
-| `8938bd4` | `src/mission/segments.ts` — `buildMissionSegments` → cacheable goal/plan/state + ephemeral notes/wake-log `SystemSegment[]` |
-| `cf20fa1` | `AgentDefinition.supportsMissionState: boolean`; FrontmatterSchema updated; `bundle-default/agents/scheduled-mission.md`; 7 test fixtures updated |
-| `c0f9be2` | `terminalRepl.ts`: `ReplOpts.agentName?` + `stateDir?`; mission lifecycle (lock, FSM guard, segment injection, tool restriction via `buildToolScope`, auto-wake, sentinel + notes parsing, state write-back, wake-log append) |
-| `8e170b5` | Fix terminalRepl.ts: try/finally wraps full post-mission-setup body to guarantee lock release on any exception in the ~600-line setup stretch |
-| `8d7f293` | `src/cli/missionInit.ts` + `tests/mission/missionInit.test.ts`; `--agent`/`--state-dir` flags on `sov chat`; `sov mission init` subcommand; `harness` bin alias in `package.json` |
-| `eb8b893` | Extract `DEFAULT_PER_WAKE_TURN_BUDGET` constant; add `afterEach` cleanup in missionInit tests |
-| `9aef892` | Docs: semantic testing mapping table, testing log, chat command description updated to surface `--state-dir` in `harness --help` |
+| `e457d29` | `src/channels/types.ts` + `sessionKey.ts` + `delivery.ts` — `InboundMessage`, `ChannelAdapter`, `SecretTarget`, `DeliveryResult`; `buildSessionKey`; `send()` with local outbox |
+| `4c2300a` | `src/daemon/sessionCache.ts` — LRU `SessionCache` (Map-backed, delete+re-insert on access) |
+| `0248df1` | `src/daemon/approvalQueue.ts` — `ApprovalQueue` with TTL expiry, `enqueue/dequeue/pending/expireStale` |
+| `41f68a3` + `444d69c` | `src/daemon/types.ts` + `eventBus.ts` — `DaemonEvent` 7-variant union, `DaemonEventMap` mapped type, typed `DaemonEventBus` over Node `EventEmitter` |
+| `2bc0ffa` | `src/daemon/runner.ts` + `src/main.ts` — `startDaemon()` acquires PID lock, inits bus/cache/queue, emits `daemon_started`; `harness daemon` CLI with SIGTERM/SIGINT handling |
+| `21ee4c2` | Fix runner.ts: guard lock release in `try/finally` inside `shutdown()` so a throwing bus listener can't leak the lock |
 
-Net test delta: **1717 → 1769** (+52 new unit tests across mission types/paths/state/fsm/segments/loader/missionInit).
+Net test delta: **1769 → 1805** (+36 new unit tests across channels/sessionCache/approvalQueue/eventBus/runner).
+
+### Earlier this session (same date)
+
+Backlog items 12 and 13 (microcompaction settings wiring + post-compaction guard; shell AST analysis confirmed done): `cd5a37c` → `6667bb2`.
+
+Phase 13.5 — scheduled-mission sub-agents: `fdf60d7` → `9aef892` (+52 unit tests, 1717 → 1769).
 
 ## Open backlog
 
@@ -60,15 +61,15 @@ Items 12, 13, and 24 closed since the 2026-05-07 snapshot. See `docs/post-phase-
 
 ## Where to start the next session
 
-- **If continuing the build plan:** read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and start the next phase after 13.5.
-- **If picking up backlog:** items 12 and 13 are closed; item 24 done; item 17 is multi-day.
-- **If doing a soak / validation:** run a live mission end-to-end: `sov mission init /tmp/sov-soak --goal "Count .ts files under src/ and write the count to count.txt" && sov chat --agent scheduled-mission --state-dir /tmp/sov-soak` — one wake should create the file.
+- **If continuing the build plan:** Phase 16.0b (Ink TUI as foreground subscriber of the daemon bus) is the logical next step after 16.0a. Read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for the full phase spec.
+- **If picking up backlog:** item 17 (eval-gated auto-promote) is the only open item — it's multi-day.
+- **If doing a soak / validation:** `harness daemon` — run `harness daemon` in one terminal and confirm it starts, prints `[daemon] started (PID N)`, and exits cleanly on Ctrl-C / SIGTERM. A second invocation while the first is running should print `[daemon] daemon already running (PID N)` and exit 1.
 
 ## Test-gate baseline
 
 ```
 bun run typecheck   # tsc --noEmit, must exit 0
 bun run lint        # biome check, 2 pre-existing warnings in src/permissions/shellSemantics.ts — accept those
-bun test            # 1769/1769 unit
+bun test            # 1805/1805 unit
 bun run test:semantic   # 58/58 (~5 min, ~$0.87 informational on subscription)
 ```

@@ -8,6 +8,32 @@ Implementation backlogs from these findings live in
 [`phase-10-5-backlog.md`](phase-10-5-backlog.md) and
 [`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md).
 
+## 2026-05-11 — Phase 16.0a daemon skeleton
+
+**Scope:** Phase 16.0a — daemon infrastructure skeleton. Five tasks via subagent-driven development: channel types + `buildSessionKey` + `send()` local outbox; LRU `SessionCache`; `ApprovalQueue` with TTL expiry; typed `DaemonEventBus` + `DaemonEvent` union; `startDaemon()` runner + `harness daemon` CLI command. Each task: TDD (RED → GREEN), spec compliance review, code quality review, fix loop until approved.
+
+**Environment:** Bun on darwin, commits `e457d29` through `21ee4c2` on master.
+
+**Commands run:**
+- `bun test tests/channels/` — 5/5 pass (sessionKey + delivery)
+- `bun test tests/daemon/sessionCache.test.ts` — 5/5 pass
+- `bun test tests/daemon/approvalQueue.test.ts` — 5/5 pass
+- `bun test tests/daemon/eventBus.test.ts` — 3/3 pass
+- `bun test tests/daemon/runner.test.ts` — 4/4 pass
+- `bun run typecheck` — clean after each task
+- `bun run lint` — clean after each task (2 pre-existing warnings in shellSemantics.ts only; eventBus files required `bunx biome format --write` fix after implementer wrote multi-line method signatures)
+- `bun run test` (full suite) — **1805/1805** at close
+- `git push origin master` + `sov upgrade` — `21ee4c2` installed
+
+**Manual smoke tests:**
+- `bun src/main.ts --help | grep daemon` → `daemon   Start the harness daemon for the active profile.` ✓
+
+**Semantic audit:** Phase 16.0a adds no agent-facing tools, slash commands, permission rules, or context surfaces — all code is headless daemon infrastructure. Semantic suite unchanged at 58/58. Audit noted in `docs/semantic-testing.md`.
+
+**Regressions:** None observed.
+
+---
+
 ## Entry Format
 
 ```markdown

@@ -191,6 +191,10 @@ Phase 13.4 ships the instinct corpus, the `LEARNING_ONLY_TOOLS` pool export (fou
 | `tools.learning-cli-not-confused-with-slash-command` | Agent fabricates output for `/learning status` (not a slash command) or claims it is a registered slash command; the correct invocation is `harness learning status` / `sov learning status` at the CLI level. |
 | `tools.instinct-tools-described-as-internal-only` | Main agent incorrectly claims it can call `instinct_propose` or `instinct_update_confidence` directly; correct behavior is to report them absent from its pool (verified via HarnessInfo) and describe them as synthesizer-internal. |
 
+### Phase 16.0a — Daemon skeleton — 0 tests (audited, none required)
+
+Phase 16.0a ships the daemon infrastructure: channel types, `buildSessionKey`, `send()` with local outbox, LRU `SessionCache`, `ApprovalQueue` with TTL expiry, typed `DaemonEventBus`, `startDaemon()` runner, and `harness daemon` CLI command. None of these surfaces are agent-facing — the daemon infrastructure is headless (Phase 16.0b's Ink TUI is the foreground subscriber, not yet shipped). No new tools, slash commands, permission rules, or context surfaces were added. Unit tests in `tests/channels/` and `tests/daemon/` cover all behavior deterministically (1805/1805 unit suite). The semantic suite remains at **58/58**.
+
 ### Security-audit skill — 1 test
 
 The `/security-audit` skill (in `bundle-default/skills/`) provides threat-model scaffolding (actors → assets → exposure paths) and a per-finding verification gate to make a weaker model produce a defensible security audit. The skill prompt has hard rules: no fan-fiction, no platform mismatch (uname/sw_vers/etc/os-release first), no live secrets in artifacts, cite the verification command for every finding.
