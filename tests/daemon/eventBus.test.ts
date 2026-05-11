@@ -13,8 +13,7 @@ describe('DaemonEventBus', () => {
   test('off removes handler — no more deliveries after off', () => {
     const bus = new DaemonEventBus();
     const log: string[] = [];
-    const handler = (e: { type: 'daemon_stopping'; reason: string }) =>
-      log.push(e.reason);
+    const handler = (e: { type: 'daemon_stopping'; reason: string }) => log.push(e.reason);
     bus.on('daemon_stopping', handler);
     bus.off('daemon_stopping', handler);
     bus.emit({ type: 'daemon_stopping', reason: 'explicit' });

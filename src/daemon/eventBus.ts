@@ -7,18 +7,12 @@ import type { DaemonEvent, DaemonEventMap, DaemonEventType } from './types.js';
 export class DaemonEventBus {
   private readonly emitter = new EventEmitter();
 
-  on<T extends DaemonEventType>(
-    type: T,
-    handler: (event: DaemonEventMap[T]) => void,
-  ): this {
+  on<T extends DaemonEventType>(type: T, handler: (event: DaemonEventMap[T]) => void): this {
     this.emitter.on(type, handler);
     return this;
   }
 
-  off<T extends DaemonEventType>(
-    type: T,
-    handler: (event: DaemonEventMap[T]) => void,
-  ): this {
+  off<T extends DaemonEventType>(type: T, handler: (event: DaemonEventMap[T]) => void): this {
     this.emitter.off(type, handler);
     return this;
   }
