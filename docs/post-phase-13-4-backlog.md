@@ -329,7 +329,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 ### 24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control
 
 - Priority: P3
-- Status: open (discussion)
+- Status: **complete (2026-05-11, commits `3fa6f67` → `2e192fd`)** — `behavior.maxToolCallsBeforeCheckin` schema field, `Terminal.reason: 'checkin'` + `toolCallCount?`, per-turn counter in `query.ts` after microcompaction, REPL handler prints checkin message + sets `checkinPending`, `/continue` slash command (registered, `CommandContext.resumeCheckin?`), `runModelTurn(isContinuation: true)` path skips user-message push. 3 new schema tests, 3 query tests, 3 command tests. Suite 1778/1778. Known v0 limit: `checkinPending` not reset if user sends a new message instead of /continue.
 - Source: 2026-05-07 soak Agent G, case G4
 - Evidence: Vague prompt "do something useful" triggered 2-minute autonomous exploration with 14 tool calls costing $0.05. Reasonable agent behavior, but cost-aware users might want a configurable check-in point ("ask the user before continuing past N tool calls in a single turn").
 - Recommendation: Add `settings.behavior.maxToolCallsBeforeCheckin: number` (default unset = no limit). When set, the orchestrator interrupts the turn after N tool calls and emits a guidance message asking the user whether to continue. Could pair with a `/continue` slash verb that resumes the same turn.
@@ -347,7 +347,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 Pick any item by priority + effort match for your session length:
 - 30-min slot: (none currently open)
 - 1-2 hr slot: (none currently open)
-- Half-day slot: items 12, 13, 24
+- Half-day slot: items 12, 13
 - Multi-day: item 17
 
 Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.
