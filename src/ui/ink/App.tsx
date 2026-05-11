@@ -7,6 +7,7 @@
 
 import { Box, Text } from 'ink';
 import { useReducer } from 'react';
+import { Prompt } from './Prompt.js';
 import { Transcript } from './Transcript.js';
 import { initialUiState, reduce } from './state/reducer.js';
 
@@ -16,7 +17,7 @@ type AppProps = {
 };
 
 export function App({ cwd, profile }: AppProps): JSX.Element {
-  const [state] = useReducer(reduce, {
+  const [state, dispatch] = useReducer(reduce, {
     ...initialUiState,
     statusLine: { cwd, profile },
   });
@@ -25,6 +26,10 @@ export function App({ cwd, profile }: AppProps): JSX.Element {
       <Box flexGrow={1}>
         <Transcript messages={state.transcript} />
       </Box>
+      <Prompt
+        onSubmit={(text) => dispatch({ type: 'user_input_submitted', text })}
+        onAbort={() => process.exit(0)}
+      />
       <Box>
         <Text dimColor>
           {state.statusLine.profile} · {state.statusLine.cwd}
