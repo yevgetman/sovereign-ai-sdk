@@ -124,6 +124,18 @@ const DebugModeSchema = z
   })
   .strict();
 
+/** Backlog item 24 — cost-control knobs for interactive sessions.
+ *  All fields optional; defaults documented at the call site. */
+const BehaviorSchema = z
+  .object({
+    /** When set, the turn loop pauses after this many cumulative tool
+     *  calls in a single user turn and asks the user whether to continue.
+     *  Default unset (no limit). Useful for vague prompts that might
+     *  trigger unintended long autonomous runs. */
+    maxToolCallsBeforeCheckin: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export const SettingsSchema = z
   .object({
     defaultProvider: z.string().optional(),
@@ -243,6 +255,7 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    behavior: BehaviorSchema.optional(),
     ui: UiSchema.optional(),
   })
   .strict();

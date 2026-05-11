@@ -68,8 +68,10 @@ export type StreamEvent =
   | { type: 'route_decision'; info: RouteDecisionInfo };
 
 export type Terminal = {
-  reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted';
+  reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted' | 'checkin';
   error?: Error;
+  /** Set when reason === 'checkin': cumulative tool calls in this user turn. */
+  toolCallCount?: number;
 };
 
 /**
@@ -95,6 +97,10 @@ export type QueryParams = {
   temperature?: number;
   /** Maximum turns for tool-use continuation. Default 10. */
   maxTurns?: number;
+  /** When set, the turn loop pauses after this many cumulative tool calls
+   *  and returns terminal reason 'checkin'. The caller (REPL) surfaces a
+   *  prompt and resumes via a follow-up query() call. Default unset. */
+  maxToolCallsBeforeCheckin?: number;
   /** AbortSignal for interruption. */
   signal?: AbortSignal;
   /** Permission decider invoked before every tool dispatch. When omitted,

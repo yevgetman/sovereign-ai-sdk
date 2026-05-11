@@ -193,3 +193,19 @@ describe('SettingsSchema — debugMode', () => {
     expect(() => SettingsSchema.parse({ debugMode: { unknown: true } })).toThrow();
   });
 });
+
+describe('SettingsSchema — behavior block', () => {
+  test('accepts behavior.maxToolCallsBeforeCheckin as a positive integer', () => {
+    expect(() =>
+      SettingsSchema.parse({ behavior: { maxToolCallsBeforeCheckin: 10 } }),
+    ).not.toThrow();
+  });
+
+  test('rejects behavior.maxToolCallsBeforeCheckin = 0 (must be positive)', () => {
+    expect(() => SettingsSchema.parse({ behavior: { maxToolCallsBeforeCheckin: 0 } })).toThrow();
+  });
+
+  test('rejects unknown keys under behavior (strict mode)', () => {
+    expect(() => SettingsSchema.parse({ behavior: { unknownField: true } })).toThrow();
+  });
+});

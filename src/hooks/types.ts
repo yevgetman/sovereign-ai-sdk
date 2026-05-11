@@ -39,7 +39,7 @@ export type HookEvent =
       hookEventName: 'Stop';
       session_id: string;
       cwd: string;
-      reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted';
+      reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted' | 'checkin';
     };
 
 /** Narrow a HookEvent to the union member for a given event name. */

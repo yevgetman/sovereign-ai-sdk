@@ -187,6 +187,8 @@ function mapTerminalToState(terminal: Terminal, userAborted: boolean): TaskState
     case 'error':
     case 'max_tokens':
       return 'failed';
+    case 'checkin':
+      return 'completed';
     default:
       return 'failed';
   }
