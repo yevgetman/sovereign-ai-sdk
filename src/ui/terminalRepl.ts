@@ -28,6 +28,12 @@ import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../command
 import { buildToolScope } from '../commands/toolScope.js';
 import type { CommandContext, PromptCommand } from '../commands/types.js';
 import { compactSession, shouldCompactProactively } from '../compact/compactor.js';
+import {
+  buildMicrocompactConfig,
+  buildToolNameMap,
+  microcompact,
+  shouldMicrocompact,
+} from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import { parsePermissionRules } from '../config/rules.js';
 import {
@@ -1406,6 +1412,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
           ...(userSettings.behavior?.maxToolCallsBeforeCheckin !== undefined
             ? { maxToolCallsBeforeCheckin: userSettings.behavior.maxToolCallsBeforeCheckin }
             : {}),
+          microcompactConfig: buildMicrocompactConfig(userSettings.microcompaction),
           signal: streamController.signal,
           cacheEnabled: opts.noCache !== true,
           memoryManager,
@@ -1727,6 +1734,23 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         { role: 'assistant', content: [{ type: 'text', text: result.summary }] },
         ...result.tail,
       );
+      // Post-compaction guard: clear stale tool results from the tail so the
+      // child session doesn't start bloated with results the summary already covers.
+      const mcCfg = buildMicrocompactConfig(userSettings.microcompaction);
+      if (mcCfg.enabled) {
+        const toolNameMap = buildToolNameMap(history);
+        if (shouldMicrocompact(history, mcCfg, toolNameMap)) {
+          const { messages: mcHistory, result: mcResult } = microcompact(
+            history,
+            toolNameMap,
+            mcCfg,
+          );
+          if (mcResult.cleared > 0) {
+            history.length = 0;
+            history.push(...mcHistory);
+          }
+        }
+      }
       return result;
     }
 

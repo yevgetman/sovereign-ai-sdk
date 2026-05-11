@@ -182,3 +182,29 @@ export function buildToolNameMap(messages: readonly Message[]): Map<string, stri
   }
   return map;
 }
+
+/**
+ * Merges user settings onto DEFAULT_MICROCOMPACT_CONFIG. Returns the default
+ * reference unchanged when no settings are provided, so callers can use
+ * reference equality to detect a no-op override.
+ *
+ * Settings field types match the Zod-inferred shape from
+ * `MicrocompactionSchema` (each field is `T | undefined` under
+ * `exactOptionalPropertyTypes`), so callers can pass `userSettings.microcompaction`
+ * directly without coercion.
+ */
+export function buildMicrocompactConfig(settings?: {
+  enabled?: boolean | undefined;
+  keepRecent?: number | undefined;
+  triggerThresholdPct?: number | undefined;
+}): MicrocompactConfig {
+  if (!settings) return DEFAULT_MICROCOMPACT_CONFIG;
+  return {
+    ...DEFAULT_MICROCOMPACT_CONFIG,
+    ...(settings.enabled !== undefined ? { enabled: settings.enabled } : {}),
+    ...(settings.keepRecent !== undefined ? { keepRecent: settings.keepRecent } : {}),
+    ...(settings.triggerThresholdPct !== undefined
+      ? { triggerThresholdPct: settings.triggerThresholdPct }
+      : {}),
+  };
+}

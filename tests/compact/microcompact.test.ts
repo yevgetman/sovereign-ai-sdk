@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   DEFAULT_MICROCOMPACT_CONFIG,
   type MicrocompactConfig,
+  buildMicrocompactConfig,
   buildToolNameMap,
   microcompact,
   shouldMicrocompact,
@@ -299,5 +300,42 @@ describe('microcompact', () => {
     // 4 prior-turn results are eligible; keepRecent=2; so 2 cleared.
     // 6 post-guidance results are protected by the boundary.
     expect(result.cleared).toBe(2);
+  });
+});
+
+describe('buildMicrocompactConfig', () => {
+  test('returns DEFAULT_MICROCOMPACT_CONFIG reference when settings undefined', () => {
+    const cfg = buildMicrocompactConfig(undefined);
+    expect(cfg).toBe(DEFAULT_MICROCOMPACT_CONFIG);
+  });
+
+  test('overrides enabled when specified', () => {
+    const cfg = buildMicrocompactConfig({ enabled: false });
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.keepRecent).toBe(DEFAULT_MICROCOMPACT_CONFIG.keepRecent);
+    expect(cfg.triggerThresholdPct).toBe(DEFAULT_MICROCOMPACT_CONFIG.triggerThresholdPct);
+    expect(cfg.compactableTools).toBe(DEFAULT_MICROCOMPACT_CONFIG.compactableTools);
+  });
+
+  test('overrides keepRecent when specified', () => {
+    const cfg = buildMicrocompactConfig({ keepRecent: 10 });
+    expect(cfg.keepRecent).toBe(10);
+    expect(cfg.enabled).toBe(DEFAULT_MICROCOMPACT_CONFIG.enabled);
+    expect(cfg.triggerThresholdPct).toBe(DEFAULT_MICROCOMPACT_CONFIG.triggerThresholdPct);
+  });
+
+  test('overrides triggerThresholdPct when specified', () => {
+    const cfg = buildMicrocompactConfig({ triggerThresholdPct: 60 });
+    expect(cfg.triggerThresholdPct).toBe(60);
+    expect(cfg.enabled).toBe(DEFAULT_MICROCOMPACT_CONFIG.enabled);
+    expect(cfg.keepRecent).toBe(DEFAULT_MICROCOMPACT_CONFIG.keepRecent);
+  });
+
+  test('overrides all specified fields simultaneously, preserves compactableTools', () => {
+    const cfg = buildMicrocompactConfig({ enabled: false, keepRecent: 3, triggerThresholdPct: 20 });
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.keepRecent).toBe(3);
+    expect(cfg.triggerThresholdPct).toBe(20);
+    expect(cfg.compactableTools).toBe(DEFAULT_MICROCOMPACT_CONFIG.compactableTools);
   });
 });
