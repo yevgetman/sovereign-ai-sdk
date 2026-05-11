@@ -43,6 +43,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   'context-budget': 'info',
   tasks: 'session',
   review: 'session',
+  continue: 'session',
   // model + config
   model: 'config',
   config: 'config',
@@ -102,6 +103,16 @@ export const COMMANDS: SlashCommand[] = [
     name: 'rollback',
     description: 'Switch back to the parent session after /compact.',
     call: async (_args, ctx) => ctx.rollback(),
+  },
+  {
+    type: 'local',
+    name: 'continue',
+    description: 'Resume a turn paused by the tool-call checkin limit.',
+    call: async (_args, ctx) => {
+      if (!ctx.resumeCheckin) return 'no pending checkin';
+      await ctx.resumeCheckin();
+      return '';
+    },
   },
   ...PICKER_COMMANDS,
   ...INFO_COMMANDS,

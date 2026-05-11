@@ -74,6 +74,10 @@ export type CommandContext = {
    *  `/expand` (most recent) or `/expand 3` (third-most-recent) to
    *  see full content for blocks the inline renderer truncated. */
   expandToolBlock: (n: number) => { ok: boolean; total: number };
+  /** Set by the REPL when a turn is paused at the tool-call checkin limit.
+   *  Calling it clears the pending flag and resumes the model turn.
+   *  Undefined when no checkin is pending. */
+  resumeCheckin?: () => Promise<void>;
 };
 
 /** Slash command that runs locally and returns display text. */
