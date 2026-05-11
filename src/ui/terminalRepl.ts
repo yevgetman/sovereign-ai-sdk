@@ -13,13 +13,14 @@
 //
 // Exit commands: `/quit`, `/exit`, `/q`, Ctrl-D.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SessionDb } from '../agent/sessionDb.js';
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { loadAgents } from '../agents/loader.js';
+import type { AgentDefinition } from '../agents/types.js';
 import { isDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
@@ -71,6 +72,17 @@ import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { resolveProjectScope } from '../memory/scope.js';
+import { applyTransition, shouldRun } from '../mission/fsm.js';
+import { notesMdPath } from '../mission/paths.js';
+import { buildMissionSegments } from '../mission/segments.js';
+import {
+  acquireLock,
+  appendWakeLog,
+  loadMissionState,
+  releaseLock,
+  writeMissionState,
+} from '../mission/state.js';
+import type { MissionFiles } from '../mission/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { buildReadlineAsker } from '../permissions/prompt.js';
@@ -158,6 +170,18 @@ export type ReplOpts = {
    *  this fixture. No LLM calls are made; the agent loop runs against
    *  canned events deterministically. */
   replayFixturePath?: string;
+  /** Phase 13.5 — name of the agent definition the session should run as.
+   *  Resolved through the loaded agent registry (project / user / bundle).
+   *  Required when `stateDir` is set. When supplied, the agent's
+   *  systemPrompt prefixes the standard system segments and the tool pool
+   *  is restricted to its `allowedTools` list. */
+  agentName?: string;
+  /** Phase 13.5 — path to a mission directory (mission.md / plan.md /
+   *  notes.md / state.json / wake_log.jsonl). When set, the REPL runs
+   *  in scheduled-mission mode: load the mission state, perform a single
+   *  bounded wake against the named agent, persist the sentinel + notes
+   *  produced by the agent, then exit. Requires `--agent`. */
+  stateDir?: string;
 };
 
 /** Write a bracketed status line (e.g. `[tool: ...]`, `[cleared ...]`,
@@ -452,7 +476,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     activeToolNames,
     activeToolsets,
   };
-  const finalPreliminaryToolPool = assembleToolPool(finalPreliminaryToolContext);
+  let finalPreliminaryToolPool = assembleToolPool(finalPreliminaryToolContext);
   if (
     opts.preflight !== false &&
     providerName === 'ollama' &&
@@ -473,6 +497,72 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       throw new Error(preflight.message);
     }
   }
+
+  // Phase 13.5 — mission mode setup. When --state-dir is set, load the
+  // mission directory contract files, gate on FSM terminal-state + overlap
+  // lock, and resolve the agent definition. The system prompt picks up
+  // the agent's prompt + mission segments below via openOrResumeSession.
+  let missionFiles: MissionFiles | undefined;
+  const wakeStartedAt = Date.now();
+  if (opts.stateDir !== undefined) {
+    if (opts.agentName === undefined) {
+      await memoryManager.onSessionEnd('mission-config-error');
+      await memoryManager.shutdown();
+      db.close();
+      throw new Error('--state-dir requires --agent');
+    }
+    missionFiles = loadMissionState(opts.stateDir);
+    if (!shouldRun(missionFiles.state.fsmState)) {
+      process.stdout.write(
+        `[mission] state is "${missionFiles.state.fsmState}" (terminal) — nothing to do\n`,
+      );
+      await memoryManager.onSessionEnd('mission-terminal');
+      await memoryManager.shutdown();
+      db.close();
+      return;
+    }
+    if (!acquireLock(opts.stateDir)) {
+      process.stdout.write('[mission] another wake is already running (lock held) — skipping\n');
+      await memoryManager.onSessionEnd('mission-locked');
+      await memoryManager.shutdown();
+      db.close();
+      return;
+    }
+  }
+
+  // Phase 13.5 — resolve agent definition when --agent is given.
+  const agentDef =
+    opts.agentName !== undefined ? loadedAgents.byName.get(opts.agentName) : undefined;
+  if (opts.agentName !== undefined && agentDef === undefined) {
+    if (opts.stateDir !== undefined) releaseLock(opts.stateDir);
+    await memoryManager.onSessionEnd('agent-not-found');
+    await memoryManager.shutdown();
+    db.close();
+    throw new Error(`agent "${opts.agentName}" not found`);
+  }
+  if (opts.stateDir !== undefined && agentDef !== undefined && !agentDef.supportsMissionState) {
+    releaseLock(opts.stateDir);
+    await memoryManager.onSessionEnd('agent-mission-unsupported');
+    await memoryManager.shutdown();
+    db.close();
+    throw new Error(`agent "${opts.agentName}" does not declare supportsMissionState: true`);
+  }
+
+  // Phase 13.5 — restrict the preliminary tool pool to the agent's
+  // allowedTools so the system-prompt's tool listing reflects the actual
+  // pool the agent will see. The fully-assembled `toolPool` is restricted
+  // again further down once canUseTool is built. Pre-canUseTool here we
+  // only need the filtered tool list; a no-op canUseTool satisfies the
+  // signature and is discarded.
+  if (agentDef !== undefined && agentDef.allowedTools.length > 0) {
+    const scoped = buildToolScope({
+      allowedTools: agentDef.allowedTools,
+      tools: finalPreliminaryToolPool,
+      canUseTool: async () => ({ behavior: 'allow' }),
+    });
+    finalPreliminaryToolPool = scoped.tools;
+  }
+
   const opened = openOrResumeSession(
     db,
     opts,
@@ -481,6 +571,8 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     finalPreliminaryToolPool,
     skills,
     projectScope,
+    agentDef,
+    missionFiles,
   );
   let activeSessionId = opened.sessionId;
   // Phase 10.6 — once the session id resolves, propagate it into the
@@ -733,7 +825,24 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // exploring and then accidentally reproduces it verbatim into a
   // generated artifact (e.g. a security audit report). Set
   // HARNESS_REDACTION=off to disable globally.
-  const canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
+  let canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
+
+  // Phase 13.5 — restrict the assembled tool pool to the agent's allowed
+  // tools (when --agent is set). Mirrors the prompt-command tool-scope
+  // pattern: rules filter the visible pool AND wrap canUseTool so any
+  // out-of-scope dispatch is denied at the permission gate. The earlier
+  // preliminary-pool restriction shaped the system-prompt tool listing;
+  // this restriction governs runtime dispatch.
+  if (agentDef !== undefined && agentDef.allowedTools.length > 0) {
+    const scoped = buildToolScope({
+      allowedTools: agentDef.allowedTools,
+      tools: toolPool,
+      canUseTool,
+    });
+    toolPool = scoped.tools;
+    canUseTool = scoped.canUseTool;
+    finalToolPoolRef = toolPool;
+  }
 
   // Phase 13.5 — wire the sub-agent scheduler. AgentTool reads
   // ctx.subagentScheduler at call time; the scheduler owns concurrency,
@@ -1018,6 +1127,60 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
   // cleanly. Empty sessions (user opens sov and quits without prompting)
   // leave this undefined; the writer treats `undefined` as "completed."
   let lastTerminal: Terminal | undefined;
+
+  // Phase 13.5 — scheduled-mission auto-wake. When --state-dir is set,
+  // we run a single bounded wake (no interactive prompt) instead of the
+  // normal readline loop. The model receives a "continue your mission"
+  // instruction; we parse the MISSION_TRANSITION sentinel and the
+  // <mission-notes-update> block from its last assistant text, persist
+  // the new FSM state + notes, append a wake-log entry, release the
+  // lock, and return so the session shuts down cleanly through the
+  // teardown path below.
+  if (opts.stateDir !== undefined && missionFiles !== undefined) {
+    const wakeNumber = missionFiles.state.wakeCount + 1;
+    const wakeMessage = `Wake #${wakeNumber}: please continue working on your mission. Read your mission goal, plan, and notes from the system prompt, then do one bounded piece of work.`;
+    process.stdout.write(
+      `[mission] starting wake #${wakeNumber} (${missionFiles.state.fsmState})\n`,
+    );
+    try {
+      await runModelTurn([{ type: 'text', text: wakeMessage }]);
+      const lastMsg = history.at(-1);
+      const lastAssistantText =
+        lastMsg?.role === 'assistant'
+          ? lastMsg.content
+              .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+              .map((b) => b.text)
+              .join('\n')
+          : '';
+      const sentinelMatch = lastAssistantText.match(/MISSION_TRANSITION=(\w+)/);
+      const sentinelValue = sentinelMatch?.[1];
+      const notesMatch = lastAssistantText.match(
+        /<mission-notes-update>([\s\S]*?)<\/mission-notes-update>/,
+      );
+      if (notesMatch?.[1] !== undefined) {
+        writeFileSync(notesMdPath(opts.stateDir), notesMatch[1].trim(), 'utf8');
+      }
+      const stateBefore = missionFiles.state.fsmState;
+      const stateAfter = applyTransition(stateBefore, sentinelValue);
+      writeMissionState(opts.stateDir, {
+        fsmState: stateAfter,
+        wakeCount: wakeNumber,
+        updatedAt: new Date().toISOString(),
+      });
+      appendWakeLog(opts.stateDir, {
+        wakeNumber,
+        timestamp: new Date().toISOString(),
+        fsmStateBefore: stateBefore,
+        fsmStateAfter: stateAfter,
+        ...(sentinelValue !== undefined ? { sentinel: sentinelValue } : {}),
+        durationMs: Date.now() - wakeStartedAt,
+      });
+      process.stdout.write(`[mission] wake #${wakeNumber} complete — state: ${stateAfter}\n`);
+    } finally {
+      releaseLock(opts.stateDir);
+    }
+    closed = true;
+  }
 
   while (!closed || question.pending() > 0) {
     if (footerEnabled) {
@@ -1786,16 +1949,29 @@ function openOrResumeSession(
   tools: import('../tool/types.js').Tool<unknown, unknown>[],
   skills: SkillRegistry,
   projectScope: import('../memory/scope.js').ProjectScope,
+  agentDef?: AgentDefinition,
+  missionFiles?: MissionFiles,
 ): SessionOpen {
   if (opts.resumeId === undefined) {
-    const systemPrompt = buildSystemSegments({
+    const cacheEnabled = opts.noCache !== true;
+    const baseSegments = buildSystemSegments({
       ...(bundle ? { bundle } : {}),
       tools,
       skills: skills.skills,
       cwd: process.cwd(),
-      cacheEnabled: opts.noCache !== true,
+      cacheEnabled,
       projectScope,
     });
+    const systemPrompt: SystemSegment[] =
+      agentDef !== undefined
+        ? [
+            { text: agentDef.systemPrompt, cacheable: cacheEnabled },
+            ...(missionFiles !== undefined
+              ? buildMissionSegments(missionFiles, { cacheEnabled })
+              : []),
+            ...baseSegments,
+          ]
+        : baseSegments;
     const sessionId = db.createSession({
       model: resolved.model,
       provider: String(resolved.metadata.provider),
