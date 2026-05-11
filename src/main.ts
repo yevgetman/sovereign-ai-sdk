@@ -514,6 +514,28 @@ async function main(argv: string[]): Promise<void> {
       }
     });
 
+  program
+    .command('daemon')
+    .description('Start the harness daemon for the active profile.')
+    .action(async () => {
+      const { startDaemon } = await import('./daemon/runner.js');
+      let handle: ReturnType<typeof startDaemon> | null = null;
+      try {
+        handle = startDaemon();
+        process.stderr.write(`[daemon] started (PID ${process.pid})\n`);
+        const stop = (): void => {
+          handle?.shutdown();
+          process.exit(0);
+        };
+        process.on('SIGTERM', stop);
+        process.on('SIGINT', stop);
+        await new Promise<never>(() => {});
+      } catch (err) {
+        process.stderr.write(`[daemon] ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+      }
+    });
+
   await program.parseAsync(argv);
 }
 
