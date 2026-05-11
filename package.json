@@ -31,12 +31,16 @@
     "@commander-js/extra-typings": "^12.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chalk": "^5.3.0",
+    "ink": "^5.0.1",
+    "react": "^18.3.1",
     "yaml": "^2.6.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
     "@types/bun": "^1.1.0",
+    "@types/react": "^18.3.0",
+    "ink-testing-library": "^4.0.0",
     "typescript": "^5.6.0"
   }
 }
