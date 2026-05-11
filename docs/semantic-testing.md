@@ -153,7 +153,7 @@ Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `s
 
 | ID | Guards against |
 |---|---|
-| `tools.agents-bundle-default-discoverable` | Agents/ directory not scanned at startup, AgentTool dropped from pool by `patchSchemasAgainstAvailable()`, `subagent_type` enum patch regressing, or model confusing sub-agents (delegated sessions) with skills (markdown procedures) |
+| `tools.agents-bundle-default-discoverable` | Agents/ directory not scanned at startup, AgentTool dropped from pool by `patchSchemasAgainstAvailable()`, `subagent_type` enum patch regressing, model confusing sub-agents with skills, or a bundled agent (explore / verify / plan / scheduled-mission) missing from the registered set |
 | `tools.agents-explore-live-delegation` | AgentTool throws when called from a real model, scheduler fails to resolve a child provider, child session fails to start, child's tools end up wrong (allowedTools filter regression), `renderResult`'s `<subagent_result>` envelope breaks, or the parent model can't consume the wrapped child output |
 
 ### Task system — 4 tests
@@ -315,7 +315,7 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `bundle-default/agents/instinct-synthesizer.md` | `--filter instinct-synthesizer` |
 | `src/router/capabilities.ts` | `--filter agents` (consumer is the scheduler) |
 | `bundle-default/agents/*.md` | `--filter agents` |
-| `bundle-default/agents/scheduled-mission.md` | `--filter agents` (discoverability) + manual wake smoke test (see Task 8 notes in testing-log) |
+| `bundle-default/agents/scheduled-mission.md` | `--filter agents` (discoverability — `agents-bundle-default-discoverable` mustSatisfy includes it) |
 | `src/mission/state.ts`, `src/mission/fsm.ts`, `src/mission/segments.ts`, `src/mission/paths.ts` | Unit coverage only — no semantic test yet; the wake lifecycle requires `--state-dir` setup that the current driver doesn't handle |
 | `src/ui/terminalRepl.ts` (`--agent` / `--state-dir` paths) | Unit coverage only — manual smoke test in Task 8; semantic driver support for pre-run dir setup would be needed for end-to-end coverage |
 | `src/cli/missionInit.ts` | Unit coverage only — `sov mission init` is a non-interactive CLI subcommand; no semantic test needed |

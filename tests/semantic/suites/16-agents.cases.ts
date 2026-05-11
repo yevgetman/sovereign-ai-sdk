@@ -39,7 +39,8 @@ export const tests: SemanticTest[] = [
         'The agent names "explore" as one of the available sub-agents.',
         'The agent names "verify" as one of the available sub-agents.',
         'The agent names "plan" as one of the available sub-agents.',
-        "The agent describes each sub-agent's purpose at least roughly correctly (explore = codebase mapping / file search; verify = independent claim checking; plan = implementation planning).",
+        'The agent names "scheduled-mission" as one of the available sub-agents.',
+        "The agent describes each sub-agent's purpose at least roughly correctly (explore = codebase mapping / file search; verify = independent claim checking; plan = implementation planning; scheduled-mission = one wake of a persistent autonomous mission).",
       ],
       shouldNot: [
         'The agent invents sub-agents that are not actually loaded (e.g. "researcher", "coder", "writer").',
