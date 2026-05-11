@@ -7,6 +7,7 @@
 
 import { Box, Text } from 'ink';
 import { useReducer } from 'react';
+import { Transcript } from './Transcript.js';
 import { initialUiState, reduce } from './state/reducer.js';
 
 type AppProps = {
@@ -22,7 +23,7 @@ export function App({ cwd, profile }: AppProps): JSX.Element {
   return (
     <Box flexDirection="column">
       <Box flexGrow={1}>
-        <Text dimColor>Phase 16.0b TUI scaffold — transcript will mount here.</Text>
+        <Transcript messages={state.transcript} />
       </Box>
       <Box>
         <Text dimColor>
