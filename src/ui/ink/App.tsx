@@ -5,9 +5,10 @@
 //   - stream events from query() (driven by useAgentTurn in Task 8)
 //   - bus events from the DaemonEventBus (subscribed in Task 8)
 
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
 import { useReducer } from 'react';
 import { Prompt } from './Prompt.js';
+import { StatusLine } from './StatusLine.js';
 import { Transcript } from './Transcript.js';
 import { initialUiState, reduce } from './state/reducer.js';
 
@@ -30,11 +31,7 @@ export function App({ cwd, profile }: AppProps): JSX.Element {
         onSubmit={(text) => dispatch({ type: 'user_input_submitted', text })}
         onAbort={() => process.exit(0)}
       />
-      <Box>
-        <Text dimColor>
-          {state.statusLine.profile} · {state.statusLine.cwd}
-        </Text>
-      </Box>
+      <StatusLine statusLine={state.statusLine} status={state.status} />
     </Box>
   );
 }
