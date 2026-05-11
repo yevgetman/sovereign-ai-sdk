@@ -345,7 +345,7 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 Pick any item by priority + effort match for your session length:
 - 30-min slot: (none currently open)
 - 1-2 hr slot: (none currently open)
-- Half-day slot: items 12, 13
+- Half-day slot: (none currently open)
 - Multi-day: item 17
 
 Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.

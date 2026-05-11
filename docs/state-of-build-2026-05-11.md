@@ -10,7 +10,7 @@ This is a session close-out snapshot. The next session boots from CLAUDE.md and 
 
 Phases 0 through 13.5 are shipped. The harness can now run overnight autonomous missions: `sov chat --agent scheduled-mission --state-dir <path>` acquires an overlap lock, loads prior mission state, injects it into the system prompt, runs one bounded wake, parses the `MISSION_TRANSITION=<state>` sentinel, writes back state + wake log, and exits — ready to be woken again by launchd/cron.
 
-Backlog items 12 and 13 closed 2026-05-11 (microcompaction settings wiring + post-compaction guard; shell AST analysis confirmed done). 2 open P3+ backlog items remain (17, 24). None block further build-plan phases.
+Backlog items 12 and 13 closed 2026-05-11 (microcompaction settings wiring + post-compaction guard; shell AST analysis confirmed done). 1 open P3+ backlog item remains (17). None block further build-plan phases.
 
 ## What shipped today (2026-05-11)
 
