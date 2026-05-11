@@ -159,7 +159,9 @@ async function main(argv: string[]): Promise<void> {
 
   program
     .command('chat', { isDefault: true })
-    .description('Start an interactive chat session against a harness bundle')
+    .description(
+      'Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)',
+    )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
     .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
     .option('-m, --model <name>', 'model name (overrides provider/config default)')

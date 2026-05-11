@@ -1934,3 +1934,28 @@ Implementation backlogs from these findings live in
 **Result:** Mission scaffolding works end-to-end; `--agent` / `--state-dir` plumb through to `runRepl`. Bundled `scheduled-mission` agent is now reachable via the CLI.
 
 **Regressions / follow-ups:** None.
+
+---
+
+## 2026-05-11 — Phase 13.5 verification + sov upgrade
+
+**Scope:** Phase 13.5 complete verification — all 8 tasks landed: mission types/paths/state/fsm/segments, AgentDef `supportsMissionState`, `scheduled-mission.md` agent, `--agent`/`--state-dir` REPL lifecycle (lock, FSM, segment injection, tool restriction, auto-wake, sentinel parse, wake-log write), `mission init` CLI subcommand, `harness` bin alias.
+
+**Environment:** Bun on darwin, commits `fdf60d7` through `eb8b893` on master.
+
+**Commands run:**
+- `bun run typecheck` — clean (exit 0)
+- `bun run lint` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts` only)
+- `bun test` — **1769/1769 pass** (baseline 1717 + 52 new: 6 path, 21 state/fsm/segments, 6 loader, 6 missionInit, 3 supportsMissionState, 10 segments tests)
+- `sov upgrade` (twice: once before push to catch baseline, once after push to install Phase 13.5) — installed `eb8b893` with `sov` + `harness` bin aliases
+
+**Manual smoke tests:**
+- `sov mission init /tmp/sov-test-mission --goal "..."` → created 4 contract files, correct `state.json` (fsmState: planning, wakeCount: 0) ✓
+- `sov chat --agent scheduled-mission --state-dir /tmp/sov-test-mission` with `fsmState: complete` → printed "[mission] state is 'complete' (terminal) — nothing to do" and exited immediately ✓
+- `harness --version` → 0.0.1 ✓
+- `harness chat --help | grep state-dir` → both `--agent` and `--state-dir` present in chat help ✓
+- `harness --help | grep state-dir` → "state-dir" appears in chat command description ✓
+
+**Live wake test:** Deferred to user — requires real LLM turn. One-time manual verification: `sov mission init /tmp/sov-test-wake-mission --goal "Count files in /tmp and write count.txt" && sov chat --agent scheduled-mission --state-dir /tmp/sov-test-wake-mission`. Expected: auto-wake runs, wake_log.jsonl written, state.json updated.
+
+**Regressions:** None observed.
