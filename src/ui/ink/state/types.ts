@@ -4,10 +4,12 @@ export type UiStatus = 'idle' | 'thinking' | 'tool';
 
 export type TranscriptMessage =
   | { readonly role: 'user'; readonly text: string }
-  // Streaming append: `text` is intentionally mutable so the reducer can
-  // accumulate assistant deltas in O(1). The transcript array still gets
-  // a new reference per delta, so React still re-renders. See reducer.ts.
-  | { readonly role: 'assistant'; text: string; readonly streaming?: boolean }
+  // Assistant streaming: `text` is `readonly` like the other variants.
+  // The reducer rebuilds the tail message via spread on every delta, so
+  // the accumulated text always lives in a fresh object — no mutation
+  // required. The transcript array gets a new reference per delta, so
+  // React re-renders. See reducer.ts.
+  | { readonly role: 'assistant'; readonly text: string; readonly streaming?: boolean }
   | { readonly role: 'system'; readonly text: string }
   | { readonly role: 'tool_use'; readonly toolName: string; readonly input: unknown }
   | { readonly role: 'tool_result'; readonly toolUseId: string; readonly content: string };

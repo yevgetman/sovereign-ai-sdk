@@ -1,7 +1,7 @@
 // Phase 16.0b — pure reducer for the Ink TUI. Every UiEvent maps to a
-// new UiState; never mutate the previous state (except the streaming
-// text accumulator on the assistant tail message, which is allowed for
-// O(1) appends — see types.ts note).
+// new UiState; nothing is mutated. The streaming-delta case rebuilds the
+// tail assistant message via spread so both the array and the message
+// reference change, prompting React to re-render. See types.ts note.
 
 import type { TranscriptMessage, UiEvent, UiState } from './types.js';
 
@@ -21,8 +21,10 @@ export function reduce(state: UiState, event: UiEvent): UiState {
     case 'assistant_text_delta': {
       const last = state.transcript.at(-1);
       if (last?.role === 'assistant') {
-        // Streaming append — mutate the text accumulator (see types.ts note),
-        // but return a new array reference so React re-renders.
+        // Streaming append — replaces the last assistant message with a new
+        // object whose text is the previous text + delta. Fully immutable;
+        // React re-renders because both the array reference and the message
+        // reference change.
         const updated: TranscriptMessage = { ...last, text: last.text + event.delta };
         return { ...state, transcript: [...state.transcript.slice(0, -1), updated] };
       }
