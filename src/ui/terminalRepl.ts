@@ -1109,6 +1109,19 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         const ok = toolSlot.expand(n);
         return { ok, total: toolSlot.completedCount() };
       },
+      // Backlog item 24 — only expose resumeCheckin when a turn is paused
+      // at the tool-call checkin limit. /continue checks this and returns
+      // "no pending checkin" when undefined. Spread-conditional keeps the
+      // key absent (vs. undefined) so exactOptionalPropertyTypes is happy.
+      ...(checkinPending
+        ? {
+            resumeCheckin: async () => {
+              checkinPending = false;
+              reviewManager?.onUserTurn(activeSessionId);
+              await runModelTurn([], undefined, { isContinuation: true });
+            },
+          }
+        : {}),
     });
 
     writeBanner(
@@ -1128,6 +1141,12 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     // cleanly. Empty sessions (user opens sov and quits without prompting)
     // leave this undefined; the writer treats `undefined` as "completed."
     let lastTerminal: Terminal | undefined;
+
+    // Backlog item 24 — set true when query() returns terminal.reason ===
+    // 'checkin'. The next turn's commandContext exposes a resumeCheckin
+    // closure (which /continue invokes) so the model resumes its work
+    // without the user having to type a continuation message.
+    let checkinPending = false;
 
     // Phase 13.5 — scheduled-mission auto-wake. When --state-dir is set,
     // we run a single bounded wake (no interactive prompt) instead of the
@@ -1245,7 +1264,7 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             output: result.output,
           });
           process.stdout.write('\n');
-          process.stdout.write(`${result.output}\n`);
+          if (result.output) process.stdout.write(`${result.output}\n`);
           continue;
         }
         transcript?.record({
@@ -1269,9 +1288,13 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
     async function runModelTurn(
       userContent: Message['content'],
       command?: PromptCommand,
-      retry: { skipUserSave?: boolean; retriedAfterCompact?: boolean } = {},
+      retry: {
+        skipUserSave?: boolean;
+        retriedAfterCompact?: boolean;
+        isContinuation?: boolean;
+      } = {},
     ): Promise<void> {
-      if (retry.skipUserSave !== true) {
+      if (retry.skipUserSave !== true && retry.isContinuation !== true) {
         const userMessage: Message = { role: 'user', content: userContent };
         history.push(userMessage);
         db.saveMessage(activeSessionId, {
@@ -1380,6 +1403,9 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             : {}),
           maxTokens: opts.maxTokens,
           ...(userSettings.maxTurns !== undefined ? { maxTurns: userSettings.maxTurns } : {}),
+          ...(userSettings.behavior?.maxToolCallsBeforeCheckin !== undefined
+            ? { maxToolCallsBeforeCheckin: userSettings.behavior.maxToolCallsBeforeCheckin }
+            : {}),
           signal: streamController.signal,
           cacheEnabled: opts.noCache !== true,
           memoryManager,
@@ -1673,6 +1699,14 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         );
       } else if (terminal?.reason === 'max_turns') {
         writeStatusLine(chalk.yellow('[max turns reached]'), 'err');
+      } else if (terminal?.reason === 'checkin') {
+        const count = terminal.toolCallCount ?? 0;
+        process.stderr.write(
+          chalk.yellow(
+            `\n[checkin] ${count} tool call${count === 1 ? '' : 's'} — type /continue to keep going, or send a new message.\n`,
+          ),
+        );
+        checkinPending = true;
       }
     }
 
