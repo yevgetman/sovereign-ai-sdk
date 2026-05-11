@@ -31,6 +31,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Terminal } from '../core/types.js';
+import type { DaemonEventBus } from '../daemon/eventBus.js';
 import type { SubagentScheduler } from '../runtime/scheduler.js';
 import type { TaskStore } from './store.js';
 import type { CreateTaskInput, TaskController, TaskRecord, TaskState } from './types.js';
@@ -40,6 +41,7 @@ const PREVIEW_MAX_CHARS = 1024;
 export type TaskManagerOpts = {
   store: TaskStore;
   scheduler: SubagentScheduler;
+  bus?: DaemonEventBus;
 };
 
 export type TaskOutput = {
@@ -75,6 +77,7 @@ export class TaskManager {
       toolCallCount: 0,
     };
     this.controllers.set(id, controller);
+    this.opts.bus?.emit({ type: 'task_update', taskId: id, state: 'queued' });
     // Fire-and-forget. We do not await this — task_create returns
     // synchronously so the model can dispatch and continue.
     void this.runDelegation(id, input, controller);
@@ -163,6 +166,7 @@ export class TaskManager {
         traceId: result.childSessionId,
         resultPreview: bound(result.summary, PREVIEW_MAX_CHARS),
       });
+      this.opts.bus?.emit({ type: 'task_update', taskId: id, state: finalState });
       this.controllers.delete(id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -172,6 +176,7 @@ export class TaskManager {
         state: finalState,
         resultPreview: bound(message, PREVIEW_MAX_CHARS),
       });
+      this.opts.bus?.emit({ type: 'task_update', taskId: id, state: finalState });
       this.controllers.delete(id);
     }
   }
