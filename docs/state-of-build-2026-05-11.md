@@ -34,14 +34,14 @@ Net test delta: **1717 → 1769** (+52 new unit tests across mission types/paths
 
 ## Open backlog
 
-Unchanged from the 2026-05-07 snapshot. See `docs/post-phase-13-4-backlog.md`.
+Items 12, 13, and 24 closed since the 2026-05-07 snapshot. See `docs/post-phase-13-4-backlog.md`.
 
-| # | Priority | Effort | Title |
-|---|---|---|---|
-| 12 | P3 | half-day | Microcompaction (Phase 10 deepening) |
-| 13 | P3 | half-day | Shell AST analysis (Phase 7 deepening) |
-| 17 | P4 | multi-day | Eval-gated auto-promote |
-| 24 | P3 | half-day | `maxToolCallsBeforeCheckin` knob |
+| # | Priority | Effort | Title | Status |
+|---|---|---|---|---|
+| 12 | P3 | half-day | Microcompaction (Phase 10 deepening) | closed 2026-05-11 |
+| 13 | P3 | half-day | Shell AST analysis (Phase 7 deepening) | closed 2026-05-11 |
+| 17 | P4 | multi-day | Eval-gated auto-promote | open |
+| 24 | P3 | half-day | `maxToolCallsBeforeCheckin` knob | closed 2026-05-11 |
 
 ## Behavioral notes worth knowing next session
 
