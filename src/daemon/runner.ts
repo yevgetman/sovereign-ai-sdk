@@ -68,8 +68,11 @@ function buildHandle(deps: HandleDeps): DaemonHandle {
     shutdown: () => {
       if (stopped) return;
       stopped = true;
-      deps.bus.emit({ type: 'daemon_stopping', reason: 'explicit' });
-      deps.lock.release();
+      try {
+        deps.bus.emit({ type: 'daemon_stopping', reason: 'explicit' });
+      } finally {
+        deps.lock.release();
+      }
     },
   };
 }
