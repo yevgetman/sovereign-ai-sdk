@@ -32,6 +32,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Terminal } from '../core/types.js';
 import type { DaemonEventBus } from '../daemon/eventBus.js';
+import type { DaemonEvent } from '../daemon/types.js';
 import type { SubagentScheduler } from '../runtime/scheduler.js';
 import type { TaskStore } from './store.js';
 import type { CreateTaskInput, TaskController, TaskRecord, TaskState } from './types.js';
@@ -77,7 +78,7 @@ export class TaskManager {
       toolCallCount: 0,
     };
     this.controllers.set(id, controller);
-    this.opts.bus?.emit({ type: 'task_update', taskId: id, state: 'queued' });
+    this.safeEmit({ type: 'task_update', taskId: id, state: 'queued' });
     // Fire-and-forget. We do not await this — task_create returns
     // synchronously so the model can dispatch and continue.
     void this.runDelegation(id, input, controller);
@@ -166,7 +167,7 @@ export class TaskManager {
         traceId: result.childSessionId,
         resultPreview: bound(result.summary, PREVIEW_MAX_CHARS),
       });
-      this.opts.bus?.emit({ type: 'task_update', taskId: id, state: finalState });
+      this.safeEmit({ type: 'task_update', taskId: id, state: finalState });
       this.controllers.delete(id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -176,8 +177,22 @@ export class TaskManager {
         state: finalState,
         resultPreview: bound(message, PREVIEW_MAX_CHARS),
       });
-      this.opts.bus?.emit({ type: 'task_update', taskId: id, state: finalState });
+      this.safeEmit({ type: 'task_update', taskId: id, state: finalState });
       this.controllers.delete(id);
+    }
+  }
+
+  /** Emit a daemon event without disturbing the task lifecycle. Mirrors the
+   *  try/finally precedent in daemon/runner.ts:71-75 — an observability hook
+   *  must never disturb the lifecycle it observes. DaemonEventBus.emit is a
+   *  thin wrapper over Node EventEmitter.emit, which propagates listener
+   *  throws synchronously to the emitter; this helper swallows them. */
+  private safeEmit(event: DaemonEvent): void {
+    if (this.opts.bus === undefined) return;
+    try {
+      this.opts.bus.emit(event);
+    } catch {
+      // Listener exceptions are swallowed by design.
     }
   }
 }
