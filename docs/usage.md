@@ -2,9 +2,13 @@
 
 This guide covers day-to-day operation of the Sovereign AI runtime. It assumes `sov` is on your `PATH` (either `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` for users, or `bun link` from a source clone for development — see the README install section).
 
+> **Phase 16.0b note (2026-05-11):** the legacy terminal REPL was retired and the Ink-based TUI is now the default. Bare `sov` opens the Ink TUI; the standalone `sov chat` subcommand was removed. Several CLI flags that lived on `sov chat` (`--provider`, `--model`, `--max-tokens`, `--permission-mode`, `--resume`, `--db`, `--no-cache`, `--no-preflight`, `--transcript`, `-v/--verbose`, `--legacy-input`, `--capture-fixture`, `--replay-fixture`) are not yet plumbed through `startInkTUI`; they'll come back in Phase 16.0c. The slash command surface (`/help`, `/cost`, `/tasks`, `/compact`, etc.) was orphaned by the same change and is being rebuilt on top of the Ink TUI in 16.0c — until then those `/`-prefixed commands are not dispatched. Sections that still document those flags / verbs describe the intended steady state; current behavior is the bare Ink TUI plus the dedicated subcommands documented under "CLI Subcommands" below.
+>
+> Non-interactive mission wakes that previously rode on `sov chat --agent ... --state-dir ...` now live on `sov mission run --state-dir <path>`. See "CLI Subcommands."
+
 ## Quick Start
 
-The bare `sov` command starts a chat (`chat` is the default subcommand). Bundle resolution order:
+The bare `sov` command opens the Ink TUI. Bundle resolution order:
 
 1. `--bundle <path>` if passed
 2. `HARNESS_BUNDLE` env var if set
@@ -41,51 +45,42 @@ sov
 From the repo checkout, the equivalent development command is:
 
 ```bash
-bun run chat --bundle ~/code/sovereign-ai-docs
+bun run dev    # bare `sov` against the in-tree source
 ```
 
 ## CLI Flags
 
+The bare `sov` command currently accepts only the two flags below. The richer flag set (provider / model / max-tokens / permission-mode / resume / db / cache / preflight / transcript / verbose / capture-fixture / replay-fixture) was tied to the retired `sov chat` command and is pending re-plumbing through `startInkTUI` in Phase 16.0c.
+
 | Flag | Meaning |
 |---|---|
-| `-p, --profile <name>` | (Top-level — must precede the subcommand.) Pin the run to `<harness-home>/profiles/<name>/` for config / credentials / sessions / rate-limits / memory / skills. Use `default` for the unscoped base root. See [Profiles](#profiles). |
-| `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sov` runs as a generic agent when no bundle is found. |
-| `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, or `ollama`. |
-| `--model <name>` | Model override for the selected provider. |
-| `--max-tokens <n>` | Max output tokens per provider turn. Default: `12000`. |
-| `--permission-mode <mode>` | Tool permission mode: `default`, `ask`, or `bypass`. |
-| `--resume <uuid>` | Resume a stored session. |
-| `--db <path>` | Override the session DB path. Default: `~/.harness/sessions.db`. |
-| `--no-cache` | Disable provider prompt-cache markers for testing. |
-| `--no-preflight` | Skip startup provider/model health checks. |
-| `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
-| `-v, --verbose` | Show full tool-result preview blocks instead of one-line summaries. |
-| `--legacy-input` | Force the readline-based input loop instead of the Wave-4 raw-mode editor. Safety hatch when the new editor misbehaves on a specific terminal. |
-| `--capture-fixture <path>` | (Phase 10.5 part 2.) Wrap the resolved provider + tools to write a deterministic-replay fixture at this path on session end. See [Eval Suite](#eval-suite). |
-| `--replay-fixture <path>` | (Phase 10.5 part 2.) Replay a previously-captured fixture instead of resolving a real provider. No LLM calls. Mutually exclusive with `--capture-fixture`. |
+| `-p, --profile <name>` | (Top-level — must precede any subcommand.) Pin the run to `<harness-home>/profiles/<name>/` for config / credentials / sessions / rate-limits / memory / skills. Use `default` for the unscoped base root. See [Profiles](#profiles). |
+| `-b, --bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sov` falls through to the default bundle (`<harness-home>/default-bundle/` or the shipped `bundle-default/`) when no bundle is found via upward `index.yaml` walk. |
 
-Examples:
+For configuration knobs you previously set on the command line (`--provider`, `--model`, `--permission-mode`, `--no-cache`, etc.), use `sov config set <path> <value>` until those flags return. Examples:
 
 ```bash
-sov --provider openai --model gpt-4o-mini
-sov --provider ollama --model qwen2.5:3b
-sov --permission-mode ask
-sov --no-cache
+sov config set defaultProvider anthropic
+sov config set defaultModel claude-opus-4-7
+sov config set permissionMode ask
 ```
 
 ## CLI Subcommands
 
-`sov` has top-level subcommands beyond the default `chat`:
+`sov` exposes the following subcommands. The default action — bare `sov` — opens the Ink TUI; no subcommand is required to start a session.
 
 | Subcommand | Behavior |
 |---|---|
-| `chat` (default) | Start the interactive REPL. Bare `sov` runs this. |
-| `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive picker. |
-| `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
+| (bare `sov`) | Open the Ink TUI against the resolved bundle. Multi-turn conversation, status line, abort via Ctrl-C. Slash command dispatch is pending Phase 16.0c. |
+| `daemon` | Start the harness daemon for the active profile in the foreground (Phase 16.0a). Keeps the per-profile PID lock + event bus alive until SIGTERM/SIGINT. Phase 16.0b's TUI auto-starts an in-process daemon and shuts it down on exit, so this command is for headless deployments (cron, systemd, mission scheduler). |
+| `mission init <dir>` | (Phase 13.5.) Scaffold a new mission directory with `mission.md`, `plan.md`, `notes.md`, `state.json`. `--goal <text>` (required) seeds the goal section; `--per-wake-turns <n>` sets the per-wake tool-call budget; `--force` overwrites an existing `state.json`. |
+| `mission run --state-dir <path>` | (Phase 13.5.) Execute one non-interactive scheduled-mission wake against a mission directory. Replaces the old `sov chat --agent <name> --state-dir <path>` form. Acquires the per-mission lock, runs the FSM tick, writes notes/wake-log/state back atomically. Exits with `lock held` when another wake is in flight. |
+| `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive raw-mode picker. |
+| `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — now the default). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
-| `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
-| `init [--force]` | (Phase 10.8.) Bootstrap the current directory into a real harness bundle. Writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. After `sov init`, running `sov chat` from the same directory auto-discovers the new bundle via the upward `index.yaml` walk. |
+| `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | (Currently broken — the runner spawned `sov chat` which no longer exists. Pending re-wire to a non-interactive entry point in Phase 16.0c.) Run declarative goldens from `evals/goldens/*.golden.ts`. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. See [Eval Suite](#eval-suite). |
+| `init [--force]` | (Phase 10.8.) Bootstrap the current directory into a real harness bundle. Writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. After `sov init`, running `sov` from the same directory auto-discovers the new bundle via the upward `index.yaml` walk. |
 | `learning status [--project <id>]` | (Phase 13.4.) Show per-project instinct counts + confidence histogram for the current (or specified) project. |
 | `learning prune [--project <id>] [--dry-run]` | (Phase 13.4.) Drop sub-threshold instincts that have exceeded their aging window. `--dry-run` lists candidates without deleting. |
 | `learning export <project-id> [--output <dir>]` | (Phase 13.4.) Emit each instinct as a `.md` file into `<dir>` (defaults to `./instincts-export`). Useful for external review or archiving. |
@@ -228,12 +223,12 @@ Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt
 ```bash
 # Run sov anywhere; the default bundle backs you up:
 cd /tmp
-sov chat
+sov
 
 # Graduate the current directory into a real bundle:
 cd ~/code/my-project
 sov init
-sov chat   # picks up the new bundle automatically
+sov        # picks up the new bundle automatically
 ```
 
 The corpus generator inside `sov init` is intentionally minimal in v1 — it seeds `business/README.md` from the cwd's `README.md` and that's it. Richer repo-aware seeding (file-tree summary, language/framework detection, dependency inference) is queued as a separate design session.
@@ -924,16 +919,19 @@ Audit context-window usage when a session feels sluggish or the agent's output q
 
 The output is sectioned by component kind (system prompt, tool schemas, skills, bundle context, memory files) with token counts, bloat flags (`heavy`, `extreme`), and triage classes (`sometimes`, `rarely`). Lets you see whether a particular skill or MCP server's schema is dominating the window before deciding what to drop or move behind a `requires_*` gate.
 
-Run with stricter permission prompts:
+Run with stricter permission prompts (Phase 16.0c will bring the `--permission-mode` flag back — for now, set it persistently in config):
 
 ```bash
-sov --permission-mode ask --bundle ~/code/sovereign-ai-docs
+sov config set permissionMode ask
+sov --bundle ~/code/sovereign-ai-docs
 ```
 
-Run locally through Ollama:
+Run locally through Ollama (Phase 16.0c will bring the `--provider` / `--model` flags back — for now, set them persistently in config):
 
 ```bash
-sov --provider ollama --model qwen2.5:3b --bundle ~/code/sovereign-ai-docs
+sov config set defaultProvider ollama
+sov config set providers.ollama.model qwen2.5:3b
+sov --bundle ~/code/sovereign-ai-docs
 ```
 
 ## Semantic Test Suite
