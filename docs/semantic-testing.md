@@ -40,7 +40,7 @@ bun run test:semantic -- --judge anthropic-api
 
 The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
 
-## Coverage inventory (58/58 pass)
+## Coverage inventory (59/59 pass)
 
 The full suite runs in ~10 minutes and costs ~$2.40 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
@@ -61,7 +61,7 @@ Verify each native tool dispatches correctly and the agent surfaces the result. 
 | `tools.grep-finds-marker-content` | Grep dispatch broken or wrong file identified |
 | `tools.main-agent-excludes-propose-tools` | **Phase 13.3 A2 (commit ec21277).** `memory_propose` / `skill_propose` accidentally re-added to `REGISTERED_TOOLS` (they must only appear in `REVIEW_ONLY_TOOLS` and be injected into review-fork sub-agents). Agent uses HarnessInfo to verify the live tool pool rather than guessing from training data. |
 
-### Slash-command pipeline — 6 tests
+### Slash-command pipeline — 7 tests
 
 The harness has four distinct slash-command dispatch paths. All four are exercised end-to-end through the spawned binary.
 
@@ -69,6 +69,7 @@ The harness has four distinct slash-command dispatch paths. All four are exercis
 |---|---|---|
 | `commands.help-listing` | Local (no model turn) | Slash-command dispatch broken, /help loses categorized layout |
 | `commands.context-budget-dispatch` | Local (no model turn) | **Phase 12.6.** /context-budget command dispatch, the new `CommandContext.getBudgetReport` hook, `auditContextBudget` / `formatBudgetReport` regressions |
+| `commands.slash-help-and-clear` | Local (no model turn) — multi-turn | **Phase 16.0c Wave 1.** `/help`, `/clear`, `/cost` round-trip through the Ink TUI registry. Guards against: registry not loaded into `useAgentTurn`, `/clear` failing to dispatch `transcript_cleared`, or the reducer not zeroing `sessionCost` on `transcript_cleared` (the wave-1 visible contract for the three core local commands). |
 | `commands.commit-on-non-git-directory` | Prompt-command + git tools | Agent fabricates a commit summary when no repo exists |
 | `commands.init-creates-context-md` | Prompt-command + multi-tool | /init scan/synthesize pipeline broken |
 | `commands.skill-invocation-via-slash-command` | Skill-sourced prompt-command | Loader → frontmatter parse → registry → dispatch → turn pipeline |
@@ -302,8 +303,11 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/config/rules.ts` | `--filter permissions` |
 | `src/config/settings.ts` (rule layers) | `--filter rule-layer` (tests local > project) |
 | `src/commands/registry.ts` | `--filter commands` |
+| `src/commands/sessionOps.ts` (`/clear`, `/cost`, `/quit`, `/model`) | `--filter slash-help-and-clear` (covers `/clear` history-reset + `/cost` zero contract) |
 | `src/commands/sessionOps.ts` (`/init`, `/export`) | `--filter init` and `--filter commit` |
-| `src/commands/info.ts` (`/help`, `/about`) | `--filter help` |
+| `src/commands/info.ts` (`/help`, `/about`) | `--filter help` (also `--filter slash-help-and-clear` for the round-trip) |
+| `src/ui/ink/hooks/useAgentTurn.ts` (slash dispatch in TUI) | `--filter slash-help-and-clear` |
+| `src/ui/ink/state/reducer.ts` (`transcript_cleared` → zeroes `sessionCost`) | `--filter slash-help-and-clear` |
 | `src/skills/loader.ts`, `src/skills/types.ts` | `--filter skill` |
 | `src/context/system.ts` (system prompt, cwd) | `--filter context` |
 | `src/context/userMessage.ts` (`@`-references) | `--filter at-file` |
@@ -370,7 +374,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-5858-pass), update the headline count (`58/58 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-5959-pass), update the headline count (`59/59 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).

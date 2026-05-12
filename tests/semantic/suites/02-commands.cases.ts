@@ -102,6 +102,32 @@ export const tests: SemanticTest[] = [
     timeoutMs: 120_000,
   },
   {
+    id: 'slash-help-and-clear',
+    name: '/help, /clear, and /cost round-trip through the Ink TUI registry',
+    description:
+      'Phase 16.0c Wave 1 — slash-command dispatch lives in the Ink TUI (src/ui/ink/hooks/useAgentTurn.ts). ' +
+      'Three local commands chained in one session catch the most likely regressions: ' +
+      '(1) /help means the registry is loaded and rendered; (2) /clear means the LocalCommand ' +
+      'path invokes ctx.clearHistory() and the transcript_cleared dispatch reaches the reducer; ' +
+      '(3) /cost after /clear means sessionCost was zeroed by transcript_cleared (reducer.ts:88). ' +
+      'A regression in any of the three would break the visible behavior asserted below.',
+    category: 'commands',
+    prompt: ['/help', 'hello', '/clear', '/cost'],
+    judgeCriteria: {
+      mustSatisfy: [
+        'The transcript shows /help rendering a categorized listing that includes /help, /clear, and /cost as registered commands.',
+        'After the /clear invocation, the transcript contains the literal string "history cleared".',
+        'The /cost output that appears AFTER /clear shows "input: 0 tokens" (a zero input-token count), confirming that /clear reset the session cost.',
+      ],
+      shouldNot: [
+        'The agent treated /help, /clear, or /cost as a model prompt instead of dispatching them locally.',
+        'The transcript contains an "unknown command" error for /help, /clear, or /cost.',
+        'The final /cost output shows a non-zero input-token count, which would indicate /clear did not reset the session cost.',
+      ],
+    },
+    timeoutMs: 60_000,
+  },
+  {
     id: 'commit-on-non-git-directory',
     name: '/commit gracefully reports when the cwd is not a git repository',
     description:
