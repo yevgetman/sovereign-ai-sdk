@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { CLEAR_COMMAND, QUIT_COMMAND } from '../../src/commands/sessionOps.js';
+import { CLEAR_COMMAND, COST_COMMAND, QUIT_COMMAND } from '../../src/commands/sessionOps.js';
 import type { CommandContext } from '../../src/commands/types.js';
 
 function fakeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
@@ -59,5 +59,32 @@ describe('/quit', () => {
 
   test('has /exit as an alias', () => {
     expect(QUIT_COMMAND.aliases).toContain('exit');
+  });
+});
+
+describe('/cost', () => {
+  test('renders token totals and USD estimate', async () => {
+    const ctx = fakeCtx({
+      getCost: () => ({
+        inputTokens: 1500,
+        outputTokens: 320,
+        cacheReadTokens: 100,
+        cacheWriteTokens: 50,
+        estimatedUsd: 0.0042,
+      }),
+    });
+    const out = await COST_COMMAND.call('', ctx);
+    expect(out).toContain('input: 1,500');
+    expect(out).toContain('output: 320');
+    expect(out).toContain('cache read: 100');
+    expect(out).toContain('cache write: 50');
+    expect(out).toContain('$0.0042');
+  });
+
+  test('renders $0.00 when no usage yet', async () => {
+    const ctx = fakeCtx();
+    const out = await COST_COMMAND.call('', ctx);
+    expect(out).toContain('input: 0');
+    expect(out).toContain('$0.0000');
   });
 });
