@@ -41,3 +41,20 @@ export const COST_COMMAND: LocalCommand = {
     ].join('\n');
   },
 };
+
+const MODEL_USAGE = '/model [<provider/model>|<model>]';
+
+export const MODEL_COMMAND: LocalCommand = {
+  type: 'local',
+  name: 'model',
+  description: 'Show or change the active provider/model.',
+  usage: MODEL_USAGE,
+  call: async (args, ctx) => {
+    const trimmed = args.trim();
+    if (!trimmed) {
+      return `current: ${ctx.providerName}/${ctx.model}\n\nusage: ${MODEL_USAGE}`;
+    }
+    ctx.setModel(trimmed);
+    return `model set to ${trimmed}\n(provider validates on next turn)`;
+  },
+};

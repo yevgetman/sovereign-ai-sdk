@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { CLEAR_COMMAND, COST_COMMAND, QUIT_COMMAND } from '../../src/commands/sessionOps.js';
+import {
+  CLEAR_COMMAND,
+  COST_COMMAND,
+  MODEL_COMMAND,
+  QUIT_COMMAND,
+} from '../../src/commands/sessionOps.js';
 import type { CommandContext } from '../../src/commands/types.js';
 
 function fakeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
@@ -86,5 +91,26 @@ describe('/cost', () => {
     const out = await COST_COMMAND.call('', ctx);
     expect(out).toContain('input: 0');
     expect(out).toContain('$0.0000');
+  });
+});
+
+describe('/model', () => {
+  test('with no args prints current provider/model', async () => {
+    const ctx = fakeCtx({ providerName: 'anthropic', model: 'claude-sonnet-4-6' });
+    const out = await MODEL_COMMAND.call('', ctx);
+    expect(out).toContain('anthropic');
+    expect(out).toContain('claude-sonnet-4-6');
+  });
+
+  test('with arg invokes ctx.setModel and confirms', async () => {
+    let captured = '';
+    const ctx = fakeCtx({
+      setModel: (m: string) => {
+        captured = m;
+      },
+    });
+    const out = await MODEL_COMMAND.call('claude-opus-4-7', ctx);
+    expect(captured).toBe('claude-opus-4-7');
+    expect(out).toContain('claude-opus-4-7');
   });
 });
