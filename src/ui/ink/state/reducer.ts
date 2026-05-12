@@ -1,14 +1,16 @@
-// Phase 16.0b — pure reducer for the Ink TUI. Every UiEvent maps to a
+// Phase 16.0b/c — pure reducer for the Ink TUI. Every UiEvent maps to a
 // new UiState; nothing is mutated. The streaming-delta case rebuilds the
 // tail assistant message via spread so both the array and the message
 // reference change, prompting React to re-render. See types.ts note.
 
 import type { TranscriptMessage, UiEvent, UiState } from './types.js';
+import { zeroCost } from './types.js';
 
 export const initialUiState: UiState = {
   transcript: [],
   status: 'idle',
   tasks: {},
+  sessionCost: zeroCost,
   statusLine: { cwd: '', profile: 'default' },
 };
 
@@ -21,10 +23,6 @@ export function reduce(state: UiState, event: UiEvent): UiState {
     case 'assistant_text_delta': {
       const last = state.transcript.at(-1);
       if (last?.role === 'assistant') {
-        // Streaming append — replaces the last assistant message with a new
-        // object whose text is the previous text + delta. Fully immutable;
-        // React re-renders because both the array reference and the message
-        // reference change.
         const updated: TranscriptMessage = { ...last, text: last.text + event.delta };
         return { ...state, transcript: [...state.transcript.slice(0, -1), updated] };
       }
@@ -69,5 +67,25 @@ export function reduce(state: UiState, event: UiEvent): UiState {
         ...state,
         transcript: [...state.transcript, { role: 'system', text: event.text }],
       };
+    case 'command_output':
+      return {
+        ...state,
+        transcript: [...state.transcript, { role: 'command_output', text: event.text }],
+      };
+    case 'usage_delta': {
+      const cur = state.sessionCost;
+      return {
+        ...state,
+        sessionCost: {
+          inputTokens: cur.inputTokens + (event.delta.inputTokens ?? 0),
+          outputTokens: cur.outputTokens + (event.delta.outputTokens ?? 0),
+          cacheReadTokens: cur.cacheReadTokens + (event.delta.cacheReadTokens ?? 0),
+          cacheWriteTokens: cur.cacheWriteTokens + (event.delta.cacheWriteTokens ?? 0),
+          estimatedUsd: cur.estimatedUsd + event.estimatedUsdDelta,
+        },
+      };
+    }
+    case 'transcript_cleared':
+      return { ...state, transcript: [], sessionCost: zeroCost };
   }
 }

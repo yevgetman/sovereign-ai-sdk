@@ -43,6 +43,12 @@ function MessageRow({ msg }: { readonly msg: TranscriptMessage }): JSX.Element {
           </Text>
         </Box>
       );
+    case 'command_output':
+      return (
+        <Box>
+          <Text>{msg.text}</Text>
+        </Box>
+      );
     case 'tool_use':
       return (
         <Box>
