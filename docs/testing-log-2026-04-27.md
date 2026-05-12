@@ -8,6 +8,24 @@ Implementation backlogs from these findings live in
 [`phase-10-5-backlog.md`](phase-10-5-backlog.md) and
 [`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md).
 
+## 2026-05-12 — Phase 16.0c Wave 1 (slash dispatch)
+
+**Scope:** Wave 1 ship — parser + registry + dispatcher + 10 plumbing-light commands (`/help`, `/clear`, `/quit`, `/about`, `/cost`, `/model`, `/config`, `/permissions`, `/tools`, `/skills`).
+
+**Automated:**
+- `bun run typecheck` — clean
+- `bun run lint` — clean (2 pre-existing shellSemantics warnings)
+- `bun run test` — **1495/1495 pass** (delta from baseline 1454 = +41 new tests)
+- `bun run test:semantic` — NOT run (driver is currently broken because it spawns the deleted `sov chat` subcommand; this is a known Phase 16.0c follow-up. The new `commands.slash-help-and-clear` case is committed as scaffold and will run when the driver gets re-wired.)
+
+**Manual:**
+- Pushed master at `a7d8989`. `sov upgrade` refreshed the global binary.
+- Interactive smoke test (typing `/help`, `/cost`, `/clear`, `/about`, `/quit` in a live `sov` session) is the user's last verification step.
+
+**Result:** Wave 1 dispatch mechanism shipped + 10 commands live. Follow-up waves 2-7 bring back the remaining ~20 commands (`/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/context-budget`, `/expand`, `/commit`, etc.) as session DB, TaskManager, compactor, etc. are lifted into `startInkTUI`. See `docs/superpowers/specs/2026-05-12-phase-16-0c-wave-1-slash-dispatch-design.md` §Decomposition for the full seven-wave table.
+
+---
+
 ## 2026-05-11 — Phase 16.0b Ink TUI + task event bus subscription
 
 **Scope:** Phase 16.0b — Ink TUI as foreground subscriber of the daemon bus. Ten tasks via subagent-driven development (with reviewer + spec gates between each): Ink/React deps + jsx config (Task 1); TaskManager `task_update` bus emit + safeEmit wrapper (Task 2); non-interactive mission wake extracted to `src/cli/missionRun.ts` (Task 3); Ink TUI scaffold — App + pure UiState reducer + types (Task 4); Transcript component (Task 5); Prompt input with Enter/Ctrl-C/Backspace (Task 6); StatusLine component (Task 7); Ink wired to agent loop + daemon bus subscription (Task 8); bare `sov` opens TUI + `chat` command removed + `sov mission run` added + `terminalRepl.ts` + 11 helper UI modules deleted (Task 9); stale `sov chat` user-facing string fix (Task 9 follow-up).
