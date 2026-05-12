@@ -8,3 +8,14 @@ export const CLEAR_COMMAND: LocalCommand = {
   description: 'Clear conversation history and reset session cost.',
   call: async (_args, ctx) => ctx.clearHistory(),
 };
+
+export const QUIT_COMMAND: LocalCommand = {
+  type: 'local',
+  name: 'quit',
+  aliases: ['exit'],
+  description: 'Exit the harness.',
+  call: async (_args, ctx) => {
+    ctx.requestExit();
+    return '';
+  },
+};

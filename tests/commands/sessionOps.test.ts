@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { CLEAR_COMMAND } from '../../src/commands/sessionOps.js';
+import { CLEAR_COMMAND, QUIT_COMMAND } from '../../src/commands/sessionOps.js';
 import type { CommandContext } from '../../src/commands/types.js';
 
 function fakeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
@@ -41,5 +41,23 @@ describe('/clear', () => {
     const out = await CLEAR_COMMAND.call('', ctx);
     expect(called).toBe(1);
     expect(out).toContain('history cleared');
+  });
+});
+
+describe('/quit', () => {
+  test('invokes ctx.requestExit and returns empty string', async () => {
+    let called = 0;
+    const ctx = fakeCtx({
+      requestExit: () => {
+        called++;
+      },
+    });
+    const out = await QUIT_COMMAND.call('', ctx);
+    expect(called).toBe(1);
+    expect(out).toBe('');
+  });
+
+  test('has /exit as an alias', () => {
+    expect(QUIT_COMMAND.aliases).toContain('exit');
   });
 });
