@@ -20,10 +20,10 @@ Each semantic test runs `sov` end-to-end with a real prompt, captures the transc
 ## Quick start
 
 ```bash
-# Full suite (~5 min, $0.87 informational on subscription)
-bun run test:semantic
+# Run the 10 slash-command cases with string-match judge (~1 s, $0)
+bun run test:semantic -- --judge string-match --filter commands.
 
-# Filter by id, name, or category
+# Filter by id, name, or category (LLM judge, for non-command surfaces)
 bun run test:semantic -- --filter bash
 
 # List discovered tests without running anything
@@ -36,13 +36,22 @@ bun run test:semantic -- --verbose
 bun run test:semantic -- --judge anthropic-api
 ```
 
-**Default judge:** the local `claude` CLI in `--print` mode. Uses your authenticated subscription, no API tokens spent. Falls back to the Anthropic SDK when `claude` isn't on `PATH` (or you pass `--judge anthropic-api`). Both judge and agent default to `claude-sonnet-4-6`.
+**Default judge:** the local `claude` CLI in `--print` mode. Uses your authenticated subscription, no API tokens spent. Falls back to the Anthropic SDK when `claude` isn't on `PATH` (or you pass `--judge anthropic-api`). Both judge and agent default to `claude-sonnet-4-6`. The `string-match` backend (`--judge string-match`) is purely deterministic and costs nothing.
 
-The suite is **not** part of `bun test` — it is opt-in because each case spawns a real model turn. CI integration is left to the embedding project.
+The suite is **not** part of `bun test` — it is opt-in. CI integration is left to the embedding project. As of Phase 16.0c SD2, only the 10 slash-command cases are runnable (via `sov dispatch`); the remaining 54 require an agent-headless surface that is not yet shipped.
 
-## Coverage inventory (59/59 pass)
+## Coverage inventory (10 runnable / 64 declared)
 
-The full suite runs in ~10 minutes and costs ~$2.40 informational on subscription (the cost figure is the metered-equivalent — your subscription absorbs it). Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
+**Headline:** 10 of 64 declared tests are runnable today. The 10 runnable cases are the Wave 1 slash-command cases in `02-commands.cases.ts`; they run against the headless `sov dispatch` surface with the `string-match` judge, cost $0, and complete in ~1 s. The remaining 54 declared cases require agent turns driven by a real LLM; they cannot run against the current `dispatch`-only driver and are blocked pending a future agent-headless surface that reintroduces model-turn support. When that surface lands, those 54 will re-join the runnable set and the cost/time profile will return to the historical ~$0.87 / 5-min range.
+
+To run only what works today:
+
+```bash
+# 10/10 in ~1 s, $0 cost — no model invocation
+bun run test:semantic -- --judge string-match --filter commands.
+```
+
+Tests are grouped below by what they target. The "guards against" column names the specific bug class each test would catch.
 
 ### Tool dispatch — 10 tests
 
@@ -61,19 +70,24 @@ Verify each native tool dispatches correctly and the agent surfaces the result. 
 | `tools.grep-finds-marker-content` | Grep dispatch broken or wrong file identified |
 | `tools.main-agent-excludes-propose-tools` | **Phase 13.3 A2 (commit ec21277).** `memory_propose` / `skill_propose` accidentally re-added to `REGISTERED_TOOLS` (they must only appear in `REVIEW_ONLY_TOOLS` and be injected into review-fork sub-agents). Agent uses HarnessInfo to verify the live tool pool rather than guessing from training data. |
 
-### Slash-command pipeline — 7 tests
+### Slash-command pipeline — 10 tests (runnable via `sov dispatch` + string-match judge)
 
-The harness has four distinct slash-command dispatch paths. All four are exercised end-to-end through the spawned binary.
+Phase 16.0c SD2 rewired this bucket to use the headless `sov dispatch` surface (see [Architecture](#architecture-one-screen) for details). Each case issues one or more slash commands to the dispatch loop and asserts on literal output substrings — no LLM is invoked and cost is always $0.
 
-| ID | Path | Guards against |
+The five agent-turn-driven cases from before SD2 (`commands.context-budget-dispatch`, `commands.help-listing`, `commands.init-creates-context-md`, `commands.commit-on-non-git-directory`, `commands.slash-help-and-clear`) were removed because `sov chat` no longer exists and the dispatch surface does not support agent turns. They will return when an agent-headless surface is reintroduced.
+
+| ID | Turns | Guards against |
 |---|---|---|
-| `commands.help-listing` | Local (no model turn) | Slash-command dispatch broken, /help loses categorized layout |
-| `commands.context-budget-dispatch` | Local (no model turn) | **Phase 12.6.** /context-budget command dispatch, the new `CommandContext.getBudgetReport` hook, `auditContextBudget` / `formatBudgetReport` regressions |
-| `commands.slash-help-and-clear` | Local (no model turn) — multi-turn | **Phase 16.0c Wave 1.** `/help`, `/clear`, `/cost` round-trip through the Ink TUI registry. Guards against: registry not loaded into `useAgentTurn`, `/clear` failing to dispatch `transcript_cleared`, or the reducer not zeroing `sessionCost` on `transcript_cleared` (the wave-1 visible contract for the three core local commands). |
-| `commands.commit-on-non-git-directory` | Prompt-command + git tools | Agent fabricates a commit summary when no repo exists |
-| `commands.init-creates-context-md` | Prompt-command + multi-tool | /init scan/synthesize pipeline broken |
-| `commands.skill-invocation-via-slash-command` | Skill-sourced prompt-command | Loader → frontmatter parse → registry → dispatch → turn pipeline |
-| `commands.skill-args-propagate-to-prompt` | Skill-sourced prompt-command | Slash-command arguments silently dropped when the skill body has no `{{args}}` placeholder (the original `/review ~/path` regression) |
+| `commands.help` | 1 | Slash registry un-wired or a Wave 1 command dropped from `/help` output |
+| `commands.about` | 1 | `/about` losing one of its labeled rows (profile/provider/model/session) |
+| `commands.cost` | 1 | Zero-cost contract broken or formatted output structure wrong in a fresh headless session |
+| `commands.model` | 2 | No-arg `/model` not printing current model/usage; `/model <name>` not confirming the switch |
+| `commands.config` | 2 | `/config show` or `/config path` regressing or printing the usage banner by mistake |
+| `commands.permissions` | 1 | Permissions snapshot accessor broken; sandbox default mode ("default") not reported |
+| `commands.tools` | 1 | `/tools` producing an empty pool or losing core tools (Bash, FileRead) |
+| `commands.skills` | 1 | Skill loader silently returning nothing; default-bundle skill missing from `/skills` output |
+| `commands.clear` | 1 | `/clear` LocalCommand losing its return string |
+| `commands.clear-resets-cost` | 3 | `/clear` inflating or erroring the subsequent `/cost` call (idempotent in a zero-cost session) |
 
 ### Permissions — 6 tests
 
@@ -240,15 +254,22 @@ The two suites are complementary. Neither subsumes the other.
 
 Three swappable layers under `tests/semantic/framework/`:
 
-1. **Driver** (`driver.ts`) — spawns the binary, pipes one or more prompts to stdin, captures stdout/stderr, ANSI-strips into a transcript. Each test runs in a fresh sandbox built by `sandbox.ts` (isolated `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB, working dir) with guaranteed cleanup on success, failure, or crash.
+1. **Driver** (`driver.ts`) — spawns `<binary> dispatch` (the headless slash-command surface introduced in Phase 16.0c SD1), pipes one or more slash commands to stdin one line at a time, captures stdout/stderr, and ANSI-strips into a transcript. The driver waits for `READY_MARKER` after boot and `TURN_SEPARATOR` after each command's output — both magic strings are imported from `src/cli/dispatchCommand.ts` so they have a single source of truth and never drift. Each test runs in a fresh sandbox built by `sandbox.ts` (isolated `HARNESS_HOME`, `HARNESS_CONFIG`, sessions DB, working dir) with guaranteed cleanup on success, failure, or crash.
 
-2. **Judge** (`judges/`) — pluggable. `Judge` is the function type `(test, transcript) => Promise<JudgeVerdict>`. Two backends ship: `claudeCode.ts` (default — shells out to local `claude` CLI in `--print` mode with `--tools ""` for isolation; uses your subscription) and `anthropicApi.ts` (opt-in — direct `@anthropic-ai/sdk` call with tool-use; needs `ANTHROPIC_API_KEY`). `index.ts` does auto-detection. Adding a backend (codex, `sov`-itself, OpenAI judge) is one new file plus a `selectJudge` switch case.
+   **Important:** `sov dispatch` is a slash-command-only surface. It does not open an LLM session and does not support agent turns. The 54 declared cases that require real model turns (tool dispatch, permissions end-to-end, workflow multi-turn, etc.) are currently blocked — tracked in the inventory but not runnable until an agent-headless surface is reintroduced.
+
+2. **Judge** (`judges/`) — pluggable. `Judge` is the function type `(test, transcript) => Promise<JudgeVerdict>`. Three backends ship:
+   - `stringMatch.ts` (**new in SD2**, select with `--judge string-match`) — purely deterministic substring assertions; no model invoked, cost always $0. Recommended for slash-command cases where expected output is a literal string.
+   - `claudeCode.ts` (default) — shells out to local `claude` CLI in `--print` mode with `--tools ""` for isolation; uses your subscription.
+   - `anthropicApi.ts` (opt-in) — direct `@anthropic-ai/sdk` call with tool-use; needs `ANTHROPIC_API_KEY`.
+
+   `index.ts` does auto-detection. Adding a backend is one new file plus a `selectJudge` switch case.
 
 3. **Runner** (`runner.ts`) — judge-agnostic. Loads `*.cases.ts` files, orchestrates each test through driver→judge, aggregates a `RunSummary`. Reporter (`reporter.ts`) prints colored progress + summary.
 
 **Strictly additive isolation invariants:**
-- Framework never imports from `src/` — the binary is always a subprocess.
-- Multi-turn `prompt: string[]` cases pipe each prompt newline-separated to `sov`'s queued-question pattern.
+- Framework never imports from `src/` — the binary is always a subprocess. (`driver.ts` imports `READY_MARKER` and `TURN_SEPARATOR` as plain string constants from `src/cli/dispatchCommand.ts` at build time, but no executable logic.)
+- Multi-turn `prompt: string[]` cases pipe each prompt as a newline-separated sequence; the dispatch loop emits one `TURN_SEPARATOR` per command.
 - File names match `*.cases.ts` and `run.ts`, not `*.test.ts` / `*.spec.ts` — Bun's default test runner ignores the suite.
 - Suite runs are opt-in via `bun run test:semantic`; the script is purely additive in `package.json`.
 - Judge subprocess (claude-code backend) runs in `os.tmpdir()` with `--no-session-persistence`, `--disable-slash-commands`, `--tools ""`.
@@ -259,18 +280,19 @@ For the full architecture (judge prompt construction, verdict parsing tolerance,
 
 | Metric | Value |
 |---|---|
-| Full suite wall time | ~5.3 min |
-| Full suite cost (informational) | ~$0.87 |
-| Single-turn case | 7-15 s typical |
-| Multi-turn case | 10-35 s (each turn is a model call; /compact and /rollback add child-session work) |
-| Judge call cost | $0.025-0.045 (Sonnet 4.6) |
+| Runnable today (10 string-match cases) | ~1 s, $0 |
+| Full suite when agent-headless surface returns | ~5.3 min, ~$0.87 (historical) |
+| Single-turn LLM case | 7-15 s typical |
+| Multi-turn LLM case | 10-35 s (each turn is a model call; /compact and /rollback add child-session work) |
+| Judge call cost (claude-code or anthropic-api) | $0.025-0.045 (Sonnet 4.6) |
+| Judge call cost (string-match) | $0 — no model invoked |
 | Agent-under-test cost | Subscription — dollar figures shown are metered-equivalent |
 
-The reporter shows `subscription` for `claude-code` zero-cost results; non-zero figures are informational ("what this would cost metered").
+The reporter shows `subscription` for `claude-code` zero-cost results; non-zero figures are informational ("what this would cost metered"). The `string-match` backend always reports $0 regardless of subscription.
 
 ## When to run and when to extend
 
-Each full-suite run costs ~5 min wall time and ~$0.87 informational on subscription. That's cheap enough to run before pushes, expensive enough that we don't run it on every commit. The triage below codifies what to run for a given change.
+As of Phase 16.0c SD2, the 10 slash-command cases are the only runnable segment. The full-suite cost/time profile will return when an agent-headless surface is reintroduced. The triage below reflects the current runnable state.
 
 ### Run policy
 
@@ -279,11 +301,12 @@ A four-tier rule based on what changed:
 | Tier | Trigger | What to run |
 |---|---|---|
 | **Skip** | Doc-only / formatting / README updates that don't change code behavior | Nothing |
-| **Filtered** | Touching one specific surface (one tool, one slash command, one permission rule path, one context surface) | `bun run test:semantic -- --filter <id-or-substring>` (~10-30 s, ~$0.03-0.10) |
-| **Full suite** | Touching `src/core/query.ts`, `src/providers/`, `src/agent/sessionDb.ts` schema, `src/permissions/canUseTool.ts`, or any shared infrastructure that affects multiple surfaces; before pushing a substantive feature batch | `bun run test:semantic` (~5 min, ~$0.87) |
-| **Gate** | Phase completion; before merging a substantive PR; before any release | `bun run test:semantic` + log entry in `docs/testing-log-2026-04-27.md` |
+| **Filtered (slash commands)** | Touching `src/commands/*.ts`, `src/cli/dispatchCommand.ts`, or any Wave 1 slash command implementation | `bun run test:semantic -- --judge string-match --filter commands.` (~1 s, $0) |
+| **Filtered (other surfaces)** | Touching one non-command surface (one tool, one permission rule, one context surface) | `bun run test:semantic -- --filter <id-or-substring>` — note: those 54 cases are currently deferred; the command passes but no cases match if the surface is agent-turn-only |
+| **Full suite** | Before pushing a substantive feature batch, or when the agent-headless surface is reintroduced | `bun run test:semantic` (~5 min, ~$0.87 when all 64 cases are runnable) |
+| **Gate** | Phase completion; before merging a substantive PR; before any release | `bun run test:semantic` (filtered today; full when coverage resumes) + log entry in `docs/testing-log-2026-04-27.md` |
 
-When in doubt, run the full suite. Five minutes and a dollar of subscription value is cheap insurance.
+When touching slash commands today: `--judge string-match --filter commands.` is the right call — 1 second, $0, definitive.
 
 ### Mapping table — changed area → tests
 
@@ -302,12 +325,17 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/permissions/shellSemantics.ts` | `--filter virtual-tool` (specifically tests Bash→Read mapping) |
 | `src/config/rules.ts` | `--filter permissions` |
 | `src/config/settings.ts` (rule layers) | `--filter rule-layer` (tests local > project) |
-| `src/commands/registry.ts` | `--filter commands` |
-| `src/commands/sessionOps.ts` (`/clear`, `/cost`, `/quit`, `/model`) | `--filter slash-help-and-clear` (covers `/clear` history-reset + `/cost` zero contract) |
-| `src/commands/sessionOps.ts` (`/init`, `/export`) | `--filter init` and `--filter commit` |
-| `src/commands/info.ts` (`/help`, `/about`) | `--filter help` (also `--filter slash-help-and-clear` for the round-trip) |
-| `src/ui/ink/hooks/useAgentTurn.ts` (slash dispatch in TUI) | `--filter slash-help-and-clear` |
-| `src/ui/ink/state/reducer.ts` (`transcript_cleared` → zeroes `sessionCost`) | `--filter slash-help-and-clear` |
+| `src/commands/registry.ts` | `bun run test:semantic -- --judge string-match --filter commands.` (full Wave 1 bucket, 10 cases, $0) |
+| `src/commands/sessionOps.ts` (`/clear`, `/cost`, `/quit`, `/model`) | `--judge string-match --filter commands.clear` and `--filter commands.cost` and `--filter commands.model` |
+| `src/commands/sessionOps.ts` (`/init`, `/export`) | Unit coverage only — agent-turn path; no runnable semantic case until agent-headless surface lands |
+| `src/commands/info.ts` (`/help`, `/about`) | `--judge string-match --filter commands.help` and `--filter commands.about` |
+| `src/commands/configOps.ts` (`/config`) | `--judge string-match --filter commands.config` |
+| `src/commands/permissionsOps.ts` (`/permissions`) | `--judge string-match --filter commands.permissions` |
+| `src/commands/toolsOps.ts` (`/tools`) | `--judge string-match --filter commands.tools` |
+| `src/commands/skillsOps.ts` (`/skills`) | `--judge string-match --filter commands.skills` |
+| `src/cli/dispatchCommand.ts` (READY_MARKER, TURN_SEPARATOR, dispatch loop) | `--judge string-match --filter commands.` (all 10 string-match cases exercise the dispatch surface) |
+| `src/ui/ink/hooks/useAgentTurn.ts` (slash dispatch in TUI) | Unit coverage only — TUI is a rendering surface; use `tests/_smoke/wave1-3-hardpass.sh` for visual regression |
+| `src/ui/ink/state/reducer.ts` (`transcript_cleared` → zeroes `sessionCost`) | Unit coverage only — reducer is tested in `tests/ui/ink/`; semantic coverage returns when agent-headless surface ships |
 | `src/skills/loader.ts`, `src/skills/types.ts` | `--filter skill` |
 | `src/context/system.ts` (system prompt, cwd) | `--filter context` |
 | `src/context/userMessage.ts` (`@`-references) | `--filter at-file` |
@@ -374,7 +402,7 @@ Don't add a semantic test when:
 
 This file is the single source of truth for what the suite covers and how to triage runs. **Any change to `tests/semantic/suites/` must be paired with an update here**, in the same commit. Specifically:
 
-- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-5959-pass), update the headline count (`59/59 pass` → new total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
+- **Adding a test** → add a row to the matching coverage table in [Coverage inventory](#coverage-inventory-10-runnable--64-declared), update the headline counts (`10 runnable / 64 declared` → new totals — update both the runnable count if the new case is immediately executable against `sov dispatch`, and the declared total), and review whether the [Mapping table](#mapping-table--changed-area--tests) needs a new row (new source area → new filter) or any existing row needs updating.
 - **Removing a test** → delete its row from the inventory, drop the count, and remove any rows in the mapping table that pointed only at that test.
 - **Renaming a test** → update the inventory row and the mapping table; check that no `--filter` substring suggestion in the table relied on the old name.
 - **Adding a new category file** (e.g., `10-newtopic.cases.ts`) → add a section to the coverage inventory and link the new file in the layout under [`tests/semantic/README.md`](../tests/semantic/README.md).
