@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  HELP_COMMAND,
   buildCommandRegistry,
   dispatchSlashCommand,
+  formatHelp,
   parseSlashCommand,
 } from '../../src/commands/registry.js';
 import type { CommandContext, SlashCommand } from '../../src/commands/types.js';
@@ -109,5 +111,36 @@ describe('dispatchSlashCommand', () => {
     const registry = buildCommandRegistry([command]);
     const result = await dispatchSlashCommand('/echo hello world', fakeCtx(registry));
     expect(result).toEqual({ kind: 'local', output: 'echo: hello world' });
+  });
+});
+
+describe('/help', () => {
+  test('formatHelp lists every command name with description', () => {
+    const cmd1: SlashCommand = {
+      type: 'local',
+      name: 'one',
+      description: 'first cmd',
+      call: async () => '',
+    };
+    const cmd2: SlashCommand = {
+      type: 'local',
+      name: 'two',
+      description: 'second cmd',
+      aliases: ['t'],
+      call: async () => '',
+    };
+    const registry = buildCommandRegistry([cmd1, cmd2]);
+    const out = formatHelp(registry);
+    expect(out).toContain('/one');
+    expect(out).toContain('first cmd');
+    expect(out).toContain('/two');
+    expect(out).toContain('second cmd');
+    expect(out).toContain('(t)'); // alias hint
+  });
+
+  test('HELP_COMMAND.call returns formatHelp output', async () => {
+    const ctx = fakeCtx(buildCommandRegistry([HELP_COMMAND]));
+    const out = await HELP_COMMAND.call('', ctx);
+    expect(out).toContain('/help');
   });
 });

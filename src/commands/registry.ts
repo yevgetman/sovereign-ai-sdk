@@ -1,10 +1,12 @@
 // Slash-command registry + dispatcher. UI-agnostic — every surface
 // (Ink TUI, future Telegram, Slack) uses this single source of truth.
 
+import chalk from 'chalk';
 import type {
   CommandContext,
   CommandDispatchResult,
   CommandRegistry,
+  LocalCommand,
   SlashCommand,
 } from './types.js';
 
@@ -50,3 +52,35 @@ export async function dispatchSlashCommand(
   }
   return { kind: 'local', output: await command.call(parsed.args, ctx) };
 }
+
+export function formatHelp(registry: CommandRegistry): string {
+  const unique = Array.from(new Set(registry.values()));
+  unique.sort((a, b) => a.name.localeCompare(b.name));
+  const longest = Math.max(...unique.map((c) => c.name.length + aliasSuffix(c).length));
+  const lines: string[] = [chalk.bold('slash commands'), ''];
+  for (const command of unique) {
+    const head = `/${command.name}${aliasSuffix(command)}`;
+    const pad = ' '.repeat(Math.max(0, longest + 1 - head.length));
+    lines.push(`  ${chalk.cyan(head)}${pad}  ${chalk.gray(command.description)}`);
+    if (command.usage) {
+      lines.push(`  ${' '.repeat(longest + 1)}  ${chalk.dim(command.usage)}`);
+    }
+  }
+  lines.push('');
+  lines.push(chalk.dim('hint: type / followed by a command name.'));
+  return lines.join('\n');
+}
+
+function aliasSuffix(command: LocalCommand): string {
+  const aliases = command.aliases ?? [];
+  if (aliases.length === 0) return '';
+  return ` (${aliases.join(', ')})`;
+}
+
+export const HELP_COMMAND: LocalCommand = {
+  type: 'local',
+  name: 'help',
+  aliases: ['h', '?'],
+  description: 'List available slash commands.',
+  call: async (_args, ctx) => formatHelp(ctx.registry),
+};
