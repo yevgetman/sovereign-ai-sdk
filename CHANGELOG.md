@@ -1,5 +1,14 @@
 # Changelog
 
+> **NOTE — frozen at Phase 13.3 (2026-05-06).** This file is no longer the
+> canonical phase history. For shipped state since Phase 13.4, see
+> `docs/state/2026-05-12.md` (canonical current snapshot) and the archived
+> snapshots under `docs/state/archive/`. The `CLAUDE.md` "Phases — where we
+> are" section also carries a current-state summary. This file is preserved
+> for historical phase-by-phase narrative through 13.3 — the format never
+> got migrated forward when the state-of-build snapshot pattern took over
+> in Phase 13.4.
+
 ## Phase 13.3 — Background review daemon + close-out - 2026-05-06
 
 The Hermes-pattern propose-then-promote learning loop ships as a background daemon. The main body (T1–T14) landed earlier in the day; the close-out batch (commits ec21277–e516a43) follows.
