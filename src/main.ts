@@ -491,6 +491,21 @@ async function main(argv: string[]): Promise<void> {
     });
 
   program
+    .command('dispatch')
+    .description(
+      'Headless slash-command driver — reads one /command per line from stdin and prints output + a separator marker per turn',
+    )
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .action(async (opts) => {
+      const bundlePath = resolveBundlePath(opts.bundle);
+      const { runDispatch } = await import('./cli/dispatchCommand.js');
+      const exitCode = await runDispatch({
+        ...(bundlePath !== null ? { bundlePath } : {}),
+      });
+      process.exit(exitCode);
+    });
+
+  program
     .command('daemon')
     .description('Start the harness daemon for the active profile.')
     .action(async () => {
