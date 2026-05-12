@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { ABOUT_COMMAND, SKILLS_COMMAND, TOOLS_COMMAND } from '../../src/commands/info.js';
+import {
+  ABOUT_COMMAND,
+  PERMISSIONS_COMMAND,
+  SKILLS_COMMAND,
+  TOOLS_COMMAND,
+} from '../../src/commands/info.js';
 import type { CommandContext } from '../../src/commands/types.js';
 import type { Tool } from '../../src/tool/types.js';
 
@@ -97,5 +102,38 @@ describe('/skills', () => {
     const skills = { skills: [], byTool: new Map() } as unknown as CommandContext['skills'];
     const out = await SKILLS_COMMAND.call('', fakeCtx({ skills }));
     expect(out).toContain('no skills');
+  });
+});
+
+describe('/permissions', () => {
+  test('prints mode and "no layers" when empty', async () => {
+    const ctx = fakeCtx({
+      getPermissions: () => ({ mode: 'default', layers: [] }),
+    });
+    const out = await PERMISSIONS_COMMAND.call('', ctx);
+    expect(out).toContain('mode: default');
+    expect(out).toContain('no permission rule layers configured');
+  });
+
+  test('prints each layer with rule count', async () => {
+    const ctx = fakeCtx({
+      getPermissions: () => ({
+        mode: 'ask',
+        layers: [
+          {
+            source: 'user',
+            path: '/home/user/.harness/settings.json',
+            rules: [
+              { tool: 'Bash', match: 'git status', behavior: 'allow' as const },
+              { tool: 'Read', match: '*', behavior: 'allow' as const },
+            ],
+          } as unknown as ReturnType<typeof ctx.getPermissions>['layers'][number],
+        ],
+      }),
+    });
+    const out = await PERMISSIONS_COMMAND.call('', ctx);
+    expect(out).toContain('mode: ask');
+    expect(out).toContain('user');
+    expect(out).toContain('2 rule');
   });
 });

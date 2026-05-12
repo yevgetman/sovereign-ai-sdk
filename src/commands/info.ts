@@ -54,3 +54,23 @@ export const SKILLS_COMMAND: LocalCommand = {
     return lines.join('\n');
   },
 };
+
+export const PERMISSIONS_COMMAND: LocalCommand = {
+  type: 'local',
+  name: 'permissions',
+  description: 'Show the current permission mode and rule layers.',
+  call: async (_args, ctx) => {
+    const snap = ctx.getPermissions();
+    const lines = [`mode: ${snap.mode}`, ''];
+    if (snap.layers.length === 0) {
+      lines.push('no permission rule layers configured');
+      return lines.join('\n');
+    }
+    for (const layer of snap.layers) {
+      const ruleCount = layer.rules.length;
+      const plural = ruleCount === 1 ? 'rule' : 'rules';
+      lines.push(`  ${layer.source}  ${ruleCount} ${plural}`);
+    }
+    return lines.join('\n');
+  },
+};
