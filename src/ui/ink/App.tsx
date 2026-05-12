@@ -1,13 +1,12 @@
-// Phase 16.0b — Ink TUI root. Mounts <Transcript>, <Prompt>, and
-// <StatusLine> against a single UiState dispatch loop. The dispatch is
-// fed by:
-//   - user input from <Prompt> (driven by useAgentTurn)
-//   - stream events from query() (driven by useAgentTurn)
-//   - bus events from the DaemonEventBus (driven by useBusSubscription)
+// Phase 16.0b/c — Ink TUI root. Mounts <Transcript>, <Prompt>, and
+// <StatusLine> against a single UiState dispatch loop. Inputs arrive
+// either as agent prompts (useAgentTurn) or as slash commands
+// (useSlashDispatch); the /-prefix decides the path.
 
 import { Box } from 'ink';
 import type { JSX } from 'react';
-import { useReducer } from 'react';
+import { useEffect, useReducer } from 'react';
+import type { CommandContext } from '../../commands/types.js';
 import type { DaemonEventBus } from '../../daemon/eventBus.js';
 import { Prompt } from './Prompt.js';
 import { StatusLine } from './StatusLine.js';
@@ -15,37 +14,57 @@ import { Transcript } from './Transcript.js';
 import type { AgentTurnRunner } from './hooks/useAgentTurn.js';
 import { useAgentTurn } from './hooks/useAgentTurn.js';
 import { useBusSubscription } from './hooks/useBusSubscription.js';
+import { useSlashDispatch } from './hooks/useSlashDispatch.js';
 import { initialUiState, reduce } from './state/reducer.js';
-import type { UiState } from './state/types.js';
+import type { UiEvent, UiState } from './state/types.js';
 
 type AppProps = {
   readonly runner: AgentTurnRunner;
   readonly bus: DaemonEventBus;
   readonly cwd: string;
   readonly profile: string;
-  readonly provider?: string;
-  readonly model?: string;
-  /** Clean-exit callback. The host (startInkTUI) supplies one that emits
-   *  `daemon_stopping`, then unmounts on the next tick so the React tree
-   *  can flush the resulting `system_message` dispatch. Plain
-   *  `process.exit(0)` skips this — and the memory-flush + lock-release
-   *  in startInkTUI's finally block — so always wire this through. */
+  readonly provider: string;
+  readonly model: string;
+  readonly commandContext: CommandContext;
+  /** Receives the latest UiState by reference; the host uses this in
+   *  CommandContext.getCost so commands see post-streaming values. */
+  readonly latestStateRef: { current: UiState };
+  /** Host writes the reducer dispatch fn here on mount so out-of-React
+   *  callbacks (CommandContext.clearHistory, setModel) can emit
+   *  transcript_cleared and status_line_update events. */
+  readonly uiDispatchRef: { current: ((e: UiEvent) => void) | null };
   readonly onExit: () => void;
 };
 
-export function App({ runner, bus, cwd, profile, provider, model, onExit }: AppProps): JSX.Element {
-  // `exactOptionalPropertyTypes` rejects `provider: undefined` literal
-  // assignment; conditionally spread only the defined slots so undefined
-  // keys are omitted entirely rather than set to `undefined`.
-  const statusLine: UiState['statusLine'] = {
-    cwd,
-    profile,
-    ...(provider !== undefined ? { provider } : {}),
-    ...(model !== undefined ? { model } : {}),
-  };
+export function App({
+  runner,
+  bus,
+  cwd,
+  profile,
+  provider,
+  model,
+  commandContext,
+  latestStateRef,
+  uiDispatchRef,
+  onExit,
+}: AppProps): JSX.Element {
+  const statusLine: UiState['statusLine'] = { cwd, profile, provider, model };
   const [state, dispatch] = useReducer(reduce, { ...initialUiState, statusLine });
+  // Keep the host's refs in sync so out-of-React getters/setters
+  // (CommandContext.getCost / clearHistory / setModel) interact with the
+  // latest reducer state and can emit dispatch events.
+  useEffect(() => {
+    latestStateRef.current = state;
+  }, [state, latestStateRef]);
+  useEffect(() => {
+    uiDispatchRef.current = dispatch;
+    return () => {
+      uiDispatchRef.current = null;
+    };
+  }, [uiDispatchRef]);
   useBusSubscription(bus, dispatch);
-  const { submit } = useAgentTurn(runner, dispatch);
+  const { submit } = useAgentTurn(runner, dispatch, { providerName: provider, model });
+  const { dispatch: dispatchSlash } = useSlashDispatch(commandContext, dispatch);
 
   return (
     <Box flexDirection="column">
@@ -54,7 +73,11 @@ export function App({ runner, bus, cwd, profile, provider, model, onExit }: AppP
       </Box>
       <Prompt
         onSubmit={(text): void => {
-          void submit(text);
+          if (text.startsWith('/')) {
+            void dispatchSlash(text);
+          } else {
+            void submit(text);
+          }
         }}
         onAbort={onExit}
         disabled={state.status !== 'idle'}
