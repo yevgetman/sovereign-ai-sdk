@@ -6,6 +6,7 @@
 // full setup (REPL polish, transcript writer, scheduler, review fork)
 // lands in Phase 16.0c.
 
+import chalk from 'chalk';
 import { render } from 'ink';
 import { loadAgents } from '../../agents/loader.js';
 import { getDefaultBundlePath } from '../../bundle/defaultBundle.js';
@@ -22,6 +23,7 @@ import { resolveProvider } from '../../providers/resolver.js';
 import { loadSkills } from '../../skills/loader.js';
 import { assembleToolPool } from '../../tool/registry.js';
 import type { Tool, ToolContext } from '../../tool/types.js';
+import { renderSplash } from '../splash.js';
 import { App } from './App.js';
 import type { AgentTurnRunner } from './hooks/useAgentTurn.js';
 
@@ -110,13 +112,36 @@ export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
     });
   };
 
+  // Render the SOV splash banner to stdout before Ink takes over. Ink's
+  // default `render()` is inline (not alternate-screen), so anything
+  // written here lands in scroll-back above Ink's live region — matching
+  // the visual the readline REPL produced before Phase 16.0b.
+  const providerName = String(resolved.metadata.provider ?? '');
+  const authLabel = (() => {
+    if (providerName === 'ollama') return chalk.gray('local (no key)');
+    if (providerName === 'router') return chalk.gray('router-managed');
+    return chalk.gray('API Key');
+  })();
+  const splash = renderSplash({
+    providerLabel: providerName,
+    authLabel,
+    model: resolved.model,
+    bundlePath: bundlePath ?? null,
+    permissionMode: userSettings.permissionMode ?? 'default',
+    toolCount: toolPool.length,
+    cacheOn: cacheEnabled,
+    sessionLabel: `new ${sessionId.slice(0, 8)}`,
+    exitHint: 'Ctrl-C to exit',
+  });
+  process.stdout.write(`${splash}\n`);
+
   const instance = render(
     <App
       runner={runner}
       bus={daemon.bus}
       cwd={process.cwd()}
       profile={profileName}
-      provider={String(resolved.metadata.provider ?? '')}
+      provider={providerName}
       model={resolved.model}
     />,
   );
