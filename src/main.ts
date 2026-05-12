@@ -287,9 +287,14 @@ async function main(argv: string[]): Promise<void> {
       }
     });
 
+  // NOTE: The eval runner currently spawns `sov chat` (now removed). The
+  // runner needs to be rewired to a non-interactive entry point in Phase
+  // 16.0c. Marked broken until then.
   const evalCmd = program
     .command('eval')
-    .description('Run golden-task evaluations against a live `sov chat` subprocess');
+    .description(
+      'Run golden-task evaluations (currently broken — pending Phase 16.0c non-interactive entry point)',
+    );
 
   evalCmd
     .command('run')

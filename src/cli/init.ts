@@ -142,7 +142,7 @@ export function formatInitResult(result: InitResult): string {
     'Next steps:',
     '  - Edit business/README.md to give the agent your project context.',
     '  - Add skills under skills/ (markdown with `name`, `description`, `whenToUse` frontmatter).',
-    '  - Run `sov chat` from this directory; the upward walk picks up the new index.yaml.',
+    '  - Run `sov` from this directory to start the interactive TUI; the upward walk picks up the new index.yaml.',
     '',
   ];
   return `${lines.join('\n')}\n`;
