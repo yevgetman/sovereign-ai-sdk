@@ -3294,7 +3294,7 @@ Placeholder scan: clean — every step has either complete code or a concrete in
 
 ## Execution Handoff
 
-**Plan complete and saved to `docs/superpowers/plans/2026-05-06-phase-13-3-background-review-daemon.md`.**
+**Plan complete and saved to `docs/plans/2026-05-06-phase-13-3-background-review-daemon.md`.**
 
 Two execution options:
 

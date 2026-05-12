@@ -2681,7 +2681,7 @@ git push origin master
 
 ## Execution Handoff
 
-**Plan complete and saved to `docs/superpowers/plans/2026-05-06-phase-13-2-task-system.md`. Two execution options:**
+**Plan complete and saved to `docs/plans/2026-05-06-phase-13-2-task-system.md`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 

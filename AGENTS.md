@@ -69,14 +69,16 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 
 ### Implementation plans (executed)
 
-`docs/superpowers/plans/` holds historical implementation plans authored via the `superpowers:writing-plans` skill. All four plans currently in this directory have shipped. Convention: leave in place after execution as a record; the `superpowers/` subdirectory namespace is owned by the skill system.
+`docs/plans/` holds historical implementation plans authored via the `superpowers:writing-plans` skill. All four plans currently in this directory have shipped. Convention: leave in place after execution as a record.
 
 | File | What it planned |
 |---|---|
-| `docs/superpowers/plans/2026-05-06-phase-13-2-task-system.md` | Phase 13.2 task system |
-| `docs/superpowers/plans/2026-05-06-phase-13-3-background-review-daemon.md` | Phase 13.3 review daemon |
-| `docs/superpowers/plans/2026-05-06-phase-13-4-instinct-corpus.md` | Phase 13.4 instinct corpus |
-| `docs/superpowers/plans/2026-05-07-memory-project-scoping.md` | Two-tier MEMORY.md routing |
+| `docs/plans/2026-05-06-phase-13-2-task-system.md` | Phase 13.2 task system |
+| `docs/plans/2026-05-06-phase-13-3-background-review-daemon.md` | Phase 13.3 review daemon |
+| `docs/plans/2026-05-06-phase-13-4-instinct-corpus.md` | Phase 13.4 instinct corpus |
+| `docs/plans/2026-05-07-memory-project-scoping.md` | Two-tier MEMORY.md routing |
+
+**Note for the `superpowers:writing-plans` and `superpowers:brainstorming` skills.** The skill defaults are `docs/superpowers/plans/` and `docs/superpowers/specs/`. **This project overrides those defaults.** Save plans to `docs/plans/YYYY-MM-DD-<feature-name>.md` and specs to `docs/specs/YYYY-MM-DD-<topic>-design.md`. Do NOT create or write under `docs/superpowers/` — that directory has been intentionally removed.
 
 ### Source-adjacent READMEs
 
