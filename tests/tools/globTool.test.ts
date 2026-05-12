@@ -6,7 +6,6 @@ import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
 import { GlobTool } from '../../src/tools/GlobTool.js';
-import { summarizeToolResult } from '../../src/ui/toolFooter.js';
 
 function makeCtx(cwd: string): ToolContext {
   return { cwd, bundleRoot: cwd, sessionId: 'test' };
@@ -117,38 +116,20 @@ describe('GlobTool', () => {
     expect(GlobTool.affectedPaths).toBeUndefined();
   });
 
-  // Pins the consistency invariant for backlog item 18: whatever count
-  // GlobTool's envelope reports in `summary:`, the inline UI footer must
-  // report the SAME count. The renderer used to read totalLines (which
-  // includes the envelope header rows + a blank separator), so a 1-file
-  // result yielded "found 4 files" while the envelope said "1 file".
+  // Pins the consistency invariant for backlog item 18: GlobTool's
+  // envelope must report a stable summary count. (The companion UI
+  // footer assertion that lived here originally was retired in Phase
+  // 16.0b's dead-code purge along with src/ui/toolFooter.ts; the
+  // envelope-side invariant is the one that still matters for the
+  // Ink renderer.)
   for (const fileCount of [1, 4, 50]) {
-    test(`envelope summary count == footer count for ${fileCount}-file result`, async () => {
+    test(`envelope summary count matches file count for ${fileCount}-file result`, async () => {
       await withTmp(async (dir) => {
         for (let i = 0; i < fileCount; i++) {
           writeFileSync(join(dir, `f${i.toString().padStart(2, '0')}.ts`), '');
         }
         const result = await GlobTool.call({ pattern: '*.ts' }, makeCtx(dir));
         expect(result.observation?.summary).toBe(`${fileCount} file${fileCount === 1 ? '' : 's'}`);
-
-        // Reconstruct the inline-block content shape the renderer sees:
-        // envelope header (status + summary + optional next_actions) +
-        // blank separator + tool's own renderResult content.
-        const envelopeHeader = [
-          `status: ${result.observation?.status}`,
-          `summary: ${result.observation?.summary}`,
-        ].join('\n');
-        const body = GlobTool.renderResult?.(result.data)?.content ?? '';
-        const content = `${envelopeHeader}\n\n${body}`;
-        const totalLines = content.split('\n').length;
-
-        const footer = summarizeToolResult({
-          toolName: 'Glob',
-          content,
-          isError: false,
-          totalLines,
-        });
-        expect(footer.primary).toBe(`found ${fileCount} file${fileCount === 1 ? '' : 's'}`);
       });
     });
   }
