@@ -47,7 +47,7 @@
 - `src/ui/terminalRepl.ts` — instantiate `ReviewManager`, wire to `writableCtx.reviewManager` and `commandContext().reviewManager`.
 - `src/profile/types.ts` (or wherever profile schema lives) — add `review.autoPromoteMemory: boolean` and `review.autoPromoteSkills: boolean` (default false).
 - `CLAUDE.md` — mark Phase 13.3 complete.
-- `docs/testing-log-2026-04-27.md` — append entry.
+- `docs/testing-log.md` — append entry.
 - `docs/semantic-testing.md` — inventory increment + new run-policy rows + new section.
 
 **New tests:**
@@ -3192,7 +3192,7 @@ EOF
 
 **Files:**
 - Modify: `CLAUDE.md` (Phases line)
-- Modify: `docs/testing-log-2026-04-27.md` (append entry)
+- Modify: `docs/testing-log.md` (append entry)
 
 - [ ] **Step 1: Update `CLAUDE.md`**
 
@@ -3243,7 +3243,7 @@ Expected: pass.
 - [ ] **Step 4: Commit + push**
 
 ```bash
-git add CLAUDE.md docs/testing-log-2026-04-27.md
+git add CLAUDE.md docs/testing-log.md
 git commit -m "$(cat <<'EOF'
 docs: mark Phase 13.3 background review daemon complete
 

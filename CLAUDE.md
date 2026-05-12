@@ -8,8 +8,8 @@ If you need business context (what Sovereign AI is, what the harness does, why),
 
 1. This file.
 2. `README.md`.
-3. `docs/state-of-build-2026-05-12.md` — **most recent close-out snapshot.** Read this BEFORE the build plan to know what shipped, what's open in the backlog, and where to start. Replaced each session.
-4. `docs/post-phase-13-4-backlog.md` — open backlog items not in the canonical build plan. Smaller follow-ups, polish, deferred trade-offs.
+3. `docs/state/2026-05-12.md` — **most recent close-out snapshot.** Read this BEFORE the build plan to know what shipped, what's open in the backlog, and where to start. Replaced each session.
+4. `docs/backlog/post-phase-13-4.md` — open backlog items not in the canonical build plan. Smaller follow-ups, polish, deferred trade-offs.
 5. `~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md` — the Phase-0/1 scaffold contract this repo was seeded against.
 6. `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — the canonical remaining phased plan.
 7. `~/code/sovereign-ai-docs/harness/docs/reference/agent-harness-design-lessons.md` — unifying design principles and Claude Code reference lessons.
@@ -35,37 +35,37 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 
 | File | What's in it |
 |---|---|
-| `docs/state-of-build-2026-05-12.md` | **Canonical current-state snapshot** (HEAD `34f02f3`, suite 1809/1809 unit + 57/58 semantic). Updated each major-change session |
-| `docs/state-of-build-2026-05-11.md` | Historical snapshot (Phase 16.0a close-out). Now superseded |
-| `docs/state-of-build-2026-05-07.md` | Historical snapshot (Phase 13.4 close-out). Now superseded |
+| `docs/state/2026-05-12.md` | **Canonical current-state snapshot** (HEAD `34f02f3`, suite 1809/1809 unit + 57/58 semantic). Updated each major-change session |
+| `docs/state/archive/2026-05-11.md` | Historical snapshot (Phase 16.0a close-out). Now superseded |
+| `docs/state/archive/2026-05-07.md` | Historical snapshot (Phase 13.4 close-out). Now superseded |
 
 ### Backlog and forward-looking plans
 
 | File | What's in it |
 |---|---|
-| `docs/post-phase-13-4-backlog.md` | Open backlog (1 item: #17 eval-gated auto-promote, P4) |
-| `docs/phase-16-rebuild-prereqs.md` | Forward-looking — 24 subsystems any future Phase 16.1 foreground refactor must re-wire under Rule 1 of the revert retrospective |
-| `docs/phase-10-5-backlog.md` | Historical backlog from Phase 10.5 (closed) |
-| `docs/post-phase-10-5-repl-backlog.md` | Historical backlog from Phase 10.5 close-out (closed) |
+| `docs/backlog/post-phase-13-4.md` | Open backlog (1 item: #17 eval-gated auto-promote, P4) |
+| `docs/backlog/phase-16-rebuild-prereqs.md` | Forward-looking — 24 subsystems any future Phase 16.1 foreground refactor must re-wire under Rule 1 of the revert retrospective |
+| `docs/backlog/archive/phase-10-5.md` | Historical backlog from Phase 10.5 (closed) |
+| `docs/backlog/archive/post-phase-10-5-repl.md` | Historical backlog from Phase 10.5 close-out (closed) |
 
 ### Postmortems
 
 | File | What's in it |
 |---|---|
-| `docs/retrospective-2026-05-12-phase-16-revert.md` | **Required reading** before any future foreground-surface refactor. Contains Rules 1-4 governing how to do a foreground rewrite without orphaning subsystems |
-| `docs/bug-loop-detector-orphaned-tool-use.md` | Specific bug postmortem (loop detector orphaning tool_use blocks) |
+| `docs/postmortems/2026-05-12-phase-16-revert.md` | **Required reading** before any future foreground-surface refactor. Contains Rules 1-4 governing how to do a foreground rewrite without orphaning subsystems |
+| `docs/postmortems/loop-detector-orphaned-tool-use.md` | Specific bug postmortem (loop detector orphaning tool_use blocks) |
 
 ### Operational logs
 
 | File | What's in it |
 |---|---|
-| `docs/testing-log-2026-04-27.md` | Append-only testing log (newest-first ordering at the top). Per CLAUDE.md rule, every testing pass must be logged here |
+| `docs/testing-log.md` | Append-only testing log (newest-first ordering at the top). Per CLAUDE.md rule, every testing pass must be logged here |
 
 ### Specs (point-in-time design notes)
 
 | File | What's in it |
 |---|---|
-| `docs/memory-retrieval-gaps-spec.md` | Spec for memory retrieval enhancements |
+| `docs/specs/memory-retrieval-gaps.md` | Spec for memory retrieval enhancements |
 
 ### Implementation plans (executed)
 
@@ -123,15 +123,15 @@ Phases 0 through 10 complete (2026-04-26). Phase 10.5b–e (REPL polish) complet
 
 **Phase 13.4 (continuous-learning observation stream + instinct corpus) shipped 2026-05-06** — `LearningObserver` writes per-tool-call observations to `$HARNESS_HOME/learning/<projectId>/observations.jsonl` async fire-and-forget; `instinct-synthesizer` sub-agent (bundled, restricted toolset) clusters observations into atomic confidence-weighted instincts; four instinct tools (`instinct_list / instinct_view / instinct_propose / instinct_update_confidence`) live in a separate `LEARNING_ONLY_TOOLS` pool — main agent never sees them; review fork now reads the instinct corpus as preferred input over raw trajectory slices; cross-project promotion logic gates global instincts behind Phase 13.3's `/review approve`; `harness learning {status / prune / export}` CLI subcommands for read-only inspection + sub-threshold aging-out via the pure `shouldPrune()` helper. Semantic suite is 58/58; unit suite is 1583/1583.
 
-**Post-Phase-13.4 backlog burn (2026-05-06 → 2026-05-07).** 20 of 24 backlog items closed across seven batches via subagent-driven dispatch. All P0 / P1 / P2 closed. Highlights from 2026-05-07: Item 8 (per-child trace files, `1001237`), Item 10 (synthesizer fires on tool-iteration burst rhythm, `a8d4ce3`), Item 11 (multi-process observation append verified safe, `8e86e61`), Item 7 (skill-shaped child triage fires `review-skill` alongside `review-memory`, `2df9da7`), and Item 19 (two-tier MEMORY.md — global + per-project routed via `MemoryTool.scope` arg, 5 commits `db967ed` → `07cb263`). Runtime-affecting close-out at `4789de7` is **1716/1716 unit + 58/58 semantic**; post-closeout docs-only baseline at `526610c` is **1717/1717 unit + 58/58 semantic**. 1 backlog item remains open (17) — warrants a focused session. See `docs/state-of-build-2026-05-07.md` for the full close-out snapshot and `docs/post-phase-13-4-backlog.md` for backlog detail.
+**Post-Phase-13.4 backlog burn (2026-05-06 → 2026-05-07).** 20 of 24 backlog items closed across seven batches via subagent-driven dispatch. All P0 / P1 / P2 closed. Highlights from 2026-05-07: Item 8 (per-child trace files, `1001237`), Item 10 (synthesizer fires on tool-iteration burst rhythm, `a8d4ce3`), Item 11 (multi-process observation append verified safe, `8e86e61`), Item 7 (skill-shaped child triage fires `review-skill` alongside `review-memory`, `2df9da7`), and Item 19 (two-tier MEMORY.md — global + per-project routed via `MemoryTool.scope` arg, 5 commits `db967ed` → `07cb263`). Runtime-affecting close-out at `4789de7` is **1716/1716 unit + 58/58 semantic**; post-closeout docs-only baseline at `526610c` is **1717/1717 unit + 58/58 semantic**. 1 backlog item remains open (17) — warrants a focused session. See `docs/state/archive/2026-05-07.md` for the full close-out snapshot and `docs/backlog/post-phase-13-4.md` for backlog detail.
 
-**Phase 13.5 (scheduled-mission sub-agents) shipped 2026-05-11** — mission-dir file contract (`src/mission/` — types, paths, state loader/atomic-writer/lock, FSM, prompt segments), `AgentDefinition.supportsMissionState: boolean` frontmatter field, `bundle-default/agents/scheduled-mission.md` wake-contract agent, `--agent <name>` + `--state-dir <path>` flags on `sov chat`, full mission lifecycle wired in `terminalRepl.ts` (overlap lock via mkdir, FSM terminal-state early-exit, system-prompt injection with cacheable goal/plan/state + ephemeral notes/wake-log, per-agent tool restriction, auto-wake user message, `MISSION_TRANSITION=<state>` sentinel parsing, `<mission-notes-update>` block, wake-log append, atomic state write-back, lock release in try/finally), `sov mission init <dir> --goal "..."` subcommand (`src/cli/missionInit.ts`), `harness` bin alias. Unit suite at close: **1769/1769**. See `docs/state-of-build-2026-05-11.md` for the full close-out snapshot.
+**Phase 13.5 (scheduled-mission sub-agents) shipped 2026-05-11** — mission-dir file contract (`src/mission/` — types, paths, state loader/atomic-writer/lock, FSM, prompt segments), `AgentDefinition.supportsMissionState: boolean` frontmatter field, `bundle-default/agents/scheduled-mission.md` wake-contract agent, `--agent <name>` + `--state-dir <path>` flags on `sov chat`, full mission lifecycle wired in `terminalRepl.ts` (overlap lock via mkdir, FSM terminal-state early-exit, system-prompt injection with cacheable goal/plan/state + ephemeral notes/wake-log, per-agent tool restriction, auto-wake user message, `MISSION_TRANSITION=<state>` sentinel parsing, `<mission-notes-update>` block, wake-log append, atomic state write-back, lock release in try/finally), `sov mission init <dir> --goal "..."` subcommand (`src/cli/missionInit.ts`), `harness` bin alias. Unit suite at close: **1769/1769**. See `docs/state/archive/2026-05-11.md` for the full close-out snapshot.
 
 **Phase 16.0a (daemon infrastructure skeleton) shipped 2026-05-11, code in tree but DORMANT post-revert** — channel types (`InboundMessage`, `ChannelAdapter`, `SecretTarget`, `DeliveryResult`) in `src/channels/types.ts`; `buildSessionKey()` in `src/channels/sessionKey.ts`; `send()` with local outbox in `src/channels/delivery.ts`; LRU `SessionCache` in `src/daemon/sessionCache.ts`; `ApprovalQueue` with TTL expiry in `src/daemon/approvalQueue.ts`; `DaemonEvent` 7-variant union + `DaemonEventMap` in `src/daemon/types.ts`; typed `DaemonEventBus` over Node `EventEmitter` in `src/daemon/eventBus.ts`; `startDaemon()` runner (PID lock via Phase 10.7 `tryAcquireLock`, idempotent `shutdown()` with try/finally lock release) + `harness daemon` CLI command with SIGTERM/SIGINT handling. The intended foreground subscriber was Phase 16.0b (Ink TUI), which was reverted today — the daemon code is functional but has no live consumer. Removal pending the eventual Phase 16.1 design.
 
-**Phase 16 revert (2026-05-12).** Phase 16.0b (Ink TUI as foreground subscriber) and Phase 16.0c (slash dispatch on Ink) were reverted in a single force-push back to commit `e9d5445`, then two follow-up commits layered the surviving improvements: `d0f951f` added the `string-match` semantic-judge backend + retrospective doc; `2ddf5fc` added `sov dispatch` (headless slash surface) + deprecation warning on `sov chat`. The Ink TUI work is preserved on `origin/archive/ink-tui-2026-05-12`. The interactive surface is back to readline-based `src/ui/terminalRepl.ts` with the full pre-16.0b slash command registry intact. Unit suite: **1809/1809**. Semantic: 57/58 (1 model-behavior flake on `tools.agents-explore-live-delegation`, unrelated to today's changes). Read `docs/retrospective-2026-05-12-phase-16-revert.md` for the full reasoning and Rules 1-4 governing the next foreground refactor.
+**Phase 16 revert (2026-05-12).** Phase 16.0b (Ink TUI as foreground subscriber) and Phase 16.0c (slash dispatch on Ink) were reverted in a single force-push back to commit `e9d5445`, then two follow-up commits layered the surviving improvements: `d0f951f` added the `string-match` semantic-judge backend + retrospective doc; `2ddf5fc` added `sov dispatch` (headless slash surface) + deprecation warning on `sov chat`. The Ink TUI work is preserved on `origin/archive/ink-tui-2026-05-12`. The interactive surface is back to readline-based `src/ui/terminalRepl.ts` with the full pre-16.0b slash command registry intact. Unit suite: **1809/1809**. Semantic: 57/58 (1 model-behavior flake on `tools.agents-explore-live-delegation`, unrelated to today's changes). Read `docs/postmortems/2026-05-12-phase-16-revert.md` for the full reasoning and Rules 1-4 governing the next foreground refactor.
 
-**Next high-leverage targets:** none active. The next foreground refactor (when retried) will be **Phase 16.1** and must keep terminalRepl alive in parallel per Rule 1 of the retrospective. Phase 16 rebuild prerequisites (the ~20 silently-broken-in-Ink subsystems that any future attempt must re-wire) are enumerated in `docs/phase-16-rebuild-prereqs.md`. The P3+ backlog item (17 — see `docs/post-phase-13-4-backlog.md`) remains open. Do not start any phase unless explicitly requested. See `runtime-scaffold-plan.md` for the Phase-0 layout this repo was seeded against.
+**Next high-leverage targets:** none active. The next foreground refactor (when retried) will be **Phase 16.1** and must keep terminalRepl alive in parallel per Rule 1 of the retrospective. Phase 16 rebuild prerequisites (the ~20 silently-broken-in-Ink subsystems that any future attempt must re-wire) are enumerated in `docs/backlog/phase-16-rebuild-prereqs.md`. The P3+ backlog item (17 — see `docs/backlog/post-phase-13-4.md`) remains open. Do not start any phase unless explicitly requested. See `runtime-scaffold-plan.md` for the Phase-0 layout this repo was seeded against.
 
 Each phase should:
 - Add one new abstraction or capability.
@@ -153,7 +153,7 @@ Run `bun run lint`, `bun run typecheck`, and `bun run test` before every commit.
 - **Touching one specific surface** (single tool, single slash command, single permission rule path, single context surface): run the matching filter — `bun run test:semantic -- --filter <id-or-substring>`
 - **Touching `src/core/query.ts`, `src/providers/`, `src/agent/sessionDb.ts` schema, or `src/permissions/canUseTool.ts`:** run the full suite
 - **Before pushing a substantive feature batch to master:** run the full suite
-- **Phase completion gate:** run the full suite + log it in `docs/testing-log-2026-04-27.md`
+- **Phase completion gate:** run the full suite + log it in `docs/testing-log.md`
 
 When in doubt, run the full suite — five minutes and a dollar of subscription value is cheap insurance.
 
@@ -165,7 +165,7 @@ Full mapping table (changed area → filter) and extension rules: [`docs/semanti
 
 ## Testing log
 
-Append an entry to `docs/testing-log-2026-04-27.md` whenever harness testing is performed, whether automated (`bun run test`, lint/typecheck gates, targeted unit tests) or semantic/manual (CLI checks, REPL smoke tests, provider/tool behavior checks). Record the scope, environment, commands, manual coverage, result, and any regressions or follow-ups.
+Append an entry to `docs/testing-log.md` whenever harness testing is performed, whether automated (`bun run test`, lint/typecheck gates, targeted unit tests) or semantic/manual (CLI checks, REPL smoke tests, provider/tool behavior checks). Record the scope, environment, commands, manual coverage, result, and any regressions or follow-ups.
 
 ## Commit and push
 

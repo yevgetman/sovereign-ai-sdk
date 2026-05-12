@@ -68,7 +68,7 @@ After **all** tasks land, push with `git push origin master` and run `sov upgrad
 - `src/commands/types.ts` — add optional `taskManager?: TaskManager` field to `CommandContext`. (~3 lines)
 - `src/commands/registry.ts` — spread `TASK_OPS_COMMANDS` into `COMMANDS`. (~3 lines)
 - `src/ui/terminalRepl.ts` — instantiate `TaskManager`, inject into `toolContext.taskManager` and `commandContext().taskManager`. (~20 lines)
-- `docs/testing-log-2026-04-27.md` — append entry per CLAUDE.md. (~15 lines)
+- `docs/testing-log.md` — append entry per CLAUDE.md. (~15 lines)
 
 ---
 
@@ -2555,7 +2555,7 @@ If the cancellation test still doesn't transition to 'cancelled' deterministical
 
 - [ ] **Step 3: Update docs/testing-log**
 
-Append to `docs/testing-log-2026-04-27.md`:
+Append to `docs/testing-log.md`:
 
 ```markdown
 ## 2026-05-06 — Phase 13.2 task system
@@ -2587,7 +2587,7 @@ Expected: All pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/tasks/integration.test.ts docs/testing-log-2026-04-27.md
+git add tests/tasks/integration.test.ts docs/testing-log.md
 git commit -m "$(cat <<'EOF'
 test(tasks): add Phase 13.2 integration test + testing log entry
 
@@ -2596,7 +2596,7 @@ TaskManager, SubagentScheduler, and a fake provider:
 1. queued -> running -> completed lifecycle with parent-child lineage.
 2. Cooperative cancellation via task_stop -> cancelled state.
 
-Appends a Phase 13.2 entry to docs/testing-log-2026-04-27.md.
+Appends a Phase 13.2 entry to docs/testing-log.md.
 EOF
 )"
 ```

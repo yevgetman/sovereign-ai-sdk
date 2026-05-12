@@ -276,7 +276,7 @@ A four-tier rule based on what changed:
 | **Skip** | Doc-only / formatting / README updates that don't change code behavior | Nothing |
 | **Filtered** | Touching one specific surface (one tool, one slash command, one permission rule path, one context surface) | `bun run test:semantic -- --filter <id-or-substring>` (~10-30 s, ~$0.03-0.10) |
 | **Full suite** | Touching `src/core/query.ts`, `src/providers/`, `src/agent/sessionDb.ts` schema, `src/permissions/canUseTool.ts`, or any shared infrastructure that affects multiple surfaces; before pushing a substantive feature batch | `bun run test:semantic` (~5 min, ~$0.87) |
-| **Gate** | Phase completion; before merging a substantive PR; before any release | `bun run test:semantic` + log entry in `docs/testing-log-2026-04-27.md` |
+| **Gate** | Phase completion; before merging a substantive PR; before any release | `bun run test:semantic` + log entry in `docs/testing-log.md` |
 
 When in doubt, run the full suite. Five minutes and a dollar of subscription value is cheap insurance.
 
@@ -400,5 +400,5 @@ The natural next leverage is capability work, not more tests against the current
 - [`docs/extending.md`](./extending.md#add-a-semantic-test) — recipe for adding a test (also covers adding a judge backend)
 - [`docs/architecture.md`](./architecture.md#semantic-test-suite) — architecture summary in the runtime architecture doc
 - [`docs/usage.md`](./usage.md#semantic-test-suite) — quick-reference run instructions
-- [`docs/testing-log-2026-04-27.md`](./testing-log-2026-04-27.md) — chronological test runs, findings, and design-error postmortems
+- [`docs/testing-log.md`](./testing-log.md) — chronological test runs, findings, and design-error postmortems
 - [`CHANGELOG.md`](../CHANGELOG.md) — phase-completion entries for each batch added

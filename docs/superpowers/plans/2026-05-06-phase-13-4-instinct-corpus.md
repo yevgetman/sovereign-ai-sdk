@@ -1126,7 +1126,7 @@ Exercises:
 
 **Files modified:**
 - `CLAUDE.md` — phases paragraph + next-target line
-- `docs/testing-log-2026-04-27.md` — append Phase 13.4 entry
+- `docs/testing-log.md` — append Phase 13.4 entry
 - `docs/semantic-testing.md` — inventory 54 → 58
 - `docs/architecture.md` — new Learning Pipeline section
 - `docs/usage.md` — `harness learning` subcommand docs + `settings.learning.*` config block

@@ -7,13 +7,13 @@ Phase-10.5 backlog was closed.
 
 Source test:
 
-- `docs/testing-log-2026-04-27.md` - Post-Fix Real-World Website REPL Retest
+- `docs/testing-log.md` - Post-Fix Real-World Website REPL Retest
 
 ## Completion Summary
 
 - Status: complete as of 2026-04-28.
 - Items 1 through 7 are closed with implementation notes and validation
-  evidence in this document and in `docs/testing-log-2026-04-27.md`.
+  evidence in this document and in `docs/testing-log.md`.
 - Final gates passed after the last item: `bun run lint`, `bun run test`, and
   `bun run typecheck`.
 

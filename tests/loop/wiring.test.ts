@@ -200,7 +200,7 @@ describe('query() ⊕ loop detector', () => {
     // contains an assistant tool_use with no matching tool_result, and the
     // next provider call rejects with "tool_use ids were found without
     // tool_result blocks immediately after" (HTTP 400). See
-    // docs/bug-loop-detector-orphaned-tool-use.md.
+    // docs/postmortems/loop-detector-orphaned-tool-use.md.
     const gen = query({
       provider: stuckProvider({}),
       model: 'm',

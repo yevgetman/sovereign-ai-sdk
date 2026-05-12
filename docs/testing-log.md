@@ -5,14 +5,14 @@ Append to this log whenever harness testing is performed, including automated te
 Use newest-first ordering.
 
 Implementation backlogs from these findings live in
-[`phase-10-5-backlog.md`](phase-10-5-backlog.md) and
-[`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md).
+[`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
+[`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
 ## 2026-05-12 — Phase 16 revert + `sov dispatch` + documentation P0 pass
 
 **Scope:** Three landings on master in one session, plus a documentation P0 reconciliation pass.
 
-1. **Phase 16 revert** (force-push from a worktree that reset to commit `e9d5445`, the last green pre-Ink-TUI state). Discarded Phase 16.0b (Ink TUI) + Phase 16.0c (Wave 1 slash dispatch on Ink). Preserved at `origin/archive/ink-tui-2026-05-12` (commit `fe0f44b`). Rationale + durable rules in `docs/retrospective-2026-05-12-phase-16-revert.md`.
+1. **Phase 16 revert** (force-push from a worktree that reset to commit `e9d5445`, the last green pre-Ink-TUI state). Discarded Phase 16.0b (Ink TUI) + Phase 16.0c (Wave 1 slash dispatch on Ink). Preserved at `origin/archive/ink-tui-2026-05-12` (commit `fe0f44b`). Rationale + durable rules in `docs/postmortems/2026-05-12-phase-16-revert.md`.
 2. **`d0f951f`** — `feat(semantic): add string-match judge backend + Phase 16 revert retrospective`. New `tests/semantic/framework/judges/stringMatch.ts` (deterministic literal-substring judge, $0/run, selected via `--judge string-match`); index + CLI flag wired.
 3. **`2ddf5fc`** — `feat(cli): add sov dispatch headless slash-command surface; deprecate sov chat`. New `src/cli/dispatchCommand.ts` (boots minimum context — no session DB, no compactor, no task manager, no review manager, no agent loop — reads slash commands from stdin one per line, dispatches via existing registry, prints output framed by `--- ready ---` / `--- end-of-turn ---`, exits on EOF or `/quit`). `sov chat` keyword now prints a deprecation warning on stderr when typed explicitly (bare `sov` does not).
 
@@ -36,12 +36,12 @@ Implementation backlogs from these findings live in
 - `sov upgrade` — installed master `2ddf5fc` cleanly; both `sov` and `harness` bins refreshed.
 
 **Documentation P0 pass (same session):**
-- New `docs/state-of-build-2026-05-12.md` (canonical close-out snapshot).
+- New `docs/state/2026-05-12.md` (canonical close-out snapshot).
 - `CLAUDE.md` — boot pointer updated; Phase 16.0a paragraph rewritten as "code in tree but DORMANT post-revert"; added Phase 16 revert paragraph; "next high-leverage targets" now points at Phase 16.1 (when retried) with rebuild-prereqs reference.
 - `AGENTS.md` mirrored from `CLAUDE.md` per user's standing instruction.
 - `README.md` Status section updated: 1717/1717 → 1809/1809; Phase 13.4 → 13.5 + 16.0a (dormant); added Phase 16 revert paragraph; "12+ slash commands" → "comprehensive slash-command surface (see /help for the live registry)"; "Phase 13.5 next" removed.
 - `docs/usage.md` — added subcommand entries for `dispatch`, `mission init`, `mission run`, `daemon`; added `--agent` and `--state-dir` flags; documented `sov chat` deprecation.
-- New `docs/phase-16-rebuild-prereqs.md` (see Q7 below).
+- New `docs/backlog/phase-16-rebuild-prereqs.md` (see Q7 below).
 
 **Open-question resolutions** (from the same-day docs audit):
 - Q1 daemon survival: keep dormant in tree.
@@ -50,7 +50,7 @@ Implementation backlogs from these findings live in
 - Q4 AGENTS.md: keep as CLAUDE.md mirror (user directive).
 - Q5 next-attempt phase numbering: Phase 16.1.
 - Q6 `scheduled-mission` agent: keep in default bundle.
-- Q7 deferred Phase 16 rebuild prereqs: captured in new `docs/phase-16-rebuild-prereqs.md`.
+- Q7 deferred Phase 16 rebuild prereqs: captured in new `docs/backlog/phase-16-rebuild-prereqs.md`.
 
 **Regressions:** None observed.
 
@@ -280,7 +280,7 @@ Implementation backlogs from these findings live in
   - 8 files updated (~310 insertions, ~42 deletions). 645/645 tests pass. Lint clean. Typecheck clean.
 - Regressions / follow-ups:
   - No source changes; tests / lint / typecheck unaffected.
-  - Backlogs (`docs/phase-10-5-backlog.md`, `docs/post-phase-10-5-repl-backlog.md`) intentionally left as historical records — they describe specific testing sessions in 2026-04-27 and shouldn't be edited retroactively.
+  - Backlogs (`docs/backlog/archive/phase-10-5.md`, `docs/backlog/archive/post-phase-10-5-repl.md`) intentionally left as historical records — they describe specific testing sessions in 2026-04-27 and shouldn't be edited retroactively.
   - Source file header comments in Wave 1-4 modules describe their own behavior accurately and are kept in sync with the corresponding module's purpose.
 
 ## 2026-05-03 - Wave 4 stabilization: Ctrl-R + soft-wrap + Esc-flush
@@ -462,7 +462,7 @@ Implementation backlogs from these findings live in
   - No regressions. Existing `prompt.test.ts`, `toolSlot.test.ts`, `thinking.test.ts` all green against the new wiring without test edits to their assertions (the modal contract was additive).
   - Known limitation: footer is rendered as a "pre-prompt status line" rather than a true bottom-pinned scroll-region footer. Sufficient for Wave 1 polish; the scroll-region upgrade is gated on the input-editor work in Wave 4 (10.5e).
   - Diff renderer renders the agent's intent (old_string → new_string) for FileEdit, not a fresh re-read of post-edit file contents. For Wave 1 this is the right tradeoff — no extra I/O, no race against the orchestrator's tool dispatch. Re-read-from-disk diffs can be considered when the input editor lands and we own more of the cursor model.
-  - Phase-10-5 backlog (`docs/phase-10-5-backlog.md`) entries unaffected; Wave-2/3/4/5 designs in the plan remain the next units of work.
+  - Phase-10-5 backlog (`docs/backlog/archive/phase-10-5.md`) entries unaffected; Wave-2/3/4/5 designs in the plan remain the next units of work.
 
 ## 2026-05-01 - Binary rename: sovereign → sov
 
@@ -589,12 +589,12 @@ Implementation backlogs from these findings live in
 ## 2026-04-28 - Post Phase-10.5 REPL Backlog Final Validation
 
 - Scope: Final validation after closing every item in
-  `docs/post-phase-10-5-repl-backlog.md`.
+  `docs/backlog/archive/post-phase-10-5-repl.md`.
 - Environment:
   - Repo: `/Users/julie/code/sovereign-ai-harness`
   - Runtime: Bun 1.3.13
 - Commands:
-  - `rg -n "Status: open|Status: complete" docs/post-phase-10-5-repl-backlog.md`
+  - `rg -n "Status: open|Status: complete" docs/backlog/archive/post-phase-10-5-repl.md`
   - `bun run lint`
   - `bun run test`
   - `bun run typecheck`
@@ -836,11 +836,11 @@ Implementation backlogs from these findings live in
   - Passed. `bun run typecheck`.
 - Regressions / follow-ups:
   - No regression found in the Phase-10.5 fixes for home-path normalization, serialized permission prompts, read-only prompt skipping, max-token recovery, or transcript validity.
-  - New candidate improvements are recorded in [`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md): provider/model preflight, clearer partial-artifact warnings after provider failures, a static-site validator helper, unsupported Ollama tool-model handling, stale max-token docs, pasted slash-command handling, and optional terminal transcript capture.
+  - New candidate improvements are recorded in [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md): provider/model preflight, clearer partial-artifact warnings after provider failures, a static-site validator helper, unsupported Ollama tool-model handling, stale max-token docs, pasted slash-command handling, and optional terminal transcript capture.
 
 ## 2026-04-27 - Phase-10.5 Backlog Final Validation
 
-- Scope: Final validation after closing every Phase-10.5 backlog item in `docs/phase-10-5-backlog.md`.
+- Scope: Final validation after closing every Phase-10.5 backlog item in `docs/backlog/archive/phase-10-5.md`.
 - Environment:
   - Repo: `/Users/julie/code/sovereign-ai-harness`
   - Runtime: Bun 1.3.13
@@ -1089,7 +1089,7 @@ Implementation backlogs from these findings live in
 
 ## 2026-04-27 - Date Testing Log Filename
 
-- Scope: Documentation maintenance to rename `docs/testing-log.md` to `docs/testing-log-2026-04-27.md` and update all repo references.
+- Scope: Documentation maintenance to rename `docs/testing-log.md` to `docs/testing-log.md` and update all repo references.
 - Environment:
   - Repo: `/Users/julie/code/sovereign-ai-harness`
   - Runtime: Bun 1.3.13
@@ -1884,12 +1884,12 @@ Implementation backlogs from these findings live in
 ## 2026-05-06 — Documentation audit pass (sync with Phase 13.3 close-out)
 
 - Scope: Comprehensive doc audit + update pass bringing all top-level and `docs/` files in sync with work shipped in commits ec21277 through e516a43 (Phase 13.3 close-out batch). No code changes.
-- Files updated: `CLAUDE.md`, `AGENTS.md`, `README.md`, `DECISIONS.md`, `CHANGELOG.md`, `docs/architecture.md` (new review pipeline section + REVIEW_ONLY_TOOLS description + updated semantic counts), `docs/usage.md` (new `/review` slash command table + `settings.review.*` config block + updated semantic count), `docs/extending.md` (review-* agent special role + REVIEW_ONLY_TOOLS note), `docs/semantic-testing.md` (stale count fixes), `docs/testing-log-2026-04-27.md` (this entry + all prior close-out entries).
+- Files updated: `CLAUDE.md`, `AGENTS.md`, `README.md`, `DECISIONS.md`, `CHANGELOG.md`, `docs/architecture.md` (new review pipeline section + REVIEW_ONLY_TOOLS description + updated semantic counts), `docs/usage.md` (new `/review` slash command table + `settings.review.*` config block + updated semantic count), `docs/extending.md` (review-* agent special role + REVIEW_ONLY_TOOLS note), `docs/semantic-testing.md` (stale count fixes), `docs/testing-log.md` (this entry + all prior close-out entries).
 - Environment: local master, darwin 25.2.0.
 - Commands: `bun run lint` — pass (doc-only changes; Biome confirms markdown format clean). No code changes, no test runs needed.
 - Manual coverage: Grep verification of stale counts (1384, 43/43 in non-historical contexts), stale "next targets" lines, "three reference agents" counts. All resolved.
 - Result: All docs in sync with Phase 13.3 close-out state.
-- Regressions / follow-ups: None. `docs/phase-10-5-backlog.md` and `docs/post-phase-10-5-repl-backlog.md` are historical backlog records and intentionally left unchanged.
+- Regressions / follow-ups: None. `docs/backlog/archive/phase-10-5.md` and `docs/backlog/archive/post-phase-10-5-repl.md` are historical backlog records and intentionally left unchanged.
 - Proposal `parentSessionId` is `null` in v0 — proper child-session lineage threading deferred.
 
 ## 2026-05-06 — Phase 13.4 instinct corpus
@@ -1949,11 +1949,11 @@ Implementation backlogs from these findings live in
 
 **Result:** Item 22 closed. No regressions to existing microcompact tests (12/12 still pass with same expected eviction counts since their fixtures lack a text-bearing user message — boundary defaults to `messages.length` which excludes nothing, preserving pre-fix behaviour for those edge cases).
 
-**Files:** `src/compact/microcompact.ts`, `src/core/query.ts`, `tests/compact/microcompact.test.ts`, `docs/post-phase-13-4-backlog.md`.
+**Files:** `src/compact/microcompact.ts`, `src/core/query.ts`, `tests/compact/microcompact.test.ts`, `docs/backlog/post-phase-13-4.md`.
 
 ## 2026-05-08 — Memory retrieval gaps spec
 
-**Scope:** Added `docs/memory-retrieval-gaps-spec.md` as a draft anchor for future memory retrieval improvements. The spec records the gaps identified while comparing the harness's current memory system with the 2026-05-08 memory article review: need detection, ranking/packing, semantic retrieval, temporal validity, write redaction, retrieval evals, API surface, cross-scope policy, and observation-corpus retrieval.
+**Scope:** Added `docs/specs/memory-retrieval-gaps.md` as a draft anchor for future memory retrieval improvements. The spec records the gaps identified while comparing the harness's current memory system with the 2026-05-08 memory article review: need detection, ranking/packing, semantic retrieval, temporal validity, write redaction, retrieval evals, API surface, cross-scope policy, and observation-corpus retrieval.
 
 **Environment:** Bun on darwin, local master branch.
 

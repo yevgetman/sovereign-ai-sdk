@@ -7,8 +7,8 @@ a more formal issue tracker.
 
 Source tests:
 
-- `docs/testing-log-2026-04-27.md` — Boundary REPL Harness Test
-- `docs/testing-log-2026-04-27.md` — Real-World Website Build Harness Test
+- `docs/testing-log.md` — Boundary REPL Harness Test
+- `docs/testing-log.md` — Real-World Website Build Harness Test
 
 ## Priority Order
 
