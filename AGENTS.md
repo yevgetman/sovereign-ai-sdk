@@ -15,6 +15,73 @@ If you need business context (what Sovereign AI is, what the harness does, why),
 7. `~/code/sovereign-ai-docs/harness/docs/reference/agent-harness-design-lessons.md` — unifying design principles and Claude Code reference lessons.
 8. `~/code/claude-code/src/` — the architectural reference. Look up specific patterns there when a design question comes up.
 
+## Documentation index
+
+Every doc in this repo, organized by purpose. Read by category, not by directory listing.
+
+### Reference (read on-demand by topic)
+
+| File | What's in it |
+|---|---|
+| `docs/architecture.md` | Current runtime flow — request lifecycle, system prompt assembly, tool execution, permissions, persistence, sub-agent runtime, microcompaction, default bundle, REPL UX layers, learning + review pipelines, trajectory capture |
+| `docs/usage.md` | Day-to-day operation — CLI flags, subcommands, slash command catalog, eval suite, local-model router, profiles, sessions / resume, providers, themes, web tools |
+| `docs/extending.md` | Recipes for adding extension points — tools, providers, slash commands, skills, hooks, MCP servers, agent definitions, permission rules, trajectory redaction patterns |
+| `docs/semantic-testing.md` | Semantic test framework — judge backends (claude-code, anthropic-api, string-match), driver, when-to-run mapping table, coverage inventory |
+| `CHANGELOG.md` | Phase-by-phase release history (root, not in `docs/`). Note: **frozen at Phase 13.3**; CLAUDE.md "Phases" section below is more current |
+| `README.md` | Project intro + Status section (root). Status section is the canonical "what's shipped" summary |
+| `AGENTS.md` | Mirror of this file (`CLAUDE.md`). Treat as identical content |
+
+### Current state
+
+| File | What's in it |
+|---|---|
+| `docs/state-of-build-2026-05-12.md` | **Canonical current-state snapshot** (HEAD `34f02f3`, suite 1809/1809 unit + 57/58 semantic). Updated each major-change session |
+| `docs/state-of-build-2026-05-11.md` | Historical snapshot (Phase 16.0a close-out). Now superseded |
+| `docs/state-of-build-2026-05-07.md` | Historical snapshot (Phase 13.4 close-out). Now superseded |
+
+### Backlog and forward-looking plans
+
+| File | What's in it |
+|---|---|
+| `docs/post-phase-13-4-backlog.md` | Open backlog (1 item: #17 eval-gated auto-promote, P4) |
+| `docs/phase-16-rebuild-prereqs.md` | Forward-looking — 24 subsystems any future Phase 16.1 foreground refactor must re-wire under Rule 1 of the revert retrospective |
+| `docs/phase-10-5-backlog.md` | Historical backlog from Phase 10.5 (closed) |
+| `docs/post-phase-10-5-repl-backlog.md` | Historical backlog from Phase 10.5 close-out (closed) |
+
+### Postmortems
+
+| File | What's in it |
+|---|---|
+| `docs/retrospective-2026-05-12-phase-16-revert.md` | **Required reading** before any future foreground-surface refactor. Contains Rules 1-4 governing how to do a foreground rewrite without orphaning subsystems |
+| `docs/bug-loop-detector-orphaned-tool-use.md` | Specific bug postmortem (loop detector orphaning tool_use blocks) |
+
+### Operational logs
+
+| File | What's in it |
+|---|---|
+| `docs/testing-log-2026-04-27.md` | Append-only testing log (newest-first ordering at the top). Per CLAUDE.md rule, every testing pass must be logged here |
+
+### Specs (point-in-time design notes)
+
+| File | What's in it |
+|---|---|
+| `docs/memory-retrieval-gaps-spec.md` | Spec for memory retrieval enhancements |
+
+### Implementation plans (executed)
+
+`docs/superpowers/plans/` holds historical implementation plans authored via the `superpowers:writing-plans` skill. All four plans currently in this directory have shipped. Convention: leave in place after execution as a record; the `superpowers/` subdirectory namespace is owned by the skill system.
+
+| File | What it planned |
+|---|---|
+| `docs/superpowers/plans/2026-05-06-phase-13-2-task-system.md` | Phase 13.2 task system |
+| `docs/superpowers/plans/2026-05-06-phase-13-3-background-review-daemon.md` | Phase 13.3 review daemon |
+| `docs/superpowers/plans/2026-05-06-phase-13-4-instinct-corpus.md` | Phase 13.4 instinct corpus |
+| `docs/superpowers/plans/2026-05-07-memory-project-scoping.md` | Two-tier MEMORY.md routing |
+
+### Source-adjacent READMEs
+
+A few `src/` and `bundle-default/` subdirectories carry their own README — `src/bundle/README.md`, `src/learning/README.md` — for surface-specific context that doesn't belong in the top-level docs.
+
 ## Tech stack
 
 - **Runtime:** Bun.
