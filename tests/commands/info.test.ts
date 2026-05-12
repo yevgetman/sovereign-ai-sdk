@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { ABOUT_COMMAND } from '../../src/commands/info.js';
+import { ABOUT_COMMAND, SKILLS_COMMAND, TOOLS_COMMAND } from '../../src/commands/info.js';
 import type { CommandContext } from '../../src/commands/types.js';
+import type { Tool } from '../../src/tool/types.js';
 
 function fakeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
   return {
@@ -29,6 +30,19 @@ function fakeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
   };
 }
 
+function fakeTool(name: string, description: string): Tool<unknown, unknown> {
+  return {
+    name,
+    description,
+    inputSchema: { type: 'object' },
+    call: async () => ({ outputs: [{ type: 'text', text: 'ok' }] }),
+    isReadOnly: () => true,
+    isConcurrencySafe: () => true,
+    checkPermissions: async () => ({ behavior: 'allow' as const }),
+    userFacingName: () => name,
+  } as unknown as Tool<unknown, unknown>;
+}
+
 describe('/about', () => {
   test('prints harness identity fields', async () => {
     const out = await ABOUT_COMMAND.call('', fakeCtx());
@@ -43,5 +57,45 @@ describe('/about', () => {
   test('renders "no bundle" when bundlePath is null', async () => {
     const out = await ABOUT_COMMAND.call('', fakeCtx({ bundlePath: null }));
     expect(out).toContain('bundle: no bundle');
+  });
+});
+
+describe('/tools', () => {
+  test('lists each tool by name with description', async () => {
+    const ctx = fakeCtx({
+      tools: [fakeTool('Read', 'Read files'), fakeTool('Edit', 'Edit files')],
+    });
+    const out = await TOOLS_COMMAND.call('', ctx);
+    expect(out).toContain('Read');
+    expect(out).toContain('Read files');
+    expect(out).toContain('Edit');
+  });
+
+  test('handles empty tool pool', async () => {
+    const out = await TOOLS_COMMAND.call('', fakeCtx({ tools: [] }));
+    expect(out).toContain('no tools');
+  });
+});
+
+describe('/skills', () => {
+  test('lists each skill by name with description', async () => {
+    const skills = {
+      skills: [
+        { name: 'brainstorming', description: 'design dialogue', triggers: [], toolset: [] },
+        { name: 'writing-plans', description: 'plan writer', triggers: [], toolset: [] },
+      ],
+      byTool: new Map(),
+    } as unknown as CommandContext['skills'];
+    const ctx = fakeCtx({ skills });
+    const out = await SKILLS_COMMAND.call('', ctx);
+    expect(out).toContain('brainstorming');
+    expect(out).toContain('design dialogue');
+    expect(out).toContain('writing-plans');
+  });
+
+  test('handles empty skill registry', async () => {
+    const skills = { skills: [], byTool: new Map() } as unknown as CommandContext['skills'];
+    const out = await SKILLS_COMMAND.call('', fakeCtx({ skills }));
+    expect(out).toContain('no skills');
   });
 });
