@@ -2,6 +2,9 @@
 // (Ink TUI, future Telegram, Slack) uses this single source of truth.
 
 import chalk from 'chalk';
+import { CONFIG_COMMAND } from './configCommand.js';
+import { ABOUT_COMMAND, PERMISSIONS_COMMAND, SKILLS_COMMAND, TOOLS_COMMAND } from './info.js';
+import { CLEAR_COMMAND, COST_COMMAND, MODEL_COMMAND, QUIT_COMMAND } from './sessionOps.js';
 import type {
   CommandContext,
   CommandDispatchResult,
@@ -84,3 +87,16 @@ export const HELP_COMMAND: LocalCommand = {
   description: 'List available slash commands.',
   call: async (_args, ctx) => formatHelp(ctx.registry),
 };
+
+export const WAVE_1_COMMANDS: ReadonlyArray<SlashCommand> = [
+  HELP_COMMAND,
+  CLEAR_COMMAND,
+  QUIT_COMMAND,
+  COST_COMMAND,
+  MODEL_COMMAND,
+  CONFIG_COMMAND,
+  ABOUT_COMMAND,
+  PERMISSIONS_COMMAND,
+  TOOLS_COMMAND,
+  SKILLS_COMMAND,
+];

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   HELP_COMMAND,
+  WAVE_1_COMMANDS,
   buildCommandRegistry,
   dispatchSlashCommand,
   formatHelp,
@@ -142,5 +143,37 @@ describe('/help', () => {
     const ctx = fakeCtx(buildCommandRegistry([HELP_COMMAND]));
     const out = await HELP_COMMAND.call('', ctx);
     expect(out).toContain('/help');
+  });
+});
+
+describe('WAVE_1_COMMANDS', () => {
+  test('every command has a unique name', () => {
+    const names = WAVE_1_COMMANDS.map((c) => c.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  test('every command dispatches without throwing on empty args', async () => {
+    const registry = buildCommandRegistry([...WAVE_1_COMMANDS]);
+    const ctx = fakeCtx(registry);
+    for (const command of WAVE_1_COMMANDS) {
+      const out = await dispatchSlashCommand(`/${command.name}`, ctx);
+      expect(out.kind).toBe('local');
+    }
+  });
+
+  test('includes the 10 Wave 1 commands', () => {
+    const names = WAVE_1_COMMANDS.map((c) => c.name).sort();
+    expect(names).toEqual([
+      'about',
+      'clear',
+      'config',
+      'cost',
+      'help',
+      'model',
+      'permissions',
+      'quit',
+      'skills',
+      'tools',
+    ]);
   });
 });
