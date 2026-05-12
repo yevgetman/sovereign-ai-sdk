@@ -8,6 +8,52 @@ Implementation backlogs from these findings live in
 [`phase-10-5-backlog.md`](phase-10-5-backlog.md) and
 [`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md).
 
+## 2026-05-12 — Phase 16 revert + `sov dispatch` + documentation P0 pass
+
+**Scope:** Three landings on master in one session, plus a documentation P0 reconciliation pass.
+
+1. **Phase 16 revert** (force-push from a worktree that reset to commit `e9d5445`, the last green pre-Ink-TUI state). Discarded Phase 16.0b (Ink TUI) + Phase 16.0c (Wave 1 slash dispatch on Ink). Preserved at `origin/archive/ink-tui-2026-05-12` (commit `fe0f44b`). Rationale + durable rules in `docs/retrospective-2026-05-12-phase-16-revert.md`.
+2. **`d0f951f`** — `feat(semantic): add string-match judge backend + Phase 16 revert retrospective`. New `tests/semantic/framework/judges/stringMatch.ts` (deterministic literal-substring judge, $0/run, selected via `--judge string-match`); index + CLI flag wired.
+3. **`2ddf5fc`** — `feat(cli): add sov dispatch headless slash-command surface; deprecate sov chat`. New `src/cli/dispatchCommand.ts` (boots minimum context — no session DB, no compactor, no task manager, no review manager, no agent loop — reads slash commands from stdin one per line, dispatches via existing registry, prints output framed by `--- ready ---` / `--- end-of-turn ---`, exits on EOF or `/quit`). `sov chat` keyword now prints a deprecation warning on stderr when typed explicitly (bare `sov` does not).
+
+**Environment:** Bun on darwin, master HEAD `2ddf5fc` after the force-push, `harness` alias installed alongside `sov`.
+
+**Automated suites:**
+- `bun run typecheck` — clean (exit 0)
+- `bun run lint` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts` only — not introduced by this work)
+- `bun run test` — **1809/1809 pass** (4406 expect calls across 196 files, ~11s wall)
+- `bun run test:semantic` (full 58-case run, default claude-code judge) — **57 pass / 1 fail / 0 error**, 20:44 wall, $3.46. Failure: `tools.agents-explore-live-delegation` violated criterion S4 (agent reproduced literal token `demo-token-AUTH-MARKER-9F4E2A` in summary instead of describing it). Model-behavior judgment call, not a regression — the case lives in `tools.cases.ts` and depends on whether the agent decides to redact vs reproduce a sensitive-looking string. Accepted as a one-off flake; the affected criterion may need tightening in a future commit.
+
+**Manual smoke tests:**
+- `echo "/help" | sov dispatch` — prints full registry framed by `--- ready ---` / `--- end-of-turn ---` markers. ✓
+- Multi-command pipe `printf "/about\n/cost\n/permissions\n/tools\n/skills\n/quit\n" | sov dispatch` — all 6 turns dispatch correctly; clean exit. ✓
+- `printf "/compact\n" | sov dispatch` — errors informatively: `error: dispatch mode does not maintain a session DB — /compact requires the interactive REPL`. ✓
+- `sov chat </dev/null` — prints deprecation warning on stderr; launches REPL normally. ✓
+- Bare `sov </dev/null` — no warning; launches REPL directly. ✓
+- `sov eval run --filter read-and-summarize` (Q2 verification) — passes 4.7s/$0.001. ✓
+- `sov eval run --filter read-and-summarize --capture /tmp/sov-capture-test` (Q3 verification) — writes `read-and-summarize.fixture.json`. ✓
+- `sov eval run --filter read-and-summarize --replay /tmp/sov-capture-test` — replays at 2.2s, $0.001. ✓
+- `sov upgrade` — installed master `2ddf5fc` cleanly; both `sov` and `harness` bins refreshed.
+
+**Documentation P0 pass (same session):**
+- New `docs/state-of-build-2026-05-12.md` (canonical close-out snapshot).
+- `CLAUDE.md` — boot pointer updated; Phase 16.0a paragraph rewritten as "code in tree but DORMANT post-revert"; added Phase 16 revert paragraph; "next high-leverage targets" now points at Phase 16.1 (when retried) with rebuild-prereqs reference.
+- `AGENTS.md` mirrored from `CLAUDE.md` per user's standing instruction.
+- `README.md` Status section updated: 1717/1717 → 1809/1809; Phase 13.4 → 13.5 + 16.0a (dormant); added Phase 16 revert paragraph; "12+ slash commands" → "comprehensive slash-command surface (see /help for the live registry)"; "Phase 13.5 next" removed.
+- `docs/usage.md` — added subcommand entries for `dispatch`, `mission init`, `mission run`, `daemon`; added `--agent` and `--state-dir` flags; documented `sov chat` deprecation.
+- New `docs/phase-16-rebuild-prereqs.md` (see Q7 below).
+
+**Open-question resolutions** (from the same-day docs audit):
+- Q1 daemon survival: keep dormant in tree.
+- Q2 eval-runner: ✓ verified working post-revert.
+- Q3 capture/replay: ✓ verified working post-revert.
+- Q4 AGENTS.md: keep as CLAUDE.md mirror (user directive).
+- Q5 next-attempt phase numbering: Phase 16.1.
+- Q6 `scheduled-mission` agent: keep in default bundle.
+- Q7 deferred Phase 16 rebuild prereqs: captured in new `docs/phase-16-rebuild-prereqs.md`.
+
+**Regressions:** None observed.
+
 ## 2026-05-11 — Phase 16.0a daemon skeleton
 
 **Scope:** Phase 16.0a — daemon infrastructure skeleton. Five tasks via subagent-driven development: channel types + `buildSessionKey` + `send()` local outbox; LRU `SessionCache`; `ApprovalQueue` with TTL expiry; typed `DaemonEventBus` + `DaemonEvent` union; `startDaemon()` runner + `harness daemon` CLI command. Each task: TDD (RED → GREEN), spec compliance review, code quality review, fix loop until approved.
