@@ -1,6 +1,11 @@
 // Phase 16.0b — minimal prompt input. Accumulates characters into a
 // buffer; Enter submits + clears; Ctrl-C signals abort; Backspace
 // deletes the previous character. No autocomplete (Phase 16.7).
+//
+// When `disabled` is true (agent mid-turn), Enter is suppressed so a
+// second concurrent query() generator cannot be launched. Typing into
+// the buffer, Backspace, and Ctrl-C continue to work — only the submit
+// action is gated. The marker is dimmed as a visual cue.
 
 import { Box, Text, useInput } from 'ink';
 import { useState } from 'react';
@@ -8,9 +13,10 @@ import { useState } from 'react';
 type PromptProps = {
   readonly onSubmit: (text: string) => void;
   readonly onAbort: () => void;
+  readonly disabled?: boolean;
 };
 
-export function Prompt({ onSubmit, onAbort }: PromptProps): JSX.Element {
+export function Prompt({ onSubmit, onAbort, disabled = false }: PromptProps): JSX.Element {
   const [value, setValue] = useState('');
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
@@ -18,6 +24,7 @@ export function Prompt({ onSubmit, onAbort }: PromptProps): JSX.Element {
       return;
     }
     if (key.return) {
+      if (disabled) return;
       const trimmed = value.trim();
       if (trimmed.length > 0) onSubmit(trimmed);
       setValue('');
@@ -33,7 +40,9 @@ export function Prompt({ onSubmit, onAbort }: PromptProps): JSX.Element {
   });
   return (
     <Box>
-      <Text color="cyan">{'❯ '}</Text>
+      <Text color="cyan" dimColor={disabled}>
+        {disabled ? '⋯ ' : '❯ '}
+      </Text>
       <Text>{value}</Text>
     </Box>
   );

@@ -51,6 +51,7 @@ export function App({ runner, bus, cwd, profile, provider, model }: AppProps): J
           void submit(text);
         }}
         onAbort={(): void => process.exit(0)}
+        disabled={state.status !== 'idle'}
       />
       <StatusLine statusLine={state.statusLine} status={state.status} />
     </Box>

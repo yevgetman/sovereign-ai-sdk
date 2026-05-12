@@ -50,4 +50,23 @@ describe('Prompt', () => {
     await flush();
     expect(aborted).toBe(true);
   });
+
+  it('does not call onSubmit on Enter when disabled', async () => {
+    let submitted: string | null = null;
+    const { stdin } = render(
+      <Prompt
+        onSubmit={(t) => {
+          submitted = t;
+        }}
+        onAbort={() => {}}
+        disabled
+      />,
+    );
+    await flush();
+    stdin.write('hi');
+    await flush();
+    stdin.write('\r'); // Enter
+    await flush();
+    expect(submitted).toBeNull();
+  });
 });
