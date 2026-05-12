@@ -10,7 +10,7 @@ import { render } from 'ink';
 import { loadAgents } from '../../agents/loader.js';
 import { getDefaultBundlePath } from '../../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../../bundle/loader.js';
-import { resolveHarnessHome } from '../../config/paths.js';
+import { getActiveProfile, resolveHarnessHome } from '../../config/paths.js';
 import { readConfig } from '../../config/store.js';
 import { query } from '../../core/query.js';
 import { buildSystemSegments } from '../../core/systemPrompt.js';
@@ -34,6 +34,7 @@ export type StartInkTUIOpts = {
 
 export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
   const home = resolveHarnessHome();
+  const profileName = getActiveProfile();
   const daemon = startDaemon({ harnessHome: home });
 
   // Bundle, agents, skills, memory, provider — minimal viable setup
@@ -114,7 +115,7 @@ export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
       runner={runner}
       bus={daemon.bus}
       cwd={process.cwd()}
-      profile={home}
+      profile={profileName}
       provider={String(resolved.metadata.provider ?? '')}
       model={resolved.model}
     />,
