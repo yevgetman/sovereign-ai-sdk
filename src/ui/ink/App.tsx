@@ -25,9 +25,15 @@ type AppProps = {
   readonly profile: string;
   readonly provider?: string;
   readonly model?: string;
+  /** Clean-exit callback. The host (startInkTUI) supplies one that emits
+   *  `daemon_stopping`, then unmounts on the next tick so the React tree
+   *  can flush the resulting `system_message` dispatch. Plain
+   *  `process.exit(0)` skips this — and the memory-flush + lock-release
+   *  in startInkTUI's finally block — so always wire this through. */
+  readonly onExit: () => void;
 };
 
-export function App({ runner, bus, cwd, profile, provider, model }: AppProps): JSX.Element {
+export function App({ runner, bus, cwd, profile, provider, model, onExit }: AppProps): JSX.Element {
   // `exactOptionalPropertyTypes` rejects `provider: undefined` literal
   // assignment; conditionally spread only the defined slots so undefined
   // keys are omitted entirely rather than set to `undefined`.
@@ -50,7 +56,7 @@ export function App({ runner, bus, cwd, profile, provider, model }: AppProps): J
         onSubmit={(text): void => {
           void submit(text);
         }}
-        onAbort={(): void => process.exit(0)}
+        onAbort={onExit}
         disabled={state.status !== 'idle'}
       />
       <StatusLine statusLine={state.statusLine} status={state.status} />

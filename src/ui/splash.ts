@@ -138,9 +138,10 @@ export function renderSplash(info: SplashInfo, terminalCols?: number): string {
     : (sideBySideCard ?? boxify(renderCard(info, stackedBudget), { padding: 2 }));
   const cardWidth = Math.max(...cardLines.map(visibleWidth));
 
-  const tips = t.textMuted(
-    'Tips: type / for slash commands · @file:path to inline files · /quit to exit',
-  );
+  // Tips line. Slash dispatch + @file expansion will return in Phase 16.0c
+  // — until then, advertise only what actually works to avoid surprising
+  // the user with non-functional hints.
+  const tips = t.textMuted('Tips: type your message · Ctrl-C to exit');
   const modeNote = info.permissionModeNote ?? '';
   const footer = t.textDim(
     `perms: ${info.permissionMode}${modeNote} · tools: ${info.toolCount} · cache: ${info.cacheOn ? 'on' : 'off'} · ${info.sessionLabel} · ${info.exitHint}`,

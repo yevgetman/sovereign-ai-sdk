@@ -135,7 +135,18 @@ export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
   });
   process.stdout.write(`${splash}\n`);
 
-  const instance = render(
+  // Clean-exit wiring. `daemon.shutdown()` is called synchronously inside
+  // onExit so the daemon_stopping event reaches the bus subscriber while
+  // the React tree is still mounted (the subscriber dispatches it as a
+  // system_message). The unmount is deferred one tick so Ink can flush
+  // that dispatch before tearing down. `daemon.shutdown()` is idempotent,
+  // so the duplicate call in the finally block is a no-op.
+  let instance: ReturnType<typeof render> | undefined;
+  const onExit = (): void => {
+    daemon.shutdown();
+    setTimeout(() => instance?.unmount(), 0);
+  };
+  instance = render(
     <App
       runner={runner}
       bus={daemon.bus}
@@ -143,6 +154,7 @@ export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
       profile={profileName}
       provider={providerName}
       model={resolved.model}
+      onExit={onExit}
     />,
   );
 
