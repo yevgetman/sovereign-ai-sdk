@@ -160,7 +160,7 @@ async function main(argv: string[]): Promise<void> {
   program
     .command('chat', { isDefault: true })
     .description(
-      'Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)',
+      "[deprecated keyword — use bare 'sov'] Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)",
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
     .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
@@ -196,6 +196,13 @@ async function main(argv: string[]): Promise<void> {
       'scheduled-mission mode: path to a mission directory (requires --agent with supportsMissionState:true)',
     )
     .action(async (opts) => {
+      // Deprecation notice — fired only when 'chat' is explicitly typed, not
+      // when the bare `sov` invocation triggers Commander's default action.
+      if (process.argv[2] === 'chat') {
+        process.stderr.write(
+          "[deprecated] 'sov chat' is going away — use bare 'sov' for the interactive REPL, or 'sov dispatch' for headless slash-command testing.\n",
+        );
+      }
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
       await runRepl({
@@ -216,6 +223,21 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.agent !== undefined ? { agentName: opts.agent } : {}),
         ...(opts.stateDir !== undefined ? { stateDir: opts.stateDir } : {}),
       });
+    });
+
+  program
+    .command('dispatch')
+    .description(
+      'Headless slash-command dispatch — boots a minimum context, reads slash commands from stdin (one per line), prints output to stdout, exits on EOF or /quit. Used for mechanical testing of read-only commands; commands that need the session DB, compactor, task manager, or review manager error informatively.',
+    )
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .action(async (opts) => {
+      const bundlePath = resolveBundlePath(opts.bundle);
+      const { runDispatch } = await import('./cli/dispatchCommand.js');
+      const exitCode = await runDispatch({
+        ...(bundlePath !== null ? { bundlePath } : {}),
+      });
+      process.exit(exitCode);
     });
 
   const configCmd = program

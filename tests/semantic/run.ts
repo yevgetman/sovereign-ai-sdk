@@ -67,12 +67,7 @@ function parseFlags(argv: string[]): CliFlags {
         break;
       case '--judge': {
         const v = takeNext(argv, ++i, '--judge');
-        if (
-          v !== 'claude-code' &&
-          v !== 'anthropic-api' &&
-          v !== 'string-match' &&
-          v !== 'auto'
-        ) {
+        if (v !== 'claude-code' && v !== 'anthropic-api' && v !== 'string-match' && v !== 'auto') {
           console.error(
             `--judge must be one of: claude-code, anthropic-api, string-match, auto (got: ${v})`,
           );
