@@ -67,8 +67,10 @@ function parseFlags(argv: string[]): CliFlags {
         break;
       case '--judge': {
         const v = takeNext(argv, ++i, '--judge');
-        if (v !== 'claude-code' && v !== 'anthropic-api' && v !== 'auto') {
-          console.error(`--judge must be one of: claude-code, anthropic-api, auto (got: ${v})`);
+        if (v !== 'claude-code' && v !== 'anthropic-api' && v !== 'string-match' && v !== 'auto') {
+          console.error(
+            `--judge must be one of: claude-code, anthropic-api, string-match, auto (got: ${v})`,
+          );
           process.exit(2);
         }
         out.judge = v;
@@ -112,7 +114,7 @@ Usage: bun tests/semantic/run.ts [flags]
 Flags:
   --filter <s>          Only run tests whose id/name/category contains <s>
   --binary <s>          Binary to spawn (default: sov; env SEMANTIC_BINARY overrides)
-  --judge <name>        Judge backend: claude-code | anthropic-api | auto (default: auto)
+  --judge <name>        Judge backend: claude-code | anthropic-api | string-match | auto (default: auto)
   --judge-model <s>     Model for the chosen judge backend (optional)
   --claude-binary <s>   Path to claude CLI (default: claude)
   --include-slow        Include tests marked slow:true

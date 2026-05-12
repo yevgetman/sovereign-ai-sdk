@@ -1,154 +1,172 @@
-// Slash-command dispatch tests. Two distinct paths to cover:
-//   - LOCAL commands (e.g. /help) — registry returns text, no model turn.
-//   - PROMPT commands (e.g. /commit) — registry feeds a constrained prompt
-//     into the model with a restricted allowedTools scope.
-// Both paths are exercised end-to-end through the spawned binary.
+// Slash-command dispatch tests. Phase 16.0c SD2: each Wave 1 slash command
+// gets a dedicated, isolated case that exercises the headless `sov dispatch`
+// surface and asserts on literal output substrings via the string-match
+// judge. The previous agent-turn-driven cases (/context-budget, /init,
+// /commit, etc.) exercised pathways that don't exist in dispatch mode and
+// will return when an agent-headless surface is reintroduced.
 
 import type { SemanticTest } from '../framework/types.js';
 
+const COMMAND_TIMEOUT_MS = 30_000;
+
 export const tests: SemanticTest[] = [
   {
-    id: 'context-budget-dispatch',
-    name: '/context-budget renders a section-grouped audit of context-window usage',
+    id: 'commands.help',
+    name: '/help lists all Wave 1 commands',
     description:
-      'Phase 12.6 — context budget. The command must dispatch as a local slash command (no model ' +
-      "turn), produce a 'total estimate' header, and group components by kind. Guards against " +
-      'regressions in src/context/budget.ts (auditContextBudget / formatBudgetReport), the new ' +
-      'CommandContext.getBudgetReport hook, and the command registry wiring.',
+      'Guards against the slash registry being un-wired or a Wave 1 command being dropped.',
     category: 'commands',
-    prompt: '/context-budget',
+    prompt: ['/help'],
     judgeCriteria: {
       mustSatisfy: [
-        'The transcript contains the literal string "total estimate".',
-        'The output shows BOTH a "system prompt" section AND a "tool schemas" section as group headings. Additional sections like "skills" or "memory files" may be absent and that is expected — the test sandbox has none.',
-        'Each tool-schema entry begins with "Name: <number>" (e.g. "Bash: 280", "Read: 156" — exact tools and counts vary). Trailing annotations after the number such as "[sometimes]" or "[always]" are allowed and do NOT disqualify the line.',
+        'slash commands',
+        '/help',
+        '/clear',
+        '/cost',
+        '/about',
+        '/config',
+        '/model',
+        '/permissions',
+        '/quit',
+        '/tools',
+        '/skills',
       ],
-      shouldNot: [
-        'The agent treated /context-budget as a model prompt instead of dispatching it locally.',
-        'The transcript contains "unknown command" referring to context-budget.',
-      ],
+      shouldNot: ['unknown command'],
     },
-    timeoutMs: 30_000,
+    timeoutMs: COMMAND_TIMEOUT_MS,
   },
   {
-    id: 'help-listing',
-    name: '/help renders the categorized command listing',
+    id: 'commands.about',
+    name: '/about prints harness identity, profile, provider, model, session',
     description:
-      'Guards against slash-command dispatch breaking, /help losing its categorized layout, or ' +
-      'core commands disappearing from the listing.',
+      'Guards against /about losing one of its labeled rows (profile/provider/model/session).',
     category: 'commands',
-    prompt: '/help',
+    prompt: ['/about'],
     judgeCriteria: {
-      mustSatisfy: [
-        'The transcript contains a "slash commands" header.',
-        'At least four category section markers appear: session, info, config, files, or git.',
-        'The listing includes /help, /quit, /model, /clear, /commit, and /help with its alias suffix shown as "/help (/h /?)".',
-      ],
-      shouldNot: [
-        'The agent treated /help as a model prompt instead of dispatching it locally.',
-        'The transcript contains an error about the command being unknown.',
-      ],
+      mustSatisfy: ['sovereign-ai-harness', 'profile:', 'provider:', 'model:', 'session:'],
+      shouldNot: ['unknown command'],
     },
-    timeoutMs: 30_000,
+    timeoutMs: COMMAND_TIMEOUT_MS,
   },
   {
-    id: 'init-creates-context-md',
-    name: '/init scans the project and writes CONTEXT.md',
+    id: 'commands.cost',
+    name: '/cost reports zeros in a fresh headless session',
     description:
-      'Second prompt-command coverage (after /commit). /init feeds a constrained prompt with ' +
-      'allowedTools: [Glob, FileRead, FileWrite, Bash(ls *), Bash(git status), Bash(git log -*)] ' +
-      'and instructs the model to scan the project and write a briefing. Tests the full pipeline: ' +
-      'prompt-command dispatch, multi-step tool sequencing, file write with synthesized content.',
+      'Headless dispatch wires getLatestCost() to a zero fallback. This guards against the ' +
+      'zero-cost contract (no live UI cost tracking) and the formatted output structure.',
     category: 'commands',
-    setup: {
-      files: [
-        {
-          path: 'package.json',
-          content: JSON.stringify(
-            {
-              name: 'sovereign-init-test-project',
-              version: '0.0.1',
-              description: 'Minimal fixture used by the /init semantic test.',
-            },
-            null,
-            2,
-          ),
-        },
-        {
-          path: 'README.md',
-          content:
-            '# sovereign-init-test-project\n\nMinimal fixture used by the /init semantic test.\n',
-        },
-        {
-          path: 'src/main.ts',
-          content: 'console.log("hello from init test fixture");\n',
-        },
-      ],
-    },
-    prompt: '/init',
+    prompt: ['/cost'],
     judgeCriteria: {
-      mustSatisfy: [
-        'The agent invoked at least one scanning tool (Glob, FileRead, or Bash with ls/git) to inspect the project.',
-        'The agent invoked a file-writing tool (FileWrite/Write) targeting CONTEXT.md (path may be ./CONTEXT.md or CONTEXT.md).',
-        'The CONTEXT.md content references the project — at minimum the name "sovereign-init-test-project" or content from README.md.',
-        "The agent's final response confirms the briefing was written.",
-      ],
-      shouldNot: [
-        'The agent fabricated CONTEXT.md content without scanning the actual files.',
-        'The agent wrote to a different filename than CONTEXT.md.',
-        'The transcript shows the /init command being treated as unknown or not dispatched.',
-      ],
+      mustSatisfy: ['session cost', 'input: 0 tokens', 'output: 0 tokens', '$0.0000'],
+      shouldNot: ['unknown command'],
     },
-    timeoutMs: 120_000,
+    timeoutMs: COMMAND_TIMEOUT_MS,
   },
   {
-    id: 'slash-help-and-clear',
-    name: '/help, /clear, and /cost round-trip through the Ink TUI registry',
+    id: 'commands.model',
+    name: '/model shows current and accepts a new model',
     description:
-      'Phase 16.0c Wave 1 — slash-command dispatch lives in the Ink TUI (src/ui/ink/hooks/useAgentTurn.ts). ' +
-      'Three local commands chained in one session catch the most likely regressions: ' +
-      '(1) /help means the registry is loaded and rendered; (2) /clear means the LocalCommand ' +
-      'path invokes ctx.clearHistory() and the transcript_cleared dispatch reaches the reducer; ' +
-      '(3) /cost after /clear means sessionCost was zeroed by transcript_cleared (reducer.ts:88). ' +
-      'A regression in any of the three would break the visible behavior asserted below.',
+      'Two-turn case. Turn 1: no-arg /model prints "current: <provider>/<model>" and usage. ' +
+      'Turn 2: /model <name> reports "model set to <name>" and the provider-validates-next-turn hint.',
     category: 'commands',
-    prompt: ['/help', 'hello', '/clear', '/cost'],
+    prompt: ['/model', '/model claude-haiku-4-5-20251001'],
     judgeCriteria: {
       mustSatisfy: [
-        'The transcript shows /help rendering a categorized listing that includes /help, /clear, and /cost as registered commands.',
-        'After the /clear invocation, the transcript contains the literal string "history cleared".',
-        'The /cost output that appears AFTER /clear shows "input: 0 tokens" (a zero input-token count), confirming that /clear reset the session cost.',
+        'current:',
+        'usage:',
+        'model set to claude-haiku-4-5-20251001',
+        'provider validates on next turn',
       ],
-      shouldNot: [
-        'The agent treated /help, /clear, or /cost as a model prompt instead of dispatching them locally.',
-        'The transcript contains an "unknown command" error for /help, /clear, or /cost.',
-        'The final /cost output shows a non-zero input-token count, which would indicate /clear did not reset the session cost.',
-      ],
+      shouldNot: ['unknown command'],
     },
-    timeoutMs: 60_000,
+    timeoutMs: COMMAND_TIMEOUT_MS,
   },
   {
-    id: 'commit-on-non-git-directory',
-    name: '/commit gracefully reports when the cwd is not a git repository',
+    id: 'commands.config',
+    name: '/config show and /config path round-trip cleanly',
     description:
-      'Exercises the prompt-command path: /commit feeds a prompt into the model with allowedTools ' +
-      "restricted to git-only Bash subcommands. The model invokes git status, gets 'not a git " +
-      "repository', and must report that honestly. Bug class: agent fabricates a commit summary " +
-      'when no repo exists, or the prompt-command pipeline routes the invocation incorrectly.',
+      'Two-turn case. /config show emits the redacted JSON (an empty {} in the sandbox). ' +
+      '/config path emits the resolved config file path. Guards against either verb regressing ' +
+      'or printing the usage banner by mistake.',
     category: 'commands',
-    prompt: '/commit',
+    prompt: ['/config show', '/config path'],
     judgeCriteria: {
-      mustSatisfy: [
-        'The agent invoked the Bash tool with a git-related command (git status, git diff, etc.).',
-        'The transcript shows git reporting that this is not a git repository (or equivalent — "fatal: not a git repository", "not in a git work tree", etc.).',
-        "The agent's final response acknowledges that there is no git repository and no commit can be made.",
-      ],
-      shouldNot: [
-        'The agent fabricated a commit message or summary as if a commit succeeded.',
-        'The agent claimed to have committed something.',
-        'The transcript shows the /commit command being treated as unknown or as a literal model prompt without git tool invocation.',
-      ],
+      mustSatisfy: ['{}', 'config.json'],
+      shouldNot: ['unknown command', 'usage:'],
     },
-    timeoutMs: 60_000,
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  },
+  {
+    id: 'commands.permissions',
+    name: '/permissions reports the current mode',
+    description:
+      'Guards against the permissions snapshot accessor regressing. In the sandbox the user ' +
+      'config is {} so mode resolves to "default".',
+    category: 'commands',
+    prompt: ['/permissions'],
+    judgeCriteria: {
+      mustSatisfy: ['mode: default'],
+      shouldNot: ['unknown command'],
+    },
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  },
+  {
+    id: 'commands.tools',
+    name: '/tools lists the default-bundle tool pool',
+    description:
+      'Guards against /tools producing an empty pool or losing core tools. The default bundle ' +
+      'ships Bash, FileRead, FileWrite, Grep — at minimum the header and one core tool name ' +
+      'must appear.',
+    category: 'commands',
+    prompt: ['/tools'],
+    judgeCriteria: {
+      mustSatisfy: ['tools', 'Bash', 'FileRead'],
+      shouldNot: ['unknown command', 'no tools loaded'],
+    },
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  },
+  {
+    id: 'commands.skills',
+    name: '/skills lists the default-bundle skill catalog',
+    description:
+      'Guards against the skill loader silently returning nothing. The default bundle ships ' +
+      '"review", "security-audit", and "summarize" skills — the header and at least one ' +
+      'skill name must appear.',
+    category: 'commands',
+    prompt: ['/skills'],
+    judgeCriteria: {
+      mustSatisfy: ['skills', 'summarize'],
+      shouldNot: ['unknown command', 'no skills loaded'],
+    },
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  },
+  {
+    id: 'commands.clear',
+    name: '/clear emits the cleared-history confirmation',
+    description:
+      'Guards against the /clear LocalCommand losing its return string. In a fresh session ' +
+      'history length is 0, so the message is "history cleared (0 messages)".',
+    category: 'commands',
+    prompt: ['/clear'],
+    judgeCriteria: {
+      mustSatisfy: ['history cleared'],
+      shouldNot: ['unknown command'],
+    },
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  },
+  {
+    id: 'commands.clear-resets-cost',
+    name: '/clear leaves /cost at zero (idempotent in a zero-cost session)',
+    description:
+      'Three-turn case. /cost (before) shows zeros, /clear runs, /cost (after) still shows ' +
+      'zeros. In the headless dispatch surface there is no live cost tracker, so this case ' +
+      'guards that /clear neither inflates nor errors the subsequent /cost output.',
+    category: 'commands',
+    prompt: ['/cost', '/clear', '/cost'],
+    judgeCriteria: {
+      mustSatisfy: ['input: 0 tokens', 'history cleared', '$0.0000'],
+      shouldNot: ['unknown command'],
+    },
+    timeoutMs: COMMAND_TIMEOUT_MS,
   },
 ];

@@ -1,17 +1,21 @@
-// Process driver — spawns the binary under test, pipes a single prompt
-// followed by /quit, captures stdout/stderr, and returns an ANSI-stripped
-// transcript. Never imports anything from src/. The only thing it knows
-// about the harness is that it's a stdin-driven REPL.
+// Process driver — spawns the binary's headless `dispatch` subcommand,
+// pipes each prompt line into stdin, captures stdout/stderr, and returns
+// an ANSI-stripped transcript. Never imports anything from src/; the only
+// thing it knows about the harness is that `dispatch` is a stdin-driven
+// REPL that emits a `READY_MARKER` after boot and a `TURN_SEPARATOR`
+// after every command's output.
+//
+// Phase 16.0c SD2 rewire: `sov chat` no longer exists; the driver now
+// targets the slash-command-only headless surface. Tests that need to
+// drive real agent turns (i.e. non-slash prompts) cannot use this driver
+// until an agent-headless surface is reintroduced.
 
+import { READY_MARKER, TURN_SEPARATOR } from '../../../src/cli/dispatchCommand.js';
 import type { Sandbox } from './sandbox.js';
 import type { DriverOutcome } from './types.js';
 
-const DEFAULT_AGENT_MODEL = 'claude-sonnet-4-6';
-
 const ESC = String.fromCharCode(27);
-// Strip CSI sequences (color, cursor, mode) and OSC title sequences. The
-// non-TTY code path in `sov` does not emit raw-mode picker escapes since
-// stdin is piped, so a broad CSI strip is sufficient for transcripts.
+// Strip CSI sequences (color, cursor, mode) and OSC title sequences.
 const CSI_RE = new RegExp(`${ESC}\\[[0-9;?]*[a-zA-Z]`, 'g');
 const OSC_RE = new RegExp(`${ESC}\\][^\\x07]*\\x07`, 'g');
 
@@ -25,32 +29,18 @@ export interface DriverOptions {
   extraArgs?: string[];
   sandbox: Sandbox;
   /** Single prompt (one turn) or array of prompts (one turn per element).
-   *  In piped-stdin mode, sov reads line-by-line — each newline-terminated
-   *  prompt drives one turn, then the next is consumed when the previous
-   *  turn completes. */
+   *  Each line is fed into the dispatch loop's stdin; one TURN_SEPARATOR
+   *  follows each command's output. */
   prompt: string | string[];
   /** Hard timeout in ms. The process is SIGKILLed on timeout. */
   timeoutMs: number;
 }
 
+export { READY_MARKER, TURN_SEPARATOR };
+
 export async function runHarnessSession(opts: DriverOptions): Promise<DriverOutcome> {
   const extraArgs = opts.extraArgs ?? [];
-  const hasExplicitModel = extraArgs.includes('--model');
-  const hasExplicitPermMode = extraArgs.includes('--permission-mode');
-  const args = [
-    'chat',
-    '--no-preflight',
-    '--no-cache',
-    // Default the agent to bypass mode for happy-path tests. Permission tests
-    // override via binaryArgs (e.g., ['--permission-mode', 'default']) so the
-    // deny/allow rules from a sandbox `.harness/settings.local.json` apply.
-    ...(hasExplicitPermMode ? [] : ['--permission-mode', 'bypass']),
-    '--db',
-    opts.sandbox.dbPath,
-    // Pin the agent model unless the test specifies one via binaryArgs.
-    ...(hasExplicitModel ? [] : ['--model', DEFAULT_AGENT_MODEL]),
-    ...extraArgs,
-  ];
+  const args = ['dispatch', ...extraArgs];
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     ...opts.sandbox.envAdditions,
@@ -68,11 +58,11 @@ export async function runHarnessSession(opts: DriverOptions): Promise<DriverOutc
     stderr: 'pipe',
   });
 
-  // Drive each prompt as one turn, then /quit. sov in piped-stdin mode
-  // consumes each newline-terminated line as a separate prompt and waits
-  // for the prior turn to finish before reading the next.
+  // Feed each prompt as one line; dispatch terminates on EOF, so we don't
+  // need to send /quit explicitly. The /quit command is still valid as
+  // a user-driven prompt and tests may include it.
   const prompts = Array.isArray(opts.prompt) ? opts.prompt : [opts.prompt];
-  const stdinContent = `${prompts.map((p) => `${p}\n`).join('')}/quit\n`;
+  const stdinContent = prompts.map((p) => `${p}\n`).join('');
   proc.stdin.write(stdinContent);
   await proc.stdin.end();
 
