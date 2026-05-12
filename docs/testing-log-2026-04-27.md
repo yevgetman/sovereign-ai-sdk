@@ -8,6 +8,34 @@ Implementation backlogs from these findings live in
 [`phase-10-5-backlog.md`](phase-10-5-backlog.md) and
 [`post-phase-10-5-repl-backlog.md`](post-phase-10-5-repl-backlog.md).
 
+## 2026-05-11 — Phase 16.0b Ink TUI + task event bus subscription
+
+**Scope:** Phase 16.0b — Ink TUI as foreground subscriber of the daemon bus. Ten tasks via subagent-driven development (with reviewer + spec gates between each): Ink/React deps + jsx config (Task 1); TaskManager `task_update` bus emit + safeEmit wrapper (Task 2); non-interactive mission wake extracted to `src/cli/missionRun.ts` (Task 3); Ink TUI scaffold — App + pure UiState reducer + types (Task 4); Transcript component (Task 5); Prompt input with Enter/Ctrl-C/Backspace (Task 6); StatusLine component (Task 7); Ink wired to agent loop + daemon bus subscription (Task 8); bare `sov` opens TUI + `chat` command removed + `sov mission run` added + `terminalRepl.ts` + 11 helper UI modules deleted (Task 9); stale `sov chat` user-facing string fix (Task 9 follow-up).
+
+**Environment:** Bun on darwin, commits `f4eea5f` through `147b892` on master (12 commits total, 16.0b series).
+
+**Commands run:**
+- `bun run typecheck` — clean after each task, clean at HEAD
+- `bun run lint` — clean after each task (2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` only)
+- `bun test` (full suite) — **1700/1700** at HEAD. Suite count peaked at ~1820+ mid-series as Ink helper tests landed (Tasks 2 + 4–7), then dropped when Task 9 deleted `terminalRepl.ts` and 11 helper UI modules. Net drop from peak is from deleted readline-REPL helper tests, NOT a regression — all remaining tests pass.
+- `bun test:semantic` — **NOT run for this Task 10 docs commit.** No agent-facing surface changed since the last semantic run (58/58); the TUI is a presentation layer over the same slash-command registry, tool pool, and permission system that `terminalRepl.ts` drove. Audit documented in `docs/semantic-testing.md` Phase 16.0b section.
+
+**Manual smoke tests:**
+- `bun src/main.ts --help` — does NOT list `chat` subcommand; lists `mission`, `daemon`, and other top-level commands ✓
+- `bun src/main.ts mission --help` — lists `init` and `run` subcommands ✓
+- `bun src/main.ts mission run --help` — shows non-interactive wake usage with `--state-dir <path>` ✓
+- Bare `bun src/main.ts` in a TTY would mount the Ink TUI (not exercised in the docs-only commit; left for user-driven follow-up)
+
+**Semantic audit:** Phase 16.0b adds **0 new semantic tests** (audited, none required). The TUI is a presentation surface; existing slash commands and tools route through the same registry/permission system as `terminalRepl.ts` did. Semantic suite stays at 58/58. Audit documented in `docs/semantic-testing.md`.
+
+**Regressions:** None observed in the unit suite. **One known broken path** flagged for Phase 16.0c: `bun run eval` is broken because `src/eval/runner.ts` still spawns `sov chat --db ...` which no longer exists. A NOTE comment in `src/main.ts:290` flags this. Eval re-wire is part of the 16.0c TaskManager + session-DB lift.
+
+**Follow-ups:**
+- Phase 16.0c — the deferred items listed in `docs/state-of-build-2026-05-11.md` and `CLAUDE.md`: daemon-level compression threshold, TaskManager construction lift into `startInkTUI`, full agent-loop knobs at the CLI surface, eval-runner re-wire, `daemon_stopping`-after-unmount timing, Ctrl-C memory-flush leak.
+- Ops repo install.sh update may be needed — `~/code/sovereign-ai-ops/mission/install.sh` uses the `harness` alias and greps for `--state-dir` in `harness --help`; verify the grep still passes after Task 9's CLI surface change. (The `mission run` description does include `--state-dir`, so the grep should still pass, but worth verifying on the next ops-repo touch.)
+
+---
+
 ## 2026-05-11 — Phase 16.0a daemon skeleton
 
 **Scope:** Phase 16.0a — daemon infrastructure skeleton. Five tasks via subagent-driven development: channel types + `buildSessionKey` + `send()` local outbox; LRU `SessionCache`; `ApprovalQueue` with TTL expiry; typed `DaemonEventBus` + `DaemonEvent` union; `startDaemon()` runner + `harness daemon` CLI command. Each task: TDD (RED → GREEN), spec compliance review, code quality review, fix loop until approved.
