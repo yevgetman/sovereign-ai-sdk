@@ -1,9 +1,9 @@
 # State of the build — 2026-05-11 close-out
 
-**Phase 16.0b HEAD:** `147b892` (Task 9 follow-up — stale `sov chat` user-facing string fix)
+**Phase 16.0b HEAD:** post-cascade final-review batch (5 commits — see "Final review follow-ups" below). Pre-cascade HEAD was `147b892`.
 **Phase 16.0a HEAD:** `21ee4c2` (still in history; close-out earlier this same date)
-**Suite:** 1700/1700 unit + 58/58 semantic (semantic suite unchanged — Phase 16.0b ships no agent-facing surfaces)
-**Sov binary:** in sync with master (`147b892`), `harness` alias installed alongside `sov`
+**Suite:** **1443/1443 unit** + 58/58 semantic (the 1700 → 1443 drop is fully accounted for by dead-code purge — see Final review follow-ups; semantic suite unchanged because Phase 16.0b ships no agent-facing surfaces)
+**Sov binary:** in sync with master (post-cascade HEAD), `harness` alias installed alongside `sov`
 
 This is a session close-out snapshot. The next session boots from CLAUDE.md and should read this file first.
 
@@ -40,9 +40,25 @@ Net test delta: the prior Phase 16.0a baseline at `21ee4c2` was 1805/1805. Throu
 
 Phase 16.0a — Daemon infrastructure skeleton: `e457d29` → `21ee4c2` (+36 unit tests, 1769 → 1805). Five tasks via subagent-driven development. See the file's earlier history in git for the full close-out detail.
 
+## Final review follow-ups (post-cascade, 2026-05-11)
+
+After the 13-commit Phase 16.0b cascade closed at `147b892`, the final whole-branch review surfaced four issues that warranted same-day fixes plus a docs update. The user picked: fix bugs + purge dead code now; defer slash command dispatch to Phase 16.0c. Five commits landed in sequence:
+
+| Commit | Summary |
+|---|---|
+| `718e0c9` | `fix(ui): startInkTUI passes profile name to <App>, not the home path` — the StatusLine was rendering the full `~/.harness/profiles/<name>/` path as the profile segment because `startInkTUI` forwarded `home` (filesystem path from `resolveHarnessHome()`) instead of calling `getActiveProfile()`. |
+| `82f5fad` | `fix(ui): Prompt disables Enter while agent turn is in flight` — without a re-entrancy guard, hitting Enter mid-turn would launch a second concurrent `query()` generator whose stream events would interleave with the first, corrupting the reducer transcript state. `Prompt` now accepts `disabled?: boolean`; `App` passes `state.status !== 'idle'`. Marker dims to `⋯` while disabled. Added a 4th test case. |
+| `92953e2` | `refactor(cleanup): purge ~4,200 LoC of dead modules orphaned by terminalRepl removal` — 17 production modules (commands/info, commands/pickers, commands/registry, commands/reviewOps, commands/sessionOps, commands/taskOps, commands/types, skills/commands, ui/autocomplete, ui/inputEditor, ui/inputHistory, ui/keypress, ui/markdownStream, ui/picker, ui/sessionSummary, ui/textBuffer, ui/toolFooter) + 21 test files. Test count dropped 1701 → 1443. **Notable:** `src/commands/registry.ts` (slash command registry) is in this list — its deletion makes the 16.0c slash-dispatch deferral explicit. Kept: `commands/toolScope.ts` (used by `cli/missionRun.ts`), `permissions/prompt.ts` (`previewToolInput` is consumed by `canUseTool.ts`), `ui/modal.ts` + `ui/box.ts` + `ui/theme.ts` (transitively reached via `permissions/prompt.ts`). |
+| `83dc957` | `docs(usage): align with Phase 16.0b CLI surface` — `docs/usage.md` reworked: top-of-file note flagging the 16.0b/16.0c boundary, CLI Flags table reduced to the two flags that actually exist on bare `sov`, CLI Subcommands table updated, common-workflow examples updated to use `sov config set` instead of vanished flags. Sections deeper in the doc (REPL UX, slash commands, etc.) still describe steady-state behavior — flagged at the top. |
+| (this commit) | `docs: flag slash command dispatch as Phase 16.0c P0 headline item` — CLAUDE.md + state-of-build updated to reflect the post-cascade reality. |
+
+Test gate at post-cascade HEAD: typecheck clean, lint clean (2 pre-existing warnings), 1443/1443 unit.
+
 ## What's deferred to Phase 16.0c
 
-The Phase 16.0b plan reviewer flagged several items as deliberately out of scope for 16.0b. The next session must not misremember these as already shipped.
+The Phase 16.0b plan reviewer flagged several items as deliberately out of scope for 16.0b. The final post-cascade review elevated slash command dispatch to the P0 headline item — the dead-code purge removed `src/commands/registry.ts` and the whole dispatch surface goes with it. The next session must not misremember these as already shipped.
+
+**Slash command dispatch (P0 — headline 16.0c lift).** The Ink TUI ships without `/help`, `/cost`, `/tasks`, `/compact`, `/review`, `/skills`, `/tools`, `/context-budget`, `/config`, `/model`, `/settings`, `/theme`, `/copy`, `/export`, `/init`, `/commit`, `/clear`, `/compact`, `/rollback`, `/resume`, `/stats`, `/quit`, `/about`, `/permissions`. Typing a `/`-prefixed message currently goes to the model as plain text. Phase 16.0c rebuilds dispatch on top of the Ink TUI: parsing `/`-prefixed input in `useAgentTurn`, routing to a registry reconstructed inside the new Ink architecture (separate concern from the deleted `src/commands/registry.ts` which was tightly coupled to the readline REPL), rendering results in the transcript. Tests for the rebuilt registry should colocate with the Ink TUI to avoid the prior false-confidence pattern.
 
 **Daemon-level compression threshold (build item 5).** Out of 16.0b scope per the user's choice. When a cached session is >85% of the model context, compact before the new turn enters the agent. Phase 16.0c work.
 
@@ -98,15 +114,15 @@ Items 12, 13, and 24 closed earlier 2026-05-11. See `docs/post-phase-13-4-backlo
 
 ## Where to start the next session
 
-- **If continuing the build plan:** Phase 16.0c is the natural next step. The deferred items above are the to-do list — daemon-level compression threshold, TaskManager construction lift into `startInkTUI`, full agent-loop knobs at the CLI, eval-runner re-wire, daemon_stopping timing, Ctrl-C memory flush. Read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` Phase 16.0 for the full spec.
+- **If continuing the build plan:** Phase 16.0c is the natural next step. **P0 headline lift is slash command dispatch** — the dead-code purge in commit `92953e2` removed `src/commands/registry.ts` entirely, so the TUI currently has no slash dispatch path. Rebuild dispatch on top of the Ink TUI (parse in `useAgentTurn`, route to a fresh registry, render in the transcript). Then the rest of the deferred items — daemon-level compression threshold, TaskManager construction lift into `startInkTUI`, full agent-loop knobs at the CLI, eval-runner re-wire, daemon_stopping timing, Ctrl-C memory flush. Read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` Phase 16.0 for the full spec.
 - **If picking up backlog:** item 17 (eval-gated auto-promote) is the only open item — multi-day.
-- **If doing a soak / validation:** `bun src/main.ts --help` should NOT list `chat`; should list `mission` and `daemon`. Bare `bun src/main.ts` in a TTY should mount the Ink TUI. `bun src/main.ts mission run --help` should describe the non-interactive wake.
+- **If doing a soak / validation:** `bun src/main.ts --help` should NOT list `chat`; should list `mission` and `daemon`. Bare `bun src/main.ts` in a TTY should mount the Ink TUI. `bun src/main.ts mission run --help` should describe the non-interactive wake. Typing `/help` at the Ink prompt currently sends the literal string to the model — confirms slash dispatch is missing.
 
 ## Test-gate baseline
 
 ```
 bun run typecheck   # tsc --noEmit, must exit 0
 bun run lint        # biome check, 2 pre-existing warnings in src/permissions/shellSemantics.ts — accept those
-bun test            # 1700/1700 unit
+bun test            # 1443/1443 unit
 bun run test:semantic   # 58/58 (~5 min, ~$0.87 informational on subscription); NOT run for this docs-only commit
 ```
