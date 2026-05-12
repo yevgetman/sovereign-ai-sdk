@@ -79,7 +79,7 @@ export function formatMissionInitResult(result: MissionInitResult): string {
     'Next steps:',
     '  1. Edit plan.md — add phased steps with acceptance criteria.',
     '  2. Run a wake manually:',
-    `     sov chat --agent scheduled-mission --state-dir ${result.missionDir}`,
+    `     sov mission run --state-dir ${result.missionDir}`,
     '  3. Once verified, install the launchd scheduler:',
     '     ~/code/sovereign-ai-ops/mission/install.sh <mission-dir> <interval-minutes>',
     '',

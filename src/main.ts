@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
-// CLI entry. Commander parses flags; dispatches to terminalRepl.
+// CLI entry. Commander parses flags; bare `sov` opens the Ink TUI as
+// the default action. Subcommands cover ops (config, profile, init,
+// eval, trace, learning, upgrade, mission, daemon).
 //
-// Phase 5 scope: `chat` subcommand (the default) launches a streaming REPL
-// against a resolved provider. Accepts --provider, --bundle (or
-// HARNESS_BUNDLE env), --model, --max-tokens, --permission-mode, and
-// --no-cache.
+// Phase 16.0b: removed the legacy `chat` subcommand and rewired the
+// default action to invoke `startInkTUI()`. The scheduled-mission wake
+// path that previously rode on `sov chat --agent ... --state-dir ...`
+// now lives on `sov mission run --state-dir <path>`.
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
@@ -24,7 +26,6 @@ import {
   unsetAt,
   writeConfig,
 } from './config/store.js';
-import type { PermissionMode } from './permissions/types.js';
 
 /**
  * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`
@@ -81,8 +82,6 @@ function resolveAndApplyProfile(argv: string[]): string[] {
 const PARSED_ARGV = resolveAndApplyProfile(process.argv);
 
 const VERSION = '0.0.1';
-const DEFAULT_MAX_TOKENS = 12000;
-const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
 // Must match DEFAULT_PER_WAKE_TURN_BUDGET exported from src/cli/missionInit.ts.
 // Defined here as a literal because missionInit.ts is imported lazily (inside
 // the action handler) and Commander's .option() default must be a value, not
@@ -142,80 +141,29 @@ function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-function parsePermissionMode(raw: string): PermissionMode {
-  if (raw === 'default' || raw === 'ask' || raw === 'bypass') return raw;
-  throw new InvalidArgumentError("must be 'default', 'ask', or 'bypass'");
-}
-
 async function main(argv: string[]): Promise<void> {
   const program = new Command()
     .name('sov')
-    .description('Sovereign AI agent runtime')
+    .description('Sovereign AI harness — interactive TUI by default; subcommands for ops')
     .version(VERSION)
     .option(
       '-p, --profile <name>',
       "scope the run to a named profile under <harness-home>/profiles/<name>/ (use 'default' for the unscoped root)",
-    );
-
-  program
-    .command('chat', { isDefault: true })
-    .description(
-      'Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)',
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
-    .option('-m, --model <name>', 'model name (overrides provider/config default)')
-    .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
-    .option(
-      '--permission-mode <mode>',
-      "tool permissions: 'default' honors rules/tool checks, 'ask' prompts on fallthrough, 'bypass' allows on fallthrough",
-      parsePermissionMode,
-      DEFAULT_PERMISSION_MODE,
-    )
-    .option('--resume <id>', 'resume a prior session by its UUID')
-    .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
-    .option('--no-cache', 'disable provider prompt-cache markers for this session')
-    .option('--no-preflight', 'skip the startup provider health check')
-    .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
-    .option('-v, --verbose', 'show full tool-result previews instead of one-line summaries')
-    .option('--legacy-input', 'use the readline-based input (Wave-3 fallback for the new editor)')
-    .option(
-      '--capture-fixture <path>',
-      'wrap the provider + tools to record a deterministic-replay fixture at this path on session end',
-    )
-    .option(
-      '--replay-fixture <path>',
-      'replay a previously-captured fixture instead of resolving a real provider (no LLM calls)',
-    )
-    .option(
-      '--agent <name>',
-      "run as a named agent (uses the agent definition's system prompt and allowed tools)",
-    )
-    .option(
-      '--state-dir <path>',
-      'scheduled-mission mode: path to a mission directory (requires --agent with supportsMissionState:true)',
-    )
     .action(async (opts) => {
+      // Bare `sov` (and `harness`) opens the Ink TUI. The full knob set
+      // from the retired `chat` command (provider, model, resume, cache,
+      // permission-mode, etc.) is intentionally deferred — Task 9 ships
+      // the minimum subset that's actually plumbed through `startInkTUI`
+      // today. Additional flags will land in Phase 16.0c as the TUI
+      // grows feature parity with the retired REPL.
       const bundlePath = resolveBundlePath(opts.bundle);
-      const { runRepl } = await import('./ui/terminalRepl.js');
-      await runRepl({
+      const { startInkTUI } = await import('./ui/ink/index.js');
+      const exitCode = await startInkTUI({
         ...(bundlePath !== null ? { bundlePath } : {}),
-        ...(opts.provider !== undefined ? { providerName: opts.provider } : {}),
-        ...(opts.model !== undefined ? { model: opts.model } : {}),
-        maxTokens: opts.maxTokens,
-        permissionMode: opts.permissionMode,
-        ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
-        ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
-        ...(opts.cache === false ? { noCache: true } : {}),
-        preflight: opts.preflight !== false,
-        ...(opts.transcript !== undefined ? { transcriptPath: opts.transcript } : {}),
-        ...(opts.verbose === true ? { verbose: true } : {}),
-        ...(opts.legacyInput === true ? { legacyInput: true } : {}),
-        ...(opts.captureFixture !== undefined ? { captureFixturePath: opts.captureFixture } : {}),
-        ...(opts.replayFixture !== undefined ? { replayFixturePath: opts.replayFixture } : {}),
-        ...(opts.agent !== undefined ? { agentName: opts.agent } : {}),
-        ...(opts.stateDir !== undefined ? { stateDir: opts.stateDir } : {}),
       });
+      process.exit(exitCode);
     });
 
   const configCmd = program
@@ -512,6 +460,29 @@ async function main(argv: string[]): Promise<void> {
         process.stderr.write(out);
         process.exit(1);
       }
+    });
+
+  missionCmd
+    .command('run')
+    .description('Execute one non-interactive scheduled-mission wake against a mission directory')
+    .requiredOption('--state-dir <path>', 'path to the mission directory')
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .action(async (opts) => {
+      const { runMissionWake } = await import('./cli/missionRun.js');
+      const result = await runMissionWake({
+        stateDir: opts.stateDir,
+        ...(opts.bundle !== undefined ? { bundlePath: opts.bundle } : {}),
+      });
+      if (result.lockHeld === true) {
+        process.stderr.write('lock held — another wake in progress\n');
+        process.exit(0);
+      }
+      if (result.exitedEarly === true) {
+        process.stderr.write(`exited early: ${result.reason ?? 'unknown'}\n`);
+        process.exit(0);
+      }
+      process.stdout.write(`transitioned to: ${result.transitionedTo ?? '<unchanged>'}\n`);
+      process.exit(0);
     });
 
   program
