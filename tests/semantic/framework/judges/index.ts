@@ -8,8 +8,9 @@
 import type { Judge } from '../types.js';
 import { createAnthropicApiJudge } from './anthropicApi.js';
 import { createClaudeCodeJudge } from './claudeCode.js';
+import { createStringMatchJudge } from './stringMatch.js';
 
-export type JudgeBackendName = 'claude-code' | 'anthropic-api';
+export type JudgeBackendName = 'claude-code' | 'anthropic-api' | 'string-match';
 
 export interface SelectJudgeOptions {
   backend: JudgeBackendName | 'auto';
@@ -45,6 +46,9 @@ export async function selectJudge(opts: SelectJudgeOptions): Promise<Judge> {
         apiKey,
         ...(opts.model ? { model: opts.model } : {}),
       });
+    }
+    case 'string-match': {
+      return createStringMatchJudge();
     }
     default: {
       const exhaustive: never = backend;
