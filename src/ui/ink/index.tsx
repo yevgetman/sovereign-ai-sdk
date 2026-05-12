@@ -1,30 +1,17 @@
-// Phase 16.0b — Ink TUI entry. startInkTUI() acquires the daemon lock,
-// instantiates the bus + caches, builds a query()-backed runner closure
-// that maintains conversation history across user turns, and mounts
-// <App runner bus />. The runner mirrors the missionRun.ts setup
-// (bundle → provider → toolPool → systemPrompt → query()) — terminalRepl's
-// full setup (REPL polish, transcript writer, scheduler, review fork)
-// lands in Phase 16.0c.
+// Phase 16.0b — Ink TUI entry. startInkTUI() boots the shared harness
+// context (daemon, bundle, agents, skills, tool pool, system prompt,
+// command registry), builds a query()-backed runner closure that
+// maintains conversation history across user turns, and mounts <App />.
+// The shared boot path lives in src/commands/dispatchHost.ts so the
+// headless `sov dispatch` surface (Phase 16.0c SD1) sees an identical
+// CommandContext.
 
 import chalk from 'chalk';
 import { render } from 'ink';
-import { loadAgents } from '../../agents/loader.js';
-import { getDefaultBundlePath } from '../../bundle/defaultBundle.js';
-import { loadBundleIfPresent } from '../../bundle/loader.js';
-import { WAVE_1_COMMANDS, buildCommandRegistry } from '../../commands/registry.js';
-import type { CommandContext, PermissionsSnapshot } from '../../commands/types.js';
-import { getActiveProfile, resolveHarnessHome } from '../../config/paths.js';
-import { readConfig } from '../../config/store.js';
+import { buildHarnessContext } from '../../commands/dispatchHost.js';
 import { query } from '../../core/query.js';
-import { buildSystemSegments } from '../../core/systemPrompt.js';
 import type { Message, SystemSegment } from '../../core/types.js';
-import { startDaemon } from '../../daemon/runner.js';
-import { createDefaultMemoryManager } from '../../memory/provider.js';
-import { resolveProjectScope } from '../../memory/scope.js';
-import { resolveProvider } from '../../providers/resolver.js';
-import type { LLMProvider } from '../../providers/types.js';
-import { loadSkills } from '../../skills/loader.js';
-import { assembleToolPool } from '../../tool/registry.js';
+import type { MemoryRuntime } from '../../memory/provider.js';
 import type { Tool, ToolContext } from '../../tool/types.js';
 import { renderSplash } from '../splash.js';
 import { App } from './App.js';
@@ -39,85 +26,63 @@ export type StartInkTUIOpts = {
 };
 
 export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
-  const home = resolveHarnessHome();
-  const profileName = getActiveProfile();
-  const daemon = startDaemon({ harnessHome: home });
+  // Ink-side refs the React tree wires into. Populated below before any
+  // user input can arrive — see latestStateRef / uiDispatchRef.
+  const latestStateRef: { current: UiState | undefined } = { current: undefined };
+  const uiDispatchRef: { current: ((e: UiEvent) => void) | null } = { current: null };
 
-  const bundlePath = opts.bundlePath ?? getDefaultBundlePath();
-  const bundle = await loadBundleIfPresent(bundlePath);
-  const userSettings = readConfig();
-  const projectScope = resolveProjectScope({
-    cwd: process.cwd(),
-    bundle: bundle ?? null,
-    harnessHome: home,
-  });
-  const memoryManager = createDefaultMemoryManager(home, projectScope);
-  await memoryManager.initialize();
-  await memoryManager.onSessionStart();
-  const loadedAgents = await loadAgents({
-    harnessHome: home,
-    cwd: process.cwd(),
-    ...(bundle ? { bundleRoot: bundle.root } : {}),
-  });
-  const loadedSkills = await loadSkills({
-    harnessHome: home,
-    cwd: process.cwd(),
-    ...(bundle ? { bundleRoot: bundle.root } : {}),
-  });
+  let exitRequested = false;
+  let instance: ReturnType<typeof render> | undefined;
 
-  const resolved = resolveProvider(undefined, undefined);
-  const cacheEnabled = true;
-  const sessionId = `${SESSION_ID_PREFIX}-${process.pid}-${Date.now()}`;
-
-  const toolContext: ToolContext = {
-    cwd: process.cwd(),
-    ...(bundle ? { bundleRoot: bundle.root } : {}),
-    sessionId,
-    harnessHome: home,
-    memoryManager,
-    agents: loadedAgents,
-    projectScope,
-  };
-  const toolPool: Tool<unknown, unknown>[] = assembleToolPool(toolContext);
-  const systemPrompt: SystemSegment[] = buildSystemSegments({
-    ...(bundle ? { bundle } : {}),
-    tools: toolPool,
-    skills: loadedSkills.skills,
-    cwd: process.cwd(),
-    cacheEnabled,
-    projectScope,
+  const harness = await buildHarnessContext({
+    ...(opts.bundlePath !== undefined ? { bundlePath: opts.bundlePath } : {}),
+    sessionIdPrefix: SESSION_ID_PREFIX,
+    getLatestCost: () => latestStateRef.current?.sessionCost,
+    onClearHistory: () => {
+      uiDispatchRef.current?.({ type: 'transcript_cleared' });
+    },
+    onModelChange: ({ provider, model }) => {
+      uiDispatchRef.current?.({
+        type: 'status_line_update',
+        patch: { provider, model },
+      });
+    },
+    onExitRequest: () => {
+      if (exitRequested) return;
+      exitRequested = true;
+      // Daemon shutdown happens in cleanup(); we drop the mount here so
+      // the Ink waitUntilExit() promise resolves.
+      setTimeout(() => instance?.unmount(), 0);
+    },
   });
-
-  // Phase 16.0c Wave 1 — mutable runtime state lives in refs at this scope.
-  // /clear and /model reach in via CommandContext; the runner reads on each
-  // call so changes take effect on the next user turn.
-  const historyRef: { current: Message[] } = { current: [] };
-  const providerRef: { current: LLMProvider } = { current: resolved.transport };
-  const modelRef: { current: string } = { current: resolved.model };
-  const providerNameRef: { current: string } = {
-    current: String(resolved.metadata.provider ?? ''),
-  };
 
   const runner: AgentTurnRunner = (prompt: string) => {
-    historyRef.current.push({ role: 'user', content: [{ type: 'text', text: prompt }] });
+    harness.history.current.push({
+      role: 'user',
+      content: [{ type: 'text', text: prompt }],
+    });
     return runOneTurn({
-      history: historyRef.current,
-      toolPool,
-      toolContext,
-      systemPrompt,
-      provider: providerRef.current,
-      model: modelRef.current,
+      history: harness.history.current,
+      toolPool: harness.toolPool,
+      toolContext: harness.toolContext,
+      systemPrompt: harness.systemPrompt,
+      provider: harness.providerRef.current,
+      model: harness.modelRef.current,
       maxTokens: DEFAULT_MAX_TOKENS,
-      ...(userSettings.maxTurns !== undefined ? { maxTurns: userSettings.maxTurns } : {}),
-      memoryManager,
-      sessionId,
-      cacheEnabled,
+      ...(harness.userSettings.maxTurns !== undefined
+        ? { maxTurns: harness.userSettings.maxTurns }
+        : {}),
+      ...(harness.toolContext.memoryManager !== undefined
+        ? { memoryManager: harness.toolContext.memoryManager }
+        : {}),
+      sessionId: harness.sessionId,
+      cacheEnabled: harness.cacheEnabled,
     });
   };
 
   // Splash banner — same as the prior wiring; written before render() so
   // it lands in scroll-back above Ink's live region.
-  const providerName = providerNameRef.current;
+  const providerName = harness.providerNameRef.current;
   const authLabel = (() => {
     if (providerName === 'ollama') return chalk.gray('local (no key)');
     if (providerName === 'router') return chalk.gray('router-managed');
@@ -126,100 +91,28 @@ export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
   const splash = renderSplash({
     providerLabel: providerName,
     authLabel,
-    model: modelRef.current,
-    bundlePath: bundlePath ?? null,
-    permissionMode: userSettings.permissionMode ?? 'default',
-    toolCount: toolPool.length,
-    cacheOn: cacheEnabled,
-    sessionLabel: `new ${sessionId.slice(0, 8)}`,
+    model: harness.modelRef.current,
+    bundlePath: harness.bundlePath,
+    permissionMode: harness.userSettings.permissionMode ?? 'default',
+    toolCount: harness.toolPool.length,
+    cacheOn: harness.cacheEnabled,
+    sessionLabel: `new ${harness.sessionId.slice(0, 8)}`,
     exitHint: 'Ctrl-C to exit',
   });
   process.stdout.write(`${splash}\n`);
 
-  // latestStateRef updated by App's effect; CommandContext.getCost reads it.
-  // uiDispatchRef written by App on mount so out-of-React callbacks
-  // (clearHistory, setModel) can emit reducer events.
-  const latestStateRef: { current: UiState | undefined } = { current: undefined };
-  const uiDispatchRef: { current: ((e: UiEvent) => void) | null } = { current: null };
-
-  const getPermissions = (): PermissionsSnapshot => ({
-    mode: userSettings.permissionMode ?? 'default',
-    layers: [], // Loading from settings files lands in a later wave.
-  });
-
-  let exitRequested = false;
-  let instance: ReturnType<typeof render> | undefined;
-  const onExit = (): void => {
-    if (exitRequested) return;
-    exitRequested = true;
-    daemon.shutdown();
-    setTimeout(() => instance?.unmount(), 0);
-  };
-
-  // Build CommandContext. The registry is self-referential (commands need
-  // ctx.registry so /help can introspect), so we build the map first, then
-  // the context, then the App.
-  const registry = buildCommandRegistry(WAVE_1_COMMANDS);
-  const commandContext: CommandContext = {
-    sessionId,
-    cwd: process.cwd(),
-    get providerName() {
-      return providerNameRef.current;
-    },
-    get model() {
-      return modelRef.current;
-    },
-    bundlePath: bundlePath ?? null,
-    harnessHome: home,
-    profileName,
-    setModel: (m: string): void => {
-      if (m.includes('/')) {
-        const [maybeProvider, maybeModel] = m.split('/', 2) as [string, string];
-        const newResolved = resolveProvider(maybeProvider, maybeModel);
-        providerRef.current = newResolved.transport;
-        modelRef.current = newResolved.model;
-        providerNameRef.current = String(newResolved.metadata.provider ?? maybeProvider);
-      } else {
-        modelRef.current = m;
-      }
-      uiDispatchRef.current?.({
-        type: 'status_line_update',
-        patch: { provider: providerNameRef.current, model: modelRef.current },
-      });
-    },
-    clearHistory: (): string => {
-      const cleared = historyRef.current.length;
-      historyRef.current = [];
-      uiDispatchRef.current?.({ type: 'transcript_cleared' });
-      return `history cleared (${cleared} message${cleared === 1 ? '' : 's'})`;
-    },
-    getCost: () =>
-      latestStateRef.current?.sessionCost ?? {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        estimatedUsd: 0,
-      },
-    tools: toolPool,
-    skills: loadedSkills,
-    getPermissions,
-    registry,
-    requestExit: onExit,
-  };
-
   instance = render(
     <App
       runner={runner}
-      bus={daemon.bus}
+      bus={harness.daemon.bus}
       cwd={process.cwd()}
-      profile={profileName}
+      profile={harness.profileName}
       provider={providerName}
-      model={modelRef.current}
-      commandContext={commandContext}
+      model={harness.modelRef.current}
+      commandContext={harness.commandContext}
       latestStateRef={latestStateRef as { current: UiState }}
       uiDispatchRef={uiDispatchRef}
-      onExit={onExit}
+      onExit={harness.commandContext.requestExit}
     />,
   );
 
@@ -227,22 +120,20 @@ export async function startInkTUI(opts: StartInkTUIOpts = {}): Promise<number> {
     await instance.waitUntilExit();
     return 0;
   } finally {
-    daemon.shutdown();
-    await memoryManager.onSessionEnd('ink-tui-exit');
-    await memoryManager.shutdown();
+    await harness.cleanup();
   }
 }
 
 type RunOneTurnOpts = {
   readonly history: Message[];
-  readonly toolPool: Tool<unknown, unknown>[];
+  readonly toolPool: ReadonlyArray<Tool<unknown, unknown>>;
   readonly toolContext: ToolContext;
-  readonly systemPrompt: SystemSegment[];
+  readonly systemPrompt: ReadonlyArray<SystemSegment>;
   readonly provider: Parameters<typeof query>[0]['provider'];
   readonly model: string;
   readonly maxTokens: number;
   readonly maxTurns?: number;
-  readonly memoryManager: ReturnType<typeof createDefaultMemoryManager>;
+  readonly memoryManager?: MemoryRuntime;
   readonly sessionId: string;
   readonly cacheEnabled: boolean;
 };
@@ -256,12 +147,14 @@ async function* runOneTurn(opts: RunOneTurnOpts): ReturnType<typeof query> {
     provider: opts.provider,
     model: opts.model,
     messages: opts.history,
-    systemPrompt: opts.systemPrompt,
-    ...(opts.toolPool.length > 0 ? { tools: opts.toolPool, toolContext: opts.toolContext } : {}),
+    systemPrompt: [...opts.systemPrompt],
+    ...(opts.toolPool.length > 0
+      ? { tools: [...opts.toolPool], toolContext: opts.toolContext }
+      : {}),
     maxTokens: opts.maxTokens,
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
     cacheEnabled: opts.cacheEnabled,
-    memoryManager: opts.memoryManager,
+    ...(opts.memoryManager !== undefined ? { memoryManager: opts.memoryManager } : {}),
     sessionId: opts.sessionId,
     cwd: process.cwd(),
   });
@@ -270,8 +163,6 @@ async function* runOneTurn(opts: RunOneTurnOpts): ReturnType<typeof query> {
     const step = await gen.next();
     if (step.done) return step.value;
     const ev = step.value;
-    // Append assistant_message + tool_result carrier messages into the
-    // long-lived history so the next user submit sees the full thread.
     if (ev && typeof ev === 'object') {
       if ('role' in ev && ev.role === 'user') {
         opts.history.push(ev);
