@@ -57,6 +57,20 @@ func (t *Transcript) AppendLine(line string) {
 	}
 }
 
+// RemoveLastLine pops the most recent transcript line and re-renders. Used
+// to clear the dim "…thinking" placeholder when the first response event
+// for a turn arrives. No-op when the buffer is empty.
+func (t *Transcript) RemoveLastLine() {
+	if len(t.lines) == 0 {
+		return
+	}
+	t.lines = t.lines[:len(t.lines)-1]
+	t.vp.SetContent(joinLines(t.lines))
+	if t.atBottom && t.width > 0 && t.height > 0 {
+		t.vp.GotoBottom()
+	}
+}
+
 func (t Transcript) View() string {
 	return t.vp.View()
 }

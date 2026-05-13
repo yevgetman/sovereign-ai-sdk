@@ -34,18 +34,19 @@ type sseDoneMsg struct{ err error }
 type turnSubmitErrMsg struct{ err error }
 
 type Model struct {
-	keys       keyMap
-	transcript components.Transcript
-	prompt     components.Prompt
-	statusLine components.StatusLine
-	sessionID  string
-	streamURL  string
-	width      int
-	height     int
-	ctx        context.Context
-	cancel     context.CancelFunc
-	events     <-chan transport.Envelope
-	errs       <-chan error
+	keys            keyMap
+	transcript      components.Transcript
+	prompt          components.Prompt
+	statusLine      components.StatusLine
+	sessionID       string
+	streamURL       string
+	width           int
+	height          int
+	ctx             context.Context
+	cancel          context.CancelFunc
+	events          <-chan transport.Envelope
+	errs            <-chan error
+	thinkingPending bool
 }
 
 func New(sessionID, streamURL string) Model {
@@ -123,6 +124,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.transcript.AppendLine("» " + text)
 			m.prompt.Clear()
+			// Dim placeholder so the user sees feedback during the 1-3s
+			// network wait before the first text_delta arrives. The first
+			// response event clears it (see clearThinkingIfPending).
+			dimStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6e7681")).
+				Italic(true)
+			m.transcript.AppendLine(dimStyle.Render("…thinking"))
+			m.thinkingPending = true
 			return m, m.submitTurn(text)
 		}
 		var cmd tea.Cmd
@@ -154,12 +163,26 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		if err != nil {
 			return
 		}
+		m.clearThinkingIfPending()
 		m.transcript.AppendLine(td.Text)
+	case "thinking_delta":
+		td, err := transport.DecodeThinkingDelta(env.Raw)
+		if err != nil {
+			return
+		}
+		m.clearThinkingIfPending()
+		m.transcript.AppendLine(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6e7681")).
+				Italic(true).
+				Render(td.Text),
+		)
 	case "tool_use_start":
 		tus, err := transport.DecodeToolUseStart(env.Raw)
 		if err != nil {
 			return
 		}
+		m.clearThinkingIfPending()
 		m.transcript.AppendLine(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#6e7681")).
@@ -170,6 +193,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		if err != nil {
 			return
 		}
+		m.clearThinkingIfPending()
 		hint := tr.RenderHint
 		if hint == "" {
 			hint = "text"
@@ -180,9 +204,50 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Summary:    fmt.Sprintf("rendered as %s", hint),
 		}
 		m.transcript.AppendLine(card.View(m.width))
+	case "turn_error":
+		te, err := transport.DecodeTurnError(env.Raw)
+		if err != nil {
+			return
+		}
+		m.clearThinkingIfPending()
+		errStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#f7768e")).
+			Bold(true)
+		m.transcript.AppendLine(errStyle.Render("⚠ turn error: " + te.Error))
+		if !te.Recoverable {
+			m.transcript.AppendLine(errStyle.Render("  (non-recoverable)"))
+		}
 	case "turn_complete":
-		m.transcript.AppendLine("[turn complete]")
+		tc, err := transport.DecodeTurnComplete(env.Raw)
+		if err != nil {
+			// Schema parse failed — still surface SOMETHING so the user
+			// knows the turn ended. Don't regress on the pre-fix marker.
+			m.clearThinkingIfPending()
+			m.transcript.AppendLine("[turn complete]")
+			return
+		}
+		m.clearThinkingIfPending()
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+		if tc.FinishReason == "" || tc.FinishReason == "end_turn" {
+			m.transcript.AppendLine(dim.Render("─ turn complete"))
+		} else {
+			m.transcript.AppendLine(dim.Render("─ turn complete (" + tc.FinishReason + ")"))
+		}
 	}
+}
+
+// clearThinkingIfPending removes the "…thinking" placeholder appended by the
+// ENTER handler. Called from every event handler that produces visible
+// output for a turn (text_delta, thinking_delta, tool_use_start, tool_result,
+// turn_error, turn_complete). The placeholder is always the most recent line
+// because the SSE stream is serialized into the Update goroutine, so we can
+// safely pop the tail.
+func (m *Model) clearThinkingIfPending() {
+	if !m.thinkingPending {
+		return
+	}
+	m.transcript.RemoveLastLine()
+	m.thinkingPending = false
 }
 
 func (m Model) View() string {
