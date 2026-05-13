@@ -10,6 +10,26 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-13 — Phase 16.1 M3 One Real Turn End-to-End
 
+### 2026-05-13 · Fix M3 tool-using-turn hang — buildRuntime now loads permission settings
+
+**Scope:** Critical M3 bug surfaced during Step 3 of manual smoke. Tool-using turns hung forever on `…thinking` in the TUI. Same prompt worked fine in `--ui repl`. Surface: `src/server/runtime.ts`, `src/server/routes/turns.ts`, `tests/server/runtime.test.ts`, `packages/tui/internal/app/app.go`.
+
+**Root cause:** `buildRuntime` loaded zero permission settings. When the server-side `query()` invoked a tool, `canUseTool` defaulted to runtime-default `'ask'` mode (since no `canUseTool` was passed to `query()` either). The server emitted `permission_request` SSE events that no client could approve, and the turn hung indefinitely on the unresolved promise. `--ui repl` works because `terminalRepl.ts` reads `~/.harness/config.json`'s `permissionMode` (which is `bypass` for this user).
+
+**Fixes (commit `6c782a5`):**
+1. `buildRuntime` now mirrors terminalRepl's cascade: explicit option → permission_settings file → `userSettings.permissionMode` → `'default'`. Builds `canUseTool` via `buildCanUseTool` with the right mode + rule layers, wraps with `redactSecretsTransformer`. Stores `canUseTool` + `permissionMode` on `Runtime`.
+2. `runTurnInBackground` in `turns.ts` now passes `runtime.canUseTool` into the `query()` call.
+3. `ask()` is a 'deny' placeholder with guidance text for users in 'default' mode. M5+ will wire the proper SSE/POST round-trip. Users in 'bypass' never hit `ask()`.
+4. Go TUI gains a `permission_request` handler (defense in depth) that renders a yellow warning with remediation hints. With `bypass` it never fires; a future user in `'default'` mode sees a visible warning instead of a silent hang.
+
+**Wire-path smoke (post-fix):** sent the original failing prompt `"Read src/server/runtime.ts and tell me what buildRuntime returns."` through the headless driver. Result: `permissionMode=bypass`, event sequence `text_delta×3 → tool_use_start → tool_use_done → tool_result → text_delta×27 → turn_complete`. Zero `permission_request` events.
+
+**Tests:** 1841 pass (+3 new in `tests/server/runtime.test.ts` covering the permission cascade). Go `internal/app` and `internal/transport` packages green. Lint + typecheck clean.
+
+**Pushed + `sov upgrade`:** confirmed at `6c782a5`.
+
+**Retro note:** Two Critical M3 bugs were surfaced by manual smoke that neither the spec compliance review nor the code quality review caught: (1) the `message_stop → turn_complete` truncation, (2) silent permission_request drop. Both involved silent failure modes in inter-process flows that unit tests didn't exercise. Worth filing: the M3 code-quality review process should have included a real-user-style end-to-end smoke step against a representative tool-using prompt with a non-bypass permission config.
+
 ### 2026-05-13 · Fix M3 TUI silent failure modes (turn_error + thinking + turn_complete visibility)
 
 **Scope:** Manual smoke surfaced that the TUI showed no visible response between ENTER and (whatever happened) — same prompt in `--ui repl` worked fine. Root cause: the Go `handleEvent` switch had no case for `turn_error` events, so any runtime error was silently dropped. Also no feedback between ENTER and first event arrival, so a 1-3s real-provider round-trip looked like a dead UI. Surface: `packages/tui/internal/app/app.go`, `packages/tui/internal/components/transcript.go`.
