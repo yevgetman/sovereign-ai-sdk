@@ -66,11 +66,13 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 
 | File | What's in it |
 |---|---|
+| `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` | **Active design spec** for the Phase 16.1 TUI rebuild (split-process architecture, Go + Bubble Tea, M0–M13 milestones). M0–M3 shipped 2026-05-13; M4–M13 pending plans |
+| `docs/specs/2026-05-13-production-harness-roadmap-design.md` | Umbrella roadmap defining the production polish track (Phases 15, 16.1, 18, 19, 20, 21, 22). Phase 14 dropped 2026-05-13 |
 | `docs/specs/memory-retrieval-gaps.md` | Spec for memory retrieval enhancements |
 
 ### Implementation plans (executed)
 
-`docs/plans/` holds historical implementation plans authored via the `superpowers:writing-plans` skill. All four plans currently in this directory have shipped. Convention: leave in place after execution as a record.
+`docs/plans/` holds historical implementation plans authored via the `superpowers:writing-plans` skill. All five plans currently in this directory have shipped. Convention: leave in place after execution as a record.
 
 | File | What it planned |
 |---|---|
@@ -78,6 +80,7 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 | `docs/plans/2026-05-06-phase-13-3-background-review-daemon.md` | Phase 13.3 review daemon |
 | `docs/plans/2026-05-06-phase-13-4-instinct-corpus.md` | Phase 13.4 instinct corpus |
 | `docs/plans/2026-05-07-memory-project-scoping.md` | Two-tier MEMORY.md routing |
+| `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md` | Phase 16.1 M0–M3 (split-process TUI: server skeleton, Go Bubble Tea scaffold, first real turn end-to-end). Shipped 2026-05-13 |
 
 **Note for the `superpowers:writing-plans` and `superpowers:brainstorming` skills.** The skill defaults are `docs/superpowers/plans/` and `docs/superpowers/specs/`. **This project overrides those defaults.** Save plans to `docs/plans/YYYY-MM-DD-<feature-name>.md` and specs to `docs/specs/YYYY-MM-DD-<topic>-design.md`. Do NOT create or write under `docs/superpowers/` — that directory has been intentionally removed.
 
