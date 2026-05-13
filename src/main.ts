@@ -240,6 +240,31 @@ async function main(argv: string[]): Promise<void> {
       process.exit(exitCode);
     });
 
+  program
+    .command('serve-dev')
+    .description('boot the Phase 16.1 HTTP+SSE server on 127.0.0.1 (M1 dev harness)')
+    .option('--port <n>', 'explicit port (default: random free port)', (v) =>
+      Number.parseInt(v, 10),
+    )
+    .action(async (opts) => {
+      const { startServer } = await import('./server/index.js');
+      const startOpts: { port?: number } = {};
+      if (typeof opts.port === 'number') startOpts.port = opts.port;
+      const server = await startServer(startOpts);
+      console.log(`sov serve-dev: listening on http://127.0.0.1:${server.port}`);
+      console.log('  GET /health');
+      console.log('  GET /sessions/<id>/events  (SSE)');
+      console.log('Press Ctrl-C to stop.');
+      process.on('SIGINT', async () => {
+        await server.stop();
+        process.exit(0);
+      });
+      process.on('SIGTERM', async () => {
+        await server.stop();
+        process.exit(0);
+      });
+    });
+
   const configCmd = program
     .command('config')
     .description('Read or write user-level config (no args opens an interactive picker)')

@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-13 — Phase 16.1 M1 server skeleton
+
+### 2026-05-13 · M1 server skeleton — manual smoke
+
+**Scope:** Phase 16.1 M1 — Hono HTTP+SSE server skeleton.
+**Commands:**
+- `bun test tests/server/` → all green (16 tests)
+- `bun test` → 1825/1825 pass (4442 expect calls, ~11s wall) — previous baseline 1809, +16 from this milestone
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts` only)
+- `bun run typecheck` → clean
+- `bun src/main.ts serve-dev --port 18080`
+- `curl -s http://127.0.0.1:18080/health` → `{"ok":true,"version":"0.0.1"}`
+- `curl -Ns http://127.0.0.1:18080/sessions/s_manual/events` → 3 text_delta blocks + turn_complete; connection closes cleanly
+**Result:** pass.
+**Follow-ups:** none — M2 (Go Bubble Tea TUI scaffold) next.
+
 ## 2026-05-12 — Phase 16 revert + `sov dispatch` + documentation P0 pass
 
 **Scope:** Three landings on master in one session, plus a documentation P0 reconciliation pass.
