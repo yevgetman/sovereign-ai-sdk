@@ -55,6 +55,12 @@ func Consume(ctx context.Context, url string) (<-chan Envelope, <-chan error) {
 				if len(dataLines) > 0 {
 					data := strings.Join(dataLines, "\n")
 					var env Envelope
+					// Malformed envelopes are intentionally dropped silently —
+					// log.Printf would corrupt the Bubble Tea alt-screen
+					// renderer. M4+ should add a packages/tui/internal/log
+					// debug-log sink for diagnostics. Until then, the TS-side
+					// Zod schema lockstep is assumed to prevent real-world
+					// malformed events; the silent drop is the lesser evil.
 					if err := json.Unmarshal([]byte(data), &env); err == nil {
 						select {
 						case <-ctx.Done():

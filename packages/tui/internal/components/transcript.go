@@ -6,6 +6,8 @@
 package components
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -31,6 +33,13 @@ func (t Transcript) Update(msg tea.Msg) (Transcript, tea.Cmd) {
 
 func (t *Transcript) SetSize(w, h int) {
 	t.width = w
+	// On tiny terminals where WindowSizeMsg.Height < statusH + promptH the
+	// caller hands us a negative height. Pass that into bubbles' viewport
+	// and we get a slice-out-of-range panic. Clamp to 0 so the viewport
+	// shrinks to nothing but doesn't crash the UI.
+	if h < 0 {
+		h = 0
+	}
 	t.height = h
 	t.vp.Width = w
 	t.vp.Height = h
@@ -53,12 +62,5 @@ func (t Transcript) View() string {
 }
 
 func joinLines(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	out := lines[0]
-	for _, l := range lines[1:] {
-		out += "\n" + l
-	}
-	return out
+	return strings.Join(lines, "\n")
 }

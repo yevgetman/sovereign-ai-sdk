@@ -11,6 +11,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Status-line palette. Lifted out of the View() builder so future M9 theme
+// work has a single place to swap them. Don't introduce a theme module yet
+// — the rest of the TUI hardcodes colors the same way.
+const (
+	statusFgGray = "#8b949e"
+	statusBgDark = "#161b22"
+)
+
 type StatusLine struct {
 	width     int
 	Cwd       string
@@ -39,8 +47,8 @@ func (s StatusLine) View() string {
 	bg := lipgloss.NewStyle().
 		Width(s.width).
 		Padding(0, 1).
-		Foreground(lipgloss.Color("#8b949e")).
-		Background(lipgloss.Color("#161b22"))
+		Foreground(lipgloss.Color(statusFgGray)).
+		Background(lipgloss.Color(statusBgDark))
 
 	stream := ""
 	if s.Streaming {

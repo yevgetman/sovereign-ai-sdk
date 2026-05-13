@@ -12,9 +12,8 @@ import (
 )
 
 type Prompt struct {
-	ti       textinput.Model
-	width    int
-	disabled bool
+	ti    textinput.Model
+	width int
 }
 
 func NewPrompt() Prompt {

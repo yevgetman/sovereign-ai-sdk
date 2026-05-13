@@ -9,10 +9,22 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/app"
 )
+
+// versionString reports the module version baked into the binary by Go's
+// build tooling. When the binary is run from a dev tree (no module info
+// or `(devel)`), falls back to a sentinel so it's obvious that a real
+// version isn't pinned yet.
+func versionString() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return "sov-tui " + info.Main.Version
+	}
+	return "sov-tui 0.0.1-dev"
+}
 
 func main() {
 	var (
@@ -23,7 +35,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("sov-tui 0.0.1")
+		fmt.Println(versionString())
 		return
 	}
 	if *port == 0 || *sessionID == "" {

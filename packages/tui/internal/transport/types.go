@@ -54,12 +54,12 @@ type ThinkingDelta struct {
 }
 
 type ToolUseStart struct {
-	Type      string          `json:"type"`
-	Seq       int64           `json:"seq"`
-	SessionID string          `json:"sessionId"`
-	Block     int             `json:"block"`
-	Tool      string          `json:"tool"`
-	Input     json.RawMessage `json:"inputPartial,omitempty"`
+	Type         string          `json:"type"`
+	Seq          int64           `json:"seq"`
+	SessionID    string          `json:"sessionId"`
+	Block        int             `json:"block"`
+	Tool         string          `json:"tool"`
+	InputPartial json.RawMessage `json:"inputPartial,omitempty"`
 }
 
 type ToolUseInputDelta struct {
