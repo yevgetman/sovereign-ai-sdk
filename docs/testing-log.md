@@ -8,6 +8,55 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-13 — Phase 16.1 M3 One Real Turn End-to-End
+
+### 2026-05-13 · M3 first real turn — automated smoke (mock + real provider)
+
+**Scope:** Phase 16.1 M3 — `query()` wired through HTTP+SSE; ENTER submits a turn; `renderHint` on all 28 tools; placeholder tool cards in the TUI.
+
+**Commits (M3.1–M3.7):**
+- `fe26e49` — M3.1: `RenderHint` discriminated union + `renderHint?` field on `ToolDef`.
+- `c790a78` — M3.2: `renderHint` backfilled on all 28 native tools.
+- `c39a333` — M3.4-A: mock provider + `resolveProvider` gate (`mock` name OR `SOV_TEST_MOCK_PROVIDER=1`).
+- `60f13c8` — M3.3: `src/server/runtime.ts` parallel construction (additive to terminalRepl).
+- `513bb5d` — M3.4-B: POST /sessions, POST /sessions/:id/turns, per-session SSE event bus.
+- `5a37749` — M3.5: TUI launcher builds runtime, POSTs /sessions, spawns sov-tui with real session id.
+- `d051136` — M3.6: ToolCard component + `tool_use_start` / `tool_result` event handling in the TUI.
+- `(M3.7 commit)` — ENTER submits a turn via POST /sessions/:id/turns; transcript echoes `» <text>` and shows red error line on failure.
+
+**Commands:**
+- `bun test` → 1836/1836 pass (4468 expect calls).
+- `cd packages/tui && go test ./...` → 4 packages green (`app` 2 tests; `transport` 4 tests; cmd + components no test files).
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`).
+- `bun run typecheck` → clean.
+- `bun run tui:build` → built `bin/sov-tui`.
+
+**Manual smoke — real provider (Anthropic claude-haiku-4-5-20251001):**
+
+Drove via a temporary `bun` script that exercises the same path the TUI ENTER handler does: `buildRuntime → startServer({runtime}) → POST /sessions → POST /sessions/:id/turns → GET /sessions/:id/events` reading the SSE body via `fetch`.
+
+- Input: `"Say hello in 5 words."`
+- Output stream observed (3 events):
+  - `text_delta "Hello,"` (seq 1)
+  - `text_delta " I am here to help."` (seq 2)
+  - `turn_complete finishReason=end_turn` (seq 3)
+- Server bound: `127.0.0.1:59880`. Session id: `9eb3f55b-f3bd-4c64-acb3-cd24b29c8bcd`. Server stopped and runtime disposed cleanly after the stream closed.
+
+**Manual smoke — mock provider (no API key):**
+
+Same driver script with `SOV_TEST_MOCK_PROVIDER=1`. Observed:
+- `text_delta "Hello"` (seq 1)
+- `text_delta " world."` (seq 2)
+- `turn_complete finishReason=end_turn` (seq 3)
+
+This is the deterministic path the integration test in `tests/server/turns.test.ts` exercises in CI.
+
+**Manual smoke deferred to user — interactive TUI:** the full `sov chat --ui tui` flow (TTY-attached Bubble Tea program, manual ENTER, on-screen rendering of `tool_use_start` cards and `tool_result` ToolCards) is left to the user. The headless smoke above proves the wire path; the TTY flow is the visual confirmation.
+
+**Result:** pass. Real-provider turn ran end-to-end through the HTTP+SSE seam; mock-provider turn ran end-to-end without credentials. All 28 native tools declare a `renderHint`. terminalRepl untouched; `--ui repl` (the default) unchanged.
+
+**Follow-ups:** M4 — 24-prereq Group 1 (critical correctness). Spec §10 milestone M4 and `docs/backlog/phase-16-rebuild-prereqs.md`.
+
 ## 2026-05-13 — Phase 16.1 M2 Bubble Tea bare scaffold
 
 ### 2026-05-13 · M2 code-quality fixes — SSE reconnect, spawn error, version, types

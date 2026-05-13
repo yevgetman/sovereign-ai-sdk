@@ -9,9 +9,13 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +28,10 @@ type sseMsg struct{ env transport.Envelope }
 
 // sseDoneMsg signals the SSE consumer has finished (turn ended or error).
 type sseDoneMsg struct{ err error }
+
+// turnSubmitErrMsg is emitted when a POST /turns request fails. M3 prints a
+// dim error line to the transcript; M4+ surfaces structured errors.
+type turnSubmitErrMsg struct{ err error }
 
 type Model struct {
 	keys       keyMap
@@ -108,6 +116,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			return m, tea.Quit
 		}
+		if msg.Type == tea.KeyEnter {
+			text := strings.TrimSpace(m.prompt.Value())
+			if text == "" {
+				return m, nil
+			}
+			m.transcript.AppendLine("» " + text)
+			m.prompt.Clear()
+			return m, m.submitTurn(text)
+		}
 		var cmd tea.Cmd
 		m.prompt, cmd = m.prompt.Update(msg)
 		return m, cmd
@@ -116,6 +133,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitEvent
 	case sseDoneMsg:
 		m.transcript.AppendLine("[stream closed]")
+		return m, nil
+	case turnSubmitErrMsg:
+		m.transcript.AppendLine(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#e06c75")).
+				Render(fmt.Sprintf("submit error: %v", msg.err)),
+		)
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -166,4 +190,38 @@ func (m Model) View() string {
 		return ""
 	}
 	return m.transcript.View() + "\n" + m.prompt.View() + "\n" + m.statusLine.View()
+}
+
+// submitTurn POSTs the user's text to /sessions/<id>/turns. The URL is
+// derived from streamURL by swapping the /events suffix for /turns. The
+// returned Cmd runs off the Update goroutine; any error is delivered as
+// a turnSubmitErrMsg so the transcript can show it without blocking.
+func (m Model) submitTurn(text string) tea.Cmd {
+	return func() tea.Msg {
+		turnsURL := strings.Replace(
+			m.streamURL,
+			fmt.Sprintf("/sessions/%s/events", m.sessionID),
+			fmt.Sprintf("/sessions/%s/turns", m.sessionID),
+			1,
+		)
+		payload, err := json.Marshal(map[string]string{"text": text})
+		if err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		req, err := http.NewRequestWithContext(m.ctx, http.MethodPost, turnsURL, bytes.NewReader(payload))
+		if err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return turnSubmitErrMsg{err: fmt.Errorf("server returned %d", resp.StatusCode)}
+		}
+		// Successful 202 — events will arrive via the SSE consumer.
+		return nil
+	}
 }
