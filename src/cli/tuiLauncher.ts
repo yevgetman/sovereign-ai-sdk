@@ -40,7 +40,7 @@ export async function runTuiLauncher(_opts: TuiLaunchOptions): Promise<number> {
   const binary = findTuiBinary();
   if (binary === null) {
     console.warn('sov: TUI binary not found; falling back to --ui repl.');
-    console.warn('     Run `sov upgrade` (requires Go ≥ 1.22 on PATH) to install it.');
+    console.warn('     Run `sov upgrade` (requires Go ≥ 1.24 on PATH) to install it.');
     // M2 leaves the fallback to the caller. The chat .action() should
     // detect this exit code and re-dispatch to terminalRepl; for now we
     // return 70 (EX_SOFTWARE) so the caller can branch.
@@ -58,9 +58,19 @@ export async function runTuiLauncher(_opts: TuiLaunchOptions): Promise<number> {
   );
 
   return await new Promise<number>((resolve) => {
-    child.on('exit', async (code) => {
+    let resolved = false;
+    const settle = async (code: number): Promise<void> => {
+      if (resolved) return;
+      resolved = true;
       await server.stop();
-      resolve(code ?? 0);
+      resolve(code);
+    };
+    child.on('error', (err) => {
+      console.error(`sov: failed to launch TUI: ${err.message}`);
+      void settle(1);
+    });
+    child.on('exit', (code) => {
+      void settle(code ?? 0);
     });
   });
 }

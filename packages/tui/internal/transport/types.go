@@ -62,6 +62,14 @@ type ToolUseStart struct {
 	Input     json.RawMessage `json:"inputPartial,omitempty"`
 }
 
+type ToolUseInputDelta struct {
+	Type      string `json:"type"`
+	Seq       int64  `json:"seq"`
+	SessionID string `json:"sessionId"`
+	Block     int    `json:"block"`
+	Delta     string `json:"delta"`
+}
+
 type ToolUseDone struct {
 	Type      string          `json:"type"`
 	Seq       int64           `json:"seq"`
@@ -80,6 +88,16 @@ type ToolResult struct {
 	Output     json.RawMessage `json:"output"`
 	RenderHint string          `json:"renderHint"`
 	Language   string          `json:"language,omitempty"`
+}
+
+type PermissionRequest struct {
+	Type      string          `json:"type"`
+	Seq       int64           `json:"seq"`
+	SessionID string          `json:"sessionId"`
+	RequestID string          `json:"requestId"`
+	Tool      string          `json:"tool"`
+	Input     json.RawMessage `json:"input"`
+	Reason    string          `json:"reason,omitempty"`
 }
 
 type StatusUpdate struct {
@@ -108,6 +126,13 @@ type TurnError struct {
 	Recoverable bool   `json:"recoverable"`
 }
 
+type SessionResumed struct {
+	Type           string `json:"type"`
+	Seq            int64  `json:"seq"`
+	SessionID      string `json:"sessionId"`
+	ResumedFromSeq int64  `json:"resumedFromSeq"`
+}
+
 func DecodeTextDelta(raw []byte) (TextDelta, error) {
 	var t TextDelta
 	err := json.Unmarshal(raw, &t)
@@ -126,6 +151,12 @@ func DecodeToolUseStart(raw []byte) (ToolUseStart, error) {
 	return t, err
 }
 
+func DecodeToolUseInputDelta(raw []byte) (ToolUseInputDelta, error) {
+	var t ToolUseInputDelta
+	err := json.Unmarshal(raw, &t)
+	return t, err
+}
+
 func DecodeToolUseDone(raw []byte) (ToolUseDone, error) {
 	var t ToolUseDone
 	err := json.Unmarshal(raw, &t)
@@ -134,6 +165,12 @@ func DecodeToolUseDone(raw []byte) (ToolUseDone, error) {
 
 func DecodeToolResult(raw []byte) (ToolResult, error) {
 	var t ToolResult
+	err := json.Unmarshal(raw, &t)
+	return t, err
+}
+
+func DecodePermissionRequest(raw []byte) (PermissionRequest, error) {
+	var t PermissionRequest
 	err := json.Unmarshal(raw, &t)
 	return t, err
 }
@@ -152,6 +189,12 @@ func DecodeTurnComplete(raw []byte) (TurnComplete, error) {
 
 func DecodeTurnError(raw []byte) (TurnError, error) {
 	var t TurnError
+	err := json.Unmarshal(raw, &t)
+	return t, err
+}
+
+func DecodeSessionResumed(raw []byte) (SessionResumed, error) {
+	var t SessionResumed
 	err := json.Unmarshal(raw, &t)
 	return t, err
 }

@@ -34,6 +34,8 @@ type Model struct {
 	height     int
 	ctx        context.Context
 	cancel     context.CancelFunc
+	events     <-chan transport.Envelope
+	errs       <-chan error
 }
 
 func New(sessionID, streamURL string) Model {
@@ -41,7 +43,7 @@ func New(sessionID, streamURL string) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	st := components.NewStatusLine()
 	st.Cwd = cwd
-	return Model{
+	m := Model{
 		keys:       defaultKeys(),
 		transcript: components.NewTranscript(),
 		prompt:     components.NewPrompt(),
@@ -51,30 +53,41 @@ func New(sessionID, streamURL string) Model {
 		ctx:        ctx,
 		cancel:     cancel,
 	}
+	if streamURL != "" {
+		m.events, m.errs = transport.Consume(ctx, streamURL)
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	if m.streamURL == "" {
+	if m.events == nil {
 		return nil
 	}
-	return m.connectSSE
+	return m.waitEvent
 }
 
-// connectSSE returns a tea.Cmd that opens the SSE stream and feeds Envelopes
-// back into the Bubble Tea loop as sseMsg until it ends (or errors).
-func (m Model) connectSSE() tea.Msg {
-	events, errs := transport.Consume(m.ctx, m.streamURL)
-	for env := range events {
-		// Send each event back into the loop as a tea.Msg by returning;
-		// however, tea.Cmd returns a single Msg. We need a Cmd that emits
-		// many. The pattern is: a Cmd that polls one event and recursively
-		// reschedules itself.
+// waitEvent blocks until the next SSE event arrives (or the stream ends).
+// Idiomatic Bubble Tea pattern for an unbounded event source: the Cmd reads
+// from a long-lived channel and reschedules itself after each delivery.
+func (m Model) waitEvent() tea.Msg {
+	if m.events == nil {
+		return sseDoneMsg{}
+	}
+	select {
+	case <-m.ctx.Done():
+		return sseDoneMsg{err: m.ctx.Err()}
+	case env, ok := <-m.events:
+		if !ok {
+			// channel closed — drain errs (single value) if present.
+			select {
+			case err := <-m.errs:
+				return sseDoneMsg{err: err}
+			default:
+				return sseDoneMsg{}
+			}
+		}
 		return sseMsg{env: env}
 	}
-	if err := <-errs; err != nil {
-		return sseDoneMsg{err: err}
-	}
-	return sseDoneMsg{err: nil}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -98,7 +111,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case sseMsg:
 		m.handleEvent(msg.env)
-		return m, m.connectSSE
+		return m, m.waitEvent
 	case sseDoneMsg:
 		m.transcript.AppendLine("[stream closed]")
 		return m, nil

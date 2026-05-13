@@ -10,6 +10,30 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-13 — Phase 16.1 M2 Bubble Tea bare scaffold
 
+### 2026-05-13 · M2 code-quality fixes — SSE reconnect, spawn error, version, types
+
+**Scope:** Four fixes from the M2 code-quality review (commit `039898d`):
+1. **Critical:** SSE `Cmd` opened a fresh HTTP connection per event (`packages/tui/internal/app/app.go` — `connectSSE` re-`transport.Consume`'d on each `sseMsg`). Refactored to idiomatic Bubble Tea pattern: `transport.Consume` runs once in `New()`, channels stored on the `Model`, `waitEvent` `Cmd` does a `select` over the long-lived channels.
+2. **Critical:** `tuiLauncher.ts` had no `child.on('error')` handler — spawn failures would hang the parent forever. Added error handler with a `resolved` flag to prevent double-settle of the promise.
+3. **Important:** `packages/tui/go.mod` declared `go 1.26.1`, but our dependencies (`bubbletea@v1.3.10` requires 1.24.0; `bubbles@v1.0.0` requires 1.24.2) lock the floor at 1.24.2. The build-script's `MIN_GO_MINOR = 22` gate would let a 1.22/1.23 user through, only for `go build` to fail with a confusing toolchain error. Lowered `go.mod` to `1.24.2` (the lowest the dep graph permits) and raised the script's `MIN_GO_MINOR` to 24 to match real dep requirements. Spec called for `1.22`; that's unfixable without downgrading deps. Recorded deviation in commit body.
+4. **Important:** `packages/tui/internal/transport/types.go` was missing `ToolUseInputDelta`, `PermissionRequest`, `SessionResumed` structs + their decode helpers — header comment commits to lockstep with `src/server/schema.ts`. Added.
+
+**Regression test added:** `TestApp_consumesMultipleEventsFromSingleConnection` in `packages/tui/internal/app/app_test.go`. Spins up an `httptest.NewServer` SSE endpoint that emits 3 distinct events on a single connection. Asserts `[turn complete]` rendered (proving all 3 events were consumed) AND `connectionCount == 1`. Verified the test catches the regression: with the buggy `connectSSE` reverted, it failed (multiple connections, `[turn complete]` never rendered).
+
+**Commands:**
+- `cd packages/tui && go test ./...` → 2 test packages pass (app: 2 tests including new regression; transport: 4 tests). `go vet ./...` clean. `go test -race ./...` clean.
+- `bun test tests/cli/tuiLauncher.test.ts` → 3/3 pass.
+- `bun test` → 1828/1828 pass (4445 expect calls, ~11.8s wall) — unchanged from prior M2 baseline.
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`).
+- `bun run typecheck` → clean.
+- `bun run tui:build` → built `bin/sov-tui`.
+- `bin/sov-tui --version` → `sov-tui 0.0.1`.
+- Manual smoke: launched `serve-dev --port 18080`, ran `sov-tui --port 18080 --session-id smoke` under `script` PTY; TUI entered alt-screen, started rendering. Deterministic regression check is the new Go test.
+
+**Result:** pass. All four fixes landed; new regression test catches the buggy form; no unit suite regression; binary still launches.
+
+**Judgment call (Fix 3):** Spec said "Lower `go.mod` to `go 1.22` (no language features past 1.22 are used in the M2 code)". Correct for our own code, but irrelevant — `bubbletea` and `bubbles` themselves declare go 1.24+, and Go refuses to build when the toolchain is below any dep's directive. The actionable form of the fix is: lower `go.mod` to the lowest the dep graph permits (1.24.2) AND lift the script's gate to match (1.24). Anything stricter would require downgrading dependencies. Achieves the *spirit* of the spec (eliminating mismatch between script gate and what `go build` accepts) without breaking the build.
+
 ### 2026-05-13 · M2 bare TUI scaffold — manual smoke
 
 **Scope:** Phase 16.1 M2 — Bubble Tea bare scaffold, postinstall build, `--ui tui` flag.

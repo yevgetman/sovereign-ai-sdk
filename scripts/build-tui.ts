@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // scripts/build-tui.ts
 //
-// Postinstall build: detect Go ≥ 1.22; build packages/tui/cmd/sov-tui to
+// Postinstall build: detect Go ≥ 1.24; build packages/tui/cmd/sov-tui to
 // bin/sov-tui. On failure, print clear remediation and exit 0 — bun install
 // keeps succeeding so the TS runtime is still usable; sov falls back to
 // --ui repl with a one-line warning at launch.
@@ -14,8 +14,12 @@ const REPO_ROOT = dirname(dirname(realpathSync(fileURLToPath(import.meta.url))))
 const TUI_DIR = join(REPO_ROOT, 'packages', 'tui');
 const BIN_DIR = join(REPO_ROOT, 'bin');
 const OUT = join(BIN_DIR, 'sov-tui');
+// Min version is governed by our dependencies' own go.mod directives:
+// bubbletea v1.3.10 declares go 1.24.0; bubbles v1.0.0 declares go 1.24.2.
+// Go refuses to build when the toolchain is below any dependency's directive,
+// so the script's gate must match what `go build` actually accepts.
 const MIN_GO_MAJOR = 1;
-const MIN_GO_MINOR = 22;
+const MIN_GO_MINOR = 24;
 
 async function detectGo(): Promise<{ major: number; minor: number } | null> {
   try {
@@ -37,7 +41,7 @@ async function detectGo(): Promise<{ major: number; minor: number } | null> {
 function warnNoGo(): void {
   console.warn('');
   console.warn('┌─────────────────────────────────────────────────────────────┐');
-  console.warn('│  sov: Go ≥ 1.22 not detected on PATH                       │');
+  console.warn('│  sov: Go ≥ 1.24 not detected on PATH                       │');
   console.warn('│                                                             │');
   console.warn('│  The TS runtime installed successfully and `sov --ui repl` │');
   console.warn('│  (the default) will work. To enable `sov --ui tui`, install │');
