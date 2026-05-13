@@ -10,6 +10,51 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-13 — Phase 16.1 M3 One Real Turn End-to-End
 
+### 2026-05-13 · Deferred Minor cleanup from M1/M2/M3 quality reviews
+
+**Scope:** Sweep of 18+ Minor items left over from three rounds of code-quality review. Two commits — TS first, Go second. No new features; pure quality follow-ups before M4 builds on these foundations.
+
+**TS-side fixes (commit `ea552c4`):**
+- **A1** — Hoisted `VERSION` to new `src/version.ts` reading `package.json`. `/health` + `sov --version` now report `0.1.0` (manifest reality), previously both lied as `'0.0.1'`.
+- **A2** — New `src/server/sessionId.ts` with `isValidSessionId()`. Events + sessions routes return `400 invalid session id` for empty or non-`[A-Za-z0-9_-]` ids.
+- **A3** — `tests/server/startServer.test.ts`: post-stop fetch now asserts `Error` instance + `code: 'ConnectionRefused'` (not just `threw=true`). Adjusted from M1 reviewer's `TypeError` suggestion because Bun actually throws plain `Error`.
+- **A4** — `tests/server/port.test.ts` third test now calls `findFreePort()` twice in parallel (was probing `Bun.serve` directly, didn't exercise the unit).
+- **A5** — `port.ts` + `server/index.ts`: non-numeric port errors now include the offending `typeof` and value.
+- **A6** — `tuiLauncher.ts`: fallback warning rewritten (prior text claimed a fallback that wasn't wired); info log uses `process.stderr.write` (not `console.error`). Boot-sequence comment also updated.
+- **A7** — Added `findTuiBinaryFrom(startDir)` overload for test isolation. Test #3 now uses it to deterministically observe the null branch from `/tmp`.
+- **A8** — Skipped integration test for `runTuiLauncher` (bun runner's mock surface is fiddly for module-level stubs); added `// TODO M4+` comment in the function.
+- **A9** — `turns.ts` comment corrected: POST is fire-and-forget; the bus buffers events until the SSE subscriber attaches.
+- **A10** — `renderHintCoverage.test.ts` now passes a fake `AgentRegistry` (so `AgentTool`/`task_create` stay in the pool) and a `harnessInfoSnapshot` factory (so `HarnessInfoTool` enters too). Added a fourth test against a wrapped MCP tool. `wrapMcpTool` now defaults to `renderHint: { kind: 'text' }` so the backstop holds for MCP-wrapped tools.
+- **A11** — `MockProvider.normalizeResponse` throws with a clear message (was dead code with unsafe `{} as ProviderRequest` cast).
+- **A12** — `runtime.bundleRoot` tracks the actually-loaded bundle (was keeping user-passed path even when `loadBundleIfPresent` returned null).
+- **A13** — AbortSignal threaded into `query()` from `turns.ts` via a per-bus `AbortController`. The bus aborts on `close()` (SSE disconnect or `server.stop()`), cancelling the in-flight provider stream and tool loop cooperatively.
+- **A14** — `eventBus.ts` header documents per-bus seq scope (per-session, accumulating across turns; rely on `turn_complete` discriminator not seq for turn boundaries).
+
+**Go-side fixes (commit `5b40773`):**
+- **B1** — `Transcript.SetSize` clamps negative height (prevents bubbles viewport panic on tiny terminals).
+- **B2** — `joinLines` → `strings.Join` (was O(n²)).
+- **B3** — `Prompt.disabled` removed (unused per YAGNI). `Clear()` kept — `app.go` ENTER handler uses it.
+- **B4** — `StatusLine` hardcoded colors → package-level constants `statusFgGray` / `statusBgDark`.
+- **B5** — `sse.go`: documented intentional silent unmarshal drop (alt-screen renderer can't host stderr logs).
+- **B6** — `cmd/sov-tui/main.go`: version sourced from `runtime/debug.ReadBuildInfo()`; falls back to `sov-tui 0.0.1-dev` when no module info is baked in.
+- **B7** — `ToolUseStart.Input` renamed to `InputPartial` (consistent with JSON tag `inputPartial`; disambiguates from `ToolUseDone.Input`).
+
+**Commands:**
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts` unchanged).
+- `bun run typecheck` → clean.
+- `bun test` → **1837/1837 pass** (4473 expect calls, ~11.0s wall; +1 vs M3 baseline = new MCP wrapper renderHint test).
+- `cd packages/tui && go test ./...` → green (no regressions; same 4 tests under `internal/app` + 4 under `internal/transport`).
+- `cd packages/tui && go vet ./...` → clean.
+- `bun run tui:build` → rebuilt `bin/sov-tui` (postinstall artifact).
+- `/health` smoke → `{"ok":true,"version":"0.1.0"}` (previously `'0.0.1'`).
+- `sov --version` → `0.1.0`.
+- `git push origin master` → `d9faf36..5b40773 master -> master`.
+- `sov upgrade` → installed `@yevgetman/sov@...#5b40773` from master, binaries `sov` + `harness` linked.
+
+**Suite delta:** +1 test (the new MCP-wrapped `wrapMcpTool` renderHint case in `tests/tool/renderHintCoverage.test.ts`). The renderHint coverage breadth is now meaningful: the pool ctx supplies a fake agent registry + `harnessInfoSnapshot` factory so `AgentTool`, `task_create`, and `HarnessInfo` enter the pool and get checked (sanity assertions on `pool.has(name)` make this verifiable).
+
+**Forbidden files untouched:** `src/ui/terminalRepl.ts`, `src/commands/**`, `src/core/query.ts` (read-only access for A13 signal check), `src/cli/dispatchCommand.ts`, `src/cli/missionRun.ts`, `src/daemon/**`, `src/channels/**`.
+
 ### 2026-05-13 · M3 quality fixes — turn_complete dedupe, bus lifecycle, env precedence, Go coverage
 
 **Scope:** Code-quality review of M3 (commit `bccbae3`) caught 2 Critical bugs + 5 Important quality gaps. All seven fixed in one consolidated commit before M4 builds on these foundations.
