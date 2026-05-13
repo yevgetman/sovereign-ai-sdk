@@ -10,6 +10,39 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-13 — Phase 16.1 M3 One Real Turn End-to-End
 
+### 2026-05-13 · M3 quality fixes — turn_complete dedupe, bus lifecycle, env precedence, Go coverage
+
+**Scope:** Code-quality review of M3 (commit `bccbae3`) caught 2 Critical bugs + 5 Important quality gaps. All seven fixed in one consolidated commit before M4 builds on these foundations.
+
+**Fixes:**
+1. **Critical** — `src/server/routes/turns.ts`: every successful turn emitted `turn_complete` twice (once when `message_stop` was mapped, once in the fallback). Track `terminalEmitted` so the fallback only fires when the stream didn't produce a terminal event. The second event was sitting in the leaked bus buffer (see #2).
+2. **Critical** — `src/server/eventBus.ts` + `src/server/routes/events.ts`: `disposeBus(sessionId)` was dead code; the bus `Map` grew monotonically. Wired `disposeBus()` into the events route's `finally`. Updated `eventBus.ts` header comment to document the lifecycle (bus exists for one SSE subscriber connection; disposed when the subscriber unsubscribes).
+3. **Important** — `src/providers/resolver.ts`: `SOV_TEST_MOCK_PROVIDER=1` silently overrode any explicit provider name. Narrowed: env-var triggers mock only when no provider is named.
+4. **Important** — `src/cli/tuiLauncher.ts`: the `await fetch(...)` and `await createRes.json()` for session creation weren't wrapped in `try/catch`; on throw the server + runtime leaked. Wrapped with cleanup that returns exit 1.
+5. **Important** — `src/server/routes/events.ts`: when the queue was empty, the loop parked on `await new Promise(r => { resolver = r })`. A client disconnect with no pending events left nothing to invoke the resolver, so `unsubscribe()` and `disposeBus()` never ran. Wired `c.req.raw.signal` to resolve the parked Promise and exit cleanly.
+6. **Important** — `packages/tui/internal/app/app_test.go`: added two Go tests:
+   - `TestApp_enterSubmitsTurnViaPost` — drives ENTER on the prompt and asserts a `POST /sessions/<id>/turns` arrives at the test server with the typed text. Verified the test catches the regression: with `m.submitTurn(text)` sabotaged to return `nil`, the test fails (no POST observed).
+   - `TestApp_renderToolResultAsCard` — emits a single `tool_result` SSE event from a test server and asserts the transcript renders `FileRead` (the ToolCard header).
+7. **Important** — `src/server/eventBus.ts` + `tests/server/events.test.ts`: renamed `resetAllBuses()` to `__test_resetAllBuses()` so production code can't reach for it as a cleanup path. The `__test_` prefix is a soft fence; `disposeBus(sessionId)` is the supported per-session API.
+8. **Minor** — `CLAUDE.md` + `AGENTS.md`: documented that Bun's global installer blocks postinstall scripts by default, so first-install users may need `bun pm -g trust @yevgetman/sov` to get `bin/sov-tui` built. Mirror invariant preserved (`diff CLAUDE.md AGENTS.md` empty).
+
+**Commands:**
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`).
+- `bun run typecheck` → clean.
+- `bun test` → 1836/1836 pass (4468 expect calls, ~11.8s wall) — same as M3 baseline.
+- `cd packages/tui && go test ./...` → green; `internal/app` has 4 tests (2 prior + 2 new), `internal/transport` 4 tests, no regressions.
+- `cd packages/tui && go vet ./...` → clean.
+- `bun run tui:build` → rebuilt `bin/sov-tui`.
+- `diff CLAUDE.md AGENTS.md` → empty (mirror invariant holds).
+- `git push origin master` → `e672aa5..bccbae3 master -> master`.
+- `sov upgrade` → installed `@yevgetman/sov@...#bccbae3` from master.
+
+**Regression-test verification (judgment call):** I reverse-engineered the ENTER test by sabotaging `m.submitTurn(text)` to return `nil`. The new test fails as expected with the sabotage (no POST observed within the 3s deadline). The ToolCard test was not separately reverse-engineered, but the code path is direct: the existing `tool_result` decode helper plus `ToolCard.View()` must produce the substring `FileRead`; if either is broken, the `WaitFor` deadline expires.
+
+**Forbidden-file invariant:** none of `src/ui/terminalRepl.ts`, `src/commands/**`, `src/core/query.ts`, `src/cli/dispatchCommand.ts`, `src/cli/missionRun.ts`, `src/daemon/**`, `src/channels/**` were touched.
+
+**Result:** pass. All seven issues fixed in commit `bccbae3`. No suite regression; both new Go tests pass and one was confirmed to catch a regression.
+
 ### 2026-05-13 · M3 first real turn — automated smoke (mock + real provider)
 
 **Scope:** Phase 16.1 M3 — `query()` wired through HTTP+SSE; ENTER submits a turn; `renderHint` on all 28 tools; placeholder tool cards in the TUI.
