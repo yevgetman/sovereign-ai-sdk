@@ -243,18 +243,16 @@ async function main(argv: string[]): Promise<void> {
   program
     .command('serve-dev')
     .description('boot the Phase 16.1 HTTP+SSE server on 127.0.0.1 (M1 dev harness)')
-    .option('--port <n>', 'explicit port (default: random free port)', (v) =>
-      Number.parseInt(v, 10),
-    )
+    .option('--port <n>', 'explicit port (default: random free port)', parsePositiveInt)
     .action(async (opts) => {
       const { startServer } = await import('./server/index.js');
       const startOpts: { port?: number } = {};
       if (typeof opts.port === 'number') startOpts.port = opts.port;
       const server = await startServer(startOpts);
-      console.log(`sov serve-dev: listening on http://127.0.0.1:${server.port}`);
-      console.log('  GET /health');
-      console.log('  GET /sessions/<id>/events  (SSE)');
-      console.log('Press Ctrl-C to stop.');
+      process.stdout.write(`sov serve-dev: listening on http://127.0.0.1:${server.port}\n`);
+      process.stdout.write('  GET /health\n');
+      process.stdout.write('  GET /sessions/<id>/events  (SSE)\n');
+      process.stdout.write('Press Ctrl-C to stop.\n');
       process.on('SIGINT', async () => {
         await server.stop();
         process.exit(0);
