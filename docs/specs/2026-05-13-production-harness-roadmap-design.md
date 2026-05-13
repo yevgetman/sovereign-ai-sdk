@@ -150,7 +150,7 @@ Hermes-layer extensions (16.5 Telegram, 17 Cron, additional channel adapters) ex
 
 ## 6. Open Decisions
 
-Two decisions block scope-finalization on multiple phases. Both should be resolved before Phase 14 closes.
+Open Q2 should be resolved before Phase 15 plan-writing begins. Open Q1 is closed (see §6 below).
 
 ### Open Q1 — TUI framework for Phase 16.1
 
@@ -424,7 +424,7 @@ Modify:
 - **Permission timeout UX in long-running tools.** Mitigation: default 60s; configurable per-tool; document the constraint for IDE-extension authors.
 - **Server-binding security.** Mitigation: refuse to bind to non-localhost without `SOV_SERVER_PASSWORD` set; print warning on insecure config; document deployment recommendations.
 
-**Dependencies:** Phase 14 (so distribution is ready). Phase 15 (so provider list endpoint enumerates all 10+). Optionally Phase 16.1 (so the new TUI can also drive `sov serve` via the API, demonstrating the surface).
+**Dependencies:** Phase 15 (so provider list endpoint enumerates all 10+). Optionally Phase 16.1 (so the new TUI can also drive `sov serve` via the API, demonstrating the surface).
 
 **Rough effort:** 2–3 weeks wall. Hono and SSE are well-trodden; the novel work is permission-queue round-trip and session-cache integration.
 
@@ -679,7 +679,7 @@ Modify:
 
 11. **Reference plugin.** `packages/plugin-example/` — adds one tool (`Greet`), one slash command (`/greet`), one skill. Used as the tutorial in plugin-authoring.md.
 
-12. **CI for extensions.** GitHub Actions: lint + typecheck + package; on tag, publish VS Code via `vsce`, publish to Zed registry. Plugin packages publish to npm on the main release workflow (Phase 14).
+12. **CI for extensions.** GitHub Actions: lint + typecheck + package; on tag, publish VS Code via `vsce`, publish to Zed registry. Plugin packages publish to npm via a Phase-21-internal release workflow (set up as part of this phase since Phase 14's release workflow was dropped).
 
 **Success criteria:**
 
@@ -700,7 +700,7 @@ Modify:
 - **VS Code extension review delays.** Mitigation: submit early; iterate on a staging tag.
 - **Plugin namespace collisions.** Mitigation: enforce `<plugin-id>__` prefix on registered names; plugin-id derived from package name.
 
-**Dependencies:** Phase 14 (npm publish), Phase 16.1 (TUI hook points if exposed), Phase 18 (HTTP API for the IDE extensions).
+**Dependencies:** Phase 16.1 (TUI hook points if exposed), Phase 18 (HTTP API for the IDE extensions). Note: Phase 14 (distribution) was dropped from the roadmap — Phase 21 needs to set up its own minimal release path for the `@sov-ai/plugin` and `@sov-ai/sdk` packages as part of build item 12.
 
 **Rough effort:** 4–6 weeks wall.
 
@@ -710,7 +710,7 @@ Modify:
 
 **Goal:** monitoring surface for bundle-mode operation; review queue, instinct corpus, trajectory volume, scheduled-mission status, cost dashboards.
 
-**Scope:** deferred. Revisit after Phases 14, 15, 16.1, 18, 19, 20, 21 are complete. The bundle-mode UX may not need a web dashboard if VS Code extension + TUI cover monitoring sufficiently. Decision point: assess after Phase 21 ships.
+**Scope:** deferred. Revisit after Phases 15, 16.1, 18, 19, 20, 21 are complete. The bundle-mode UX may not need a web dashboard if VS Code extension + TUI cover monitoring sufficiently. Decision point: assess after Phase 21 ships.
 
 If pursued: SolidJS + Hono server-side rendering (or Astro static + API calls); read-only initially; consumes `sov serve` HTTP API; deploys per-bundle alongside the harness.
 
@@ -721,7 +721,6 @@ If pursued: SolidJS + Hono server-side rendering (or Astro static + API calls); 
 | Risk | Phase(s) | Mitigation |
 |---|---|---|
 | Phase 16.1 plumbing-lift recurrence | 16.1 | Rules 1–4 from postmortem enforced; opt-in flag until parity audit; 24-row prereq checkbox tracking |
-| Distribution channel breakage | 14 | CI verifies all three install paths on every release tag; clean-VM smoke test |
 | `@ai-sdk/*` API instability | 15 | Pinned minor versions; per-provider integration tests; A/B before Anthropic migration |
 | Public API churn on plugin SDK | 21 | Semver discipline; ADR for every breaking change; deprecation cycle ≥1 release |
 | LSP server install friction | 20 | `sov lsp install` subcommand; clear missing-server diagnostics |
@@ -770,7 +769,7 @@ The canonical build plan is in a separate repo (`~/code/sovereign-ai-docs/`) wit
 
 1. Insert this spec at `docs/specs/2026-05-13-production-harness-roadmap-design.md` (this file).
 
-2. Update `CLAUDE.md` Phases section: replace the current "Next: No active phase" line with "Next: Phase 14 (Distribution & Public Docs) per `docs/specs/2026-05-13-production-harness-roadmap-design.md`. Open decisions: Q1 (TUI framework), Q2 (provider strategy). Phase 16.1 reserved for foreground TUI rebuild after polish-track phases land."
+2. ~~Original direction (preserved for the record): set CLAUDE.md `Next:` to Phase 14.~~ **Updated 2026-05-13:** CLAUDE.md `Next:` now points at Phase 16.1 directly (`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`). Phase 14 is dropped; Open Q1 (TUI framework) is closed (Go + Bubble Tea). See the 2026-05-13 Phase-14-dropped ADR in DECISIONS.md.
 
 3. Update `docs/backlog/phase-16-rebuild-prereqs.md`: add a header line linking back to this spec.
 
@@ -810,13 +809,6 @@ Per-phase milestones (especially Phase 16.1) close with state snapshots so the u
 ## 11. Design Questions To Answer Before Each Phase Plan-Writes
 
 Each per-phase plan should resolve at least these questions before TDD task-decomposition begins. Questions inherit from the spec but the plan owns the answer.
-
-**Phase 14:**
-- Final npm package name (recommend `@sov-ai/harness`).
-- Docs site framework (recommend Astro).
-- Brew tap repo location (recommend `sovereign-ai/homebrew-tap`).
-- Install URL stable host (`sovereign.ai/install`).
-- Whether `npm i -g` ships the binary or a postinstall downloader (recommend postinstall — opencode pattern).
 
 **Phase 15:**
 - Resolve Open Q2 (recommend Option C: wrap `@ai-sdk/*`).
@@ -891,6 +883,6 @@ Each per-phase plan should resolve at least these questions before TDD task-deco
 
 5. **Update harness-repo metadata.** `CLAUDE.md` Phases section; `DECISIONS.md` ADR-stub; `docs/backlog/phase-16-rebuild-prereqs.md` cross-link.
 
-6. **Write the Phase 14 plan.** First per-phase plan: `docs/plans/2026-05-13-phase-14-distribution-and-docs.md`. Format: writing-plans skill TDD task-by-task. Start when user gives the go.
+6. ~~Original next step: write the Phase 14 plan.~~ **Updated 2026-05-13:** Phase 14 dropped. The first per-phase plan that shipped was Phase 16.1 (`docs/plans/2026-05-13-phase-16-1-tui-rebuild.md`).
 
-7. **Track open backlog.** Item #17 (eval-gated auto-promote, P4) remains open and orthogonal to this roadmap; close when convenient or absorb into Phase 14's release validation.
+7. **Track open backlog.** Item #17 (eval-gated auto-promote, P4) remains open and orthogonal to this roadmap; close when convenient.
