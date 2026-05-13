@@ -14,5 +14,8 @@ export async function findFreePort(): Promise<number> {
   });
   const port = probe.port;
   probe.stop();
+  if (typeof port !== 'number') {
+    throw new Error('Bun.serve did not return a numeric port');
+  }
   return port;
 }

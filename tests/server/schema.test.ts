@@ -37,7 +37,13 @@ describe('ServerEventSchema', () => {
   });
 
   test('parseServerEvent returns the parsed event for valid JSON', () => {
-    const json = JSON.stringify({ type: 'text_delta', seq: 1, sessionId: 's', block: 0, text: 'x' });
+    const json = JSON.stringify({
+      type: 'text_delta',
+      seq: 1,
+      sessionId: 's',
+      block: 0,
+      text: 'x',
+    });
     const ev = parseServerEvent(json);
     expect(ev?.type).toBe('text_delta');
   });

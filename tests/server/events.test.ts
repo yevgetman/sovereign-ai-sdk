@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Hono } from 'hono';
-import { parseServerEvent } from '../../src/server/schema.js';
 import { eventsRoute } from '../../src/server/routes/events.js';
+import { parseServerEvent } from '../../src/server/schema.js';
 
 describe('eventsRoute (M1 hardcoded)', () => {
   test('GET /sessions/:id/events emits text_delta then turn_complete', async () => {
@@ -11,7 +11,10 @@ describe('eventsRoute (M1 hardcoded)', () => {
     expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
 
     const body = await res.text();
-    const blocks = body.split('\n\n').map((b) => b.trim()).filter(Boolean);
+    const blocks = body
+      .split('\n\n')
+      .map((b) => b.trim())
+      .filter(Boolean);
     expect(blocks.length).toBeGreaterThanOrEqual(2);
 
     // Parse the JSON data field from each block.

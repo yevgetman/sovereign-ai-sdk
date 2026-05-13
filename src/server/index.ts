@@ -25,8 +25,12 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
     hostname: '127.0.0.1',
     fetch: app.fetch,
   });
+  const boundPort = server.port;
+  if (typeof boundPort !== 'number') {
+    throw new Error('Bun.serve did not return a numeric port');
+  }
   return {
-    port: server.port,
+    port: boundPort,
     stop: async () => {
       server.stop();
     },
