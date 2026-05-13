@@ -4,13 +4,13 @@
 
 import { describe, expect, test } from 'bun:test';
 import { Hono } from 'hono';
-import { getOrCreateBus, resetAllBuses } from '../../src/server/eventBus.js';
+import { __test_resetAllBuses, getOrCreateBus } from '../../src/server/eventBus.js';
 import { eventsRoute } from '../../src/server/routes/events.js';
 import { parseServerEvent } from '../../src/server/schema.js';
 
 describe('eventsRoute (M3 bus-driven)', () => {
   test('GET /sessions/:id/events streams buffered bus events + terminal turn_complete', async () => {
-    resetAllBuses();
+    __test_resetAllBuses();
     const sessionId = 's_test';
     const bus = getOrCreateBus(sessionId);
     bus.publish({ type: 'text_delta', seq: bus.nextSeq(), sessionId, block: 0, text: 'Hello ' });

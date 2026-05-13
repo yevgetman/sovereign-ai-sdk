@@ -186,3 +186,11 @@ Skip the upgrade only when the changes are confined to `tests/`, `docs/`, or oth
 When in doubt, run it. The cost is ~5–10 seconds; the cost of a stale binary is the user thinking they're testing your fix when they're actually testing the previous version.
 
 **Phase 16.1 note:** `sov upgrade` also triggers the package's postinstall hook, which rebuilds `bin/sov-tui` from `packages/tui/`. The TUI binary requires Go ≥ 1.24 on PATH. If Go is missing, the install succeeds and `sov --ui repl` (the default) still works; `sov --ui tui` falls back to repl with a one-line warning. Changes under `packages/tui/` therefore have the same "run `sov upgrade`" obligation as changes under `src/`.
+
+On first install only, Bun's global installer blocks postinstall scripts by default. If `bin/sov-tui` is missing after `bun install -g`, run:
+
+```bash
+bun pm -g trust @yevgetman/sov
+```
+
+Then re-run `sov upgrade`. Subsequent upgrades pick up the trusted entry automatically.

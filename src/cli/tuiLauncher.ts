@@ -87,16 +87,24 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     return 1;
   }
 
-  const createRes = await fetch(`http://127.0.0.1:${server.port}/sessions`, {
-    method: 'POST',
-  });
-  if (!createRes.ok) {
-    console.error('sov: failed to create session');
+  let sessionId: string;
+  try {
+    const createRes = await fetch(`http://127.0.0.1:${server.port}/sessions`, {
+      method: 'POST',
+    });
+    if (!createRes.ok) {
+      throw new Error(`POST /sessions returned ${createRes.status}`);
+    }
+    const body = (await createRes.json()) as { sessionId: string };
+    sessionId = body.sessionId;
+  } catch (err) {
+    console.error(
+      `sov: failed to create session: ${err instanceof Error ? err.message : String(err)}`,
+    );
     await server.stop();
     await runtime.dispose();
     return 1;
   }
-  const { sessionId } = (await createRes.json()) as { sessionId: string };
 
   // One-line log so the manual smoke can curl the server while it's
   // running. The TUI also has access via app's ENTER handler in M3.7.

@@ -72,17 +72,26 @@ async function runTurnInBackground(
     // M3 collapses all assistant output onto block 0 — block tracking
     // lands when tool_use_start emits its own block index in M4+.
     const currentBlock = 0;
+    let terminalEmitted = false;
     for await (const event of stream) {
       // Skip Message (full assistant messages) — they're metadata not
       // for the wire. We map only StreamEvent shapes to ServerEvents.
       if ('role' in event) continue;
       const mapped = mapStreamEventToServerEvent(event, bus, sessionId, currentBlock);
-      if (mapped) bus.publish(mapped);
+      if (mapped) {
+        bus.publish(mapped);
+        if (mapped.type === 'turn_complete' || mapped.type === 'turn_error') {
+          terminalEmitted = true;
+        }
+      }
     }
 
     // If the loop ends without a message_stop (e.g. errored mid-stream),
-    // emit a terminal turn_complete so the SSE subscriber unblocks.
-    if (!bus.isClosed()) {
+    // emit a terminal turn_complete so the SSE subscriber unblocks. Skip
+    // the fallback when the stream already produced one — otherwise the
+    // bus would carry two turn_complete events per successful turn (SSE
+    // consumer stops after the first; the second leaks into the buffer).
+    if (!terminalEmitted && !bus.isClosed()) {
       bus.publish({
         type: 'turn_complete',
         seq: bus.nextSeq(),

@@ -61,8 +61,10 @@ export function resolveProvider(
   // Phase 16.1 M3 — mock provider for tests + the offline TUI/server smoke.
   // Short-circuits credential/registry resolution so a turn can run with no
   // API key. `mock` is never persisted into settings; it's a one-call escape
-  // hatch, gated by either explicit name or the SOV_TEST_MOCK_PROVIDER env.
-  if (name === 'mock' || env.SOV_TEST_MOCK_PROVIDER === '1') {
+  // hatch. Triggered by an explicit `mock` name, OR (only when no provider
+  // is named at all) by SOV_TEST_MOCK_PROVIDER=1. A lingering env var must
+  // not silently override an explicit provider request.
+  if (name === 'mock' || (name === undefined && env.SOV_TEST_MOCK_PROVIDER === '1')) {
     const transport = new MockProvider();
     const resolvedModel = model ?? 'mock-haiku';
     return {

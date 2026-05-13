@@ -6,6 +6,13 @@
 // without race-prone sleeps. M3 keeps this single-subscriber and in-process;
 // a ring buffer with Last-Event-ID replay lands in a future milestone
 // (spec §5 — explicitly deferred for M3).
+//
+// Lifecycle: a bus exists for the duration of one SSE subscriber connection.
+// `getOrCreateBus(sessionId)` lazily allocates on first publish or first
+// subscribe; `disposeBus(sessionId)` is invoked by the events route's
+// `finally` so the per-session entry leaves the map after the stream closes
+// (turn_complete / turn_error / client disconnect). Resume across reconnects
+// (M9+) will need a different lifecycle — a buffered ring + replay window.
 
 import type { ServerEvent } from './schema.js';
 
@@ -69,8 +76,14 @@ export function disposeBus(sessionId: string): void {
   }
 }
 
-/** Test-only: reset all buses so a fresh suite starts clean. */
-export function resetAllBuses(): void {
+/**
+ * Test-only: reset all buses so a fresh suite starts clean.
+ *
+ * The `__test_` prefix is a soft fence: production code should never reach
+ * for this. If a real cleanup path is ever needed, `disposeBus(sessionId)`
+ * is the supported per-session API.
+ */
+export function __test_resetAllBuses(): void {
   for (const bus of buses.values()) {
     bus.close();
   }

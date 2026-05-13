@@ -3,11 +3,12 @@
 // Phase 16.1 M3: consumes the per-session event bus populated by the turn
 // handler. Events buffered before the subscriber attaches are drained
 // immediately so a "POST /turns, then GET /events" sequence is well-defined
-// without a sleep. The stream ends when turn_complete or turn_error arrives.
+// without a sleep. The stream ends when turn_complete or turn_error arrives,
+// or when the client disconnects (c.req.raw.signal aborts the parked Promise).
 
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { getOrCreateBus } from '../eventBus.js';
+import { disposeBus, getOrCreateBus } from '../eventBus.js';
 import type { ServerEvent } from '../schema.js';
 
 export const eventsRoute = new Hono();
@@ -15,6 +16,7 @@ export const eventsRoute = new Hono();
 eventsRoute.get('/sessions/:id/events', (c) => {
   const sessionId = c.req.param('id');
   const bus = getOrCreateBus(sessionId);
+  const requestSignal = c.req.raw.signal;
   return streamSSE(c, async (stream) => {
     let stopped = false;
     const queue: ServerEvent[] = [];
@@ -27,6 +29,19 @@ eventsRoute.get('/sessions/:id/events', (c) => {
         r();
       }
     });
+    // Without this listener the loop can park forever on the empty-queue
+    // Promise: a client disconnect with no pending events leaves nothing
+    // to invoke the resolver, so `unsubscribe()` and `disposeBus()` never
+    // run and the bus map leaks.
+    const abortHandler = (): void => {
+      stopped = true;
+      if (resolver !== null) {
+        const r = resolver;
+        resolver = null;
+        r();
+      }
+    };
+    requestSignal.addEventListener('abort', abortHandler);
     try {
       while (!stopped) {
         if (queue.length === 0) {
@@ -46,7 +61,13 @@ eventsRoute.get('/sessions/:id/events', (c) => {
         }
       }
     } finally {
+      requestSignal.removeEventListener('abort', abortHandler);
       unsubscribe();
+      // After the stream closes (turn_complete / turn_error / client
+      // disconnect), the bus has delivered everything for this turn.
+      // Drop it from the map so the session's memory footprint doesn't
+      // leak. Resume across reconnects (M9+) needs a different lifecycle.
+      disposeBus(sessionId);
     }
   });
 });
