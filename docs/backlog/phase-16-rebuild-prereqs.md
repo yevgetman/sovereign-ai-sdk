@@ -1,5 +1,7 @@
 # Phase 16 — foreground rebuild prerequisites
 
+> **Authoritative phase plan:** `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §9. This backlog enumerates the 24 subsystems any new foreground must wire; the spec assigns them to milestones M4–M8.
+
 When Phase 16 is retried (as Phase 16.1 per the open-question resolution in `docs/state/2026-05-12.md`), it must follow Rule 1 of `docs/postmortems/2026-05-12-phase-16-revert.md`: the new foreground surface ships alongside the existing one (`src/ui/terminalRepl.ts`) behind an opt-in flag, not as a replacement. This file enumerates the subsystems any new foreground surface must wire — captured here so the next attempt doesn't re-discover them through a close-out audit.
 
 These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. They all exist on master today (post-revert) and are wired through `src/ui/terminalRepl.ts`. The new foreground surface must wire each one to parity before it can be considered a real alternative.

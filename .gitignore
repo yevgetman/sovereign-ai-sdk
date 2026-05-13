@@ -16,6 +16,9 @@ dist/
 .idea/
 .claude/
 
+# Brainstorming visual companion (transient mockup state)
+.superpowers/
+
 # Runtime outputs (if we ever write them here, belongs in a bundle's state/ instead)
 *.jsonl.tmp
 .harness/settings.local.json

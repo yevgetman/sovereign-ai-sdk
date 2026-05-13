@@ -123,7 +123,7 @@ When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harne
 
 **Reverted (2026-05-12):** Phase 16.0b (Ink TUI) and Phase 16.0c (slash dispatch on Ink) were force-rolled back the day after they shipped, after a close-out parity audit surfaced ~24 silently broken subsystems on the new foreground. Two improvements survived: `sov dispatch` (headless slash-command surface, `src/cli/dispatchCommand.ts`) and the `string-match` semantic-judge backend (`tests/semantic/framework/judges/stringMatch.ts`). The Ink work is preserved on `origin/archive/ink-tui-2026-05-12`.
 
-**Next:** No active phase. The next foreground refactor (when retried) will be **Phase 16.1** and must keep terminalRepl alive in parallel per Rule 1 of the revert retrospective. Phase 16 rebuild prerequisites are enumerated in `docs/backlog/phase-16-rebuild-prereqs.md`. The P3+ backlog item (#17 — see `docs/backlog/post-phase-13-4.md`) remains open. Do not start any phase unless explicitly requested. See `runtime-scaffold-plan.md` for the Phase-0 layout this repo was seeded against.
+**Next:** **Phase 16.1 — TUI rebuild.** Active per user direction (2026-05-13). Spec: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`. M0–M3 plan: `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md`. Architecture: split process — `sov` (TS) runs an HTTP+SSE server; `sov-tui` (Go + Bubble Tea) is a separate child process that renders the foreground. terminalRepl untouched per Postmortem Rule 1; `--ui tui` is opt-in until parity audit clears the default flip. Phase 14 (distribution) dropped per the 2026-05-13 Phase-14-dropped ADR in DECISIONS.md. Phase 15 (provider breadth) deferred or run in parallel — user's call at the next plan kickoff.
 
 For full phase-by-phase narrative + suite deltas + close-out details, read `docs/state/2026-05-12.md`. For pre-13.4 phase history, the archived `docs/state/archive/2026-05-07.md` and `2026-05-11.md` snapshots cover those cycles. For the canonical phase plan and sequencing logic, read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and `phase-10x-status.md`. **Required reading before any future foreground refactor:** `docs/postmortems/2026-05-12-phase-16-revert.md` (Rules 1-4).
 
@@ -132,6 +132,18 @@ Each phase should:
 - Keep the harness running end-to-end throughout (no broken-for-three-days refactors).
 - Exercise the new thing in a real scenario before the phase closes.
 - Record design choices in `DECISIONS.md` (add when first non-trivial choice comes up).
+
+## Subagent model policy (HARD RULE — non-negotiable)
+
+When dispatching subagents in this repo (Agent tool / Task tool / subagent-driven-development / executing-plans / any task that runs in a sub-context), this rule overrides any default model selection in skills, plugins, or harness defaults.
+
+- **Opus 4.7 is the default and primary driver.** Use it for every subagent that requires reasoning, judgment, design sense, pattern matching across files, security-sensitive code, or anything that touches the runtime (`src/core/`, `src/providers/`, `src/permissions/`, `src/agent/sessionDb.ts`). This includes implementers, reviewers, planners, architects, debugging agents, and code-quality reviewers.
+- **Sonnet 4.6 is acceptable only for trivially mechanical, fully specified tasks.** Examples that qualify: a one-line version bump; a docs-only edit where the exact text is given verbatim; tagging an existing artifact; renaming a single identifier across files where the rename target is unambiguous; running a documented build/test command and reporting pass/fail. Examples that do NOT qualify: writing tests, writing implementation, reviewing code, deciding between two patterns, anything where the agent has discretion. Pick Sonnet because the task is *genuinely mechanical*, never to save tokens or speed up output.
+- **Never use Haiku.** No exceptions for "simple tasks," "cost," "speed," "small files," or any other rationalization. If you're tempted to pick Haiku, treat it as a signal you've misread the rule — pick Opus.
+
+If a skill or plan template says "use a fast cheap model," interpret that as "Sonnet 4.6 if and only if the task is trivially mechanical, otherwise Opus 4.7." This rule mirrors the global rule in `~/.claude/rules/ecc/common/agents.md` and is restated here so it applies even when the global rules aren't loaded.
+
+For Phase 16.1 specifically (the active TUI rebuild — see `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md`), every implementer subagent runs on Opus. The only tasks that are candidates for Sonnet are the doc-text edits inside M0 (the ADR-text and umbrella-roadmap-text steps where the exact final text is in the plan body — and even then, Opus is acceptable since the work is short).
 
 ## Lint before committing
 

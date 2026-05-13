@@ -341,3 +341,53 @@ Reasoning: phases 0-10 established the core contracts. Hooks, MCP, sub-agents, r
 The repo now has `docs/usage.md` for day-to-day runtime operation. The README keeps quick-start commands and links to the full guide.
 
 Reasoning: install, architecture, development, and operator behavior were competing for space in the README. A dedicated usage guide makes common workflows easier to find without losing detail.
+
+## 2026-05-13 - Phase 16.1 — Split-process architecture (TS server + Go TUI)
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.1
+
+`sov` (TS / Bun) runs the agent and a Hono HTTP+SSE server bound to `127.0.0.1`. `sov-tui` (Go) is a separate child process that connects via SSE. Same backend will later serve IDE plugins and other channel adapters without rework. Architectural choice supersedes the umbrella roadmap's single-process options.
+
+## 2026-05-13 - Phase 16.1 — TUI framework: Go + Bubble Tea (closes Open Q1)
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.2
+Closes: Open Q1 from `docs/specs/2026-05-13-production-harness-roadmap-design.md` §6.
+
+The Charm stack (`bubbletea`, `lipgloss`, `bubbles`, `glamour`, `chroma`) is the most mature TUI ecosystem in any language. Ink was scrapped per the 2026-05-12 revert postmortem. OpenTUI / SolidJS rejected: the umbrella roadmap's claim that opencode uses OpenTUI is incorrect; opencode uses Bubble Tea.
+
+## 2026-05-13 - Phase 16.1 — Differentiator: polish craft, not feature expansion
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.3
+
+The TUI wins on Claude Code's surface area at visibly higher quality. Out of scope: session browser, command palette, in-transcript search, multi-pane layouts, image rendering, vim keybindings.
+
+## 2026-05-13 - Phase 16.1 — Layout: anchored bottom chrome
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.4
+
+Fixed bottom input row + fixed bottom status row; transcript viewport fills the space above. Selected over CC-style floating-inline input and editor-style top-status during 2026-05-13 brainstorming. Layout B in the brainstorming companion artifact.
+
+## 2026-05-13 - Phase 16.1 — TUI binary delivery: postinstall `go build`
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.5
+
+`package.json` postinstall runs `bun run scripts/build-tui.ts`, which detects Go 1.22+ on PATH and runs `go build ./packages/tui/cmd/sov-tui` into `bin/sov-tui`. Missing-Go failures print remediation and `sov` falls back to `--ui repl` until fixed.
+
+## 2026-05-13 - Phase 16.1 — terminalRepl coexists through M11 (Postmortem Rule 1)
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.6
+References: `docs/postmortems/2026-05-12-phase-16-revert.md` Rule 1
+
+`terminalRepl.ts` and its helpers (`src/commands/**`, `src/ui/**` other than the new TUI subdirectory if any) are not deleted, deprecated, or refactored from M0 through M11 (default flip). Removal happens at M13 at the earliest.
+
+## 2026-05-13 - Phase 16.1 — Transport: HTTP + SSE on 127.0.0.1
+
+Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.7
+
+HTTP + Server-Sent Events. Not WebSockets. Bun + Hono server side; standard `net/http` + line-by-line SSE parse on the Go client side. v1 binds to `127.0.0.1` only; no auth.
+
+## 2026-05-13 - Phase 14 (Distribution) dropped from roadmap
+
+Source: user direction during 2026-05-13 brainstorming
+
+Phase 14 (npm publish, Homebrew tap, install.sh, public docs site) is dropped entirely. The harness is proprietary; distribution is deferred until the product is production-grade. `bun install -g git+ssh://...` remains the single supported install path.
