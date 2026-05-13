@@ -10,9 +10,11 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/components"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
@@ -129,6 +131,31 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			return
 		}
 		m.transcript.AppendLine(td.Text)
+	case "tool_use_start":
+		tus, err := transport.DecodeToolUseStart(env.Raw)
+		if err != nil {
+			return
+		}
+		m.transcript.AppendLine(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6e7681")).
+				Render(fmt.Sprintf("-> %s starting...", tus.Tool)),
+		)
+	case "tool_result":
+		tr, err := transport.DecodeToolResult(env.Raw)
+		if err != nil {
+			return
+		}
+		hint := tr.RenderHint
+		if hint == "" {
+			hint = "text"
+		}
+		card := components.ToolCard{
+			Tool:       tr.Tool,
+			RenderHint: hint,
+			Summary:    fmt.Sprintf("rendered as %s", hint),
+		}
+		m.transcript.AppendLine(card.View(m.width))
 	case "turn_complete":
 		m.transcript.AppendLine("[turn complete]")
 	}
