@@ -8,7 +8,7 @@ If you need business context (what Sovereign AI is, what the harness does, why),
 
 1. This file.
 2. `README.md`.
-3. `docs/state/2026-05-12.md` — **most recent close-out snapshot.** Read this BEFORE the build plan to know what shipped, what's open in the backlog, and where to start. Replaced each session.
+3. `docs/state/2026-05-13.md` — **most recent close-out snapshot** (Phase 16.1 M0–M3 shipped). Read this BEFORE the build plan to know what shipped, what's open in the backlog, and where to start. Replaced each session.
 4. `docs/backlog/post-phase-13-4.md` — open backlog items not in the canonical build plan. Smaller follow-ups, polish, deferred trade-offs.
 5. `~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md` — the Phase-0/1 scaffold contract this repo was seeded against.
 6. `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — the canonical remaining phased plan.
@@ -35,7 +35,8 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 
 | File | What's in it |
 |---|---|
-| `docs/state/2026-05-12.md` | **Canonical current-state snapshot** (HEAD `34f02f3`, suite 1809/1809 unit + 57/58 semantic). Updated each major-change session |
+| `docs/state/2026-05-13.md` | **Canonical current-state snapshot** (HEAD `eaf3f5e`, suite 1841/1841 unit + Go tests green, Phase 16.1 M0–M3 shipped). Updated each major-change session |
+| `docs/state/archive/2026-05-12.md` | Historical snapshot (Phase 16 revert close-out). Now superseded |
 | `docs/state/archive/2026-05-11.md` | Historical snapshot (Phase 16.0a close-out). Now superseded |
 | `docs/state/archive/2026-05-07.md` | Historical snapshot (Phase 13.4 close-out). Now superseded |
 
@@ -125,7 +126,7 @@ When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harne
 
 **Next:** **Phase 16.1 — TUI rebuild.** Active per user direction (2026-05-13). Spec: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`. M0–M3 plan: `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md`. Architecture: split process — `sov` (TS) runs an HTTP+SSE server; `sov-tui` (Go + Bubble Tea) is a separate child process that renders the foreground. terminalRepl untouched per Postmortem Rule 1; `--ui tui` is opt-in until parity audit clears the default flip. Phase 14 (distribution) dropped per the 2026-05-13 Phase-14-dropped ADR in DECISIONS.md. Phase 15 (provider breadth) deferred or run in parallel — user's call at the next plan kickoff.
 
-For full phase-by-phase narrative + suite deltas + close-out details, read `docs/state/2026-05-12.md`. For pre-13.4 phase history, the archived `docs/state/archive/2026-05-07.md` and `2026-05-11.md` snapshots cover those cycles. For the canonical phase plan and sequencing logic, read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and `phase-10x-status.md`. **Required reading before any future foreground refactor:** `docs/postmortems/2026-05-12-phase-16-revert.md` (Rules 1-4).
+For full phase-by-phase narrative + suite deltas + close-out details, read `docs/state/2026-05-13.md`. For prior cycles, the archived `docs/state/archive/2026-05-07.md`, `2026-05-11.md`, and `2026-05-12.md` snapshots cover those. For the canonical phase plan and sequencing logic, read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and `phase-10x-status.md`. **Required reading before any future foreground refactor:** `docs/postmortems/2026-05-12-phase-16-revert.md` (Rules 1-4).
 
 Each phase should:
 - Add one new abstraction or capability.
