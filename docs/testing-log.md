@@ -8,6 +8,36 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-13 — Phase 16.1 M2 Bubble Tea bare scaffold
+
+### 2026-05-13 · M2 bare TUI scaffold — manual smoke
+
+**Scope:** Phase 16.1 M2 — Bubble Tea bare scaffold, postinstall build, `--ui tui` flag.
+
+**Commands:**
+- `cd packages/tui && go test ./...` → all green (transport: 4 tests pass, app: 1 test pass; cmd/components: no test files by design)
+- `bun test tests/cli/tuiLauncher.test.ts` → 3/3 pass
+- `bun test` → 1828/1828 pass (4445 expect calls, ~11.6s wall) — previous baseline 1825, +3 from this milestone
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts` only)
+- `bun run typecheck` → clean
+- `bun run tui:build` → built `bin/sov-tui` (10.1MB Go binary)
+- `bin/sov-tui --version` → `sov-tui 0.0.1`
+- `bin/sov-tui` (no args) → `sov-tui: --port and --session-id are required`, exit 2
+- `bun install` → postinstall fires, rebuilds binary
+- `script -q ... bin/sov-tui --port <p> --session-id <id>` (PTY smoke against running `serve-dev`, ESC after 3.5s) → exit 0, no panic
+- `script -q ... bun src/main.ts chat --ui tui --bundle bundle-default` (full launcher smoke, ESC after 4.5s) → exit 0; deprecation notice printed, TUI alt-screen entered + left cleanly
+- `bun src/main.ts chat --bundle bundle-default` (no `--ui` flag, default `repl`) → terminalRepl banner + status line render unchanged
+
+**Result:** pass. The Go binary connects to the M1 SSE endpoint, renders the hardcoded stream, exits cleanly on ESC. `--ui repl` (default) path is unchanged.
+
+**Bug found and fixed in-flight:** `components.Transcript.AppendLine` called `viewport.GotoBottom()` before `SetSize` had been invoked — bubbles/viewport's `visibleLines` then panicked with `slice bounds out of range [4:1]` on the first `text_delta` event arriving before `WindowSizeMsg`. Guard added: only call `GotoBottom` when `width > 0 && height > 0`.
+
+**Postmortem Rule 1 + 2 verification:**
+- `git log master..HEAD --name-only | grep -E "(terminalRepl|src/commands/|src/core/query|dispatchCommand|missionRun|src/daemon|src/channels)"` → empty (no forbidden files touched).
+- `src/main.ts` change confined to (a) one new `.option('--ui <surface>', …)` line and (b) a single early-branch in the chat `.action(...)` body that dispatches to `runTuiLauncher` when `opts.ui === 'tui'`. Rest of the chat action body is byte-identical.
+
+**Follow-ups:** M3 wires real `query()` turns through `POST /sessions/:id/turns`; the TUI's transcript handler grows beyond text_delta + turn_complete to cover tool_use / tool_result / status_update.
+
 ## 2026-05-13 — Phase 16.1 M1 server skeleton
 
 ### 2026-05-13 · M1 follow-up — serve-dev port validation + stdout.write cleanup

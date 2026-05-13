@@ -179,6 +179,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
     .option('-v, --verbose', 'show full tool-result previews instead of one-line summaries')
     .option('--legacy-input', 'use the readline-based input (Wave-3 fallback for the new editor)')
+    .option('--ui <surface>', 'foreground surface: repl (default) or tui', 'repl')
     .option(
       '--capture-fixture <path>',
       'wrap the provider + tools to record a deterministic-replay fixture at this path on session end',
@@ -202,6 +203,13 @@ async function main(argv: string[]): Promise<void> {
         process.stderr.write(
           "[deprecated] 'sov chat' is going away — use bare 'sov' for the interactive REPL, or 'sov dispatch' for headless slash-command testing.\n",
         );
+      }
+      // Phase 16.1 M2: --ui tui spawns the Go TUI client against an HTTP+SSE
+      // server. Falls back to repl with a warning if the TUI binary is missing.
+      if (opts.ui === 'tui') {
+        const { runTuiLauncher } = await import('./cli/tuiLauncher.js');
+        const code = await runTuiLauncher(opts);
+        process.exit(code);
       }
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runRepl } = await import('./ui/terminalRepl.js');
