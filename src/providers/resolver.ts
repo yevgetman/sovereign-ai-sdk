@@ -14,6 +14,7 @@ import {
 } from './credentials/pool.js';
 import { RateLimitGuard } from './credentials/rateGuard.js';
 import { CredentialUnavailableError, ProviderHttpError, isRateLimited } from './errors.js';
+import { MockProvider } from './mock.js';
 import { PROVIDER_REGISTRY, contextLengthFor } from './models.js';
 import { OllamaProvider } from './ollama.js';
 import { OpenAIProvider } from './openai.js';
@@ -57,6 +58,27 @@ export function resolveProvider(
   opts: ResolveProviderOpts = {},
 ): ResolvedProvider {
   const env = opts.env ?? process.env;
+  // Phase 16.1 M3 — mock provider for tests + the offline TUI/server smoke.
+  // Short-circuits credential/registry resolution so a turn can run with no
+  // API key. `mock` is never persisted into settings; it's a one-call escape
+  // hatch, gated by either explicit name or the SOV_TEST_MOCK_PROVIDER env.
+  if (name === 'mock' || env.SOV_TEST_MOCK_PROVIDER === '1') {
+    const transport = new MockProvider();
+    const resolvedModel = model ?? 'mock-haiku';
+    return {
+      transport,
+      client: transport,
+      baseUrl: 'mock://local',
+      model: resolvedModel,
+      contextLength: 200_000,
+      authType: 'none',
+      metadata: {
+        provider: 'mock',
+        apiMode: 'anthropic',
+        purpose: opts.purpose ?? 'main',
+      },
+    };
+  }
   const settings = opts.settings ?? loadSettings({ env });
   const providerName = normalizeProviderName(name ?? settings.defaultProvider ?? 'anthropic');
   const registry = PROVIDER_REGISTRY[providerName];
