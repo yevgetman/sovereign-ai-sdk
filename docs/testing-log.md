@@ -10,6 +10,22 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-13 — Phase 16.1 M1 server skeleton
 
+### 2026-05-13 · M1 follow-up — serve-dev port validation + stdout.write cleanup
+
+**Scope:** Two code-quality fixes flagged in the M1 review (commit `5f0de54`):
+- `--port` now uses `parsePositiveInt` instead of an inline `Number.parseInt` (rejects `--port abc` with a Commander error instead of silently binding via NaN coercion).
+- Replace four `console.log` calls with `process.stdout.write` to match the file's convention.
+
+**Commands:**
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts`; nothing new from this change)
+- `bun run typecheck` → clean
+- `bun run test` → 1825/1825 pass (4442 expect calls, ~11s wall) — same as M1.9 baseline, no count change
+- `bun src/main.ts serve-dev --port abc` → `error: option '--port <n>' argument 'abc' is invalid. must be a positive integer`, exit 1
+- `bun src/main.ts serve-dev --port 19999` + `curl -s http://127.0.0.1:19999/health` → `{"ok":true,"version":"0.0.1"}`; SIGTERM exits 0
+- `sov upgrade` → global binary now on `5f0de54`
+
+**Result:** pass. No behavioral change on the valid path; invalid-port input now fails fast.
+
 ### 2026-05-13 · M1 server skeleton — manual smoke
 
 **Scope:** Phase 16.1 M1 — Hono HTTP+SSE server skeleton.
