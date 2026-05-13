@@ -1,11 +1,22 @@
 // Phase 16.1 M3.4 — server-side turn submission.
 // POST /sessions creates a session in the in-memory store. POST /sessions/:id/turns
 // kicks a query() loop against the mock provider; events stream over SSE.
+//
+// Two scenarios are covered:
+//   1. The default mock provider's single text-only call. Asserts the
+//      bare wire contract: text_delta + turn_complete arrive and the
+//      stream closes.
+//   2. The mock provider's tool-use mode (a two-call sequence with a
+//      `Bash` tool dispatch in between). Asserts the regression coverage
+//      for the M3 truncation bug: tool_use_start, tool_use_done, and
+//      tool_result events surface, and exactly ONE turn_complete is
+//      emitted at the end (not one per internal model call).
 
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MockProvider } from '../../src/providers/mock.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
@@ -47,15 +58,97 @@ describe('POST /sessions + POST /sessions/:id/turns', () => {
       const body = await eventsRes.text();
 
       // The mock provider yields two text_deltas ('Hello' + ' world.') then
-      // a message_stop. The route maps text_delta -> text_delta and
-      // message_stop -> turn_complete. So we expect at minimum: a
-      // text_delta and a terminal turn_complete.
+      // a message_stop. The route maps text_delta -> text_delta and the
+      // generator-return Terminal -> turn_complete. So we expect at minimum:
+      // a text_delta and a terminal turn_complete.
       expect(body).toContain('event: text_delta');
       expect(body).toContain('"text":"Hello"');
       expect(body).toContain('event: turn_complete');
+      // Exactly ONE turn_complete — the events route stops on the first
+      // turn_complete, but the bus must not have queued a second one. A
+      // doubled turn_complete is the marker for the pre-fix bug where
+      // every internal message_stop mapped to a wire turn_complete.
+      const turnCompleteMatches = body.match(/event: turn_complete/g) ?? [];
+      expect(turnCompleteMatches.length).toBe(1);
 
       await runtime.dispose();
     } finally {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('multi-call turn emits tool_use_start + tool_use_done + tool_result + one turn_complete', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-turns-toolmode-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    MockProvider.toolUseMode = true;
+    try {
+      const runtime = await buildRuntime({
+        harnessHome: home,
+        cwd: process.cwd(),
+        provider: 'mock',
+        model: 'mock-haiku',
+      });
+      const app = buildAppWithRuntime(runtime);
+
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'run something' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      expect(eventsRes.status).toBe(200);
+      const body = await eventsRes.text();
+
+      // Pre-tool preamble: the mock emits two deltas ("Let me " + "check.").
+      expect(body).toContain('event: text_delta');
+      expect(body).toContain('"text":"Let me "');
+      expect(body).toContain('"text":"check."');
+
+      // Tool dispatch surfaces on the wire.
+      expect(body).toContain('event: tool_use_start');
+      expect(body).toContain('"tool":"Bash"');
+      expect(body).toContain('event: tool_use_done');
+      expect(body).toContain('event: tool_result');
+      // The tool_result's `output` carries Bash's stdout — assert the
+      // echo's payload made it through end-to-end so we know the tool
+      // actually ran (not just that we minted the wire event from the
+      // assistant message's tool_use block).
+      expect(body).toContain('hello-from-mock');
+
+      // Final assistant turn.
+      expect(body).toContain('"text":"done."');
+
+      // Exactly ONE turn_complete — the regression marker for the M3
+      // truncation bug. Multiple model calls inside one user turn must
+      // collapse to a single wire terminal event.
+      expect(body).toContain('event: turn_complete');
+      const turnCompleteMatches = body.match(/event: turn_complete/g) ?? [];
+      expect(turnCompleteMatches.length).toBe(1);
+
+      // Ordering: tool_use_start must appear before tool_result, which
+      // must appear before the final text_delta ("done."), which must
+      // appear before turn_complete. Otherwise the TUI cannot place
+      // them onto the right blocks in real time.
+      const toolStartIdx = body.indexOf('event: tool_use_start');
+      const toolResultIdx = body.indexOf('event: tool_result');
+      const finalTextIdx = body.indexOf('"text":"done."');
+      const turnCompleteIdx = body.indexOf('event: turn_complete');
+      expect(toolStartIdx).toBeGreaterThan(-1);
+      expect(toolResultIdx).toBeGreaterThan(toolStartIdx);
+      expect(finalTextIdx).toBeGreaterThan(toolResultIdx);
+      expect(turnCompleteIdx).toBeGreaterThan(finalTextIdx);
+
+      await runtime.dispose();
+    } finally {
+      MockProvider.toolUseMode = false;
       // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
       delete process.env.SOV_TEST_MOCK_PROVIDER;
       rmSync(home, { recursive: true, force: true });

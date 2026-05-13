@@ -2,21 +2,42 @@
 //
 // POST /sessions/:id/turns body { text: string } kicks off a background
 // query() loop. The handler returns 202 immediately; events flow through
-// the per-session bus to the SSE subscriber. M3 wires text_delta and
-// turn_complete; richer event types (tool_use_start, tool_result,
-// permission_request, status_update) are folded in M4+.
+// the per-session bus to the SSE subscriber. M3 wires text_delta,
+// thinking_delta, tool_use_start, tool_use_done, tool_result, and a
+// single turn_complete per user turn. Richer event types (permission_request,
+// status_update, microcompact, route_decision) land in M4+.
 //
 // Background-run discipline: errors from the query() loop publish a
 // turn_error event onto the bus rather than crashing the server.
+//
+// Turn-boundary discipline (the M3 bug fix): query() emits an internal
+// `message_stop` event after EVERY model call within a turn — including
+// the intermediate ones that precede tool execution. Mapping every
+// `message_stop` to a wire `turn_complete` truncated tool-using turns
+// after the model's preamble (the events route closes the SSE on the
+// first `turn_complete`). We now ignore `message_stop` on the wire and
+// use the AsyncGenerator's return value (`Terminal`) — emitted exactly
+// once when the generator returns — as the turn boundary.
 
 import { Hono } from 'hono';
 import { query } from '../../core/query.js';
-import type { Message, StreamEvent } from '../../core/types.js';
+import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../core/types.js';
+import type { RenderHint, Tool } from '../../tool/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
 
 const DEFAULT_MAX_TOKENS = 4096;
+
+/** State captured at `tool_use_start` emission, drained when the matching
+ *  `tool_result` arrives so the tool_result wire event can echo the same
+ *  `tool` / `input` / `renderHint` without re-deriving them. Keyed by the
+ *  Anthropic `tool_use_id` produced by the model. */
+type PendingToolUse = {
+  tool: string;
+  input: unknown;
+  renderHint: RenderHint;
+};
 
 export function turnsRoute(runtime: Runtime): Hono {
   const r = new Hono();
@@ -78,35 +99,63 @@ async function runTurnInBackground(
       signal: bus.abortSignal,
     });
 
-    // M3 collapses all assistant output onto block 0 — block tracking
-    // lands when tool_use_start emits its own block index in M4+.
+    // M3 collapses all assistant output onto block 0. Per-block indexing
+    // would require tracking the position of each tool_use within its
+    // assistant message — deferred until the TUI needs it for richer
+    // multi-call rendering (M4+).
     const currentBlock = 0;
+    const pendingToolUses = new Map<string, PendingToolUse>();
     let terminalEmitted = false;
-    for await (const event of stream) {
-      // Skip Message (full assistant messages) — they're metadata not
-      // for the wire. We map only StreamEvent shapes to ServerEvents.
-      if ('role' in event) continue;
-      const mapped = mapStreamEventToServerEvent(event, bus, sessionId, currentBlock);
-      if (mapped) {
-        bus.publish(mapped);
-        if (mapped.type === 'turn_complete' || mapped.type === 'turn_error') {
+
+    // Manual iteration — `for await...of` discards the generator's
+    // return value, which is the `Terminal` (the real end-of-turn
+    // signal). We need that to emit exactly one wire `turn_complete`
+    // per user turn regardless of how many internal model calls
+    // query() made.
+    while (true) {
+      const result = await stream.next();
+      if (result.done) {
+        if (!bus.isClosed() && !terminalEmitted) {
+          const terminal: Terminal | undefined = result.value;
+          bus.publish({
+            type: 'turn_complete',
+            seq: bus.nextSeq(),
+            sessionId,
+            finishReason: mapTerminalReason(terminal),
+          });
           terminalEmitted = true;
         }
+        break;
       }
-    }
+      const event = result.value;
 
-    // If the loop ends without a message_stop (e.g. errored mid-stream),
-    // emit a terminal turn_complete so the SSE subscriber unblocks. Skip
-    // the fallback when the stream already produced one — otherwise the
-    // bus would carry two turn_complete events per successful turn (SSE
-    // consumer stops after the first; the second leaks into the buffer).
-    if (!terminalEmitted && !bus.isClosed()) {
-      bus.publish({
-        type: 'turn_complete',
-        seq: bus.nextSeq(),
-        sessionId,
-        finishReason: 'end_turn',
-      });
+      // User-role Messages flow out of query() for tool-result and
+      // guidance batches (see core/orchestrator.ts and core/query.ts).
+      // Assistant Messages flow out as `assistant_message` StreamEvents,
+      // not as bare Message objects — they're handled below.
+      if (typeof event === 'object' && event !== null && 'role' in event) {
+        handleUserMessage(event, bus, sessionId, currentBlock, pendingToolUses);
+        continue;
+      }
+
+      // StreamEvent. Special-case `assistant_message`: it carries the
+      // full assistant Message whose `tool_use` content blocks need to
+      // be projected onto the wire as `tool_use_start` / `tool_use_done`
+      // pairs. Everything else flows through mapStreamEventToServerEvent.
+      const streamEvent = event;
+      if (streamEvent.type === 'assistant_message') {
+        handleAssistantMessage(
+          streamEvent.message,
+          bus,
+          sessionId,
+          currentBlock,
+          pendingToolUses,
+          runtime.toolPool,
+        );
+        continue;
+      }
+      const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
+      if (mapped !== null) bus.publish(mapped);
     }
   } catch (err) {
     bus.publish({
@@ -119,6 +168,109 @@ async function runTurnInBackground(
   }
 }
 
+/** Emit `tool_use_start` + `tool_use_done` for each `tool_use` block in the
+ *  assistant message and stash the call's `tool` / `input` / `renderHint` in
+ *  `pending` so the matching `tool_result` wire event can echo them. */
+function handleAssistantMessage(
+  msg: AssistantMessage,
+  bus: ServerEventBus,
+  sessionId: string,
+  block: number,
+  pending: Map<string, PendingToolUse>,
+  toolPool: readonly Tool<unknown, unknown>[],
+): void {
+  for (const contentBlock of msg.content) {
+    if (contentBlock.type !== 'tool_use') continue;
+    const tool = toolPool.find((t) => t.name === contentBlock.name);
+    const renderHint: RenderHint = tool?.renderHint ?? { kind: 'text' };
+    pending.set(contentBlock.id, {
+      tool: contentBlock.name,
+      input: contentBlock.input,
+      renderHint,
+    });
+    bus.publish({
+      type: 'tool_use_start',
+      seq: bus.nextSeq(),
+      sessionId,
+      block,
+      tool: contentBlock.name,
+      inputPartial: contentBlock.input,
+    });
+    bus.publish({
+      type: 'tool_use_done',
+      seq: bus.nextSeq(),
+      sessionId,
+      block,
+      input: contentBlock.input,
+    });
+  }
+}
+
+/** Drain pending tool_use entries against the user-role message's
+ *  `tool_result` content blocks. Non-tool-result user messages
+ *  (e.g. loop-detector guidance text injected back into history) are
+ *  not wire-meaningful in M3 and are ignored. */
+function handleUserMessage(
+  msg: Message,
+  bus: ServerEventBus,
+  sessionId: string,
+  block: number,
+  pending: Map<string, PendingToolUse>,
+): void {
+  if (msg.role !== 'user') return;
+  for (const contentBlock of msg.content) {
+    if (contentBlock.type !== 'tool_result') continue;
+    const pendingEntry = pending.get(contentBlock.tool_use_id);
+    const tool = pendingEntry?.tool ?? 'unknown';
+    const input = pendingEntry?.input ?? null;
+    const renderHint = pendingEntry?.renderHint ?? { kind: 'text' };
+    const event: ServerEvent = {
+      type: 'tool_result',
+      seq: bus.nextSeq(),
+      sessionId,
+      block,
+      tool,
+      input,
+      output: contentBlock.content,
+      renderHint: renderHint.kind,
+      ...('language' in renderHint && renderHint.language !== undefined
+        ? { language: renderHint.language }
+        : {}),
+    };
+    bus.publish(event);
+    pending.delete(contentBlock.tool_use_id);
+  }
+}
+
+/** Translate core/types.Terminal.reason → the wire `finishReason` string.
+ *  Keep the model-facing vocabulary (`end_turn`, `max_tokens`, …) on the
+ *  wire so the Go TUI doesn't have to know the runtime's internal terms. */
+function mapTerminalReason(terminal: Terminal | undefined): string {
+  if (!terminal) return 'end_turn';
+  switch (terminal.reason) {
+    case 'completed':
+      return 'end_turn';
+    case 'max_tokens':
+      return 'max_tokens';
+    case 'max_turns':
+      return 'max_turns';
+    case 'interrupted':
+      return 'interrupted';
+    case 'checkin':
+      return 'checkin';
+    case 'error':
+      return 'error';
+    default:
+      return 'end_turn';
+  }
+}
+
+/** Pure mapping for the StreamEvent shapes that have a 1:1 wire counterpart.
+ *  `assistant_message` is handled separately (it carries the tool_use blocks
+ *  the wire needs to project as tool_use_start/_done pairs). `message_stop`
+ *  is intentionally NOT mapped — the AsyncGenerator's return value carries
+ *  the turn boundary; mapping `message_stop` would emit one `turn_complete`
+ *  per internal model call, truncating tool-using turns. See the header. */
 function mapStreamEventToServerEvent(
   event: StreamEvent,
   bus: ServerEventBus,
@@ -142,16 +294,11 @@ function mapStreamEventToServerEvent(
         block,
         text: event.thinking,
       };
-    case 'message_stop':
-      return {
-        type: 'turn_complete',
-        seq: bus.nextSeq(),
-        sessionId,
-        finishReason: event.stop_reason,
-      };
+    // message_stop intentionally NOT mapped — see header.
+    // assistant_message handled separately in runTurnInBackground.
     // M3 deliberately omits tool_use_delta, usage_delta, message_start,
-    // assistant_message, microcompact, loop_detected, route_decision —
-    // those wire onto richer ServerEvent types in M4+.
+    // microcompact, loop_detected, route_decision — those wire onto
+    // richer ServerEvent types in M4+.
     default:
       return null;
   }

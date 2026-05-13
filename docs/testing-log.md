@@ -10,6 +10,29 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-13 — Phase 16.1 M3 One Real Turn End-to-End
 
+### 2026-05-13 · Fix M3 tool-using-turn SSE truncation
+
+**Scope:** Critical M3 bug — tool-using turns truncated after the model's preamble. The TUI received only the pre-tool text deltas; `tool_use_start` / `tool_use_done` / `tool_result` never reached the wire, and the SSE stream closed before the tool ran. Surface: `src/server/routes/turns.ts`, `src/providers/mock.ts`, `tests/server/turns.test.ts`.
+
+**Root cause:** Two compounding bugs in `runTurnInBackground`. (1) `for await...of` over the `query()` async generator discarded the generator's return value (`Terminal`), losing the real end-of-turn signal. (2) `mapStreamEventToServerEvent` mapped every `message_stop` to a wire `turn_complete`, but `query()` emits `message_stop` after each *internal* model call within a turn — in a tool-using turn there are two — so the events route closed the SSE on the first one. (3) Bare assistant `Message`s flowing out of `query()` carry the `tool_use` content blocks the TUI needs; the existing `if ('role' in event) continue` silently dropped them, and `assistant_message` StreamEvents (which also carry the assistant message) fell through `mapStreamEventToServerEvent`'s default to `null`.
+
+**Fix:**
+- Switched `runTurnInBackground` to a manual `while (true) { const result = await stream.next(); … }` iterator that captures `result.value` when `result.done` is true. That `Terminal` is now mapped via a small `mapTerminalReason()` switch to a single wire `turn_complete` per user turn, regardless of how many model calls fired internally.
+- Removed the `message_stop -> turn_complete` arm from `mapStreamEventToServerEvent`. Added explicit handling for `assistant_message` StreamEvents: `handleAssistantMessage` iterates the assistant content blocks and emits `tool_use_start` + `tool_use_done` for each `tool_use`, stashing `{tool, input, renderHint}` in a per-turn `pendingToolUses: Map<tool_use_id, …>`.
+- Added `handleUserMessage` for the bare user-role `Message`s `query()` yields (tool-result batches from `runTools`). Drains the pending map and emits `tool_result` events with the original `tool` / `input` / `renderHint` echoed back. `renderHint` defaults to `{ kind: 'text' }` when the tool isn't in the pool (defensive — every registered tool has a renderHint via fail-closed `buildTool` defaults).
+- Extended `MockProvider` with a static `toolUseMode = false` toggle. When set, `stream()` emits two model calls: call 1 (no `tool_result` in history) emits preamble + a `tool_use` for `Bash({ command: "echo hello-from-mock" })` with `stop_reason: "tool_use"`; call 2 (history contains a `tool_result`) emits `"done."` with `stop_reason: "end_turn"`. Default behavior (single text-only call returning "Hello world.") preserved verbatim so the 1809+ existing tests still pass.
+
+**Tests added:** `tests/server/turns.test.ts` gained a second test, `multi-call turn emits tool_use_start + tool_use_done + tool_result + one turn_complete`. Asserts the full event sequence, the `Bash` echo's stdout appearing in `tool_result.output`, exactly ONE `turn_complete`, and the wire-ordering constraint (tool_use_start < tool_result < final text_delta < turn_complete). The existing single-call test also gained an assertion that `turn_complete` appears exactly once, as a regression marker for the bug.
+
+**Real-provider smoke (headless):** Booted a real Anthropic-backed runtime (`claude-haiku-4-5-20251001`) via `startServer({ runtime })`, POSTed the original repro prompt, and observed the SSE stream end-to-end. Result:
+```
+event order: text_delta -> text_delta -> tool_use_start -> tool_use_done -> tool_result -> text_delta -> text_delta -> text_delta -> turn_complete
+counts: text_delta=5  tool_use_start=1  tool_use_done=1  tool_result=1  turn_complete=1
+```
+The tool_use_start payload reads `{"tool":"FileRead","inputPartial":{"path":"src/server/runtime.ts"}}`; the tool_result payload's `output` contains the full 127-line file and `renderHint: "code"`; the final text deltas quote the first line of `buildRuntime` as requested. ONE `turn_complete` with `finishReason: "end_turn"`.
+
+**Gates:** `bun run lint` clean (only 2 pre-existing warnings in `src/permissions/shellSemantics.ts`), `bun run typecheck` clean, `bun run test` 1838/1838 (up from 1837 — one new test). `go test ./packages/tui/...` all green. No forbidden files touched (terminalRepl, commands, query, dispatchCommand, missionRun, daemon, channels all untouched per Postmortem Rule 1).
+
 ### 2026-05-13 · Deferred Minor cleanup from M1/M2/M3 quality reviews
 
 **Scope:** Sweep of 18+ Minor items left over from three rounds of code-quality review. Two commits — TS first, Go second. No new features; pure quality follow-ups before M4 builds on these foundations.
