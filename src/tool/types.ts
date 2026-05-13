@@ -38,6 +38,20 @@ export type ToolObservation = {
   artifacts?: string[];
 };
 
+/** Per-tool render-shape hint. Used by surfaces that cannot call the tool's
+ *  TS `renderResult` (e.g., the Go TUI in Phase 16.1). The Go renderer
+ *  dispatches on `kind`; the optional `language` is consulted by the
+ *  syntax highlighter for `code` and `diff` variants. Tools that omit the
+ *  field default to `{ kind: 'text' }` at the boundary. */
+export type RenderHint =
+  | { kind: 'text' }
+  | { kind: 'markdown' }
+  | { kind: 'code'; language?: string }
+  | { kind: 'diff'; language?: string }
+  | { kind: 'table'; columns?: string[] }
+  | { kind: 'tree' }
+  | { kind: 'json' };
+
 /** Per-invocation runtime context passed to every tool call. */
 export type ToolContext = {
   cwd: string;
@@ -130,6 +144,11 @@ export type ToolDef<I, O, P = void> = {
    * falls back to JSON-stringification of `call()`'s `data`. Set `isError`
    * to mark the tool_result as `is_error: true` (e.g. non-zero bash exit). */
   renderResult?: (output: O) => { content: string; isError?: boolean };
+
+  /** Hint for non-readline render surfaces (Go TUI, web). See `RenderHint`
+   *  for the discriminated union. Optional; defaults to `{ kind: 'text' }`
+   *  at the boundary. Phase 16.1. */
+  renderHint?: RenderHint;
 
   /** Tool-specific compact preview of the call's input, shown next to the
    *  tool name in the REPL's compact tool slot. Without it, the REPL
