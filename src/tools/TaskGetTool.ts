@@ -21,6 +21,7 @@ export const TaskGetTool = buildTool<TaskGetInput, TaskRecord>({
   displayInput: (input) => input.task_id,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const manager = ctx.taskManager;
     if (!manager) {

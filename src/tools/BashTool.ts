@@ -97,6 +97,7 @@ export const BashTool = buildTool<Input, Output>({
     content: formatBashOutput(out),
     isError: isBashError(out),
   }),
+  renderHint: { kind: 'text' },
   async call(input, ctx) {
     return runBash(input, ctx);
   },

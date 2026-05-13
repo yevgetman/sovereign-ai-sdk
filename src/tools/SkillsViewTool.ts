@@ -29,6 +29,7 @@ export const SkillsViewTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'markdown' },
   checkPermissions: async () => ({ behavior: 'allow' }),
   affectedPaths: (input) => (input.path ? [input.path] : []),
   async call(input, ctx) {

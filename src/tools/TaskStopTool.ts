@@ -26,6 +26,7 @@ export const TaskStopTool = buildTool<TaskStopInput, TaskRecord>({
   displayInput: (input) => input.task_id,
   isReadOnly: () => false,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'text' },
   async call(input, ctx) {
     const manager = ctx.taskManager;
     if (!manager) {

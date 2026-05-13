@@ -53,6 +53,7 @@ export const StaticSiteValidateTool = buildTool<Input, Output>({
     ].join('\n'),
     ...(out.ok ? {} : { isError: true }),
   }),
+  renderHint: { kind: 'tree' },
   async call(input, ctx) {
     const root = input.path ? resolveToolPath(input.path, ctx.cwd) : ctx.cwd;
     const entry = input.entry ?? 'index.html';

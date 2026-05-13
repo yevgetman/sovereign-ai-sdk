@@ -92,6 +92,7 @@ export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>
   inputSchema: SkillProposeInputSchema,
   isReadOnly: () => false,
   isConcurrencySafe: () => false,
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const home = ctx.harnessHome;
     if (!home) {

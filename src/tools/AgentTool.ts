@@ -51,6 +51,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
   isReadOnly: () => false,
   isConcurrencySafe: () => true,
   isDestructive: () => false,
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const scheduler = ctx.subagentScheduler;
     if (!scheduler) {

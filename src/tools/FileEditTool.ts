@@ -59,6 +59,7 @@ export const FileEditTool = buildTool<Input, Output>({
       content: `${out.path}: ${out.replacements} replacement${out.replacements === 1 ? '' : 's'}`,
     };
   },
+  renderHint: { kind: 'diff' },
   async call(input, ctx) {
     const abs = resolveToolPath(input.path, ctx.cwd);
     if (!existsSync(abs)) {

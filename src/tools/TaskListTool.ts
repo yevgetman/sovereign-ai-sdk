@@ -25,6 +25,7 @@ export const TaskListTool = buildTool<TaskListInput, TaskListOutput>({
   displayInput: (input) => (input.include_all ? 'all' : 'active'),
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'table' },
   async call(input, ctx) {
     const manager = ctx.taskManager;
     if (!manager) {

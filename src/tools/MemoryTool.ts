@@ -65,6 +65,7 @@ export const MemoryTool = buildTool<Input, Output>({
     content: JSON.stringify(out.result, null, 2),
     ...(out.ok ? {} : { isError: true }),
   }),
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const harnessHome = ctx.harnessHome ?? resolveHarnessHome();
     const file = optionalFile(input.file);

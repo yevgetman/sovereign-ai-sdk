@@ -65,6 +65,7 @@ export const FileReadTool = buildTool<Input, Output>({
   preparePermissionMatcher: async (input) => (pattern) =>
     matchesPathPermissionPattern(input.path, pattern),
   renderResult: (out) => ({ content: renderFileRead(out) }),
+  renderHint: { kind: 'code' },
   async call(input, ctx) {
     const abs = resolveToolPath(input.path, ctx.cwd);
     if (!existsSync(abs)) {

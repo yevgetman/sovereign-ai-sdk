@@ -174,6 +174,7 @@ export const WebSearchTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'tree' },
   // Hide WebSearch when no Tavily/Brave API key is configured. The model
   // never sees an unusable tool in <available-tools>, so it can't pick it
   // and won't hit the no-key error path. The error path below is kept for

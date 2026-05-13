@@ -44,6 +44,7 @@ export function buildToolSearchTool(
     inputSchema,
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
+    renderHint: { kind: 'tree' },
     checkPermissions: async () => ({ behavior: 'allow' as const }),
     async call(input) {
       const deferred = getDeferredTools();

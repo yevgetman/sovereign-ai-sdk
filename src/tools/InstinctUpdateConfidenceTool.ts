@@ -35,6 +35,7 @@ export const InstinctUpdateConfidenceTool = buildTool<
   inputSchema: InstinctUpdateConfidenceInputSchema,
   isReadOnly: () => false,
   isConcurrencySafe: () => false,
+  renderHint: { kind: 'text' },
   async call(input, ctx) {
     const home = ctx.harnessHome;
     if (!home) {

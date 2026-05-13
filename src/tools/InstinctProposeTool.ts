@@ -48,6 +48,7 @@ export const InstinctProposeTool = buildTool<InstinctProposeInput, { instinct: I
   inputSchema: InstinctProposeInputSchema,
   isReadOnly: () => false,
   isConcurrencySafe: () => false,
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const home = ctx.harnessHome;
     if (!home) {

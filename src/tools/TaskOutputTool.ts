@@ -23,6 +23,7 @@ export const TaskOutputTool = buildTool<TaskOutputInput, TaskOutput>({
   displayInput: (input) => input.task_id,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'text' },
   async call(input, ctx) {
     const manager = ctx.taskManager;
     if (!manager) {

@@ -46,6 +46,7 @@ export const FileWriteTool = buildTool<Input, Output>({
       ? `created ${out.path} (${out.bytesWritten} bytes)`
       : `wrote ${out.bytesWritten} bytes to ${out.path}`,
   }),
+  renderHint: { kind: 'diff' },
   async call(input, ctx) {
     const abs = resolveToolPath(input.path, ctx.cwd);
     const parentDir = dirname(abs);

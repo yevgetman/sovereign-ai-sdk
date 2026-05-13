@@ -35,6 +35,7 @@ export const SkillsListTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'tree' },
   checkPermissions: async () => ({ behavior: 'allow' }),
   async call(input, ctx) {
     const needle = input.query?.trim().toLowerCase();

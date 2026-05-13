@@ -45,6 +45,7 @@ export const SkillManageTool = buildTool<Input, Output>({
   affectedPaths: (input) => [`skills/agent-created/${input.name}/SKILL.md`],
   preparePermissionMatcher: async (input) => (pattern) =>
     matchesPathPermissionPattern(`skills/agent-created/${input.name}/SKILL.md`, pattern),
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const harnessHome = ctx.harnessHome ?? resolveHarnessHome();
     const skillDir = join(harnessHome, 'skills', 'agent-created', input.name);

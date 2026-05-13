@@ -103,6 +103,7 @@ export function buildHarnessInfoTool(getSnapshot: () => HarnessInfoSnapshot): To
     inputSchema,
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
+    renderHint: { kind: 'markdown' },
     checkPermissions: async () => ({ behavior: 'allow' as const }),
     async call(input) {
       const snap = getSnapshot();

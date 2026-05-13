@@ -132,6 +132,7 @@ export const WebFetchTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'markdown' },
   validateInput: async (input) => {
     let parsed: URL;
     try {

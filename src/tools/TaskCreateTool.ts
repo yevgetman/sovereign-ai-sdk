@@ -36,6 +36,7 @@ export const TaskCreateTool = buildTool<TaskCreateInput, TaskRecord>({
   isReadOnly: () => false,
   isConcurrencySafe: () => true,
   isDestructive: () => false,
+  renderHint: { kind: 'table' },
   async call(input, ctx) {
     const manager = ctx.taskManager;
     if (!manager) {

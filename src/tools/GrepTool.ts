@@ -76,6 +76,7 @@ export const GrepTool = buildTool<Input, Output>({
           ? `${out.matches.join('\n')}\n[truncated]`
           : out.matches.join('\n'),
   }),
+  renderHint: { kind: 'tree' },
   async call(input, ctx) {
     return runGrep(input, ctx);
   },

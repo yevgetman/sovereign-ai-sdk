@@ -41,6 +41,7 @@ export const MemoryProposeTool = buildTool<MemoryProposeInput, MemoryProposeOutp
   inputSchema: MemoryProposeInputSchema,
   isReadOnly: () => false,
   isConcurrencySafe: () => false,
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const home = ctx.harnessHome;
     if (!home) {

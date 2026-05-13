@@ -24,6 +24,7 @@ export const InstinctViewTool = buildTool<InstinctViewInput, { instinct: Instinc
   inputSchema: InstinctViewInputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const home = ctx.harnessHome;
     if (!home) {

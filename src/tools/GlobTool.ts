@@ -48,6 +48,7 @@ export const GlobTool = buildTool<Input, Output>({
           ? `${out.paths.join('\n')}\n[truncated]`
           : out.paths.join('\n'),
   }),
+  renderHint: { kind: 'tree' },
   async call(input, ctx) {
     const baseDir = input.path ? resolveToolPath(input.path, ctx.cwd) : ctx.cwd;
     const glob = new Bun.Glob(input.pattern);

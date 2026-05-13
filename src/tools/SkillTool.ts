@@ -26,6 +26,7 @@ export const SkillTool = buildTool<Input, Output>({
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'markdown' },
   checkPermissions: async (input, ctx) => {
     const skill = ctx.skills?.byName.get(input.skill);
     if (skill?.guard.action === 'ask') {

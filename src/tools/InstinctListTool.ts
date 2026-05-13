@@ -29,6 +29,7 @@ export const InstinctListTool = buildTool<InstinctListInput, { instincts: Instin
   inputSchema: InstinctListInputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
+  renderHint: { kind: 'tree' },
   async call(input, ctx) {
     const home = ctx.harnessHome;
     if (!home) {
