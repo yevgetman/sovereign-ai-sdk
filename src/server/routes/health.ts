@@ -2,8 +2,9 @@
 // No auth, no side effects.
 
 import { Hono } from 'hono';
+import { VERSION as PKG_VERSION } from '../../version.js';
 
-const VERSION: string = process.env.SOV_VERSION ?? '0.0.1';
+const VERSION: string = process.env.SOV_VERSION ?? PKG_VERSION;
 
 export const healthRoute = new Hono();
 

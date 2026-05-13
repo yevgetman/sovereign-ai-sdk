@@ -10,11 +10,15 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { disposeBus, getOrCreateBus } from '../eventBus.js';
 import type { ServerEvent } from '../schema.js';
+import { isValidSessionId } from '../sessionId.js';
 
 export const eventsRoute = new Hono();
 
 eventsRoute.get('/sessions/:id/events', (c) => {
   const sessionId = c.req.param('id');
+  if (!isValidSessionId(sessionId)) {
+    return c.json({ error: 'invalid session id' }, 400);
+  }
   const bus = getOrCreateBus(sessionId);
   const requestSignal = c.req.raw.signal;
   return streamSSE(c, async (stream) => {

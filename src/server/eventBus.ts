@@ -13,6 +13,17 @@
 // `finally` so the per-session entry leaves the map after the stream closes
 // (turn_complete / turn_error / client disconnect). Resume across reconnects
 // (M9+) will need a different lifecycle — a buffered ring + replay window.
+//
+// Sequence numbers are per-bus-lifetime (per-session, accumulating across
+// turns). They give SSE consumers a monotonic ordering anchor for
+// Last-Event-ID style resume. Code that assumes seq starts at 1 per turn
+// will break — that's intentional; rely on the discriminator (turn_complete
+// event) not the seq value to detect turn boundaries.
+//
+// Abort signal: every bus owns an AbortController fired on `close()`. The
+// turns route plumbs the signal into `query()` so a client disconnect or
+// `server.stop()` cooperatively cancels the in-flight provider stream and
+// tool calls rather than letting them keep running into a closed bus.
 
 import type { ServerEvent } from './schema.js';
 
@@ -21,6 +32,16 @@ export class ServerEventBus {
   private buffer: ServerEvent[] = [];
   private seq = 0;
   private closed = false;
+  private readonly abortController = new AbortController();
+
+  /**
+   * Fires on `close()`. Wire this into long-running work that should
+   * cooperatively cancel when the bus is disposed — e.g. the provider
+   * stream + tool loop driven by `query()`.
+   */
+  get abortSignal(): AbortSignal {
+    return this.abortController.signal;
+  }
 
   nextSeq(): number {
     return ++this.seq;
@@ -47,9 +68,11 @@ export class ServerEventBus {
   }
 
   close(): void {
+    if (this.closed) return;
     this.closed = true;
     this.subscriber = null;
     this.buffer = [];
+    this.abortController.abort();
   }
 
   isClosed(): boolean {

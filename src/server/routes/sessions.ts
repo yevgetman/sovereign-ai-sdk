@@ -9,6 +9,7 @@
 
 import { Hono } from 'hono';
 import type { Runtime } from '../runtime.js';
+import { isValidSessionId } from '../sessionId.js';
 
 export function sessionsRoute(runtime: Runtime): Hono {
   const r = new Hono();
@@ -28,6 +29,7 @@ export function sessionsRoute(runtime: Runtime): Hono {
 
   r.get('/sessions/:id', (c) => {
     const id = c.req.param('id');
+    if (!isValidSessionId(id)) return c.json({ error: 'invalid session id' }, 400);
     const session = runtime.sessionDb.getSession(id);
     if (session === null) return c.json({ error: 'not found' }, 404);
     return c.json({

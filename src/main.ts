@@ -25,6 +25,7 @@ import {
   writeConfig,
 } from './config/store.js';
 import type { PermissionMode } from './permissions/types.js';
+import { VERSION } from './version.js';
 
 /**
  * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`
@@ -80,7 +81,6 @@ function resolveAndApplyProfile(argv: string[]): string[] {
 
 const PARSED_ARGV = resolveAndApplyProfile(process.argv);
 
-const VERSION = '0.0.1';
 const DEFAULT_MAX_TOKENS = 12000;
 const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
 // Must match DEFAULT_PER_WAKE_TURN_BUDGET exported from src/cli/missionInit.ts.

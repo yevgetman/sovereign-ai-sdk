@@ -33,10 +33,18 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     return {};
   }
 
+  // Required by the Transport interface but never invoked. The mock
+  // implements the streaming path via stream(); the non-streaming
+  // response handling is not supported here. The previous body cast
+  // `{} as ProviderRequest` and produced a plausible-looking but
+  // dishonest delegate call.
+  // biome-ignore lint/correctness/useYield: body is an unconditional throw; the AsyncGenerator return-type signature is required by the Transport interface.
   async *normalizeResponse(
     _raw: AsyncIterable<never>,
   ): AsyncGenerator<StreamEvent, AssistantMessage> {
-    return yield* this.stream({} as ProviderRequest);
+    throw new Error(
+      'normalizeResponse() should never be called on MockProvider. The mock implements the Transport interface for the stream() path only; non-streaming response handling is not supported.',
+    );
   }
 
   async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {

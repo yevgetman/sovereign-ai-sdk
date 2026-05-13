@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findTuiBinary } from '../../src/cli/tuiLauncher.js';
+import { findTuiBinary, findTuiBinaryFrom } from '../../src/cli/tuiLauncher.js';
 
 describe('findTuiBinary', () => {
   test('honors SOV_TUI_BIN when set to an existing path', () => {
@@ -30,22 +30,16 @@ describe('findTuiBinary', () => {
     }
   });
 
-  test('returns null when nothing is found and SOV_TUI_BIN is unset', () => {
+  test('returns null when nothing is found starting from a barren directory', () => {
     // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
     delete process.env.SOV_TUI_BIN;
-    // Move CWD to /tmp where no bin/sov-tui exists.
-    const orig = process.cwd();
-    process.chdir('/tmp');
-    try {
-      // Only the env-var path is reliable here; PATH lookup might still find it
-      // if the user has it globally installed. Skip strict assertion in that case.
-      const found = findTuiBinary();
-      // Either null or an existing file is acceptable.
-      if (found !== null) {
-        expect(existsSync(found)).toBe(true);
-      }
-    } finally {
-      process.chdir(orig);
-    }
+    // /tmp has no bin/sov-tui anywhere on the parent walk — the search
+    // must exhaust the upward loop and return null. Using
+    // findTuiBinaryFrom() instead of findTuiBinary() because the latter
+    // walks from the module's own location (which DOES live under the
+    // repo and may find bin/sov-tui via the postinstall artifact). The
+    // test isolates the null-branch by handing the walker a known-clean
+    // starting point.
+    expect(findTuiBinaryFrom('/tmp')).toBeNull();
   });
 });

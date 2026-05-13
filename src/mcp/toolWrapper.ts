@@ -34,6 +34,12 @@ export function wrapMcpTool(meta: McpToolMeta, pool: McpClientPool): Tool<unknow
     shouldDefer: true,
     isMcp: true,
     mcpInfo: { serverName: meta.serverName, toolName: meta.toolName },
+    // MCP servers control their own output shape; the wrapper defaults to
+    // 'text' so the renderHint-coverage backstop passes and any non-text
+    // server can override by mapping its response into a typed result on
+    // the harness side. Phase 16.1 M4+ may pick a richer default once we
+    // ship richer hint kinds.
+    renderHint: { kind: 'text' },
     async call(input, ctx) {
       const result = await pool.call(meta.serverName, meta.toolName, input, ctx.signal);
       return { data: result, observation: mcpObservation(meta, result) };

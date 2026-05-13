@@ -31,7 +31,9 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
   });
   const boundPort = server.port;
   if (typeof boundPort !== 'number') {
-    throw new Error('Bun.serve did not return a numeric port');
+    throw new Error(
+      `Bun.serve returned non-numeric port: ${typeof boundPort} ${String(boundPort)}`,
+    );
   }
   return {
     port: boundPort,

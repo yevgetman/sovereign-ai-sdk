@@ -18,12 +18,17 @@ describe('startServer', () => {
   test('stop() closes the server (subsequent fetch fails)', async () => {
     const { port, stop } = await startServer();
     await stop();
-    let threw = false;
+    let caught: unknown = null;
     try {
       await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) });
-    } catch {
-      threw = true;
+    } catch (err) {
+      caught = err;
     }
-    expect(threw).toBe(true);
+    // Asserting on the connection-refused code (vs. "threw=true") catches
+    // regressions where the server doesn't actually stop. A successful
+    // fetch, a timeout, or any other error class would mean the contract
+    // is broken — only ConnectionRefused proves the listener went away.
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as { code?: string }).code).toBe('ConnectionRefused');
   });
 });

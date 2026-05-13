@@ -28,10 +28,13 @@ export function turnsRoute(runtime: Runtime): Hono {
     if (text === '') return c.json({ error: 'text is required' }, 400);
 
     const bus = getOrCreateBus(sessionId);
-    // Run the turn synchronously into the bus from the caller's perspective;
-    // we await it inline so events that the mock emits during the call land
-    // before we return 202. (For real providers the bus buffers anyway —
-    // synchronous awaiting just keeps the test-mode pattern obvious.)
+    // POST /turns is fire-and-forget: kick off the background turn loop
+    // and return 202 immediately. The per-session bus buffers events
+    // until the SSE subscriber attaches (see eventBus.ts) — that's what
+    // keeps the "POST then GET /events" sequence race-free without
+    // any in-route awaiting. The `void` discards the returned promise
+    // intentionally; runTurnInBackground catches its own errors and
+    // publishes them as turn_error events onto the bus.
     void runTurnInBackground(runtime, sessionId, text, bus);
     return c.json({ accepted: true }, 202);
   });
@@ -51,6 +54,11 @@ async function runTurnInBackground(
   };
 
   try {
+    // Cancel the in-flight provider stream + tool loop when the bus is
+    // disposed (SSE client disconnect or server.stop()). The bus aborts
+    // on close(); query() propagates the signal to the provider's
+    // streaming http request and tool calls cooperatively, so a stopped
+    // server doesn't leave background turns running.
     const stream = query({
       provider: runtime.resolvedProvider.transport,
       model: runtime.model,
@@ -67,6 +75,7 @@ async function runTurnInBackground(
       maxTokens: DEFAULT_MAX_TOKENS,
       sessionId,
       cwd: runtime.cwd,
+      signal: bus.abortSignal,
     });
 
     // M3 collapses all assistant output onto block 0 — block tracking

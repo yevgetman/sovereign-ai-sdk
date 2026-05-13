@@ -19,17 +19,14 @@ describe('findFreePort', () => {
     }
   });
 
-  test('two calls in a row return different ports (usually)', async () => {
-    // Strictly speaking the kernel could reissue the same port if the first one
-    // was released. This test runs the two calls back-to-back without closing
-    // anything in between, so we expect distinct ports.
-    const a = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('') });
-    const b = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('') });
-    try {
-      expect(a.port).not.toBe(b.port);
-    } finally {
-      a.stop();
-      b.stop();
-    }
+  test('returns distinct ports on parallel calls', async () => {
+    // findFreePort opens a probe, reads the assigned port, then stops the
+    // probe. Two parallel invocations should still pick different ports
+    // because their probes coexist — the kernel hands each one a unique
+    // ephemeral. Asserting distinct ports here is an actual exercise of
+    // the unit (previously the test reached past findFreePort and probed
+    // Bun.serve directly).
+    const [a, b] = await Promise.all([findFreePort(), findFreePort()]);
+    expect(a).not.toBe(b);
   });
 });

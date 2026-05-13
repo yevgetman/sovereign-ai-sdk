@@ -64,8 +64,13 @@ export type Runtime = {
 
 export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const harnessHome = opts.harnessHome ?? resolveHarnessHome();
-  const bundleRoot = opts.bundleRoot ?? getDefaultBundlePath() ?? undefined;
-  const bundle = await loadBundleIfPresent(bundleRoot ?? null);
+  const requestedBundleRoot = opts.bundleRoot ?? getDefaultBundlePath() ?? undefined;
+  const bundle = await loadBundleIfPresent(requestedBundleRoot ?? null);
+  // bundleRoot must track the bundle that actually loaded — keeping the
+  // user-passed path even when loadBundleIfPresent returned null left
+  // downstream code (session metadata, /sessions echo, eventual resume)
+  // pointing at a directory the runtime never opened.
+  const bundleRoot = bundle?.root ?? undefined;
   const agents = await loadAgents({
     harnessHome,
     cwd: opts.cwd,
