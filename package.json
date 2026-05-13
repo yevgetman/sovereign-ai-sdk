@@ -24,7 +24,9 @@
     "test:semantic": "bun tests/semantic/run.ts",
     "lint": "biome check src tests",
     "format": "biome format --write src tests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tui:build": "bun run scripts/build-tui.ts",
+    "postinstall": "bun run scripts/build-tui.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

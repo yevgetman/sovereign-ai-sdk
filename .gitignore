@@ -26,3 +26,6 @@ dist/
 # Default bundle's state/ is runtime-generated; keep only the placeholder.
 bundle-default/state/*
 !bundle-default/state/.gitkeep
+
+# Built TUI binary (built by scripts/build-tui.ts on postinstall)
+bin/sov-tui
