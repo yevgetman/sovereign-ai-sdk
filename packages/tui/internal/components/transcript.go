@@ -40,7 +40,10 @@ func (t *Transcript) SetSize(w, h int) {
 func (t *Transcript) AppendLine(line string) {
 	t.lines = append(t.lines, line)
 	t.vp.SetContent(joinLines(t.lines))
-	if t.atBottom {
+	// Only scroll if the viewport has been sized; calling GotoBottom on an
+	// unsized viewport panics with slice-out-of-range (bubbles viewport bug
+	// surfaced when sse events arrive before WindowSizeMsg).
+	if t.atBottom && t.width > 0 && t.height > 0 {
 		t.vp.GotoBottom()
 	}
 }
