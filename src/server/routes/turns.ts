@@ -97,6 +97,11 @@ async function runTurnInBackground(
       sessionId,
       cwd: runtime.cwd,
       signal: bus.abortSignal,
+      // Without this the orchestrator falls back to runtime-default
+      // `ask` mode on any non-read-only tool — the server-side ask
+      // path has no interactive surface and the TUI hangs. See the
+      // permission cascade in src/server/runtime.ts.
+      canUseTool: runtime.canUseTool,
     });
 
     // M3 collapses all assistant output onto block 0. Per-block indexing

@@ -18,8 +18,14 @@ import { getDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { resolveHarnessHome } from '../config/paths.js';
+import { loadPermissionSettings } from '../config/settings.js';
+import { readConfig } from '../config/store.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
+import { buildCanUseTool } from '../permissions/canUseTool.js';
+import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
+import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
+import type { AskResponse, CanUseTool, PermissionMode } from '../permissions/types.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import { assembleToolPool } from '../tool/registry.js';
@@ -41,6 +47,10 @@ export type RuntimeOptions = {
   /** Cache markers default-on; pass false in tests that exercise the
    *  no-cache path. */
   cacheEnabled?: boolean;
+  /** Explicit permission-mode override. When omitted (or `'default'`),
+   *  buildRuntime falls back to the same cascade terminalRepl uses:
+   *  layered permission settings → user `config.json` → `'default'`. */
+  permissionMode?: PermissionMode;
 };
 
 export type Runtime = {
@@ -59,6 +69,15 @@ export type Runtime = {
   /** Resolved-provider record kept so the server can re-introspect (model,
    *  context length, auth type) without rebuilding. */
   resolvedProvider: ResolvedProvider;
+  /** Orchestrator-facing permission gate. Wraps the layered rule-chain
+   *  + tool self-checks + (in M3) a deny-by-default ask placeholder, then
+   *  composes the redactSecretsTransformer for defense-in-depth. */
+  canUseTool: CanUseTool;
+  /** Resolved permission mode after the cascade (option → layered
+   *  settings → user config.json → `'default'`). Echoed so tests +
+   *  future observability surfaces can introspect what the runtime is
+   *  actually enforcing. */
+  permissionMode: PermissionMode;
   dispose: () => Promise<void>;
 };
 
@@ -108,6 +127,50 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // SQLite shape so SessionDb.createSession() / saveMessage() work.
   const sessionDb = SessionDb.open({ path: ':memory:' });
 
+  // Permission cascade — mirrors terminalRepl so the user's
+  // `~/.harness/config.json` `permissionMode` is honored by the server
+  // runtime. Without this the TUI hangs on any tool-using turn: query()
+  // falls through to `'default'`, fires an `ask` callback that the
+  // server has no interactive surface for, and the TUI receives a
+  // `permission_request` event it can't approve. See M3 batch notes.
+  const userSettings = readConfig();
+  const permissionSettings = loadPermissionSettings({
+    cwd: opts.cwd,
+    harnessHome,
+  });
+  const permissionMode: PermissionMode =
+    opts.permissionMode !== undefined && opts.permissionMode !== 'default'
+      ? opts.permissionMode
+      : permissionSettings.mode !== 'default'
+        ? permissionSettings.mode
+        : (userSettings.permissionMode ?? 'default');
+
+  // M3 server has no interactive permission prompt. ask() denies with
+  // actionable guidance so a user who lands here (i.e. permissionMode
+  // resolves to `'default'` / `'ask'` AND a tool falls through to ask)
+  // gets a clear remediation message instead of a silent hang. The M5
+  // milestone replaces this placeholder with an SSE `permission_request`
+  // round-trip + POST /approvals/:requestId endpoint.
+  const ask = async (): Promise<AskResponse> => 'deny';
+
+  const baseCanUseTool = buildCanUseTool({
+    mode: permissionMode,
+    ask,
+    // M3 server has no project-local always-allow persistence; the set
+    // remains empty and recordAlwaysAllow is a no-op. M5 wires both
+    // through the approval queue.
+    alwaysAllow: new Set<string>(),
+    ruleLayers: permissionSettings.layers,
+    recordAlwaysAllow: () => {
+      /* no-op: M3 server doesn't persist session-scoped allow rules. */
+    },
+  });
+  // Defense-in-depth: secrets redactor wraps the resolved canUseTool
+  // (matches the terminalRepl chain). Catches the failure class where
+  // an agent reads a secret while exploring and then writes it
+  // verbatim into a generated artifact.
+  const canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
+
   return {
     sessionDb,
     toolPool,
@@ -120,6 +183,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     bundleRoot,
     harnessHome,
     resolvedProvider: resolved,
+    canUseTool,
+    permissionMode,
     dispose: async () => {
       sessionDb.close();
     },

@@ -204,6 +204,24 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Summary:    fmt.Sprintf("rendered as %s", hint),
 		}
 		m.transcript.AppendLine(card.View(m.width))
+	case "permission_request":
+		// M3 has no approval UI. Surface a visible warning so a user
+		// who somehow lands in `default`/`ask` mode sees what's wrong
+		// instead of staring at "…thinking" forever. The TS runtime's
+		// permission cascade should resolve to `bypass` for any user
+		// with permissionMode=bypass in ~/.harness/config.json, so this
+		// branch is defense-in-depth.
+		pr, err := transport.DecodePermissionRequest(env.Raw)
+		if err != nil {
+			return
+		}
+		m.clearThinkingIfPending()
+		warnStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e5c07b")).
+			Bold(true)
+		m.transcript.AppendLine(warnStyle.Render("⚠ permission requested: " + pr.Tool))
+		m.transcript.AppendLine(warnStyle.Render("  M3 has no approval UI; the turn will hang. ESC to abort."))
+		m.transcript.AppendLine(warnStyle.Render("  Fix: set permissionMode=bypass in ~/.harness/config.json, or add an allow rule."))
 	case "turn_error":
 		te, err := transport.DecodeTurnError(env.Raw)
 		if err != nil {
