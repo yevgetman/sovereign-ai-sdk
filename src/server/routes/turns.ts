@@ -27,7 +27,8 @@ import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../cor
 import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
-import type { RenderHint, Tool } from '../../tool/types.js';
+import type { CanUseTool } from '../../permissions/types.js';
+import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
@@ -64,6 +65,43 @@ export function turnsRoute(runtime: Runtime): Hono {
   });
 
   return r;
+}
+
+/** Build the per-turn ToolContext for `runTurnInBackground`'s `query()`
+ *  call. Mirrors terminalRepl.ts:958-973 — once buildRuntime constructs the
+ *  scheduler + taskManager (T6 + T7), the turn-time context plumbs them
+ *  onto the tool surface so AgentTool / task_create / task_list / task_get
+ *  / task_output dispatch correctly. Without these four fields populated,
+ *  every sub-agent and task tool throws "no scheduler / task manager in
+ *  ToolContext" the moment the model invokes it.
+ *
+ *  The `parentToolPool` is the runtime's own pool. AgentTool reads it via
+ *  ctx.parentToolPool when it forks a child session so the child inherits
+ *  the parent's filtered tool surface rather than re-assembling from
+ *  scratch. `canUseTool` is the session-scoped gate built in
+ *  runTurnInBackground around serverAsk + the bus — the scheduler hands
+ *  it through to the child AgentRunner so the same permission policy
+ *  applies (parent rule layers, secrets redactor, the live SSE bridge).
+ *
+ *  Exported so tests/server/turns.subagent.test.ts can pin the contract
+ *  without spinning up the full POST /turns + SSE drain.
+ */
+export function buildSessionToolContext(
+  runtime: Runtime,
+  sessionId: string,
+  sessionCanUseTool: CanUseTool,
+): ToolContext {
+  return {
+    cwd: runtime.cwd,
+    sessionId,
+    harnessHome: runtime.harnessHome,
+    agents: runtime.agents,
+    ...(runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}),
+    subagentScheduler: runtime.subagentScheduler,
+    taskManager: runtime.taskManager,
+    parentToolPool: runtime.toolPool,
+    canUseTool: sessionCanUseTool,
+  };
 }
 
 async function runTurnInBackground(
@@ -137,13 +175,7 @@ async function runTurnInBackground(
       messages,
       systemPrompt: runtime.systemSegments,
       tools: runtime.toolPool,
-      toolContext: {
-        cwd: runtime.cwd,
-        sessionId,
-        harnessHome: runtime.harnessHome,
-        agents: runtime.agents,
-        ...(runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}),
-      },
+      toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool),
       maxTokens: runtime.maxTokens,
       sessionId,
       cwd: runtime.cwd,
