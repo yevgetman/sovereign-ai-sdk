@@ -87,8 +87,7 @@ describe('GET /sessions/:id/messages — message backlog', () => {
         harnessHome: home,
       });
       const app = buildAppWithRuntime(runtime);
-      // isValidSessionId rejects ids with characters outside [A-Za-z0-9_-].
-      // 'bad id!' has a space and '!' which fail the character-class check.
+      // 'bad id!' contains characters outside [A-Za-z0-9_-].
       const res = await app.request('/sessions/bad%20id!/messages');
       expect(res.status).toBe(400);
     } finally {

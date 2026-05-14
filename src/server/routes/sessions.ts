@@ -53,10 +53,7 @@ export function sessionsRoute(runtime: Runtime): Hono {
     const session = runtime.sessionDb.getSession(id);
     if (session === null) return c.json({ error: 'not found' }, 404);
     const stored = runtime.sessionDb.loadMessages(id);
-    // Strip storage-internal fields (id, sessionId, createdAt, toolCalls,
-    // tokenCount) — the TUI only needs role + content to render the
-    // backlog. Future surfaces (HTTP API consumers in Phase 18) may
-    // surface the full row but that's a separate route's concern.
+    // Strip storage-internal fields — callers only need role + content to render.
     const messages = stored.map((m) => ({ role: m.role, content: m.content }));
     return c.json({ messages });
   });
