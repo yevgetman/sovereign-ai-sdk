@@ -15,10 +15,11 @@ import { join } from 'node:path';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadAgents } from '../agents/loader.js';
 import type { AgentRegistry } from '../agents/types.js';
-import { getDefaultBundlePath } from '../bundle/defaultBundle.js';
+import { getDefaultBundlePath, isDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { resolveHarnessHome } from '../config/paths.js';
+import type { Settings } from '../config/schema.js';
 import { loadHookSettings, loadPermissionSettings } from '../config/settings.js';
 import { readConfig } from '../config/store.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
@@ -33,7 +34,7 @@ import type { AskResponse, AskUser, CanUseTool, PermissionMode } from '../permis
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
-import { LaneSemaphores } from '../runtime/laneSemaphores.js';
+import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
 import { Semaphore } from '../runtime/semaphore.js';
 import { TaskManager } from '../tasks/manager.js';
@@ -179,10 +180,10 @@ export type Runtime = {
   approvalQueue: ApprovalQueue;
   /** Per-lane concurrency caps used by both the router (single-session
    *  escalations) and the sub-agent scheduler (parent dispatching N
-   *  children). One instance shared across both consumers. M5 server
-   *  build wires defaults (no cap) — terminalRepl reads
-   *  `userSettings.router.maxConcurrent{Local,Frontier}` to override;
-   *  the server can adopt the same wiring once it owns settings overrides. */
+   *  children). One instance shared across both consumers. M5.1 wires
+   *  caps from `userSettings.router.maxConcurrent{Local,Frontier}` so
+   *  server-mode behaves like terminalRepl. Undefined values leave the
+   *  affected lane unbounded. */
   laneSemaphores: LaneSemaphores;
   /** Single-writer lock for write-capable children. Prevents two child
    *  agents from racing on the same path. v0 is a single in-memory
@@ -200,6 +201,67 @@ export type Runtime = {
   taskManager: TaskManager;
   dispose: () => Promise<void>;
 };
+
+/** M5.1 (backlog #25) — derive the `availableProviders` list passed to
+ *  `SubagentScheduler`. Without this, the scheduler's capability-profile
+ *  resolver defaults to all four registered providers and picks the
+ *  cheapest match (typically `ollama/llama3.1:70b` at costTier 0) even
+ *  when the user has no ollama running. The right v0 default is to mirror
+ *  what the parent session actually has wired up: in single-provider mode
+ *  that's just the resolved provider name; in router mode it's both
+ *  configured lanes from the resolved metadata.
+ *
+ *  Mirrors terminalRepl.ts:887-902. Router mode is currently a TS-only
+ *  surface (terminalRepl) but the metadata read is kept symmetrical so
+ *  the helper still does the right thing if server-mode router lands
+ *  later. */
+export function resolveSubagentAvailableProviders(resolved: ResolvedProvider): readonly string[] {
+  const providerName = String(resolved.metadata.provider);
+  const meta = resolved.metadata as {
+    localProvider?: string;
+    frontierProvider?: string;
+  };
+  if (providerName === 'router' && meta.localProvider && meta.frontierProvider) {
+    return [meta.localProvider, meta.frontierProvider];
+  }
+  return [providerName];
+}
+
+/** M5.1 (backlog #26) — derive the `artifactsRoot` passed to
+ *  `SubagentScheduler` for per-child trajectory capture (Phase 13.1).
+ *  Without this, server-mode sessions silently skip per-child trajectory
+ *  writes, starving Phase 13.3's review daemon and Phase 13.4's instinct
+ *  corpus pipelines.
+ *
+ *  Mirrors terminalRepl.ts:927-930. Client bundles own their state (write
+ *  inside the bundle tree); the stock default bundle routes to harnessHome
+ *  so `sov upgrade` doesn't wipe them and each profile gets its own state.
+ *  The trajectory writer joins `/trajectories` to whichever root this
+ *  returns (`src/trajectory/writer.ts:95`). */
+export function resolveSubagentArtifactsRoot(harnessHome: string, bundle: Bundle | null): string {
+  return bundle && !isDefaultBundlePath(bundle.root)
+    ? join(bundle.root, 'state', 'artifacts')
+    : harnessHome;
+}
+
+/** M5.1 (backlog #27) — derive per-lane semaphore caps from settings.
+ *  Without this, `LaneSemaphores({})` leaves both lanes unbounded, so
+ *  server-mode runs cannot configure concurrency caps via `settings.json`
+ *  for rate-limit / cost control. Undefined values are omitted so the
+ *  caller's `new LaneSemaphores(...)` interprets them as "unbounded for
+ *  that lane only" (per laneSemaphores.ts:29-32).
+ *
+ *  Mirrors terminalRepl.ts:879-886. */
+export function resolveLaneSemaphoresOpts(userSettings: Settings): LaneSemaphoresOpts {
+  return {
+    ...(userSettings.router?.maxConcurrentLocal !== undefined
+      ? { local: userSettings.router.maxConcurrentLocal }
+      : {}),
+    ...(userSettings.router?.maxConcurrentFrontier !== undefined
+      ? { frontier: userSettings.router.maxConcurrentFrontier }
+      : {}),
+  };
+}
 
 export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const harnessHome = opts.harnessHome ?? resolveHarnessHome();
@@ -362,14 +424,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // The server constructs the trio at boot and exposes them on Runtime;
   // the turns route plumbs them onto toolContext at query() time (T8).
   //
-  // Lane caps: terminalRepl reads `userSettings.router.maxConcurrent{Local,
-  // Frontier}` to bound parallel calls per provider lane. The server
-  // build leaves them unbounded for now — adding cap forwarding here
-  // belongs with the broader settings-cascade work, not with construction.
+  // M5.1 (backlog items 25/26/27): lane caps, availableProviders, and
+  // artifactsRoot now thread from settings + the resolved provider so the
+  // server build matches terminalRepl's parity. Without these, the
+  // scheduler defaults pick the cheapest capability-profile match (often
+  // ollama/llama3.1:70b for a `role: explore` child), skip per-child
+  // trajectory capture (starving the offline learning/review pipelines),
+  // and leave concurrency unbounded. Derivations live in three pure
+  // helpers above so the wiring is unit-testable.
   // Write lock: v0 profile-scoped Semaphore(1) for write-capable children.
   // `agents` is the registry loaded earlier; reuse it as-is. Provider/
   // model defaults track the parent session.
-  const laneSemaphores = new LaneSemaphores({});
+  const laneSemaphores = new LaneSemaphores(resolveLaneSemaphoresOpts(userSettings));
   const writeLock = new Semaphore(1);
   const subagentScheduler = new SubagentScheduler({
     agents,
@@ -385,9 +451,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         systemPrompt: input.systemPrompt,
         metadata: { agentName: input.agentName, kind: 'subagent' },
       }),
+    availableProviders: resolveSubagentAvailableProviders(resolved),
     defaultProvider: resolved.transport.name,
     defaultModel: resolved.model,
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    artifactsRoot: resolveSubagentArtifactsRoot(harnessHome, bundle),
     // Per-child trace file path mirrors terminalRepl:954: child events
     // also land at <harnessHome>/traces/<childSessionId>.jsonl alongside
     // the consolidated parent trace.
