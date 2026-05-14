@@ -50,11 +50,9 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
   static lastMaxTokens: number | undefined = undefined;
 
   /** Counts every `stream()` invocation. Tests use this to verify the
-   *  preflight call fired at boot. Note: this is incremented on every
-   *  call, not just preflight — the name is a misnomer kept for clarity
-   *  in the Phase 16.1 M4 Task 6 tests where it pins "at least one
-   *  preflight call happened" (>= 1). Reset in test finally blocks. */
-  static preflightCalls = 0;
+   *  preflight call fired at boot (>= 1 after buildRuntime) or was skipped
+   *  (=== 0 when opts.preflight === false). Reset in test finally blocks. */
+  static streamCalls = 0;
 
   /** When true, `stream()` returns an iterable that throws on consumption.
    *  Tests toggle this to deterministically exercise the preflight
@@ -91,7 +89,7 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     // Count every invocation BEFORE any branching. T6 tests assert the
     // preflight call fired (>= 1). Other code paths may bump this too —
     // the test wording is "at least one preflight call happened".
-    MockProvider.preflightCalls += 1;
+    MockProvider.streamCalls += 1;
     // Record maxTokens BEFORE any branching so every code path captures it.
     MockProvider.lastMaxTokens = req.maxTokens;
     if (MockProvider.preflightShouldFail) {

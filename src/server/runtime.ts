@@ -167,7 +167,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // Ollama needs the tool-calling smoke check too — see
     // terminalRepl.ts:486-504. Other providers are tool-call-capable by
     // schema; only Ollama can return a model that silently ignores tools.
-    if (resolved.transport.name === 'ollama' && toolPool.length > 0) {
+    if (provider.name === 'ollama' && toolPool.length > 0) {
       const toolResult = await preflightToolCalling({
         provider,
         providerName: resolved.transport.name,

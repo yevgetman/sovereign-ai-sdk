@@ -15,8 +15,8 @@ export class SessionNotFoundError extends Error {
 
 export class PreflightError extends Error {
   readonly kind: ProviderPreflightKind;
-  constructor(kind: ProviderPreflightKind, message: string) {
-    super(message);
+  constructor(kind: ProviderPreflightKind, message: string, cause?: Error) {
+    super(message, cause !== undefined ? { cause } : undefined);
     this.name = 'PreflightError';
     this.kind = kind;
   }
