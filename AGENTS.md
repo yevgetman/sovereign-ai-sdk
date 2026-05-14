@@ -8,7 +8,7 @@ If you need business context (what Sovereign AI is, what the harness does, why),
 
 1. This file.
 2. `README.md`.
-3. `docs/state/2026-05-13.md` — **most recent close-out snapshot** (Phase 16.1 M0–M3 shipped). Read this BEFORE the build plan to know what shipped, what's open in the backlog, and where to start. Replaced each session.
+3. `docs/state/2026-05-14.md` — **most recent close-out snapshot** (Phase 16.1 M4 shipped; M0–M3 closed earlier). Read this BEFORE the build plan to know what shipped, what's open in the backlog, and where to start. Replaced each session.
 4. `docs/backlog/post-phase-13-4.md` — open backlog items not in the canonical build plan. Smaller follow-ups, polish, deferred trade-offs.
 5. `~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md` — the Phase-0/1 scaffold contract this repo was seeded against.
 6. `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — the canonical remaining phased plan.
@@ -35,7 +35,8 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 
 | File | What's in it |
 |---|---|
-| `docs/state/2026-05-13.md` | **Canonical current-state snapshot** (HEAD `eaf3f5e`, suite 1841/1841 unit + Go tests green, Phase 16.1 M0–M3 shipped). Updated each major-change session |
+| `docs/state/2026-05-14.md` | **Canonical current-state snapshot** (HEAD `b49e5bc`, suite 1872/1872 unit + Go tests green, Phase 16.1 M4 shipped). Updated each major-change session |
+| `docs/state/archive/2026-05-13.md` | Historical snapshot (Phase 16.1 M0–M3 close-out). Now superseded |
 | `docs/state/archive/2026-05-12.md` | Historical snapshot (Phase 16 revert close-out). Now superseded |
 | `docs/state/archive/2026-05-11.md` | Historical snapshot (Phase 16.0a close-out). Now superseded |
 | `docs/state/archive/2026-05-07.md` | Historical snapshot (Phase 13.4 close-out). Now superseded |
@@ -81,6 +82,7 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 | `docs/plans/2026-05-06-phase-13-4-instinct-corpus.md` | Phase 13.4 instinct corpus |
 | `docs/plans/2026-05-07-memory-project-scoping.md` | Two-tier MEMORY.md routing |
 | `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md` | Phase 16.1 M0–M3 (split-process TUI: server skeleton, Go Bubble Tea scaffold, first real turn end-to-end). Shipped 2026-05-13 |
+| `docs/plans/2026-05-14-phase-16-1-m4-critical-correctness.md` | Phase 16.1 M4 (on-disk SessionDb, preflight, full M4-supported CLI flag forwarding, TUI hydration on resume). Shipped 2026-05-14 |
 
 **Note for the `superpowers:writing-plans` and `superpowers:brainstorming` skills.** The skill defaults are `docs/superpowers/plans/` and `docs/superpowers/specs/`. **This project overrides those defaults.** Save plans to `docs/plans/YYYY-MM-DD-<feature-name>.md` and specs to `docs/specs/YYYY-MM-DD-<topic>-design.md`. Do NOT create or write under `docs/superpowers/` — that directory has been intentionally removed.
 
@@ -127,9 +129,9 @@ When in doubt, read the corresponding section in `~/code/sovereign-ai-docs/harne
 
 **Reverted (2026-05-12):** Phase 16.0b (Ink TUI) and Phase 16.0c (slash dispatch on Ink) were force-rolled back the day after they shipped, after a close-out parity audit surfaced ~24 silently broken subsystems on the new foreground. Two improvements survived: `sov dispatch` (headless slash-command surface, `src/cli/dispatchCommand.ts`) and the `string-match` semantic-judge backend (`tests/semantic/framework/judges/stringMatch.ts`). The Ink work is preserved on `origin/archive/ink-tui-2026-05-12`.
 
-**Next:** **Phase 16.1 — TUI rebuild.** Active per user direction (2026-05-13). Spec: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`. M0–M3 plan: `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md`. Architecture: split process — `sov` (TS) runs an HTTP+SSE server; `sov-tui` (Go + Bubble Tea) is a separate child process that renders the foreground. terminalRepl untouched per Postmortem Rule 1; `--ui tui` is opt-in until parity audit clears the default flip. Phase 14 (distribution) dropped per the 2026-05-13 Phase-14-dropped ADR in DECISIONS.md. Phase 15 (provider breadth) deferred or run in parallel — user's call at the next plan kickoff.
+**Next:** **Phase 16.1 — TUI rebuild.** Active per user direction (2026-05-13). Spec: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`. M0–M3 plan: `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md` (shipped 2026-05-13). M4 plan: `docs/plans/2026-05-14-phase-16-1-m4-critical-correctness.md` (shipped 2026-05-14 — critical correctness group: on-disk SessionDb, preflight, full M4-supported CLI flag forwarding, TUI hydration on resume; 3 prereq boxes flipped). Architecture: split process — `sov` (TS) runs an HTTP+SSE server; `sov-tui` (Go + Bubble Tea) is a separate child process that renders the foreground. terminalRepl untouched per Postmortem Rule 1; `--ui tui` is opt-in until parity audit clears the default flip. Phase 14 (distribution) dropped per the 2026-05-13 Phase-14-dropped ADR in DECISIONS.md. Phase 15 (provider breadth) deferred or run in parallel — user's call at the next plan kickoff. M5–M11 pending plans.
 
-For full phase-by-phase narrative + suite deltas + close-out details, read `docs/state/2026-05-13.md`. For prior cycles, the archived `docs/state/archive/2026-05-07.md`, `2026-05-11.md`, and `2026-05-12.md` snapshots cover those. For the canonical phase plan and sequencing logic, read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and `phase-10x-status.md`. **Required reading before any future foreground refactor:** `docs/postmortems/2026-05-12-phase-16-revert.md` (Rules 1-4).
+For full phase-by-phase narrative + suite deltas + close-out details, read `docs/state/2026-05-14.md`. For prior cycles, the archived `docs/state/archive/2026-05-07.md`, `2026-05-11.md`, `2026-05-12.md`, and `2026-05-13.md` snapshots cover those. For the canonical phase plan and sequencing logic, read `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and `phase-10x-status.md`. **Required reading before any future foreground refactor:** `docs/postmortems/2026-05-12-phase-16-revert.md` (Rules 1-4).
 
 Each phase should:
 - Add one new abstraction or capability.

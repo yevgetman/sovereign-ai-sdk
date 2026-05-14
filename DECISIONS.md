@@ -2,6 +2,14 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## ADR M4-01 — Hydrate-then-subscribe for `--resume --ui tui`
+
+Decision: TUI fetches the prior message backlog via `GET /sessions/:id/messages` before subscribing to the SSE stream. Discarded alternative: embedding the backlog in a `session_resumed` SSE event.
+
+Rationale: SSE stays lean for live events; HTTP fetch can retry/paginate independently; shape matches the `loadMessages()` SessionDb API; cleaner fit for Bubble Tea's Elm-loop (single `messagesFetchedMsg` vs variable-shape SSE event).
+
+Status: implemented (M4 — commits `0d4d94a`, `aa66a89`).
+
 ## 2026-05-06 - Phase 13.3 — Background review daemon: five design choices
 
 Phase 13.3 ships a counter-driven review daemon that proposes memory and skill changes in the background. Several choices were non-obvious enough to record:

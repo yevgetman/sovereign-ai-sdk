@@ -8,37 +8,37 @@ These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. The
 
 ## Critical — agent loop will misbehave silently without these
 
-| # | Surface | What it does | Source location |
-|---|---|---|---|
-| 1 | **Hooks system** | PreToolUse / PostToolUse / UserPromptSubmit / Stop hooks fire around tool calls per `~/.harness/settings.json` `hooks` block | `src/hooks/runner.ts`, `src/hooks/consent.ts` |
-| 2 | **MCP client pool** | stdio MCP servers connect; their tools wrap as `mcp__<server>__<tool>` and enter the tool pool | `src/mcp/client.ts`, `src/mcp/toolWrapper.ts` |
-| 3 | **Permission prompt UI** | When a tool needs consent in `ask` mode, the user gets a modal prompt with `[y]es / [n]o / [a]lways` | `src/permissions/prompt.ts` (readline asker), `src/permissions/canUseTool.ts` |
-| 4 | **Sub-agent scheduler** | AgentTool + task_create delegate to bounded child sessions with per-lane semaphores and a global write-path lock | `src/runtime/scheduler.ts`, `src/runtime/laneSemaphores.ts`, `src/runtime/semaphore.ts`, `src/runtime/agentRunner.ts` |
-| 5 | **TaskManager construction** | `task_create` etc. depend on a live `TaskManager` in CommandContext — without it the tool throws "no task manager" | `src/tasks/manager.ts`, `src/tasks/store.ts` |
-| 6 | **Session DB persistence** | Every turn writes to `~/.harness/sessions.db`; `--resume <id>` rehydrates frozen system prompt + history | `src/agent/sessionDb.ts`, `src/agent/sessionRecovery.ts` |
-| 7 | **Compactor** | `/compact` summarizes prior turns into a child session with rollback lineage; `shouldCompactProactively` triggers above the configured threshold | `src/compact/compactor.ts`, `src/compact/microcompact.ts` |
-| 8 | **Microcompaction** | Per-part tool-result clearing during a long turn to keep context bounded | `src/compact/microcompact.ts` + `shouldMicrocompact` |
-| 9 | **Preflight checks** | Provider auth + tool-calling smoke check at startup | `src/providers/preflight.ts` |
-| 10 | **Trace writer** | Phase 10.5 — `~/.harness/traces/<session-id>.jsonl` per-turn event log feeds `sov trace show` | `src/trace/writer.ts` |
-| 11 | **Trajectory capture** | The Sovereign moat — ShareGPT-shaped JSONL per session, redacted at write | `src/trajectory/writer.ts`, `src/trajectory/redact.ts`, `src/trajectory/shareGpt.ts` |
-| 12 | **Learning observer** | Per-tool-call observation stream → instinct corpus | `src/learning/observer.ts`, `src/learning/paths.ts`, `src/learning/project.ts` |
-| 13 | **Review manager / review fork** | `memory_propose` / `skill_propose` propose-then-promote lifecycle; `/review` slash command | `src/review/manager.ts`, `src/review/consolidate.ts`, `src/review/stall.ts` |
-| 14 | **Local-model router** | Phase 10.6 — `RouterProvider` dispatches to cheap models when a router config is present; `RouterAuditLogger` records decisions | `src/router/provider.ts`, `src/router/auditLogger.ts` |
+| # | Status | Surface | What it does | Source location |
+|---|---|---|---|---|
+| 1 | `[ ]` | **Hooks system** | PreToolUse / PostToolUse / UserPromptSubmit / Stop hooks fire around tool calls per `~/.harness/settings.json` `hooks` block | `src/hooks/runner.ts`, `src/hooks/consent.ts` |
+| 2 | `[ ]` | **MCP client pool** | stdio MCP servers connect; their tools wrap as `mcp__<server>__<tool>` and enter the tool pool | `src/mcp/client.ts`, `src/mcp/toolWrapper.ts` |
+| 3 | `[ ]` | **Permission prompt UI** | When a tool needs consent in `ask` mode, the user gets a modal prompt with `[y]es / [n]o / [a]lways` | `src/permissions/prompt.ts` (readline asker), `src/permissions/canUseTool.ts` |
+| 4 | `[ ]` | **Sub-agent scheduler** | AgentTool + task_create delegate to bounded child sessions with per-lane semaphores and a global write-path lock | `src/runtime/scheduler.ts`, `src/runtime/laneSemaphores.ts`, `src/runtime/semaphore.ts`, `src/runtime/agentRunner.ts` |
+| 5 | `[ ]` | **TaskManager construction** | `task_create` etc. depend on a live `TaskManager` in CommandContext — without it the tool throws "no task manager" | `src/tasks/manager.ts`, `src/tasks/store.ts` |
+| 6 | `[x]` (M4 — 2026-05-14) | **Session DB persistence** | Every turn writes to `~/.harness/sessions.db`; `--resume <id>` rehydrates frozen system prompt + history | `src/agent/sessionDb.ts`, `src/agent/sessionRecovery.ts` |
+| 7 | `[ ]` | **Compactor** | `/compact` summarizes prior turns into a child session with rollback lineage; `shouldCompactProactively` triggers above the configured threshold | `src/compact/compactor.ts`, `src/compact/microcompact.ts` |
+| 8 | `[ ]` | **Microcompaction** | Per-part tool-result clearing during a long turn to keep context bounded | `src/compact/microcompact.ts` + `shouldMicrocompact` |
+| 9 | `[x]` (M4 — 2026-05-14) | **Preflight checks** | Provider auth + tool-calling smoke check at startup | `src/providers/preflight.ts` |
+| 10 | `[ ]` | **Trace writer** | Phase 10.5 — `~/.harness/traces/<session-id>.jsonl` per-turn event log feeds `sov trace show` | `src/trace/writer.ts` |
+| 11 | `[ ]` | **Trajectory capture** | The Sovereign moat — ShareGPT-shaped JSONL per session, redacted at write | `src/trajectory/writer.ts`, `src/trajectory/redact.ts`, `src/trajectory/shareGpt.ts` |
+| 12 | `[ ]` | **Learning observer** | Per-tool-call observation stream → instinct corpus | `src/learning/observer.ts`, `src/learning/paths.ts`, `src/learning/project.ts` |
+| 13 | `[ ]` | **Review manager / review fork** | `memory_propose` / `skill_propose` propose-then-promote lifecycle; `/review` slash command | `src/review/manager.ts`, `src/review/consolidate.ts`, `src/review/stall.ts` |
+| 14 | `[ ]` | **Local-model router** | Phase 10.6 — `RouterProvider` dispatches to cheap models when a router config is present; `RouterAuditLogger` records decisions | `src/router/provider.ts`, `src/router/auditLogger.ts` |
 
 ## Major — feature loss is user-visible but recoverable
 
-| # | Surface | What it does | Source location |
-|---|---|---|---|
-| 15 | **Context-overflow auto-recovery** | On `isContextOverflowError`, clear-child-session and retry with a fresh seed | `createClearedChildSession` (`src/agent/sessionRecovery.ts`) |
-| 16 | **Capture / replay for eval runner** | `--capture-fixture` writes a fixture; `--replay-fixture` reads it back without LLM calls | `src/eval/replay/capture.ts`, `src/eval/replay/loader.ts`, `src/eval/replay/provider.ts`, `src/eval/replay/toolPool.ts` |
-| 17 | **`@file:path` reference expansion** | Inline file references in user prompts get expanded to the file's contents | `src/context/references.ts` |
-| 18 | **Subdirectory hint state** | `CLAUDE.md` awareness from subdirectories — agent picks up CLAUDE.md files in cwd's parent chain | `src/context/subdirectoryHints.ts` |
-| 19 | **Skill-as-slash-command** | Skills with `whenToUse` triggers register as `/skillname` slash commands via `buildSkillCommands` | `src/skills/commands.ts` |
-| 20 | **Skill visibility filtering** | Per-turn `filterSkillRegistry` narrows the visible skill set to the active toolsets | `src/skills/visibility.ts` |
-| 21 | **Goodbye summary** | Session metrics block (cost, tokens, duration, turn count) renders on REPL exit | `src/ui/sessionSummary.ts` |
-| 22 | **Stall / no-op detection** | Phase 13.3 — sliding-window emits `stall_detected` trace events when the model loops or makes no progress | `src/review/stall.ts` |
-| 23 | **Full CLI flag forwarding** | Every flag accepted by `sov chat` (`--provider`, `--model`, `--max-tokens`, `--permission-mode`, `--resume`, `--db`, `--no-cache`, `--no-preflight`, `--transcript`, `-v`, `--legacy-input`, `--capture-fixture`, `--replay-fixture`, `--agent`, `--state-dir`) must reach the new foreground entry-point | `src/main.ts` — chat subcommand action handler |
-| 24 | **Tool-result expand registry** | `/expand [N]` re-renders the Nth-most-recent tool block with no truncation | `commandContext.expandToolBlock` wiring |
+| # | Status | Surface | What it does | Source location |
+|---|---|---|---|---|
+| 15 | `[ ]` | **Context-overflow auto-recovery** | On `isContextOverflowError`, clear-child-session and retry with a fresh seed | `createClearedChildSession` (`src/agent/sessionRecovery.ts`) |
+| 16 | `[ ]` | **Capture / replay for eval runner** | `--capture-fixture` writes a fixture; `--replay-fixture` reads it back without LLM calls | `src/eval/replay/capture.ts`, `src/eval/replay/loader.ts`, `src/eval/replay/provider.ts`, `src/eval/replay/toolPool.ts` |
+| 17 | `[ ]` | **`@file:path` reference expansion** | Inline file references in user prompts get expanded to the file's contents | `src/context/references.ts` |
+| 18 | `[ ]` | **Subdirectory hint state** | `CLAUDE.md` awareness from subdirectories — agent picks up CLAUDE.md files in cwd's parent chain | `src/context/subdirectoryHints.ts` |
+| 19 | `[ ]` | **Skill-as-slash-command** | Skills with `whenToUse` triggers register as `/skillname` slash commands via `buildSkillCommands` | `src/skills/commands.ts` |
+| 20 | `[ ]` | **Skill visibility filtering** | Per-turn `filterSkillRegistry` narrows the visible skill set to the active toolsets | `src/skills/visibility.ts` |
+| 21 | `[ ]` | **Goodbye summary** | Session metrics block (cost, tokens, duration, turn count) renders on REPL exit | `src/ui/sessionSummary.ts` |
+| 22 | `[ ]` | **Stall / no-op detection** | Phase 13.3 — sliding-window emits `stall_detected` trace events when the model loops or makes no progress | `src/review/stall.ts` |
+| 23 | `[x]` (M4 — 2026-05-14) | **Full CLI flag forwarding** | Every flag accepted by `sov chat` (`--provider`, `--model`, `--max-tokens`, `--permission-mode`, `--resume`, `--db`, `--no-cache`, `--no-preflight`, `--transcript`, `-v`, `--legacy-input`, `--capture-fixture`, `--replay-fixture`, `--agent`, `--state-dir`) must reach the new foreground entry-point | `src/main.ts` — chat subcommand action handler |
+| 24 | `[ ]` | **Tool-result expand registry** | `/expand [N]` re-renders the Nth-most-recent tool block with no truncation | `commandContext.expandToolBlock` wiring |
 
 ## How to use this list
 

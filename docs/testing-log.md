@@ -8,6 +8,53 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M4 critical correctness shipped
+
+### 2026-05-14 · M4 close-out — Session DB persistence, preflight, CLI flag forwarding, TUI hydration
+
+**Scope:** Phase 16.1 M4 critical correctness milestone group — three prereq boxes (Session DB persistence #6, Preflight checks #9, Full CLI flag forwarding #23) closed across 20 commits in the range `2287a033..b49e5bc` (T1–T10 implementations + matching cleanups).
+
+**Commits (newest first):**
+- `b49e5bc` — T10 cleanup: document server lifecycle gap + name 100ms magic number.
+- `29db54d` — T10: integration smoke for `runTuiLauncher` with real `buildRuntime` + server.
+- `b0e4b80` — T9 cleanup: remove misleading `omitempty` tag + add 10s fetch timeout.
+- `aa66a89` — T9: TUI hydrates transcript from `GET /sessions/:id/messages` on `Init()`.
+- `c85b4de` — T8 cleanup: pin exit code 2 for `--legacy-input` hard error.
+- `c67911b` — T8: warn-and-continue on deferred-subsystem flags; `--legacy-input` hard-error.
+- `c1d925b` — T7 cleanup: correct slash command + static error import.
+- `0c90238` — T7: `tuiLauncher` forwards M4 flags + handles resume/preflight errors.
+- `dda7339` — T6 cleanup: `PreflightError` accepts `cause`, mock counter renamed.
+- `8e25d64` — T6: `buildRuntime` runs provider preflight unless disabled.
+- `62e1d09` — T5 cleanup: drop bogus cast, sharpen preflight JSDoc, symmetric reset.
+- `4754746` — T5: `RuntimeOptions.maxTokens` + preflight option; `MockProvider.streamCalls`.
+- `e49ff43` — T4 cleanup: tighten assertion + trim persist comments.
+- `dab04fa` — T4: persist user/assistant/tool_result messages during turn.
+- `f45e3fd` — T3 cleanup: trim over-explanatory comments in messages route.
+- `0d4d94a` — T3: `GET /sessions/:id/messages` returns the message backlog.
+- `66050ac` — T2 cleanup: static import for `SessionNotFoundError` + tighten assertion.
+- `a66b3c4` — T2: `buildRuntime` validates `--resume` against `sessionDb`.
+- `b0b0e8e` — T1 cleanup: guarantee tmp-dir cleanup in dispose-then-reopen test.
+- `25c790d` — T1: `buildRuntime` opens on-disk `SessionDb` + `cleanupPhantomReviews`.
+
+**Commands:**
+- `bun run lint` → clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts` unchanged).
+- `bun run typecheck` → clean.
+- `bun run test` → **1872/1872 pass** (suite grew from 1841 at M3 close-out — +31 tests across T1–T10).
+- `cd packages/tui && go test ./...` → all packages green; `internal/app` has 4 active tests + 3 `t.Skip`'d (same as M3 close-out); `internal/transport` has 12+ tests covering hydration, SSE, structs.
+- `git push origin master` → push target `b49e5bc`.
+- `sov upgrade` → ran successfully; postinstall rebuilt `bin/sov-tui` from new Go source.
+
+**Manual visual smoke:** **PENDING USER EXECUTION**. The 11 scenarios in the M4 plan's Task 11 Step 12 are documented and ready to run against the user's live `~/.harness/`. Owner = user. Coverage: fresh persistent session + sqlite-row verification, resume, resume-with-unknown-id, preflight pass, preflight skip, `--no-cache`, `--max-tokens 100` truncation, deferred-flag warning, legacy-input hard error, `--db <custom>`, legacy REPL still works. See `docs/state/2026-05-14.md` "Manual visual smoke" section.
+
+**Follow-ups recorded:**
+- Bun 1.3.13 `mock.module` cross-file leakage workaround documented in `tests/cli/tuiLauncher.test.ts` and the new integration test. Worth revisiting when Bun's mock surface stabilizes.
+- 100ms mock-child-exit delay in the integration test is empirical (named as `childExitGraceMs`). Well-headroomed but flag if CI flakes.
+- 3 Go tests in `packages/tui/internal/app/` (`TestApp_rendersTurnErrorVisibly`, `TestApp_showsThinkingIndicatorOnEnter`, `TestApp_thinkingClearedByFirstResponseEvent`) remain `t.Skip`'d from M3. The teatest `WaitFor` polling-vs-rendering race is still pending a deep-dive — implementation correctness verified by visual smoke during M3 close-out.
+
+**Forbidden files untouched:** `src/ui/terminalRepl.ts`, `src/commands/**`, `src/core/query.ts`, `src/cli/dispatchCommand.ts`, `src/cli/missionRun.ts`, `src/daemon/**`, `src/channels/**`. Postmortem Rules 1-4 honored.
+
+**Result:** M4 critical correctness group complete. 3 of 24 prereq boxes flipped to `[x]`; 21 remain for M5+. State snapshot rolled to `docs/state/2026-05-14.md`; `docs/state/2026-05-13.md` archived. `usage.md` documents the `--ui tui` flag-coverage matrix. `DECISIONS.md` records ADR M4-01 (hydrate-then-subscribe). CLAUDE.md + AGENTS.md updated (mirror invariant holds).
+
 ## 2026-05-13 — Phase 16.1 M3 One Real Turn End-to-End
 
 ### 2026-05-13 · Fix M3 tool-using-turn hang — buildRuntime now loads permission settings

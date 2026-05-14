@@ -75,6 +75,29 @@ sov --permission-mode ask
 sov --no-cache
 ```
 
+### `--ui tui` flag coverage (Phase 16.1 M4)
+
+`--ui tui` is opt-in; `--ui repl` (default) routes to the legacy terminalRepl. The TUI accepts the following `sov` flags:
+
+| Flag | Status | Notes |
+|---|---|---|
+| `--bundle <path>` | Wired (M3) | |
+| `--provider <name>` | Wired (M3) | |
+| `-m, --model <name>` | Wired (M3) | |
+| `--permission-mode <mode>` | Wired (M4) | |
+| `--max-tokens <n>` | Wired (M4) | Default 12000 |
+| `--db <path>` | Wired (M4) | Default `<harnessHome>/sessions.db` |
+| `--resume <id>` | Wired (M4) | Hydrates prior transcript via `GET /sessions/:id/messages` |
+| `--no-cache` | Wired (M4) | |
+| `--no-preflight` | Wired (M4) | Skips provider preflight |
+| `--transcript <path>` | **Warn** | Wires in M7 (trajectory capture) |
+| `--capture-fixture <path>` | **Warn** | Wires in M8 (capture/replay) |
+| `--replay-fixture <path>` | **Warn** | Wires in M8 |
+| `--agent <name>` | **Warn** | Wires in M7 (sub-agent scheduler + scheduled-mission) |
+| `--state-dir <path>` | **Warn** | Wires in M7 |
+| `-v, --verbose` | **Warn** | Wires in M9 (visual polish) |
+| `--legacy-input` | **Error** | REPL-only; readline fallback for `--ui repl` |
+
 ## CLI Subcommands
 
 `sov` has top-level subcommands beyond the default interactive REPL:
