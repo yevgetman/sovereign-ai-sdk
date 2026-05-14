@@ -233,3 +233,85 @@ describe('runTuiLauncher — flag forwarding', () => {
     }
   });
 });
+
+describe('runTuiLauncher — deferred-flag warnings + legacy-input error', () => {
+  let stderrBuf: string;
+  let origWrite: typeof process.stderr.write;
+  let prevSovTuiBin: string | undefined;
+
+  // Reuse the same mock-module setup as the flag-forwarding describe.
+  // mock.module persists per file; the beforeAll in the prior describe
+  // block already captured + reinstalls real modules at afterAll. This
+  // block runs WITHIN the same file so the mocks are already in place.
+
+  beforeEach(() => {
+    stderrBuf = '';
+    origWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrBuf += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8');
+      return true;
+    }) as typeof process.stderr.write;
+    prevSovTuiBin = process.env.SOV_TUI_BIN;
+    process.env.SOV_TUI_BIN = '/bin/true';
+  });
+
+  afterEach(() => {
+    process.stderr.write = origWrite;
+    if (prevSovTuiBin === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TUI_BIN;
+    } else {
+      process.env.SOV_TUI_BIN = prevSovTuiBin;
+    }
+  });
+
+  test('warns on --transcript with target milestone M7', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ transcript: '/tmp/t.jsonl' });
+    expect(stderrBuf).toContain('--transcript');
+    expect(stderrBuf).toMatch(/M7/);
+  });
+
+  test('warns on --capture-fixture with M8', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ captureFixture: '/tmp/c.json' });
+    expect(stderrBuf).toContain('--capture-fixture');
+    expect(stderrBuf).toMatch(/M8/);
+  });
+
+  test('warns on --replay-fixture with M8', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ replayFixture: '/tmp/r.json' });
+    expect(stderrBuf).toContain('--replay-fixture');
+    expect(stderrBuf).toMatch(/M8/);
+  });
+
+  test('warns on --agent with M7', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ agent: 'scheduled-mission' });
+    expect(stderrBuf).toContain('--agent');
+    expect(stderrBuf).toMatch(/M7/);
+  });
+
+  test('warns on --state-dir with M7', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ stateDir: '/tmp/state' });
+    expect(stderrBuf).toContain('--state-dir');
+    expect(stderrBuf).toMatch(/M7/);
+  });
+
+  test('warns on --verbose with M9', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ verbose: true });
+    expect(stderrBuf).toContain('--verbose');
+    expect(stderrBuf).toMatch(/M9/);
+  });
+
+  test('hard-errors on --legacy-input with --ui repl guidance', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const code = await runTuiLauncher({ legacyInput: true });
+    expect(code).not.toBe(0);
+    expect(stderrBuf).toContain('--legacy-input');
+    expect(stderrBuf).toContain('--ui repl');
+  });
+});

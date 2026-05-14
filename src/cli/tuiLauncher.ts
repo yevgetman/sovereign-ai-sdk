@@ -80,6 +80,22 @@ export type TuiLaunchOptions = {
   cache?: unknown;
   /** CLI --no-preflight → opts.preflight === false; otherwise omitted/true. */
   preflight?: unknown;
+  // Deferred subsystems — accepted-and-warned (not wired until later milestones).
+  /** Transcript output path. Targeting M7. */
+  transcript?: unknown;
+  /** Capture fixture output path. Targeting M8. */
+  captureFixture?: unknown;
+  /** Replay fixture input path. Targeting M8. */
+  replayFixture?: unknown;
+  /** Agent name override. Targeting M7. */
+  agent?: unknown;
+  /** State directory override. Targeting M7. */
+  stateDir?: unknown;
+  /** Verbose logging flag. Targeting M9. */
+  verbose?: unknown;
+  // REPL-only — hard error with --ui tui.
+  /** Readline fallback (REPL-only). Hard-errors when used with --ui tui. */
+  legacyInput?: unknown;
   /** Catch-all so Commander option bags don't trip the type. */
   [k: string]: unknown;
 };
@@ -118,6 +134,41 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     console.warn('     For the readline REPL, omit `--ui tui` (or pass `--ui repl`).');
     // Caller (main.ts) propagates this exit code; no foreground fallback.
     return 70;
+  }
+
+  // --legacy-input is REPL-only by definition (readline fallback for
+  // terminalRepl). Refuse to launch with --ui tui rather than silently
+  // drop the flag — keeps the semantic gap visible.
+  if (opts.legacyInput === true) {
+    process.stderr.write(
+      'sov: --legacy-input is incompatible with --ui tui (readline fallback is REPL-only).\n',
+    );
+    process.stderr.write('     use --ui repl --legacy-input, or drop --legacy-input.\n');
+    return 2;
+  }
+
+  // Flags whose subsystem lands in a later milestone — warn so users
+  // aren't silently surprised by missing behavior. Per Postmortem Rule 3:
+  // audit before declaring parity; the gap is explicit here.
+  const deferredFlagWarnings: ReadonlyArray<{
+    flag: string;
+    opt: keyof TuiLaunchOptions;
+    milestone: string;
+  }> = [
+    { flag: '--transcript', opt: 'transcript', milestone: 'M7' },
+    { flag: '--capture-fixture', opt: 'captureFixture', milestone: 'M8' },
+    { flag: '--replay-fixture', opt: 'replayFixture', milestone: 'M8' },
+    { flag: '--agent', opt: 'agent', milestone: 'M7' },
+    { flag: '--state-dir', opt: 'stateDir', milestone: 'M7' },
+    { flag: '--verbose', opt: 'verbose', milestone: 'M9' },
+  ];
+  for (const { flag, opt, milestone } of deferredFlagWarnings) {
+    const value = opts[opt];
+    if (value !== undefined && value !== false) {
+      process.stderr.write(
+        `sov: ${flag} is not yet supported with --ui tui (targeting milestone ${milestone}); continuing without it.\n`,
+      );
+    }
   }
 
   const { buildRuntime } = await import('../server/runtime.js');
