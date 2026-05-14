@@ -193,3 +193,67 @@ describe('buildRuntime — Task 1 — on-disk SessionDb', () => {
     }
   });
 });
+
+describe('buildRuntime — resume validation', () => {
+  test('with valid resumeId, returns runtime with resumeId echoed', async () => {
+    const home = join(tmpdir(), `m4-task2a-${Date.now()}`);
+    const dbPath = join(home, 'sessions.db');
+    // Seed a session in a sibling DB instance, then open via buildRuntime.
+    const { SessionDb } = await import('../../src/agent/sessionDb.js');
+    const seed = SessionDb.open({ path: dbPath });
+    const seededId = seed.createSession({
+      model: 'mock',
+      provider: 'mock',
+      systemPrompt: [],
+      metadata: {},
+    });
+    seed.close();
+
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        dbPath,
+        resumeId: seededId,
+      });
+      expect(runtime.resumeId).toBe(seededId);
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('with unknown resumeId, throws SessionNotFoundError', async () => {
+    const home = join(tmpdir(), `m4-task2b-${Date.now()}`);
+    try {
+      await expect(
+        buildRuntime({
+          cwd: process.cwd(),
+          provider: 'mock',
+          harnessHome: home,
+          resumeId: '00000000-0000-0000-0000-000000000000',
+        }),
+      ).rejects.toThrow(/session not found/i);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('without resumeId, runtime.resumeId is undefined', async () => {
+    const home = join(tmpdir(), `m4-task2c-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      expect(runtime.resumeId).toBeUndefined();
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

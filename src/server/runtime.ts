@@ -54,6 +54,9 @@ export type RuntimeOptions = {
   /** Explicit session DB path override. When omitted, opens at
    *  <harnessHome>/sessions.db — the same default terminalRepl uses. */
   dbPath?: string;
+  /** Resume a prior session by UUID. buildRuntime validates the row
+   *  exists in sessionDb and throws SessionNotFoundError if not. */
+  resumeId?: string;
 };
 
 export type Runtime = {
@@ -81,6 +84,11 @@ export type Runtime = {
    *  future observability surfaces can introspect what the runtime is
    *  actually enforcing. */
   permissionMode: PermissionMode;
+  /** Echoed resumeId from RuntimeOptions, validated against sessionDb
+   *  at boot. Undefined when no resume requested. Downstream consumers
+   *  (events route, /messages route) use this to decide whether to
+   *  hydrate prior message history. */
+  resumeId: string | undefined;
   dispose: () => Promise<void>;
 };
 
@@ -134,6 +142,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const phantomsCleaned = sessionDb.cleanupPhantomReviews();
   if (phantomsCleaned > 0) {
     process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
+  }
+
+  if (opts.resumeId !== undefined) {
+    const existing = sessionDb.getSession(opts.resumeId);
+    if (existing === null) {
+      sessionDb.close();
+      const { SessionNotFoundError } = await import('./errors.js');
+      throw new SessionNotFoundError(opts.resumeId);
+    }
   }
 
   // Permission cascade — mirrors terminalRepl so the user's
@@ -194,6 +211,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     resolvedProvider: resolved,
     canUseTool,
     permissionMode,
+    resumeId: opts.resumeId,
     dispose: async () => {
       sessionDb.close();
     },
