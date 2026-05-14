@@ -117,6 +117,11 @@ async function runTurnInBackground(
       // path has no interactive surface and the TUI hangs. See the
       // permission cascade in src/server/runtime.ts.
       canUseTool: runtime.canUseTool,
+      // Forward the hook runner so UserPromptSubmit fires before turn 0,
+      // PreToolUse/PostToolUse fire around each tool call, and Stop fires
+      // at terminal. Constructed in buildRuntime (M5 T1); always present
+      // — a no-op when no hooks are configured.
+      hookRunner: runtime.hookRunner,
     });
 
     // M3 collapses all assistant output onto block 0. Per-block indexing
