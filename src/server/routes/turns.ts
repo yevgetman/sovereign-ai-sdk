@@ -21,11 +21,15 @@
 
 import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
+import { loadPermissionSettings } from '../../config/settings.js';
 import { query } from '../../core/query.js';
 import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../core/types.js';
+import { buildCanUseTool } from '../../permissions/canUseTool.js';
+import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
+import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { RenderHint, Tool } from '../../tool/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
-import type { Runtime } from '../runtime.js';
+import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
 
 /** State captured at `tool_use_start` emission, drained when the matching
@@ -89,6 +93,38 @@ async function runTurnInBackground(
     }),
   );
 
+  // Build a session-scoped canUseTool. The runtime's own `canUseTool`
+  // carries the M3 deny placeholder for out-of-band callers; here we
+  // replace its `ask` callback with a serverAsk bound to THIS session's
+  // bus, so a tool that falls through to `ask` mode emits a
+  // `permission_request` SSE event and parks on the matching
+  // ApprovalQueue entry. The bus is per-session and the queue is
+  // per-runtime — the wiring lives here because both refs are in scope.
+  const permissionSettings = loadPermissionSettings({
+    cwd: runtime.cwd,
+    harnessHome: runtime.harnessHome,
+  });
+  const sessionAsk = createServerAsk(runtime.approvalQueue, bus, sessionId);
+  const baseCanUseTool = buildCanUseTool({
+    mode: runtime.permissionMode,
+    ask: sessionAsk,
+    // M5 keeps the session-scoped allow set empty and the persistence
+    // hook a no-op (parity with the buildRuntime defaults). Project-local
+    // "always" persistence is a deferred follow-up; for now an `always`
+    // answer registers an in-memory rule for this turn only.
+    alwaysAllow: new Set<string>(),
+    ruleLayers: permissionSettings.layers,
+    recordAlwaysAllow: () => {
+      /* no-op: M5 server doesn't persist session-scoped allow rules. */
+    },
+  });
+  // Defense-in-depth: secrets redactor wraps the resolved canUseTool
+  // identically to the runtime-level chain in buildRuntime — catches
+  // accidental secret writes in any tool input that gets allowed.
+  const sessionCanUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [
+    redactSecretsTransformer,
+  ]);
+
   try {
     // Cancel the in-flight provider stream + tool loop when the bus is
     // disposed (SSE client disconnect or server.stop()). The bus aborts
@@ -112,11 +148,11 @@ async function runTurnInBackground(
       sessionId,
       cwd: runtime.cwd,
       signal: bus.abortSignal,
-      // Without this the orchestrator falls back to runtime-default
-      // `ask` mode on any non-read-only tool — the server-side ask
-      // path has no interactive surface and the TUI hangs. See the
-      // permission cascade in src/server/runtime.ts.
-      canUseTool: runtime.canUseTool,
+      // Session-scoped canUseTool: the `ask` callback emits a
+      // permission_request event on this session's bus and awaits the
+      // matching POST /approvals/:requestId. Replaces the runtime-level
+      // deny placeholder (M3) with the live SSE bridge (M5 T5).
+      canUseTool: sessionCanUseTool,
       // Forward the hook runner so UserPromptSubmit fires before turn 0,
       // PreToolUse/PostToolUse fire around each tool call, and Stop fires
       // at terminal. Constructed in buildRuntime (M5 T1); always present

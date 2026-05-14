@@ -10,6 +10,12 @@
 
 export type ApprovalResponse = {
   approved: boolean;
+  /** When true, the user picked "always" — the AskUser bridge should
+   *  return `'always'` instead of `'allow'` so canUseTool registers a
+   *  session-scoped allow rule. Only meaningful when `approved === true`.
+   *  Defaults to undefined (which behaves like `false`) to keep existing
+   *  callers unaffected. */
+  always?: boolean;
   /** Optional input override (the user's "ask" callback can rewrite the
    *  tool input before the tool runs — e.g., redact a secret). */
   updatedInput?: unknown;

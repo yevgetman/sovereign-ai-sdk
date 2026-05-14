@@ -29,7 +29,7 @@ import type { HookRunner } from '../hooks/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
-import type { AskResponse, CanUseTool, PermissionMode } from '../permissions/types.js';
+import type { AskResponse, AskUser, CanUseTool, PermissionMode } from '../permissions/types.js';
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
@@ -37,6 +37,52 @@ import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
+import type { ServerEventBus } from './eventBus.js';
+
+/** Default timeout for a pending permission request (M5-02). 60 seconds —
+ *  long enough for a user to read the prompt and decide, short enough that
+ *  a forgotten approval doesn't park a turn indefinitely. */
+const PERMISSION_REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * Build a session-scoped AskUser that bridges the canUseTool `ask` callback
+ * to the SSE event bus + ApprovalQueue. Each invocation mints a fresh
+ * requestId, emits a `permission_request` event onto the bus, and awaits
+ * the matching POST /sessions/:id/approvals/:requestId. Times out at 60s
+ * with a denied result (M5-02).
+ *
+ * Three response paths:
+ *   - approved + always=true → `'always'` (canUseTool adds a session rule)
+ *   - approved + !always     → `'allow'`  (one-shot grant)
+ *   - !approved              → `'deny'`   (includes the 60s timeout case)
+ *
+ * The runtime-level `runtime.canUseTool` keeps the M3 deny placeholder so
+ * out-of-band callers (no bus context) still fail closed. The turns route
+ * builds a session-scoped canUseTool around this factory before each
+ * `query()` call.
+ */
+export function createServerAsk(
+  approvalQueue: ApprovalQueue,
+  bus: ServerEventBus,
+  sessionId: string,
+): AskUser {
+  return async (opts) => {
+    const requestId = crypto.randomUUID();
+    const pending = approvalQueue.createPending(requestId, PERMISSION_REQUEST_TIMEOUT_MS);
+    bus.publish({
+      type: 'permission_request',
+      seq: bus.nextSeq(),
+      sessionId,
+      requestId,
+      tool: opts.toolName,
+      input: opts.preview,
+      ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    });
+    const response = await pending;
+    if (!response.approved) return 'deny';
+    return response.always === true ? 'always' : 'allow';
+  };
+}
 
 /** Matches the CLI default in src/main.ts (`--max-tokens <n>` default). */
 const DEFAULT_MAX_TOKENS = 12000;

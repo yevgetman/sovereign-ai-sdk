@@ -38,14 +38,23 @@ export function approvalsRoute(runtime: Runtime): Hono {
     }
     const body = (await c.req.json()) as {
       approved?: unknown;
+      always?: unknown;
       updatedInput?: unknown;
     };
     // Strict boolean check — accept only `true` / `false`, not truthy values.
     if (typeof body.approved !== 'boolean') {
       return c.json({ error: '`approved` is required (boolean)' }, 400);
     }
+    // `always` is optional. When present it must be a boolean — we only
+    // forward it to the queue when explicitly true so the ApprovalResponse
+    // keeps the field undefined for "allow" / "deny" answers (no truthy
+    // coercion; matches the strict shape used for `approved`).
+    if (body.always !== undefined && typeof body.always !== 'boolean') {
+      return c.json({ error: '`always` must be a boolean when provided' }, 400);
+    }
     runtime.approvalQueue.resolve(requestId, {
       approved: body.approved,
+      ...(body.always === true ? { always: true } : {}),
       ...(body.updatedInput !== undefined ? { updatedInput: body.updatedInput } : {}),
     });
     return c.json({ ok: true });
