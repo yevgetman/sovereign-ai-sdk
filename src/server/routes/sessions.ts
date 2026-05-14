@@ -2,10 +2,17 @@
 //
 // POST /sessions — create a fresh session row in the runtime's SessionDb.
 // GET  /sessions/:id — fetch session metadata.
+// GET  /sessions/:id/messages — fetch the stored message backlog (M4 Task 3).
 //
 // M3 records model/provider/system-prompt on creation so the row is
 // well-formed and downstream observability (cost accounting, resume)
 // can hang off it in later milestones.
+//
+// M4 Task 3 adds the messages endpoint. The TUI calls it once on Init()
+// to hydrate the transcript with prior conversation history before
+// subscribing to the SSE event stream. Hydrate-then-subscribe keeps the
+// SSE stream lean for live events and lets the HTTP fetch be retried
+// independently.
 
 import { Hono } from 'hono';
 import type { Runtime } from '../runtime.js';
@@ -38,6 +45,20 @@ export function sessionsRoute(runtime: Runtime): Hono {
       model: session.model,
       provider: session.provider,
     });
+  });
+
+  r.get('/sessions/:id/messages', (c) => {
+    const id = c.req.param('id');
+    if (!isValidSessionId(id)) return c.json({ error: 'invalid session id' }, 400);
+    const session = runtime.sessionDb.getSession(id);
+    if (session === null) return c.json({ error: 'not found' }, 404);
+    const stored = runtime.sessionDb.loadMessages(id);
+    // Strip storage-internal fields (id, sessionId, createdAt, toolCalls,
+    // tokenCount) — the TUI only needs role + content to render the
+    // backlog. Future surfaces (HTTP API consumers in Phase 18) may
+    // surface the full row but that's a separate route's concern.
+    const messages = stored.map((m) => ({ role: m.role, content: m.content }));
+    return c.json({ messages });
   });
 
   return r;
