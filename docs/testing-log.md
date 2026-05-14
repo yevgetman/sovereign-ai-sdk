@@ -10,6 +10,45 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M4 critical correctness shipped
 
+### 2026-05-14 · Autonomous smoke pass — 8 of 11 M4 scenarios (Groups A + B)
+
+**Scope:** Drove 8 of the 11 manual smoke scenarios from `docs/state/2026-05-14.md` autonomously without the user typing into the TUI. The remaining 3 (#2 resume hydration render, #7 `--max-tokens 100` truncation against real Anthropic, #11 legacy REPL visual) still require the user's eyeball.
+
+**Harness:** `/tmp/m4-smoke/sov-tui-stub.sh` is a 60-second `sleep` shim used as `SOV_TUI_BIN` so `sov --ui tui` doesn't tear down when the headless environment can't render. `/tmp/m4-smoke/run-scenario.sh` spawns sov with the stub, parses stderr for `port=` + `session=`, POSTs a turn via HTTP, drains SSE, kills sov, and lets the caller verify SQLite. All Group B runs use `--provider mock` against a per-scenario `HARNESS_HOME=/tmp/m4-smoke/home-<N>` for full isolation from the user's live `~/.harness/`.
+
+**Group A — fully scriptable, no API call (3/3 ✅):**
+
+| # | Command | Result |
+|---|---|---|
+| 3 | `sov --resume 00000000-0000-0000-0000-000000000000 --ui tui` | Exit 1; stderr `sov: session not found: 00000000-...` + `list sessions with 'sov --ui repl' then /resume` remediation. No server started. ✅ |
+| 8 | `sov --transcript /tmp/t.jsonl --provider mock --ui tui` | stderr `sov: --transcript is not yet supported with --ui tui (targeting milestone M7); continuing without it.` Then sov bound server on 50711 and created session (TUI binary then failed on no-TTY — unrelated to this assertion). ✅ |
+| 9 | `sov --legacy-input --ui tui` | Exit 2; stderr `sov: --legacy-input is incompatible with --ui tui (readline fallback is REPL-only).` + `--ui repl` guidance. No TUI launch. ✅ |
+
+**Group B — server-bypass via stub TUI + MockProvider (5/5 ✅):**
+
+Each scenario boots sov, POSTs one turn (`"hello mock"`), drains the SSE stream, kills sov, then verifies SQLite. Every run produced the canonical MockProvider transcript (`text_delta` "Hello" → `text_delta` " world." → `turn_complete{finishReason:"end_turn"}`) and persisted exactly 2 messages (user + assistant) under the per-scenario harness home.
+
+| # | Flag(s) | Boot port | HTTP | SSE events | SQLite |
+|---|---|---|---|---|---|
+| 1 | (default DB) | 50713 | 202 | 3 | 2 rows at `<HARNESS_HOME>/sessions.db` ✅ |
+| 10 | `--db /tmp/m4-custom.db` | 50717 | 202 | 3 | 2 rows at `/tmp/m4-custom.db`; default-path DB absent ✅ |
+| 4 | (preflight default = on) | 50721 | 202 | 3 | 2 rows ✅ |
+| 5 | `--no-preflight` | 50725 | 202 | 3 | 2 rows ✅ |
+| 6 | `--no-cache` | 50729 | 202 | 3 | 2 rows ✅ |
+
+**Bonus — resume hydration backbone (foundation of #2):**
+
+Resumed session `7e17c461-...` from scenario 1's harness home and hit `GET /sessions/:id/messages`. Returned the exact `{messages: [{role:"user", content:[{type:"text", text:"hello mock"}]}, {role:"assistant", content:[{type:"text", text:"Hello world."}]}]}` payload that the Go TUI's `messagesFetchedMsg` handler (T9) consumes on `Init()`. The data layer is confirmed; only the on-screen render of that payload still needs a human eyeball (scenario #2).
+
+**Cleanup:** 5 orphan `sov-tui-stub.sh` children were `pkill`'d after the runs. `/tmp/m4-smoke/` left in place with logs + SQLite files for inspection; safe to `rm -rf` whenever.
+
+**Still pending the user (3 scenarios):**
+- #2 — visual confirmation that the Go TUI renders the hydrated transcript on screen before the prompt accepts input. Backbone verified above.
+- #7 — `--max-tokens 100` truncation against real Anthropic; requires API spend.
+- #11 — legacy REPL splash + status footer + interactive `/sessions` + `/quit`.
+
+**Result:** Strong autonomous coverage of M4's plumbing — launcher safety paths (3 scripted), persistence layer (5 server-bypass), and resume backbone (1 bonus). The 3 remaining items are genuinely visual/interactive and need the user's eyeball; running them is bounded work whenever the user has a session free.
+
 ### 2026-05-14 · M4 close-out — Session DB persistence, preflight, CLI flag forwarding, TUI hydration
 
 **Scope:** Phase 16.1 M4 critical correctness milestone group — three prereq boxes (Session DB persistence #6, Preflight checks #9, Full CLI flag forwarding #23) closed across 20 commits in the range `2287a033..b49e5bc` (T1–T10 implementations + matching cleanups).
