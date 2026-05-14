@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,7 +40,13 @@ func TestBareScaffold_rendersThreeRegions(t *testing.T) {
 // exactly one client connection.
 func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 	var connectionCount int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// M4: route by path so the /messages hydration fetch and /events
+		// SSE stream are independent. connectionCount tracks ONLY /events.
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
 		atomic.AddInt32(&connectionCount, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -107,6 +114,13 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
+		// M4: serve the /messages backlog fetch with an empty list so the
+		// fetchMessagesCmd resolves cleanly without blocking the events
+		// endpoint or polluting the transcript.
+		if r.URL.Path == fmt.Sprintf("/sessions/%s/messages", sessionID) {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
 		// events endpoint — keep the connection open with no payload until
 		// the client disconnects, so the SSE consumer doesn't drive sseDone.
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -119,8 +133,7 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	streamURL := srv.URL + fmt.Sprintf("/sessions/%s/events", sessionID)
-	tm := teatest.NewTestModel(t, New(sessionID, streamURL), teatest.WithInitialTermSize(80, 24))
+	tm := teatest.NewTestModel(t, New(sessionID, srv.URL), teatest.WithInitialTermSize(80, 24))
 
 	// Wait for initial render so the prompt is alive.
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
@@ -189,6 +202,11 @@ func TestApp_thinkingClearedByFirstResponseEvent(t *testing.T) {
 // produce a ToolCard with the tool name visible in the rendered transcript.
 func TestApp_renderToolResultAsCard(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// M4: route /messages backlog fetch separately from the SSE stream.
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, ok := w.(http.Flusher)
@@ -214,6 +232,49 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
 		return contains(b, "FileRead")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestApp_hydratesTranscriptFromPriorMessages guards M4 Task 9: on Init the
+// app fetches GET /sessions/<id>/messages and renders each prior text block
+// before (or alongside) the live SSE stream. Resume flows therefore show the
+// full prior conversation immediately.
+func TestApp_hydratesTranscriptFromPriorMessages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sessions/test-session/messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"messages": []map[string]any{
+					{"role": "user", "content": []map[string]any{{"type": "text", "text": "old user msg"}}},
+					{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "old asst msg"}}},
+				},
+			})
+		case "/sessions/test-session/events":
+			// SSE stream that emits a single turn_complete and then holds the
+			// connection open so the consumer doesn't drive sseDone before
+			// the assertions land.
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				return
+			}
+			fmt.Fprint(w, "event: turn_complete\nid: 0\ndata: {\"type\":\"turn_complete\",\"seq\":0,\"sessionId\":\"test-session\",\"finishReason\":\"end_turn\"}\n\n")
+			flusher.Flush()
+			<-r.Context().Done()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New("test-session", srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return bytes.Contains(b, []byte("old user msg")) &&
+			bytes.Contains(b, []byte("old asst msg"))
 	}, teatest.WithDuration(3*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})

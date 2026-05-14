@@ -43,8 +43,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	streamURL := fmt.Sprintf("http://127.0.0.1:%d/sessions/%s/events", *port, *sessionID)
-	model := app.New(*sessionID, streamURL)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
+	model := app.New(*sessionID, baseURL)
 	prog := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := prog.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "sov-tui: %v\n", err)

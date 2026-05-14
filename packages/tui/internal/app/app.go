@@ -33,13 +33,23 @@ type sseDoneMsg struct{ err error }
 // dim error line to the transcript; M4+ surfaces structured errors.
 type turnSubmitErrMsg struct{ err error }
 
+// messagesFetchedMsg carries the result of the M4 hydration fetch.
+// Init batches this alongside the SSE consumer so resume flows show the
+// prior conversation immediately. err is non-nil on transport failure or
+// non-2xx; the Update handler surfaces it as a dim transcript line and
+// continues (does not crash the TUI).
+type messagesFetchedMsg struct {
+	messages []transport.StoredMessage
+	err      error
+}
+
 type Model struct {
 	keys            keyMap
 	transcript      components.Transcript
 	prompt          components.Prompt
 	statusLine      components.StatusLine
 	sessionID       string
-	streamURL       string
+	baseURL         string
 	width           int
 	height          int
 	ctx             context.Context
@@ -49,7 +59,11 @@ type Model struct {
 	thinkingPending bool
 }
 
-func New(sessionID, streamURL string) Model {
+// New constructs the App model. baseURL is the server origin (scheme +
+// host + port, no trailing slash) — the model derives both the SSE
+// stream URL and the /messages backlog URL from it. Pass an empty
+// baseURL to skip both network operations (used by render-only tests).
+func New(sessionID, baseURL string) Model {
 	cwd, _ := os.Getwd()
 	ctx, cancel := context.WithCancel(context.Background())
 	st := components.NewStatusLine()
@@ -60,21 +74,37 @@ func New(sessionID, streamURL string) Model {
 		prompt:     components.NewPrompt(),
 		statusLine: st,
 		sessionID:  sessionID,
-		streamURL:  streamURL,
+		baseURL:    baseURL,
 		ctx:        ctx,
 		cancel:     cancel,
 	}
-	if streamURL != "" {
+	if baseURL != "" {
+		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
 		m.events, m.errs = transport.Consume(ctx, streamURL)
 	}
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	if m.events == nil {
+	if m.baseURL == "" {
 		return nil
 	}
-	return m.waitEvent
+	// Fire the backlog hydration in parallel with the SSE subscription.
+	// On a resume the user sees prior turns immediately; on a fresh
+	// session the fetch returns zero messages and the handler is a no-op.
+	if m.events == nil {
+		return m.fetchMessagesCmd()
+	}
+	return tea.Batch(m.fetchMessagesCmd(), m.waitEvent)
+}
+
+// fetchMessagesCmd issues the GET /sessions/<id>/messages backlog fetch
+// off the Update goroutine. The result lands as a messagesFetchedMsg.
+func (m Model) fetchMessagesCmd() tea.Cmd {
+	return func() tea.Msg {
+		msgs, err := transport.FetchMessages(m.ctx, m.baseURL, m.sessionID)
+		return messagesFetchedMsg{messages: msgs, err: err}
+	}
 }
 
 // waitEvent blocks until the next SSE event arrives (or the stream ends).
@@ -149,6 +179,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Foreground(lipgloss.Color("#e06c75")).
 				Render(fmt.Sprintf("submit error: %v", msg.err)),
 		)
+		return m, nil
+	case messagesFetchedMsg:
+		if msg.err != nil {
+			// Don't crash — surface a dim line and let the live SSE stream
+			// continue. Resume flows will look empty but the next user turn
+			// still works end-to-end.
+			m.transcript.AppendLine(
+				lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#6e7681")).
+					Italic(true).
+					Render(fmt.Sprintf("could not load prior messages: %v", msg.err)),
+			)
+			return m, nil
+		}
+		// Render each prior message's text blocks in transcript order.
+		// User input gets the same "» " prefix as the live ENTER handler
+		// so prior and live turns look visually identical. tool_use /
+		// tool_result historical rendering is deferred to M7 when
+		// trajectory capture lands richer hydration.
+		for _, sm := range msg.messages {
+			for _, block := range sm.Content {
+				if block.Type != "text" || block.Text == "" {
+					continue
+				}
+				switch sm.Role {
+				case "user":
+					m.transcript.AppendLine("» " + block.Text)
+				case "assistant":
+					m.transcript.AppendLine(block.Text)
+				}
+			}
+		}
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -276,17 +338,12 @@ func (m Model) View() string {
 }
 
 // submitTurn POSTs the user's text to /sessions/<id>/turns. The URL is
-// derived from streamURL by swapping the /events suffix for /turns. The
-// returned Cmd runs off the Update goroutine; any error is delivered as
-// a turnSubmitErrMsg so the transcript can show it without blocking.
+// derived from baseURL. The returned Cmd runs off the Update goroutine;
+// any error is delivered as a turnSubmitErrMsg so the transcript can
+// show it without blocking.
 func (m Model) submitTurn(text string) tea.Cmd {
 	return func() tea.Msg {
-		turnsURL := strings.Replace(
-			m.streamURL,
-			fmt.Sprintf("/sessions/%s/events", m.sessionID),
-			fmt.Sprintf("/sessions/%s/turns", m.sessionID),
-			1,
-		)
+		turnsURL := fmt.Sprintf("%s/sessions/%s/turns", m.baseURL, m.sessionID)
 		payload, err := json.Marshal(map[string]string{"text": text})
 		if err != nil {
 			return turnSubmitErrMsg{err: err}
