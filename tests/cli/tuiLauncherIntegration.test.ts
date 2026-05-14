@@ -472,7 +472,12 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
     expect(turnRes.status).toBe(202);
 
     let approvalSent = false;
-    let approvalPromise: Promise<Response> | null = null;
+    // Holder object: TS narrows property reads on objects more reliably than
+    // closure-mutated let bindings. After the null-check throw below, TS
+    // narrows `approvalHolder.promise` to `Promise<Response>` correctly; a
+    // bare `let approvalPromise: Promise<Response> | null` would narrow to
+    // `never` because closure mutation isn't tracked.
+    const approvalHolder: { promise: Promise<Response> | null } = { promise: null };
     const sse = openLiveSse(
       `http://127.0.0.1:${port}/sessions/${sessionId}/events`,
       (ev) => ev.event === 'turn_complete' || ev.event === 'turn_error',
@@ -487,7 +492,7 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
       // assertion below — the microtask assigning the status is not
       // guaranteed to run before `await sse.done` resolves, even though
       // today it deterministically does. Explicit synchronization here.
-      approvalPromise = fetch(
+      approvalHolder.promise = fetch(
         `http://127.0.0.1:${port}/sessions/${sessionId}/approvals/${ev.data.requestId}`,
         {
           method: 'POST',
@@ -499,10 +504,10 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
     await sse.done;
 
     expect(approvalSent).toBe(true);
-    if (approvalPromise === null) {
+    if (approvalHolder.promise === null) {
       throw new Error('approvalPromise was never assigned — permission_request did not fire');
     }
-    const approvalResponse = await approvalPromise;
+    const approvalResponse = await approvalHolder.promise;
     expect(approvalResponse.status).toBe(200);
 
     const permReq = sse.events.find((e) => e.event === 'permission_request');
