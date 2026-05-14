@@ -90,7 +90,7 @@ Each field is independent — omit any to skip that check. A budget violation fa
 
 ## Cost
 
-Goldens spawn `sov chat` against your configured provider. Each run costs whatever the agent's model + token usage runs to (typically $0.05-$0.20 per golden against claude-haiku). A full run of the four seed goldens is roughly $0.25-$0.50 against Haiku, $1-$2 against Sonnet. The budget exists so a regression in token efficiency surfaces as a CI fail rather than a quiet bill increase.
+Goldens spawn `sov` against your configured provider. Each run costs whatever the agent's model + token usage runs to (typically $0.05-$0.20 per golden against claude-haiku). A full run of the four seed goldens is roughly $0.25-$0.50 against Haiku, $1-$2 against Sonnet. The budget exists so a regression in token efficiency surfaces as a CI fail rather than a quiet bill increase.
 
 ## When to extend
 

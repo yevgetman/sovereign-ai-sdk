@@ -37,7 +37,7 @@ These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. The
 | 20 | `[ ]` | **Skill visibility filtering** | Per-turn `filterSkillRegistry` narrows the visible skill set to the active toolsets | `src/skills/visibility.ts` |
 | 21 | `[ ]` | **Goodbye summary** | Session metrics block (cost, tokens, duration, turn count) renders on REPL exit | `src/ui/sessionSummary.ts` |
 | 22 | `[ ]` | **Stall / no-op detection** | Phase 13.3 — sliding-window emits `stall_detected` trace events when the model loops or makes no progress | `src/review/stall.ts` |
-| 23 | `[x]` (M4 — 2026-05-14) | **Full CLI flag forwarding** | Every flag accepted by `sov chat` (`--provider`, `--model`, `--max-tokens`, `--permission-mode`, `--resume`, `--db`, `--no-cache`, `--no-preflight`, `--transcript`, `-v`, `--legacy-input`, `--capture-fixture`, `--replay-fixture`, `--agent`, `--state-dir`) must reach the new foreground entry-point | `src/main.ts` — chat subcommand action handler |
+| 23 | `[x]` (M4 — 2026-05-14) | **Full CLI flag forwarding** | Every flag accepted by `sov` (`--provider`, `--model`, `--max-tokens`, `--permission-mode`, `--resume`, `--db`, `--no-cache`, `--no-preflight`, `--transcript`, `-v`, `--legacy-input`, `--capture-fixture`, `--replay-fixture`, `--agent`, `--state-dir`) must reach the new foreground entry-point | `src/main.ts` — chat subcommand action handler |
 | 24 | `[ ]` | **Tool-result expand registry** | `/expand [N]` re-renders the Nth-most-recent tool block with no truncation | `commandContext.expandToolBlock` wiring |
 
 ## How to use this list

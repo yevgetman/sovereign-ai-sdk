@@ -197,7 +197,7 @@ The shipped default bundle is vendor-neutral: a coding-assistant system prompt, 
 
 ### Eval suite (Phase 10.5 part 2a)
 
-`sov eval run` is the declarative golden-task runner that builds on top of part 1's trace + summary infrastructure. Each golden lives at `evals/goldens/*.golden.ts` exporting a `GoldenSpec`: a sandbox seed map, a prompt (or array), and a list of code assertions. `src/eval/runner.ts` spawns `sov chat` in a per-golden tempdir with isolated `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`, pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses `Tool Calls:` and `Est. Cost:` from the session-summary footer, evaluates assertions, and returns a `GoldenResult`.
+`sov eval run` is the declarative golden-task runner that builds on top of part 1's trace + summary infrastructure. Each golden lives at `evals/goldens/*.golden.ts` exporting a `GoldenSpec`: a sandbox seed map, a prompt (or array), and a list of code assertions. `src/eval/runner.ts` spawns `sov` in a per-golden tempdir with isolated `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`, pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses `Tool Calls:` and `Est. Cost:` from the session-summary footer, evaluates assertions, and returns a `GoldenResult`.
 
 `src/eval/assertions.ts` ships 12 pure assertion primitives (file state, transcript content, tool-call totals, exit code). `src/eval/budget.ts` enforces an opt-in `evals/budget.json` with four independent thresholds (`maxWallSeconds`, `maxCostUsd`, `maxToolErrors`, `minPassCount`). `src/cli/evalRun.ts` orchestrates: load goldens from a directory, filter by substring, run sequentially, print per-golden + summary report, exit non-zero on failure or budget violation.
 
@@ -205,7 +205,7 @@ The eval suite is deliberately parallel to `tests/semantic/` (which uses an LLM 
 
 ### Local-model router (Phase 10.6 part 1)
 
-`sov chat --provider router` activates `RouterProvider` (in `src/router/`), a meta-LLMProvider that wraps two child providers (one local, one frontier) and decides per-turn which to delegate to. The router lives at the LLMProvider boundary so the turn loop, orchestrator, hooks, and existing provider hardening (rate guards, credential pools) need no router-aware code paths — they see one provider with `name = 'router'`.
+`sov --provider router` activates `RouterProvider` (in `src/router/`), a meta-LLMProvider that wraps two child providers (one local, one frontier) and decides per-turn which to delegate to. The router lives at the LLMProvider boundary so the turn loop, orchestrator, hooks, and existing provider hardening (rate guards, credential pools) need no router-aware code paths — they see one provider with `name = 'router'`.
 
 `src/router/classifier.ts` runs a deterministic rule set per turn: user override > hard frontier triggers (recent tool errors ≥ 3, schema failures ≥ 2, context overflow heuristic) > default-local. When the raw output is `local-with-escalation`, the configured `escalationMode` (`ask` | `auto` | `never`) decides whether to actually escalate. Today `ask` and `never` both stay on `defaultLane`; the interactive prompt UX is deferred. `src/router/auditLogger.ts` writes append-only JSONL to `<harness-home>/router/audit.jsonl` with the lane, resolved provider/model, reason, and a SHA-256 of the prompt — raw prompt text is never logged by default.
 

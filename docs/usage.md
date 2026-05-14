@@ -108,21 +108,21 @@ sov --no-cache
 | `chat` *(deprecated keyword)* | Same as bare `sov`. Typing `sov chat` explicitly prints a deprecation warning on stderr recommending bare `sov` (interactive) or `sov dispatch` (headless). The keyword still works for now. |
 | `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive REPL; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires the interactive REPL"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
 | `mission init <dir> --goal "..."` | (Phase 13.5.) Bootstrap a scheduled-mission directory at `<dir>` with `mission.md` (goal + plan template), `state.json` (FSM initial state), `notes.md`, and the `.lock/` subdir. Refuses to overwrite an existing mission dir. |
-| `mission run --state-dir <dir>` | (Phase 13.5.) Non-interactive scheduled-mission wake. Runs one mission cycle (load state → check FSM gate → inject mission segments → invoke `scheduled-mission` agent → parse `MISSION_TRANSITION=<state>` sentinel → append wake-log → atomic state write-back → release lock). Exits with `[mission] state is 'complete' (terminal) — nothing to do` if the FSM is in a terminal state. Designed for launchd / cron invocation. The interactive equivalent `sov chat --agent scheduled-mission --state-dir <dir>` still works. |
+| `mission run --state-dir <dir>` | (Phase 13.5.) Non-interactive scheduled-mission wake. Runs one mission cycle (load state → check FSM gate → inject mission segments → invoke `scheduled-mission` agent → parse `MISSION_TRANSITION=<state>` sentinel → append wake-log → atomic state write-back → release lock). Exits with `[mission] state is 'complete' (terminal) — nothing to do` if the FSM is in a terminal state. Designed for launchd / cron invocation. The interactive equivalent `sov --agent scheduled-mission --state-dir <dir>` still works. |
 | `daemon` | (Phase 16.0a — dormant.) Acquire a per-profile PID lock, init the daemon event bus + session cache + approval queue, emit `daemon_started`, wait for SIGTERM/SIGINT. Currently has no foreground subscriber; the intended subscriber (Phase 16.0b Ink TUI) was reverted on 2026-05-12. Functional but unused pending the eventual Phase 16.1 design. Use `harness daemon` interchangeably. |
 | `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive picker. |
 | `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
 | `trace show <session-id>` | Render the operational trace at `<harness-home>/traces/<session-id>.jsonl` as a high-signal summary: header (provider/model/cwd/bundle), per-turn breakdown (provider request/response with usage + latency + TTFT, permission decisions, tool durations + output sizes), microcompact + loop_detected events, and the terminal session_end reason. |
-| `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov chat` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
-| `init [--force]` | (Phase 10.8.) Bootstrap the current directory into a real harness bundle. Writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. After `sov init`, running `sov chat` from the same directory auto-discovers the new bundle via the upward `index.yaml` walk. |
+| `eval run [--filter] [--budget] [--include-slow] [--compare] [--capture] [--replay]` | Run declarative goldens from `evals/goldens/*.golden.ts` against a live `sov` subprocess. Each golden seeds a sandbox, pipes a prompt, and evaluates code assertions (`fileExists`, `agentResponseContains`, `noToolErrors`, etc.). `evals/budget.json` is opt-in and enforces total wall-time / cost / pass-count thresholds. `--compare provider1,provider2,...` runs each golden once per provider and prints a grid. `--capture <dir>` writes a deterministic-replay fixture per golden; `--replay <dir>` re-runs goldens against captured fixtures with no LLM calls. Exit code 1 on any failure. See [Eval Suite](#eval-suite). |
+| `init [--force]` | (Phase 10.8.) Bootstrap the current directory into a real harness bundle. Writes a minimal `index.yaml` + `business/README.md` (seeded from `<cwd>/README.md` when present, else a stub) + empty `harness/schemas/` + `state/` + `skills/`. Refuses to overwrite an existing `index.yaml` unless `--force` is passed. After `sov init`, running `sov` from the same directory auto-discovers the new bundle via the upward `index.yaml` walk. |
 | `learning status [--project <id>]` | (Phase 13.4.) Show per-project instinct counts + confidence histogram for the current (or specified) project. |
 | `learning prune [--project <id>] [--dry-run]` | (Phase 13.4.) Drop sub-threshold instincts that have exceeded their aging window. `--dry-run` lists candidates without deleting. |
 | `learning export <project-id> [--output <dir>]` | (Phase 13.4.) Emit each instinct as a `.md` file into `<dir>` (defaults to `./instincts-export`). Useful for external review or archiving. |
 
 ## Eval Suite
 
-`sov eval run` is the declarative golden-test runner. Each golden lives at `evals/goldens/*.golden.ts` and exports a `GoldenSpec` describing a sandbox to spin up, a prompt (or array for multi-turn), and a list of code assertions. The runner spawns a fresh `sov chat` subprocess per golden in an isolated tempdir (separate `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`), pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses tool-call totals + cost from the session-summary footer, and evaluates the assertions.
+`sov eval run` is the declarative golden-test runner. Each golden lives at `evals/goldens/*.golden.ts` and exports a `GoldenSpec` describing a sandbox to spin up, a prompt (or array for multi-turn), and a list of code assertions. The runner spawns a fresh `sov` subprocess per golden in an isolated tempdir (separate `HARNESS_HOME` / `HARNESS_CONFIG` / `sessions.db`), pipes the prompt + `/quit` into stdin, captures stdout/stderr, parses tool-call totals + cost from the session-summary footer, and evaluates the assertions.
 
 ```bash
 # Run every golden, default budget at evals/budget.json:
@@ -151,7 +151,7 @@ sov eval run --replay  /tmp/golden-fixtures            # no LLM calls
 
 **Capture / replay.** `--capture <dir>` records a `ReplayFixture` per golden at `<dir>/<id>.fixture.json` while running live. `--replay <dir>` skips `resolveProvider` entirely and replays each golden against its captured fixture using `ReplayProvider` + `wrapToolsForReplay` — the agent loop, orchestrator, permission gates, hooks, and tool dispatch all run unchanged; only the provider + tool call boundaries are stubbed. The replay path makes no LLM calls and needs no API keys, so it's CI-safe. Goldens whose fixture is missing during replay are reported as aborted. The two flags are mutually exclusive.
 
-The same primitives are exposed on the chat command directly: `sov chat --capture-fixture <path>` writes a single-session fixture; `sov chat --replay-fixture <path>` runs a single session against one. Useful for hand-crafted reproduction scenarios outside the eval suite.
+The same primitives are exposed at the top level: `sov --capture-fixture <path>` writes a single-session fixture; `sov --replay-fixture <path>` runs a single session against one. Useful for hand-crafted reproduction scenarios outside the eval suite.
 
 **Budget JSON.** `evals/budget.json` is opt-in. Four thresholds, all independent — omit any to skip:
 ```json
@@ -175,7 +175,7 @@ See `evals/README.md` for the full format documentation and seed-golden examples
 
 ## Local-Model Router
 
-`sov chat --provider router` activates a meta-provider that picks per turn between a configured **local** lane and a **frontier** lane. Every decision lands in `<harness-home>/router/audit.jsonl` so you can prove after the fact that data only left the box on turns where you expected it to.
+`sov --provider router` activates a meta-provider that picks per turn between a configured **local** lane and a **frontier** lane. Every decision lands in `<harness-home>/router/audit.jsonl` so you can prove after the fact that data only left the box on turns where you expected it to.
 
 **Configure it once** (`sov config set router.localProvider ollama` etc., or edit `<harness-home>/config.json`):
 
@@ -195,7 +195,7 @@ See `evals/README.md` for the full format documentation and seed-golden examples
 **Run it:**
 
 ```bash
-sov chat --provider router
+sov --provider router
 ```
 
 **How it routes.** The classifier is deterministic and conservative:
@@ -251,29 +251,29 @@ Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt
 
 - **Drop an override at `<harness-home>/default-bundle/`.** Same shape as `bundle-default/` (an `index.yaml`, a `business/`, a `harness/`, a `state/`, optionally `skills/`). Lives outside the runtime install, so it survives upgrades. Useful for tweaking the system prompt or adding skills you want available everywhere.
 
-- **Graduate a directory into a real bundle with `sov init`.** Run from the project root; writes a minimal skeleton (`index.yaml` + `business/README.md` seeded from your repo's `README.md` if present + empty `harness/`, `state/`, `skills/`). After `sov init`, running `sov chat` from inside that directory discovers the bundle via the upward walk — no `--bundle` flag needed.
+- **Graduate a directory into a real bundle with `sov init`.** Run from the project root; writes a minimal skeleton (`index.yaml` + `business/README.md` seeded from your repo's `README.md` if present + empty `harness/`, `state/`, `skills/`). After `sov init`, running `sov` from inside that directory discovers the bundle via the upward walk — no `--bundle` flag needed.
 
 `sov init` refuses to overwrite an existing `index.yaml` unless `--force` is passed.
 
 ```bash
 # Run sov anywhere; the default bundle backs you up:
 cd /tmp
-sov chat
+sov
 
 # Graduate the current directory into a real bundle:
 cd ~/code/my-project
 sov init
-sov chat   # picks up the new bundle automatically
+sov   # picks up the new bundle automatically
 ```
 
 The corpus generator inside `sov init` is intentionally minimal in v1 — it seeds `business/README.md` from the cwd's `README.md` and that's it. Richer repo-aware seeding (file-tree summary, language/framework detection, dependency inference) is queued as a separate design session.
 
 ## Profiles
 
-A profile is a named state-root scope. `sov -p work chat …` (or `sov --profile=work chat …`) pins the run to `<harness-home>/profiles/work/` instead of `<harness-home>/`, giving it a separate `config.json`, `credentials.json`, `sessions.db`, `rate_limits/`, memory, and skills. The same machine can host disjoint setups — work, personal, lab, per-client — without aliasing.
+A profile is a named state-root scope. `sov -p work …` (or `sov --profile=work …`) pins the run to `<harness-home>/profiles/work/` instead of `<harness-home>/`, giving it a separate `config.json`, `credentials.json`, `sessions.db`, `rate_limits/`, memory, and skills. The same machine can host disjoint setups — work, personal, lab, per-client — without aliasing.
 
 **Activating a profile.** Two shapes:
-- **Per-invocation:** `sov -p work chat …` — affects this run only.
+- **Per-invocation:** `sov -p work …` — affects this run only.
 - **Persisted:** `sov profile use work` writes `<harness-home>/active-profile`; subsequent `sov` calls (without `-p`) inherit it. `sov profile use default` clears it.
 
 The `default` name is reserved — it maps to `<harness-home>/` itself (the pre-Phase-10.7 unscoped root). `sov profile create default` is rejected.
@@ -300,26 +300,26 @@ The `default` name is reserved — it maps to `<harness-home>/` itself (the pre-
 
 **Footgun pattern (override silently ignored):**
 ```bash
-HARNESS_HOME=/tmp/test-home printf 'prompt\n/quit\n' | sov chat ...
+HARNESS_HOME=/tmp/test-home printf 'prompt\n/quit\n' | sov ...
 ```
-Here `HARNESS_HOME` binds only to `printf`. The downstream `sov chat` process runs with the default `HARNESS_HOME` (typically `~/.harness/`) and silently ignores the override. Symptoms: state writes land in `~/.harness/` instead of your sandbox; expected per-test config (e.g. `learning.synthesizerEveryN: 2`) is not applied; tests that depend on isolated state appear to pass while polluting the live harness home.
+Here `HARNESS_HOME` binds only to `printf`. The downstream `sov` process runs with the default `HARNESS_HOME` (typically `~/.harness/`) and silently ignores the override. Symptoms: state writes land in `~/.harness/` instead of your sandbox; expected per-test config (e.g. `learning.synthesizerEveryN: 2`) is not applied; tests that depend on isolated state appear to pass while polluting the live harness home.
 
 **Correct patterns:**
 ```bash
 # (a) export in the current shell — preferred
 export HARNESS_HOME=/tmp/test-home
-printf 'prompt\n/quit\n' | sov chat ...
+printf 'prompt\n/quit\n' | sov ...
 
 # (b) pipe stdin from a file or heredoc, assign env only to sov
-HARNESS_HOME=/tmp/test-home sov chat ... < input.txt
+HARNESS_HOME=/tmp/test-home sov ... < input.txt
 
 # (c) repeat the var on each command in the pipeline
-HARNESS_HOME=/tmp/test-home printf 'prompt\n/quit\n' | HARNESS_HOME=/tmp/test-home sov chat ...
+HARNESS_HOME=/tmp/test-home printf 'prompt\n/quit\n' | HARNESS_HOME=/tmp/test-home sov ...
 ```
 
 Pattern (a) is preferred — single assignment, unambiguous scope, works correctly in subshells. Pattern (b) avoids the pipeline entirely by redirecting stdin from a file, so the env var only needs to appear once on `sov`. Pattern (c) works but requires duplicating the var on every pipeline stage.
 
-**Why this happens:** the `VAR=value cmd` prefix syntax binds `VAR` only to `cmd`, not to the rest of a pipeline. Each command in a pipeline runs in its own subshell with its own environment. `printf` gets the override; `sov chat` does not.
+**Why this happens:** the `VAR=value cmd` prefix syntax binds `VAR` only to `cmd`, not to the rest of a pipeline. Each command in a pipeline runs in its own subshell with its own environment. `printf` gets the override; `sov` does not.
 
 ## REPL UX
 
@@ -673,7 +673,7 @@ What this does NOT cover:
 
 To disable for testing or debugging:
 ```bash
-HARNESS_REDACTION=off sov chat
+HARNESS_REDACTION=off sov
 ```
 
 Source: `src/permissions/secretRedactor.ts` (detector), `src/permissions/inputTransformer.ts` (wrapper), `src/permissions/redactSecretsTransformer.ts` (Write/Edit/NotebookEdit field bridge).

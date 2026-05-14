@@ -10,6 +10,17 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M4 critical correctness shipped
 
+### 2026-05-14 · Pre-commit gate after `sov chat` modernization
+
+**Scope:** Verified the harness was unaffected by the docs-only modernization of the deprecated `sov chat` keyword. Bulk `replace_all` across `docs/usage.md`, `docs/architecture.md`, `evals/README.md`, and one occurrence in `docs/backlog/phase-16-rebuild-prereqs.md`. The deprecation row in `docs/usage.md:108` is preserved (documents the deprecation itself); historical files (`testing-log.md`, `CHANGELOG.md`, `state/archive/`, `plans/`, `specs/`, `post-phase-13-4.md`) left untouched.
+
+**Commands:**
+- `bun run lint` — clean (same 2 pre-existing warnings).
+- `bun run typecheck` — clean.
+- `bun run test` — **1873/1873 passing** in 12.17s.
+
+**Result:** No regressions. Docs-only; no `sov upgrade` required.
+
 ### 2026-05-14 · Pre-commit gate after Progressive Disclosure docs restructure
 
 **Scope:** Verified the harness was unaffected by the docs-only Progressive Disclosure restructure (commits `5264aaa`, `2c3ec74`, `d7e2201`): new `docs/conventions/` directory, new `docs/design-principles.md`, lean CLAUDE.md/AGENTS.md (~100 lines, down from 216), pruned README.md, stale state-file path fixes.
