@@ -351,12 +351,12 @@ Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-ag
 
 ### 25. Server-side `SubagentScheduler` does not receive `availableProviders`
 
-- Priority: P3
+- Priority: **P2** (bumped from P3 after empirical confirmation during M5 manual smoke 2026-05-14)
 - Status: open
-- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up)
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up); confirmed user-visible during M5 manual smoke scenario 3
 - Recommendation: `buildRuntime` in `src/server/runtime.ts` constructs `SubagentScheduler` without threading `availableProviders` from `userSettings`. terminalRepl reads `userSettings.providers.available` (or the equivalent) and passes it through so the scheduler's lane planner skips providers the user doesn't have credentials for. Server-side, the scheduler currently defaults to all four (`anthropic`, `openai`, `openrouter`, `ollama`) and may attempt to dispatch to a provider that will fail at the first auth check.
-- Evidence: terminalRepl's scheduler construction site (lines ~879-955) reads `availableProviders` from the settings cascade; `buildRuntime`'s equivalent call site does not.
-- Impact: Sub-agent dispatch can pick an unconfigured provider and fail visibly at the auth boundary. The failure is recoverable (the parent agent sees the error and retries on a different provider), but it's avoidable noise.
+- Evidence: terminalRepl's scheduler construction site (lines ~879-955) reads `availableProviders` from the settings cascade; `buildRuntime`'s equivalent call site does not. **2026-05-14 manual smoke:** with parent on `anthropic/claude-haiku-4-5`, dispatching the `explore` subagent routed the child to `ollama/llama3.1:70b` (capability-profile default for `role: explore`); on a machine without that local model the child errored immediately and the parent gracefully degraded to running Bash itself. Sessions table at `~/.harness/sessions.db` shows the parent_session_id linkage is correct — only the provider/model choice is wrong.
+- Impact: Sub-agent dispatch picks an unconfigured provider and fails at the first auth check. Recoverable (parent gracefully falls back) but visibly degrades the sub-agent feature for users without ollama configured. **This is the first user-visible parity gap surfaced post-M5; recommend addressing in M6 prep work or as an isolated M5.1 fix.**
 - Likely code areas:
   - `src/server/runtime.ts` (`buildRuntime` — `SubagentScheduler` construction)
   - `src/runtime/scheduler.ts` (verify the parameter name matches terminalRepl's call signature)

@@ -10,6 +10,18 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M5 user-noticed group shipped
 
+### 2026-05-14 · M5 manual smoke Group B — user-driven (modal visual + real-Anthropic sub-agent)
+
+**Scope:** User-driven completion of the M5 manual smoke checklist after the autonomous Group A pass. Scenarios 2 (modal visual) and 3 (sub-agent against real Anthropic) — the parts that required eyes on a real terminal.
+
+**Scenario 2 — yellow permission modal:** ✅ User confirmed modal renders centered with `[y]/[N]/[a]` choices and round-trips correctly. First attempt used `ls -la /tmp | head -3` which self-allowed via Bash's read-only allowlist (modal never fired — instructor error in the smoke guide, not a regression). Re-run with `mkdir /tmp/sov-m5-modal-test` succeeded.
+
+**Scenario 3 — explore subagent end-to-end:** ✅ M5 sub-agent wiring confirmed working empirically. Sessions table at `~/.harness/sessions.db` shows parent session (`8da173f5`, anthropic/claude-haiku-4-5) spawning two child sessions (`567d8160`, `7688bfcf`) titled `subagent:explore` with correct `parent_session_id` linkage at 18:15. Same pattern in earlier 18:06 run (`d653cf80` → `434ffbba`). T6's `createChildSession` factory firing exactly as designed.
+
+**Surfaced empirical confirmation of T6 parity gap (backlog item 25):** Children dispatched to `ollama/llama3.1:70b` because `availableProviders` is not threaded from `userSettings` to `SubagentScheduler` in server-mode `buildRuntime`. Capability-profile resolution picks the cheapest model for `role: explore` from the four-provider default list, landing on ollama. On a machine without that local model, the child errors immediately and the parent gracefully falls back to running Bash itself. Backlog item 25 bumped from P3 → P2 with the new evidence and a recommendation to address as an M5.1 fix or M6 prep work.
+
+**Net:** M5 ships at the wiring layer. One follow-up gap empirically confirmed and tracked.
+
 ### 2026-05-14 · M5 autonomous manual-smoke pass (Group A)
 
 **Scope:** Autonomously verifiable subset of the M5 manual smoke checklist — Scenario 1 (hooks fire) full path against the actual `sov` binary post-`sov upgrade`, Scenario 3 (sub-agent wiring) bare-turn proof against the binary, and the M5 integration test suite (`tests/cli/tuiLauncherIntegration.test.ts`) as the wire-level proof for all 3 scenarios.
