@@ -51,6 +51,9 @@ export type RuntimeOptions = {
    *  buildRuntime falls back to the same cascade terminalRepl uses:
    *  layered permission settings → user `config.json` → `'default'`. */
   permissionMode?: PermissionMode;
+  /** Explicit session DB path override. When omitted, opens at
+   *  <harnessHome>/sessions.db — the same default terminalRepl uses. */
+  dbPath?: string;
 };
 
 export type Runtime = {
@@ -121,11 +124,17 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   });
   const provider = resolved.transport;
 
-  // M3 keeps the session DB in-process and ephemeral. A real on-disk DB
-  // under harnessHome lands when the server gets multi-session support
-  // and persistent resume; until then the in-memory store mirrors the
-  // SQLite shape so SessionDb.createSession() / saveMessage() work.
-  const sessionDb = SessionDb.open({ path: ':memory:' });
+  // On-disk session DB. terminalRepl opens the same DB at
+  // <harnessHome>/sessions.db by default; the --db CLI flag overrides
+  // both surfaces identically (Postmortem Rule 1: parity, not parallel
+  // semantics). cleanupPhantomReviews sweeps stale review-fork rows
+  // from prior session crashes; mirrors terminalRepl.ts:402-405.
+  const sessionDb =
+    opts.dbPath !== undefined ? SessionDb.open({ path: opts.dbPath }) : SessionDb.open({});
+  const phantomsCleaned = sessionDb.cleanupPhantomReviews();
+  if (phantomsCleaned > 0) {
+    process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
+  }
 
   // Permission cascade — mirrors terminalRepl so the user's
   // `~/.harness/config.json` `permissionMode` is honored by the server

@@ -3,7 +3,7 @@
 // additive form (terminalRepl is untouched per Postmortem Rule 1).
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildRuntime } from '../../src/server/runtime.js';
@@ -108,6 +108,84 @@ describe('buildRuntime', () => {
       delete process.env.SOV_TEST_MOCK_PROVIDER;
       // biome-ignore lint/performance/noDelete: same.
       delete process.env.HARNESS_CONFIG;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('buildRuntime — Task 1 — on-disk SessionDb', () => {
+  test('opens sessionDb at opts.dbPath when supplied (persists across opens)', async () => {
+    const home = join(tmpdir(), `m4-task1-${Date.now()}`);
+    const dbPath = join(home, 'custom.db');
+    const runtime = await buildRuntime({
+      cwd: process.cwd(),
+      provider: 'mock',
+      harnessHome: home,
+      dbPath,
+    });
+    const sessionId = runtime.sessionDb.createSession({
+      model: 'mock',
+      provider: 'mock',
+      systemPrompt: [],
+      metadata: {},
+    });
+    await runtime.dispose();
+    try {
+      const { SessionDb } = await import('../../src/agent/sessionDb.js');
+      const reopened = SessionDb.open({ path: dbPath });
+      try {
+        expect(reopened.getSession(sessionId)?.sessionId).toBe(sessionId);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('falls back to <harnessHome>/sessions.db when dbPath omitted', async () => {
+    const home = join(tmpdir(), `m4-task1b-${Date.now()}`);
+    const prevEnv = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = home;
+    try {
+      const runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      try {
+        runtime.sessionDb.createSession({
+          model: 'mock',
+          provider: 'mock',
+          systemPrompt: [],
+          metadata: {},
+        });
+        expect(existsSync(join(home, 'sessions.db'))).toBe(true);
+      } finally {
+        await runtime.dispose();
+      }
+    } finally {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      if (prevEnv === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevEnv;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('runs cleanupPhantomReviews at boot', async () => {
+    const home = join(tmpdir(), `m4-task1c-${Date.now()}`);
+    const runtime = await buildRuntime({
+      cwd: process.cwd(),
+      provider: 'mock',
+      harnessHome: home,
+    });
+    try {
+      // No assertions on count — the DB is fresh and has zero phantoms.
+      // The test pins that cleanupPhantomReviews() is reachable (no
+      // throw) at boot. Subsequent calls return 0 against a clean DB.
+      expect(runtime.sessionDb.cleanupPhantomReviews()).toBe(0);
+    } finally {
+      await runtime.dispose();
       rmSync(home, { recursive: true, force: true });
     }
   });
