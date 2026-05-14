@@ -17,6 +17,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
+// Empirically: server bind on loopback takes <10ms on a typical macOS
+// dev machine, and the test's fetch round-trip is <50ms. 100ms gives
+// the poll loop + fetch ample headroom before the spawn-mock emits
+// the synthetic 'exit' event.
+const MOCK_CHILD_EXIT_DELAY_MS = 100;
+
 describe('runTuiLauncher — end-to-end smoke', () => {
   let prevSovTuiBin: string | undefined;
   let realRuntimeModule: typeof import('../../src/server/runtime.js');
@@ -38,6 +44,10 @@ describe('runTuiLauncher — end-to-end smoke', () => {
     // Defensive re-pin: previous test files in the same `bun test` run
     // may have mocked these. mock.module() invalidates the cache, so
     // re-mocking back to the real module forces fresh imports.
+    // TODO(bun>1.3.13): if mock.module() cross-file leakage is fixed
+    // upstream, this defensive re-pin becomes safe to remove. The file-
+    // scope cleanup in tests/cli/tuiLauncher.test.ts should also be re-
+    // evaluated at the same time.
     mock.module('../../src/server/runtime.js', () => realRuntimeModule);
     mock.module('../../src/server/index.js', () => realServerModule);
   });
@@ -54,6 +64,13 @@ describe('runTuiLauncher — end-to-end smoke', () => {
     mock.restore();
   });
 
+  // TODO: this test relies on runTuiLauncher's own settle/dispose path to
+  // stop the in-process server. If the poll loop times out or the launch
+  // promise hangs, an orphaned server could remain bound on the chosen
+  // port for the rest of the test process's lifetime. The 100ms exit
+  // timer + 5s poll deadline make this unlikely in practice, but a
+  // dedicated harness helper that exposes server lifecycle to the test
+  // would be cleaner — defer to a future test infra refactor.
   test('builds real runtime + server, spawns child with --port and --session-id, server reachable', async () => {
     let spawnedArgs: string[] | null = null;
     let serverPort: number | null = null;
@@ -74,7 +91,7 @@ describe('runTuiLauncher — end-to-end smoke', () => {
         const child = new EventEmitter();
         // Defer the exit so we have time to fetch from the live server
         // before runTuiLauncher tears it down.
-        setTimeout(() => child.emit('exit', 0), 100);
+        setTimeout(() => child.emit('exit', 0), MOCK_CHILD_EXIT_DELAY_MS);
         return child;
       },
     }));
@@ -99,7 +116,8 @@ describe('runTuiLauncher — end-to-end smoke', () => {
       }, 10);
     });
 
-    const args = spawnedArgs as unknown as string[];
+    // biome-ignore lint/style/noNonNullAssertion: poll loop guarantees non-null before reaching here
+    const args = spawnedArgs!;
     const sessionIdIdx = args.indexOf('--session-id');
     const sessionId = args[sessionIdIdx + 1];
     expect(typeof sessionId).toBe('string');
