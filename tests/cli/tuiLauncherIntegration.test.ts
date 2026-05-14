@@ -472,7 +472,7 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
     expect(turnRes.status).toBe(202);
 
     let approvalSent = false;
-    let approvalResponseStatus = 0;
+    let approvalPromise: Promise<Response> | null = null;
     const sse = openLiveSse(
       `http://127.0.0.1:${port}/sessions/${sessionId}/events`,
       (ev) => ev.event === 'turn_complete' || ev.event === 'turn_error',
@@ -482,18 +482,28 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
       if (ev.event !== 'permission_request') return;
       if (ev.data === null || ev.data.type !== 'permission_request') return;
       approvalSent = true;
-      void fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/approvals/${ev.data.requestId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved: true }),
-      }).then((res) => {
-        approvalResponseStatus = res.status;
-      });
+      // Capture the fetch promise so we can await it alongside the SSE drain.
+      // Fire-and-forget (`void fetch(...).then(...)`) would race the
+      // assertion below — the microtask assigning the status is not
+      // guaranteed to run before `await sse.done` resolves, even though
+      // today it deterministically does. Explicit synchronization here.
+      approvalPromise = fetch(
+        `http://127.0.0.1:${port}/sessions/${sessionId}/approvals/${ev.data.requestId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: true }),
+        },
+      );
     });
     await sse.done;
 
     expect(approvalSent).toBe(true);
-    expect(approvalResponseStatus).toBe(200);
+    if (approvalPromise === null) {
+      throw new Error('approvalPromise was never assigned — permission_request did not fire');
+    }
+    const approvalResponse = await approvalPromise;
+    expect(approvalResponse.status).toBe(200);
 
     const permReq = sse.events.find((e) => e.event === 'permission_request');
     expect(permReq).toBeDefined();

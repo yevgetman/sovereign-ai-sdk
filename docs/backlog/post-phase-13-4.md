@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-08. Runtime close-out reached `4789de7`; post-closeout docs-only baseline `526610c` is 1717/1717 unit + 58/58 semantic. Items 1-11, 14-16, 18-23 closed across seven batches. Remaining open: 12, 13, 17, 24. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed).
+**Last sync:** 2026-05-14. Runtime close-out reached `4789de7`; post-closeout docs-only baseline `526610c` is 1717/1717 unit + 58/58 semantic. Items 1-11, 14-16, 18-23 closed across seven batches. Items 25-29 added 2026-05-14 from Phase 16.1 M5 close-out (T6/T7/T9 follow-ups deferred from in-scope construction work). Remaining open: 17, 25, 26, 27, 28, 29. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-29 originated from the Phase 16.1 M5 T10 code-quality review (server-side sub-agent + permission round-trip + Go TUI permission modal).
 
 ## Priority order
 
@@ -32,6 +32,9 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 12. Microcompaction (Phase 10 deepening)
 13. Shell AST analysis (Phase 7 deepening)
 24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control **[soak 2026-05-07]**
+25. Server-side `SubagentScheduler` does not receive `availableProviders` **[M5 T6 2026-05-14]**
+26. Server-side `SubagentScheduler` does not receive `artifactsRoot` (per-child trajectory capture disabled) **[M5 T6 2026-05-14]**
+27. Server-side `LaneSemaphores` cap config not wired from settings (caps default unbounded) **[M5 T6 2026-05-14]**
 
 P4 (small ergonomics + nits):
 14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
@@ -41,6 +44,8 @@ P4 (small ergonomics + nits):
 18. ~~Glob inline tool block: count footer drifts vs. summary line~~ **[soak 2026-05-07] — closed `d52fb75` (footer reads canonical count from envelope summary)**
 20. ~~`HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs)~~ **[soak 2026-05-07] — closed `e677676`**
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
+28. Server-side TaskManager not wired to `DaemonEventBus` (live task events skip daemon publishing) **[M5 T7 2026-05-14]**
+29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal **[M5 T9 2026-05-14]**
 
 ---
 
@@ -340,11 +345,80 @@ Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that e
 
 ---
 
+## Items discovered during Phase 16.1 M5 close-out (2026-05-14)
+
+Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-agent + permission round-trip + Go TUI permission modal). All are construction-scope gaps versus terminalRepl's mature wiring — deferred to keep M5 a focused construction milestone, not blocked work. None affect the M5 acceptance criteria; the server-side TUI launcher is functional with the current defaults. Land alongside the broader server-side settings-cascade work (M6 or later) or as part of the parity audit before the `--ui tui` default-flip.
+
+### 25. Server-side `SubagentScheduler` does not receive `availableProviders`
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up)
+- Recommendation: `buildRuntime` in `src/server/runtime.ts` constructs `SubagentScheduler` without threading `availableProviders` from `userSettings`. terminalRepl reads `userSettings.providers.available` (or the equivalent) and passes it through so the scheduler's lane planner skips providers the user doesn't have credentials for. Server-side, the scheduler currently defaults to all four (`anthropic`, `openai`, `openrouter`, `ollama`) and may attempt to dispatch to a provider that will fail at the first auth check.
+- Evidence: terminalRepl's scheduler construction site (lines ~879-955) reads `availableProviders` from the settings cascade; `buildRuntime`'s equivalent call site does not.
+- Impact: Sub-agent dispatch can pick an unconfigured provider and fail visibly at the auth boundary. The failure is recoverable (the parent agent sees the error and retries on a different provider), but it's avoidable noise.
+- Likely code areas:
+  - `src/server/runtime.ts` (`buildRuntime` — `SubagentScheduler` construction)
+  - `src/runtime/scheduler.ts` (verify the parameter name matches terminalRepl's call signature)
+- Effort: ~30 min — settings-cascade lookup + parameter threading, mirrors terminalRepl's pattern exactly.
+
+### 26. Server-side `SubagentScheduler` does not receive `artifactsRoot`
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up)
+- Recommendation: `buildRuntime` does not pass `artifactsRoot` to `SubagentScheduler`, which disables per-child trajectory capture in server mode. terminalRepl sets `artifactsRoot: <harnessHome>/artifacts/` so each child writes `samples.jsonl` + `failed.jsonl` under the artifacts tree, feeding the offline learning / review pipelines. Server-mode sessions silently skip this capture.
+- Evidence: terminalRepl threads `artifactsRoot` through the scheduler options; server `buildRuntime` omits the option entirely.
+- Impact: Learning / review pipelines lose visibility into sub-agent trajectories from server-mode sessions. Phase 13.3's review daemon and Phase 13.4's instinct corpus both depend on this data; the gap means M5-launched sessions don't contribute to the offline corpus.
+- Likely code areas:
+  - `src/server/runtime.ts` (`buildRuntime` — `SubagentScheduler` construction)
+- Effort: ~15 min — same shape as item 25, single-parameter add.
+
+### 27. Server-side `LaneSemaphores` cap config not wired from settings
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up)
+- Recommendation: `buildRuntime` constructs `new LaneSemaphores({})` (empty caps = unbounded). terminalRepl reads `userSettings.router.maxConcurrentLocal` and `userSettings.router.maxConcurrentFrontier` and passes them through so production deployments can throttle concurrent sub-agent dispatch per lane. Server-mode runs are effectively uncapped today.
+- Evidence: terminalRepl's `LaneSemaphores` construction reads from `userSettings.router.*`; the server-mode equivalent passes `{}`.
+- Impact: Production server deployments cannot configure concurrency caps via `settings.json`. Acceptable for v0 (single-user local sessions where unbounded is fine — there's no real fan-out yet), but the moment a deployment runs more than one parallel agent dispatch, the caps matter for rate-limit / cost control.
+- Likely code areas:
+  - `src/server/runtime.ts` (`buildRuntime` — `LaneSemaphores` construction)
+  - `src/config/schema.ts` (verify `router.maxConcurrent{Local,Frontier}` shape is settled)
+- Effort: ~30 min — settings-cascade lookup + two-parameter pass through.
+
+### 28. Server-side TaskManager not wired to `DaemonEventBus`
+
+- Priority: P4
+- Status: open
+- Source: Phase 16.1 M5 T10 code-quality review (T7 follow-up)
+- Recommendation: `buildRuntime` constructs `TaskManager` without subscribing the daemon event bus. terminalRepl's TaskManager publishes lifecycle events (`task_started`, `task_completed`, `task_failed`) onto `DaemonEventBus` so the Phase 16.0a daemon (currently dormant) and any future review/learning consumers can subscribe. Server-mode TaskManager today only emits events onto the parent session's SSE feed; nothing outside the live session sees them.
+- Evidence: terminalRepl's TaskManager construction includes a `DaemonEventBus` subscriber wiring step; `buildRuntime` omits it.
+- Impact: M5 is unaffected (the daemon is dormant; no subscriber exists yet). Becomes a real gap when M7's review/learning subsystems land in server mode — they'll need the daemon-bus integration to fire.
+- Likely code areas:
+  - `src/server/runtime.ts` (`buildRuntime` — `TaskManager` construction)
+  - `src/runtime/taskManager.ts` (verify the daemon-bus injection point)
+- Effort: ~45 min — depends on whether the daemon-bus subscriber API is settled. May overlap with the M7 review/learning wire-up; can defer until that work starts.
+
+### 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal
+
+- Priority: P4
+- Status: open
+- Source: Phase 16.1 M5 T10 code-quality review (T9 follow-up)
+- Recommendation: `packages/tui/internal/components/permission.go` calls `.Copy().Bold(true)` on a `lipgloss.Style`. The `Copy()` method is deprecated in modern lipgloss (`>= 0.10`) because `Style` values are value-type semantically — `.Bold(true)` already returns a new style without mutating the receiver. Replace `style.Copy().Bold(true)` with `style.Bold(true)` directly.
+- Evidence: lipgloss release notes mark `Copy()` deprecated; the linter on packages/tui will eventually catch this.
+- Impact: Cosmetic — no rendering difference today. Future lipgloss versions may remove `Copy()`, which would break the build.
+- Likely code areas:
+  - `packages/tui/internal/components/permission.go` (the only `Copy().Bold(true)` call introduced in T9)
+- Effort: ~5 min — single-line edit, no logic change.
+
+---
+
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 30-min slot: (none currently open)
-- 1-2 hr slot: (none currently open)
+- 30-min slot: items 25, 26, 27, 29 (M5 polish — each is single-parameter or single-line)
+- 1-2 hr slot: item 28 + the M5 batch above (one focused session)
 - Half-day slot: (none currently open)
 - Multi-day: item 17
 
