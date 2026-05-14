@@ -2,7 +2,7 @@
 
 > **Authoritative phase plan:** `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §9. This backlog enumerates the 24 subsystems any new foreground must wire; the spec assigns them to milestones M4–M8.
 
-When Phase 16 is retried (as Phase 16.1 per the open-question resolution in `docs/state/2026-05-12.md`), it must follow Rule 1 of `docs/postmortems/2026-05-12-phase-16-revert.md`: the new foreground surface ships alongside the existing one (`src/ui/terminalRepl.ts`) behind an opt-in flag, not as a replacement. This file enumerates the subsystems any new foreground surface must wire — captured here so the next attempt doesn't re-discover them through a close-out audit.
+When Phase 16 is retried (as Phase 16.1 per the open-question resolution in `docs/state/archive/2026-05-12.md`), it must follow Rule 1 of `docs/postmortems/2026-05-12-phase-16-revert.md`: the new foreground surface ships alongside the existing one (`src/ui/terminalRepl.ts`) behind an opt-in flag, not as a replacement. This file enumerates the subsystems any new foreground surface must wire — captured here so the next attempt doesn't re-discover them through a close-out audit.
 
 These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. They all exist on master today (post-revert) and are wired through `src/ui/terminalRepl.ts`. The new foreground surface must wire each one to parity before it can be considered a real alternative.
 
@@ -58,7 +58,7 @@ When designing Phase 16.1:
 ## Reference points
 
 - `docs/postmortems/2026-05-12-phase-16-revert.md` — Rules 1-4 governing this work.
-- `docs/state/2026-05-12.md` — current master state.
+- `docs/state/archive/2026-05-12.md` — Phase 16.0a / revert close-out snapshot (historical).
 - `origin/archive/ink-tui-2026-05-12` — preserved Phase 16.0b/c work, useful as a reference for the Ink architecture and the Wave 1 slash dispatch design but **not** as a starting point for the rebuild (its deletion-first lineage is exactly what we're avoiding).
 - `git show e90d54d` — the Phase 16.0b deletion commit, useful as a record of what was removed when terminalRepl went away the first time.
 - `git show 92953e2` — the orphan-module purge that compounded the deletion.

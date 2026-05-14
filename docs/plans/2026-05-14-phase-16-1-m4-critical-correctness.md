@@ -12,7 +12,7 @@
 - `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §9, §10 (M4 row)
 - `docs/backlog/phase-16-rebuild-prereqs.md` rows 6 (Session DB persistence), 9 (Preflight checks), 23 (Full CLI flag forwarding)
 - `docs/postmortems/2026-05-12-phase-16-revert.md` Rules 1–4 (terminalRepl untouched; coexistence; audit-before-flip)
-- `docs/state/2026-05-13.md` — M3 close-out (HEAD `2287a03` at plan time)
+- `docs/state/archive/2026-05-13.md` — M3 close-out (HEAD `2287a03` at plan time)
 
 **Scope guard — what M4 does NOT do:**
 - No interactive permission modal (M5). The `ask()` deny placeholder in `buildRuntime` stays.
@@ -2065,13 +2065,13 @@ git mv docs/state/2026-05-13.md docs/state/archive/2026-05-13.md
 
 - [ ] **Step 5: Write the new state snapshot**
 
-Create `docs/state/2026-05-14.md`. Use `docs/state/2026-05-13.md`'s structure verbatim: HEAD SHA + suite count + summary of "what shipped today" (M4 commits) + "what does not work / known gaps for M5+" (with permission modal, sub-agent scheduler, etc.) + behavioral notes. Pull the milestone status from the spec.
+Create `docs/state/2026-05-14.md`. Use `docs/state/archive/2026-05-13.md`'s structure verbatim: HEAD SHA + suite count + summary of "what shipped today" (M4 commits) + "what does not work / known gaps for M5+" (with permission modal, sub-agent scheduler, etc.) + behavioral notes. Pull the milestone status from the spec.
 
 - [ ] **Step 6: Update the boot-doc pointers**
 
 Edit `CLAUDE.md` and `AGENTS.md`. Find the "Session boot" section and change item 3 from:
 ```
-3. `docs/state/2026-05-13.md` — **most recent close-out snapshot**
+3. `docs/state/archive/2026-05-13.md` — **most recent close-out snapshot**
 ```
 to:
 ```
