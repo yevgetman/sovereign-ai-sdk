@@ -260,3 +260,83 @@ describe('turns route — maxTokens propagation', () => {
     }
   });
 });
+
+describe('turns route — resume hydrates model context', () => {
+  test('turns route sends prior conversation history to the model on resume', async () => {
+    const home = join(tmpdir(), `m4-resume-hydrate-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      const app = buildAppWithRuntime(runtime);
+
+      // Seed a session with two prior turns directly in sessionDb to
+      // simulate "resume after prior conversation". The bug being
+      // pinned: the turns route used to send only the new user message
+      // to the model, ignoring prior history entirely. T9 hydrated the
+      // TUI transcript visually but the model saw a fresh context.
+      const sessionId = runtime.sessionDb.createSession({
+        model: runtime.model,
+        provider: runtime.resolvedProvider.transport.name,
+        systemPrompt: runtime.systemSegments,
+        metadata: { cwd: runtime.cwd },
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: 'first turn user prompt' }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'first turn assistant response' }],
+      });
+
+      MockProvider.lastMessages = undefined;
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'second turn user prompt' }),
+      });
+      expect(turnRes.status).toBe(202);
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      await eventsRes.text();
+
+      const props = MockProvider as typeof MockProvider;
+      const captured = props.lastMessages;
+      expect(captured).toBeDefined();
+      // The model should see at least the 2 prior turns + the new user
+      // turn = 3 messages. query() may normalize/dedupe further but the
+      // core invariant is "prior history reached the provider". A bare
+      // `[userMessage]` would produce length=1, which is exactly what we're
+      // pinning against.
+      const msgs = captured ?? [];
+      expect(msgs.length).toBeGreaterThanOrEqual(3);
+      // First two messages preserve the seeded history in order.
+      const firstUserBlock = msgs[0]?.content[0];
+      expect(msgs[0]?.role).toBe('user');
+      expect(firstUserBlock && firstUserBlock.type === 'text' ? firstUserBlock.text : '').toBe(
+        'first turn user prompt',
+      );
+      const firstAsstBlock = msgs[1]?.content[0];
+      expect(msgs[1]?.role).toBe('assistant');
+      expect(firstAsstBlock && firstAsstBlock.type === 'text' ? firstAsstBlock.text : '').toBe(
+        'first turn assistant response',
+      );
+      // The new user turn appears somewhere in the array (order
+      // depends on query()'s internal normalization).
+      const hasNewUserTurn = msgs.some(
+        (m) =>
+          m.role === 'user' &&
+          m.content.some((b) => b.type === 'text' && b.text === 'second turn user prompt'),
+      );
+      expect(hasNewUserTurn).toBe(true);
+    } finally {
+      MockProvider.lastMessages = undefined;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

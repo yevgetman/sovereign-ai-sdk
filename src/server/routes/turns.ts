@@ -77,6 +77,17 @@ async function runTurnInBackground(
     role: userMessage.role,
     content: userMessage.content,
   });
+  // Hydrate the model's context with the full conversation history
+  // (including the user message we just persisted). T9 hydrates the TUI
+  // transcript visually on resume; this is the model-side companion.
+  // Without it, the LLM sees only the new turn and responds as if every
+  // resume is a fresh session, defeating the persistence work entirely.
+  const messages: Message[] = runtime.sessionDb.loadMessages(sessionId).map(
+    (m): Message => ({
+      role: m.role as Message['role'],
+      content: m.content,
+    }),
+  );
 
   try {
     // Cancel the in-flight provider stream + tool loop when the bus is
@@ -87,7 +98,7 @@ async function runTurnInBackground(
     const stream = query({
       provider: runtime.resolvedProvider.transport,
       model: runtime.model,
-      messages: [userMessage],
+      messages,
       systemPrompt: runtime.systemSegments,
       tools: runtime.toolPool,
       toolContext: {

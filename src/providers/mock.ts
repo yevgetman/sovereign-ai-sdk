@@ -59,6 +59,12 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  failure path without a real network call. Reset in test finally. */
   static preflightShouldFail = false;
 
+  /** Snapshot of the `messages` array passed to the most recent `stream()`
+   *  call. Resume tests assert the model received prior conversation
+   *  history (M4 regression: turns.ts used to send only the new user
+   *  message, defeating the persistence work). Reset in test finally. */
+  static lastMessages: Message[] | undefined = undefined;
+
   toProviderMessages(messages: Message[], _system?: SystemSegment[]): Message[] {
     return messages;
   }
@@ -92,6 +98,9 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     MockProvider.streamCalls += 1;
     // Record maxTokens BEFORE any branching so every code path captures it.
     MockProvider.lastMaxTokens = req.maxTokens;
+    // Snapshot the messages array so resume-history regression tests can
+    // assert the model saw prior turns.
+    MockProvider.lastMessages = req.messages;
     if (MockProvider.preflightShouldFail) {
       // Throw on consumption so preflightProvider's for-await loop sees
       // the failure and classifyProviderPreflightError returns
