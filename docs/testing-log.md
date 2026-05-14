@@ -10,6 +10,19 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M4 critical correctness shipped
 
+### 2026-05-14 · Pre-commit gate after Progressive Disclosure docs restructure
+
+**Scope:** Verified the harness was unaffected by the docs-only Progressive Disclosure restructure (commits `5264aaa`, `2c3ec74`, `d7e2201`): new `docs/conventions/` directory, new `docs/design-principles.md`, lean CLAUDE.md/AGENTS.md (~100 lines, down from 216), pruned README.md, stale state-file path fixes.
+
+**Commands:**
+- `bun run lint` — clean (2 pre-existing warnings in `src/permissions/shellSemantics.ts:219, 343`, documented in the 2026-05-14 state snapshot).
+- `bun run typecheck` — clean.
+- `bun run test` — **1873/1873 passing** in 12.28s across 210 files; 4574 expect() calls.
+
+**Result:** No regressions. Restructure is docs-only; no `src/`, `bundle-default/`, or `packages/tui/` files touched, so `sov upgrade` is not required.
+
+**Verification:** `diff CLAUDE.md AGENTS.md` produces empty output — byte-identical mirror invariant preserved.
+
 ### 2026-05-14 · Manual smoke complete (11/11) — two real regressions caught + fixed
 
 **Scope:** User completed the 3 visual/interactive scenarios (#2 resume hydration, #7 `--max-tokens 100` truncation, #11 legacy REPL) that the autonomous smoke couldn't drive. Manual smoke caught two real M4 regressions invisible to the autonomous pass; both fixed in-session with regression tests.
