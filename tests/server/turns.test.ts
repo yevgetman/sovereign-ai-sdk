@@ -195,7 +195,7 @@ describe('turns route — message persistence', () => {
       const stored = runtime.sessionDb.loadMessages(sessionId);
       // Expect at minimum: 1 user (inbound) + 1 assistant (preamble +
       // tool_use) + 1 user (tool_result) + 1 assistant ("done.") = 4.
-      expect(stored.length).toBeGreaterThanOrEqual(3);
+      expect(stored.length).toBeGreaterThanOrEqual(4);
 
       // First persisted message is the inbound user text.
       expect(stored[0]?.role).toBe('user');

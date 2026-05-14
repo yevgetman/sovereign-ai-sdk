@@ -74,9 +74,7 @@ async function runTurnInBackground(
     role: 'user',
     content: [{ type: 'text', text }],
   };
-  // Persist the inbound user message BEFORE the try block. If query()
-  // throws, the user's prompt is already in the transcript so resume
-  // surfaces what was asked even when the turn errored out.
+  // Persist before the try block so a query() failure still preserves the user's prompt in the transcript.
   runtime.sessionDb.saveMessage(sessionId, {
     role: userMessage.role,
     content: userMessage.content,
@@ -194,9 +192,7 @@ function handleAssistantMessage(
   toolPool: readonly Tool<unknown, unknown>[],
   sessionDb: SessionDb,
 ): void {
-  // Persist BEFORE emitting wire events so resume reconstructs the full
-  // assistant turn (text + tool_use blocks) even if the SSE subscriber
-  // disconnects mid-stream.
+  // Persist before emitting wire events so resume can reconstruct the full turn even if the SSE subscriber disconnects.
   sessionDb.saveMessage(sessionId, {
     role: msg.role,
     content: msg.content,
@@ -241,10 +237,7 @@ function handleUserMessage(
   sessionDb: SessionDb,
 ): void {
   if (msg.role !== 'user') return;
-  // Persist every user-role message that flows out of query() — both
-  // tool_result batches and non-tool-result guidance (e.g. loop-detector
-  // text). The next assistant turn references them, so resume must
-  // reconstruct exact prior context.
+  // Persist all user-role messages (tool_result and guidance) so resume reconstructs exact prior context.
   sessionDb.saveMessage(sessionId, {
     role: msg.role,
     content: msg.content,
