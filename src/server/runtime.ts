@@ -33,6 +33,9 @@ import type { AskResponse, AskUser, CanUseTool, PermissionMode } from '../permis
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
+import { LaneSemaphores } from '../runtime/laneSemaphores.js';
+import { SubagentScheduler } from '../runtime/scheduler.js';
+import { Semaphore } from '../runtime/semaphore.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { ApprovalQueue } from './approvalQueue.js';
@@ -172,6 +175,21 @@ export type Runtime = {
    *  point between SSE-emitted permission_request events and the TUI's
    *  POST /approvals response. */
   approvalQueue: ApprovalQueue;
+  /** Per-lane concurrency caps used by both the router (single-session
+   *  escalations) and the sub-agent scheduler (parent dispatching N
+   *  children). One instance shared across both consumers. M5 server
+   *  build wires defaults (no cap) — terminalRepl reads
+   *  `userSettings.router.maxConcurrent{Local,Frontier}` to override;
+   *  the server can adopt the same wiring once it owns settings overrides. */
+  laneSemaphores: LaneSemaphores;
+  /** Single-writer lock for write-capable children. Prevents two child
+   *  agents from racing on the same path. v0 is a single in-memory
+   *  Semaphore(1); finer-grained per-path locking lands later. */
+  writeLock: Semaphore;
+  /** Sub-agent scheduler. The turns route plumbs this onto toolContext
+   *  at query() time so AgentTool can call `scheduler.delegate(...)`
+   *  for any agent dispatch the model issues. */
+  subagentScheduler: SubagentScheduler;
   dispose: () => Promise<void>;
 };
 
@@ -332,6 +350,42 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
   });
 
+  // M5 T6 — sub-agent infrastructure. Mirrors terminalRepl.ts:879-955.
+  // The server constructs the trio at boot and exposes them on Runtime;
+  // the turns route plumbs them onto toolContext at query() time (T8).
+  //
+  // Lane caps: terminalRepl reads `userSettings.router.maxConcurrent{Local,
+  // Frontier}` to bound parallel calls per provider lane. The server
+  // build leaves them unbounded for now — adding cap forwarding here
+  // belongs with the broader settings-cascade work, not with construction.
+  // Write lock: v0 profile-scoped Semaphore(1) for write-capable children.
+  // `agents` is the registry loaded earlier; reuse it as-is. Provider/
+  // model defaults track the parent session.
+  const laneSemaphores = new LaneSemaphores({});
+  const writeLock = new Semaphore(1);
+  const subagentScheduler = new SubagentScheduler({
+    agents,
+    laneSemaphores,
+    writeLock,
+    resolveProvider: (name, model) => resolveProvider(name, model, { harnessHome }),
+    createChildSession: (input) =>
+      sessionDb.createSession({
+        provider: input.provider,
+        model: input.model,
+        parentSessionId: input.parentSessionId,
+        title: `subagent:${input.agentName}`,
+        systemPrompt: input.systemPrompt,
+        metadata: { agentName: input.agentName, kind: 'subagent' },
+      }),
+    defaultProvider: resolved.transport.name,
+    defaultModel: resolved.model,
+    maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    // Per-child trace file path mirrors terminalRepl:954: child events
+    // also land at <harnessHome>/traces/<childSessionId>.jsonl alongside
+    // the consolidated parent trace.
+    harnessHome,
+  });
+
   // M5 — permission-request approval queue. One queue per Runtime; the
   // server route and the (future) serverAsk callback share it as the
   // in-memory rendezvous between SSE-emitted permission_request events
@@ -356,6 +410,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     hookRunner,
     approvalQueue,
+    laneSemaphores,
+    writeLock,
+    subagentScheduler,
     dispose: async () => {
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
