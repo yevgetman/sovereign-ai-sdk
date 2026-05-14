@@ -117,11 +117,6 @@ function pickPermissionMode(value: unknown): 'default' | 'ask' | 'bypass' | unde
   return undefined;
 }
 
-// TODO M4+: integration test that mocks child_process.spawn + startServer
-// and exercises this function end-to-end (build runtime → start server →
-// POST /sessions → spawn child → settle on child exit). Currently only
-// findTuiBinary[From]() has coverage; the orchestration here is verified by
-// the manual smoke alone.
 export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   const binary = findTuiBinary();
   if (binary === null) {

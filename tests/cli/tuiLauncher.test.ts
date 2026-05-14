@@ -58,34 +58,53 @@ describe('findTuiBinary', () => {
 // We use bun:test's mock.module() to replace the runtime, server, and
 // child_process modules. mock.module() in bun 1.3.x invalidates the
 // import cache between calls, so re-mocking inside a test reaches a
-// freshly-loaded tuiLauncher. Real implementations are captured in
-// beforeAll and reinstated in afterAll so the mocks don't leak to other
-// test files in the suite.
+// freshly-loaded tuiLauncher.
+//
+// Real implementations are captured at FILE scope (not inside a describe)
+// and restored in the file-level afterAll below. Describe-scoped cleanup
+// fires after that describe's tests but allows later describes in the same
+// file to silently still see the leaked mocks — file scope keeps the
+// restore as the very last hook to run before subsequent test files in the
+// `bun test` run. The integration smoke in tuiLauncherIntegration.test.ts
+// also defensively re-pins its own mocks so flake risk is bounded on both
+// sides.
 //
 // NOTE: these tests override process.stderr.write to capture error
 // messages. Bun runs tests within a file serially, so the overrides
 // are safe between tests in this file. Avoid adding parallel `describe.concurrent`
 // blocks that also write to stderr.
+let realRuntimeModule: typeof import('../../src/server/runtime.js');
+let realServerModule: typeof import('../../src/server/index.js');
+let realChildProcessModule: typeof import('node:child_process');
+let realGlobalFetch: typeof fetch;
+
+beforeAll(async () => {
+  // Snapshot ENUMERABLE keys at capture time so the afterAll restore
+  // hands bun's mock registry a plain object rather than a live module
+  // namespace (which bun 1.3.13 can mutate in place).
+  const rt = await import('../../src/server/runtime.js');
+  realRuntimeModule = { ...rt } as typeof rt;
+  const sv = await import('../../src/server/index.js');
+  realServerModule = { ...sv } as typeof sv;
+  const cp = await import('node:child_process');
+  realChildProcessModule = { ...cp } as typeof cp;
+  // Capture real fetch so afterAll can restore it. Tests in this file
+  // reassign globalThis.fetch directly (per-test mock); without
+  // restoration the override persists into subsequent files in the same
+  // `bun test` run.
+  realGlobalFetch = globalThis.fetch;
+});
+
+afterAll(() => {
+  mock.module('../../src/server/runtime.js', () => realRuntimeModule);
+  mock.module('../../src/server/index.js', () => realServerModule);
+  mock.module('node:child_process', () => realChildProcessModule);
+  globalThis.fetch = realGlobalFetch;
+});
+
 describe('runTuiLauncher — flag forwarding', () => {
   let recordedBuildOpts: Record<string, unknown> | null = null;
   let prevSovTuiBin: string | undefined;
-  // Real-module references captured before any mock fires. Reinstalled
-  // in afterAll() so mock.module() side-effects don't leak across files.
-  let realRuntimeModule: typeof import('../../src/server/runtime.js');
-  let realServerModule: typeof import('../../src/server/index.js');
-  let realChildProcessModule: typeof import('node:child_process');
-
-  beforeAll(async () => {
-    realRuntimeModule = await import('../../src/server/runtime.js');
-    realServerModule = await import('../../src/server/index.js');
-    realChildProcessModule = await import('node:child_process');
-  });
-
-  afterAll(() => {
-    mock.module('../../src/server/runtime.js', () => realRuntimeModule);
-    mock.module('../../src/server/index.js', () => realServerModule);
-    mock.module('node:child_process', () => realChildProcessModule);
-  });
 
   beforeEach(() => {
     recordedBuildOpts = null;
