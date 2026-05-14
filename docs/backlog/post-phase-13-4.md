@@ -398,12 +398,25 @@ Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-ag
   - `packages/tui/internal/components/permission.go` (the only `Copy().Bold(true)` call introduced in T9)
 - Effort: ~5 min — single-line edit, no logic change.
 
+### 30. Server-mode `subagentDefaultProvider`/`subagentDefaultModel` not specialized for router mode
+
+- Priority: P4
+- Status: open
+- Source: Phase 16.1 M5.1 final whole-branch review (2026-05-14)
+- Recommendation: `buildRuntime` in `src/server/runtime.ts:455-456` passes `defaultProvider: resolved.transport.name` and `defaultModel: resolved.model` directly to `SubagentScheduler`. terminalRepl computes `subagentDefaultProvider`/`subagentDefaultModel` specially for router mode (`src/ui/terminalRepl.ts:908-917`) so child agents launched from a router-mode parent get sensible defaults instead of the literal `'router'` provider string.
+- Evidence: server-mode does NOT support `--provider router` yet (no `buildRouterResolvedProvider` equivalent in the server build), so the gap is hypothetical today. Becomes a real bug if/when router support lands in server mode.
+- Impact: Latent. M5.1's `availableProviders` fix correctly handles the router-metadata case for the available-provider list, but the default-provider/model fall-through is still uncomputed. A router-mode parent in server mode would dispatch children with `defaultProvider: 'router'` which doesn't resolve.
+- Likely code areas:
+  - `src/server/runtime.ts` (`buildRuntime` — extract `resolveSubagentDefaultProvider/Model(resolved)` alongside the M5.1 helpers, wire at the construction site)
+  - `src/ui/terminalRepl.ts:908-917` (reference pattern)
+- Effort: ~30 min — same shape as M5.1's three helpers; bundle with any future "wire router into server mode" work.
+
 ---
 
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 30-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
+- 30-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit) or item 30 (only if router server-mode is on the near roadmap)
 - 1-2 hr slot: item 28 (DaemonEventBus wiring)
 - Half-day slot: (none currently open)
 - Multi-day: item 17
