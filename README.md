@@ -6,47 +6,14 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 ## Status
 
-**Current state (2026-05-13).** Phase 16.1 M0–M3 shipped. Split-process TUI architecture is in place: `sov` (TS / Bun) hosts a localhost HTTP+SSE server (Hono); `sov-tui` (Go + Bubble Tea, in `packages/tui/`) is a separate child process that renders the foreground. `--ui tui` is opt-in; `--ui repl` (default) launches the legacy `terminalRepl.ts` unchanged per Postmortem Rule 1. Real-provider tool-use turns work end-to-end (text streaming → tool cards → final response). Unit baseline is **1841/1841**; Go test suites in `packages/tui/internal/{app,transport}/` green. Phase 14 (distribution) was dropped from the roadmap. See [`docs/state/2026-05-13.md`](docs/state/2026-05-13.md) for the M0–M3 close-out, [`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`](docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md) for the design spec, and [`docs/specs/2026-05-13-production-harness-roadmap-design.md`](docs/specs/2026-05-13-production-harness-roadmap-design.md) for the umbrella roadmap.
+Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
 
-**Current state (2026-05-12).** Phases 0 through 13.5 are shipped. Phase 16.0a (daemon skeleton) code is in tree but dormant after the Phase 16 revert. The post-13.4 backlog has 1 open item left (`17`, P4, non-blocking). Unit baseline is **1809/1809**; semantic baseline is **57/58** (1 model-behavior flake unrelated to current work). No active phase — the next foreground refactor (Phase 16.1) must follow Rule 1 of the revert retrospective and ship behind a parallel surface. See [`docs/state/2026-05-12.md`](docs/state/2026-05-12.md) for the close-out snapshot and [`docs/postmortems/2026-05-12-phase-16-revert.md`](docs/postmortems/2026-05-12-phase-16-revert.md) for the durable rules.
+- **Latest snapshot:** [`docs/state/2026-05-14.md`](docs/state/2026-05-14.md) — Phase 16.1 M4 shipped (split-process TUI: TS Hono server + Go Bubble Tea client; on-disk SessionDb, preflight, CLI flag forwarding, resume hydration). Unit suite **1873/1873**, Go tests green, manual smoke 11/11. HEAD `91f727c`.
+- **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
+- **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
+- **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
 
-**Phase 16 revert + `sov dispatch` (2026-05-12).** Phase 16.0b (Ink TUI) and Phase 16.0c (slash dispatch on Ink) were force-rolled back to commit `e9d5445`. Two follow-up commits layered the surviving improvements: a `string-match` semantic-judge backend (`tests/semantic/framework/judges/stringMatch.ts`, deterministic literal-substring assertions at $0/run) and a new headless slash surface `sov dispatch` (`src/cli/dispatchCommand.ts` — reads stdin, dispatches via the existing registry, prints output framed by `--- ready ---` / `--- end-of-turn ---`, exits on EOF or `/quit`). `sov chat` is now deprecated as an explicit keyword (bare `sov` is the canonical interactive entrypoint). The Ink TUI work is preserved at `origin/archive/ink-tui-2026-05-12`.
-
-**Phase 13.5 — Scheduled-mission sub-agents (2026-05-11).** Mission-dir file contract (`src/mission/` — types, paths, state loader/atomic-writer/lock, FSM, prompt segments), `AgentDefinition.supportsMissionState` frontmatter field, `bundle-default/agents/scheduled-mission.md` wake-contract agent, `--agent` + `--state-dir` flags on `sov chat`, full mission lifecycle wired in `terminalRepl.ts` (overlap lock via mkdir, FSM terminal-state early-exit, system-prompt injection with cacheable goal/plan/state + ephemeral notes/wake-log, per-agent tool restriction, auto-wake user message, `MISSION_TRANSITION=<state>` sentinel parsing, `<mission-notes-update>` block, wake-log append, atomic state write-back, lock release in try/finally), `sov mission init <dir> --goal "..."` subcommand, `sov mission run --state-dir <dir>` non-interactive wake entrypoint, `harness` bin alias. Unit suite at 13.5 close: 1769/1769.
-
-**Phase 13.4 — Continuous-learning observation stream + instinct corpus (2026-05-06).** Every tool call can write a per-project observation to `$HARNESS_HOME/learning/<projectId>/observations.jsonl` via `LearningObserver` on the internal `PostToolUse` path. The bundled `instinct-synthesizer` sub-agent clusters observations into atomic, confidence-weighted instincts stored under `$HARNESS_HOME/learning/<projectId>/instincts/`. Four instinct tools (`instinct_list`, `instinct_view`, `instinct_propose`, `instinct_update_confidence`) live in `LEARNING_ONLY_TOOLS`, never the main pool. Review forks now prefer the instinct corpus over raw trajectory slices, and `sov learning {status,prune,export}` exposes read-only inspection and maintenance. Semantic suite: 58/58. Unit suite at 13.4 close: 1583/1583.
-
-**Post-Phase-13.4 backlog burn (2026-05-06 → 2026-05-07).** 20 of 24 backlog items closed, including per-child trace files, synthesizer activity-burst dispatch, multi-process observation append verification, skill-shaped child triage, and two-tier `MEMORY.md` routing. All P0/P1/P2 items are closed. Remaining open: microcompaction deepening, shell AST analysis deepening, eval-gated auto-promote, and `maxToolCallsBeforeCheckin`.
-
-**Phase 13.3 — Background review daemon + close-out (2026-05-06).** Counter-driven ReviewManager triggers review forks after N user turns (memory) or M tool iterations (skills). Three new reference agents in `bundle-default/agents/` (`review-memory`, `review-skill`, `review-consolidate`) bring the total to six. `memory_propose` and `skill_propose` tools write pending proposals to `$HARNESS_HOME/review/pending/` with full provenance frontmatter; the `/review` slash command (list/show/approve/reject/consolidate/activity verbs) drives the propose-then-promote lifecycle. REVIEW_ONLY_TOOLS pool-separation hard-excludes these tools from the main agent's pool. Close-out batch (commits ec21277–e516a43) adds efficiency throttling, trace tagging, trajectory routing, graceful abort propagation, phantom cleanup, and C2 auto-promote provenance preservation. Semantic suite: 54/54. Unit suite: 1490/1490.
-
-**Phase 13 — Sub-agent runtime + AgentTool (2026-05-05).** The model can spawn bounded specialized agents that run as their own sessions with filtered toolsets, return concise summaries, and feed parent memory via the `on_delegation` hook. Three initial reference agents ship in `bundle-default/agents/`: `explore` (read-only codebase mapping), `verify` (independent claim checking), `plan` (implementation planning). Architecture: agent definitions are markdown + frontmatter (same loader pattern as skills); `SubagentScheduler` (`src/runtime/scheduler.ts`) owns per-parent child caps, per-lane concurrency semaphores (the deferred Phase 10.6 piece), a global write-path lock for write-capable children, per-child timeout via `AbortSignal.timeout()` composed with the parent's signal via `AbortSignal.any()`, and provider/model resolution — agents declare `model: <provider>/<id>` literally or `role: explore` and the runtime resolves through a capability profile table to the cheapest matching model. `AgentTool` is a thin `buildTool()` wrapper; the registry's `patchSchemasAgainstAvailable()` rewrites the `subagent_type` field from open-string to a closed enum derived from loaded agents (drops the tool entirely when no agents are loaded). Global exclusion set (`src/agents/exclusions.ts`) prevents recursive sub-agent spawning + parent-side control-plane tool leakage to children. Parent-child session lineage flows through the existing schema-v3 `parent_session_id` column.
-
-**Phase 13.1 — Trajectory capture (2026-05-04).** The Sovereign moat. Every completed session writes a ShareGPT-shaped JSONL record (with thinking blocks rendered as `<think>` tags for cross-model compatibility) to `<bundle>/state/artifacts/trajectories/samples.jsonl` or `<harnessHome>/trajectories/samples.jsonl`. Records are redacted at write via a 14-pattern allowlist (Anthropic / OpenAI / Tavily / Brave / OpenRouter / GitHub PATs / AWS keys / JWTs / bearer tokens / PEM private keys / credential file paths). `HARNESS_REDACT_SECRETS=0` disables (snapshotted at import per Invariant #15 — agent tool calls can't disable mid-session).
-
-**Phases 9.6 + 12.5 + 12.6 (2026-05-04)** — three follow-on polish phases, all shipped.
-
-- **Phase 12.5 — tool observation envelope.** Optional uniform `{status, summary, next_actions, artifacts}` shape on every `ToolResult`. The orchestrator renders it as a header above each tool's existing output; `status: 'error'` forces `is_error`. Retrofitted across all native tools (BashTool with per-error-class hints; FileEditTool flips its missing-match / non-unique-match throws to envelope-emitting returns) and the MCP wrapper. Lifts ECC's "Observation Design" + "Error Recovery Contract".
-- **Phase 12.6 — context budget audit + `/context-budget`.** `auditContextBudget()` walks system-prompt segments, tool schemas, skills, bundle context, and memory; emits per-component token estimates with bloat tier (`heavy` / `extreme`) and triage class (`always` / `sometimes` / `rarely`). Exposed via the new `/context-budget` slash command and a `'budget'` section on `HarnessInfo`.
-- **Phase 9.6 — skill `whenToUse` trigger rigor.** Loader-time lint flags low-rigor strings (descriptive preambles, missing trigger verb); SkillsListTool splits semicolon-separated `whenToUse` values into a discrete predicate array.
-
-**HarnessInfo + self-doc (2026-05-04)** — meta-question support. New `HarnessInfo` native tool returns runtime state (settings layers, MCP servers, native + MCP tools, slash commands, optional budget audit). New `<harness-self-doc>` system-prompt segment teaches the model the harness's settings file paths, schema for `permissions` / `hooks` / `mcpServers`, and slash-command list — vendor-neutral so white-label deployments inherit it unchanged.
-
-**Phase 12 (MCP client, 2026-05-03)** — stdio MCP servers via `@modelcontextprotocol/sdk@1.29.0`. Discovered tools wrap as `mcp__<server>__<tool>` and flow through the same `Tool<I,O>` pipe. `mcp__<server>` permission rules block every tool from one server in one line. Deferred-tool loading via `ToolSearch` keeps prompt token cost bounded as MCP servers add tens of tools.
-
-**Phase 11 (shell hooks, 2026-05-02)** — `PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop` hooks. JSON-stdio command interface, exit-code-2 = block, first-use TTY consent gated by `~/.harness/shell-hooks-allowlist.json`.
-
-**REPL polish (Phase 10.5b–e, 2026-05-03)** — modal-framed permission prompts, persistent pre-prompt footer, inline FileEdit/FileWrite diffs, theme system (`dark` / `light` / `no-color` + `NO_COLOR`), comprehensive slash-command surface (see `/help` for the live registry), raw-mode input editor (multi-line, persistent history, Ctrl-R reverse search, Tab autocomplete, soft-wrap).
-
-**Sudo guardrail + inline shell escape hatch (2026-05-03)** — `BashTool` refuses `sudo` / `pkexec` / `doas` / `su` upfront with a structured error so the harness doesn't hang waiting for a password prompt. The `! <command>` REPL prefix runs the rest as a bash command with the user's TTY inherited — the explicit escape hatch for sudo / TouchID / pagers / interactive editors.
-
-**Semantic test suite (58/58 pass).** Opt-in LLM-judged behavior tests. Default judge is the local `claude` CLI (subscription, no API tokens). Coverage spans 10 tool-dispatch cases (including pool-separation guards for `memory_propose` / `skill_propose` and the Phase 13.4 `instinct_*` tools), 6 slash-command pipeline paths, 6 permission cases, 4 refusal cases, 2 context-expansion cases, 2 MCP cases, 2 hook cases, 1 self-doc/harness-info case, 1 router case, 1 secret-redaction case, 1 `/security-audit` skill case, 2 sub-agents cases, 4 task-system cases, 6 review-system cases (`/review` list/show/consolidate/activity/unknown-verb/bare-call), 4 learning-system cases, and 6 workflow/multi-turn cases. Run with `bun run test:semantic`. See [`docs/semantic-testing.md`](docs/semantic-testing.md) for the full inventory and run policy.
-
-**Phase 10 (compaction, 2026-04-26)** — `/compact` and `/rollback`, parent-child session lineage, separate compaction cost lanes, proactive compaction above 75% of context, reactive retry after context-overflow errors. Microcompaction (per-part tool-result clearing) and shell-AST virtual tool mapping landed as Qwen-amendment deepenings on 2026-04-28.
-
-**Next high-leverage target:** none active. The next foreground refactor (Phase 16.1, when retried) must follow Rule 1 of the revert retrospective: keep terminalRepl alive in parallel. Phase 16 rebuild prerequisites (the ~20 silently-broken-in-Ink subsystems that any future attempt must re-wire) are enumerated in [`docs/backlog/phase-16-rebuild-prereqs.md`](docs/backlog/phase-16-rebuild-prereqs.md). See `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` for the full canonical plan.
-
-See [`docs/usage.md`](docs/usage.md) for day-to-day operation, [`CHANGELOG.md`](CHANGELOG.md) for phase history, [`docs/architecture.md`](docs/architecture.md) for the current runtime flow, [`docs/extending.md`](docs/extending.md) for development recipes, [`docs/testing-log.md`](docs/testing-log.md) for test and regression history, [`sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) for the full maturity-first phase plan, and [`sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md) for the architectural ADR.
+For day-to-day operation see [`docs/usage.md`](docs/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
 
 ## Install on a new machine
 
@@ -62,6 +29,7 @@ Both paths register the binary at `~/.bun/bin/sov`. Run only one of them; the la
 | Tool | Needed for |
 |---|---|
 | **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
+| **Go ≥ 1.24** | Building `sov-tui` (the Bubble Tea TUI client). Optional — `sov --ui repl` (default) works without it; `sov --ui tui` falls back to repl with a warning if Go is missing. |
 | **Provider API key** | Anthropic/OpenAI/OpenRouter access, depending on provider. Ollama can run local without a key. |
 | **Git + SSH to GitHub** | The repo is private — your SSH key must be authorized on the `yevgetman/sovereign-ai-harness` repo. Same for the docs bundle (`yevgetman/sovereign-ai-docs`) if you want it. |
 | **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
@@ -85,9 +53,17 @@ sov                                           # generic-agent mode, no bundle
 sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle (also private)
 ```
 
-**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand pre-uninstalls, **wipes Bun's install cache** (`~/.bun/install/cache/`), then reinstalls. The cache wipe is the default since 2026-05-05 because Bun's binary manifest cache otherwise pins a stale `URL → SHA` mapping for the harness git URL — `sov upgrade` would silently re-install the same SHA you already had. `--dry-run` prints the bun commands without running them. The first install still uses the explicit `bun install -g git+ssh://…` form above (you can't run `sov upgrade` until `sov` exists).
+**First-install postinstall trust.** Bun's global installer blocks postinstall scripts by default — the script that builds `bin/sov-tui` from `packages/tui/`. If `bin/sov-tui` is missing after install, run:
 
-The cache wipe also evicts other Bun-installed packages' manifests as a side-effect — those regenerate (small one-time slowdown on each package's next install, never broken). If you specifically want to preserve those manifests and accept the risk of a stale upgrade, `sov upgrade --keep-cache` opts out. The legacy `--purge-cache` flag is preserved for back-compat but is now a no-op (it's the default).
+```bash
+bun pm -g trust @yevgetman/sov
+```
+
+Then re-run the install. Subsequent upgrades pick up the trusted entry automatically.
+
+**Upgrade once installed:** `sov upgrade` (or `sov upgrade --ref v0.2.0` to pin to a tag). The subcommand pre-uninstalls, **wipes Bun's install cache** (`~/.bun/install/cache/`), then reinstalls. The cache wipe is the default since 2026-05-05 because Bun's binary manifest cache otherwise pins a stale `URL → SHA` mapping for the harness git URL — `sov upgrade` would silently re-install the same SHA you already had. `--dry-run` prints the bun commands without running them.
+
+The cache wipe also evicts other Bun-installed packages' manifests as a side-effect — those regenerate (small one-time slowdown on each package's next install, never broken). If you specifically want to preserve those manifests and accept the risk of a stale upgrade, `sov upgrade --keep-cache` opts out.
 
 Access control is the GitHub SSH key on the user's machine — exactly the same model the source clone uses. Nothing reaches a public registry.
 
@@ -147,7 +123,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `-p, --profile <name>` (top-level — pin the run to `<harness-home>/profiles/<name>/`; use `default` for the unscoped root), `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries), `--legacy-input` (force the readline-based input loop instead of the Wave-4 raw-mode editor; safety hatch for terminal-compat issues).
+Flags: `-p, --profile <name>` (top-level — pin the run to `<harness-home>/profiles/<name>/`; use `default` for the unscoped root), `--ui <repl|tui>` (default `repl`; `tui` launches the Go Bubble Tea client via the local Hono server), `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries), `--legacy-input` (force the readline-based input loop instead of the Wave-4 raw-mode editor; safety hatch for terminal-compat issues).
 
 `sov config` — open the interactive picker for user-level config (or `sov config get|set|unset|show|path <args>` to script it).
 
@@ -184,10 +160,11 @@ To uninstall: `bun unlink` from the repo root, or `rm ~/.bun/bin/sov`.
 bun install
 bun run test       # fixture tests
 bun run lint       # biome
+bun run typecheck  # tsc --noEmit
 bun run chat --version
 ```
 
-See `CLAUDE.md` for Claude Code session rules when developing this repo.
+See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and standing rules when developing this repo.
 
 ## What this repo contains
 
@@ -212,6 +189,9 @@ See `CLAUDE.md` for Claude Code session rules when developing this repo.
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5, 10.6 |
 | `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
 | `src/ui/` | Terminal REPL — splash, footer, modal, picker, diff renderer, theme system, input editor (keypress dispatcher + textBuffer + autocomplete + persistent history) | 0 stub, 1, 10.5b–e |
+| `src/server/` | Hono HTTP+SSE server backing the Phase 16.1 split-process TUI; routes for sessions, turns, approvals; event bus; on-disk SessionDb; preflight; CLI flag forwarding | 16.1 |
+| `src/cli/` | `sov dispatch` (headless slash surface) + `sov-tui` launcher (Phase 16.1 spawn-and-supervise) | 16.0c, 16.1 |
+| `packages/tui/` | Go + Bubble Tea TUI client (`sov-tui`); communicates with `sov` via localhost HTTP+SSE | 16.1 |
 
 Empty directories are deliberate — they mark future phase landing zones.
 
