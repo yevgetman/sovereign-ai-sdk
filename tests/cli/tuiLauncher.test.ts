@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,6 +61,11 @@ describe('findTuiBinary', () => {
 // freshly-loaded tuiLauncher. Real implementations are captured in
 // beforeAll and reinstated in afterAll so the mocks don't leak to other
 // test files in the suite.
+//
+// NOTE: these tests override process.stderr.write to capture error
+// messages. Bun runs tests within a file serially, so the overrides
+// are safe between tests in this file. Avoid adding parallel `describe.concurrent`
+// blocks that also write to stderr.
 describe('runTuiLauncher — flag forwarding', () => {
   let recordedBuildOpts: Record<string, unknown> | null = null;
   let prevSovTuiBin: string | undefined;
@@ -120,6 +125,15 @@ describe('runTuiLauncher — flag forwarding', () => {
     }));
   });
 
+  afterEach(() => {
+    if (prevSovTuiBin === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TUI_BIN;
+    } else {
+      process.env.SOV_TUI_BIN = prevSovTuiBin;
+    }
+  });
+
   test('forwards bundle, provider, model, permissionMode, maxTokens, db, cache, preflight', async () => {
     const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
     const exitCode = await runTuiLauncher({
@@ -143,13 +157,6 @@ describe('runTuiLauncher — flag forwarding', () => {
       cacheEnabled: false,
       preflight: false,
     });
-
-    if (prevSovTuiBin === undefined) {
-      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
-      delete process.env.SOV_TUI_BIN;
-    } else {
-      process.env.SOV_TUI_BIN = prevSovTuiBin;
-    }
   });
 
   test('forwards resume id and skips POST /sessions when resumeId is set', async () => {
@@ -169,13 +176,6 @@ describe('runTuiLauncher — flag forwarding', () => {
     expect(exitCode).toBe(0);
     expect((recordedBuildOpts as { resumeId?: string }).resumeId).toBe('resumed-id');
     expect(postSessionsCalled).toBe(false);
-
-    if (prevSovTuiBin === undefined) {
-      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
-      delete process.env.SOV_TUI_BIN;
-    } else {
-      process.env.SOV_TUI_BIN = prevSovTuiBin;
-    }
   });
 
   test('surfaces PreflightError as a stderr message and returns non-zero', async () => {
@@ -203,12 +203,6 @@ describe('runTuiLauncher — flag forwarding', () => {
       expect(buf).toMatch(/credential/i);
     } finally {
       process.stderr.write = origWrite;
-      if (prevSovTuiBin === undefined) {
-        // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
-        delete process.env.SOV_TUI_BIN;
-      } else {
-        process.env.SOV_TUI_BIN = prevSovTuiBin;
-      }
     }
   });
 
@@ -236,12 +230,6 @@ describe('runTuiLauncher — flag forwarding', () => {
       expect(buf).toMatch(/session not found/i);
     } finally {
       process.stderr.write = origWrite;
-      if (prevSovTuiBin === undefined) {
-        // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
-        delete process.env.SOV_TUI_BIN;
-      } else {
-        process.env.SOV_TUI_BIN = prevSovTuiBin;
-      }
     }
   });
 });

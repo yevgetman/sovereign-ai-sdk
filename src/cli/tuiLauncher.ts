@@ -20,6 +20,7 @@ import { type SpawnOptions, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PreflightError, SessionNotFoundError } from '../server/errors.js';
 
 /**
  * Walk up from `startDir` looking for a bin/sov-tui sibling.
@@ -151,7 +152,6 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   try {
     runtime = await buildRuntime(buildOpts);
   } catch (err) {
-    const { PreflightError, SessionNotFoundError } = await import('../server/errors.js');
     if (err instanceof PreflightError) {
       process.stderr.write(`sov: provider preflight failed (${err.kind}): ${err.message}\n`);
       process.stderr.write(
@@ -162,7 +162,7 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     if (err instanceof SessionNotFoundError) {
       process.stderr.write(`sov: ${err.message}\n`);
       process.stderr.write(
-        '     list sessions with `sov --ui repl` then /sessions, or omit --resume to start a fresh one.\n',
+        '     list sessions with `sov --ui repl` then /resume, or omit --resume to start a fresh one.\n',
       );
       return 1;
     }
