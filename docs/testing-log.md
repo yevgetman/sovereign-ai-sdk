@@ -10,6 +10,26 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M5 user-noticed group shipped
 
+### 2026-05-14 · M5 autonomous manual-smoke pass (Group A)
+
+**Scope:** Autonomously verifiable subset of the M5 manual smoke checklist — Scenario 1 (hooks fire) full path against the actual `sov` binary post-`sov upgrade`, Scenario 3 (sub-agent wiring) bare-turn proof against the binary, and the M5 integration test suite (`tests/cli/tuiLauncherIntegration.test.ts`) as the wire-level proof for all 3 scenarios.
+
+**Setup:** Stub TUI shim at `/tmp/sov-m5-smoke/sov-tui-stub.sh` (60s sleep) used as `SOV_TUI_BIN` so `sov --ui tui` doesn't tear down headless. Per-scenario isolated `HARNESS_HOME` under `/tmp/sov-m5-smoke/home-{1,3}/`. MockProvider activated via `SOV_TEST_MOCK_PROVIDER=1`.
+
+**Results:**
+
+| Scenario | Method | Result |
+|---|---|---|
+| 1 — Hooks fire end-to-end | Binary + stub TUI + mock provider; POST `/turns`; check trace file | ✅ `[hook fired 18:01:25]` written |
+| 2 — Permission round-trip (wire) | Integration test `tests/cli/tuiLauncherIntegration.test.ts` scenario "permission round-trip resolves through the launched server" | ✅ permission_request → POST /approvals → tool_result → turn_complete |
+| 3 — Sub-agent wiring boots | Binary + stub TUI; mock turn; verify turn_complete + sessionDb opened | ✅ turn_complete, no turn_error, sessionDb at `<harnessHome>/sessions.db` |
+
+**Integration test results:** `bun test tests/cli/tuiLauncherIntegration.test.ts` — 4 pass / 0 fail / 24 expect() / 15.5s. All 3 M5 scenarios + the M4 bare smoke green.
+
+**Coverage gap noted:** MockProvider's `toolUseMode` is a static property with no env-trigger, so shell-driven smoke against the actual binary can't drive a tool-use turn without code changes. The integration test (which sets the static directly before spawning) is the canonical wire-level proof for scenarios 2 + 3. The binary boot path is independently verified by scenarios 1 + 3's shell smoke.
+
+**Still pending user (Group B):** Scenario 2 visual (yellow modal renders centered with `[y]/[N]/[a]`; keys round-trip correctly under a real terminal) and Scenario 3 end-to-end against real Anthropic (`explore` subagent produces a coherent summary; TUI feels acceptable while the child runs silently per M5-03 deferred indicator).
+
 ### 2026-05-14 · Phase 16.1 M5 — user-noticed group shipped
 
 **Scope:** Closed the M5 milestone group — 3 prereq boxes (hooks system / permission prompt UI / sub-agent scheduler) flipped from `[ ]` to `[x] (M5 — 2026-05-14)` in `docs/backlog/phase-16-rebuild-prereqs.md`. Ten T-commits (T1–T9 plus T4-cleanup) landed the wiring; T10 (this commit) is integration smoke + docs close-out.
