@@ -246,10 +246,15 @@ describe('turns route — maxTokens propagation', () => {
       // Drain SSE so the background turn completes before asserting.
       const eventsRes = await app.request(`/sessions/${sessionId}/events`);
       await eventsRes.text();
-      // Cast avoids tsc narrowing the static to `undefined` after the
-      // reset assignment on line 239.
-      expect(MockProvider.lastMaxTokens as number | undefined).toBe(1234);
+      // Read the static field through the prototype so tsc cannot apply
+      // control-flow narrowing from the reset assignment above. The field
+      // is declared as `number | undefined` — the annotation on `captured`
+      // makes that explicit and satisfies the overload.
+      const props = MockProvider as typeof MockProvider;
+      const captured: number | undefined = props.lastMaxTokens;
+      expect(captured).toBe(1234);
     } finally {
+      MockProvider.lastMaxTokens = undefined;
       if (runtime !== null) await runtime.dispose();
       rmSync(home, { recursive: true, force: true });
     }

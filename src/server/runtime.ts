@@ -64,8 +64,8 @@ export type RuntimeOptions = {
   /** Max tokens per provider call. Defaults to 12000 to match the
    *  src/main.ts CLI default; users override via --max-tokens. */
   maxTokens?: number;
-  /** Run provider preflight at boot. Defaults to true; --no-preflight
-   *  sets this false (wiring lands in T6). */
+  /** Accepted but currently unused by buildRuntime; T6 reads opts.preflight
+   *  and conditionally skips provider.preflight(). Defaults to true. */
   preflight?: boolean;
 };
 
