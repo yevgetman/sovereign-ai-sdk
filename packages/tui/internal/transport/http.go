@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // StoredContentBlock is the wire shape of a single content block in
@@ -20,13 +21,17 @@ import (
 // other types are passed through unrendered for now.
 type StoredContentBlock struct {
 	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Text string `json:"text"`
 }
 
 // StoredMessage is a single persisted message: role + content blocks.
 type StoredMessage struct {
 	Role    string               `json:"role"`
 	Content []StoredContentBlock `json:"content"`
+}
+
+var fetchClient = &http.Client{
+	Timeout: 5 * time.Second,
 }
 
 type messagesResponse struct {
@@ -42,7 +47,7 @@ func FetchMessages(ctx context.Context, baseURL, sessionID string) ([]StoredMess
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := fetchClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
