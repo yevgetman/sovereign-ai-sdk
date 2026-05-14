@@ -11,6 +11,7 @@
 // runtime extras (memory, skills, mission, learning) intentionally land in
 // later milestones — this milestone wires a bare turn end-to-end.
 
+import { join } from 'node:path';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadAgents } from '../agents/loader.js';
 import type { AgentRegistry } from '../agents/types.js';
@@ -18,10 +19,13 @@ import { getDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
 import { resolveHarnessHome } from '../config/paths.js';
-import { loadPermissionSettings } from '../config/settings.js';
+import { loadHookSettings, loadPermissionSettings } from '../config/settings.js';
 import { readConfig } from '../config/store.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
+import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
+import { buildHookRunner } from '../hooks/runner.js';
+import type { HookRunner } from '../hooks/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
@@ -109,6 +113,13 @@ export type Runtime = {
    *  route reads this instead of its own local const so --max-tokens
    *  flows end-to-end. */
   maxTokens: number;
+  /** PreToolUse / PostToolUse / UserPromptSubmit / Stop hook runner.
+   *  Server-mode: consent gate is non-interactive (M5-01) — commands
+   *  not already in `~/.harness/shell-hooks-allowlist.json` are denied
+   *  without prompting (the server doesn't own a TTY). Users pre-consent
+   *  via `sov --ui repl` once. The runner is always present; when no
+   *  hooks are configured it returns `{ block: false }` immediately. */
+  hookRunner: HookRunner;
   dispose: () => Promise<void>;
 };
 
@@ -243,6 +254,32 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // verbatim into a generated artifact.
   const canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
 
+  // Hook runner — loads the `hooks` block from layered settings and wires
+  // the consent checker against the server-mode policy (M5-01). The server
+  // doesn't own a TTY, so the consent gate's `ask` callback returns 'deny'
+  // immediately for any (event, command) pair not already in the on-disk
+  // allowlist. Users pre-consent once via `sov --ui repl` to populate
+  // ~/.harness/shell-hooks-allowlist.json; from then on the hook fires
+  // through the cached decision. Mirrors terminalRepl.ts:1057-1064 except
+  // for the non-interactive ask. The runner is always built — its first-
+  // call cost when no hooks are configured is one map lookup.
+  const hookSettings = loadHookSettings({ cwd: opts.cwd, harnessHome });
+  const hookConsentStore = buildFileConsentStore(join(harnessHome, 'shell-hooks-allowlist.json'));
+  const hookConsent = buildConsentChecker({
+    store: hookConsentStore,
+    // Non-interactive: deny by default. The runner treats a denied hook
+    // as inert (not a block), so misconfigured hooks won't break the
+    // turn; the stderr log line is the user-visible signal that they
+    // need to pre-consent.
+    ask: async (): Promise<AskResponse> => 'deny',
+  });
+  const hookRunner = buildHookRunner({
+    hooksByEvent: hookSettings.hooksByEvent,
+    consent: hookConsent,
+    home: process.env.HOME,
+    logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
+  });
+
   return {
     sessionDb,
     toolPool,
@@ -259,6 +296,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     permissionMode,
     resumeId: opts.resumeId,
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    hookRunner,
     dispose: async () => {
       sessionDb.close();
     },
