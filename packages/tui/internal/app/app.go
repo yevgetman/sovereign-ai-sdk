@@ -57,6 +57,7 @@ type Model struct {
 	events          <-chan transport.Envelope
 	errs            <-chan error
 	thinkingPending bool
+	permission      *components.Permission // M5 T9: active approval modal; nil when not visible
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -143,6 +144,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusLine.SetWidth(msg.Width)
 		return m, nil
 	case tea.KeyMsg:
+		// M5 T9: when a permission modal is active, route ALL keys to it
+		// (including Esc and Enter — the modal treats both as "deny"). The
+		// modal sets done=true after the user's choice, after which it is
+		// cleared by the PermissionSubmitMsg branch below.
+		if m.permission != nil && !m.permission.Done() {
+			updated, cmd := m.permission.Update(msg)
+			m.permission = &updated
+			return m, cmd
+		}
 		if key := msg.String(); key == "esc" || key == "ctrl+c" {
 			m.cancel()
 			return m, tea.Quit
@@ -212,6 +222,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case components.PermissionSubmitMsg:
+		// M5 T9: user's choice has been captured; clear the modal and POST
+		// the decision back to the server. The runtime's serverAsk awaits
+		// /sessions/:id/approvals/:requestId and resumes the paused turn.
+		m.permission = nil
+		return m, m.postApproval(msg)
 	}
 	var cmd tea.Cmd
 	m.transcript, cmd = m.transcript.Update(msg)
@@ -267,23 +283,23 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		}
 		m.transcript.AppendLine(card.View(m.width))
 	case "permission_request":
-		// M3 has no approval UI. Surface a visible warning so a user
-		// who somehow lands in `default`/`ask` mode sees what's wrong
-		// instead of staring at "…thinking" forever. The TS runtime's
-		// permission cascade should resolve to `bypass` for any user
-		// with permissionMode=bypass in ~/.harness/config.json, so this
-		// branch is defense-in-depth.
+		// M5 T9: push the interactive permission modal. The modal renders
+		// as a centered yellow box; key dispatch is routed to it in
+		// Update() until the user picks y/n/a (or Enter/Esc default to
+		// deny). The choice produces a PermissionSubmitMsg, which the
+		// Update handler POSTs to /sessions/:id/approvals/:requestId.
 		pr, err := transport.DecodePermissionRequest(env.Raw)
 		if err != nil {
 			return
 		}
 		m.clearThinkingIfPending()
-		warnStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#e5c07b")).
-			Bold(true)
-		m.transcript.AppendLine(warnStyle.Render("⚠ permission requested: " + pr.Tool))
-		m.transcript.AppendLine(warnStyle.Render("  M3 has no approval UI; the turn will hang. ESC to abort."))
-		m.transcript.AppendLine(warnStyle.Render("  Fix: set permissionMode=bypass in ~/.harness/config.json, or add an allow rule."))
+		modal := components.NewPermission(components.PermissionRequest{
+			RequestID: pr.RequestID,
+			Tool:      pr.Tool,
+			Input:     fmt.Sprintf("%s", pr.Input),
+			Reason:    pr.Reason,
+		})
+		m.permission = &modal
 	case "turn_error":
 		te, err := transport.DecodeTurnError(env.Raw)
 		if err != nil {
@@ -334,7 +350,47 @@ func (m Model) View() string {
 	if m.height == 0 {
 		return ""
 	}
+	// M5 T9: when a permission modal is active, overlay it over the whole
+	// frame (Place centers the box inside width/height). v1 suppresses the
+	// base layer to keep rendering simple; later milestones may composite
+	// both so the user retains some peripheral context while choosing.
+	if m.permission != nil && !m.permission.Done() {
+		return m.permission.View(m.width, m.height)
+	}
 	return m.transcript.View() + "\n" + m.prompt.View() + "\n" + m.statusLine.View()
+}
+
+// postApproval POSTs the user's permission decision to
+// /sessions/<id>/approvals/<requestId>. The server's approvalQueue
+// resolves the matching pending request, which unblocks serverAsk and
+// resumes the paused turn. Errors surface as turnSubmitErrMsg so they
+// land in the transcript rather than silently dropping; the runtime will
+// emit a turn_error if the approval failed to register.
+func (m Model) postApproval(submit components.PermissionSubmitMsg) tea.Cmd {
+	return func() tea.Msg {
+		body, err := json.Marshal(map[string]any{
+			"approved": submit.Approved,
+			"always":   submit.Always,
+		})
+		if err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		url := fmt.Sprintf("%s/sessions/%s/approvals/%s", m.baseURL, m.sessionID, submit.RequestID)
+		req, err := http.NewRequestWithContext(m.ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return turnSubmitErrMsg{err: fmt.Errorf("approval POST returned %d", resp.StatusCode)}
+		}
+		return nil
+	}
 }
 
 // submitTurn POSTs the user's text to /sessions/<id>/turns. The URL is
