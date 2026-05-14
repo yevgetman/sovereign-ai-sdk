@@ -5,6 +5,7 @@
 // route that needs the runtime (sessions, turns) plus the SSE stream.
 
 import { Hono } from 'hono';
+import { approvalsRoute } from './routes/approvals.js';
 import { eventsRoute } from './routes/events.js';
 import { healthRoute } from './routes/health.js';
 import { sessionsRoute } from './routes/sessions.js';
@@ -24,6 +25,7 @@ export function buildAppWithRuntime(runtime: Runtime): Hono {
   app.route('/', healthRoute);
   app.route('/', sessionsRoute(runtime));
   app.route('/', turnsRoute(runtime));
+  app.route('/', approvalsRoute(runtime));
   app.route('/', eventsRoute);
   return app;
 }

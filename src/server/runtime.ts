@@ -35,6 +35,7 @@ import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js
 import type { LLMProvider } from '../providers/types.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import { ApprovalQueue } from './approvalQueue.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
 
 /** Matches the CLI default in src/main.ts (`--max-tokens <n>` default). */
@@ -120,6 +121,11 @@ export type Runtime = {
    *  via `sov --ui repl` once. The runner is always present; when no
    *  hooks are configured it returns `{ block: false }` immediately. */
   hookRunner: HookRunner;
+  /** Permission-request approval queue. The serverAsk callback and the
+   *  approvals route both reach into this — the queue is the rendezvous
+   *  point between SSE-emitted permission_request events and the TUI's
+   *  POST /approvals response. */
+  approvalQueue: ApprovalQueue;
   dispose: () => Promise<void>;
 };
 
@@ -280,6 +286,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
   });
 
+  // M5 — permission-request approval queue. One queue per Runtime; the
+  // server route and the (future) serverAsk callback share it as the
+  // in-memory rendezvous between SSE-emitted permission_request events
+  // and the TUI's POST /approvals response.
+  const approvalQueue = new ApprovalQueue();
+
   return {
     sessionDb,
     toolPool,
@@ -297,7 +309,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     resumeId: opts.resumeId,
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     hookRunner,
+    approvalQueue,
     dispose: async () => {
+      // Cancel any in-flight approval promises before closing the DB so
+      // a clean shutdown doesn't leave Promises that never resolve.
+      approvalQueue.disposeAll();
       sessionDb.close();
     },
   };
