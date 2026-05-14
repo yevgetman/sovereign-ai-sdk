@@ -26,11 +26,12 @@ import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
 import type { AskResponse, CanUseTool, PermissionMode } from '../permissions/types.js';
+import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
-import { SessionNotFoundError } from './errors.js';
+import { PreflightError, SessionNotFoundError } from './errors.js';
 
 /** Matches the CLI default in src/main.ts (`--max-tokens <n>` default). */
 const DEFAULT_MAX_TOKENS = 12000;
@@ -64,8 +65,12 @@ export type RuntimeOptions = {
   /** Max tokens per provider call. Defaults to 12000 to match the
    *  src/main.ts CLI default; users override via --max-tokens. */
   maxTokens?: number;
-  /** Accepted but currently unused by buildRuntime; T6 reads opts.preflight
-   *  and conditionally skips provider.preflight(). Defaults to true. */
+  /** When `false`, skips the provider preflight smoke-call at boot.
+   *  Defaults to true: buildRuntime fires preflightProvider after the
+   *  provider resolves so credential / quota / transport failures
+   *  throw `PreflightError` before the session DB opens. Ollama gets
+   *  an additional preflightToolCalling check when toolPool is non-empty
+   *  to catch the silent-tool-ignore failure class. */
   preflight?: boolean;
 };
 
@@ -146,6 +151,33 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     harnessHome,
   });
   const provider = resolved.transport;
+
+  // Provider preflight — fail fast on bad credentials / quota / transport
+  // before opening the sessionDb or doing other side-effects. Mirrors
+  // terminalRepl.ts:447-504. Skip when opts.preflight === false.
+  if (opts.preflight !== false) {
+    const result = await preflightProvider({
+      provider,
+      providerName: resolved.transport.name,
+      model: resolved.model,
+    });
+    if (!result.ok) {
+      throw new PreflightError(result.kind, result.message);
+    }
+    // Ollama needs the tool-calling smoke check too — see
+    // terminalRepl.ts:486-504. Other providers are tool-call-capable by
+    // schema; only Ollama can return a model that silently ignores tools.
+    if (resolved.transport.name === 'ollama' && toolPool.length > 0) {
+      const toolResult = await preflightToolCalling({
+        provider,
+        providerName: resolved.transport.name,
+        model: resolved.model,
+      });
+      if (!toolResult.ok) {
+        throw new PreflightError(toolResult.kind, toolResult.message);
+      }
+    }
+  }
 
   // On-disk session DB. terminalRepl opens the same DB at
   // <harnessHome>/sessions.db by default; the --db CLI flag overrides

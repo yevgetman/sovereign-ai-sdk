@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MockProvider } from '../../src/providers/mock.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 describe('buildRuntime', () => {
@@ -290,6 +291,69 @@ describe('buildRuntime — maxTokens echo', () => {
       expect(runtime.maxTokens).toBe(12000);
     } finally {
       if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('buildRuntime — preflight execution', () => {
+  test('runs preflight against the resolved provider by default', async () => {
+    const home = join(tmpdir(), `m4-task6a-${Date.now()}`);
+    MockProvider.preflightCalls = 0;
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      // MockProvider.stream() increments preflightCalls on every call.
+      // The preflight call should fire exactly once (before any user
+      // turn runs).
+      const props = MockProvider as typeof MockProvider;
+      const calls: number = props.preflightCalls;
+      expect(calls).toBeGreaterThanOrEqual(1);
+    } finally {
+      MockProvider.preflightCalls = 0;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('skips preflight when opts.preflight === false', async () => {
+    const home = join(tmpdir(), `m4-task6b-${Date.now()}`);
+    MockProvider.preflightCalls = 0;
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        preflight: false,
+      });
+      const props = MockProvider as typeof MockProvider;
+      const calls: number = props.preflightCalls;
+      expect(calls).toBe(0);
+    } finally {
+      MockProvider.preflightCalls = 0;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('throws PreflightError when preflight fails', async () => {
+    const home = join(tmpdir(), `m4-task6c-${Date.now()}`);
+    MockProvider.preflightShouldFail = true;
+    try {
+      const { PreflightError } = await import('../../src/server/errors.js');
+      const err = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(PreflightError);
+    } finally {
+      MockProvider.preflightShouldFail = false;
       rmSync(home, { recursive: true, force: true });
     }
   });
