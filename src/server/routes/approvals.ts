@@ -12,12 +12,24 @@
 
 import { Hono } from 'hono';
 import type { Runtime } from '../runtime.js';
+import { isValidSessionId } from '../sessionId.js';
 
 export function approvalsRoute(runtime: Runtime): Hono {
   const r = new Hono();
 
   r.post('/sessions/:id/approvals/:requestId', async (c) => {
+    const sessionId = c.req.param('id');
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
     const requestId = c.req.param('requestId');
+    // Server-side requestIds are UUIDs from crypto.randomUUID() which conform
+    // to SESSION_ID_PATTERN. Reusing isValidSessionId keeps validation aligned
+    // with sibling routes (sessions.ts) and prevents empty-string keys from
+    // probing the queue map.
+    if (!isValidSessionId(requestId)) {
+      return c.json({ error: 'invalid request id' }, 400);
+    }
     // 404 BEFORE parsing the JSON body: an unknown / expired requestId is
     // the common shape of a late client retry, and we don't want to spend
     // the body-parse work on a request whose answer is fixed.
