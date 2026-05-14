@@ -28,6 +28,12 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
     port,
     hostname: '127.0.0.1',
     fetch: app.fetch,
+    // SSE responses are long-lived; the application layer owns lifecycle
+    // via abort signals and turn_complete events. Bun's default 10s
+    // idleTimeout was killing /sessions/:id/events streams when real
+    // Anthropic took longer than 10s to emit the first text_delta — the
+    // M4 manual smoke caught this. 0 disables the per-connection timer.
+    idleTimeout: 0,
   });
   const boundPort = server.port;
   if (typeof boundPort !== 'number') {
