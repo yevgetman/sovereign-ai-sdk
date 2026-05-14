@@ -310,7 +310,7 @@ describe('runTuiLauncher — deferred-flag warnings + legacy-input error', () =>
   test('hard-errors on --legacy-input with --ui repl guidance', async () => {
     const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
     const code = await runTuiLauncher({ legacyInput: true });
-    expect(code).not.toBe(0);
+    expect(code).toBe(2);
     expect(stderrBuf).toContain('--legacy-input');
     expect(stderrBuf).toContain('--ui repl');
   });
