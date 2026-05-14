@@ -65,12 +65,39 @@ export type TuiLaunchOptions = {
   provider?: unknown;
   /** Optional model override. */
   model?: unknown;
+  /** Permission cascade override. Forwarded verbatim to buildRuntime;
+   *  the runtime layered-settings cascade fires when omitted. */
+  permissionMode?: unknown;
+  /** Max tokens per provider call. Defaults handled in buildRuntime. */
+  maxTokens?: unknown;
+  /** Explicit sessionDb path override. */
+  db?: unknown;
+  /** Resume a prior session by UUID. When set, the launcher skips the
+   *  POST /sessions step and uses the runtime-validated id directly. */
+  resume?: unknown;
+  /** CLI --no-cache → opts.cache === false; otherwise omitted/true. */
+  cache?: unknown;
+  /** CLI --no-preflight → opts.preflight === false; otherwise omitted/true. */
+  preflight?: unknown;
   /** Catch-all so Commander option bags don't trip the type. */
   [k: string]: unknown;
 };
 
 function pickString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function pickNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function pickBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function pickPermissionMode(value: unknown): 'default' | 'ask' | 'bypass' | undefined {
+  if (value === 'default' || value === 'ask' || value === 'bypass') return value;
+  return undefined;
 }
 
 // TODO M4+: integration test that mocks child_process.spawn + startServer
@@ -95,12 +122,52 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   const { buildRuntime } = await import('../server/runtime.js');
   const { startServer } = await import('../server/index.js');
 
-  const runtime = await buildRuntime({
+  // Stage every CLI flag whose subsystem is wired through buildRuntime.
+  // Each field is added only when present so RuntimeOptions defaults
+  // (e.g. permissionMode cascade, maxTokens=12000) fire correctly.
+  const buildOpts: Parameters<typeof buildRuntime>[0] = {
     cwd: process.cwd(),
-    ...(pickString(opts.provider) ? { provider: pickString(opts.provider) as string } : {}),
-    ...(pickString(opts.model) ? { model: pickString(opts.model) as string } : {}),
-    ...(pickString(opts.bundle) ? { bundleRoot: pickString(opts.bundle) as string } : {}),
-  });
+  };
+  const bundle = pickString(opts.bundle);
+  if (bundle !== undefined) buildOpts.bundleRoot = bundle;
+  const provider = pickString(opts.provider);
+  if (provider !== undefined) buildOpts.provider = provider;
+  const model = pickString(opts.model);
+  if (model !== undefined) buildOpts.model = model;
+  const permissionMode = pickPermissionMode(opts.permissionMode);
+  if (permissionMode !== undefined) buildOpts.permissionMode = permissionMode;
+  const maxTokens = pickNumber(opts.maxTokens);
+  if (maxTokens !== undefined) buildOpts.maxTokens = maxTokens;
+  const db = pickString(opts.db);
+  if (db !== undefined) buildOpts.dbPath = db;
+  const resume = pickString(opts.resume);
+  if (resume !== undefined) buildOpts.resumeId = resume;
+  // CLI semantics: --no-cache sets opts.cache === false (Commander
+  // convention); any other state → leave cacheEnabled at default-on.
+  if (pickBoolean(opts.cache) === false) buildOpts.cacheEnabled = false;
+  if (pickBoolean(opts.preflight) === false) buildOpts.preflight = false;
+
+  let runtime: Awaited<ReturnType<typeof buildRuntime>>;
+  try {
+    runtime = await buildRuntime(buildOpts);
+  } catch (err) {
+    const { PreflightError, SessionNotFoundError } = await import('../server/errors.js');
+    if (err instanceof PreflightError) {
+      process.stderr.write(`sov: provider preflight failed (${err.kind}): ${err.message}\n`);
+      process.stderr.write(
+        '     run with --no-preflight to skip this check, or fix the underlying credential/quota issue.\n',
+      );
+      return 1;
+    }
+    if (err instanceof SessionNotFoundError) {
+      process.stderr.write(`sov: ${err.message}\n`);
+      process.stderr.write(
+        '     list sessions with `sov --ui repl` then /sessions, or omit --resume to start a fresh one.\n',
+      );
+      return 1;
+    }
+    throw err;
+  }
 
   let server: { port: number; stop: () => Promise<void> } | null = null;
   try {
@@ -113,23 +180,30 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     return 1;
   }
 
+  // --resume case: buildRuntime already validated the id against sessionDb
+  // and threw SessionNotFoundError above on mismatch. Skip POST /sessions
+  // entirely so we don't allocate a parallel session id the TUI ignores.
   let sessionId: string;
-  try {
-    const createRes = await fetch(`http://127.0.0.1:${server.port}/sessions`, {
-      method: 'POST',
-    });
-    if (!createRes.ok) {
-      throw new Error(`POST /sessions returned ${createRes.status}`);
+  if (runtime.resumeId !== undefined) {
+    sessionId = runtime.resumeId;
+  } else {
+    try {
+      const createRes = await fetch(`http://127.0.0.1:${server.port}/sessions`, {
+        method: 'POST',
+      });
+      if (!createRes.ok) {
+        throw new Error(`POST /sessions returned ${createRes.status}`);
+      }
+      const body = (await createRes.json()) as { sessionId: string };
+      sessionId = body.sessionId;
+    } catch (err) {
+      console.error(
+        `sov: failed to create session: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      await server.stop();
+      await runtime.dispose();
+      return 1;
     }
-    const body = (await createRes.json()) as { sessionId: string };
-    sessionId = body.sessionId;
-  } catch (err) {
-    console.error(
-      `sov: failed to create session: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    await server.stop();
-    await runtime.dispose();
-    return 1;
   }
 
   // One-line log so the manual smoke can curl the server while it's
