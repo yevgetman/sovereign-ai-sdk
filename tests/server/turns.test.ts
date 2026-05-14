@@ -220,3 +220,38 @@ describe('turns route — message persistence', () => {
     }
   });
 });
+
+describe('turns route — maxTokens propagation', () => {
+  test('turns route honors runtime.maxTokens', async () => {
+    const home = join(tmpdir(), `m4-task5c-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        maxTokens: 1234,
+      });
+      expect(runtime.maxTokens).toBe(1234);
+      const app = buildAppWithRuntime(runtime);
+      const created = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await created.json()) as { sessionId: string };
+      MockProvider.lastMaxTokens = undefined; // reset before turn to avoid cross-test leak
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+      // Drain SSE so the background turn completes before asserting.
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      await eventsRes.text();
+      // Cast avoids tsc narrowing the static to `undefined` after the
+      // reset assignment on line 239.
+      expect(MockProvider.lastMaxTokens as number | undefined).toBe(1234);
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

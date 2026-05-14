@@ -32,6 +32,9 @@ import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { SessionNotFoundError } from './errors.js';
 
+/** Matches the CLI default in src/main.ts (`--max-tokens <n>` default). */
+const DEFAULT_MAX_TOKENS = 12000;
+
 export type RuntimeOptions = {
   /** Harness state root override (test isolation). Defaults to
    *  resolveHarnessHome() which respects $HARNESS_HOME / profile. */
@@ -58,6 +61,12 @@ export type RuntimeOptions = {
   /** Resume a prior session by UUID. buildRuntime validates the row
    *  exists in sessionDb and throws SessionNotFoundError if not. */
   resumeId?: string;
+  /** Max tokens per provider call. Defaults to 12000 to match the
+   *  src/main.ts CLI default; users override via --max-tokens. */
+  maxTokens?: number;
+  /** Run provider preflight at boot. Defaults to true; --no-preflight
+   *  sets this false (wiring lands in T6). */
+  preflight?: boolean;
 };
 
 export type Runtime = {
@@ -90,6 +99,11 @@ export type Runtime = {
    *  (events route, /messages route) use this to decide whether to
    *  hydrate prior message history. */
   resumeId: string | undefined;
+  /** Resolved max tokens per provider call. Always populated — either
+   *  the caller-supplied value or DEFAULT_MAX_TOKENS (12000). The turns
+   *  route reads this instead of its own local const so --max-tokens
+   *  flows end-to-end. */
+  maxTokens: number;
   dispose: () => Promise<void>;
 };
 
@@ -212,6 +226,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     canUseTool,
     permissionMode,
     resumeId: opts.resumeId,
+    maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     dispose: async () => {
       sessionDb.close();
     },

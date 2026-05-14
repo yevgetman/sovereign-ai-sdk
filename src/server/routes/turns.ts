@@ -28,8 +28,6 @@ import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
 
-const DEFAULT_MAX_TOKENS = 4096;
-
 /** State captured at `tool_use_start` emission, drained when the matching
  *  `tool_result` arrives so the tool_result wire event can echo the same
  *  `tool` / `input` / `renderHint` without re-deriving them. Keyed by the
@@ -99,7 +97,7 @@ async function runTurnInBackground(
         agents: runtime.agents,
         ...(runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}),
       },
-      maxTokens: DEFAULT_MAX_TOKENS,
+      maxTokens: runtime.maxTokens,
       sessionId,
       cwd: runtime.cwd,
       signal: bus.abortSignal,

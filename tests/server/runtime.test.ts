@@ -259,3 +259,38 @@ describe('buildRuntime — resume validation', () => {
     }
   });
 });
+
+describe('buildRuntime — maxTokens echo', () => {
+  test('echoes opts.maxTokens on runtime', async () => {
+    const home = join(tmpdir(), `m4-task5a-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        maxTokens: 8000,
+      });
+      expect(runtime.maxTokens).toBe(8000);
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('falls back to 12000 when maxTokens omitted', async () => {
+    const home = join(tmpdir(), `m4-task5b-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      expect(runtime.maxTokens).toBe(12000);
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

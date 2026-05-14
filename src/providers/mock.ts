@@ -44,6 +44,11 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  for every other test in the suite. */
   static toolUseMode = false;
 
+  /** Records the maxTokens value from the last stream() invocation.
+   *  Tests reset this to `undefined` before driving a turn to avoid
+   *  cross-test leak, then assert the value after draining SSE. */
+  static lastMaxTokens: number | undefined = undefined;
+
   toProviderMessages(messages: Message[], _system?: SystemSegment[]): Message[] {
     return messages;
   }
@@ -71,6 +76,8 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    // Record maxTokens BEFORE any branching so every code path captures it.
+    MockProvider.lastMaxTokens = req.maxTokens;
     if (MockProvider.toolUseMode) {
       return yield* this.streamToolUse(req);
     }
