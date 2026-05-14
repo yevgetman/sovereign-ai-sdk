@@ -20,6 +20,7 @@
 // once when the generator returns — as the turn boundary.
 
 import { Hono } from 'hono';
+import type { SessionDb } from '../../agent/sessionDb.js';
 import { query } from '../../core/query.js';
 import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../core/types.js';
 import type { RenderHint, Tool } from '../../tool/types.js';
@@ -73,6 +74,13 @@ async function runTurnInBackground(
     role: 'user',
     content: [{ type: 'text', text }],
   };
+  // Persist the inbound user message BEFORE the try block. If query()
+  // throws, the user's prompt is already in the transcript so resume
+  // surfaces what was asked even when the turn errored out.
+  runtime.sessionDb.saveMessage(sessionId, {
+    role: userMessage.role,
+    content: userMessage.content,
+  });
 
   try {
     // Cancel the in-flight provider stream + tool loop when the bus is
@@ -139,7 +147,7 @@ async function runTurnInBackground(
       // Assistant Messages flow out as `assistant_message` StreamEvents,
       // not as bare Message objects — they're handled below.
       if (typeof event === 'object' && event !== null && 'role' in event) {
-        handleUserMessage(event, bus, sessionId, currentBlock, pendingToolUses);
+        handleUserMessage(event, bus, sessionId, currentBlock, pendingToolUses, runtime.sessionDb);
         continue;
       }
 
@@ -156,6 +164,7 @@ async function runTurnInBackground(
           currentBlock,
           pendingToolUses,
           runtime.toolPool,
+          runtime.sessionDb,
         );
         continue;
       }
@@ -183,7 +192,15 @@ function handleAssistantMessage(
   block: number,
   pending: Map<string, PendingToolUse>,
   toolPool: readonly Tool<unknown, unknown>[],
+  sessionDb: SessionDb,
 ): void {
+  // Persist BEFORE emitting wire events so resume reconstructs the full
+  // assistant turn (text + tool_use blocks) even if the SSE subscriber
+  // disconnects mid-stream.
+  sessionDb.saveMessage(sessionId, {
+    role: msg.role,
+    content: msg.content,
+  });
   for (const contentBlock of msg.content) {
     if (contentBlock.type !== 'tool_use') continue;
     const tool = toolPool.find((t) => t.name === contentBlock.name);
@@ -221,8 +238,17 @@ function handleUserMessage(
   sessionId: string,
   block: number,
   pending: Map<string, PendingToolUse>,
+  sessionDb: SessionDb,
 ): void {
   if (msg.role !== 'user') return;
+  // Persist every user-role message that flows out of query() — both
+  // tool_result batches and non-tool-result guidance (e.g. loop-detector
+  // text). The next assistant turn references them, so resume must
+  // reconstruct exact prior context.
+  sessionDb.saveMessage(sessionId, {
+    role: msg.role,
+    content: msg.content,
+  });
   for (const contentBlock of msg.content) {
     if (contentBlock.type !== 'tool_result') continue;
     const pendingEntry = pending.get(contentBlock.tool_use_id);

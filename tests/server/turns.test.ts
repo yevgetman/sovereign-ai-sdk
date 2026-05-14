@@ -155,3 +155,68 @@ describe('POST /sessions + POST /sessions/:id/turns', () => {
     }
   });
 });
+
+describe('turns route — message persistence', () => {
+  test('POST /turns persists user, assistant, and tool_result messages', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-turns-persist-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    MockProvider.toolUseMode = true;
+    try {
+      const runtime = await buildRuntime({
+        harnessHome: home,
+        cwd: process.cwd(),
+        provider: 'mock',
+        model: 'mock-haiku',
+      });
+      const app = buildAppWithRuntime(runtime);
+
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // MockProvider toolUseMode runs a 2-call sequence: preamble assistant
+      // message + tool_use(Bash echo hello-from-mock) -> tool_result user
+      // message -> final assistant message ("done.") -> Terminal.
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'run a tool please' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      // Draining the SSE stream blocks until turn_complete arrives, which
+      // means the background turn loop has fully resolved and every
+      // saveMessage call has flushed to sqlite. This mirrors the drain
+      // pattern used by the tool-use truncation regression test above.
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      expect(eventsRes.status).toBe(200);
+      await eventsRes.text();
+
+      const stored = runtime.sessionDb.loadMessages(sessionId);
+      // Expect at minimum: 1 user (inbound) + 1 assistant (preamble +
+      // tool_use) + 1 user (tool_result) + 1 assistant ("done.") = 4.
+      expect(stored.length).toBeGreaterThanOrEqual(3);
+
+      // First persisted message is the inbound user text.
+      expect(stored[0]?.role).toBe('user');
+      const firstContent = stored[0]?.content ?? [];
+      const userText = firstContent.find((b) => b.type === 'text');
+      expect(userText && 'text' in userText ? userText.text : '').toBe('run a tool please');
+
+      // At least one assistant message was persisted.
+      expect(stored.some((m) => m.role === 'assistant')).toBe(true);
+
+      // A user-role message carrying a tool_result block was persisted.
+      expect(
+        stored.some((m) => m.role === 'user' && m.content.some((b) => b.type === 'tool_result')),
+      ).toBe(true);
+
+      await runtime.dispose();
+    } finally {
+      MockProvider.toolUseMode = false;
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
