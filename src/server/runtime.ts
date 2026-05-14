@@ -30,6 +30,7 @@ import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js
 import type { LLMProvider } from '../providers/types.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import { SessionNotFoundError } from './errors.js';
 
 export type RuntimeOptions = {
   /** Harness state root override (test isolation). Defaults to
@@ -148,7 +149,6 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     const existing = sessionDb.getSession(opts.resumeId);
     if (existing === null) {
       sessionDb.close();
-      const { SessionNotFoundError } = await import('./errors.js');
       throw new SessionNotFoundError(opts.resumeId);
     }
   }

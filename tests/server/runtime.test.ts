@@ -227,15 +227,17 @@ describe('buildRuntime — resume validation', () => {
 
   test('with unknown resumeId, throws SessionNotFoundError', async () => {
     const home = join(tmpdir(), `m4-task2b-${Date.now()}`);
+    const unknownId = '00000000-0000-0000-0000-000000000000';
     try {
-      await expect(
-        buildRuntime({
-          cwd: process.cwd(),
-          provider: 'mock',
-          harnessHome: home,
-          resumeId: '00000000-0000-0000-0000-000000000000',
-        }),
-      ).rejects.toThrow(/session not found/i);
+      const { SessionNotFoundError } = await import('../../src/server/errors.js');
+      const err = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        resumeId: unknownId,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SessionNotFoundError);
+      expect((err as InstanceType<typeof SessionNotFoundError>).sessionId).toBe(unknownId);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
