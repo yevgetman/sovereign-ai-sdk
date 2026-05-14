@@ -38,4 +38,24 @@ describe('runtime — sub-agent scheduler construction', () => {
 
     await runtime.dispose();
   });
+
+  test('Runtime exposes taskManager wired to sessionDb', async () => {
+    const runtime = await buildRuntime({
+      harnessHome: tmpHome,
+      cwd: tmpCwd,
+      provider: 'mock',
+      preflight: false,
+    });
+
+    expect(runtime.taskManager).toBeDefined();
+    expect(typeof runtime.taskManager.create).toBe('function');
+    // No tasks have been created — listByParent over any parent id must
+    // return an empty array. TaskManager.list returns synchronously; the
+    // await is a no-op for forward-compatibility with the future
+    // signature change.
+    const tasks = await runtime.taskManager.list('any-parent-session-id');
+    expect(tasks).toEqual([]);
+
+    await runtime.dispose();
+  });
 });

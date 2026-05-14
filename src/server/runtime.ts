@@ -36,6 +36,8 @@ import type { LLMProvider } from '../providers/types.js';
 import { LaneSemaphores } from '../runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
 import { Semaphore } from '../runtime/semaphore.js';
+import { TaskManager } from '../tasks/manager.js';
+import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { ApprovalQueue } from './approvalQueue.js';
@@ -190,6 +192,12 @@ export type Runtime = {
    *  at query() time so AgentTool can call `scheduler.delegate(...)`
    *  for any agent dispatch the model issues. */
   subagentScheduler: SubagentScheduler;
+  /** Lifecycle-aware fire-and-forget delegation on top of subagentScheduler.
+   *  The TaskStore reads/writes against `sessionDb` (no separate database).
+   *  The task_create / task_list / task_get / task_output tools (and the
+   *  /tasks slash command) call into this manager once T8 threads it onto
+   *  toolContext. Mirrors terminalRepl.ts:962-972. */
+  taskManager: TaskManager;
   dispose: () => Promise<void>;
 };
 
@@ -386,6 +394,19 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     harnessHome,
   });
 
+  // M5 T7 — task manager. Wraps the SubagentScheduler with lifecycle
+  // persistence so the model can dispatch background work via task_create
+  // and observe it via task_list / task_get / task_output. TaskStore reads
+  // against `sessionDb` (no separate DB). Mirrors terminalRepl.ts:962-972
+  // except for the agents-empty guard — the server build always carries a
+  // manager, and individual task tools no-op safely when the agent
+  // registry is empty.
+  const taskStore = new TaskStore(sessionDb);
+  const taskManager = new TaskManager({
+    store: taskStore,
+    scheduler: subagentScheduler,
+  });
+
   // M5 — permission-request approval queue. One queue per Runtime; the
   // server route and the (future) serverAsk callback share it as the
   // in-memory rendezvous between SSE-emitted permission_request events
@@ -413,6 +434,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     laneSemaphores,
     writeLock,
     subagentScheduler,
+    taskManager,
     dispose: async () => {
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
