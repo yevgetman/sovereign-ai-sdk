@@ -8,6 +8,33 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M5 user-noticed group shipped
+
+### 2026-05-14 · Phase 16.1 M5 — user-noticed group shipped
+
+**Scope:** Closed the M5 milestone group — 3 prereq boxes (hooks system / permission prompt UI / sub-agent scheduler) flipped from `[ ]` to `[x] (M5 — 2026-05-14)` in `docs/backlog/phase-16-rebuild-prereqs.md`. Ten T-commits (T1–T9 plus T4-cleanup) landed the wiring; T10 (this commit) is integration smoke + docs close-out.
+
+**Commits in scope:** `3bbc83e` (T1 hookRunner construction), `d5133eb` (T2 turns route passes hookRunner to query), `b844930` (T3 ApprovalQueue), `d79d4cc` (T4 approvals route), `da4094a` (T4 cleanup), `f63c8c6` (T5 serverAsk bridge), `1ded093` (T6 SubagentScheduler + LaneSemaphores + writeLock), `169c1dc` (T7 TaskManager + TaskStore), `ba2d454` (T8 toolContext plumbing), `276960d` (T9 Go TUI permission modal), + T10 close-out commit.
+
+**Commands:**
+- `bun run lint` — clean (same 2 pre-existing warnings in `src/permissions/shellSemantics.ts:219,343`).
+- `bun run typecheck` — clean (`tsc --noEmit`).
+- `bun run test` — **1897/1897 passing** in ~29s across 217 files; 4654 expect() calls.
+- `(cd packages/tui && go test ./...)` — green across `internal/app/`, `internal/components/`, `internal/transport/` (cached).
+
+**Suite delta:** 1873 (M4 close-out) → 1897 (+24 across M5 T1–T10). The +24 breaks down to: T1 hookRunner construction tests, T2 turns-route hook forwarding, T3 ApprovalQueue unit tests, T4 approvals-route edge cases, T5 serverAsk permission round-trip integration, T6 SubagentScheduler construction, T7 TaskManager construction, T8 toolContext plumbing assertions, T9 Go-side permission modal tests (counted in Go suite, not TS), and T10's +3 in `tests/cli/tuiLauncherIntegration.test.ts` (hooks fire end-to-end / permission round-trip / sub-agent wiring reachable).
+
+**T10 integration tests detail.** Three new scenarios in `tests/cli/tuiLauncherIntegration.test.ts` under a fresh `describe('tuiLauncher integration smoke — M5 subsystems')` block. Each spawns `runTuiLauncher` with a real `buildRuntime` (mock provider) + real Hono server on a free port + mocked `node:child_process.spawn` that parks the synthetic child for 5s, then drives a full turn over HTTP `fetch` and SSE streaming. New local `openLiveSse(url, stopWhen)` helper mirrors `tests/server/turns.permission.test.ts`'s `openSse` but reads from a live server bound on a port instead of through `app.request`. Tests isolate `HARNESS_HOME` + `process.cwd()` to per-test tmp dirs and write real `settings.json` / `shell-hooks-allowlist.json` fixtures.
+
+**Manual smoke:** pending the user. The three M5 scenarios per the plan: (1) hooks fire — write a `UserPromptSubmit` hook in `~/.harness/settings.json`, send any prompt through `sov --ui tui`, verify trace file appended; (2) permission modal renders — set `permissionMode: ask` and ask the agent to run any non-read-only tool (Bash), verify yellow modal centered with tool name + `[y]/[n]/[a]`; (3) AgentTool delegates — ask the agent to use the `explore` subagent, verify the child runs and returns a summary.
+
+**Open follow-ups (deferred to M6 or cleanup pass):**
+- T6 parity gaps with terminalRepl: `availableProviders` not threaded, `artifactsRoot` not set, `LaneSemaphores` lane caps not honored — all settings-cascade-dependent.
+- T7 — `DaemonEventBus` integration deferred; landing with M7's review/learning subsystems.
+- T9 — lipgloss `Copy()` deprecation warning on the permission modal (cosmetic; no rendering impact).
+
+**Result:** No regressions. All four gates green. M5 functionally complete; user-side smoke awaits the user.
+
 ## 2026-05-14 — Phase 16.1 M4 critical correctness shipped
 
 ### 2026-05-14 · Pre-commit gate after `sov chat` modernization

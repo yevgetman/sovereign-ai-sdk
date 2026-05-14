@@ -2,6 +2,30 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## ADR M5-01 — Non-interactive hooks consent in `--ui tui`
+
+Decision: when a hook command from `~/.harness/settings.json` is not already recorded in `~/.harness/shell-hooks-allowlist.json`, the server-mode consent checker denies it without prompting. Users pre-consent each command once via `sov --ui repl` (which owns a TTY and runs the first-use modal); subsequent `--ui tui` boots read the persisted decision and fire the hook through the cached `allow`.
+
+Rationale: the HTTP+SSE server doesn't own a TTY — there's no interactive surface to render a consent modal against. A `--ui tui` boot needs to make a binary choice the moment the hook would fire: prompt where the user can't see it (broken), block the turn until they switch to repl (worse UX), or deny-by-default (chosen). Deny-by-default preserves Invariant #13 (first-use TTY consent) without bolting a faux-modal onto a surface that can't carry it. The runner treats a denied hook as inert (not a turn-blocking error), so a misconfigured hook degrades visibility (stderr line) rather than usability.
+
+Status: implemented (M5 — commits `3bbc83e` (T1) + `d5133eb` (T2)). Spec §13. Plan: `docs/plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
+
+## ADR M5-02 — Approval timeout default 60 s
+
+Decision: `ApprovalQueue.createPending(requestId, timeoutMs)` is called with a 60 000 ms (60 second) TTL in `serverAsk`. On timeout the queue resolves with `{ approved: false, reason: 'timeout' }` and the bridge maps that to `'deny'` for `canUseTool`. The 60s value is hard-coded in `src/server/runtime.ts`'s `PERMISSION_REQUEST_TIMEOUT_MS` constant; it is not user-configurable in M5.
+
+Rationale: 60s is long enough that a user reading a permission prompt has time to weigh the call, short enough that a forgotten / accidentally-closed TUI doesn't park a turn indefinitely. The deny-on-timeout semantics fail safe — a user who walks away from a prompt never accidentally grants a tool. User-configurability (per-mode TTL, per-tool TTL, "no timeout" mode) is a follow-up: M5 ships the constant + an obvious config seam; the cascade lands when there's a user signal that 60s is wrong for their workflow.
+
+Status: implemented (M5 — commits `b844930` (T3) + `f63c8c6` (T5)). Spec §5. Plan: `docs/plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
+
+## ADR M5-03 — Defer sub-agent activity indicator to M9
+
+Decision: M5 wires `SubagentScheduler` + `LaneSemaphores` + `writeLock` + `TaskManager` through `buildRuntime` and threads them onto `toolContext` so `AgentTool` / `task_create` dispatch through the live sub-agent runtime — but the Go TUI does NOT add a status-line "child running" widget, a sub-agent transcript pane, or any visual signal that a child session is in flight. The functional path is complete; the visual signal is M9's concern.
+
+Rationale: M5 is the "user-noticed group" — the surfaces a user notices when they're missing (hooks fire, permission modal renders, child sessions actually run). A status indicator falls in the "user notices when it's polished" category, which is exactly the M9 visual-polish brief (tool cards, markdown rendering, syntax highlight, slash autocomplete, mouse, theme switch, child activity). Splitting the work this way keeps M5's surface area focused on the functional gates and lets M9 land the indicator alongside the other polish surfaces it pairs with naturally. Trade-off accepted: a user dispatching a sub-agent through `--ui tui` between M5 and M9 sees the parent paused without an explicit "child running" cue; SSE events from the child do not render at all.
+
+Status: deferred to M9 (M5 — commits `1ded093` (T6) + `169c1dc` (T7) + `ba2d454` (T8)). Spec §13. Plan: `docs/plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
+
 ## ADR M4-01 — Hydrate-then-subscribe for `--resume --ui tui`
 
 Decision: TUI fetches the prior message backlog via `GET /sessions/:id/messages` before subscribing to the SSE stream. Discarded alternative: embedding the backlog in a `session_resumed` SSE event.
