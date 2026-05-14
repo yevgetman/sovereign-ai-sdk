@@ -151,6 +151,20 @@ If a skill or plan template says "use a fast cheap model," interpret that as "So
 
 For Phase 16.1 specifically (the active TUI rebuild — see `docs/plans/2026-05-13-phase-16-1-tui-rebuild.md`), every implementer subagent runs on Opus. The only tasks that are candidates for Sonnet are the doc-text edits inside M0 (the ADR-text and umbrella-roadmap-text steps where the exact final text is in the plan body — and even then, Opus is acceptable since the work is short).
 
+## Estimating effort and remaining work
+
+**Do NOT use wall-clock weeks or person-weeks** when estimating remaining work. There is no human development team here — this codebase is built exclusively by AI coding agents like you, in this session and future ones. "1-2 weeks" or "M7 takes ~3 weeks" is a meaningless unit because it presumes a calendar-driven development pace that doesn't exist. The same applies to "sprints", "quarters", calendar dates ("by end of Q2"), or anything else assuming a traditional dev team.
+
+Use these proxies instead, in rough order of preference:
+
+- **Sessions** — discrete planning + dispatch + review cycles, scaled like a milestone close-out. M4 (3 prereq boxes, 11 implementer tasks + 8 cleanup passes + 1 final whole-branch review) was ~1 focused session. A small milestone might fit in 1 session; M7 (6 prereq boxes, hardest group) might be 2–3 sessions because of scope.
+- **Token-proxy units** — counts of implementer-task dispatches, files touched, or subagent rounds (each round ≈ Opus implementer + spec reviewer + quality reviewer + cleanup). Useful for sub-session granularity.
+- **Wall-clock minutes within a session** — fine for short specific tasks ("~30 minutes to wire up X" or "1-2 hours for the full M5 plan"). Acceptable for sub-session work, NOT for milestone-scale estimates.
+
+When reporting on completed work, count what actually happened in these units — e.g., "M4 shipped in one session: 11 implementer tasks, 8 cleanup passes, 1 final review, ~22 subagent dispatches total." Past performance in agent-sessions is the most reliable basis for future estimates; don't translate it back into "engineer-weeks".
+
+If a doc you're updating (state snapshot, plan, spec) contains week-based estimates from earlier sessions, treat them as legacy and rephrase in session/token/dispatch units when you touch the surrounding text.
+
 ## Lint before committing
 
 Run `bun run lint`, `bun run typecheck`, and `bun run test` before every commit. All three must pass. Commit atomically — one logical change per commit. This matches the rule in `sovereign-ai-docs/CLAUDE.md`.
