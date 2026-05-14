@@ -10,6 +10,44 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M4 critical correctness shipped
 
+### 2026-05-14 · Manual smoke complete (11/11) — two real regressions caught + fixed
+
+**Scope:** User completed the 3 visual/interactive scenarios (#2 resume hydration, #7 `--max-tokens 100` truncation, #11 legacy REPL) that the autonomous smoke couldn't drive. Manual smoke caught two real M4 regressions invisible to the autonomous pass; both fixed in-session with regression tests.
+
+**Bug 1 — `Bun.serve` `idleTimeout` killed SSE on slow first-token (commit `8fc69cf`):**
+
+Scenario #1 attempted with real Anthropic. The TUI rendered, accepted the prompt, then hung at "thinking" with no output. Stderr capture (`sov --ui tui 2>/tmp/sov-tui-hang.log`) showed `[Bun.serve]: request timed out after 10 seconds. Pass idleTimeout to configure.` — Bun's default 10-second `idleTimeout` was closing the `/sessions/:id/events` SSE response server-side when real Anthropic's time-to-first-token exceeded 10s (cold cache, network warmup). MockProvider responds in microseconds so the autonomous smoke never tripped this.
+
+Fix: `idleTimeout: 0` (disabled) on `Bun.serve()` in `src/server/index.ts`. SSE lifecycle is owned by the application layer (abort signals + `turn_complete` + client disconnect), not by an idle timer. Comment in the source explains why.
+
+**Bug 2 — Resume sent only the new turn to the model (commit `adc9026`):**
+
+Scenario #2: resumed an existing session. The transcript hydrated visually (T9 working as designed). User typed `What was my first message?` and the LLM responded `I don't have access to your previous conversation history.` The turns route was sending `messages: [userMessage]` — only the new turn — with no prior history. T9 hydrated the TUI display but the model-side hydration was missing.
+
+Fix: `runTurnInBackground` now calls `runtime.sessionDb.loadMessages(sessionId)` after persisting the new user message, and passes the full history to `query()`. T4's persistence work + this fix together complete the resume story. Regression test in `tests/server/turns.test.ts` ("turns route sends prior conversation history to the model on resume") seeds a session with prior turns and asserts the model receives all of them at the provider boundary. `MockProvider.lastMessages` static captures the `messages` arg at `stream()` time.
+
+**After both fixes — manual smoke re-runs:**
+- #1 Fresh persistent session — real Anthropic streams text deltas, `─ turn complete` marker rendered. ✅
+- #2 Resume hydration — LLM correctly answered `What was my first message?` referencing the prior turn's content. ✅
+- #7 `--max-tokens 100` — real Anthropic response visibly truncated mid-story; `turn_complete` rendered. ✅
+- #11 Legacy REPL — `sov` + `/resume` + `/quit` all green. ✅
+
+Combined with the autonomous Group A (#3, #8, #9) and Group B (#1, #4–6, #10), full coverage: **11/11 ✅**.
+
+**Suite count delta:** 1872 → 1873 (+1 regression test for resume context hydration). Lint + typecheck clean.
+
+**Commits in scope:**
+- `8fc69cf` — fix(server): disable Bun.serve idleTimeout so SSE survives slow-first-token.
+- `adc9026` — fix(server): hydrate model context with prior conversation on resume.
+- `a03c4a9` — docs(state): scenario #11 — `/resume` is the slash command (not `/sessions`).
+
+**Lessons (filed for M5+ implementation hygiene):**
+- Autonomous smoke against MockProvider missed two production-only failure modes: network latency (caught by idleTimeout default) and stateful conversation history (caught by resume context). Future phases with provider-boundary or persistence changes should include at least one real-Anthropic smoke turn before close-out, OR a MockProvider variant that simulates these (e.g. `preDeltaDelayMs`, multi-turn `lastMessages` assertions).
+- Both bugs were visible within the first interactive turn against real Anthropic. The cost of a single manual smoke turn (~1¢) is cheap insurance against shipping half-baked persistence/streaming work.
+- M3's retro flagged a similar gap ("M3 code-quality review should have included a real-user-style end-to-end smoke step against a representative tool-using prompt with a non-bypass permission config"). Recurrence here suggests this should become a formal milestone-close gate, not just a retro lesson.
+
+**Result:** M4 manual smoke fully complete. Phase 16.1 M4 closes at HEAD `adc9026`, suite 1873/1873, all three prereq boxes flipped, all behavioral gates green.
+
 ### 2026-05-14 · Autonomous smoke pass — 8 of 11 M4 scenarios (Groups A + B)
 
 **Scope:** Drove 8 of the 11 manual smoke scenarios from `docs/state/2026-05-14.md` autonomously without the user typing into the TUI. The remaining 3 (#2 resume hydration render, #7 `--max-tokens 100` truncation against real Anthropic, #11 legacy REPL visual) still require the user's eyeball.

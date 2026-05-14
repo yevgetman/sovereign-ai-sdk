@@ -35,7 +35,7 @@ Every doc in this repo, organized by purpose. Read by category, not by directory
 
 | File | What's in it |
 |---|---|
-| `docs/state/2026-05-14.md` | **Canonical current-state snapshot** (HEAD `b49e5bc`, suite 1872/1872 unit + Go tests green, Phase 16.1 M4 shipped). Updated each major-change session |
+| `docs/state/2026-05-14.md` | **Canonical current-state snapshot** (HEAD `adc9026`, suite 1873/1873 unit + Go tests green, Phase 16.1 M4 shipped + manual smoke 11/11 complete with 2 regressions caught + fixed in-session). Updated each major-change session |
 | `docs/state/archive/2026-05-13.md` | Historical snapshot (Phase 16.1 M0–M3 close-out). Now superseded |
 | `docs/state/archive/2026-05-12.md` | Historical snapshot (Phase 16 revert close-out). Now superseded |
 | `docs/state/archive/2026-05-11.md` | Historical snapshot (Phase 16.0a close-out). Now superseded |
