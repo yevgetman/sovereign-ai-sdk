@@ -117,20 +117,22 @@ describe('buildRuntime — Task 1 — on-disk SessionDb', () => {
   test('opens sessionDb at opts.dbPath when supplied (persists across opens)', async () => {
     const home = join(tmpdir(), `m4-task1-${Date.now()}`);
     const dbPath = join(home, 'custom.db');
-    const runtime = await buildRuntime({
-      cwd: process.cwd(),
-      provider: 'mock',
-      harnessHome: home,
-      dbPath,
-    });
-    const sessionId = runtime.sessionDb.createSession({
-      model: 'mock',
-      provider: 'mock',
-      systemPrompt: [],
-      metadata: {},
-    });
-    await runtime.dispose();
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
     try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        dbPath,
+      });
+      const sessionId = runtime.sessionDb.createSession({
+        model: 'mock',
+        provider: 'mock',
+        systemPrompt: [],
+        metadata: {},
+      });
+      await runtime.dispose();
+      runtime = null;
       const { SessionDb } = await import('../../src/agent/sessionDb.js');
       const reopened = SessionDb.open({ path: dbPath });
       try {
@@ -139,6 +141,7 @@ describe('buildRuntime — Task 1 — on-disk SessionDb', () => {
         reopened.close();
       }
     } finally {
+      if (runtime !== null) await runtime.dispose();
       rmSync(home, { recursive: true, force: true });
     }
   });
