@@ -616,15 +616,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       : 0.75);
 
   // M7 T3 — per-session subsystem registry. `factory` defaults to
-  // `buildSessionContext({ runtime: runtimeRef, sessionId })`, capturing
-  // the `runtimeRef` const declared below. The closure is safe because
-  // JavaScript closures hold a reference, not a snapshot: by the time
-  // `factory(sessionId)` actually fires (always after `buildRuntime`
-  // returns), `runtimeRef` has been initialized to the Runtime literal.
+  // `buildSessionContext({ runtime, sessionId })`, capturing the `runtime`
+  // const declared below. The closure is safe because JavaScript closures
+  // hold a reference, not a snapshot: by the time `factory(sessionId)`
+  // actually fires (always after `buildRuntime` returns), `runtime` has
+  // been initialized to the Runtime literal.
   const sessionContexts = new Map<string, SessionContext>();
   const sessionContextFactory: (sessionId: string) => SessionContext =
-    opts.sessionContextFactory ??
-    ((sessionId) => buildSessionContext({ runtime: runtimeRef, sessionId }));
+    opts.sessionContextFactory ?? ((sessionId) => buildSessionContext({ runtime, sessionId }));
   const getSessionContext = (sessionId: string): SessionContext => {
     let ctx = sessionContexts.get(sessionId);
     if (!ctx) {
@@ -639,10 +638,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     const ctx = sessionContexts.get(sessionId);
     if (!ctx) return;
     sessionContexts.delete(sessionId);
-    await disposeSessionContext(ctx);
+    await disposeSessionContext(ctx, { runtime });
   };
 
-  const runtimeRef: Runtime = {
+  const runtime: Runtime = {
     sessionDb,
     toolPool,
     systemSegments,
@@ -690,5 +689,5 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       sessionDb.close();
     },
   };
-  return runtimeRef;
+  return runtime;
 }
