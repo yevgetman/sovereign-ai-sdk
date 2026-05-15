@@ -8,6 +8,19 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #33 — asymmetric `bus.isClosed()` guards dropped
+
+**Scope:** Closed backlog item #33 (P4). `src/server/routes/turns.ts` had three `bus.publish(...)` sites guarded with `if (!bus.isClosed())` (the M6 T4 first-overflow turn_error path, the M6 T4 second-overflow turn_error path, and the normal turn_complete path) plus one unguarded site (the catch's turn_error publish). `ServerEventBus.publish()` (`src/server/eventBus.ts:50-57`) already short-circuits on `closed === true`, so the three guards were no-ops creating visual asymmetry with the catch path.
+
+**Approach:** Drop direction (preferred per backlog item). Removed all three `if (!bus.isClosed()) { … }` wrappers — the inner `bus.publish(...)` calls remain. eventBus is now the single source of truth for closed-state behavior across all four publish sites in `runTurnInBackground`.
+
+**Diff:** `src/server/routes/turns.ts` — 21 insertions, 27 deletions (pure de-indent of the three publish blocks).
+
+**Commands:**
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1938 pass / 0 fail / 4827 expects / 44.37s** (no behavior change — pure dead-code removal).
+
+**Net:** One commit (`79a5c39`) ships the cleanup. No behavior change at runtime — eventBus's idempotent-close already handled the race the guards were nominally defending against. Closes the asymmetry the M6 final whole-branch reviewer flagged.
+
 ## 2026-05-15 — Backlog #36 — empty-head compaction short-circuit
 
 **Scope:** Closed backlog item #36 (P3). `compactSession` in `src/compact/compactor.ts` always ran the summarizer + minted a child session, even when `selectTailStart` returned 0 (the entire history fit within the tail budget AND the min-tail floor `DEFAULT_MIN_TAIL_MESSAGES=4`). With `head` empty, the summarizer compressed nothing meaningful but the post-compaction estimate still added `summaryMessageTokens` overhead, producing `estimatedAfterTokens > estimatedBeforeTokens`. The TUI's auto-compaction marker rendered as `─ auto-compacted — 2247→2318 tokens — new session abcd1234` which looked like compaction was broken even though the algorithm was correct (no-op-plus-overhead). Verified empirically by autonomous smoke (`before=2247, after=2318` on a 2-message session).
