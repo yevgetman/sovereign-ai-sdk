@@ -8,6 +8,26 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #32 — resume-after-compaction regression test
+
+**Scope:** Closed backlog item #32 (P3). The `--resume <parentId>` semantic ("go back to where I was when this happened") works by construction: `SessionDb.loadMessages(sessionId)` filters the `messages` table by exact `session_id` and never walks the `compactions` lineage table forward. But no test pinned this. A future refactor that changed resume (or `loadMessages` itself) to "auto-pivot to the latest descendant" would silently flip the contract.
+
+**Approach:** Added one new test in `tests/compact/compactor.test.ts` inside the existing `describe('compactSession', …)` block. The test seeds a 6-message parent history, runs `compactSession` with `tailTokenBudget: 1, minTailMessages: 1` (so the no-op short-circuit at `compactor.ts:130` cannot fire — `head` is non-empty), confirms a real compaction happened (`result.noOp` falsy, `newSessionId !== parentSessionId`, lineage row persisted), then asserts:
+
+- `db.loadMessages(parent)` returns the original 6 messages — first and last contents match the seeded `history` array verbatim.
+- `db.loadMessages(child)` returns the summary+tail shape — `[0].role === 'assistant'` and `[0].content` contains the `HANDOFF_SUMMARY_NOTE` marker.
+- Parent's first message content ≠ child's first message content — the strongest direct evidence that the two ids resolve to distinct message streams.
+
+**TDD:** This is a regression-pin test for an invariant that holds by construction, so the test is GREEN on first run. Verified meaningfulness via reasoning: if `loadMessages` were changed to walk lineage and return the latest descendant's messages, then `db.loadMessages(parent)` would return the child's summary+tail (≤4 messages, not 6, and `[0]` would be the summary), failing the length assertion, the first-message-content equality, and the parent-vs-child inequality. Three independent assertions would fail — the test pins the contract.
+
+**Diff:** `tests/compact/compactor.test.ts` — +95 lines (one new test in the existing `describe('compactSession', …)` block; file now 467 lines, still well under the 800 max).
+
+**Commands:**
+- Targeted: `bun test tests/compact/compactor.test.ts` — `11 pass / 0 fail / 54 expects` (10 → 11).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1940 pass / 0 fail / 4842 expects / 44.17s** (one new test added vs the prior 1939).
+
+**Net:** One commit ships the test. No source change — the underlying invariant already held. Closes the gap the M6 final whole-branch reviewer flagged: the `--resume <parentId>` contract is now explicitly pinned, so a future refactor that flipped the semantic would land as an explicit regression instead of a silent breakage.
+
 ## 2026-05-15 — Backlog #31 — turns route `:id` validation
 
 **Scope:** Closed backlog item #31 (P3). `POST /sessions/:id/turns` (`src/server/routes/turns.ts:80`) read `c.req.param('id')` and used it directly as the `sessionId` for `getOrCreateBus` + the persisted user message — no `isValidSessionId` guard. Sibling routes (`sessions.ts:39`, `events.ts:20`, `approvals.ts:23`, `compact.ts:41`) all validated and 400'd on malformed input; the turns route was the lone outlier from the M3.4 era. M6's compact route made the asymmetry visible during whole-branch review.
