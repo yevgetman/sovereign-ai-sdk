@@ -87,6 +87,22 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     sessionId,
     harnessHome: runtime.harnessHome,
   });
+  // Whole-branch review I3 — emit `session_start` immediately so server-mode
+  // trace files carry the same header bookend terminalRepl writes
+  // (src/ui/terminalRepl.ts:600-607). Without this, `sov trace show
+  // <serverSessionId>` can't render the provider/model/cwd header line —
+  // server-mode trace ergonomics would regress vs. terminalRepl. The
+  // optional `bundlePath` mirrors terminalRepl's emission when a bundle is
+  // loaded; omitted when no bundle is present (e.g., pure --provider mock).
+  traceWriter.record({
+    type: 'session_start',
+    iso: new Date().toISOString(),
+    sessionId,
+    provider: runtime.resolvedProvider.transport.name,
+    model: runtime.model,
+    cwd: runtime.cwd,
+    ...(runtime.bundle ? { bundlePath: runtime.bundle.root } : {}),
+  });
 
   // Settings cascade is read ONCE per SessionContext construction so a
   // `sov config set <key> <val>` mid-process takes effect on the next
@@ -221,6 +237,22 @@ export async function disposeSessionContext(
   const log = opts.log ?? ((message: string): void => void process.stderr.write(`${message}\n`));
 
   // (1) Close the trace writer first — its file is final for this sessionId.
+  //     Whole-branch review I3 — emit `session_end` as the closing bookend
+  //     BEFORE close() so the closing event lands in the JSONL. Mirrors
+  //     terminalRepl.ts:1947-1951. Without this, `sov trace show` won't
+  //     close out the final turn group — server-mode trace ergonomics
+  //     would regress vs. terminalRepl. Default reason is 'completed' when
+  //     no error was recorded on `trajectoryMetadata.terminalReason`.
+  try {
+    ctx.traceWriter.record({
+      type: 'session_end',
+      iso: new Date().toISOString(),
+      reason: ctx.trajectoryMetadata.terminalReason ?? 'completed',
+    });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log(`[sessionContext] session_end record failed for ${ctx.sessionId}: ${reason}`);
+  }
   try {
     await ctx.traceWriter.close();
   } catch (err) {
@@ -254,6 +286,17 @@ export async function disposeSessionContext(
       const md = ctx.trajectoryMetadata;
       const terminal: Terminal = { reason: md.terminalReason ?? 'completed' };
       const artifactsRoot = resolveSubagentArtifactsRoot(runtime.harnessHome, runtime.bundle);
+      // Whole-branch review I1 — read cost from sessionDb at write time so
+      // the trajectory record carries the actual chat + compaction cost the
+      // session accumulated. Mirrors terminalRepl.ts:1914,1937
+      // (finalCost.estimatedCostUsd + finalCost.estimatedCompactionCostUsd).
+      // Falls back to the accumulator on the SessionContext when the DB
+      // read returns zeros (e.g., a fresh session with no usage rows yet)
+      // so a test that sets trajectoryMetadata.estimatedCostUsd by hand
+      // still surfaces its value.
+      const cost = runtime.sessionDb.getSessionCost(ctx.sessionId);
+      const dbCost = cost.estimatedCostUsd + cost.estimatedCompactionCostUsd;
+      const estimatedCostUsd = dbCost > 0 ? dbCost : md.estimatedCostUsd;
       await tryWriteTrajectory(
         {
           messages,
@@ -264,7 +307,7 @@ export async function disposeSessionContext(
             model: runtime.model,
             toolCallCount: md.toolCallCount,
             iterationsUsed: md.iterationsUsed,
-            estimatedCostUsd: md.estimatedCostUsd,
+            estimatedCostUsd,
           },
           artifactsRoot,
         },

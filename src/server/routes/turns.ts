@@ -35,6 +35,7 @@ import type { TraceEvent } from '../../trace/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
+import type { SessionContext } from '../sessionContext.js';
 import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
 
 /** State captured at `tool_use_start` emission, drained when the matching
@@ -390,6 +391,7 @@ async function runTurnInBackground(
             currentBlock,
             pendingToolUses,
             runtime.sessionDb,
+            sessionCtx,
           );
           continue;
         }
@@ -408,6 +410,7 @@ async function runTurnInBackground(
             pendingToolUses,
             runtime.toolPool,
             runtime.sessionDb,
+            sessionCtx,
           );
           continue;
         }
@@ -450,6 +453,13 @@ async function runTurnInBackground(
       // retry entirely and surface the original overflow via the normal
       // turn_error path below — `terminal` already carries it.
       if (compactResult.noOp === true) {
+        // Whole-branch review I2 — record terminal reason on the
+        // SessionContext so disposal routes this trajectory into
+        // failed.jsonl (the trajectory writer's COMPLETED_REASONS set at
+        // src/trajectory/writer.ts:68 excludes 'error'). Without this,
+        // error-terminal sessions silently bucket into samples.jsonl and
+        // corrupt the corpus consumer's success/failure split.
+        sessionCtx.trajectoryMetadata.terminalReason = 'error';
         bus.publish({
           type: 'turn_error',
           seq: bus.nextSeq(),
@@ -474,6 +484,10 @@ async function runTurnInBackground(
       // normal turn end). Mirrors the second-overflow contract pinned by
       // the M6 T4 test.
       if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
+        // Whole-branch review I2 — second overflow after compaction is a
+        // terminal error: bucket the trajectory into failed.jsonl on
+        // disposal (see compactResult.noOp branch above for the same fix).
+        sessionCtx.trajectoryMetadata.terminalReason = 'error';
         bus.publish({
           type: 'turn_error',
           seq: bus.nextSeq(),
@@ -485,6 +499,21 @@ async function runTurnInBackground(
       }
     }
 
+    // Whole-branch review I2 — propagate the terminal's reason to the
+    // SessionContext so disposal routes error/interrupted/max_tokens
+    // terminals into failed.jsonl. Mirrors terminalRepl.ts:1949 (the trace
+    // writer reads `lastTerminal?.reason ?? 'completed'` at disposal time)
+    // and terminalRepl.ts:1930 (the trajectory writer passes the terminal
+    // straight through). Without this, a `terminal.reason === 'error'`
+    // that surfaced via query()'s in-generator catch (src/core/query.ts:156-
+    // 164) would NOT bucket into failed.jsonl — the wire would emit
+    // `turn_complete{finishReason: 'error'}` but the trajectory record
+    // would mis-bucket as completed=true. `'completed'` and `'max_turns'`
+    // (the COMPLETED_REASONS set at src/trajectory/writer.ts:68) are left
+    // unset so the default 'completed' fallback kicks in at disposal.
+    if (terminal && terminal.reason !== 'completed' && terminal.reason !== 'max_turns') {
+      sessionCtx.trajectoryMetadata.terminalReason = terminal.reason;
+    }
     bus.publish({
       type: 'turn_complete',
       seq: bus.nextSeq(),
@@ -492,6 +521,15 @@ async function runTurnInBackground(
       finishReason: mapTerminalReason(terminal),
     });
   } catch (err) {
+    // Whole-branch review I2 — record terminal reason on the SessionContext
+    // so disposal routes this trajectory into failed.jsonl (the trajectory
+    // writer's COMPLETED_REASONS set at src/trajectory/writer.ts:68 excludes
+    // 'error'). The local `sessionCtx` was re-fetched after any
+    // compaction hops above, so this targets the current session id's
+    // context. Without this, an exception in the proactive-compaction block
+    // or in the main query() loop silently buckets the trajectory into
+    // samples.jsonl — corrupting the corpus consumer's success/failure split.
+    runtime.getSessionContext(sessionId).trajectoryMetadata.terminalReason = 'error';
     bus.publish({
       type: 'turn_error',
       seq: bus.nextSeq(),
@@ -504,7 +542,14 @@ async function runTurnInBackground(
 
 /** Emit `tool_use_start` + `tool_use_done` for each `tool_use` block in the
  *  assistant message and stash the call's `tool` / `input` / `renderHint` in
- *  `pending` so the matching `tool_result` wire event can echo them. */
+ *  `pending` so the matching `tool_result` wire event can echo them.
+ *
+ *  Whole-branch review I1 — increments `sessionCtx.trajectoryMetadata
+ *  .toolCallCount` exactly once per `tool_use` block so the trajectory record
+ *  flushed on disposal carries the actual count. Mirrors terminalRepl.ts:1564
+ *  (`metrics.toolCalls++`). Without this, every server-mode trajectory ships
+ *  with `toolCallCount: 0` — the corpus consumer's per-session activity
+ *  signal would be dead. */
 function handleAssistantMessage(
   msg: AssistantMessage,
   bus: ServerEventBus,
@@ -513,6 +558,7 @@ function handleAssistantMessage(
   pending: Map<string, PendingToolUse>,
   toolPool: readonly Tool<unknown, unknown>[],
   sessionDb: SessionDb,
+  sessionCtx: SessionContext,
 ): void {
   // Persist before emitting wire events so resume can reconstruct the full turn even if the SSE subscriber disconnects.
   sessionDb.saveMessage(sessionId, {
@@ -521,6 +567,7 @@ function handleAssistantMessage(
   });
   for (const contentBlock of msg.content) {
     if (contentBlock.type !== 'tool_use') continue;
+    sessionCtx.trajectoryMetadata.toolCallCount += 1;
     const tool = toolPool.find((t) => t.name === contentBlock.name);
     const renderHint: RenderHint = tool?.renderHint ?? { kind: 'text' };
     pending.set(contentBlock.id, {
@@ -549,7 +596,14 @@ function handleAssistantMessage(
 /** Drain pending tool_use entries against the user-role message's
  *  `tool_result` content blocks. Non-tool-result user messages
  *  (e.g. loop-detector guidance text injected back into history) are
- *  not wire-meaningful in M3 and are ignored. */
+ *  not wire-meaningful in M3 and are ignored.
+ *
+ *  Whole-branch review I1 — increments `sessionCtx.trajectoryMetadata
+ *  .iterationsUsed` exactly once per `tool_result` block so the
+ *  trajectory record flushed on disposal carries the actual iteration
+ *  count. Mirrors terminalRepl.ts's `metrics.toolOk + metrics.toolErr`
+ *  derivation at line 1936 — every tool_result that lands is one
+ *  iteration through the tool loop, regardless of error state. */
 function handleUserMessage(
   msg: Message,
   bus: ServerEventBus,
@@ -557,6 +611,7 @@ function handleUserMessage(
   block: number,
   pending: Map<string, PendingToolUse>,
   sessionDb: SessionDb,
+  sessionCtx: SessionContext,
 ): void {
   if (msg.role !== 'user') return;
   // Persist all user-role messages (tool_result and guidance) so resume reconstructs exact prior context.
@@ -566,6 +621,7 @@ function handleUserMessage(
   });
   for (const contentBlock of msg.content) {
     if (contentBlock.type !== 'tool_result') continue;
+    sessionCtx.trajectoryMetadata.iterationsUsed += 1;
     const pendingEntry = pending.get(contentBlock.tool_use_id);
     const tool = pendingEntry?.tool ?? 'unknown';
     const input = pendingEntry?.input ?? null;

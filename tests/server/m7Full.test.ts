@@ -123,6 +123,13 @@ describe('M7 full integration — all six subsystems wired end-to-end', () => {
       const trace = readFileSync(tracePath, 'utf8');
       expect(trace).toContain('"type":"turn_start"');
       expect(trace).toContain('"type":"provider_request"');
+      // Whole-branch review I3 — `session_start` and `session_end` must be
+      // emitted by buildSessionContext / disposeSessionContext respectively,
+      // NOT by the route or test. Without these bookends, `sov trace show`
+      // can't render the per-trace header or close out the final turn group
+      // — server-mode trace ergonomics regress vs. terminalRepl.
+      expect(trace).toContain('"type":"session_start"');
+      expect(trace).toContain('"type":"session_end"');
 
       // (3) Trajectory file landed (T4).
       const samplesPath = join(tmpHome, 'trajectories', 'samples.jsonl');
@@ -130,6 +137,12 @@ describe('M7 full integration — all six subsystems wired end-to-end', () => {
       const traj = readFileSync(samplesPath, 'utf8');
       expect(traj).toContain(`"sessionId":"${sessionId}"`);
       expect(traj).toContain('"from":"human"');
+      // Whole-branch review I1 — the smoke fires exactly one Bash tool_use
+      // (MockProvider.toolUseMode = true), so toolCallCount must be 1 and
+      // iterationsUsed must be 1 (one tool_result drained). Without the
+      // turn-time counter increments these would silently ship as zeros.
+      expect(traj).toContain('"toolCallCount":1');
+      expect(traj).toContain('"iterationsUsed":1');
 
       // (4) Learning observations landed (T5).
       const projectId = getProjectId(tmpHome).id;

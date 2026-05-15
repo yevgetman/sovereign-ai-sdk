@@ -8,6 +8,51 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Phase 16.1 M7 — whole-branch follow-up (I1+I2+I3 from final review)
+
+**Scope:** Final whole-M7-branch review surfaced three production-parity bugs that per-task tests silently passed because the tests manually mutated the relevant fields to verify plumbing — but no PRODUCTION code populated them. All three fixed in a single atomic `fix(server):` commit, plus four strengthened tests (one new, three rewritten) that would now FAIL if any of the production wirings regressed.
+
+**The three issues:**
+
+- **I1 (trajectory counters):** `src/server/sessionContext.ts:188-191` initializes `trajectoryMetadata` with `{toolCallCount:0, iterationsUsed:0, estimatedCostUsd:0}`; nothing in production mutated these. Every server-mode trajectory shipped with zeros — the Sovereign corpus consumer's per-session activity signal was dead. `terminalRepl.ts` (parity reference) increments `metrics.toolCalls` at line 1564 and derives `iterationsUsed = metrics.toolOk + metrics.toolErr` at line 1936; cost is read from `db.getSessionCost()` at line 1914.
+
+- **I2 (terminal reason on error):** The trajectory writer's `COMPLETED_REASONS = new Set(['completed','max_turns'])` at `src/trajectory/writer.ts:68` buckets unrecognized reasons into `failed.jsonl`. But `src/server/sessionContext.ts:255` defaults `terminalReason` to `'completed'` when unset, and NO production code in `src/server/routes/turns.ts` (turn_error catch, overflow-recovery branches, terminal-error propagation) set `terminalReason = 'error'`. Result: error-terminal sessions silently routed to `samples.jsonl` instead of `failed.jsonl` — the corpus's success/failure split was broken.
+
+- **I3 (session lifecycle bookends):** `src/cli/traceShow.ts:61-72` reads `session_start` for the per-trace header and `session_end` as the closing turn boundary. Server-mode trace files emitted `turn_start`, `provider_request`, etc. — NOT the bookends. The M7 T3 plan step 9 said "record session_start trace event on first turn for a sessionId" but that line was never implemented. `tests/server/sessionContext.test.ts` asserted on `"type":"session_start"` but manually injected the event, so the missing production emission wasn't caught.
+
+**The fix (single commit, atomic):**
+
+1. **`src/server/sessionContext.ts`** — `buildSessionContext` auto-records `session_start` immediately after constructing the `TraceWriter` (mirrors `terminalRepl.ts:600-607`, including the optional `bundlePath` field when a bundle is loaded). `disposeSessionContext` auto-records `session_end` BEFORE `traceWriter.close()` (mirrors `terminalRepl.ts:1947-1951`), with `reason: trajectoryMetadata.terminalReason ?? 'completed'`. Cost is read from `runtime.sessionDb.getSessionCost(sessionId)` at trajectory write time (chat + compaction lanes summed, same as `terminalRepl.ts:1937`); falls back to the accumulator on the SessionContext when the DB read returns zeros so tests that set `trajectoryMetadata.estimatedCostUsd` by hand still surface their value.
+
+2. **`src/server/routes/turns.ts`** — Two new helper parameter threads:
+   - `handleAssistantMessage` accepts `sessionCtx: SessionContext` and increments `sessionCtx.trajectoryMetadata.toolCallCount += 1` per `tool_use` block (mirrors `terminalRepl.ts:1564` `metrics.toolCalls++`).
+   - `handleUserMessage` accepts `sessionCtx: SessionContext` and increments `sessionCtx.trajectoryMetadata.iterationsUsed += 1` per `tool_result` block (mirrors `terminalRepl.ts`'s `metrics.toolOk + metrics.toolErr` derivation at line 1936).
+   - `terminalReason` is set to `'error'` on THREE error paths: (a) the proactive-compaction no-op overflow branch (~line 462), (b) the second-overflow-after-compaction branch (~line 497), (c) the outer `catch` for `runTurnInBackground` (~line 521 — uses `runtime.getSessionContext(sessionId)` to read the current session id's context, which may have hopped during the proactive/recovery hops above).
+   - Additionally, a NEW terminal-propagation block right before the `turn_complete` publish: when `terminal && terminal.reason !== 'completed' && terminal.reason !== 'max_turns'`, propagate `terminal.reason` to `sessionCtx.trajectoryMetadata.terminalReason`. This handles the case where `query()` catches an in-generator throw at `src/core/query.ts:156-164` and surfaces it as `Terminal { reason: 'error' }` — the wire emits `turn_complete{finishReason:'error'}` (NOT `turn_error`), so the outer `catch` doesn't fire. Without this block, the trajectory would mis-bucket as `completed: true`.
+
+**Strengthened tests (4 changes):**
+
+- **`tests/server/m7Full.test.ts`** — ADDED assertions: trace file contains `"type":"session_start"` AND `"type":"session_end"` (verifying auto-emission, no manual injection); trajectory contains `"toolCallCount":1` (the smoke fires one Bash tool_use) and `"iterationsUsed":1`.
+
+- **`tests/server/sessionContext.test.ts`** — REMOVED 3 manual `record({type:'session_start', ...})` calls and the 2 tests that used them now verify the AUTO-emitted bookends (`session_start` + `session_end`). The previously-shadowed bug was: the test manually injected the event so assertions passed even when production code didn't emit it.
+
+- **`tests/server/runtime.trajectory.test.ts`** — ADDED a new test (`terminal-error → trajectory lands in failed.jsonl (production path)`) that wraps the runtime's transport with one throwing on every stream() call. `query()`'s in-generator catch surfaces `Terminal { reason: 'error' }`, the wire emits `turn_complete{finishReason:'error'}`, disposal flushes the trajectory, and the trajectory file MUST land in `failed.jsonl` (NOT `samples.jsonl`). Without the I2 fix, this test fails — the trajectory silently buckets as completed.
+
+**Pre-commit gate:**
+- `bun run lint` — exit 0. Same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`. Own changes clean.
+- `bun run typecheck` — clean.
+- `bun run test` — `1966 pass, 0 fail, 4955 expect()` in 45.06s. Baseline 1965 → 1966; +1 new turn_error trajectory test.
+
+**TDD:** The new turn_error test WAS RED for one iteration. The first attempt asserted on `event: turn_error` SSE text (because the briefing pointed at the `runTurnInBackground` outer catch), but the production reality is that a throw inside the stream generator is absorbed by `query()` and surfaces as `Terminal { reason: 'error' }` → `turn_complete{finishReason:'error'}` on the wire. This drove an additional production fix (the terminal-propagation block at the end of the try{}) so that ALL `terminal.reason !== 'completed' && terminal.reason !== 'max_turns'` cases route to `failed.jsonl`. After the prod fix, the test's wire assertion was updated to `"finishReason":"error"` and the trajectory assertions stayed unchanged.
+
+**Files changed:**
+- `src/server/sessionContext.ts` — +33 / -3 (session_start emit, session_end emit, cost read at write time)
+- `src/server/routes/turns.ts` — +65 / -8 (counter increments, terminalReason on 4 error paths + propagation block, SessionContext import)
+- `tests/server/m7Full.test.ts` — +12 / -0 (5 new expects)
+- `tests/server/sessionContext.test.ts` — +10 / -23 (manual injections removed, auto-emission verified)
+- `tests/server/runtime.trajectory.test.ts` — +103 / -1 (1 new test + transport wrapper helper)
+- `docs/testing-log.md` — this entry
+
 ## 2026-05-15 — Phase 16.1 M7 T7 — close-out (6 prereq boxes flipped, #28 closed)
 
 **Scope:** Final task of M7 (Hermes-layer parity group). Integration smoke test drives all six subsystems (MCP, DaemonEventBus, trace, trajectory, learning, review) through one end-to-end scenario via the public POST /sessions + POST /sessions/:id/turns + SSE drain pattern. Six prereq boxes (rows 2, 5, 10, 11, 12, 13) flipped in `docs/backlog/phase-16-rebuild-prereqs.md`; backlog item #28 (DaemonEventBus → server-mode TaskManager) closed; two new backlog items added (#38 reviewAutoPromote* parentToolContext snapshot gap + #39 Go TUI mirror for SessionSummaryEvent). Six ADRs added to DECISIONS.md (M7-01, M7-02, M7-03, M7-05, M7-06, M7-08). M7-04 and M7-07 are scope/sequencing decisions, noted in the state snapshot, not promoted to ADRs. Old `docs/state/2026-05-14.md` archived as `docs/state/archive/2026-05-14-pm.md` (the existing `2026-05-14.md` archive — covering M4 + M5 + M5.1 — is preserved untouched). New canonical snapshot at `docs/state/2026-05-15.md`. CLAUDE.md / AGENTS.md state-snapshot pointer updated; byte-identical mirror preserved.

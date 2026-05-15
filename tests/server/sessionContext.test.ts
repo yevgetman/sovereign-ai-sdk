@@ -54,7 +54,7 @@ describe('SessionContext lifecycle (M7 T3)', () => {
     }
   });
 
-  test('disposeSession closes the trace writer; file is finalized on disk', async () => {
+  test('disposeSession closes the trace writer; auto-emitted session_start + session_end are finalized on disk', async () => {
     const runtime = await buildRuntime({
       cwd: tmpHome,
       harnessHome: tmpHome,
@@ -69,15 +69,11 @@ describe('SessionContext lifecycle (M7 T3)', () => {
         platform: 'test',
       });
 
+      // Whole-branch review I3 — `session_start` is now auto-emitted by
+      // buildSessionContext; the test no longer manually injects it. The
+      // closing `session_end` is auto-emitted by disposeSessionContext
+      // BEFORE traceWriter.close(). Both lines must land in the JSONL.
       const ctx = runtime.getSessionContext(sessionId);
-      ctx.traceWriter.record({
-        type: 'session_start',
-        iso: new Date().toISOString(),
-        sessionId,
-        provider: 'mock',
-        model: runtime.model,
-        cwd: tmpHome,
-      });
 
       const tracePath = ctx.traceWriter.path;
       await runtime.disposeSession(sessionId);
@@ -85,6 +81,7 @@ describe('SessionContext lifecycle (M7 T3)', () => {
       expect(existsSync(tracePath)).toBe(true);
       const content = readFileSync(tracePath, 'utf8');
       expect(content).toContain('"type":"session_start"');
+      expect(content).toContain('"type":"session_end"');
 
       // After dispose, the session context is evicted: getSessionContext
       // rebuilds a fresh instance.
@@ -114,25 +111,12 @@ describe('SessionContext lifecycle (M7 T3)', () => {
       platform: 'test',
     });
 
+    // Whole-branch review I3 — buildSessionContext auto-emits session_start
+    // immediately. No manual record() call needed; runtime.dispose() walks
+    // both contexts via disposeSessionContext which auto-emits session_end
+    // before traceWriter.close(). Both bookend events land in the JSONL.
     const ctxA = runtime.getSessionContext(sessionA);
     const ctxB = runtime.getSessionContext(sessionB);
-
-    ctxA.traceWriter.record({
-      type: 'session_start',
-      iso: new Date().toISOString(),
-      sessionId: sessionA,
-      provider: 'mock',
-      model: runtime.model,
-      cwd: tmpHome,
-    });
-    ctxB.traceWriter.record({
-      type: 'session_start',
-      iso: new Date().toISOString(),
-      sessionId: sessionB,
-      provider: 'mock',
-      model: runtime.model,
-      cwd: tmpHome,
-    });
 
     await runtime.dispose();
 
@@ -141,7 +125,9 @@ describe('SessionContext lifecycle (M7 T3)', () => {
     const contentA = readFileSync(ctxA.traceWriter.path, 'utf8');
     const contentB = readFileSync(ctxB.traceWriter.path, 'utf8');
     expect(contentA).toContain('"type":"session_start"');
+    expect(contentA).toContain('"type":"session_end"');
     expect(contentB).toContain('"type":"session_start"');
+    expect(contentB).toContain('"type":"session_end"');
   });
 
   test('double-dispose is idempotent', async () => {
