@@ -78,6 +78,21 @@ export function isRateLimited(err: unknown): err is ProviderHttpError {
   return err instanceof ProviderHttpError && err.status === 429;
 }
 
+/**
+ * Returns true when the error indicates the request exceeded the model's
+ * context window.
+ *
+ * Verified against (2026-05-15, backlog #35) by sending a ~330K-token user
+ * message to claude-haiku-4-5-20251001:
+ * - @anthropic-ai/sdk@^0.90.0 surfaces overflows as `BadRequestError`
+ *   (extends `AnthropicError extends Error`) with `err.status = 400`,
+ *   `err.type = 'invalid_request_error'`, and `err.message` of the form:
+ *   `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 200039 tokens > 200000 maximum"},"request_id":"..."}`.
+ *   The `'prompt is too long'` substring (lowercased) catches this.
+ *
+ * Synthetic test fixtures (tests/helpers/transportWrappers.ts) use
+ * 'context length exceeded by N tokens'.
+ */
 export function isContextOverflowError(err: unknown): boolean {
   if (err instanceof ProviderHttpError && err.status === 413) return true;
   const message = err instanceof Error ? err.message : String(err);
