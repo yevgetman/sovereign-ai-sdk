@@ -8,6 +8,29 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #34 — Anthropic strict-alternation hazard fixed
+
+**Scope:** Closed backlog item #34 (P2). `compactSession` in `src/compact/compactor.ts` persisted the handoff summary as `{role: 'assistant', ...}`; when `alignTailStart` walked backward to keep an assistant `tool_use` / user `tool_result` pair intact, `tail[0]` could be assistant — yielding `[assistant_summary, assistant_tail0, user_tool_result, ...]` in the persisted child. Anthropic 400s on consecutive same-role messages (`messages: roles must alternate`); OpenAI tolerates it; the mock provider used in unit tests accepts anything, so the existing 1936-test suite never surfaced the hazard.
+
+**Approach:** Option A (synthetic bridge user). Inserted `{role: 'user', content: [{type: 'text', text: '(continuing from summary)'}]}` between the summary and the tail when (and only when) `tail[0]?.role === 'assistant'`. Preserves the framing that the summary is an assistant artifact representing the model's prior context — Option B (flip summary → user) was the alternative but would have changed the conversational frame everywhere, including the cases where the tail starts with `user` and no guard is needed.
+
+**TDD:** Wrote the failing regression test first in `tests/compact/compactor.test.ts` ("persisted child history alternates user/assistant when tail starts with assistant"). Confirmed RED before applying the fix:
+- Failure observed: `expect(prev?.role).not.toBe(curr?.role)` — `Expected: not "assistant" / Received: "assistant"` at the boundary between the summary and `tail[0]`.
+
+After the fix landed, the new test passes and the related "does not split assistant tool_use / user tool_result pairs into the tail" test was updated to find the `tool_use` index dynamically (the synthetic user now sits before it in the returned `tail`) instead of asserting a fixed index — the underlying alignment invariant is preserved.
+
+**Implementation notes:**
+- The synthetic user is persisted via `db.saveMessage`, included in the returned `result.tail`, and accounted for in `estimatedAfterTokens` so reported numbers stay honest.
+- Both downstream consumers — `src/server/routes/turns.ts` (which reloads from DB via `hydrate()`) and `src/ui/terminalRepl.ts` (which uses `result.tail` directly) — receive the alternation-safe history without any caller-side changes.
+- `createClearedChildSession` in `src/agent/sessionRecovery.ts` was reviewed: it doesn't add any messages, so it has no symmetric hazard.
+
+**Commands:**
+- Targeted RED-GREEN: `bun test tests/compact/compactor.test.ts` — RED with 1 fail before fix; after fix `9 pass / 0 fail / 32 expects`.
+- M6 server + CLI cross-check (no regression): `bun test tests/server/turns.proactiveCompact.test.ts tests/server/turns.overflowRecovery.test.ts tests/cli/tuiLauncherIntegration.test.ts` — `12 pass / 0 fail / 109 expects`.
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1937 pass / 0 fail / 4817 expects / 43.99s** (1 new test added; baseline was 1936).
+
+**Net:** One commit `4653737` ships the fix + regression test. Real-Anthropic sessions whose compaction tail boundary lands on an assistant message no longer 400 mid-flight; the next provider call sees `[assistant_summary, user_synthetic, assistant_tail0, ...]` which alternates correctly. The synthetic user adds a small token tax (~5 tokens) only when needed.
+
 ## 2026-05-15 — Backlog #35 — real Anthropic overflow probe, matcher verified
 
 **Scope:** Closed backlog item #35 (P2). The substring matcher in `src/providers/errors.ts:81-95` had never been verified against an actual Anthropic SDK error — only synthetic test fixtures (`tests/helpers/transportWrappers.ts:107`). If the real shape didn't match, T4's overflow-recovery branch would never fire on a live session and the user would see `turn_error` instead of auto-compacted recovery.
