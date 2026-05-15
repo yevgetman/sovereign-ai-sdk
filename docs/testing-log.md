@@ -8,6 +8,46 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #37 — `sov --version` surfaces git SHA
+
+**Scope:** Closed backlog item #37 (P4). Pre-state: `sov --version` printed bare `0.1.0` (the static `package.json` version), so confirming "did `sov upgrade` actually take?" required the auxiliary `bun pm ls -g 2>&1 | grep sov` invocation. Goal: lift the resolved short git SHA into `--version` output so the pre-flight ritual is a one-command answer.
+
+**Approach:** Runtime resolution in `src/version.ts` over a postinstall-write approach (fewer moving parts; no Bun-trust requirement). Two resolvers tried in order, covering both deployment modes:
+1. `<install-root>/.bun-tag` (preferred). When Bun installs from a git source via `bun install -g git+ssh://...`, it writes the resolved 40-char full SHA to `.bun-tag` and does NOT ship a `.git/` directory. Read, validate as 40-hex, slice to 7 chars. Matches `bun pm ls -g` output.
+2. `git rev-parse --short HEAD` (fallback). Covers the dev `bun link` / direct working-tree case where the repo root IS a git checkout.
+
+Bare semver remains the final fallback (e.g., tarball install with neither artifact). The existing `--version` contract never regresses.
+
+**TDD:** Wrote `tests/version.test.ts` with three tests:
+- Format-regex pin: VERSION matches `/^\d+\.\d+\.\d+(-[a-f0-9]{7,})?$/` (passes either way — robust across environments).
+- package.json prefix pin: VERSION starts with the exact `version` field (enforces `<base>-<sha>` shape).
+- Git-checkout SHA pin: when run inside a git checkout, VERSION equals exactly `<baseVersion>-<git rev-parse --short HEAD>`. RED on first run (`Expected: "0.1.0-28b43e6" / Received: "0.1.0"`); GREEN after the implementation landed.
+
+**Cleanup commit:** Initial implementation only used `git rev-parse`. Post-`sov upgrade` smoke (commit `a89b03c`) revealed `sov --version` still printed bare `0.1.0` — root cause: `bun install -g git+ssh://...` does not ship `.git/`, so the resolver returned `null`. Fixed by preferring `.bun-tag` and demoting git rev-parse to fallback (commit `4bd849c`).
+
+**Empirical evidence — `sov --version` post-upgrade:**
+```
+$ sov upgrade
+… installed @yevgetman/sov@git+ssh://…#4bd849cbb4ebe975b0a3bf0aa05448605bdede59
+$ sov --version
+0.1.0-4bd849c
+$ git rev-parse --short HEAD
+4bd849c
+$ bun src/main.ts --version
+0.1.0-4bd849c
+```
+Both deployment paths (global install + dev `bun` invocation) now surface the matching short SHA.
+
+**Diff:**
+- `src/version.ts` — net +51 lines (initial 28 + cleanup 23 — two resolvers, JSDoc explaining both modes, short-SHA constant).
+- `tests/version.test.ts` — +57 lines (new file, 3 tests).
+
+**Commands:**
+- Targeted: `bun test tests/version.test.ts` — `3 pass / 0 fail`.
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1943 pass / 0 fail / 4845 expects / 43.63s** (three new tests added vs the prior 1940).
+
+**Net:** Two commits — `feat: surface git SHA in VERSION` (the file change + tests) and `fix: prefer .bun-tag over git rev-parse for SHA resolution` (cleanup after empirical evidence revealed the global-install resolver bug). `/health` route and any future VERSION-consuming surface picks up the SHA transparently; `process.env.SOV_VERSION` override in `health.ts` still wins when set. Pre-flight ritual is now a one-command answer.
+
 ## 2026-05-15 — Backlog #32 — resume-after-compaction regression test
 
 **Scope:** Closed backlog item #32 (P3). The `--resume <parentId>` semantic ("go back to where I was when this happened") works by construction: `SessionDb.loadMessages(sessionId)` filters the `messages` table by exact `session_id` and never walks the `compactions` lineage table forward. But no test pinned this. A future refactor that changed resume (or `loadMessages` itself) to "auto-pivot to the latest descendant" would silently flip the contract.
