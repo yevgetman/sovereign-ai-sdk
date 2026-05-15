@@ -8,6 +8,28 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M6 T5 — synchronous /compact HTTP route
+
+### 2026-05-14 · M6 T5 — POST /sessions/:id/compact verb wired
+
+**Scope:** TDD pass for M6 T5. Adds the explicit-compaction HTTP verb (M6-03 inline decision): the route reads the session's history from `sessionDb`, calls `runtime.compact(history, sessionId, signal)` inline, and returns the JSON `CompactResult` once `compactSession` resolves. There is no SSE involved — the caller (TUI's future T6 `/compact` slash command, scripts) gets a single HTTP response and pivots subsequent requests onto `activeSessionId`. Closes the explicit-compaction half of prereq row 7 (the proactive half closed in T3, the overflow half in T4).
+
+**Route shape (`src/server/routes/compact.ts`):** `compactRoute(runtime)` mounts `POST /sessions/:id/compact`. Validates `:id` shape via `isValidSessionId` (matches `sessions.ts` / `events.ts` / `approvals.ts` — 400 on malformed); `runtime.sessionDb.getSession(sessionId) === null` 404s with `{ error: 'session not found', sessionId }`; the message-hydration shape mirrors `runTurnInBackground`'s `hydrate()` helper at `routes/turns.ts:166-172` so the model's pre-compaction view stays consistent with the turn-time view; `runtime.compact()` runs inline and the response body shape is `{ activeSessionId: result.newSessionId, parentSessionId: result.parentSessionId, summary, estimatedBeforeTokens, estimatedAfterTokens, usedAuxiliary }`. `parentSessionId` is added beyond the spec-named fields for caller convenience (the TUI dispatch handler can pivot without remembering which URL it called); the wire SSE `compaction_complete` event already carries the parent as `sessionId` (bus-keyed) so it doesn't need it. `c.req.raw.signal` (matches `events.ts:23`) propagates client disconnect into `runtime.compact` so a runaway summarize call is cancellable. Failures inside `runtime.compact` (summarizer throws, db write fails, auxiliary 429) surface as 500 with `{ error }` rather than escaping — the request was well-formed, the failure is downstream. Mounted in `buildAppWithRuntime` between `approvalsRoute` and `eventsRoute`.
+
+**Why no SSE on this path:** T3/T4's `compaction_complete` event exists because the bus subscriber (the TUI's open SSE stream) needs to learn about the session-id pivot mid-turn. The /compact HTTP verb is a synchronous user request — the response IS the notification. Publishing both an HTTP body AND an SSE event would force the TUI to dedupe a single user action and create field-ordering ambiguity (which arrives first across two transports?). The future T6 /compact dispatch handler will simply pivot `activeSessionId` from the HTTP response.
+
+**Commands:**
+- New regression test: `bun test tests/server/compact.test.ts` — RED first (both tests failed: route not mounted, Hono returned 404 with non-JSON body so the unknown-id test's `.json()` parse threw too), then GREEN after wiring the route + the `app.route('/', compactRoute(runtime))` line in `buildAppWithRuntime` (2 pass / 17 expect() / ~140ms).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full suite **1919 pass / 0 fail / 4765 expect() / 28.88s** (+2 tests, +17 expects vs T4 cleanup's 1917/4748).
+
+**Test design (two scenarios, plan-spec contract):**
+- Test 1 (happy path): create a session, seed a small user/assistant pair into `sessionDb`, POST `/sessions/:id/compact`. Assert: 200 status; `activeSessionId` is a non-empty string distinct from the input id; `parentSessionId` echoes the input; `summary` non-empty (compactSession's own contract throws on empty); `estimatedBeforeTokens > 0` and `estimatedAfterTokens` is a number; `usedAuxiliary === false` (M6-06 same-provider path); exactly one lineage row exists with `childSessionId === activeSessionId` (compactSession persists lineage at `compactor.ts:145`). The mock provider's default `streamHelloWorld` path drives the same-provider summarize callback's assistant_message fallback inside `buildServerCompactor`, producing `'Hello world.'` as the summary text — no auxiliary client involvement, no flaky network.
+- Test 2 (unknown session id): POST `/sessions/00000000-0000-0000-0000-000000000000/compact`. The id is valid-shaped (passes `isValidSessionId`) but never created, so the route's `getSession` lookup returns null and 404s BEFORE invoking `runtime.compact()` (an unknown id can't trigger any summarizer work). Asserts: 404 status; JSON body has a non-empty `error` string.
+
+**File-naming note:** `tests/server/` is flat — no `routes/` subdirectory exists. The route source lives under `src/server/routes/compact.ts` per the M5 convention but the test sits at `tests/server/compact.test.ts` to match `approvals.test.ts`, `sessions.test.ts`, and the seven `turns.*.test.ts` files.
+
+**Net:** M6 T5 ships green. The full M6 server-side compaction surface is now wired: T3 (proactive), T4 (overflow recovery), T5 (explicit user verb) all consume the same `runtime.compact` primitive built in T2 from the same `microcompactConfig` boot in T1. T6 (TUI `/compact` slash command + dispatch) is the next consumer; the HTTP response shape (`activeSessionId` echoed first, `parentSessionId` second) maps 1:1 onto the dispatch handler's pivot logic without further plumbing.
+
 ## 2026-05-14 — Phase 16.1 M6 T4 — context-overflow auto-recovery in turns route
 
 ### 2026-05-14 · M6 T4 cleanup — proactive+recovery interaction pinned + publish helper
