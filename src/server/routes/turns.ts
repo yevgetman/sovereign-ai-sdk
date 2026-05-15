@@ -396,16 +396,14 @@ async function runTurnInBackground(
       // retry entirely and surface the original overflow via the normal
       // turn_error path below — `terminal` already carries it.
       if (compactResult.noOp === true) {
-        if (!bus.isClosed()) {
-          bus.publish({
-            type: 'turn_error',
-            seq: bus.nextSeq(),
-            sessionId,
-            error:
-              terminal.error?.message ?? 'context overflow with no compactable history to recover',
-            recoverable: false,
-          });
-        }
+        bus.publish({
+          type: 'turn_error',
+          seq: bus.nextSeq(),
+          sessionId,
+          error:
+            terminal.error?.message ?? 'context overflow with no compactable history to recover',
+          recoverable: false,
+        });
         return;
       }
       publishCompactionComplete(bus, sessionId, compactResult);
@@ -419,27 +417,23 @@ async function runTurnInBackground(
       // normal turn end). Mirrors the second-overflow contract pinned by
       // the M6 T4 test.
       if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
-        if (!bus.isClosed()) {
-          bus.publish({
-            type: 'turn_error',
-            seq: bus.nextSeq(),
-            sessionId,
-            error: terminal.error?.message ?? 'context overflow after compaction',
-            recoverable: false,
-          });
-        }
+        bus.publish({
+          type: 'turn_error',
+          seq: bus.nextSeq(),
+          sessionId,
+          error: terminal.error?.message ?? 'context overflow after compaction',
+          recoverable: false,
+        });
         return;
       }
     }
 
-    if (!bus.isClosed()) {
-      bus.publish({
-        type: 'turn_complete',
-        seq: bus.nextSeq(),
-        sessionId,
-        finishReason: mapTerminalReason(terminal),
-      });
-    }
+    bus.publish({
+      type: 'turn_complete',
+      seq: bus.nextSeq(),
+      sessionId,
+      finishReason: mapTerminalReason(terminal),
+    });
   } catch (err) {
     bus.publish({
       type: 'turn_error',
