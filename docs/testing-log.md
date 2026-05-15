@@ -8,6 +8,47 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #35 — real Anthropic overflow probe, matcher verified
+
+**Scope:** Closed backlog item #35 (P2). The substring matcher in `src/providers/errors.ts:81-95` had never been verified against an actual Anthropic SDK error — only synthetic test fixtures (`tests/helpers/transportWrappers.ts:107`). If the real shape didn't match, T4's overflow-recovery branch would never fire on a live session and the user would see `turn_error` instead of auto-compacted recovery.
+
+**Probe (one-shot, real-API):** `tmp-probe-overflow.ts` (created → run → deleted) constructed `AnthropicProvider({ apiKey: <from ~/.harness/config.json> })`, built a `ProviderRequest` with `model: 'claude-haiku-4-5-20251001'` and a single user message of `'overflow probe token. '.repeat(60_000)` (~1.32M chars ≈ 330K tokens, well above the 200K window), drained `provider.stream(req)` inside try/catch, and JSON-stringified the caught error.
+
+**Observed shape (verbatim):**
+- `err.constructor.name`: `BadRequestError`
+- `err.name`: `Error` (the SDK doesn't override `name` on subclasses, but `constructor.name` is correct)
+- `err instanceof Error`: `true`
+- `err.status`: `400`
+- `err.type`: `'invalid_request_error'`
+- `err.message`: `'400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 200039 tokens > 200000 maximum"},"request_id":"req_011Cb4PSe4i4X232iyFFhWLt"}'`
+- `err.requestID`: `'req_011Cb4PSe4i4X232iyFFhWLt'`
+- `err.error`: `{type:'error', error:{type:'invalid_request_error', message:'prompt is too long: 200039 tokens > 200000 maximum'}, request_id:'...'}`
+- **`isContextOverflowError(err)`: `true`** — caught by the `'prompt is too long'` substring (lowercased).
+
+**Cost:** Single failed request. Anthropic's pricing model bills only on accepted tokens — the request was rejected at the validation gate before processing, so the observed cost in the dashboard is effectively $0 (the SDK doesn't surface usage on a rejected request, and Anthropic explicitly does not charge for `invalid_request_error` failures). Worst-case upper bound was Haiku $0.80/1M × 0.21M tokens × 1 attempt = $0.17.
+
+**Findings:**
+- Matcher caught the real shape with no extension required. The `'prompt is too long'` substring (added in an earlier commit speculatively) is the load-bearing match.
+- The SDK's `BadRequestError` extends `AnthropicError extends Error`, so the `err instanceof Error` guard in `isContextOverflowError` is satisfied.
+- The status code is **400**, NOT 413. Our `ProviderHttpError && status === 413` shortcut is irrelevant for Anthropic — it's a defensive line for OpenAI-compatible providers that map overflows to 413. Anthropic uses `400 invalid_request_error`. The substring match is what carries the load.
+- Documented the verified shape in JSDoc above `isContextOverflowError` so the next maintainer doesn't have to re-probe.
+
+**Test contract pinned:** New `tests/providers/errors.test.ts` (5 + 2 + 3 + 2 = 12 cases) pins:
+- Real Anthropic SDK shape (the verbatim message string from the probe).
+- Synthetic test fixture shape (`'context length exceeded by N tokens'` — what `transportWrappers.ts:107` throws).
+- OpenAI-style `context_length_exceeded` body shape.
+- HTTP 413 shortcut.
+- Negative cases (`isContextOverflowError(undefined)`, etc.).
+- Ancillary: `isRateLimited`, `isBillingExhausted`, `isModelUnavailable` smoke tests (these were uncovered before and the file was missing — added while in the area).
+
+**Commands:**
+- Probe: `bun run tmp-probe-overflow.ts` — one HTTP call to Anthropic; observed `BadRequestError` 400 with `prompt is too long: 200039 tokens > 200000 maximum`. `isContextOverflowError(err) === true`.
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1936 pass / 0 fail / 4810 expects / 44.29s** (12 new from `tests/providers/errors.test.ts`; baseline was 1924 before the test landed).
+- Cleanup: `rm tmp-probe-overflow.ts` after the probe.
+
+**Net:** One commit `1212a42` ships the JSDoc + the new test. M6 T4's overflow-recovery branch is now provably wired against the real Anthropic shape — Scenario 3 manual smoke can proceed with confidence the recovery surface will fire (not silently fall through to `turn_error`). The matcher needed no extension; the speculative `'prompt is too long'` substring (added before #35 was opened) was the load-bearing match. The SDK's status code is 400, not 413, so the HTTP-413 shortcut is unused for Anthropic but kept for OpenAI-compatible providers.
+
+
 ## 2026-05-15 — Critical fix: TUI multi-turn SSE — re-Consume after turn_complete
 
 **Bug class:** Latent M3-era correctness bug in the Go TUI. Pre-fix the TUI subscribed to the SSE event stream exactly ONCE in `New()` (`packages/tui/internal/app/app.go:101-103`) and never reconnected when the stream closed. The server closes the SSE response and disposes the per-session bus on every `turn_complete` / `turn_error` (`src/server/routes/events.ts:63-74` — by design — the bus is per-turn). So all turns AFTER the first delivered 202 from POST `/sessions/:id/turns` (the bus was recreated on the publish side) but the events were silently dropped client-side because the original SSE subscription had already terminated and was never replaced. The user saw their input echo, then the dim "…thinking" placeholder, then nothing.
