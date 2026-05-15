@@ -8,6 +8,55 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Phase 16.1 M7 T3 — per-session context + trace writer wired
+
+**Scope:** Third task of M7 (Hermes-layer parity group). Closes the per-session subsystem prerequisite row (#10) by introducing `SessionContext` — a per-session subsystem holder — and wiring the `TraceWriter` as its first member. `Runtime` gains `sessionContexts: Map<string, SessionContext>`, `getSessionContext(sessionId)` (lazy-build + cache), and `disposeSession(sessionId)` (best-effort tear-down). The turns route fetches the SessionContext per turn and forwards `traceWriter.record` into `query()` as `traceRecorder` so server-side runs land the same `<harnessHome>/traces/<sessionId>.jsonl` files terminalRepl already writes. T4/T5/T6 will extend `SessionContext` with trajectory metadata, the learning observer, and the review manager respectively.
+
+**Approach:**
+1. **New module `src/server/sessionContext.ts` (86 lines).** Defines the `SessionContext` type with `sessionId`, `traceWriter`, and optional `learningObserver` / `reviewManager` placeholder fields (the latter two will land in T5/T6 — the empty-by-default shape is intentional so downstream callers don't churn). Exports `buildSessionContext({ runtime, sessionId })` (one TraceWriter construction; placeholder comment block marks the T4/T5/T6 extension points) and `disposeSessionContext(ctx)` (best-effort `traceWriter.close()` with errors logged-and-swallowed per Invariant #10).
+2. **`src/server/runtime.ts`:** Added `SessionContext` import alphabetically alongside `./sessionContext.js`. Added `sessionContextFactory?: (sessionId: string) => SessionContext` to `RuntimeOptions` (test injection seam, parity with T1's `mcpClientPool` and T2's `daemonEventBus`). Added three new fields to `Runtime`: `sessionContexts: Map<string, SessionContext>`, `getSessionContext(sessionId)`, `disposeSession(sessionId)`, all JSDoc'd with the lazy-build + eviction semantics and the M6 compaction-pivot relationship. Switched the return literal from `return { ... }` to `const runtimeRef: Runtime = { ... }; return runtimeRef;` so the factory closure (`(sessionId) => buildSessionContext({ runtime: runtimeRef, sessionId })`) captures the runtime reference safely — JavaScript closures hold references, not snapshots, so by the time the factory ever fires, `runtimeRef` has been initialized. `dispose()` now walks `sessionContexts.keys()` first (closing each TraceWriter to flush its JSONL append queue) BEFORE shutting the MCP pool and closing sessionDb, matching the M7-08 disposal order.
+3. **`src/server/routes/turns.ts`:** Added `TraceEvent` import. Inside `runTurnInBackground`, fetched `sessionCtx = runtime.getSessionContext(sessionId)` immediately after the `let sessionId = sessionIdInitial` line, declared as `let sessionCtx` because both compaction pivots reassign it. The `traceRecorder` closure dereferences `sessionCtx` dynamically (`(event) => sessionCtx.traceWriter.record(event)`), so a single bound function survives both pivots without needing to re-thread itself into `query()`. Added `traceRecorder` to the `query()` invocation inside `runOnce`. Re-fetched `sessionCtx = runtime.getSessionContext(sessionId)` after both compaction reassignments — the proactive branch (after the `noOp !== true` reassignment to the child id) AND the overflow-recovery branch (after `sessionId = compactResult.newSessionId`) — so post-pivot trace events land in the child's trace file rather than the parent's.
+
+**TDD:** Wrote `tests/server/sessionContext.test.ts` (4 tests) and `tests/server/turns.trace.test.ts` (1 integration test) first. RED on first run — all 5 failed for the right reason (`runtime.getSessionContext is not a function`, `runtime.disposeSession is not a function`). GREEN after the SessionContext module + Runtime wiring landed (sessionContext tests passed), then GREEN on the trace integration test after the turns-route wiring landed.
+
+- **Test 1 (`getSessionContext returns a populated context with a TraceWriter`):** Asserts the context has a defined `traceWriter`, the writer's `path` contains both the sessionId and the temp `harnessHome`, and a second `getSessionContext(sessionId)` call returns the same instance (caching contract).
+- **Test 2 (`disposeSession closes the trace writer; file is finalized on disk`):** Records a `session_start` event, awaits `runtime.disposeSession(sessionId)`, asserts the JSONL file exists and contains `"type":"session_start"`, then asserts that a follow-up `getSessionContext(sessionId)` returns a NEW instance (post-dispose eviction).
+- **Test 3 (`runtime.dispose() walks live sessionContexts and disposes each`):** Two separate sessions, records on both contexts' writers, calls `runtime.dispose()`, asserts both files persist with their recorded events. Pins the disposal-walk contract that the M7-08 order depends on.
+- **Test 4 (`double-dispose is idempotent`):** Two consecutive `disposeSession(sessionId)` calls must not throw. Pins the no-op-on-missing-entry behavior.
+- **Test 5 (integration, `turns.trace.test.ts`):** Drives a turn through the public route (POST /sessions/:id/turns followed by the SSE drain), then `disposeSession(sessionId)`. Asserts the trace file lands at `<harnessHome>/traces/<sessionId>.jsonl` and contains `"type":"turn_start"`, `"type":"provider_request"`, `"type":"provider_response"`. Mirrors `tests/server/turns.test.ts`'s SSE-drain pattern rather than reaching into the private `runTurnInBackground` helper (which the plan's sketch did but would have required exporting the function).
+
+**Plan deviations:**
+1. **Integration test path.** The plan's sketch imported `runTurnInBackground` directly. That function is `async function` (not exported) and exporting it for one test surface would broaden the API for no real gain. Drove the turn via `buildAppWithRuntime` + the public POST route + SSE drain instead — same coverage, no API surface change.
+2. **MockProvider construction.** The plan's sketch used `new MockProvider({ script: [...] })`. The real `MockProvider` constructor takes no args; tests configure behavior via `SOV_TEST_MOCK_PROVIDER=1` and static toggles. Used the env-flag pattern that all other `tests/server/turns.*.test.ts` files already use.
+3. **`traceRecorder` closure design.** The plan offered two options (rebuild closure after each pivot OR dereference dynamically). Went with the dynamic-deref approach — one closure construction, no rebind on either compaction site, just a `let sessionCtx` reassignment. The closure reads `sessionCtx.traceWriter.record(event)` on every invocation, so the post-pivot event automatically lands on the child's writer.
+
+**Per-section verification — `runtimeRef` pattern:**
+The forward-reference idiom worked cleanly. The `factory` closure (`(sessionId) => buildSessionContext({ runtime: runtimeRef, sessionId })`) is defined BEFORE `runtimeRef` is assigned, but since the closure only deref's `runtimeRef` when the model actually triggers `getSessionContext` (always strictly after `buildRuntime` returns), there's no temporal-dead-zone issue. TypeScript flagged no concerns; runtime behavior is correct on first try. Did NOT need to adjust the pattern.
+
+**Per-section verification — compaction pivot rebind:**
+Both compaction sites in `src/server/routes/turns.ts` now rebind `sessionCtx`:
+- **Proactive branch (line ~228):** After `sessionId = result.newSessionId;` inside the `if (result.noOp !== true) { ... }` block.
+- **Overflow-recovery branch (line ~425):** After `sessionId = compactResult.newSessionId;` inside the `terminal?.reason === 'error' && isContextOverflowError(...)` block (the post-noOp guard).
+
+Both rebinds happen before `hydrate()` is called so the next `runOnce(messages)` and any subsequent `traceRecorder` invocation pick up the child's TraceWriter.
+
+**T2-polish carry-forwards applied:**
+- **Drain constant:** No `setTimeout(r, 50)` instances introduced in T3 (none of the T3 tests need a fire-and-forget drain — TraceWriter's `close()` already drains the write chain, and the SSE drain inside the integration test serializes naturally on `await eventsRes.text()`).
+- **Tmpdir consolidation:** Followed T1's lean pattern — one `tmpHome` shared between `cwd` and `harnessHome` in both new test files. No reason to split.
+- **Narrow event-type filtering:** No bus subscriber in T3's tests (TraceWriter is file-side; no DaemonEvent flow involved). Carry-forward inapplicable to this task — will re-evaluate when T5/T6 wire learning/review observers onto subsystems with explicit event types.
+- **No DRY factoring:** Kept the `opts.X ?? new X()` boot-order pattern for `sessionContextFactory` — same shape as T1's `mcpClientPool` and T2's `daemonEventBus`. Three occurrences now; M7 retro decides on factoring.
+
+**Diff:**
+- `src/server/sessionContext.ts` (new, 86 lines)
+- `src/server/runtime.ts` (+59, -1 lines: imports, RuntimeOptions field, three Runtime fields, factory/getSessionContext/disposeSession block, runtimeRef literal + dispose update)
+- `src/server/routes/turns.ts` (+25, -2 lines: TraceEvent import, sessionCtx + traceRecorder + two rebind sites, traceRecorder threaded through query())
+- `tests/server/sessionContext.test.ts` (new, 168 lines)
+- `tests/server/turns.trace.test.ts` (new, 73 lines)
+
+**Lint + typecheck:** clean (`bun run lint` reports the same 2 pre-existing warnings on `src/main.ts` that T2 also showed; `bun run typecheck` clean).
+
+**Tests:** 1953 pass, 0 fail (1948 baseline + 5 new). Server suite 99 pass.
+
 ## 2026-05-15 — Phase 16.1 M7 T2 — DaemonEventBus wired into TaskManager (closes #28)
 
 **Scope:** Second task of M7 (Hermes-layer parity group). Closes backlog item #28 (DaemonEventBus → server-mode TaskManager wiring). The server runtime now constructs a `DaemonEventBus` once per `buildRuntime` call and threads it into the `TaskManager` constructor's existing optional `bus?` field. `task_update` events fire onto the shared bus at queued + terminal transitions exactly as they already do in `tests/tasks/manager.bus.test.ts`. No in-process subscriber lands in M7 — this is pure plumbing for future cross-process consumers (daemon-mode TUI, external observers) per M7-06.

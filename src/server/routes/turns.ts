@@ -31,6 +31,7 @@ import { redactSecretsTransformer } from '../../permissions/redactSecretsTransfo
 import type { CanUseTool } from '../../permissions/types.js';
 import { isContextOverflowError } from '../../providers/errors.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
+import type { TraceEvent } from '../../trace/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
@@ -156,6 +157,16 @@ async function runTurnInBackground(
   // sessionId for turn_error attribution (the value at the moment of throw —
   // pre-hop if compact() throws, post-hop if query() throws afterwards).
   let sessionId = sessionIdInitial;
+  // M7 T3 — per-session trace writer. The context is fetched (and lazily
+  // built) up-front and re-fetched after each compaction pivot below so
+  // the post-pivot trace events land in the child's trace file. The
+  // `traceRecorder` closure dereferences `sessionCtx` dynamically so a
+  // single bound function survives both compaction sites without needing
+  // to re-thread itself into the query() call.
+  let sessionCtx = runtime.getSessionContext(sessionId);
+  const traceRecorder = (event: TraceEvent): void => {
+    sessionCtx.traceWriter.record(event);
+  };
   const userMessage: Message = {
     role: 'user',
     content: [{ type: 'text', text }],
@@ -219,6 +230,11 @@ async function runTurnInBackground(
       if (result.noOp !== true) {
         publishCompactionComplete(bus, sessionId, result);
         sessionId = result.newSessionId;
+        // M7 T3 — re-fetch the SessionContext so the post-compaction trace
+        // events land in the child's trace file rather than the parent's.
+        // The `traceRecorder` closure picks up the new ref on its next call
+        // because it dereferences `sessionCtx` dynamically.
+        sessionCtx = runtime.getSessionContext(sessionId);
         // The child's persisted state (summary + tail) is now the source of
         // truth for the model. Reload from the DB rather than mutating
         // result.tail in place so we pick up the persisted summary message
@@ -311,6 +327,13 @@ async function runTurnInBackground(
         // userSettings.microcompaction. Without it, query() would fall back
         // to DEFAULT_MICROCOMPACT_CONFIG and ignore the user's settings.
         microcompactConfig: runtime.microcompactConfig,
+        // M7 T3 — server-side trace recorder. Forwards every TraceEvent
+        // query() emits (turn_start, provider_request, provider_response,
+        // tool_start, tool_end, microcompact, …) into the per-session
+        // TraceWriter so the resulting JSONL captures the same shape as
+        // terminalRepl's trace files. The closure dereferences sessionCtx
+        // dynamically, so post-compaction events land in the child's file.
+        traceRecorder,
       });
 
       // M3 collapses all assistant output onto block 0. Per-block indexing
@@ -416,6 +439,9 @@ async function runTurnInBackground(
       }
       publishCompactionComplete(bus, sessionId, compactResult);
       sessionId = compactResult.newSessionId;
+      // M7 T3 — re-fetch the SessionContext so the retried run's trace
+      // events land in the child's trace file rather than the parent's.
+      sessionCtx = runtime.getSessionContext(sessionId);
       messages = hydrate();
       terminal = await runOnce(messages);
       // M6-02 retry-once: if the retry's terminal also carries an overflow

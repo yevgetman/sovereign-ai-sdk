@@ -54,6 +54,11 @@ import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
 import type { ServerEventBus } from './eventBus.js';
+import {
+  type SessionContext,
+  buildSessionContext,
+  disposeSessionContext,
+} from './sessionContext.js';
 
 /** Default timeout for a pending permission request (M5-02). 60 seconds —
  *  long enough for a user to read the prompt and decide, short enough that
@@ -155,6 +160,10 @@ export type RuntimeOptions = {
   /** Pre-built DaemonEventBus injection seam (test override). When
    *  omitted, buildRuntime constructs a fresh in-memory bus. */
   daemonEventBus?: DaemonEventBus;
+  /** Per-session context factory override (test injection seam). When
+   *  omitted, buildRuntime uses the default buildSessionContext() which
+   *  opens a TraceWriter at <harnessHome>/traces/<sessionId>.jsonl. */
+  sessionContextFactory?: (sessionId: string) => SessionContext;
 };
 
 export type Runtime = {
@@ -254,6 +263,26 @@ export type Runtime = {
    *  may inject their own bus via `RuntimeOptions.daemonEventBus`.
    *  Closes backlog #28. */
   daemonEventBus: DaemonEventBus;
+  /** Per-session subsystem registry (M7-01). Holds the trace writer
+   *  (T3) and — in follow-up tasks — learning observer (T5), review
+   *  manager (T6), and trajectory metadata (T4) for each active session
+   *  id. Built lazily on the first `getSessionContext` call; evicted by
+   *  `disposeSession` and walked by `dispose()` at shutdown. Externally
+   *  read-only — callers must go through `getSessionContext` /
+   *  `disposeSession` so disposal ordering is preserved. */
+  sessionContexts: Map<string, SessionContext>;
+  /** Lazy-build or return the cached SessionContext for `sessionId`. Safe
+   *  to call repeatedly; idempotent within a runtime. After
+   *  `disposeSession`, the next call rebuilds a fresh context (the entry
+   *  is evicted before disposal awaits, so a concurrent get during
+   *  shutdown sees the missing entry and rebuilds rather than handing
+   *  back a half-closed writer). */
+  getSessionContext: (sessionId: string) => SessionContext;
+  /** Tear down the per-session subsystems for `sessionId` and evict from
+   *  the registry. Idempotent — no-op when the id is not registered. The
+   *  M6 compaction pivot calls this on the parent id (and lazy-builds the
+   *  child's context on the next `getSessionContext` lookup). */
+  disposeSession: (sessionId: string) => Promise<void>;
   dispose: () => Promise<void>;
 };
 
@@ -586,7 +615,34 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       ? userSettings.compaction.proactiveThresholdPct / 100
       : 0.75);
 
-  return {
+  // M7 T3 — per-session subsystem registry. `factory` defaults to
+  // `buildSessionContext({ runtime: runtimeRef, sessionId })`, capturing
+  // the `runtimeRef` const declared below. The closure is safe because
+  // JavaScript closures hold a reference, not a snapshot: by the time
+  // `factory(sessionId)` actually fires (always after `buildRuntime`
+  // returns), `runtimeRef` has been initialized to the Runtime literal.
+  const sessionContexts = new Map<string, SessionContext>();
+  const sessionContextFactory: (sessionId: string) => SessionContext =
+    opts.sessionContextFactory ??
+    ((sessionId) => buildSessionContext({ runtime: runtimeRef, sessionId }));
+  const getSessionContext = (sessionId: string): SessionContext => {
+    let ctx = sessionContexts.get(sessionId);
+    if (!ctx) {
+      ctx = sessionContextFactory(sessionId);
+      sessionContexts.set(sessionId, ctx);
+    }
+    return ctx;
+  };
+  // Evict from the map BEFORE awaiting disposal so a concurrent get during
+  // shutdown rebuilds rather than handing back a half-closed writer.
+  const disposeSession = async (sessionId: string): Promise<void> => {
+    const ctx = sessionContexts.get(sessionId);
+    if (!ctx) return;
+    sessionContexts.delete(sessionId);
+    await disposeSessionContext(ctx);
+  };
+
+  const runtimeRef: Runtime = {
     sessionDb,
     toolPool,
     systemSegments,
@@ -613,13 +669,20 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     compact,
     proactiveCompactThreshold,
     mcpClientPool,
+    sessionContexts,
+    getSessionContext,
+    disposeSession,
     dispose: async () => {
       // M7-08 disposal order: per-session subsystems → MCP pool → approval
-      // queue → sessionDb. Per-session walk lands in T3; T1 only handles
-      // MCP + the existing approval + sessionDb. Shutting the MCP pool
-      // before closing sessionDb means subprocess transports get a clean
-      // close while the DB is still around for any final task_update
-      // bookkeeping (the per-session walk in T3 will hook in front of MCP).
+      // queue → sessionDb. The per-session walk closes each trace writer
+      // first so the JSONL files are flushed before the surrounding state
+      // (DB connection, MCP transports) goes away. T1 handled MCP +
+      // approval + sessionDb only; T3 now hooks the per-session sweep at
+      // the front.
+      const liveSessionIds = Array.from(sessionContexts.keys());
+      for (const liveId of liveSessionIds) {
+        await disposeSession(liveId);
+      }
       if (mcpClientPool) await mcpClientPool.shutdown();
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
@@ -627,4 +690,5 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       sessionDb.close();
     },
   };
+  return runtimeRef;
 }
