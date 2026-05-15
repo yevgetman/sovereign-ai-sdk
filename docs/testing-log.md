@@ -8,6 +8,27 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M6 T4 — context-overflow auto-recovery in turns route
+
+### 2026-05-14 · M6 T4 — runOnce + retry-once wiring
+
+**Scope:** TDD pass for M6 T4. Wires the M6-02 retry-once contract into `runTurnInBackground`: when the first model call surfaces a context-overflow error (`isContextOverflowError(terminal.error) === true` — `query()` captures provider exceptions into `Terminal { reason: 'error', error }` at `src/core/query.ts:156-164`), the route runs `runtime.compact()`, publishes `compaction_complete`, and re-runs the same turn ONCE against the new (post-compaction) session id. A second overflow on the retry surfaces as `turn_error` (rather than glossed as `turn_complete` with `finishReason: 'error'`) — the post-recovery overflow is a distinct failure surface ("compaction didn't yield enough headroom") that the TUI should not treat as a normal turn end. Closes prereq row 15 (overflow auto-recovery) and the second half of prereq row 7 (full Compactor — proactive + overflow paths). Mirrors `src/ui/terminalRepl.ts:1659-1675` adapted to the bus/SSE surface.
+
+**Refactor shape (Option A — runOnce extraction):** Lifted the existing `while (true) { stream.next(); … }` iteration into an inner `runOnce(currentMessages)` closure that returns `Terminal | undefined`. The outer logic: first `runOnce(messages)` → if `terminal.reason === 'error' && isContextOverflowError(terminal.error)`, run `runtime.compact()` + publish `compaction_complete` + reassign `sessionId = compactResult.newSessionId` + `messages = hydrate()` + second `runOnce(messages)` → publish either `turn_error` (second overflow) or `turn_complete` (success). The closure captures `sessionCanUseTool` by reference (the session-scoped `serverAsk` continues to publish `permission_request` events under whatever `sessionId` is at the moment of the ask, which is the post-compaction id by the time the retry's tools fire). Recovery from a `runtime.compact()` throw during the recovery hop (recursive overflow case) is symmetric to T3's safety net — the existing `try { … } catch` boundary publishes `turn_error` if compact() throws inside the retry path.
+
+**Commands:**
+- New regression test: `bun test tests/server/turns.overflowRecovery.test.ts` — RED first (both tests failed: the route emitted `turn_complete` with `finishReason: 'error'` instead of recovering, and `compaction_complete` never surfaced). GREEN after wiring (2 pass / 24 expect() / ~158ms).
+- Adjacent turns suite (regression check): `bun test tests/server/turns.proactiveCompact.test.ts tests/server/turns.test.ts tests/server/turns.permission.test.ts tests/server/turns.subagent.test.ts tests/server/turns.hooks.test.ts tests/server/turns.microcompact.test.ts tests/server/turns.overflowRecovery.test.ts` — 16 pass / 132 expect() / ~893ms.
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full suite **1916 pass / 0 fail / 4730 expect() / 28.67s** (+2 tests, +24 expects vs T3 cleanup's 1914/4706).
+
+**Test design (two scenarios, retry-once contract):**
+- Test 1 (happy path): wrap the resolved transport so the FIRST non-summarize call throws `'context length exceeded by 12000 tokens'` and every subsequent call passes through (summarize calls always pass through so `runtime.compact()` can run normally). POST a turn, drain SSE; assert `compaction_complete` fires, `turn_complete` fires, `turn_error` does NOT fire, exactly one lineage row exists, `activeSessionId` echoes the new child id, and exactly 2 main-stream calls + ≥ 1 summarize call were made. Pins recovery-on-first-overflow.
+- Test 2 (second-overflow contract): wrap the transport so EVERY non-summarize call throws overflow. POST a turn, drain SSE; assert `compaction_complete` fires (proves first-overflow recovery triggered), `turn_error` fires with the overflow message, `turn_complete` does NOT fire, exactly ONE `compaction_complete` (proves no double-recovery loop), exactly ONE lineage row, exactly 2 main calls (proves no third retry). Pins the M6-02 "retry-once, not retry-loop" half of the contract.
+
+**Overflow detection nuance:** There is no `ContextOverflowError` class in the codebase — `src/providers/errors.ts:81` `isContextOverflowError(err)` is purely string-based, matching against `'context length'`, `'context window'`, `'prompt is too long'`, `'too many tokens'`, etc. The test transports throw plain `Error('context length exceeded …')` to trigger detection, mirroring how a real provider's HTTP-413 / OpenAI `context_length_exceeded` body surfaces after string-coercion. The `ProviderHttpError(_, 413)` branch is also handled by `isContextOverflowError` — both paths converge into the same recovery branch.
+
+**Net:** M6 T4 ships green. Server-side overflow auto-recovery now mirrors `terminalRepl.ts:1659-1675`. Combined with T3, the full Compactor (proactive + overflow paths) is wired through the turns route. T5 (POST /sessions/:id/compact route) and T6 (`/compact` slash command) consume the same `runtime.compact` primitive + `compaction_complete` wire event without further plumbing.
+
 ## 2026-05-14 — Phase 16.1 M6 T3 — proactive compaction in turns route
 
 ### 2026-05-14 · M6 T3 cleanup — wrap proactive block in turn_error safety net + dedupe hydrate
