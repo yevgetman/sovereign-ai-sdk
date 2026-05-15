@@ -10,6 +10,21 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M6 T6 — TUI /compact dispatch + compaction_complete handling
 
+### 2026-05-14 · M6 T6 cleanup — Go polish applied (DRY helper + indirection drop + sync.Once)
+
+**Scope:** Code-quality reviewer flagged three minor (M-1, M-2, M-3) Go-side cleanups against the T6 implementation at `4adf949`. All three are mechanical, no behavior change.
+
+- **M-1** (`packages/tui/internal/app/app.go:291-294, 423-426`): Two byte-identical 4-line truncate-to-8-chars blocks for the session-id transcript markers. Extracted `shortSessionID(id string) string` helper near `clearThinkingIfPending`. Both call sites become one-liners. The doc comment notes that production session ids are UUIDs so the truncation always fires; the `len > 8` guard is defense against a future short-id format.
+- **M-2** (`packages/tui/internal/app/app.go:196-199, 267-277, 46-51`): The `/compact` intercept returned `func() tea.Msg { return compactRequestedMsg{} }`, deferring placeholder rendering + cmd dispatch to the `compactRequestedMsg` Update branch. Inlined the placeholder + `m.compactCmd()` dispatch directly at the intercept site. Deleted the `compactRequestedMsg` Update branch and the `compactRequestedMsg` type entirely. Net: -14 lines, -1 single-use message type, normal-turn path and compact-turn path now mirror each other (both inline placeholder + cmd in one tick).
+- **M-3** (`packages/tui/internal/app/app_test.go:394-395, 423-428`): `TestApp_compactionCompleteSSEPivotsSession`'s `eventsServedCh` close guard used `bool + sync.Mutex + branch`. Replaced with `sync.Once` (`eventsServedOnce.Do(func() { close(eventsServedCh) })`). Drops the bool, the lock/unlock, and the branch — net -3 lines, +1 stdlib idiom, identical behavior. The mutex stays because it still guards `turnPostsPath` (the test's other shared state).
+
+**Commands:**
+- Targeted Go: `cd packages/tui && go test ./internal/app/... ./internal/transport/...` — **app + transport green**, app cached after first run.
+- Full Go: `cd packages/tui && go test ./...` — **all 4 packages green** (app, components, transport, sov-tui no test files).
+- TS pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing warnings in `src/permissions/shellSemantics.ts` — unrelated, untouched in this pass); typecheck clean; full suite **1921 pass / 0 fail / 4771 expect() / 28.86s** (unchanged from T6 baseline since the cleanups are Go-only on the production code path + Go-only on the test path).
+
+**Net:** All three minor cleanups land green. The Go TUI's `/compact` path now uses one fewer Bubble Tea message type and the truncation helper is DRY across the two markers. The SSE-pivot test uses the canonical Go idiom for one-shot channel close. No regressions in transport_test.go or app_test.go; full Go suite remains green.
+
 ### 2026-05-14 · M6 T6 — Go-side wiring for /compact slash + compaction_complete SSE
 
 **Scope:** Go-side counterpart to T1-T5's TS server work. Two pieces: (1) intercept the `/compact` user input client-side — POST to `/sessions/:id/compact`, render a transcript marker on success, pivot `m.sessionID` to the response's `activeSessionId` so subsequent turn POSTs route to the new child session; (2) handle the `compaction_complete` SSE event (from T3 proactive + T4 overflow recovery paths) — pivot `m.sessionID` to `cc.ActiveSessionID` and render a transcript marker carrying the before→after token estimates. Inline decision M6-01 honored: compaction creates a new session id; the TUI tracks it via the SSE event + the POST response. Visual polish (styled "compaction summary" card) deferred to M9 — M6 emits a minimal one-line dim marker.
