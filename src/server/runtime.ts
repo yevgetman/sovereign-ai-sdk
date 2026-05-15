@@ -21,13 +21,20 @@ import type { Bundle } from '../bundle/types.js';
 import { type MicrocompactConfig, buildMicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import type { Settings } from '../config/schema.js';
-import { loadHookSettings, loadPermissionSettings } from '../config/settings.js';
+import {
+  loadHookSettings,
+  loadMcpServerSettings,
+  loadPermissionSettings,
+} from '../config/settings.js';
 import { readConfig } from '../config/store.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import type { HookRunner } from '../hooks/types.js';
+import { buildMcpClientPool } from '../mcp/client.js';
+import { wrapMcpTool } from '../mcp/toolWrapper.js';
+import type { McpClientPool } from '../mcp/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
@@ -140,6 +147,10 @@ export type RuntimeOptions = {
    *  userSettings.compaction.proactiveThresholdPct (which is stored as a
    *  percentage 1..99 and divided by 100 here). */
   proactiveCompactThreshold?: number;
+  /** Pre-built MCP client pool injection seam (test override). When
+   *  omitted, buildRuntime loads from settings via loadMcpServerSettings
+   *  and constructs a fresh pool when at least one server is configured. */
+  mcpClientPool?: McpClientPool;
 };
 
 export type Runtime = {
@@ -227,6 +238,11 @@ export type Runtime = {
    *  as a percentage; divided by 100 here). Default 0.75 mirrors
    *  shouldCompactProactively's built-in default. */
   proactiveCompactThreshold: number;
+  /** Connected MCP client pool. Undefined when no MCP servers are
+   *  configured. The pool's wrapped tools are already merged into
+   *  `toolPool` at boot. runtime.dispose() shuts the pool down before
+   *  sessionDb.close() (M7-08 order). */
+  mcpClientPool: McpClientPool | undefined;
   dispose: () => Promise<void>;
 };
 
@@ -306,6 +322,24 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(bundle ? { bundleRoot: bundle.root } : {}),
   });
 
+  // M7 T1 — load MCP server settings + build pool when configured.
+  // Mirrors terminalRepl.ts:336,651-659. Pool tools land in the toolPool
+  // via assembleToolPool's `mcpTools` arg below, so the orchestrator sees
+  // mcp__<server>__<tool> entries on the very first turn. The pool is
+  // shut down before sessionDb.close() inside dispose() (M7-08 order).
+  const mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
+  const mcpClientPool: McpClientPool | undefined =
+    opts.mcpClientPool ??
+    (Object.keys(mcpSettings.servers).length > 0
+      ? await buildMcpClientPool({
+          servers: mcpSettings.servers,
+          log: (msg) => process.stderr.write(`${msg}\n`),
+        })
+      : undefined);
+  const mcpTools = mcpClientPool
+    ? mcpClientPool.tools().map((meta) => wrapMcpTool(meta, mcpClientPool))
+    : [];
+
   // Bare tool context — no memory/skills/scheduler/task manager/learning
   // observer. M3 is the "bare turn" milestone (spec §10). Those subsystems
   // land in M4+ per docs/backlog/phase-16-rebuild-prereqs.md.
@@ -316,7 +350,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     harnessHome,
     agents,
   };
-  const toolPool = assembleToolPool(toolCtx);
+  const toolPool = assembleToolPool(toolCtx, { mcpTools });
 
   const systemSegments = buildSystemSegments({
     ...(bundle ? { bundle } : {}),
@@ -560,7 +594,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     microcompactConfig,
     compact,
     proactiveCompactThreshold,
+    mcpClientPool,
     dispose: async () => {
+      // M7-08 disposal order: per-session subsystems → MCP pool → approval
+      // queue → sessionDb. Per-session walk lands in T3; T1 only handles
+      // MCP + the existing approval + sessionDb. Shutting the MCP pool
+      // before closing sessionDb means subprocess transports get a clean
+      // close while the DB is still around for any final task_update
+      // bookkeeping (the per-session walk in T3 will hook in front of MCP).
+      if (mcpClientPool) await mcpClientPool.shutdown();
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
       approvalQueue.disposeAll();

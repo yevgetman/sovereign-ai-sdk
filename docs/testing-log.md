@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Phase 16.1 M7 T1 — MCP client pool wired into buildRuntime
+
+**Scope:** First task of M7 (Hermes-layer parity group). Closes prereq row 2 from `docs/backlog/phase-16-rebuild-prereqs.md`. The server runtime now mirrors `terminalRepl.ts:336,651-659,728,1946` for MCP wiring: layered settings load, conditional pool construction, `wrapMcpTool` merge into the tool pool, and an M7-08-ordered shutdown inside `dispose()`.
+
+**Approach:**
+1. Added `mcpClientPool?` injection seam to `RuntimeOptions` (test override).
+2. Added `mcpClientPool: McpClientPool | undefined` field to `Runtime`.
+3. In `buildRuntime`, after `loadAgents` and before `toolCtx`, called `loadMcpServerSettings({ cwd, harnessHome })` and built the pool when `Object.keys(servers).length > 0` (otherwise `undefined`). Wrapped each discovered tool via `wrapMcpTool(meta, pool)`.
+4. Changed `assembleToolPool(toolCtx)` → `assembleToolPool(toolCtx, { mcpTools })`. The 2nd-arg shape was already supported (`AssembleToolPoolOpts` accepts `{ mcpTools?, harnessInfoSnapshot? }`); omitting `harnessInfoSnapshot` is safe (registry treats it as optional). When `mcpTools` is `[]` the merge is a no-op so callers with no MCP servers see identical behavior to the prior signature.
+5. Threaded `mcpClientPool` onto the Runtime return object and into `dispose()` — the pool's `shutdown()` runs before `approvalQueue.disposeAll()` + `sessionDb.close()`. Comment in `dispose()` notes the M7-08 order and flags that the per-session walk lands in T3.
+
+**TDD:** Wrote `tests/server/runtime.mcp.test.ts` with two tests covering both shapes of the cascade. RED on first run for the "configured" test — `runtime.mcpClientPool` undefined (field didn't exist yet) — exactly the expected failure mode. GREEN after the four-step implementation landed.
+
+- **Test 1 (no MCP servers):** Boots `buildRuntime` against an empty `harnessHome`; asserts `runtime.mcpClientPool === undefined` and `toolPool` contains zero `mcp__*` entries. Validates the conditional-construction path.
+- **Test 2 (configured + ordering):** Writes `<harnessHome>/settings.json` with `mcpServers.echo` pointing at the existing `tests/mcp/fixtures/echo-server.ts` stdio fixture. Boots the runtime; asserts pool exists, at least one `mcp__echo__*` tool is in `toolPool`, and the first one matches `/^mcp__echo__/`. Then wraps `pool.shutdown` and `sessionDb.close` with order-recording spies before calling `runtime.dispose()`; asserts `mcpShutdownCalled === true` AND `shutdownBeforeDbClose === true` (the M7-08 ordering invariant).
+
+**Plan deviation:** The plan's test sketch wrote a `config.json` and set `process.env.HARNESS_CONFIG_PATH`. Neither matched the actual cascade — `loadMcpServerSettings` reads `settings.json` (via `getPermissionSettingsPaths`), and `HARNESS_CONFIG_PATH` is not a known env var (only `HARNESS_CONFIG` exists, for the user `config.json` consumed by `readConfig`). Fixed by writing `<tmpHome>/settings.json` directly so the user layer of the cascade resolves the MCP server config. The plan's stated assertion targets are otherwise preserved verbatim.
+
+**Diff:**
+- `src/server/runtime.ts` — net +35 lines (3 new imports, `mcpClientPool` on `RuntimeOptions`, `mcpClientPool` on `Runtime`, MCP load+build block before `toolCtx`, `assembleToolPool` 2nd-arg, `mcpClientPool` in return literal, ordered shutdown in `dispose()`).
+- `tests/server/runtime.mcp.test.ts` — +98 lines (new file, 2 tests).
+
+**Commands:**
+- Targeted: `bun test tests/server/runtime.mcp.test.ts` — `2 pass / 0 fail / 7 expects`.
+- Server suite check: `bun test tests/server/` — `91 pass / 0 fail` (89 → 91, +2 new).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1945 pass / 0 fail / 4852 expects / 44.18s** (1943 → 1945, +2 new).
+
+**Net:** One commit (`feat(server): M7 T1 — MCP client pool wired into buildRuntime`). The server runtime now reaches MCP parity with terminalRepl for the load + construct + wrap + merge + shutdown invariants. T2 (DaemonEventBus → TaskManager) and T3 (`SessionContext` registry) build on top of this — T1 is the singleton-pool plumbing; per-session subsystems land in T3.
+
 ## 2026-05-15 — Backlog #37 — `sov --version` surfaces git SHA
 
 **Scope:** Closed backlog item #37 (P4). Pre-state: `sov --version` printed bare `0.1.0` (the static `package.json` version), so confirming "did `sov upgrade` actually take?" required the auxiliary `bun pm ls -g 2>&1 | grep sov` invocation. Goal: lift the resolved short git SHA into `--version` output so the pre-flight ritual is a one-command answer.
