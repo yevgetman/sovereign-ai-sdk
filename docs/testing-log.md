@@ -8,6 +8,26 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #31 — turns route `:id` validation
+
+**Scope:** Closed backlog item #31 (P3). `POST /sessions/:id/turns` (`src/server/routes/turns.ts:80`) read `c.req.param('id')` and used it directly as the `sessionId` for `getOrCreateBus` + the persisted user message — no `isValidSessionId` guard. Sibling routes (`sessions.ts:39`, `events.ts:20`, `approvals.ts:23`, `compact.ts:41`) all validated and 400'd on malformed input; the turns route was the lone outlier from the M3.4 era. M6's compact route made the asymmetry visible during whole-branch review.
+
+**Approach:** Added the canonical guard at the very top of the handler — same shape as `compact.ts:39-42`. Imports updated to combine `isValidSessionId` with the existing `loadHistoryAsMessages` import per Biome's type-first rule.
+
+**TDD:** Wrote the failing regression test first in `tests/server/turns.test.ts` ("returns 400 for invalid session id"). Confirmed RED before applying the fix:
+- Failure observed: `expect(res.status).toBe(400)` — `Expected: 400 / Received: 202` — the pre-fix code accepted `'bad id!'` and dispatched the background turn loop. (As a bonus, the bad id then caused a `SQLITE_CONSTRAINT_FOREIGNKEY` cascade in the persistence test running after it — direct empirical evidence of the impact described in the backlog row.)
+
+After the fix landed, the new test passes; the cascade FK error in the persistence test also vanished (the bus is no longer created for the malformed id, so `runTurnInBackground` never runs against it).
+
+**Diff:**
+- `src/server/routes/turns.ts` — +8 lines (import update + 5-line guard with comment).
+- `tests/server/turns.test.ts` — +35 lines (one new test in the existing `describe('POST /sessions + POST /sessions/:id/turns', …)` block).
+
+**Commands:**
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1939 pass / 0 fail / 4829 expects / 44.04s** (one new test added vs the prior 1938).
+
+**Net:** One commit ships the fix + test. Closes the asymmetry the M6 final whole-branch reviewer flagged. All five session-scoped routes now share the same `:id` validation contract.
+
 ## 2026-05-15 — Backlog #33 — asymmetric `bus.isClosed()` guards dropped
 
 **Scope:** Closed backlog item #33 (P4). `src/server/routes/turns.ts` had three `bus.publish(...)` sites guarded with `if (!bus.isClosed())` (the M6 T4 first-overflow turn_error path, the M6 T4 second-overflow turn_error path, and the normal turn_complete path) plus one unguarded site (the catch's turn_error publish). `ServerEventBus.publish()` (`src/server/eventBus.ts:50-57`) already short-circuits on `closed === true`, so the three guards were no-ops creating visual asymmetry with the catch path.
