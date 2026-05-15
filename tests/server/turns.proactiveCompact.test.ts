@@ -32,8 +32,41 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { compressionSystemPrompt } from '../../src/compact/compactor.js';
+import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { ProviderRequest, Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
+
+/**
+ * Wraps an existing transport so the summarize-shaped call (detected by the
+ * exact `compressionSystemPrompt()` text in `req.system`) throws while every
+ * other call passes through to the underlying transport. Lets the test
+ * exercise the compaction failure path without disturbing the post-compact
+ * model turn or any other test in the suite. Compaction failure short-circuits
+ * the rest of the turn anyway, so the throw-only summarize is safe — but we
+ * preserve the pass-through to keep the wrapper drop-in compatible with any
+ * future test that drives a turn after the compact failure.
+ */
+function wrapTransportWithFailingSummarize<T extends Transport>(inner: T): T {
+  const compressionPrompt = compressionSystemPrompt();
+  const wrapped: Transport = {
+    name: inner.name,
+    apiMode: inner.apiMode,
+    toProviderMessages: inner.toProviderMessages.bind(inner),
+    toProviderTools: inner.toProviderTools.bind(inner),
+    buildKwargs: inner.buildKwargs.bind(inner),
+    normalizeResponse: inner.normalizeResponse.bind(inner),
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
+      if (isSummarizeCall) {
+        throw new Error('mock summarizer failure');
+      }
+      return yield* inner.stream(req);
+    },
+  };
+  return wrapped as T;
+}
 
 describe('turns route — proactive compaction', () => {
   let home: string;
@@ -130,6 +163,92 @@ describe('turns route — proactive compaction', () => {
           m.content.some((b) => b.type === 'text' && 'text' in b && b.text === 'Hello world.'),
       );
       expect(hasAssistantText).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  // Pins the route invariant ("runTurnInBackground catches its own errors and
+  // publishes them as turn_error events onto the bus" — see turns.ts:60-66)
+  // for the proactive-compaction code path. A pre-fix bug saw the proactive
+  // block run OUTSIDE the existing try/catch, so a summarizer throw escaped
+  // as an unhandled promise rejection and the SSE stream parked until client
+  // disconnect. Wrapping the proactive block inside the try {} routes the
+  // failure through the same turn_error publish path that handles query()
+  // failures.
+  test('emits turn_error (not unhandled rejection) when summarize throws mid-proactive-compaction', async () => {
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      // Same threshold mechanics as the happy-path test above — the seeded
+      // history must be large enough to trip shouldCompactProactively.
+      proactiveCompactThreshold: 0.02,
+    });
+    try {
+      // Drop in a wrapper that throws on the summarize call only. Pass-
+      // through everything else so any unrelated provider invocation
+      // (preflight has already happened during buildRuntime) behaves
+      // normally.
+      runtime.resolvedProvider.transport = wrapTransportWithFailingSummarize(
+        runtime.resolvedProvider.transport,
+      );
+
+      const app = buildAppWithRuntime(runtime);
+
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // Same seeding as the happy-path test — pushes system+messages over
+      // the threshold so shouldCompactProactively returns true and the
+      // route invokes runtime.compact().
+      const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: `prior turn: ${filler}` }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: `prior reply: ${filler}` }],
+      });
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'next turn' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      expect(eventsRes.status).toBe(200);
+      const body = await eventsRes.text();
+
+      // Safety net fired: turn_error surfaces with the summarizer's message
+      // text. Without the try/catch around the proactive block, the
+      // rejection would escape runTurnInBackground and never reach the bus
+      // — this assertion is the pin.
+      expect(body).toContain('event: turn_error');
+      expect(body).toContain('mock summarizer failure');
+
+      // compaction_complete MUST NOT fire — compact() threw before
+      // returning, so the wire event the happy-path test asserts must be
+      // absent here. (If it were present, compaction either succeeded or
+      // the route published the event before awaiting compact() — both
+      // would be regressions.)
+      expect(body).not.toContain('event: compaction_complete');
+
+      // The turn_error attribution carries the PARENT sessionId because the
+      // hop never completed — runTurnInBackground's `let sessionId` was
+      // still pointing at the parent at the moment of throw. (If the route
+      // had reassigned sessionId before the failing call, the catch would
+      // attribute against the wrong session.)
+      expect(body).toContain(`"sessionId":"${sessionId}"`);
+
+      // No lineage row — compactSession throws before recordCompactionLineage.
+      const lineage = runtime.sessionDb.getCompactionsForParent(sessionId);
+      expect(lineage.length).toBe(0);
     } finally {
       await runtime.dispose();
     }

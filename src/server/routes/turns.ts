@@ -114,6 +114,9 @@ async function runTurnInBackground(
   // Mutable across the proactive-compaction hop below — once compactSession
   // returns, the rest of the turn (persistence, query(), serverAsk binding)
   // must target the new child session id, not the parent.
+  // Declared OUTSIDE the try block so the catch can reference the current
+  // sessionId for turn_error attribution (the value at the moment of throw —
+  // pre-hop if compact() throws, post-hop if query() throws afterwards).
   let sessionId = sessionIdInitial;
   const userMessage: Message = {
     role: 'user',
@@ -129,84 +132,90 @@ async function runTurnInBackground(
   // transcript visually on resume; this is the model-side companion.
   // Without it, the LLM sees only the new turn and responds as if every
   // resume is a fresh session, defeating the persistence work entirely.
-  let messages: Message[] = runtime.sessionDb.loadMessages(sessionId).map(
-    (m): Message => ({
-      role: m.role as Message['role'],
-      content: m.content,
-    }),
-  );
-
-  // M6 T3 — proactive compaction. If the hydrated history (including the
-  // freshly-persisted user message) is over the configured threshold,
-  // compact BEFORE handing it to the model. compactSession mints a new
-  // child session, persists the summary + retained tail onto it, and
-  // records lineage (compactor.ts:145). The rest of the turn pivots onto
-  // the child id — including the SSE permission bridge below.
-  // Mirrors terminalRepl.ts:1332-1348.
-  if (
-    shouldCompactProactively({
-      messages,
-      systemPrompt: runtime.systemSegments,
-      contextLength: runtime.resolvedProvider.contextLength,
-      threshold: runtime.proactiveCompactThreshold,
-    })
-  ) {
-    const result = await runtime.compact(messages, sessionId, bus.abortSignal);
-    bus.publish({
-      type: 'compaction_complete',
-      seq: bus.nextSeq(),
-      sessionId,
-      activeSessionId: result.newSessionId,
-      summary: result.summary,
-      estimatedBeforeTokens: result.estimatedBeforeTokens,
-      estimatedAfterTokens: result.estimatedAfterTokens,
-    });
-    sessionId = result.newSessionId;
-    // The child's persisted state (summary + tail) is now the source of
-    // truth for the model. Reload from the DB rather than mutating
-    // result.tail in place so we pick up the persisted summary message
-    // compactSession wrote at the head of the child's transcript.
-    messages = runtime.sessionDb.loadMessages(sessionId).map(
+  // Local helper to keep the two reload sites in sync — the cast shape must
+  // stay identical so a future signature change updates exactly one place.
+  const hydrate = (): Message[] =>
+    runtime.sessionDb.loadMessages(sessionId).map(
       (m): Message => ({
         role: m.role as Message['role'],
         content: m.content,
       }),
     );
-  }
-
-  // Build a session-scoped canUseTool. The runtime's own `canUseTool`
-  // carries the M3 deny placeholder for out-of-band callers; here we
-  // replace its `ask` callback with a serverAsk bound to THIS session's
-  // bus, so a tool that falls through to `ask` mode emits a
-  // `permission_request` SSE event and parks on the matching
-  // ApprovalQueue entry. The bus is per-session and the queue is
-  // per-runtime — the wiring lives here because both refs are in scope.
-  const permissionSettings = loadPermissionSettings({
-    cwd: runtime.cwd,
-    harnessHome: runtime.harnessHome,
-  });
-  const sessionAsk = createServerAsk(runtime.approvalQueue, bus, sessionId);
-  const baseCanUseTool = buildCanUseTool({
-    mode: runtime.permissionMode,
-    ask: sessionAsk,
-    // M5 keeps the session-scoped allow set empty and the persistence
-    // hook a no-op (parity with the buildRuntime defaults). Project-local
-    // "always" persistence is a deferred follow-up; for now an `always`
-    // answer registers an in-memory rule for this turn only.
-    alwaysAllow: new Set<string>(),
-    ruleLayers: permissionSettings.layers,
-    recordAlwaysAllow: () => {
-      /* no-op: M5 server doesn't persist session-scoped allow rules. */
-    },
-  });
-  // Defense-in-depth: secrets redactor wraps the resolved canUseTool
-  // identically to the runtime-level chain in buildRuntime — catches
-  // accidental secret writes in any tool input that gets allowed.
-  const sessionCanUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [
-    redactSecretsTransformer,
-  ]);
+  let messages: Message[] = hydrate();
 
   try {
+    // M6 T3 — proactive compaction. If the hydrated history (including the
+    // freshly-persisted user message) is over the configured threshold,
+    // compact BEFORE handing it to the model. compactSession mints a new
+    // child session, persists the summary + retained tail onto it, and
+    // records lineage (compactor.ts:145). The rest of the turn pivots onto
+    // the child id — including the SSE permission bridge below.
+    // Mirrors terminalRepl.ts:1332-1348.
+    //
+    // Wrapped in the try {} so a compact() failure (summarizer throws,
+    // sessionDb write fails, auxiliary provider 429s, etc.) routes through
+    // the existing turn_error catch instead of escaping as an unhandled
+    // promise rejection — the route's invariant ("runTurnInBackground
+    // catches its own errors and publishes them as turn_error events") must
+    // hold for compaction failures too.
+    if (
+      shouldCompactProactively({
+        messages,
+        systemPrompt: runtime.systemSegments,
+        contextLength: runtime.resolvedProvider.contextLength,
+        threshold: runtime.proactiveCompactThreshold,
+      })
+    ) {
+      const result = await runtime.compact(messages, sessionId, bus.abortSignal);
+      bus.publish({
+        type: 'compaction_complete',
+        seq: bus.nextSeq(),
+        sessionId,
+        activeSessionId: result.newSessionId,
+        summary: result.summary,
+        estimatedBeforeTokens: result.estimatedBeforeTokens,
+        estimatedAfterTokens: result.estimatedAfterTokens,
+      });
+      sessionId = result.newSessionId;
+      // The child's persisted state (summary + tail) is now the source of
+      // truth for the model. Reload from the DB rather than mutating
+      // result.tail in place so we pick up the persisted summary message
+      // compactSession wrote at the head of the child's transcript.
+      messages = hydrate();
+    }
+
+    // Build a session-scoped canUseTool. The runtime's own `canUseTool`
+    // carries the M3 deny placeholder for out-of-band callers; here we
+    // replace its `ask` callback with a serverAsk bound to THIS session's
+    // bus, so a tool that falls through to `ask` mode emits a
+    // `permission_request` SSE event and parks on the matching
+    // ApprovalQueue entry. The bus is per-session and the queue is
+    // per-runtime — the wiring lives here because both refs are in scope.
+    const permissionSettings = loadPermissionSettings({
+      cwd: runtime.cwd,
+      harnessHome: runtime.harnessHome,
+    });
+    const sessionAsk = createServerAsk(runtime.approvalQueue, bus, sessionId);
+    const baseCanUseTool = buildCanUseTool({
+      mode: runtime.permissionMode,
+      ask: sessionAsk,
+      // M5 keeps the session-scoped allow set empty and the persistence
+      // hook a no-op (parity with the buildRuntime defaults). Project-local
+      // "always" persistence is a deferred follow-up; for now an `always`
+      // answer registers an in-memory rule for this turn only.
+      alwaysAllow: new Set<string>(),
+      ruleLayers: permissionSettings.layers,
+      recordAlwaysAllow: () => {
+        /* no-op: M5 server doesn't persist session-scoped allow rules. */
+      },
+    });
+    // Defense-in-depth: secrets redactor wraps the resolved canUseTool
+    // identically to the runtime-level chain in buildRuntime — catches
+    // accidental secret writes in any tool input that gets allowed.
+    const sessionCanUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [
+      redactSecretsTransformer,
+    ]);
+
     // Cancel the in-flight provider stream + tool loop when the bus is
     // disposed (SSE client disconnect or server.stop()). The bus aborts
     // on close(); query() propagates the signal to the provider's
