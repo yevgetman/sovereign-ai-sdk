@@ -145,9 +145,71 @@ describe('compactSession', () => {
       summarize: async () => 'summary',
     });
 
-    expect(result.tail).toHaveLength(2);
-    expect(result.tail[0]?.content[0]?.type).toBe('tool_use');
-    expect(result.tail[1]?.content[0]?.type).toBe('tool_result');
+    // The assistant tool_use must remain immediately followed by its
+    // matching user tool_result — that's the alignment invariant. The
+    // synthetic-user bridge inserted by the alternation guard (#34) may
+    // sit before them, so locate the tool_use rather than asserting a
+    // fixed index.
+    const toolUseIdx = result.tail.findIndex((m) => m.content[0]?.type === 'tool_use');
+    expect(toolUseIdx).toBeGreaterThanOrEqual(0);
+    expect(result.tail[toolUseIdx]?.role).toBe('assistant');
+    expect(result.tail[toolUseIdx + 1]?.content[0]?.type).toBe('tool_result');
+    expect(result.tail[toolUseIdx + 1]?.role).toBe('user');
+    db.close();
+  });
+
+  test('persisted child history alternates user/assistant when tail starts with assistant', async () => {
+    // Backlog #34 regression: when alignTailStart walks backward to keep an
+    // assistant tool_use / user tool_result pair intact, tail[0] can be an
+    // assistant message. The persisted child would then be
+    //   [assistant_summary, assistant_tail0, user_tool_result, ...]
+    // — two consecutive assistants. Anthropic 400s with `messages: roles
+    // must alternate`. compactSession must keep the persisted child history
+    // strictly alternating regardless of where the tail boundary lands.
+    const db = openDb();
+    const parent = createParent(db);
+    const history: Message[] = [
+      { role: 'user', content: [text('older')] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'pwd' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '/tmp/project' }],
+      },
+    ];
+
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'm',
+      providerName: 'p',
+      systemPrompt: [],
+      history,
+      tailTokenBudget: 1,
+      minTailMessages: 1,
+      summarize: async () => 'summary',
+    });
+
+    // Precondition: alignment kept the assistant tool_use / user tool_result
+    // pair intact in the tail — the assistant tool_use is the first
+    // *non-synthetic* message in the tail. (The guard inserts a synthetic
+    // user before it.) If this assertion ever fails, the alignment logic
+    // changed and this test no longer exercises the #34 hazard.
+    const toolUseIdx = result.tail.findIndex((m) => m.content[0]?.type === 'tool_use');
+    expect(toolUseIdx).toBeGreaterThanOrEqual(0);
+    expect(result.tail[toolUseIdx]?.role).toBe('assistant');
+
+    // Persisted child history must strictly alternate roles so Anthropic
+    // doesn't 400 on the next provider call.
+    const childMessages = db.loadMessages(result.newSessionId);
+    expect(childMessages.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < childMessages.length; i++) {
+      const prev = childMessages[i - 1];
+      const curr = childMessages[i];
+      expect(prev?.role).not.toBe(curr?.role);
+    }
     db.close();
   });
 

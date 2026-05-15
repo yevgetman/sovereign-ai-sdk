@@ -114,6 +114,17 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     role: 'assistant',
     content: [{ type: 'text', text: summary }],
   };
+  // Backlog #34: Anthropic requires alternating user/assistant roles. The
+  // summary message is assistant-role; if `alignTailStart` walked back to
+  // keep an assistant tool_use / user tool_result pair intact, `tail[0]`
+  // can also be assistant — the persisted child would then be
+  // `[assistant_summary, assistant_tail0, ...]` and Anthropic 400s with
+  // `messages: roles must alternate`. Insert a minimal synthetic user
+  // message between summary and tail so the strict-alternation invariant
+  // holds for the next provider call. OpenAI tolerates the original
+  // sequence; the guard is harmless there.
+  const guardedTail: Message[] =
+    tail[0]?.role === 'assistant' ? [synthesizeBridgeUserMessage(), ...tail] : tail;
   const metadata = {
     ...parent.metadata,
     compactedFromSessionId: options.sessionId,
@@ -135,7 +146,7 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     content: summaryMessage.content,
     tokenCount: estimateMessageTokens(summaryMessage),
   });
-  for (const message of tail) {
+  for (const message of guardedTail) {
     options.db.saveMessage(newSessionId, {
       role: message.role,
       content: message.content,
@@ -154,18 +165,31 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   const estimatedAfterTokens =
     estimateSystemPromptTokens(options.systemPrompt) +
     estimateMessageTokens(summaryMessage) +
-    estimateMessagesTokens(tail);
+    estimateMessagesTokens(guardedTail);
   return {
     parentSessionId: options.sessionId,
     newSessionId,
     summary,
-    tail,
+    tail: guardedTail,
     compactedMessages: head.length,
     estimatedBeforeTokens,
     estimatedAfterTokens,
     usedAuxiliary: summaryResult.usedAuxiliary,
     ...(summaryResult.providerName ? { auxiliaryProvider: summaryResult.providerName } : {}),
     ...(summaryResult.model ? { auxiliaryModel: summaryResult.model } : {}),
+  };
+}
+
+/** Minimal synthetic user message inserted between the assistant-role
+ *  compaction summary and a tail whose first message is also assistant.
+ *  Keeps the persisted child history strictly alternating so Anthropic
+ *  doesn't 400 with `messages: roles must alternate`. The text is
+ *  intentionally short and neutral to keep the token tax tiny while
+ *  giving the model a clear "continue from the summary above" cue. */
+function synthesizeBridgeUserMessage(): Message {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text: '(continuing from summary)' }],
   };
 }
 
