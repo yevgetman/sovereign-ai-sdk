@@ -16,8 +16,8 @@ These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. The
 | 4 | `[x]` (M5 — 2026-05-14) | **Sub-agent scheduler** | AgentTool + task_create delegate to bounded child sessions with per-lane semaphores and a global write-path lock | `src/runtime/scheduler.ts`, `src/runtime/laneSemaphores.ts`, `src/runtime/semaphore.ts`, `src/runtime/agentRunner.ts` |
 | 5 | `[ ]` | **TaskManager construction** | `task_create` etc. depend on a live `TaskManager` in CommandContext — without it the tool throws "no task manager" | `src/tasks/manager.ts`, `src/tasks/store.ts` |
 | 6 | `[x]` (M4 — 2026-05-14) | **Session DB persistence** | Every turn writes to `~/.harness/sessions.db`; `--resume <id>` rehydrates frozen system prompt + history | `src/agent/sessionDb.ts`, `src/agent/sessionRecovery.ts` |
-| 7 | `[ ]` | **Compactor** | `/compact` summarizes prior turns into a child session with rollback lineage; `shouldCompactProactively` triggers above the configured threshold | `src/compact/compactor.ts`, `src/compact/microcompact.ts` |
-| 8 | `[ ]` | **Microcompaction** | Per-part tool-result clearing during a long turn to keep context bounded | `src/compact/microcompact.ts` + `shouldMicrocompact` |
+| 7 | `[x]` (M6 — 2026-05-14) | **Compactor** | `/compact` summarizes prior turns into a child session with rollback lineage; `shouldCompactProactively` triggers above the configured threshold | `src/compact/compactor.ts`, `src/compact/microcompact.ts` |
+| 8 | `[x]` (M6 — 2026-05-14) | **Microcompaction** | Per-part tool-result clearing during a long turn to keep context bounded | `src/compact/microcompact.ts` + `shouldMicrocompact` |
 | 9 | `[x]` (M4 — 2026-05-14) | **Preflight checks** | Provider auth + tool-calling smoke check at startup | `src/providers/preflight.ts` |
 | 10 | `[ ]` | **Trace writer** | Phase 10.5 — `~/.harness/traces/<session-id>.jsonl` per-turn event log feeds `sov trace show` | `src/trace/writer.ts` |
 | 11 | `[ ]` | **Trajectory capture** | The Sovereign moat — ShareGPT-shaped JSONL per session, redacted at write | `src/trajectory/writer.ts`, `src/trajectory/redact.ts`, `src/trajectory/shareGpt.ts` |
@@ -29,7 +29,7 @@ These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. The
 
 | # | Status | Surface | What it does | Source location |
 |---|---|---|---|---|
-| 15 | `[ ]` | **Context-overflow auto-recovery** | On `isContextOverflowError`, clear-child-session and retry with a fresh seed | `createClearedChildSession` (`src/agent/sessionRecovery.ts`) |
+| 15 | `[x]` (M6 — 2026-05-14) | **Context-overflow auto-recovery** | On `isContextOverflowError`, clear-child-session and retry with a fresh seed | `createClearedChildSession` (`src/agent/sessionRecovery.ts`) |
 | 16 | `[ ]` | **Capture / replay for eval runner** | `--capture-fixture` writes a fixture; `--replay-fixture` reads it back without LLM calls | `src/eval/replay/capture.ts`, `src/eval/replay/loader.ts`, `src/eval/replay/provider.ts`, `src/eval/replay/toolPool.ts` |
 | 17 | `[ ]` | **`@file:path` reference expansion** | Inline file references in user prompts get expanded to the file's contents | `src/context/references.ts` |
 | 18 | `[ ]` | **Subdirectory hint state** | `CLAUDE.md` awareness from subdirectories — agent picks up CLAUDE.md files in cwd's parent chain | `src/context/subdirectoryHints.ts` |

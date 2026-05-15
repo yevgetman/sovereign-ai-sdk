@@ -2,6 +2,30 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## ADR M6-01 — Compaction creates a new session id; client tracks it
+
+Decision: every compaction (proactive, overflow recovery, or explicit `/compact`) creates a fresh child session id via `compactSession`. The new id surfaces to the client through two channels: (a) the `compaction_complete` SSE event (`{ sessionId: parent, activeSessionId: child, summary, estimatedBeforeTokens, estimatedAfterTokens }`) emitted onto the parent session's bus during background turns, and (b) the JSON response body of `POST /sessions/:id/compact` (`{ activeSessionId, parentSessionId, summary, ... }`). The TUI updates its in-memory `m.sessionID` on receiving either signal so subsequent POSTs (turns, approvals, further compactions) route to the new child id.
+
+Rationale: mirrors terminalRepl's in-process `activeSessionId` swap (`src/ui/terminalRepl.ts:1720-1754`). SessionDb already persists parent→child lineage via `recordCompactionLineage` (`src/agent/sessionDb.ts:479`), so a future server-side helper could resolve `--resume <oldId>` to the latest descendant if user demand surfaces — deferred for M6 (out of scope). Treating compaction as a fresh-session hop keeps the persisted timeline tractable: each child carries the summarized parent context as its seed, and the parent row stays immutable for audit. The alternative — mutating the parent's history in place — would invalidate any in-flight subscribers and tangle the SessionDb's append-only model.
+
+Status: implemented (M6 — proactive `15ca6cf` (T3) + overflow `a977c86` (T4) + explicit `b4fc7b2` (T5) + Go TUI client `59e5d9f` (T6)). Plan: `docs/plans/2026-05-14-phase-16-1-m6-long-session.md`.
+
+## ADR M6-02 — Single retry on context-overflow; second overflow surfaces as `turn_error`
+
+Decision: when the first model call inside `runTurnInBackground` surfaces an `isContextOverflowError(...)` (either thrown by the provider stream and captured into `Terminal { reason: 'error', error }`, or otherwise present on the returned Terminal), the route runs `runtime.compact()`, publishes `compaction_complete`, reassigns `sessionId` to the new child id, and re-runs the SAME turn ONCE against the post-compaction session. If the retry's main call ALSO surfaces an overflow, the route does NOT compact + retry a second time — the overflow surfaces as `turn_error` (the same surface non-overflow errors take). The proactive block (which fires before any model call) and the recovery branch (which fires after the first overflow) operate on independent budgets — a proactive compaction earlier in the same turn does NOT prevent the recovery branch from firing, so a single turn can emit TWO `compaction_complete` events.
+
+Rationale: matches the proven shape in `src/ui/terminalRepl.ts:1659-1675`. The `retriedAfterCompact` flag in terminalRepl guards ONLY the recovery retry — proactive + recovery interact independently in the canonical implementation. Two-retry loops mask deeper bugs (a runaway summarizer that emits the same context every time would loop indefinitely without the cap) and increase blast radius — one retry is the established contract. The post-recovery overflow is a distinct failure surface ("compaction didn't yield enough headroom") that the TUI should not treat as a normal turn end; surfacing it as `turn_error` keeps the wire shape honest about what happened. Future user demand for a configurable retry count can land via the existing settings cascade without changing the contract.
+
+Status: implemented (M6 — `a977c86` (T4) + `e464ffa` (T4 cleanup pinned the proactive+recovery interaction)). Plan: `docs/plans/2026-05-14-phase-16-1-m6-long-session.md`.
+
+## ADR M6-03 — `POST /sessions/:id/compact` is synchronous; returns `CompactResult` JSON inline
+
+Decision: the explicit-compaction route runs `runtime.compact()` inline (no SSE-driven background flow) and returns 200 with `{ activeSessionId, parentSessionId, summary, estimatedBeforeTokens, estimatedAfterTokens, usedAuxiliary }` once `compactSession` resolves. Errors return JSON-shaped responses: 400 for malformed `:id`, 404 for unknown session id (`{ error: 'not found' }` to match the sibling `sessions.ts` envelope), 500 for downstream summarizer failures (`{ error: <thrown message> }`). No `compaction_complete` SSE event fires for this path — the JSON response IS the notification.
+
+Rationale: the TUI's `/compact` is a user-blocking action; the user expects the prompt to wait. SSE-driven flow adds complexity without payoff for a synchronous user verb — the caller would have to dedupe a single user action across two transports and the TUI's pivot logic would need to handle field-ordering ambiguity (which arrives first across the HTTP body and the SSE event?). The synchronous shape mirrors the M5 approval-route's surface (POST returns 200 once the queue resolves), so the TUI's request-then-pivot pattern stays consistent across the two M5/M6 verbs. Auto-compaction during background turns (T3 proactive + T4 recovery) is a different surface — those run inside `runTurnInBackground` and need the SSE bridge so the open SSE subscriber learns about the session-id pivot mid-turn.
+
+Status: implemented (M6 — `b4fc7b2` (T5) + `8bc4a22` (T5 cleanup pinned the 400/404/500 envelopes)). Plan: `docs/plans/2026-05-14-phase-16-1-m6-long-session.md`.
+
 ## ADR M5-01 — Non-interactive hooks consent in `--ui tui`
 
 Decision: when a hook command from `~/.harness/settings.json` is not already recorded in `~/.harness/shell-hooks-allowlist.json`, the server-mode consent checker denies it without prompting. Users pre-consent each command once via `sov --ui repl` (which owns a TTY and runs the first-use modal); subsequent `--ui tui` boots read the persisted decision and fire the hook through the cached `allow`.
