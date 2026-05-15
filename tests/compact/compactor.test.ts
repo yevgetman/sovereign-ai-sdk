@@ -283,6 +283,101 @@ describe('compactSession', () => {
     db.close();
   });
 
+  test('loadMessages(parentId) returns pre-compaction history; loadMessages(childId) returns post-compaction (no lineage walk on resume)', async () => {
+    // Backlog #32 regression pin: `--resume <parentId>` after compaction
+    // must load the parent's ORIGINAL pre-compaction history — NOT the
+    // child's summary+tail. The contract works by construction:
+    // `SessionDb.loadMessages(sessionId)` reads the `messages` table
+    // filtered by exact `session_id` and never walks the
+    // `compactions` lineage table. Resume passes the parent id directly
+    // without lineage-walking. A future refactor that changed resume (or
+    // `loadMessages`) to "auto-pivot to the latest descendant" would
+    // silently break the "go back to where I was when this happened"
+    // semantic. This test makes that regression loud.
+    const db = openDb();
+    const systemPrompt = [{ text: 'system rules', cacheable: true }];
+    const parent = createParent(db, systemPrompt);
+    // Six messages — substantial enough that the no-op short-circuit
+    // (`compactor.ts:130`, head-empty) cannot fire. Combined with the
+    // small `tailTokenBudget` below, this guarantees a real compaction:
+    // head has compactable content, tail has the latest turn, summarizer
+    // runs, child session is minted.
+    const history: Message[] = [
+      { role: 'user', content: [text('first user turn — earliest history')] },
+      { role: 'assistant', content: [text('first assistant reply explaining context')] },
+      { role: 'user', content: [text('second user follow-up question')] },
+      { role: 'assistant', content: [text('second assistant answer with details')] },
+      { role: 'user', content: [text('third user clarification')] },
+      { role: 'assistant', content: [text('most recent assistant reply — tail boundary')] },
+    ];
+    for (const message of history) {
+      db.saveMessage(parent, { role: message.role, content: message.content });
+    }
+
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt,
+      history,
+      tailTokenBudget: 1,
+      minTailMessages: 1,
+      summarize: async () => ({
+        summary: '## Active Task\n- Resume contract sanity check.',
+        usage: { inputTokens: 200, outputTokens: 50 },
+        estimatedCostUsd: 0.005,
+        providerName: 'anthropic',
+        model: 'claude-haiku-4-5-20251001',
+        usedAuxiliary: true,
+      }),
+    });
+
+    // Real compaction happened — child is a fresh session id, no-op did
+    // not short-circuit. If either of these fail, the test stopped
+    // exercising the contract and the rest of the assertions are
+    // meaningless.
+    expect(result.noOp).toBeFalsy();
+    expect(result.newSessionId).not.toBe(result.parentSessionId);
+    expect(result.parentSessionId).toBe(parent);
+
+    // Lineage row persisted — a future resume implementation that wants
+    // to walk lineage has the data available, but `loadMessages(parent)`
+    // itself must not follow it.
+    const lineage = db.getCompactionsForParent(parent);
+    expect(lineage).toHaveLength(1);
+    expect(lineage[0]?.childSessionId).toBe(result.newSessionId);
+
+    // CORE CONTRACT: `loadMessages(parentId)` returns the original
+    // pre-compaction history verbatim. This is the assertion that would
+    // fail if `loadMessages` were ever changed to walk lineage forward
+    // and return the latest descendant's messages.
+    const parentMessages = db.loadMessages(parent);
+    expect(parentMessages).toHaveLength(history.length);
+    expect(parentMessages[0]?.role).toBe(history[0]?.role);
+    expect(blockText(parentMessages[0]?.content[0])).toBe(blockText(history[0]?.content[0]));
+    expect(parentMessages.at(-1)?.role).toBe(history.at(-1)?.role);
+    expect(blockText(parentMessages.at(-1)?.content[0])).toBe(
+      blockText(history.at(-1)?.content[0]),
+    );
+
+    // Child session has the summary+tail shape — distinctly different
+    // from the parent. If parent and child loaded the same messages,
+    // either the lineage write clobbered the parent OR `loadMessages`
+    // is silently routing parent→child (the regression we're guarding
+    // against).
+    const childMessages = db.loadMessages(result.newSessionId);
+    expect(childMessages[0]?.role).toBe('assistant');
+    expect(blockText(childMessages[0]?.content[0])).toContain(HANDOFF_SUMMARY_NOTE);
+    // Parent's first message content differs from the child's first
+    // message content — the strongest evidence the two ids resolve to
+    // distinct message streams.
+    expect(blockText(parentMessages[0]?.content[0])).not.toBe(
+      blockText(childMessages[0]?.content[0]),
+    );
+    db.close();
+  });
+
   test('feeds previous handoff summaries into iterative summary merging', async () => {
     const db = openDb();
     const parent = createParent(db);
