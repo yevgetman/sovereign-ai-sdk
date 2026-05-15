@@ -43,6 +43,7 @@ import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { ApprovalQueue } from './approvalQueue.js';
+import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
 import type { ServerEventBus } from './eventBus.js';
 
@@ -209,6 +210,12 @@ export type Runtime = {
    *  The turns route reads this and passes it to query() so stale tool
    *  results clear inside the turn loop before they cause full compaction. */
   microcompactConfig: MicrocompactConfig;
+  /** Server-side compaction primitive (M6 T2). Wraps compactSession() with
+   *  the runtime's provider/model/systemPrompt + a same-provider summarize
+   *  callback. Consumers: T3 (proactive check in turns route), T4 (overflow
+   *  recovery in turns route), T5 (POST /sessions/:id/compact route).
+   *  Lineage is recorded inside compactSession itself. */
+  compact: ServerCompactor;
   dispose: () => Promise<void>;
 };
 
@@ -498,6 +505,16 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const microcompactConfig =
     opts.microcompactConfig ?? buildMicrocompactConfig(userSettings.microcompaction);
 
+  // M6 T2 — server-side compactor primitive. Built from the locals already
+  // in scope (sessionDb, resolved, model, systemSegments) so the closure
+  // doesn't need a Runtime forward-reference.
+  const compact = buildServerCompactor({
+    sessionDb,
+    resolvedProvider: resolved,
+    model: resolved.model,
+    systemSegments,
+  });
+
   return {
     sessionDb,
     toolPool,
@@ -521,6 +538,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     subagentScheduler,
     taskManager,
     microcompactConfig,
+    compact,
     dispose: async () => {
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
