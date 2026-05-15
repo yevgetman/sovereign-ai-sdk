@@ -18,6 +18,8 @@ import type { AgentRegistry } from '../agents/types.js';
 import { getDefaultBundlePath, isDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
+import { buildMicrocompactConfig } from '../compact/microcompact.js';
+import type { MicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import type { Settings } from '../config/schema.js';
 import { loadHookSettings, loadPermissionSettings } from '../config/settings.js';
@@ -129,6 +131,10 @@ export type RuntimeOptions = {
    *  an additional preflightToolCalling check when toolPool is non-empty
    *  to catch the silent-tool-ignore failure class. */
   preflight?: boolean;
+  /** Per-part tool-result clearing config used inside the query() turn
+   *  loop. When omitted, buildRuntime sources from
+   *  userSettings.microcompaction via buildMicrocompactConfig. */
+  microcompactConfig?: MicrocompactConfig;
 };
 
 export type Runtime = {
@@ -199,6 +205,11 @@ export type Runtime = {
    *  /tasks slash command) call into this manager once T8 threads it onto
    *  toolContext. Mirrors terminalRepl.ts:962-972. */
   taskManager: TaskManager;
+  /** Per-part tool-result clearing config. Always populated — either the
+   *  caller-supplied value or buildMicrocompactConfig(userSettings.microcompaction).
+   *  The turns route reads this and passes it to query() so stale tool
+   *  results clear inside the turn loop before they cause full compaction. */
+  microcompactConfig: MicrocompactConfig;
   dispose: () => Promise<void>;
 };
 
@@ -481,6 +492,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // and the TUI's POST /approvals response.
   const approvalQueue = new ApprovalQueue();
 
+  // M6 T1 — microcompaction config. Sourced from userSettings.microcompaction
+  // when no caller override is supplied so server-mode honors the user's
+  // ~/.harness/config.json `microcompaction` block (parity with terminalRepl,
+  // which calls buildMicrocompactConfig at REPL boot).
+  const microcompactConfig =
+    opts.microcompactConfig ?? buildMicrocompactConfig(userSettings.microcompaction);
+
   return {
     sessionDb,
     toolPool,
@@ -503,6 +521,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     writeLock,
     subagentScheduler,
     taskManager,
+    microcompactConfig,
     dispose: async () => {
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.

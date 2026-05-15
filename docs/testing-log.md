@@ -8,6 +8,23 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M6 T1 — microcompaction wiring
+
+### 2026-05-14 · M6 T1 — wire microcompactConfig through buildRuntime + turns route
+
+**Scope:** TDD pass for M6 T1 (microcompaction wiring). Adds `microcompactConfig` to `RuntimeOptions` + `Runtime`, sources from `userSettings.microcompaction` via `buildMicrocompactConfig`, and threads through the turns route into `query()` so user-configured `~/.harness/config.json` `microcompaction` settings drive in-turn cleanup. Closes prereq row 8.
+
+**Commands:**
+- New test: `bun test tests/server/turns.microcompact.test.ts` — 3 pass / 13 expect() / ~177ms
+- Pre-implementation TDD verification (source reverted via stash, test re-run): all 3 tests fail as expected — first two on `runtime.microcompactConfig` undefined; third on `cleared.length === 0` (route not forwarding config so query() falls back to DEFAULT_MICROCOMPACT_CONFIG which doesn't trigger at the test's tight 1% threshold).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (2 unrelated warnings); typecheck clean; full suite **1911 pass / 0 fail / 4679 expect() / 28.5s**.
+
+**Test design:** Three cases — (a) `runtime.microcompactConfig` echoes the option override; (b) defaults to `DEFAULT_MICROCOMPACT_CONFIG` when no option supplied AND no `userSettings.microcompaction` block; (c) end-to-end through POST /turns: 4 seeded prior Bash tool_use+tool_result pairs + a fresh user prompt + a small test-local Transport that returns Bash regardless of seeded history → second provider call's messages contain exactly 3 `[Tool result cleared` placeholders (4 pre-boundary refs - keepRecent=1).
+
+**Test-local Transport rationale:** The default `MockProvider`'s tool-use mode treats ANY prior `tool_result` as a continuation and short-circuits to `done.`, so seeded history would prevent the new turn's Bash call from running at all. The test injects a small `MicrocompactTestProvider` that detects continuation via the LAST message only (matching the microcompact boundary semantics), letting the seeded history stay intact while the new turn issues a Bash call.
+
+**Net:** M6 T1 ships green. Backlog row 8 (microcompaction prereq) closes.
+
 ## 2026-05-14 — Phase 16.1 M5 user-noticed group shipped
 
 ### 2026-05-14 · M5 manual smoke Group B — user-driven (modal visual + real-Anthropic sub-agent)

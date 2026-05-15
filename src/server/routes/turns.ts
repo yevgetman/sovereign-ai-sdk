@@ -190,6 +190,10 @@ async function runTurnInBackground(
       // at terminal. Constructed in buildRuntime (M5 T1); always present
       // — a no-op when no hooks are configured.
       hookRunner: runtime.hookRunner,
+      // Microcompaction config — buildRuntime always populates this from
+      // userSettings.microcompaction. Without it, query() would fall back
+      // to DEFAULT_MICROCOMPACT_CONFIG and ignore the user's settings.
+      microcompactConfig: runtime.microcompactConfig,
     });
 
     // M3 collapses all assistant output onto block 0. Per-block indexing
