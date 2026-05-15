@@ -131,6 +131,11 @@ export function buildSessionToolContext(
   sessionId: string,
   sessionCanUseTool: CanUseTool,
 ): ToolContext {
+  // M7 T5/T6 — pull the per-session subsystems off the SessionContext so
+  // the orchestrator can call `ctx.learningObserver?.observe(...)` after
+  // every tool call and (T6) `ctx.reviewManager` can guard review forks.
+  // The context is lazily built (or cached) by Runtime.getSessionContext.
+  const sessionCtx = runtime.getSessionContext(sessionId);
   return {
     cwd: runtime.cwd,
     sessionId,
@@ -141,6 +146,15 @@ export function buildSessionToolContext(
     taskManager: runtime.taskManager,
     parentToolPool: runtime.toolPool,
     canUseTool: sessionCanUseTool,
+    // M7 T5 — per-session learning observer. Orchestrator reads this via
+    // optional-chain after every tool call (src/core/orchestrator.ts:581).
+    // Left off entirely when learning.disabled === true upstream.
+    ...(sessionCtx.learningObserver !== undefined
+      ? { learningObserver: sessionCtx.learningObserver }
+      : {}),
+    // M7 T6 (placeholder — populated by T6) — per-session review manager.
+    // The optional spread keeps the shape stable across the T5/T6 hop.
+    ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
   };
 }
 

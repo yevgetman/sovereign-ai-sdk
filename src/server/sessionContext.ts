@@ -18,8 +18,9 @@
 // written monolithically with stub fields so T5/T6 have a stable shape
 // to extend without churning callers.
 
+import { readConfig } from '../config/store.js';
 import type { Terminal } from '../core/types.js';
-import type { LearningObserver } from '../learning/observer.js';
+import { LearningObserver } from '../learning/observer.js';
 import type { ReviewManager } from '../review/manager.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
@@ -64,8 +65,9 @@ export type BuildSessionContextOpts = {
 
 /** Lazy-build a SessionContext for the given session id. Idempotent within
  *  a runtime — Runtime caches the return on first call. Construction is
- *  cheap (TraceWriter opens an append-only file handle). LearningObserver
- *  and ReviewManager are built in T5/T6. */
+ *  cheap (TraceWriter opens an append-only file handle, LearningObserver
+ *  defers all disk work to first observe() call). ReviewManager is wired
+ *  in T6. */
 export function buildSessionContext(opts: BuildSessionContextOpts): SessionContext {
   const { runtime, sessionId } = opts;
 
@@ -74,8 +76,31 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     harnessHome: runtime.harnessHome,
   });
 
-  // T5/T6 extension points: construct learningObserver and reviewManager
-  // here when those tasks land. Until then, the fields are left undefined.
+  // M7 T5 — per-session learning observer. Settings cascade is read at
+  // SessionContext construction time (per session id) rather than at
+  // buildRuntime time so a `sov config set learning.disabled true` mid-
+  // process takes effect on the next session without a restart.
+  //
+  // When `learning.disabled === true`, the field is LEFT UNDEFINED so the
+  // orchestrator's `ctx.learningObserver?.observe(...)` optional-chain
+  // becomes a no-op and disposal skips the drain step entirely (no empty
+  // observations.jsonl created).
+  const userSettings = readConfig();
+  const learningEnabled = userSettings.learning?.disabled !== true;
+  const learningObserver: LearningObserver | undefined = learningEnabled
+    ? new LearningObserver({
+        harnessHome: runtime.harnessHome,
+        cwd: runtime.cwd,
+        sessionId,
+        ...(userSettings.learning?.observationBufferSize !== undefined
+          ? { bufferSize: userSettings.learning.observationBufferSize }
+          : {}),
+        enabled: true,
+      })
+    : undefined;
+
+  // T6 extension point: construct reviewManager here when that task lands.
+  // Until then, the field is left undefined.
 
   return {
     sessionId,
@@ -85,6 +110,7 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
       iterationsUsed: 0,
       estimatedCostUsd: 0,
     },
+    ...(learningObserver !== undefined ? { learningObserver } : {}),
   };
 }
 
@@ -115,7 +141,18 @@ export async function disposeSessionContext(
     log(`[sessionContext] trace writer close failed for ${ctx.sessionId}: ${reason}`);
   }
 
-  // (2) T5: drain learning observer (lands when learning observer is wired).
+  // (2) T5: drain the learning observer's write chain. Bounded by the
+  //     observer's internal timeout (default 2000ms) so a stalled disk
+  //     can't hang disposal. Skipped when the observer was never built
+  //     (learning.disabled === true path).
+  if (ctx.learningObserver) {
+    try {
+      await ctx.learningObserver.drain();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      log(`[sessionContext] learning observer drain failed for ${ctx.sessionId}: ${reason}`);
+    }
+  }
 
   // (3) T4: write the trajectory record. Best-effort — `tryWriteTrajectory`
   //     swallows its own filesystem errors; we still wrap the surrounding
