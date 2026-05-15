@@ -44,6 +44,10 @@ The signature went from `(ctx, opts?: { log? })` to `(ctx, opts: { runtime; log?
 
 **Status:** GREEN. M7 T4 closed.
 
+### Follow-up: I1 cleanup (commit 73483e5)
+Dropped TrajectoryMetadata.terminalError per code-quality review. Field was forwarded into Terminal.error but never serialized by tryWriteTrajectory (writer at src/trajectory/writer.ts:73-86 only reads terminal.reason). YAGNI: dropped the field + the new Error(...) wrap + the test's no-op mutation. Future task that wants terminal-error capture should extend TrajectoryRecord to carry terminalErrorMessage and assert positively.
+Suite: 1958 → 1958 (no test count change). Lint + typecheck clean.
+
 ## 2026-05-15 — Phase 16.1 M7 T3 — per-session context + trace writer wired
 
 **Scope:** Third task of M7 (Hermes-layer parity group). Closes the per-session subsystem prerequisite row (#10) by introducing `SessionContext` — a per-session subsystem holder — and wiring the `TraceWriter` as its first member. `Runtime` gains `sessionContexts: Map<string, SessionContext>`, `getSessionContext(sessionId)` (lazy-build + cache), and `disposeSession(sessionId)` (best-effort tear-down). The turns route fetches the SessionContext per turn and forwards `traceWriter.record` into `query()` as `traceRecorder` so server-side runs land the same `<harnessHome>/traces/<sessionId>.jsonl` files terminalRepl already writes. T4/T5/T6 will extend `SessionContext` with trajectory metadata, the learning observer, and the review manager respectively.
