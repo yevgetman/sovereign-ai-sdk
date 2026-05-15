@@ -39,10 +39,6 @@ export type TrajectoryMetadata = {
    *  graceful end. The union mirrors `Terminal['reason']` so the trajectory
    *  writer's bucket selection (completed vs failed) works without a cast. */
   terminalReason?: Terminal['reason'];
-  /** Optional terminal error message. Wrapped into a `Terminal.error`
-   *  `Error` at disposal time so the trajectory record carries a
-   *  human-readable cause for `failed.jsonl` entries. */
-  terminalError?: string;
 };
 
 /** Per-session subsystem holder. T3 wires the trace writer; T4 adds
@@ -132,10 +128,7 @@ export async function disposeSessionContext(
     }));
     if (messages.length > 0) {
       const md = ctx.trajectoryMetadata;
-      const terminal: Terminal = {
-        reason: md.terminalReason ?? 'completed',
-        ...(md.terminalError !== undefined ? { error: new Error(md.terminalError) } : {}),
-      };
+      const terminal: Terminal = { reason: md.terminalReason ?? 'completed' };
       const artifactsRoot = resolveSubagentArtifactsRoot(runtime.harnessHome, runtime.bundle);
       await tryWriteTrajectory(
         {

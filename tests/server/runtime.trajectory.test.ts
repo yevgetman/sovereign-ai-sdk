@@ -168,7 +168,6 @@ describe('disposeSession writes trajectory (M7 T4)', () => {
 
       const ctx = runtime.getSessionContext(sessionId);
       ctx.trajectoryMetadata.terminalReason = 'error';
-      ctx.trajectoryMetadata.terminalError = 'simulated provider failure';
 
       await runtime.disposeSession(sessionId);
 
