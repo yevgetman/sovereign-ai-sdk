@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M6 T3 — proactive compaction in turns route
+
+### 2026-05-14 · M6 T3 — wire shouldCompactProactively into runTurnInBackground
+
+**Scope:** TDD pass for M6 T3. Adds `proactiveCompactThreshold` to `RuntimeOptions` + `Runtime` (default 0.75; sources from `userSettings.compaction.proactiveThresholdPct` divided by 100, mirroring `terminalRepl.ts:356-359`). Adds `compaction_complete` to the `ServerEventSchema` discriminated union (`src/server/schema.ts`) carrying `sessionId` (parent) + `activeSessionId` (new child) + `summary` + before/after token estimates so the TUI can pivot subsequent POSTs onto the child session. Wires the proactive check into `runTurnInBackground` after history hydration and before the `query()` call: when `shouldCompactProactively` returns true, runs `runtime.compact`, publishes `compaction_complete`, hops the local `sessionId` to the new child, and reloads `messages` from the child's persisted state (summary at head + retained tail). Closes the proactive half of prereq row 7.
+
+**Commands:**
+- New test: `bun test tests/server/turns.proactiveCompact.test.ts` — RED first (no `compaction_complete` event in the body; only text_delta + turn_complete), then GREEN after wiring (1 pass / 12 expect() / ~104ms).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full suite **1913 pass / 0 fail / 4698 expect() / 28.52s** (+1 test, +12 expects vs T2's 1912/4686).
+
+**Test design:** Single end-to-end behavioral assertion — build a runtime with `proactiveCompactThreshold: 0.02` (4,000 tokens of 200,000 mock contextLength), seed two large prior messages so system+history exceeds 4,000 tokens, POST a new turn, drain the SSE body and assert: (1) `compaction_complete` event is present; (2) it precedes the first `text_delta`; (3) `getCompactionsForParent(sessionId)` returns one row; (4) the wire event echoes `activeSessionId` matching the child id; (5) the post-compaction assistant message ("Hello world." from the mock provider's default emission) lands on the CHILD session via `loadMessages(childSessionId)`. The mock provider's default `streamHelloWorld` serves both the summarize callback (text "Hello world.") and the post-compaction turn — no test-local Transport needed.
+
+**Threshold gotcha:** `shouldCompactProactively` self-guards against the frozen system prompt alone exceeding the threshold (`src/compact/compactor.ts:177-183`). Passing `proactiveCompactThreshold: 0` trips that guard and SUPPRESSES compaction (limit = 0; system tokens > 0). Test uses 0.02 instead — comfortably above the mock's ~2,200-token system prompt — and seeds ~12 KB of message text per side to push system+messages past the 4,000-token limit. Documented in the test header so future readers don't repeat the wrong-direction tweak.
+
+**Net:** M6 T3 ships green. Proactive compaction now fires server-side with parity to terminalRepl. T4 (overflow recovery) and T5 (explicit /compact route) consume the same `runtime.compact` primitive + `compaction_complete` wire event.
+
 ## 2026-05-14 — Phase 16.1 M6 T2 — server compactor primitive
 
 ### 2026-05-14 · M6 T2 cleanup — DRY constants + empty-summary guard
