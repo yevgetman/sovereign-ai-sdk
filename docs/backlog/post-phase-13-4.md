@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-14. Runtime close-out reached `3b07110` (M5.1: backlog items 25/26/27 closed); 1908/1908 unit tests green. Items 1-11, 14-16, 18-23, 25-27 closed across eight batches. Items 25-29 added 2026-05-14 from Phase 16.1 M5 close-out (T6/T7/T9 follow-ups deferred from in-scope construction work). Remaining open: 17, 28, 29. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-29 originated from the Phase 16.1 M5 T10 code-quality review (server-side sub-agent + permission round-trip + Go TUI permission modal).
+**Last sync:** 2026-05-14. Runtime close-out reached `1e52af2` (M6: long-session survival shipped); 1924/1924 unit tests green. Items 1-11, 14-16, 18-23, 25-27 closed across eight batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Remaining open: 17, 28, 29, 30, 31, 32, 33. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review.
 
 ## Priority order
 
@@ -35,6 +35,8 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 25. ~~Server-side `SubagentScheduler` does not receive `availableProviders`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 26. ~~Server-side `SubagentScheduler` does not receive `artifactsRoot`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 27. ~~Server-side `LaneSemaphores` cap config not wired from settings~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
+31. M3.4 turns route does not validate `:id` shape **[M6 review 2026-05-14]**
+32. Resume-after-compaction regression test **[M6 review 2026-05-14]**
 
 P4 (small ergonomics + nits):
 14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
@@ -46,6 +48,7 @@ P4 (small ergonomics + nits):
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
 28. Server-side TaskManager not wired to `DaemonEventBus` (live task events skip daemon publishing) **[M5 T7 2026-05-14]**
 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal **[M5 T9 2026-05-14]**
+33. Asymmetric `bus.isClosed()` guards in turns route **[M6 review 2026-05-14]**
 
 ---
 
@@ -413,10 +416,55 @@ Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-ag
 
 ---
 
+## Items discovered during Phase 16.1 M6 final whole-branch review (2026-05-14)
+
+Three follow-ups surfaced from the M6 (long-session survival) final whole-branch review. None affect the M6 acceptance criteria; the long-session survival path is functionally complete and the suite is green at 1924/1924. The first two pin pre-existing gaps M6 made visible (turns-route asymmetry vs. its sibling routes; resume-after-compaction lineage isn't covered by an explicit regression test). The third is a stylistic asymmetry that could be cleaned up in either direction.
+
+### 31. M3.4 turns route does not validate `:id` shape
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
+- Recommendation: `src/server/routes/turns.ts:79-80` reads `c.req.param('id')` and uses it directly as the `sessionId` for the bus + background-turn dispatch — no `isValidSessionId` check. Sibling routes (`sessions.ts`, `events.ts`, `approvals.ts`, `compact.ts`) all call `isValidSessionId(sessionId)` and 4xx on malformed ids. Add the same guard at the top of the POST `/sessions/:id/turns` handler.
+- Evidence: pre-existing asymmetry from M3.4 (the turns route was the first server route landed; the `isValidSessionId` helper was added later for sessions/events). M6 made it visible because the new compact route (sibling) DOES validate, so the inconsistency now stands out next to its peers.
+- Impact: A malformed id (e.g., one containing characters outside `[A-Za-z0-9_-]`) would currently flow into `getOrCreateBus` and the persisted user message — neither call sanitizes the id, so it would echo unsanitized into SSE event payloads and the sessions table. Not exploitable today (the id is server-stored and read-back; no third-party render), but the validation contract is what keeps that property true.
+- Likely code areas:
+  - `src/server/routes/turns.ts:79-80` (single validation call before `getOrCreateBus`)
+  - `tests/server/turns.test.ts` (regression test pinning 400 on malformed id)
+- Effort: ~30 min (single validation call + test).
+
+### 32. Resume-after-compaction regression test
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
+- Recommendation: `--resume <parentId>` after compaction works by construction — sessionDb is immutable + the lineage row persists — so a future user resuming a parent session can walk the lineage chain and discover the post-compaction child. But no test pins this. Backlog row 7's earlier wording mentioned "rollback lineage"; that's covered by `--resume` walking the lineage chain, but the property is not exercised. Add a unit-level test that: (a) runs a turn that triggers proactive compaction, (b) confirms the lineage row exists, (c) `--resume`s the parent id and verifies the resumed session loads the parent's pre-compaction history (not the child's post-compaction state).
+- Evidence: lineage table populated by `compactSession` at `compactor.ts:145`; resume reads from the parent id directly, doesn't auto-walk to the latest descendant. The "stay on parent" semantic is intentional (resume = "go back to where I was when this happened") but not pinned.
+- Impact: A future refactor that changed resume to "auto-pivot to latest descendant" would silently break this contract. The test would land that change as an explicit regression.
+- Likely code areas:
+  - `tests/cli/resume.test.ts` or `tests/server/turns.compactionResume.test.ts` (new file)
+  - `src/cli/resume.ts` (reference: how resume reads from sessionDb)
+- Effort: ~30 min.
+
+### 33. Asymmetric `bus.isClosed()` guards in turns route
+
+- Priority: P4
+- Status: open
+- Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
+- Recommendation: `src/server/routes/turns.ts` lines 397/410 guard `bus.publish(...)` with `if (!bus.isClosed())` (the second-overflow turn_error and the normal turn_complete paths). Line 419 (the catch's turn_error publish) does NOT guard. Functionally safe — `ServerEventBus.publish` at `eventBus.ts:51` already short-circuits when `closed === true`, so the guards are redundant — but visually asymmetric. Pick one direction: drop both guards (preferred — eventBus is the single source of truth for the closed-check) or add the missing guard at line 419 for symmetry.
+- Evidence: `src/server/eventBus.ts:50-57` shows `publish()` is idempotent on closed buses. The two existing guards are no-ops.
+- Impact: Cosmetic. No runtime difference.
+- Likely code areas:
+  - `src/server/routes/turns.ts` (lines 397, 410, 419)
+- Effort: ~10 min.
+
+---
+
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 30-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit) or item 30 (only if router server-mode is on the near roadmap)
+- 10-min slot: item 33 (drop redundant `bus.isClosed()` guards) or item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
+- 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), or item 30 (only if router server-mode is on the near roadmap)
 - 1-2 hr slot: item 28 (DaemonEventBus wiring)
 - Half-day slot: (none currently open)
 - Multi-day: item 17
