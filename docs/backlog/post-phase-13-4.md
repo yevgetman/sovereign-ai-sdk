@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-15. Runtime close-out reached backlog item #31 close (M6 + post-T7 SSE multi-turn fix shipped + backlog #31 + #33 + #34 + #35 + #36 closed); 1939/1939 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 31, 33, 34, 35, 36 closed across thirteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 32. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
+**Last sync:** 2026-05-15. Runtime close-out reached `d888aa8` (M6 + post-T7 SSE multi-turn fix shipped + backlog #31 + #33 + #34 + #35 + #36 closed + autonomous M6 smoke verified end-to-end against real Anthropic); 1939/1939 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 31, 33, 34, 35, 36 closed across thirteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Item 37 added 2026-05-15 from M6 smoke pre-flight (user noted `sov --version` doesn't print the git SHA). Remaining open: 17, 28, 29, 30, 32, 37. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases). Item 37 originated from M6 smoke pre-flight.
 
 ## Priority order
 
@@ -52,6 +52,7 @@ P4 (small ergonomics + nits):
 28. Server-side TaskManager not wired to `DaemonEventBus` (live task events skip daemon publishing) **[M5 T7 2026-05-14]**
 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal **[M5 T9 2026-05-14]**
 33. ~~Asymmetric `bus.isClosed()` guards in turns route~~ **[M6 review 2026-05-14] — closed `79a5c39` (dropped all three redundant guards; eventBus.publish is idempotent on closed buses)**
+37. `sov --version` should print the git SHA (currently shows static `0.1.0`) **[M6 smoke 2026-05-15]**
 
 ---
 
@@ -513,12 +514,26 @@ The user requested a focused, critical code-side review before running the three
   - `src/server/compactor.ts` (passthrough — unchanged)
 - Effort: ~30-45 min — server-side guard is the most defensive (also helps with #34 since skipping compaction skips the alternation-hazard message append) plus a unit test asserting the early-return shape.
 
+### 37. `sov --version` should print the git SHA (not just the package.json `0.1.0`)
+
+- Priority: P4
+- Status: open
+- Source: M6 manual smoke pre-flight (2026-05-15) — user noticed `sov --version` prints `0.1.0` with no commit SHA after `sov upgrade`. Currently the only way to confirm which commit the global binary is pinned to is `bun pm ls -g 2>&1 | grep sov` (which shows the git ref). Worth surfacing in `--version` output for the manual-smoke pre-flight ritual ("did my upgrade actually take?").
+- Recommendation: `src/main.ts` Commander `.version(...)` call currently passes the static `package.json` version. Change to: read the install SHA at build/install time (a postinstall script can write a `version.ts` with the resolved SHA) OR shell out to `git rev-parse HEAD --short` if the binary lives inside a git checkout (it does, post-`sov upgrade` — `~/.bun/install/global/node_modules/@yevgetman/sov/`). Easier path: write the SHA into `package.json`'s `version` field via the postinstall script (e.g., `0.1.0-3365fb3`).
+- Evidence: User feedback during M6 smoke session (2026-05-15). `bun pm ls -g 2>&1 | grep sov` already exposes the git ref; just lift it into `--version`.
+- Impact: Pre-flight ergonomics for any future manual smoke or "did upgrade work?" debug session. Removes a small but real source of confusion ("which version am I running?").
+- Likely code areas:
+  - `src/main.ts` (the `.version(...)` Commander call)
+  - `package.json` postinstall script
+  - Possibly: `bin/sov` shim
+- Effort: ~30 min if going the postinstall-write-version route; ~10 min if just shelling out to `bun pm ls -g`.
+
 ---
 
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 10-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
+- 10-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit) or item 37 (sov --version SHA — small ergonomics)
 - 30-min slot: item 32 (resume-after-compaction regression test) or item 30 (only if router server-mode is on the near roadmap)
 - 1-2 hr slot: item 28 (DaemonEventBus wiring)
 - Half-day slot: (none currently open)
