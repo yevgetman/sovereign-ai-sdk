@@ -91,6 +91,20 @@ export const SessionResumedEvent = BaseEvent.extend({
   resumedFromSeq: z.number().int().nonnegative(),
 });
 
+// M6 T3 — proactive (and, in T4, overflow-recovery) compaction surface.
+// `sessionId` is the parent — the id the SSE subscriber connected to.
+// `activeSessionId` is the new child id; the TUI must pivot subsequent
+// POSTs (turns, approvals) onto it for the rest of the conversation.
+// Token estimates expose the compaction's effect for footer / status
+// rendering without forcing the TUI to recompute them.
+export const CompactionCompleteEvent = BaseEvent.extend({
+  type: z.literal('compaction_complete'),
+  activeSessionId: z.string(),
+  summary: z.string(),
+  estimatedBeforeTokens: z.number().int().nonnegative(),
+  estimatedAfterTokens: z.number().int().nonnegative(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   TextDeltaEvent,
   ThinkingDeltaEvent,
@@ -103,6 +117,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   TurnCompleteEvent,
   TurnErrorEvent,
   SessionResumedEvent,
+  CompactionCompleteEvent,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;

@@ -21,6 +21,7 @@
 
 import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
+import { shouldCompactProactively } from '../../compact/compactor.js';
 import { loadPermissionSettings } from '../../config/settings.js';
 import { query } from '../../core/query.js';
 import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../core/types.js';
@@ -106,10 +107,14 @@ export function buildSessionToolContext(
 
 async function runTurnInBackground(
   runtime: Runtime,
-  sessionId: string,
+  sessionIdInitial: string,
   text: string,
   bus: ServerEventBus,
 ): Promise<void> {
+  // Mutable across the proactive-compaction hop below — once compactSession
+  // returns, the rest of the turn (persistence, query(), serverAsk binding)
+  // must target the new child session id, not the parent.
+  let sessionId = sessionIdInitial;
   const userMessage: Message = {
     role: 'user',
     content: [{ type: 'text', text }],
@@ -124,12 +129,50 @@ async function runTurnInBackground(
   // transcript visually on resume; this is the model-side companion.
   // Without it, the LLM sees only the new turn and responds as if every
   // resume is a fresh session, defeating the persistence work entirely.
-  const messages: Message[] = runtime.sessionDb.loadMessages(sessionId).map(
+  let messages: Message[] = runtime.sessionDb.loadMessages(sessionId).map(
     (m): Message => ({
       role: m.role as Message['role'],
       content: m.content,
     }),
   );
+
+  // M6 T3 — proactive compaction. If the hydrated history (including the
+  // freshly-persisted user message) is over the configured threshold,
+  // compact BEFORE handing it to the model. compactSession mints a new
+  // child session, persists the summary + retained tail onto it, and
+  // records lineage (compactor.ts:145). The rest of the turn pivots onto
+  // the child id — including the SSE permission bridge below.
+  // Mirrors terminalRepl.ts:1332-1348.
+  if (
+    shouldCompactProactively({
+      messages,
+      systemPrompt: runtime.systemSegments,
+      contextLength: runtime.resolvedProvider.contextLength,
+      threshold: runtime.proactiveCompactThreshold,
+    })
+  ) {
+    const result = await runtime.compact(messages, sessionId, bus.abortSignal);
+    bus.publish({
+      type: 'compaction_complete',
+      seq: bus.nextSeq(),
+      sessionId,
+      activeSessionId: result.newSessionId,
+      summary: result.summary,
+      estimatedBeforeTokens: result.estimatedBeforeTokens,
+      estimatedAfterTokens: result.estimatedAfterTokens,
+    });
+    sessionId = result.newSessionId;
+    // The child's persisted state (summary + tail) is now the source of
+    // truth for the model. Reload from the DB rather than mutating
+    // result.tail in place so we pick up the persisted summary message
+    // compactSession wrote at the head of the child's transcript.
+    messages = runtime.sessionDb.loadMessages(sessionId).map(
+      (m): Message => ({
+        role: m.role as Message['role'],
+        content: m.content,
+      }),
+    );
+  }
 
   // Build a session-scoped canUseTool. The runtime's own `canUseTool`
   // carries the M3 deny placeholder for out-of-band callers; here we

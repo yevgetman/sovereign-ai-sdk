@@ -135,6 +135,11 @@ export type RuntimeOptions = {
    *  loop. When omitted, buildRuntime sources from
    *  userSettings.microcompaction via buildMicrocompactConfig. */
   microcompactConfig?: MicrocompactConfig;
+  /** Override the proactive-compaction threshold (fraction of context
+   *  length, e.g. 0.75). Test hook; production reads from
+   *  userSettings.compaction.proactiveThresholdPct (which is stored as a
+   *  percentage 1..99 and divided by 100 here). */
+  proactiveCompactThreshold?: number;
 };
 
 export type Runtime = {
@@ -216,6 +221,12 @@ export type Runtime = {
    *  recovery in turns route), T5 (POST /sessions/:id/compact route).
    *  Lineage is recorded inside compactSession itself. */
   compact: ServerCompactor;
+  /** Resolved fraction of provider context length above which
+   *  shouldCompactProactively returns true. Always populated; production
+   *  derives from userSettings.compaction.proactiveThresholdPct (stored
+   *  as a percentage; divided by 100 here). Default 0.75 mirrors
+   *  shouldCompactProactively's built-in default. */
+  proactiveCompactThreshold: number;
   dispose: () => Promise<void>;
 };
 
@@ -515,6 +526,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     systemSegments,
   });
 
+  // M6 T3 — proactive-compaction threshold. Settings store as a percentage
+  // (1..99) for human-friendly editing; the compactor expects a fraction.
+  // Mirrors terminalRepl.ts:356-359.
+  const proactiveCompactThreshold =
+    opts.proactiveCompactThreshold ??
+    (userSettings.compaction?.proactiveThresholdPct !== undefined
+      ? userSettings.compaction.proactiveThresholdPct / 100
+      : 0.75);
+
   return {
     sessionDb,
     toolPool,
@@ -539,6 +559,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     taskManager,
     microcompactConfig,
     compact,
+    proactiveCompactThreshold,
     dispose: async () => {
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
