@@ -10,7 +10,7 @@ This file is a **lean index** — a table of contents into the deeper docs. Read
 
 1. **This file** (`CLAUDE.md`) — index and standing rules
 2. **`README.md`** — repo intro, install, layout
-3. **`docs/state/2026-05-14.md`** — most recent close-out snapshot (Phase 16.1 M6 shipped 2026-05-14 + post-T7 SSE multi-turn fix + 2026-05-15 hardening batch + autonomous M6 smoke verified end-to-end against real Anthropic; M0–M5 closed earlier). Read this BEFORE the build plan to know what shipped and where to start. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
+3. **`docs/state/2026-05-14.md`** — most recent close-out snapshot (Phase 16.1 M6 shipped 2026-05-14 + post-T7 SSE multi-turn fix + 2026-05-15 hardening batch + autonomous M6 smoke against real Anthropic + 2026-05-15 PM post-hardening batch (#32 + #37); M0–M5 closed earlier). Read this BEFORE the build plan to know what shipped and where to start. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
 4. **`docs/backlog/post-phase-13-4.md`** — open backlog items not in the canonical build plan.
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -48,14 +48,14 @@ Each link is a chapter loaded on demand. Don't pre-read.
 
 | File | What's in it |
 |---|---|
-| [`docs/state/2026-05-14.md`](docs/state/2026-05-14.md) | Canonical current-state snapshot — Phase 16.1 M6 shipped + post-T7 SSE multi-turn fix + 2026-05-15 hardening batch (5 backlog items closed) + autonomous M6 smoke verified end-to-end against real Anthropic; suite green. The snapshot itself pins the HEAD SHA and exact counts. |
+| [`docs/state/2026-05-14.md`](docs/state/2026-05-14.md) | Canonical current-state snapshot — Phase 16.1 M6 shipped + post-T7 SSE multi-turn fix + 2026-05-15 hardening batch (5 items) + autonomous M6 smoke against real Anthropic + 2026-05-15 PM post-hardening batch (#32 resume regression pin + #37 sov --version SHA); suite green at 1943/1943. The snapshot itself pins the HEAD SHA and exact counts. |
 | [`docs/state/archive/`](docs/state/archive/) | Historical snapshots: `2026-05-07.md` (Phase 13.4), `2026-05-11.md` (Phase 16.0a), `2026-05-12.md` (Phase 16 revert), `2026-05-13.md` (Phase 16.1 M0–M3), `2026-05-14.md` (Phase 16.1 M4 + M5 + M5.1 — same-day predecessor of the active snapshot). |
 
 ### Forward-looking
 
 | File | What's in it |
 |---|---|
-| [`docs/backlog/post-phase-13-4.md`](docs/backlog/post-phase-13-4.md) | Open backlog (1 item: #17 eval-gated auto-promote, P4) |
+| [`docs/backlog/post-phase-13-4.md`](docs/backlog/post-phase-13-4.md) | Open backlog (4 items, all P4): #17 eval-gated auto-promote, #28 DaemonEventBus → server-mode TaskManager, #29 lipgloss Style.Copy(), #30 router-mode subagent defaults |
 | [`docs/backlog/phase-16-rebuild-prereqs.md`](docs/backlog/phase-16-rebuild-prereqs.md) | 24 subsystems any Phase 16.1 foreground refactor must re-wire |
 | [`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`](docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md) | Active design spec for the Phase 16.1 TUI rebuild |
 | [`docs/specs/2026-05-13-production-harness-roadmap-design.md`](docs/specs/2026-05-13-production-harness-roadmap-design.md) | Umbrella production polish roadmap |

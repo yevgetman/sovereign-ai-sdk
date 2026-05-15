@@ -8,7 +8,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/state/2026-05-14.md`](docs/state/2026-05-14.md) — Phase 16.1 M4 shipped (split-process TUI: TS Hono server + Go Bubble Tea client; on-disk SessionDb, preflight, CLI flag forwarding, resume hydration). Unit suite **1873/1873**, Go tests green, manual smoke 11/11. HEAD `91f727c`.
+- **Latest snapshot:** [`docs/state/2026-05-14.md`](docs/state/2026-05-14.md) — Phase 16.1 M6 shipped + 2026-05-15 hardening (5 items) + autonomous M6 smoke against real Anthropic + 2026-05-15 PM post-hardening batch (#32 + #37). Unit suite **1943/1943**, Go tests green, manual smoke 11/11. HEAD `0459979`.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
