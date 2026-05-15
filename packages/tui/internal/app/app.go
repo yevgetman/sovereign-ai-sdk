@@ -43,6 +43,31 @@ type messagesFetchedMsg struct {
 	err      error
 }
 
+// compactRequestedMsg fires when the user types `/compact` and presses
+// ENTER. Update appends a dim "[compacting…]" placeholder, then runs
+// compactCmd to POST /sessions/:id/compact. On success the response's
+// activeSessionId becomes m.sessionID (subsequent turn POSTs hit the
+// new session). M6 T6.
+type compactRequestedMsg struct{}
+
+// compactCompleteMsg carries the synchronous /compact route's response.
+// activeSessionID is the new child session id (subsequent POST /turns
+// route to it). summary is the compaction summary text — currently
+// unrendered (the M6 marker is intentionally minimal); M9 will use it
+// for the styled "compaction summary" card. Keeping it on the message
+// avoids re-decoding the response body when M9 lands.
+type compactCompleteMsg struct {
+	activeSessionID string
+	summary         string
+}
+
+// compactErrorMsg surfaces a /compact route failure (non-2xx or
+// transport error) into the transcript as a dim error line. The
+// session id is NOT pivoted on failure — the user can retry.
+type compactErrorMsg struct {
+	err error
+}
+
 type Model struct {
 	keys            keyMap
 	transcript      components.Transcript
@@ -162,6 +187,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" {
 				return m, nil
 			}
+			// M6 T6: intercept the `/compact` slash command BEFORE the
+			// POST /turns dispatch. The user-visible echo + clear still
+			// happens (so the input doesn't sit in the prompt) but we
+			// route to the synchronous /compact HTTP verb instead of
+			// sending the literal string as a turn. The compactRequestedMsg
+			// branch below renders the placeholder + kicks off the POST.
+			if text == "/compact" {
+				m.transcript.AppendLine("» " + text)
+				m.prompt.Clear()
+				return m, func() tea.Msg { return compactRequestedMsg{} }
+			}
 			m.transcript.AppendLine("» " + text)
 			m.prompt.Clear()
 			// Dim placeholder so the user sees feedback during the 1-3s
@@ -228,6 +264,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// /sessions/:id/approvals/:requestId and resumes the paused turn.
 		m.permission = nil
 		return m, m.postApproval(msg)
+	case compactRequestedMsg:
+		// M6 T6: render a dim placeholder so the user sees feedback during
+		// the same-provider summarize wait (can take several seconds), then
+		// kick off the synchronous POST. The compactCompleteMsg /
+		// compactErrorMsg branches replace the placeholder with the result
+		// marker. Mirrors the "…thinking" placeholder pattern from ENTER.
+		dimStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6e7681")).
+			Italic(true)
+		m.transcript.AppendLine(dimStyle.Render("[compacting…]"))
+		return m, m.compactCmd()
+	case compactCompleteMsg:
+		// M6 T6: pop the placeholder and pivot the session id. Subsequent
+		// POST /turns hit the new child session — the SSE stream stays on
+		// the parent (the bus is keyed on parent and continues to surface
+		// post-compaction events under the parent id; the Compactor's wire
+		// contract puts the child as `activeSessionId` rather than reseating
+		// the SSE subscription).
+		m.transcript.RemoveLastLine()
+		m.sessionID = msg.activeSessionID
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+		// Truncate the new id to 8 chars in the user marker — full uuid is
+		// noise; the prefix is enough to disambiguate. M9 owns the styled
+		// "compaction summary" card that will render the full id + summary.
+		shortID := msg.activeSessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		m.transcript.AppendLine(dim.Render(fmt.Sprintf("─ compacted — new session %s", shortID)))
+		return m, nil
+	case compactErrorMsg:
+		// M6 T6: pop the placeholder and surface the failure. The session
+		// id stays on the parent — the user can retry. Use the same red
+		// style as turnSubmitErrMsg for visual consistency.
+		m.transcript.RemoveLastLine()
+		m.transcript.AppendLine(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#e06c75")).
+				Render(fmt.Sprintf("compact failed: %v", msg.err)),
+		)
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.transcript, cmd = m.transcript.Update(msg)
@@ -329,6 +406,29 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		} else {
 			m.transcript.AppendLine(dim.Render("─ turn complete (" + tc.FinishReason + ")"))
 		}
+	case "compaction_complete":
+		// M6 T6: T3 (proactive) and T4 (overflow recovery) publish this
+		// event mid-turn when the session id hops to a new child. The
+		// SSE subscription stays on the parent (the bus is keyed on
+		// parent), but subsequent POST /turns + approval requests must
+		// route to the new child id — pivot m.sessionID immediately.
+		// The marker is intentionally minimal; M9 owns the styled
+		// "compaction summary" card.
+		cc, err := transport.DecodeCompactionComplete(env.Raw)
+		if err != nil {
+			return
+		}
+		m.clearThinkingIfPending()
+		m.sessionID = cc.ActiveSessionID
+		shortID := cc.ActiveSessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+		m.transcript.AppendLine(dim.Render(fmt.Sprintf(
+			"─ auto-compacted — %d→%d tokens — new session %s",
+			cc.EstimatedBeforeTokens, cc.EstimatedAfterTokens, shortID,
+		)))
 	}
 }
 
@@ -390,6 +490,26 @@ func (m Model) postApproval(submit components.PermissionSubmitMsg) tea.Cmd {
 			return turnSubmitErrMsg{err: fmt.Errorf("approval POST returned %d", resp.StatusCode)}
 		}
 		return nil
+	}
+}
+
+// compactCmd POSTs to /sessions/<currentId>/compact (M6 T6). The
+// transport client owns the 60s timeout (compactClient in http.go) so
+// the same-provider summarize wait doesn't block the Update goroutine.
+// The returned Cmd produces compactCompleteMsg on success or
+// compactErrorMsg on transport / non-2xx failure. Cancellation: uses
+// m.ctx so ESC/quit aborts the in-flight POST cleanly (the route's
+// c.req.raw.signal forwards client disconnect into runtime.compact()).
+func (m Model) compactCmd() tea.Cmd {
+	return func() tea.Msg {
+		resp, err := transport.PostCompact(m.ctx, m.baseURL, m.sessionID)
+		if err != nil {
+			return compactErrorMsg{err: err}
+		}
+		return compactCompleteMsg{
+			activeSessionID: resp.ActiveSessionID,
+			summary:         resp.Summary,
+		}
 	}
 }
 

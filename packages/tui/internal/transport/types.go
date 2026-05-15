@@ -133,6 +133,24 @@ type SessionResumed struct {
 	ResumedFromSeq int64  `json:"resumedFromSeq"`
 }
 
+// CompactionComplete (M6 T6) is published by the proactive (T3) and
+// overflow-recovery (T4) compaction paths when the session id hops to
+// a new child. `SessionID` carries the PARENT id (the one the SSE
+// subscriber connected to) and `ActiveSessionID` carries the new child
+// id the rest of the turn pivots onto. The TUI must update its tracked
+// session id to ActiveSessionID so subsequent POST /turns and approval
+// requests route to the new session. Mirrors src/server/schema.ts:100
+// (CompactionCompleteEvent).
+type CompactionComplete struct {
+	Type                  string `json:"type"`
+	Seq                   int64  `json:"seq"`
+	SessionID             string `json:"sessionId"`
+	ActiveSessionID       string `json:"activeSessionId"`
+	Summary               string `json:"summary"`
+	EstimatedBeforeTokens int    `json:"estimatedBeforeTokens"`
+	EstimatedAfterTokens  int    `json:"estimatedAfterTokens"`
+}
+
 func DecodeTextDelta(raw []byte) (TextDelta, error) {
 	var t TextDelta
 	err := json.Unmarshal(raw, &t)
@@ -195,6 +213,12 @@ func DecodeTurnError(raw []byte) (TurnError, error) {
 
 func DecodeSessionResumed(raw []byte) (SessionResumed, error) {
 	var t SessionResumed
+	err := json.Unmarshal(raw, &t)
+	return t, err
+}
+
+func DecodeCompactionComplete(raw []byte) (CompactionComplete, error) {
+	var t CompactionComplete
 	err := json.Unmarshal(raw, &t)
 	return t, err
 }

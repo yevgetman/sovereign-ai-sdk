@@ -238,6 +238,249 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestApp_compactSlashRoutesToCompactEndpoint guards M6 T6: typing
+// `/compact` and pressing ENTER must intercept the input client-side
+// and POST to /sessions/:id/compact rather than sending the literal
+// string as a turn. After the response, m.sessionID must pivot to
+// activeSessionId so subsequent turn POSTs hit the new child session.
+//
+// We can't observe m.sessionID directly through teatest (the Bubble Tea
+// internals own the model copy after the first Update), so we verify
+// the pivot transitively: type `/compact`, wait for the compact POST
+// to land server-side, then type a normal message and assert THAT POST
+// hits /sessions/<NEW-CHILD>/turns rather than the original parent.
+func TestApp_compactSlashRoutesToCompactEndpoint(t *testing.T) {
+	const parentID = "parent-session"
+	const childID = "child-session"
+
+	var (
+		mu             sync.Mutex
+		compactPosts   []string
+		turnPostsPath  []string
+		turnPostsBody  [][]byte
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Compact route — return the new child session id.
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/"+parentID+"/compact" {
+			mu.Lock()
+			compactPosts = append(compactPosts, r.URL.Path)
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"activeSessionId":       childID,
+				"parentSessionId":       parentID,
+				"summary":               "Hello world.",
+				"estimatedBeforeTokens": 100,
+				"estimatedAfterTokens":  20,
+				"usedAuxiliary":         false,
+			})
+			return
+		}
+		// Turn POST — capture path so we can assert the post-compact
+		// turn hits the CHILD session id.
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/turns") {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			turnPostsPath = append(turnPostsPath, r.URL.Path)
+			turnPostsBody = append(turnPostsBody, body)
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		// Messages backlog — empty so hydration resolves cleanly.
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// Events stream — keep open so the SSE consumer doesn't drive
+		// sseDone before assertions land.
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(parentID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	// Wait for initial render so the prompt is alive.
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "›")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Type "/compact" then ENTER.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/compact")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for the compact POST to land server-side.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := len(compactPosts)
+		mu.Unlock()
+		if got > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	gotCompactPosts := append([]string(nil), compactPosts...)
+	mu.Unlock()
+	if len(gotCompactPosts) != 1 {
+		t.Fatalf("expected 1 POST to /compact, got %d", len(gotCompactPosts))
+	}
+
+	// Wait for the transcript marker to confirm the model processed the
+	// compactCompleteMsg (m.sessionID is now child id internally).
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "compacted") && contains(b, childID[:8])
+	}, teatest.WithDuration(3*time.Second))
+
+	// Now type a regular turn — it MUST POST to /sessions/<CHILD>/turns,
+	// proving m.sessionID was pivoted.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(turnPostsPath)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	gotTurnPaths := append([]string(nil), turnPostsPath...)
+	gotTurnBodies := append([][]byte(nil), turnPostsBody...)
+	mu.Unlock()
+	if len(gotTurnPaths) != 1 {
+		t.Fatalf("expected 1 POST to /turns after compact, got %d", len(gotTurnPaths))
+	}
+	wantPath := "/sessions/" + childID + "/turns"
+	if gotTurnPaths[0] != wantPath {
+		t.Fatalf("post-compact /turns path = %q, want %q (session id did not pivot)",
+			gotTurnPaths[0], wantPath)
+	}
+	if !bytes.Contains(gotTurnBodies[0], []byte(`"hi"`)) {
+		t.Fatalf("post-compact /turns body = %q, want to contain 'hi'", string(gotTurnBodies[0]))
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestApp_compactionCompleteSSEPivotsSession guards M6 T6: when the
+// proactive (T3) or overflow-recovery (T4) paths emit a
+// compaction_complete SSE event, the TUI must update m.sessionID to
+// activeSessionId so subsequent turn POSTs hit the new child.
+//
+// We can't observe m.sessionID directly through teatest (the Bubble Tea
+// internals own the model copy), so we verify the pivot end-to-end:
+// the events handler emits the SSE event, the test polls for a turn
+// POST until it lands, and asserts THAT POST hit the CHILD session id
+// rather than the parent. The events handler holds the connection so
+// the SSE consumer doesn't drive sseDone before the assertion.
+func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
+	const parentID = "parent-session"
+	const childID = "child-session"
+
+	var (
+		mu             sync.Mutex
+		turnPostsPath  []string
+		eventsServed   bool
+		eventsServedCh = make(chan struct{})
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/turns") {
+			mu.Lock()
+			turnPostsPath = append(turnPostsPath, r.URL.Path)
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// Events stream — emit a single compaction_complete then hold
+		// the connection so the consumer doesn't drive sseDone before
+		// the test sends the follow-up turn. Signal eventsServedCh
+		// once flushed so the test can drive the next ENTER without
+		// a brittle sleep.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		payload := fmt.Sprintf("event: compaction_complete\nid: 1\ndata: {\"type\":\"compaction_complete\",\"seq\":1,\"sessionId\":\"%s\",\"activeSessionId\":\"%s\",\"summary\":\"auto\",\"estimatedBeforeTokens\":1000,\"estimatedAfterTokens\":50}\n\n", parentID, childID)
+		fmt.Fprint(w, payload)
+		flusher.Flush()
+		mu.Lock()
+		if !eventsServed {
+			eventsServed = true
+			close(eventsServedCh)
+		}
+		mu.Unlock()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(parentID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	// Wait until the events handler has flushed the compaction_complete
+	// payload. The SSE consumer reads the bytes off the wire, the
+	// envelope decodes, and Update calls handleEvent("compaction_complete")
+	// which assigns m.sessionID = childID. There's no direct observable
+	// for the assignment from teatest (the renderer's framebuffer can
+	// lag the model state), so we wait for the wire-level signal then
+	// give the model goroutine a brief settle window before driving
+	// the follow-up keys.
+	select {
+	case <-eventsServedCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("events handler never served the compaction_complete payload")
+	}
+	// Brief settle so the SSE consumer reads + parses + the Update
+	// goroutine processes the sseMsg before we send the ENTER. 200ms
+	// matches the existing tests' poll cadence.
+	time.Sleep(200 * time.Millisecond)
+
+	// Send a turn — it MUST POST to the CHILD session id.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(turnPostsPath)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	gotTurnPaths := append([]string(nil), turnPostsPath...)
+	mu.Unlock()
+	if len(gotTurnPaths) != 1 {
+		t.Fatalf("expected 1 POST to /turns after compaction_complete, got %d (paths=%v)",
+			len(gotTurnPaths), gotTurnPaths)
+	}
+	wantPath := "/sessions/" + childID + "/turns"
+	if gotTurnPaths[0] != wantPath {
+		t.Fatalf("post-SSE /turns path = %q, want %q (compaction_complete didn't pivot session id)",
+			gotTurnPaths[0], wantPath)
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // TestApp_hydratesTranscriptFromPriorMessages guards M4 Task 9: on Init the
 // app fetches GET /sessions/<id>/messages and renders each prior text block
 // before (or alongside) the live SSE stream. Resume flows therefore show the
