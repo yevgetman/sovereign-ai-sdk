@@ -26,7 +26,11 @@ import { estimateCostUsd } from '../providers/pricing.js';
 const TOOL_RESULT_PRUNE_CHARS = 800;
 const DEFAULT_TAIL_TOKEN_BUDGET = 4_000;
 const DEFAULT_MIN_TAIL_MESSAGES = 4;
-const SUMMARY_MAX_TOKENS = 1_500;
+/** Cap on tokens the summarizer is allowed to emit. Exported so the
+ *  same-provider summarize callback in src/server/compactor.ts uses
+ *  the identical bound — drift here would silently change summary
+ *  fidelity between auxiliary and same-provider paths. */
+export const COMPACTION_SUMMARY_MAX_TOKENS = 1_500;
 const SUMMARY_TRANSCRIPT_CHAR_LIMIT = 80_000;
 
 export const HANDOFF_SUMMARY_NOTE =
@@ -280,7 +284,7 @@ async function summarizeWithAuxiliary(
     model: resolved.model,
     system: [{ text: compressionSystemPrompt(), cacheable: false }],
     messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-    maxTokens: SUMMARY_MAX_TOKENS,
+    maxTokens: COMPACTION_SUMMARY_MAX_TOKENS,
     temperature: 0,
     cacheEnabled: false,
   });
@@ -289,7 +293,7 @@ async function summarizeWithAuxiliary(
     if (event.type === 'assistant_message') lastAssistant = event.message;
     if (event.type === 'usage_delta') usage = event.usage;
   }
-  if (text.trim() === '' && lastAssistant) text = assistantText(lastAssistant);
+  if (text.trim() === '' && lastAssistant) text = assistantTextBlocks(lastAssistant);
   if (text.trim() === '') throw new Error('compaction auxiliary returned an empty summary');
   return {
     summary: text,
@@ -316,7 +320,11 @@ function buildSummarizerPrompt(input: CompactSummarizerInput): string {
   return `${previous}Conversation transcript to compress:\n${input.transcript}\n\nReturn exactly this structure, preserving concrete facts, file paths, decisions, and remaining work. The note must remain first:\n${HANDOFF_SUMMARY_NOTE}\n\n## Active Task\n- ...\n\n## Resolved Questions\n- ...\n\n## Pending/Open Questions\n- ...\n\n## Remaining Work\n- ...`;
 }
 
-function compressionSystemPrompt(): string {
+/** System prompt for the compression call. Exported so the same-provider
+ *  summarize callback in src/server/compactor.ts reuses the exact wording —
+ *  any drift here would silently produce different summary shapes between
+ *  the auxiliary path and the same-provider path. */
+export function compressionSystemPrompt(): string {
   return [
     'You are compressing an agent harness conversation for continuation in a new session.',
     'Preserve operationally useful state, decisions, blockers, IDs, file paths, commands, and test results.',
@@ -403,7 +411,12 @@ function capTranscript(transcript: string): string {
   return `${transcript.slice(0, SUMMARY_TRANSCRIPT_CHAR_LIMIT)}\n\n[transcript truncated before summarization]`;
 }
 
-function assistantText(message: AssistantMessage): string {
+/** Joins the text blocks of an assistant message. Exported so the
+ *  same-provider summarize callback in src/server/compactor.ts can mirror
+ *  the auxiliary path's assistant_message fallback when no text deltas
+ *  were emitted (some providers only emit final assistant_message events
+ *  without intermediate deltas). */
+export function assistantTextBlocks(message: AssistantMessage): string {
   return message.content
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
     .map((block) => block.text)
@@ -414,7 +427,7 @@ function extractLatestHandoffSummary(messages: readonly Message[]): string | nul
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (!message || message.role !== 'assistant') continue;
-    const text = assistantText(message);
+    const text = assistantTextBlocks(message);
     if (text.includes(HANDOFF_SUMMARY_NOTE)) return text;
   }
   return null;

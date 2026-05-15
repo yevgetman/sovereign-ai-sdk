@@ -48,6 +48,10 @@ describe('server compactor primitive', () => {
     expect(result.newSessionId).not.toBe(sessionId);
     expect(typeof result.summary).toBe('string');
     expect(result.summary.length).toBeGreaterThan(0);
+    // Proves the same-provider summarize closure ran (vs. compactSession
+    // falling through to its deterministic auxiliary fallback). The mock
+    // provider's streamHelloWorld emission is exactly "Hello world.".
+    expect(result.summary).toContain('Hello world.');
 
     const lineage = runtime.sessionDb.getCompactionsForParent(sessionId);
     expect(lineage.length).toBe(1);

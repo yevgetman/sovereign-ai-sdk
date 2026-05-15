@@ -10,6 +10,17 @@ Implementation backlogs from these findings live in
 
 ## 2026-05-14 — Phase 16.1 M6 T2 — server compactor primitive
 
+### 2026-05-14 · M6 T2 cleanup — DRY constants + empty-summary guard
+
+**Scope:** Code-quality pass on the T2 implementation flagged five actionable items by review. Promoted `SUMMARY_MAX_TOKENS` (renamed `COMPACTION_SUMMARY_MAX_TOKENS`), `compressionSystemPrompt()`, and `assistantText` (renamed `assistantTextBlocks`) to exported symbols in `src/compact/compactor.ts` so the same-provider summarize callback in `src/server/compactor.ts` reuses them instead of holding byte-equivalent re-declarations. Added an `assistant_message`-fallback + empty-text throw to the same-provider closure mirroring `summarizeWithAuxiliary`'s pattern so providers that emit only a final `assistant_message` (no intermediate `text_delta` events) don't silently return `''`. Added a one-line comment on the prompt-template drift (skeleton headers being advisory). Strengthened the existing test to assert `result.summary` contains the mock provider's `'Hello world.'` emission — proves the same-provider closure ran rather than the deterministic auxiliary fallback masking a never-invoked closure.
+
+**Commands:**
+- Targeted: `bun test tests/server/compactor.test.ts` — 1 pass / 7 expect() / 184ms (vs the previous 6 expect()).
+- Auxiliary-path regression: `bun test tests/compact/compactor.test.ts` — 8 pass / 25 expect() / 41ms (no regressions from the rename / extraction).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (2 pre-existing unrelated warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full suite **1912 pass / 0 fail / 4686 expect() / 28.32s** (+1 expect() vs T2's 4685 from the new `Hello world.` substring assertion).
+
+**Net:** T2 cleanup ships green. No behavior change in the auxiliary path; same-provider path is now hardened against zero-text-delta provider streams and shares the exact compression bound + system prompt with the auxiliary path.
+
 ### 2026-05-14 · M6 T2 — buildServerCompactor + Runtime.compact
 
 **Scope:** TDD pass for M6 T2. Adds `src/server/compactor.ts` exporting `buildServerCompactor(runtime)` and a `compact: ServerCompactor` field on `Runtime`. The closure wraps `compactSession()` with runtime-provided `db`/`model`/`providerName`/`systemPrompt`, plus a same-provider `summarize` callback (M6-06: inline decision) that streams `runtime.resolvedProvider.transport.stream` with the compression system prompt and returns plain text. Lineage recording stays inside `compactSession` (`sessionDb.recordCompactionLineage` at `src/compact/compactor.ts:141`); the caller does not write a separate row. Consumers in subsequent tasks: T3 (proactive check in turns route), T4 (overflow recovery), T5 (POST /sessions/:id/compact route).
