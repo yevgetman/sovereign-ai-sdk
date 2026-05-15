@@ -105,6 +105,18 @@ export const CompactionCompleteEvent = BaseEvent.extend({
   estimatedAfterTokens: z.number().int().nonnegative(),
 });
 
+// M7 T6 — session-end goodbye summary. Emitted by disposeSession when an
+// attached bus is supplied (single-session explicit disposal path). Carries
+// the ReviewManager's getDispatchSummary payload: total dispatched review
+// forks across the session plus a per-agent breakdown (review-memory,
+// review-skill, review-consolidate, instinct-synthesizer). The TUI renders
+// this as a goodbye card; M9 polish wires the renderer.
+export const SessionSummaryEvent = BaseEvent.extend({
+  type: z.literal('session_summary'),
+  totalDispatched: z.number().int().nonnegative(),
+  byAgent: z.record(z.string(), z.number().int().nonnegative()),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   TextDeltaEvent,
   ThinkingDeltaEvent,
@@ -118,6 +130,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   TurnErrorEvent,
   SessionResumedEvent,
   CompactionCompleteEvent,
+  SessionSummaryEvent,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;

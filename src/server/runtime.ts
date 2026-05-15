@@ -281,8 +281,16 @@ export type Runtime = {
   /** Tear down the per-session subsystems for `sessionId` and evict from
    *  the registry. Idempotent — no-op when the id is not registered. The
    *  M6 compaction pivot calls this on the parent id (and lazy-builds the
-   *  child's context on the next `getSessionContext` lookup). */
-  disposeSession: (sessionId: string) => Promise<void>;
+   *  child's context on the next `getSessionContext` lookup).
+   *
+   *  When `opts.bus` is supplied (single-session explicit disposal — e.g.
+   *  the M7 T6 review test, or a future DELETE /sessions/:id route), the
+   *  per-session SSE bus is threaded into `disposeSessionContext` so the
+   *  ReviewManager's getDispatchSummary lands as a `session_summary` event
+   *  for the TUI. runtime.dispose()'s shutdown walk omits the bus — no
+   *  SSE consumer remains at process teardown, so the summary is logged
+   *  to stderr instead. */
+  disposeSession: (sessionId: string, opts?: { bus?: ServerEventBus }) => Promise<void>;
   dispose: () => Promise<void>;
 };
 
@@ -634,11 +642,21 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   };
   // Evict from the map BEFORE awaiting disposal so a concurrent get during
   // shutdown rebuilds rather than handing back a half-closed writer.
-  const disposeSession = async (sessionId: string): Promise<void> => {
+  // `opts.bus` (T6) is only forwarded on single-session disposal: when
+  // present, disposeSessionContext emits a `session_summary` SSE event
+  // with the ReviewManager's dispatch summary. The shutdown walk inside
+  // `dispose()` below does NOT supply a bus — the summary is logged.
+  const disposeSession = async (
+    sessionId: string,
+    disposeOpts?: { bus?: ServerEventBus },
+  ): Promise<void> => {
     const ctx = sessionContexts.get(sessionId);
     if (!ctx) return;
     sessionContexts.delete(sessionId);
-    await disposeSessionContext(ctx, { runtime });
+    await disposeSessionContext(ctx, {
+      runtime,
+      ...(disposeOpts?.bus !== undefined ? { bus: disposeOpts.bus } : {}),
+    });
   };
 
   const runtime: Runtime = {

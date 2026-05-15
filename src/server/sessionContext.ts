@@ -21,9 +21,13 @@
 import { readConfig } from '../config/store.js';
 import type { Terminal } from '../core/types.js';
 import { LearningObserver } from '../learning/observer.js';
-import type { ReviewManager } from '../review/manager.js';
+import { instinctsDir } from '../learning/paths.js';
+import { getProjectId } from '../learning/project.js';
+import { ReviewManager } from '../review/manager.js';
+import type { ToolContext } from '../tool/types.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
+import type { ServerEventBus } from './eventBus.js';
 import { resolveSubagentArtifactsRoot } from './runtime.js';
 import type { Runtime } from './runtime.js';
 
@@ -43,9 +47,10 @@ export type TrajectoryMetadata = {
 };
 
 /** Per-session subsystem holder. T3 wires the trace writer; T4 adds
- *  trajectory metadata; T5–T6 extend this shape with learning observer
- *  and review manager. The empty-by-default fields are intentional — they
- *  keep the type stable across follow-up tasks. */
+ *  trajectory metadata; T5 adds the learning observer; T6 adds the review
+ *  manager + its abort controller. The empty-by-default optional fields
+ *  are intentional — they keep the type stable when subsystems are
+ *  disabled in user settings. */
 export type SessionContext = {
   sessionId: string;
   traceWriter: TraceWriter;
@@ -54,8 +59,16 @@ export type SessionContext = {
   trajectoryMetadata: TrajectoryMetadata;
   /** T5 — populated when learning is enabled for the session. */
   learningObserver?: LearningObserver;
-  /** T6 — populated when review is enabled for the session. */
+  /** T6 — populated when review is enabled for the session. Optional-chain
+   *  call sites (`ctx.reviewManager?.onToolIteration(...)`) become a no-op
+   *  when review.disabled === true. */
   reviewManager?: ReviewManager;
+  /** T6 — abort signal source for in-flight review-fork sub-agents. Always
+   *  present (whether or not reviewManager was constructed) so disposal can
+   *  unconditionally abort()  without a guard; review forks were the only
+   *  consumer, and we abort upstream before reaching getDispatchSummary so
+   *  no lingering background work survives session teardown. */
+  reviewAbortController: AbortController;
 };
 
 export type BuildSessionContextOpts = {
@@ -65,9 +78,9 @@ export type BuildSessionContextOpts = {
 
 /** Lazy-build a SessionContext for the given session id. Idempotent within
  *  a runtime — Runtime caches the return on first call. Construction is
- *  cheap (TraceWriter opens an append-only file handle, LearningObserver
- *  defers all disk work to first observe() call). ReviewManager is wired
- *  in T6. */
+ *  cheap: TraceWriter opens an append-only file handle, LearningObserver
+ *  defers all disk work to first observe() call, ReviewManager defers all
+ *  scheduler dispatch to its first counter-tripping trigger. */
 export function buildSessionContext(opts: BuildSessionContextOpts): SessionContext {
   const { runtime, sessionId } = opts;
 
@@ -76,16 +89,19 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     harnessHome: runtime.harnessHome,
   });
 
-  // M7 T5 — per-session learning observer. Settings cascade is read at
-  // SessionContext construction time (per session id) rather than at
-  // buildRuntime time so a `sov config set learning.disabled true` mid-
-  // process takes effect on the next session without a restart.
+  // Settings cascade is read ONCE per SessionContext construction so a
+  // `sov config set <key> <val>` mid-process takes effect on the next
+  // session without a restart. Both T5 (learning) and T6 (review) consume
+  // the result — keeping the read singular avoids the duplicate-disk-hit
+  // smell the T5 reviewer flagged as a watch item for T6.
+  const userSettings = readConfig();
+
+  // M7 T5 — per-session learning observer.
   //
   // When `learning.disabled === true`, the field is LEFT UNDEFINED so the
   // orchestrator's `ctx.learningObserver?.observe(...)` optional-chain
   // becomes a no-op and disposal skips the drain step entirely (no empty
   // observations.jsonl created).
-  const userSettings = readConfig();
   const learningEnabled = userSettings.learning?.disabled !== true;
   const learningObserver: LearningObserver | undefined = learningEnabled
     ? new LearningObserver({
@@ -99,8 +115,73 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
       })
     : undefined;
 
-  // T6 extension point: construct reviewManager here when that task lands.
-  // Until then, the field is left undefined.
+  // M7 T6 — per-session review manager. AbortController is always built so
+  // disposal can unconditionally abort(); the ReviewManager itself is only
+  // constructed when review.disabled !== true. When disabled, the field is
+  // left undefined and the orchestrator's ctx.reviewManager?.onToolIteration
+  // / scheduler's parentToolContext.reviewManager?.onChildCompletion calls
+  // become no-ops.
+  //
+  // parentToolContext: see plan note. ReviewManager passes parentToolContext
+  // through to scheduler.delegate(), which spreads it into the child
+  // ToolContext (src/runtime/scheduler.ts:195). The full per-turn ToolContext
+  // is only assembled inside buildSessionToolContext at turn time, so we
+  // build a minimal snapshot here covering the fields the spread surfaces
+  // need (cwd, sessionId, harnessHome, agents, subagentScheduler, taskManager,
+  // parentToolPool). The scheduler's tool filtering pulls augmenting tools
+  // (REVIEW_ONLY_TOOLS, LEARNING_ONLY_TOOLS) directly inside runReviewFork —
+  // it doesn't read them off parentToolContext.
+  const reviewEnabled = userSettings.review?.disabled !== true;
+  const reviewAbortController = new AbortController();
+  const reviewManager: ReviewManager | undefined = reviewEnabled
+    ? new ReviewManager({
+        scheduler: runtime.subagentScheduler,
+        sessionId,
+        signal: reviewAbortController.signal,
+        thresholds: {
+          ...(userSettings.review?.userTurnsForMemoryReview !== undefined
+            ? { userTurnsForMemoryReview: userSettings.review.userTurnsForMemoryReview }
+            : {}),
+          ...(userSettings.review?.toolIterationsForSkillReview !== undefined
+            ? { toolIterationsForSkillReview: userSettings.review.toolIterationsForSkillReview }
+            : {}),
+          ...(userSettings.review?.childReviewEveryN !== undefined
+            ? { childReviewEveryN: userSettings.review.childReviewEveryN }
+            : {}),
+          ...(userSettings.review?.minIntervalMs !== undefined
+            ? { minIntervalMs: userSettings.review.minIntervalMs }
+            : {}),
+          ...(userSettings.learning?.synthesizerEveryN !== undefined
+            ? { synthesizerEveryN: userSettings.learning.synthesizerEveryN }
+            : {}),
+          ...(userSettings.learning?.synthesizerEveryNToolIterations !== undefined
+            ? {
+                synthesizerEveryNToolIterations:
+                  userSettings.learning.synthesizerEveryNToolIterations,
+              }
+            : {}),
+        },
+        pathsResolver: () => ({
+          trajectoryPath: `${resolveSubagentArtifactsRoot(runtime.harnessHome, runtime.bundle)}/trajectories/samples.jsonl`,
+          tracePath: traceWriter.path,
+          instinctsDir: instinctsDir(runtime.harnessHome, getProjectId(runtime.cwd).id),
+        }),
+        parentToolPool: runtime.toolPool,
+        parentToolContext: {
+          cwd: runtime.cwd,
+          sessionId,
+          harnessHome: runtime.harnessHome,
+          agents: runtime.agents,
+          subagentScheduler: runtime.subagentScheduler,
+          taskManager: runtime.taskManager,
+          parentToolPool: runtime.toolPool,
+        } as ToolContext,
+        enabled: true,
+        traceRecorder: (event) => traceWriter.record(event),
+        projectIdentity: () => getProjectId(runtime.cwd),
+        harnessHome: runtime.harnessHome,
+      })
+    : undefined;
 
   return {
     sessionId,
@@ -110,7 +191,9 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
       iterationsUsed: 0,
       estimatedCostUsd: 0,
     },
+    reviewAbortController,
     ...(learningObserver !== undefined ? { learningObserver } : {}),
+    ...(reviewManager !== undefined ? { reviewManager } : {}),
   };
 }
 
@@ -121,14 +204,19 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
  *       `<artifactsRoot>/trajectories/{samples,failed}.jsonl`. Skipped when
  *       the session has no persisted messages — an empty record adds
  *       nothing but noise to the corpus.
- *    4. (T6) Emit the review manager's getDispatchSummary onto the bus.
+ *    4. (T6) Abort any in-flight review-fork sub-agents, then emit a
+ *       `session_summary` SSE event with the ReviewManager's dispatch
+ *       summary. The event is only emitted when `opts.bus` is supplied:
+ *       runtime.dispose()'s shutdown walk omits the bus (no SSE consumer
+ *       remains at process shutdown — the event would land on the void),
+ *       so the summary is logged to stderr instead.
  *
  *  Idempotent — safe to call multiple times. Errors during any step are
  *  logged and swallowed so disposal completes even if one subsystem
  *  misbehaves (Invariant #10 — best-effort disposal). */
 export async function disposeSessionContext(
   ctx: SessionContext,
-  opts: { runtime: Runtime; log?: (message: string) => void },
+  opts: { runtime: Runtime; bus?: ServerEventBus; log?: (message: string) => void },
 ): Promise<void> {
   const { runtime } = opts;
   const log = opts.log ?? ((message: string): void => void process.stderr.write(`${message}\n`));
@@ -189,5 +277,39 @@ export async function disposeSessionContext(
     log(`[sessionContext] trajectory write failed for ${ctx.sessionId}: ${reason}`);
   }
 
-  // (4) T6: emit session_summary event (lands when review manager is wired).
+  // (4) T6: abort any in-flight review forks and emit the dispatch summary.
+  //     The abort fires unconditionally (so a stuck review-fork can't
+  //     outlive the session) but the summary read + emit only runs when
+  //     a manager was built. When `opts.bus` is absent (the runtime
+  //     shutdown walk), the summary is logged to stderr — there's no SSE
+  //     consumer to receive it at process teardown.
+  try {
+    ctx.reviewAbortController.abort();
+    if (ctx.reviewManager) {
+      const summary = ctx.reviewManager.getDispatchSummary();
+      if (opts.bus) {
+        // Bus-attached disposal: emit unconditionally so the TUI can render
+        // a goodbye card even when no reviews fired (an empty card still
+        // confirms the session ended).
+        opts.bus.publish({
+          type: 'session_summary',
+          seq: opts.bus.nextSeq(),
+          sessionId: ctx.sessionId,
+          totalDispatched: summary.totalDispatched,
+          byAgent: summary.byAgent,
+        });
+      } else if (summary.totalDispatched > 0) {
+        // Process-shutdown walk: no SSE consumer, so the summary is
+        // informational only. Skip the log when nothing fired — the line
+        // would otherwise spam stderr across every test that calls
+        // runtime.dispose() against the default review-enabled config.
+        log(
+          `[sessionContext] session_summary for ${ctx.sessionId}: dispatched=${summary.totalDispatched} byAgent=${JSON.stringify(summary.byAgent)}`,
+        );
+      }
+    }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log(`[sessionContext] review summary failed for ${ctx.sessionId}: ${reason}`);
+  }
 }
