@@ -5,24 +5,47 @@
 // reported '0.0.1' while package.json said '0.1.0').
 //
 // Backlog #37: also resolves the git short SHA at module load and appends
-// it as a pre-release suffix (e.g. `0.1.0-28b43e6`). Works for both
-// deployment modes — `bun link` (this working tree IS the git checkout)
-// and `bun install -g git+ssh://…` (Bun's cache at
-// ~/.bun/install/global/node_modules/@yevgetman/sov/ is also a git checkout
-// post-`sov upgrade`). Falls back to bare semver if git is absent, the
-// checkout isn't a git repo, the command fails, or stdout is empty — so
-// the existing `--version` contract never regresses.
+// it as a pre-release suffix (e.g. `0.1.0-a89b03c`). Two resolvers, tried
+// in order, covering both deployment modes:
+//
+//   1. `.bun-tag` (preferred for global installs). When Bun installs a
+//      package from a git source (`bun install -g git+ssh://…`), it writes
+//      the resolved full SHA to `<install-root>/.bun-tag` and does NOT
+//      ship a `.git/` directory. This is the canonical Bun-managed answer
+//      for post-`sov upgrade` global installs and matches what `bun pm
+//      ls -g` reports.
+//   2. `git rev-parse --short HEAD` (fallback for dev `bun link` or local
+//      working-tree runs). The repo root one level above `src/` IS a git
+//      checkout in this mode, so the rev-parse succeeds.
+//
+// Falls back to bare semver if neither resolver returns a SHA (the dev
+// tree isn't a git checkout AND `.bun-tag` is missing — e.g., a tarball
+// install). The existing `--version` contract never regresses on failure.
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const SHORT_SHA_LENGTH = 7;
 const PKG_DIR = dirname(fileURLToPath(import.meta.url));
-const PKG_PATH = join(PKG_DIR, '../package.json');
+const PKG_ROOT = join(PKG_DIR, '..');
+const PKG_PATH = join(PKG_ROOT, 'package.json');
+const BUN_TAG_PATH = join(PKG_ROOT, '.bun-tag');
 
 const baseVersion: string = (JSON.parse(readFileSync(PKG_PATH, 'utf8')) as { version: string })
   .version;
+
+function resolveBunTagSha(): string | null {
+  try {
+    if (!existsSync(BUN_TAG_PATH)) return null;
+    const raw = readFileSync(BUN_TAG_PATH, 'utf-8').trim();
+    if (!/^[a-f0-9]{40}$/.test(raw)) return null;
+    return raw.slice(0, SHORT_SHA_LENGTH);
+  } catch {
+    return null;
+  }
+}
 
 function resolveGitSha(): string | null {
   try {
@@ -39,6 +62,6 @@ function resolveGitSha(): string | null {
   }
 }
 
-const gitSha = resolveGitSha();
+const resolvedSha = resolveBunTagSha() ?? resolveGitSha();
 
-export const VERSION: string = gitSha === null ? baseVersion : `${baseVersion}-${gitSha}`;
+export const VERSION: string = resolvedSha === null ? baseVersion : `${baseVersion}-${resolvedSha}`;
