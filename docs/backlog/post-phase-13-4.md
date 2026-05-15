@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-15. Runtime close-out reached `4653737` (M6 + post-T7 SSE multi-turn fix shipped + backlog #34 + #35 closed); 1937/1937 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 34, 35 closed across ten batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 31, 32, 33, 36. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
+**Last sync:** 2026-05-15. Runtime close-out reached backlog item #36 close (M6 + post-T7 SSE multi-turn fix shipped + backlog #34 + #35 + #36 closed); 1938/1938 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 34, 35, 36 closed across eleven batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 31, 32, 33. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
 
 ## Priority order
 
@@ -39,7 +39,7 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 27. ~~Server-side `LaneSemaphores` cap config not wired from settings~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 31. M3.4 turns route does not validate `:id` shape **[M6 review 2026-05-14]**
 32. Resume-after-compaction regression test **[M6 review 2026-05-14]**
-36. `estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions **[M6 review 2026-05-15]**
+36. ~~`estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions~~ **[M6 review 2026-05-15] — closed 2026-05-15 (early-return guard in `compactSession`; `noOp: true` flag wired through all callers)**
 
 P4 (small ergonomics + nits):
 14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
@@ -498,7 +498,7 @@ The user requested a focused, critical code-side review before running the three
 ### 36. `estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions
 
 - Priority: P3
-- Status: open
+- Status: **complete (2026-05-15)** — Option (a) shipped: explicit early-return guard in `compactSession` returns a no-op result (`parentSessionId === newSessionId`, `noOp: true`) when `head.length === 0`. All three callers (proactive + recovery in turns route, /compact route, terminalRepl `compactNow`) key off `result.noOp` to skip the SSE event, the session-id pivot, and the misleading visual marker. The TUI's `compactCompleteMsg` handler renders "─ nothing to compact (history already fits)" instead of "─ compacted — new session <prefix>" on the no-op shape. Existing tests that constructed tiny histories were updated to seed 6 filler messages so they exercise the happy path. New unit + integration tests pin the no-op contract end-to-end (TS + Go). Full TS suite: 1938 pass / 0 fail / 4827 expects.
 - Source: M6 pre-smoke critical review (2026-05-15) — Agents 1+3, Q1
 - Recommendation: `compactSession` (`src/compact/compactor.ts:105-106, 154-157`) computes `estimatedBefore = systemPromptTokens + estimateMessagesTokens(history)` and `estimatedAfter = systemPromptTokens + summaryMessage + tail`. For a small history (say 2 messages) where `selectTailStart` returns 0 (full history fits in tail budget), `tail = entireHistory`, and `after = before + summaryMessageTokens` — strictly larger by ~70 tokens. Verified empirically by autonomous smoke: 2-message session reported `before=2247, after=2318`. The TUI's transcript marker renders `─ auto-compacted — 2247→2318 tokens — ...` which looks like compaction is broken even though the algorithm is correct (no head to summarize, so the operation is a no-op-plus-summary-message-overhead).
 - Recommended fix options:
@@ -519,7 +519,7 @@ The user requested a focused, critical code-side review before running the three
 
 Pick any item by priority + effort match for your session length:
 - 10-min slot: item 33 (drop redundant `bus.isClosed()` guards) or item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
-- 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), item 30 (only if router server-mode is on the near roadmap), or item 36 (cosmetic compaction-token-delta on tiny sessions)
+- 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), or item 30 (only if router server-mode is on the near roadmap)
 - 1-2 hr slot: item 28 (DaemonEventBus wiring)
 - Half-day slot: (none currently open)
 - Multi-day: item 17

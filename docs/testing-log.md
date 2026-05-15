@@ -8,6 +8,40 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Backlog #36 — empty-head compaction short-circuit
+
+**Scope:** Closed backlog item #36 (P3). `compactSession` in `src/compact/compactor.ts` always ran the summarizer + minted a child session, even when `selectTailStart` returned 0 (the entire history fit within the tail budget AND the min-tail floor `DEFAULT_MIN_TAIL_MESSAGES=4`). With `head` empty, the summarizer compressed nothing meaningful but the post-compaction estimate still added `summaryMessageTokens` overhead, producing `estimatedAfterTokens > estimatedBeforeTokens`. The TUI's auto-compaction marker rendered as `─ auto-compacted — 2247→2318 tokens — new session abcd1234` which looked like compaction was broken even though the algorithm was correct (no-op-plus-overhead). Verified empirically by autonomous smoke (`before=2247, after=2318` on a 2-message session).
+
+**Approach:** Option (b) — explicit `noOp: true` flag on `CompactResult`. Composes cleanly with all three callers (terminalRepl `compactNow`, server proactive/recovery branches, /compact route): each keys off `result.noOp` to skip the appropriate side-effect. Picked over (a) ("same id, no flag") because callers that probe `result.parentSessionId !== result.newSessionId` would silently ignore the no-op and still try to publish/pivot. Picked over (c) (typed exception) because the proactive/recovery branches need to gracefully continue the turn — throwing would couple them to extra try/catch boilerplate just to swallow the no-op.
+
+**TDD:** Wrote the failing regression test first in `tests/compact/compactor.test.ts` ("returns no-op result when head is empty (nothing to summarize)"). Confirmed RED before applying the fix:
+- Failure observed: `expect(summarizeCalls.length).toBe(0)` — `Expected: 0 / Received: 1` — the pre-fix code unconditionally invoked the summarizer.
+
+After the fix landed, the new test passes. The early-return guard sits between the `head`/`tail` slicing and the `runSummarizer` call: when `head.length === 0`, return `{parentSessionId === newSessionId, noOp: true, summary: '', tail: original, estimatedAfterTokens: estimatedBeforeTokens}` with no DB writes.
+
+**Caller updates:**
+- `src/server/routes/turns.ts` — proactive branch skips `publishCompactionComplete` + the session-id pivot when `result.noOp === true`. Recovery branch surfaces the original overflow as `turn_error` (no second compact-and-retry attempt) when the recovery's compact returns no-op — there's no headroom to reclaim, so retrying would loop on the same overflow.
+- `src/server/routes/compact.ts` — explicit /compact route returns 200 with `noOp: true` in the JSON body when applicable (otherwise omits the field, preserving wire backward compatibility).
+- `src/ui/terminalRepl.ts` — `compactNow()` returns the no-op result without rewriting `history` or pivoting `activeSessionId`. Proactive marker renders `[compact] nothing to compact (history fits within tail budget); skipping`. Recovery branch surfaces the original error message instead of looping.
+- `src/commands/registry.ts` — `/compact` command returns `nothing to compact: the conversation already fits within the tail budget` instead of the misleading "compacted session: X -> X" output.
+- `packages/tui/internal/app/app.go` + `packages/tui/internal/transport/http.go` — `CompactResponse.NoOp` mirrored from JSON; `compactCompleteMsg.noOp` carries it into the model; the `compactCompleteMsg` handler skips both the session-id pivot AND the misleading "─ compacted — new session <prefix>" marker, rendering "─ nothing to compact (history already fits)" instead.
+
+**Test updates** (existing tests that constructed tiny histories now hit the no-op path):
+- `tests/server/compactor.test.ts` — seeded 6 filler messages instead of 6 short ones; asserts `result.noOp !== true`.
+- `tests/server/compact.test.ts` — same pattern in both happy-path and 500-throw tests.
+- `tests/server/turns.proactiveCompact.test.ts` — 6 filler messages instead of 2 in both tests.
+- `tests/server/turns.overflowRecovery.test.ts` — 6 filler messages added to all three tests so the recovery's compact has non-empty head.
+- `tests/cli/tuiLauncherIntegration.test.ts` — proactive + overflow-then-retry scenarios now seed 6 filler messages.
+- `packages/tui/internal/app/app_test.go` — new `TestApp_compactSlashHandlesNoOp` pins the friendly marker + the absent session-id pivot for the no-op response shape.
+
+**Commands:**
+- Targeted RED-GREEN: `bun test tests/compact/compactor.test.ts` — RED with 1 fail before fix; after fix `10 pass / 0 fail / 41 expects`.
+- Affected server + CLI tests: `bun test tests/server/compactor.test.ts tests/server/compact.test.ts tests/server/turns.proactiveCompact.test.ts tests/server/turns.overflowRecovery.test.ts tests/cli/tuiLauncherIntegration.test.ts` — `27 pass / 0 fail`.
+- Go TUI: `cd packages/tui && go test ./...` — all packages pass; new `TestApp_compactSlashHandlesNoOp` green.
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1938 pass / 0 fail / 4827 expects / 44.12s** (1 new test added; baseline was 1937).
+
+**Net:** One commit ships the source + test changes. The TUI cosmetic ("auto-compacted — 2247→2318 tokens" on tiny sessions) is gone — small sessions render the friendlier "nothing to compact" marker instead. Large sessions (where `head` IS non-empty) behave identically — the early-return guard only triggers on the no-op path. Real compaction reductions (the `compactor.test.ts:29` happy-path test still passes: 100-message session goes 154,400 → 3,159 tokens) are unchanged.
+
 ## 2026-05-15 — Backlog #34 — Anthropic strict-alternation hazard fixed
 
 **Scope:** Closed backlog item #34 (P2). `compactSession` in `src/compact/compactor.ts` persisted the handoff summary as `{role: 'assistant', ...}`; when `alignTailStart` walked backward to keep an assistant `tool_use` / user `tool_result` pair intact, `tail[0]` could be assistant — yielding `[assistant_summary, assistant_tail0, user_tool_result, ...]` in the persisted child. Anthropic 400s on consecutive same-role messages (`messages: roles must alternate`); OpenAI tolerates it; the mock provider used in unit tests accepts anything, so the existing 1936-test suite never surfaced the hazard.
