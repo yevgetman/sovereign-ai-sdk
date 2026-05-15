@@ -29,6 +29,7 @@ import {
 import { readConfig } from '../config/store.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
+import { DaemonEventBus } from '../daemon/eventBus.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import type { HookRunner } from '../hooks/types.js';
@@ -151,6 +152,9 @@ export type RuntimeOptions = {
    *  omitted, buildRuntime loads from settings via loadMcpServerSettings
    *  and constructs a fresh pool when at least one server is configured. */
   mcpClientPool?: McpClientPool;
+  /** Pre-built DaemonEventBus injection seam (test override). When
+   *  omitted, buildRuntime constructs a fresh in-memory bus. */
+  daemonEventBus?: DaemonEventBus;
 };
 
 export type Runtime = {
@@ -243,6 +247,13 @@ export type Runtime = {
    *  `toolPool` at boot. runtime.dispose() shuts the pool down before
    *  sessionDb.close() (M7-08 order). */
   mcpClientPool: McpClientPool | undefined;
+  /** Cross-cutting event bus that TaskManager publishes lifecycle events
+   *  onto (`task_update` at queued + terminal transitions). M7 has no
+   *  in-process subscriber — this is plumbing for future cross-process
+   *  consumers (daemon-mode TUI, external observers) per M7-06. Tests
+   *  may inject their own bus via `RuntimeOptions.daemonEventBus`.
+   *  Closes backlog #28. */
+  daemonEventBus: DaemonEventBus;
   dispose: () => Promise<void>;
 };
 
@@ -531,10 +542,16 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // except for the agents-empty guard — the server build always carries a
   // manager, and individual task tools no-op safely when the agent
   // registry is empty.
+  // M7 T2 — DaemonEventBus plumbing (closes backlog #28). Constructed once
+  // per runtime; threaded into TaskManager so lifecycle events fire onto it
+  // for future subscribers. No in-process subscriber in M7 — purely plumbing
+  // per M7-06. Tests may inject their own bus via opts.daemonEventBus.
+  const daemonEventBus = opts.daemonEventBus ?? new DaemonEventBus();
   const taskStore = new TaskStore(sessionDb);
   const taskManager = new TaskManager({
     store: taskStore,
     scheduler: subagentScheduler,
+    bus: daemonEventBus,
   });
 
   // M5 — permission-request approval queue. One queue per Runtime; the
@@ -591,6 +608,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     writeLock,
     subagentScheduler,
     taskManager,
+    daemonEventBus,
     microcompactConfig,
     compact,
     proactiveCompactThreshold,

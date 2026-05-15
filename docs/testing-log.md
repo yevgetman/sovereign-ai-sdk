@@ -8,6 +8,36 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Phase 16.1 M7 T2 — DaemonEventBus wired into TaskManager (closes #28)
+
+**Scope:** Second task of M7 (Hermes-layer parity group). Closes backlog item #28 (DaemonEventBus → server-mode TaskManager wiring). The server runtime now constructs a `DaemonEventBus` once per `buildRuntime` call and threads it into the `TaskManager` constructor's existing optional `bus?` field. `task_update` events fire onto the shared bus at queued + terminal transitions exactly as they already do in `tests/tasks/manager.bus.test.ts`. No in-process subscriber lands in M7 — this is pure plumbing for future cross-process consumers (daemon-mode TUI, external observers) per M7-06.
+
+**Approach:**
+1. Added `DaemonEventBus` import (alphabetized correctly relative to neighboring `../hooks/*` imports — biome `organizeImports` enforced placement).
+2. Added `daemonEventBus?: DaemonEventBus` injection seam to `RuntimeOptions` (test override).
+3. Added `daemonEventBus: DaemonEventBus` field to `Runtime` with JSDoc explaining the M7-06 plumbing rationale and the backlog #28 closeout.
+4. In `buildRuntime`, immediately before the `TaskStore` + `TaskManager` construction, allocate the bus (`opts.daemonEventBus ?? new DaemonEventBus()`) and pass `bus: daemonEventBus` to the `TaskManager` constructor.
+5. Threaded `daemonEventBus` onto the Runtime return object next to `taskManager`.
+
+**TDD:** Wrote `tests/server/runtime.daemonBus.test.ts` first with 3 tests. RED on first run — all 3 failed for the right reason (`runtime.daemonEventBus === undefined`). GREEN after the 5-step implementation landed.
+
+- **Test 1 (Runtime exposes a DaemonEventBus instance):** Boots `buildRuntime` with `provider: 'mock'`, asserts `runtime.daemonEventBus` is defined AND `instanceof DaemonEventBus`.
+- **Test 2 (task_update flows through the bus during create):** Seeds a parent session via `runtime.sessionDb.createSession(...)`, subscribes to `task_update` via `bus.on(...)`, calls `runtime.taskManager.create({ agentName: 'explore', ... })`. The queued event fires synchronously inside `create()` (manager.ts:81, before the fire-and-forget `runDelegation`), so the captured array has at least one `task_update` with `state: 'queued'` and `taskId` matching the freshly-created record. Drains background work for 50ms before `dispose()` to avoid racing on `sessionDb.close()`.
+- **Test 3 (opts.daemonEventBus injection seam):** Constructs a `DaemonEventBus` in-test, passes it via `opts.daemonEventBus`, asserts `runtime.daemonEventBus === injected` (referential identity, not just structural — same-instance is the contract the test pins).
+
+**Plan deviation:** The plan's test sketch (lines 386–462 of `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`) used `agentName: 'echo'` which does not exist in `bundle-default/agents/`. Switched to `agentName: 'explore'` (a real agent already used in `tests/tasks/manager.bus.test.ts`). Critical observation: `TaskManager.create` fires the `task_update` for `queued` synchronously (manager.ts line 81) BEFORE `void runDelegation(...)` is kicked off, so the assertion does NOT depend on the delegation succeeding — it only depends on the queued emit. The background runDelegation will likely fail against the mock provider, but that failure is harmless: `safeEmit` swallows listener exceptions, the controller cache cleans up, and the 50ms drain lets it land before `dispose()` closes the DB. Also added a third test (caller-supplied bus → Runtime field) that the plan didn't sketch but matches the precedent set by T1's `mcpClientPool` injection seam — both seams now have parallel test coverage.
+
+**Diff:**
+- `src/server/runtime.ts` — net +20 lines (1 new import, `daemonEventBus?` on `RuntimeOptions`, `daemonEventBus` JSDoc'd field on `Runtime`, M7-T2 construction block before `TaskStore`, `bus: daemonEventBus` passed to `TaskManager`, `daemonEventBus` in return literal).
+- `tests/server/runtime.daemonBus.test.ts` — +128 lines (new file, 3 tests).
+
+**Commands:**
+- Targeted: `bun test tests/server/runtime.daemonBus.test.ts` — `3 pass / 0 fail / 5 expects`.
+- Server suite check: `bun test tests/server/` — `94 pass / 0 fail` (91 → 94, +3 new).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full TS suite **1948 pass / 0 fail / 4857 expects / 44.19s** (1945 → 1948, +3 new).
+
+**Net:** One commit (`feat(server): M7 T2 — DaemonEventBus wired into TaskManager`). Backlog item #28 is functionally closed (the wiring is in place); the documentation update to mark it CLOSED in `docs/backlog/post-phase-13-4.md` lands as part of M7 T7 per the plan's task-grouping discipline. T3 (`SessionContext` registry + trace writer) builds on this — the bus stays a singleton per-runtime; per-session subsystems orbit around it.
+
 ## 2026-05-15 — Phase 16.1 M7 T1 — MCP client pool wired into buildRuntime
 
 **Scope:** First task of M7 (Hermes-layer parity group). Closes prereq row 2 from `docs/backlog/phase-16-rebuild-prereqs.md`. The server runtime now mirrors `terminalRepl.ts:336,651-659,728,1946` for MCP wiring: layered settings load, conditional pool construction, `wrapMcpTool` merge into the tool pool, and an M7-08-ordered shutdown inside `dispose()`.
