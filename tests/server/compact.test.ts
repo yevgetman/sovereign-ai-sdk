@@ -27,41 +27,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compressionSystemPrompt } from '../../src/compact/compactor.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import type { ProviderRequest, Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
-
-/**
- * Wraps an existing transport so the summarize-shaped call (detected by the
- * exact `compressionSystemPrompt()` text in `req.system`) throws while every
- * other call passes through. Lets the 500 test exercise the route's catch
- * branch without disturbing any other provider invocation in this file or
- * test run. Mirrors the same-named helper in
- * `tests/server/turns.proactiveCompact.test.ts:51-69` — inlined here rather
- * than extracted because two call sites doesn't justify the cross-file
- * coupling yet (extract on the third caller per YAGNI).
- */
-function wrapTransportWithFailingSummarize<T extends Transport>(inner: T): T {
-  const compressionPrompt = compressionSystemPrompt();
-  const wrapped: Transport = {
-    name: inner.name,
-    apiMode: inner.apiMode,
-    toProviderMessages: inner.toProviderMessages.bind(inner),
-    toProviderTools: inner.toProviderTools.bind(inner),
-    buildKwargs: inner.buildKwargs.bind(inner),
-    normalizeResponse: inner.normalizeResponse.bind(inner),
-    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
-      if (isSummarizeCall) {
-        throw new Error('mock summarizer failure');
-      }
-      return yield* inner.stream(req);
-    },
-  };
-  return wrapped as T;
-}
+import { wrapTransportWithFailingSummarize } from '../helpers/transportWrappers.js';
 
 describe('POST /sessions/:id/compact (M6 T5)', () => {
   let home: string;

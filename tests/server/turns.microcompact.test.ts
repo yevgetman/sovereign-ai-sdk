@@ -23,88 +23,18 @@
 // The default MockProvider's tool-use mode treats ANY prior tool_result as
 // "this is a continuation" and short-circuits to "done." — useless here
 // because seeded prior tool_results would prevent the new Bash call. We
-// inject a small test-local Transport via mutating
-// `runtime.resolvedProvider.transport` so the new turn always issues a
-// Bash on iteration 0 regardless of seeded history.
+// inject the shared `MicrocompactTransport` helper (tests/helpers/transport
+// Wrappers.ts) via mutating `runtime.resolvedProvider.transport` so the new
+// turn always issues a Bash on iteration 0 regardless of seeded history.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SaveMessageInput, SessionDb } from '../../src/agent/sessionDb.js';
-import type { AssistantMessage, ContentBlock, Message, StreamEvent } from '../../src/core/types.js';
-import type { ApiMode, ProviderRequest, ToolSchema, Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
-
-/**
- * Test-local Transport. Iteration 0 returns a Bash tool_use; iteration 1
- * returns plain text. Detection of "iteration 1" is "the most recent message
- * carries a tool_result block" — narrower than MockProvider's "any message"
- * check so seeded historical tool_results don't trip the continuation
- * branch. Captures every messages array via the static `lastMessages` field
- * keyed by call index so the test can assert what query() handed the
- * provider on call N.
- */
-class MicrocompactTestProvider implements Transport<Message, ToolSchema, unknown, never> {
-  readonly name = 'mock';
-  readonly apiMode: ApiMode = 'anthropic';
-  readonly toolUseId = 'mc-test-tool-use-0';
-
-  static callMessages: Message[][] = [];
-
-  static reset(): void {
-    MicrocompactTestProvider.callMessages = [];
-  }
-
-  toProviderMessages(messages: Message[]): Message[] {
-    return messages;
-  }
-
-  toProviderTools(tools?: ToolSchema[]): ToolSchema[] | undefined {
-    return tools;
-  }
-
-  buildKwargs(): unknown {
-    return {};
-  }
-
-  // biome-ignore lint/correctness/useYield: body is an unconditional throw; the AsyncGenerator return-type signature is required by the Transport interface.
-  async *normalizeResponse(): AsyncGenerator<StreamEvent, AssistantMessage> {
-    throw new Error('normalizeResponse() unused; this transport implements stream() directly.');
-  }
-
-  async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-    MicrocompactTestProvider.callMessages.push(req.messages);
-
-    const lastMsg = req.messages[req.messages.length - 1];
-    const isContinuation =
-      lastMsg !== undefined &&
-      lastMsg.role === 'user' &&
-      lastMsg.content.some((b) => b.type === 'tool_result');
-
-    if (isContinuation) {
-      yield { type: 'message_start' };
-      yield { type: 'text_delta', text: 'done.' };
-      yield { type: 'message_stop', stop_reason: 'end_turn' };
-      const content: ContentBlock[] = [{ type: 'text', text: 'done.' }];
-      const assistant: AssistantMessage = { role: 'assistant', content };
-      yield { type: 'assistant_message', message: assistant };
-      return assistant;
-    }
-
-    const toolInput = { command: 'echo mc-test' };
-    yield { type: 'message_start' };
-    yield { type: 'tool_use_delta', id: this.toolUseId, partial: toolInput };
-    yield { type: 'message_stop', stop_reason: 'tool_use' };
-    const content: ContentBlock[] = [
-      { type: 'tool_use', id: this.toolUseId, name: 'Bash', input: toolInput },
-    ];
-    const assistant: AssistantMessage = { role: 'assistant', content };
-    yield { type: 'assistant_message', message: assistant };
-    return assistant;
-  }
-}
+import { MicrocompactTransport } from '../helpers/transportWrappers.js';
 
 /** Seed a Bash tool_use + tool_result pair into the session's persisted
  *  history. Each pair contributes one assistant message (tool_use) and one
@@ -184,7 +114,6 @@ describe('microcompaction wiring through the turns route', () => {
   });
 
   test('turns route forwards microcompactConfig: prior tool_results clear inside the turn loop', async () => {
-    MicrocompactTestProvider.reset();
     const runtime = await buildRuntime({
       cwd: process.cwd(),
       provider: 'mock',
@@ -199,9 +128,14 @@ describe('microcompaction wiring through the turns route', () => {
       },
     });
     try {
-      // Replace the resolved transport with the test-local provider so
-      // iteration 0 returns Bash regardless of seeded prior tool_results.
-      runtime.resolvedProvider.transport = new MicrocompactTestProvider();
+      // Replace the resolved transport with the shared microcompact helper so
+      // iteration 0 returns Bash regardless of seeded prior tool_results. The
+      // helper captures every messages[] per-instance via `callMessages`.
+      const transport = new MicrocompactTransport({
+        toolUseId: 'mc-test-tool-use-0',
+        bashCommand: 'echo mc-test',
+      });
+      runtime.resolvedProvider.transport = transport;
 
       const app = buildAppWithRuntime(runtime);
 
@@ -233,8 +167,8 @@ describe('microcompaction wiring through the turns route', () => {
       // ran. Microcompaction fires AFTER iteration 0's tool dispatch and
       // mutates the in-flight history before iteration 1's call — so the
       // signal lives in callMessages[1].
-      expect(MicrocompactTestProvider.callMessages.length).toBeGreaterThanOrEqual(2);
-      const continuationMessages = MicrocompactTestProvider.callMessages[1] ?? [];
+      expect(transport.callMessages.length).toBeGreaterThanOrEqual(2);
+      const continuationMessages = transport.callMessages[1] ?? [];
       const cleared = continuationMessages.flatMap((m) =>
         m.content.filter(
           (b) => b.type === 'tool_result' && b.content.startsWith('[Tool result cleared'),
@@ -246,7 +180,6 @@ describe('microcompaction wiring through the turns route', () => {
       // and the in-flight one is post-boundary.)
       expect(cleared.length).toBe(3);
     } finally {
-      MicrocompactTestProvider.reset();
       await runtime.dispose();
     }
   });

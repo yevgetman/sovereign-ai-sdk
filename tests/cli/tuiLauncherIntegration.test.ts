@@ -27,12 +27,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compressionSystemPrompt } from '../../src/compact/compactor.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import { MockProvider } from '../../src/providers/mock.js';
-import type { ProviderRequest, Transport } from '../../src/providers/types.js';
+import type { Transport } from '../../src/providers/types.js';
 import type { Runtime, RuntimeOptions } from '../../src/server/runtime.js';
 import { type ServerEvent, parseServerEvent } from '../../src/server/schema.js';
+import { MicrocompactTransport, wrapTransportWithOverflow } from '../helpers/transportWrappers.js';
 
 // Empirically: server bind on loopback takes <10ms on a typical macOS
 // dev machine, and the test's fetch round-trip is <50ms. 100ms gives
@@ -630,114 +629,12 @@ function buildWrappedRuntimeModule(
   };
 }
 
-/** Wrap an existing transport so non-summarize stream calls THROW an overflow
- *  the FIRST time. Mirrors `wrapTransportWithOverflowOnce` in
- *  `tests/server/turns.overflowRecovery.test.ts:89-91` — copied (not extracted)
- *  because two callers doesn't yet justify a shared `tests/helpers/` module
- *  per YAGNI; the inner `wrapTransportWithOverflow` factory is the canonical
- *  shape if a third caller appears. */
+/** Wrap an existing transport so the FIRST non-summarize call throws overflow;
+ *  the rest pass through. Thin convenience around the shared
+ *  `wrapTransportWithOverflow` factory in `tests/helpers/transportWrappers.ts`
+ *  — discards the call counter so callers that don't need it stay terse. */
 function wrapTransportWithOverflowOnce<T extends Transport>(inner: T): T {
-  const compressionPrompt = compressionSystemPrompt();
-  let mainCalls = 0;
-  const wrapped: Transport = {
-    name: inner.name,
-    apiMode: inner.apiMode,
-    toProviderMessages: inner.toProviderMessages.bind(inner),
-    toProviderTools: inner.toProviderTools.bind(inner),
-    buildKwargs: inner.buildKwargs.bind(inner),
-    normalizeResponse: inner.normalizeResponse.bind(inner),
-    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
-      if (isSummarizeCall) {
-        return yield* inner.stream(req);
-      }
-      mainCalls += 1;
-      if (mainCalls === 1) {
-        // Same overflow-shaped error as the unit test in
-        // tests/server/turns.overflowRecovery.test.ts:77 — string-coerced to
-        // match `isContextOverflowError`'s substring check.
-        throw new Error('context length exceeded by 12000 tokens');
-      }
-      return yield* inner.stream(req);
-    },
-  };
-  return wrapped as T;
-}
-
-/** Test transport for the microcompact scenario. The default `MockProvider`
- *  in `toolUseMode` short-circuits to "done." when the message history
- *  contains ANY prior tool_result — but the microcompact unit test needs to
- *  SEED prior tool_results (so there's something to clear) AND have the
- *  current turn issue another Bash call (so the loop reaches the microcompact
- *  check after runTools). This narrower transport detects "iteration 1" via
- *  the LAST message containing a tool_result (rather than ANY message) so
- *  seeded historical tool_results don't trip the continuation branch.
- *  Captures every messages array via the static `lastMessages` field by call
- *  index so the test can assert what query() handed the provider on call N.
- *  Mirrors `MicrocompactTestProvider` in
- *  `tests/server/turns.microcompact.test.ts:49-107` — copied here (not
- *  extracted) per YAGNI; if a third caller surfaces the inner shape lifts to
- *  `tests/helpers/microcompactTransport.ts`. */
-class MicrocompactSmokeTransport implements Transport {
-  readonly name = 'mock';
-  readonly apiMode = 'anthropic' as const;
-  readonly toolUseId = 'mc-smoke-tool-use-0';
-
-  static callMessages: Array<ReadonlyArray<unknown>> = [];
-
-  static reset(): void {
-    MicrocompactSmokeTransport.callMessages = [];
-  }
-
-  toProviderMessages<M>(messages: M[]): M[] {
-    return messages;
-  }
-
-  toProviderTools<S>(tools?: S[]): S[] | undefined {
-    return tools;
-  }
-
-  buildKwargs(): unknown {
-    return {};
-  }
-
-  // biome-ignore lint/correctness/useYield: body is an unconditional throw; the AsyncGenerator return-type signature is required by the Transport interface.
-  async *normalizeResponse(): AsyncGenerator<StreamEvent, AssistantMessage> {
-    throw new Error('normalizeResponse() unused; this transport implements stream() directly.');
-  }
-
-  async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-    MicrocompactSmokeTransport.callMessages.push(req.messages);
-
-    const lastMsg = req.messages[req.messages.length - 1];
-    const isContinuation =
-      lastMsg !== undefined &&
-      lastMsg.role === 'user' &&
-      lastMsg.content.some((b) => b.type === 'tool_result');
-
-    if (isContinuation) {
-      yield { type: 'message_start' };
-      yield { type: 'text_delta', text: 'done.' };
-      yield { type: 'message_stop', stop_reason: 'end_turn' };
-      const assistant: AssistantMessage = {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'done.' }],
-      };
-      yield { type: 'assistant_message', message: assistant };
-      return assistant;
-    }
-
-    const toolInput = { command: 'echo mc-smoke' };
-    yield { type: 'message_start' };
-    yield { type: 'tool_use_delta', id: this.toolUseId, partial: toolInput };
-    yield { type: 'message_stop', stop_reason: 'tool_use' };
-    const assistant: AssistantMessage = {
-      role: 'assistant',
-      content: [{ type: 'tool_use', id: this.toolUseId, name: 'Bash', input: toolInput }],
-    };
-    yield { type: 'assistant_message', message: assistant };
-    return assistant;
-  }
+  return wrapTransportWithOverflow(inner, (n) => n === 1).transport;
 }
 
 describe('tuiLauncher integration smoke — M6 long-session survival', () => {
@@ -906,9 +803,15 @@ describe('tuiLauncher integration smoke — M6 long-session survival', () => {
         compactableTools: new Set(['Bash']),
       },
     });
-    MicrocompactSmokeTransport.reset();
+    // Construct the helper instance up front so the test body can read
+    // `transport.callMessages` after the turn completes — the post hook
+    // mounts the same instance onto the captured runtime.
+    const transport = new MicrocompactTransport({
+      toolUseId: 'mc-smoke-tool-use-0',
+      bashCommand: 'echo mc-smoke',
+    });
     m6RuntimeHooks.post = (runtime) => {
-      runtime.resolvedProvider.transport = new MicrocompactSmokeTransport();
+      runtime.resolvedProvider.transport = transport;
     };
 
     const { getSpawnedArgs, getServerPort } = installSpawnMock(MOCK_CHILD_M5_TURN_DELAY_MS);
@@ -963,16 +866,11 @@ describe('tuiLauncher integration smoke — M6 long-session survival', () => {
     // Microcompaction fires AFTER iteration 0's tool dispatch and mutates
     // the in-flight history before iteration 1's call — so the signal lives
     // in callMessages[1].
-    expect(MicrocompactSmokeTransport.callMessages.length).toBeGreaterThanOrEqual(2);
-    const continuationMessages = (MicrocompactSmokeTransport.callMessages[1] ?? []) as Array<{
-      content: Array<{ type: string; content?: string }>;
-    }>;
+    expect(transport.callMessages.length).toBeGreaterThanOrEqual(2);
+    const continuationMessages = transport.callMessages[1] ?? [];
     const cleared = continuationMessages.flatMap((m) =>
       m.content.filter(
-        (b) =>
-          b.type === 'tool_result' &&
-          typeof b.content === 'string' &&
-          b.content.startsWith('[Tool result cleared'),
+        (b) => b.type === 'tool_result' && b.content.startsWith('[Tool result cleared'),
       ),
     );
     // With 4 seeded pre-boundary results + keepRecent=1, microcompact clears

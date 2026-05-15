@@ -32,41 +32,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compressionSystemPrompt } from '../../src/compact/compactor.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import type { ProviderRequest, Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
-
-/**
- * Wraps an existing transport so the summarize-shaped call (detected by the
- * exact `compressionSystemPrompt()` text in `req.system`) throws while every
- * other call passes through to the underlying transport. Lets the test
- * exercise the compaction failure path without disturbing the post-compact
- * model turn or any other test in the suite. Compaction failure short-circuits
- * the rest of the turn anyway, so the throw-only summarize is safe — but we
- * preserve the pass-through to keep the wrapper drop-in compatible with any
- * future test that drives a turn after the compact failure.
- */
-function wrapTransportWithFailingSummarize<T extends Transport>(inner: T): T {
-  const compressionPrompt = compressionSystemPrompt();
-  const wrapped: Transport = {
-    name: inner.name,
-    apiMode: inner.apiMode,
-    toProviderMessages: inner.toProviderMessages.bind(inner),
-    toProviderTools: inner.toProviderTools.bind(inner),
-    buildKwargs: inner.buildKwargs.bind(inner),
-    normalizeResponse: inner.normalizeResponse.bind(inner),
-    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
-      if (isSummarizeCall) {
-        throw new Error('mock summarizer failure');
-      }
-      return yield* inner.stream(req);
-    },
-  };
-  return wrapped as T;
-}
+import { wrapTransportWithFailingSummarize } from '../helpers/transportWrappers.js';
 
 describe('turns route — proactive compaction', () => {
   let home: string;

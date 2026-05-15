@@ -23,67 +23,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compressionSystemPrompt } from '../../src/compact/compactor.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import type { ProviderRequest, Transport } from '../../src/providers/types.js';
+import type { Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
-
-/**
- * Factory: wrap a transport so non-summarize stream calls THROW an overflow
- * when `shouldThrow(mainCalls)` returns true, and otherwise pass through to
- * `inner`. Summarize-shaped calls (detected by the exact `compressionSystem
- * Prompt()` text in `req.system`) always pass through so `runtime.compact()`
- * can run normally — only the model's primary calls participate in the throw
- * decision. `mainCalls` is the 1-indexed count of NON-summarize calls so far
- * (incremented BEFORE `shouldThrow` is invoked, so the first main call is
- * `n === 1`).
- *
- * The overflow-detection test in `src/providers/errors.ts:81` is string-based
- * (no `ContextOverflowError` class exists in the codebase), so we throw a
- * plain Error whose message matches one of the substrings checked there
- * (`'context length'`, `'prompt is too long'`, etc.). This is the same shape
- * a real provider's HTTP-413 / OpenAI-style `context_length_exceeded` body
- * would surface as after string-coercion.
- */
-function wrapTransportWithOverflow<T extends Transport>(
-  inner: T,
-  shouldThrow: (mainCalls: number) => boolean,
-): {
-  transport: T;
-  callCounter: () => { mainCalls: number; summarizeCalls: number };
-} {
-  const compressionPrompt = compressionSystemPrompt();
-  let mainCalls = 0;
-  let summarizeCalls = 0;
-  const wrapped: Transport = {
-    name: inner.name,
-    apiMode: inner.apiMode,
-    toProviderMessages: inner.toProviderMessages.bind(inner),
-    toProviderTools: inner.toProviderTools.bind(inner),
-    buildKwargs: inner.buildKwargs.bind(inner),
-    normalizeResponse: inner.normalizeResponse.bind(inner),
-    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
-      if (isSummarizeCall) {
-        summarizeCalls += 1;
-        return yield* inner.stream(req);
-      }
-      mainCalls += 1;
-      if (shouldThrow(mainCalls)) {
-        // Surface an overflow. Thrown from inside the async generator, caught
-        // at `src/core/query.ts:156-164`, surfaced back to the route via
-        // `Terminal { reason: 'error', error }`.
-        throw new Error('context length exceeded by 12000 tokens');
-      }
-      return yield* inner.stream(req);
-    },
-  };
-  return {
-    transport: wrapped as T,
-    callCounter: () => ({ mainCalls, summarizeCalls }),
-  };
-}
+import { wrapTransportWithOverflow } from '../helpers/transportWrappers.js';
 
 /** First non-summarize call throws overflow; rest pass through. */
 function wrapTransportWithOverflowOnce<T extends Transport>(inner: T) {
