@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-15. Runtime close-out reached backlog item #33 close (M6 + post-T7 SSE multi-turn fix shipped + backlog #33 + #34 + #35 + #36 closed); 1938/1938 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 33, 34, 35, 36 closed across twelve batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 31, 32. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
+**Last sync:** 2026-05-15. Runtime close-out reached backlog item #31 close (M6 + post-T7 SSE multi-turn fix shipped + backlog #31 + #33 + #34 + #35 + #36 closed); 1939/1939 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 31, 33, 34, 35, 36 closed across thirteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 32. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
 
 ## Priority order
 
@@ -37,7 +37,7 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 25. ~~Server-side `SubagentScheduler` does not receive `availableProviders`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 26. ~~Server-side `SubagentScheduler` does not receive `artifactsRoot`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 27. ~~Server-side `LaneSemaphores` cap config not wired from settings~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
-31. M3.4 turns route does not validate `:id` shape **[M6 review 2026-05-14]**
+31. ~~M3.4 turns route does not validate `:id` shape~~ **[M6 review 2026-05-14] — closed `b9a4ad8` (added `isValidSessionId` guard at top of POST /sessions/:id/turns handler; mirrors sibling routes)**
 32. Resume-after-compaction regression test **[M6 review 2026-05-14]**
 36. ~~`estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions~~ **[M6 review 2026-05-15] — closed 2026-05-15 (early-return guard in `compactSession`; `noOp: true` flag wired through all callers)**
 
@@ -426,7 +426,7 @@ Three follow-ups surfaced from the M6 (long-session survival) final whole-branch
 ### 31. M3.4 turns route does not validate `:id` shape
 
 - Priority: P3
-- Status: open
+- Status: **complete (2026-05-15, commit `b9a4ad8`)** — Added `isValidSessionId(sessionId)` guard at the very top of the `POST /sessions/:id/turns` handler in `src/server/routes/turns.ts`, before any work. Returns `{ error: 'invalid session id' }` with status 400 on malformed input — same wire shape as `sessions.ts:39`, `events.ts:20`, `approvals.ts:23`, `compact.ts:41`. Import combined with existing `loadHistoryAsMessages` per Biome's type-first rule. New test in `tests/server/turns.test.ts` ("returns 400 for invalid session id") pins the contract — confirmed RED before fix (received 202, also triggered a `SQLITE_CONSTRAINT_FOREIGNKEY` cascade in the persistence test running afterwards — direct empirical evidence of the impact described below), GREEN after. Pre-commit gate: 1939 pass / 0 fail.
 - Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
 - Recommendation: `src/server/routes/turns.ts:79-80` reads `c.req.param('id')` and uses it directly as the `sessionId` for the bus + background-turn dispatch — no `isValidSessionId` check. Sibling routes (`sessions.ts`, `events.ts`, `approvals.ts`, `compact.ts`) all call `isValidSessionId(sessionId)` and 4xx on malformed ids. Add the same guard at the top of the POST `/sessions/:id/turns` handler.
 - Evidence: pre-existing asymmetry from M3.4 (the turns route was the first server route landed; the `isValidSessionId` helper was added later for sessions/events). M6 made it visible because the new compact route (sibling) DOES validate, so the inconsistency now stands out next to its peers.
@@ -519,7 +519,7 @@ The user requested a focused, critical code-side review before running the three
 
 Pick any item by priority + effort match for your session length:
 - 10-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
-- 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), or item 30 (only if router server-mode is on the near roadmap)
+- 30-min slot: item 32 (resume-after-compaction regression test) or item 30 (only if router server-mode is on the near roadmap)
 - 1-2 hr slot: item 28 (DaemonEventBus wiring)
 - Half-day slot: (none currently open)
 - Multi-day: item 17
