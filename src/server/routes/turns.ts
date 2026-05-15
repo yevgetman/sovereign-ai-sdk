@@ -34,6 +34,7 @@ import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
+import { loadHistoryAsMessages } from '../sessionId.js';
 
 /** State captured at `tool_use_start` emission, drained when the matching
  *  `tool_result` arrives so the tool_result wire event can echo the same
@@ -161,15 +162,10 @@ async function runTurnInBackground(
   // transcript visually on resume; this is the model-side companion.
   // Without it, the LLM sees only the new turn and responds as if every
   // resume is a fresh session, defeating the persistence work entirely.
-  // Local helper to keep the two reload sites in sync — the cast shape must
-  // stay identical so a future signature change updates exactly one place.
-  const hydrate = (): Message[] =>
-    runtime.sessionDb.loadMessages(sessionId).map(
-      (m): Message => ({
-        role: m.role as Message['role'],
-        content: m.content,
-      }),
-    );
+  // Local closure binds the helper to the current sessionId — the value
+  // changes when the proactive / recovery hops reassign it below, so each
+  // hydrate() call picks up the post-hop child id automatically.
+  const hydrate = (): Message[] => loadHistoryAsMessages(runtime.sessionDb, sessionId);
   let messages: Message[] = hydrate();
 
   try {

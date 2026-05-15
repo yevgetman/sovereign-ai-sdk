@@ -29,9 +29,8 @@
 // /compact HTTP call, and the JSON response carries the same payload.
 
 import { Hono } from 'hono';
-import type { Message } from '../../core/types.js';
 import type { Runtime } from '../runtime.js';
-import { isValidSessionId } from '../sessionId.js';
+import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
 
 export function compactRoute(runtime: Runtime): Hono {
   const r = new Hono();
@@ -49,16 +48,11 @@ export function compactRoute(runtime: Runtime): Hono {
       return c.json({ error: 'not found' }, 404);
     }
 
-    // Same hydrate shape the turns route uses (turns.ts:166-172) — the cast
-    // narrows the storage role string to the Message['role'] union without
-    // changing the underlying value. Drift here would diverge the model's
-    // pre-compaction view from the turn-time view.
-    const history: Message[] = runtime.sessionDb.loadMessages(sessionId).map(
-      (m): Message => ({
-        role: m.role as Message['role'],
-        content: m.content,
-      }),
-    );
+    // Shared helper with the turns route (sessionId.ts:loadHistoryAsMessages)
+    // so the model's pre-compaction view stays aligned with the turn-time
+    // view. Any future signature change (column additions, content-shape
+    // migrations) updates exactly one place.
+    const history = loadHistoryAsMessages(runtime.sessionDb, sessionId);
 
     try {
       // c.req.raw.signal aborts on client disconnect (matches the events
