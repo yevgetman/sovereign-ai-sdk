@@ -31,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SaveMessageInput, SessionDb } from '../../src/agent/sessionDb.js';
 import type { AssistantMessage, ContentBlock, Message, StreamEvent } from '../../src/core/types.js';
 import type { ApiMode, ProviderRequest, ToolSchema, Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
@@ -109,22 +110,13 @@ class MicrocompactTestProvider implements Transport<Message, ToolSchema, unknown
  *  history. Each pair contributes one assistant message (tool_use) and one
  *  user message (tool_result with a long content body so the tool_result
  *  tokens dominate the history and shouldMicrocompact returns true). */
-function seedBashPair(
-  sessionDb: ReturnType<typeof buildRuntime> extends Promise<infer R>
-    ? R extends { sessionDb: infer S }
-      ? S
-      : never
-    : never,
-  sessionId: string,
-  index: number,
-): void {
+function seedBashPair(sessionDb: SessionDb, sessionId: string, index: number): void {
   const id = `seed-tool-${index}`;
-  // Cast through unknown to satisfy SaveMessageInput's Message-shape content.
-  (sessionDb as { saveMessage: (sid: string, msg: unknown) => number }).saveMessage(sessionId, {
+  const toolUseMsg: SaveMessageInput = {
     role: 'assistant',
     content: [{ type: 'tool_use', id, name: 'Bash', input: { command: `echo seed-${index}` } }],
-  });
-  (sessionDb as { saveMessage: (sid: string, msg: unknown) => number }).saveMessage(sessionId, {
+  };
+  const toolResultMsg: SaveMessageInput = {
     role: 'user',
     content: [
       {
@@ -133,10 +125,12 @@ function seedBashPair(
         content: `seed-${index} `.repeat(200),
       },
     ],
-  });
+  };
+  sessionDb.saveMessage(sessionId, toolUseMsg);
+  sessionDb.saveMessage(sessionId, toolResultMsg);
 }
 
-describe('M6 T1 — microcompaction wiring', () => {
+describe('microcompaction wiring through the turns route', () => {
   let home: string;
 
   beforeEach(() => {
