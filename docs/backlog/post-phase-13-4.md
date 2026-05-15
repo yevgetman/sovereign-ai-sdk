@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-15. Runtime close-out reached backlog item #36 close (M6 + post-T7 SSE multi-turn fix shipped + backlog #34 + #35 + #36 closed); 1938/1938 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 34, 35, 36 closed across eleven batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 31, 32, 33. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
+**Last sync:** 2026-05-15. Runtime close-out reached backlog item #33 close (M6 + post-T7 SSE multi-turn fix shipped + backlog #33 + #34 + #35 + #36 closed); 1938/1938 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 33, 34, 35, 36 closed across twelve batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 31, 32. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
 
 ## Priority order
 
@@ -51,7 +51,7 @@ P4 (small ergonomics + nits):
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
 28. Server-side TaskManager not wired to `DaemonEventBus` (live task events skip daemon publishing) **[M5 T7 2026-05-14]**
 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal **[M5 T9 2026-05-14]**
-33. Asymmetric `bus.isClosed()` guards in turns route **[M6 review 2026-05-14]**
+33. ~~Asymmetric `bus.isClosed()` guards in turns route~~ **[M6 review 2026-05-14] — closed `79a5c39` (dropped all three redundant guards; eventBus.publish is idempotent on closed buses)**
 
 ---
 
@@ -452,7 +452,7 @@ Three follow-ups surfaced from the M6 (long-session survival) final whole-branch
 ### 33. Asymmetric `bus.isClosed()` guards in turns route
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-15, commit `79a5c39`)** — Dropped all three `if (!bus.isClosed())` wrappers in `src/server/routes/turns.ts` (M6 T4 first-overflow turn_error path, M6 T4 second-overflow turn_error path, normal turn_complete path). The catch's turn_error publish was already unguarded — all four publish sites in `runTurnInBackground` now share the same shape. `ServerEventBus.publish` at `eventBus.ts:50-57` is the single source of truth for closed-state behavior (idempotent short-circuit on `this.closed === true`). Pure de-indent diff: 21 insertions, 27 deletions. No behavior change. Pre-commit gate: 1938 pass / 0 fail.
 - Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
 - Recommendation: `src/server/routes/turns.ts` lines 397/410 guard `bus.publish(...)` with `if (!bus.isClosed())` (the second-overflow turn_error and the normal turn_complete paths). Line 419 (the catch's turn_error publish) does NOT guard. Functionally safe — `ServerEventBus.publish` at `eventBus.ts:51` already short-circuits when `closed === true`, so the guards are redundant — but visually asymmetric. Pick one direction: drop both guards (preferred — eventBus is the single source of truth for the closed-check) or add the missing guard at line 419 for symmetry.
 - Evidence: `src/server/eventBus.ts:50-57` shows `publish()` is idempotent on closed buses. The two existing guards are no-ops.
@@ -518,7 +518,7 @@ The user requested a focused, critical code-side review before running the three
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 10-min slot: item 33 (drop redundant `bus.isClosed()` guards) or item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
+- 10-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
 - 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), or item 30 (only if router server-mode is on the near roadmap)
 - 1-2 hr slot: item 28 (DaemonEventBus wiring)
 - Half-day slot: (none currently open)
