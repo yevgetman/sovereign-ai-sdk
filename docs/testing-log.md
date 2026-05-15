@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M6 T2 — server compactor primitive
+
+### 2026-05-14 · M6 T2 — buildServerCompactor + Runtime.compact
+
+**Scope:** TDD pass for M6 T2. Adds `src/server/compactor.ts` exporting `buildServerCompactor(runtime)` and a `compact: ServerCompactor` field on `Runtime`. The closure wraps `compactSession()` with runtime-provided `db`/`model`/`providerName`/`systemPrompt`, plus a same-provider `summarize` callback (M6-06: inline decision) that streams `runtime.resolvedProvider.transport.stream` with the compression system prompt and returns plain text. Lineage recording stays inside `compactSession` (`sessionDb.recordCompactionLineage` at `src/compact/compactor.ts:141`); the caller does not write a separate row. Consumers in subsequent tasks: T3 (proactive check in turns route), T4 (overflow recovery), T5 (POST /sessions/:id/compact route).
+
+**Commands:**
+- New test: `bun test tests/server/compactor.test.ts` — RED first (`runtime.compact is not a function`), then GREEN after wiring (1 pass / 6 expect() / ~196ms).
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (2 unrelated pre-existing warnings in `src/permissions/shellSemantics.ts`); typecheck clean; full suite **1912 pass / 0 fail / 4685 expect() / 28.6s** (+1 test, +6 expects vs T1's 1911/4679).
+
+**Test design:** Single behavioral assertion — build a runtime against the mock provider, create a parent session, call `runtime.compact(history, sessionId, signal)` with a 6-message synthetic history, verify the returned `CompactResult` has `parentSessionId === sessionId`, `newSessionId !== sessionId`, non-empty `summary`, and that `runtime.sessionDb.getCompactionsForParent(sessionId)` returns one row pointing at `result.newSessionId`. The mock provider's default text-only stream ("Hello world.") satisfies the summarize callback's text contract.
+
+**API-surface notes (vs plan sketch):** The plan's `summarize`-callback skeleton claimed the input had `{ messages, systemPrompt, maxTokens }`; actual `CompactSummarizerInput` is `{ previousSummary, transcript, estimatedTranscriptTokens }` (compactor.ts:35-39). The implementation builds a transcript-wrapping prompt (mirrors `buildSummarizerPrompt` at compactor.ts:312-317), wraps it in a single user message, and calls `transport.stream({ system, messages, maxTokens, temperature: 0, cacheEnabled: false, signal })` matching `summarizeWithAuxiliary` (compactor.ts:271-310). Returning `string` is allowed by the `CompactSummarizer` return type so the closure stays compact.
+
+**Net:** M6 T2 ships green. Compactor primitive ready for T3/T4/T5 consumers.
+
 ## 2026-05-14 — Phase 16.1 M6 T1 — microcompaction wiring
 
 ### 2026-05-14 · M6 T1 — wire microcompactConfig through buildRuntime + turns route
