@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-14. Runtime close-out reached `1e52af2` (M6: long-session survival shipped); 1924/1924 unit tests green. Items 1-11, 14-16, 18-23, 25-27 closed across eight batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Remaining open: 17, 28, 29, 30, 31, 32, 33. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review.
+**Last sync:** 2026-05-15. Runtime close-out reached `f1f5bda` (M6 + post-T7 SSE multi-turn fix shipped); 1925/1925 unit tests green. Items 1-11, 14-16, 18-23, 25-27 closed across eight batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Remaining open: 17, 28, 29, 30, 31, 32, 33, 34, 35, 36. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases).
 
 ## Priority order
 
@@ -27,6 +27,8 @@ P2 (architectural extensions):
 9. ~~`ReviewForkPromptContext` field rename~~ **— closed `94eea94` (renamed to primaryFile/secondaryFile)**
 10. ~~Synthesizer dispatch rhythm — currently user-turn only; activity-burst trigger missing~~ **— closed `a8d4ce3`**
 11. ~~Concurrency between multiple `sov` sessions writing to same observations.jsonl~~ **— closed `8e86e61` (verified safe)**
+34. Anthropic strict-alternation hazard with `assistant`-role compaction summary **[M6 review 2026-05-15]**
+35. `isContextOverflowError` substring matcher unverified against real provider error shapes **[M6 review 2026-05-15]**
 
 P3 (qwen-amendment deepenings — orthogonal to 13.x):
 12. Microcompaction (Phase 10 deepening)
@@ -37,6 +39,7 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 27. ~~Server-side `LaneSemaphores` cap config not wired from settings~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 31. M3.4 turns route does not validate `:id` shape **[M6 review 2026-05-14]**
 32. Resume-after-compaction regression test **[M6 review 2026-05-14]**
+36. `estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions **[M6 review 2026-05-15]**
 
 P4 (small ergonomics + nits):
 14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
@@ -460,12 +463,64 @@ Three follow-ups surfaced from the M6 (long-session survival) final whole-branch
 
 ---
 
+## Items discovered during M6 pre-smoke critical bug-hunt (2026-05-15)
+
+The user requested a focused, critical code-side review before running the three M6 manual smoke scenarios. Three parallel Opus reviewers covered server flow, Go TUI / wire fidelity, and cross-cutting edge cases. The most-load-bearing finding (multi-turn SSE was broken in the TUI by an M3-era design gap) was fixed in commit `3365fb3` + `f1f5bda` — those scenarios are now smoke-ready. Three items below are the remaining real risks that warrant follow-up but did not block the smoke.
+
+### 34. Anthropic strict-alternation hazard with `assistant`-role compaction summary
+
+- Priority: **P2**
+- Status: open
+- Source: M6 pre-smoke critical review (2026-05-15) — Agent 3 cross-cutting findings, Q3
+- Recommendation: `compactSession` (`src/compact/compactor.ts:113-116, 133-137`) persists the summary as `{role: 'assistant', content: [{type: 'text', text: HANDOFF_SUMMARY_NOTE + summary}]}`. The next turn's history is `[summary(assistant), ...tail, userMessage]`. Anthropic's API requires alternating user/assistant. If `tail[0]?.role === 'assistant'` (which `alignTailStart` at `compactor.ts:223` may produce when walking backward to keep tool_use/tool_result pairs intact), the request becomes `[assistant_summary, assistant_tail0, ...]` — two consecutive assistants → Anthropic 400 (`messages: roles must alternate`). OpenAI is lenient and accepts; Anthropic rejects. Mock provider in tests accepts anything → integration tests do not surface this.
+- Recommended fix: in `compactSession`, after building the new child's `[summary, ...tail]` sequence, check `tail[0]?.role`. If `'assistant'`, either (a) prepend a synthetic minimal `user` message (e.g., `{role: 'user', content: [{type: 'text', text: '(continuing from summary)'}]}`) between summary and tail, OR (b) flip the summary's role to `'user'` so the sequence becomes `[user_summary, assistant_tail0, ...]` (still alternating, model still consumes the summary). Option (b) is one-line but changes the conversational framing slightly; option (a) preserves framing.
+- Evidence: `src/providers/anthropic.ts:84-91` — the SDK throws on the next stream call. `BadRequestError` with `error.message` containing `roles must alternate` would surface as `Terminal{reason:'error', error}` — NOT caught by `isContextOverflowError` (so no recovery), surfaced to user as `turn_error` with the verbatim Anthropic message.
+- Impact: **Real-world bug** for any non-trivial session smoked against Anthropic. The user's basic smoke ("hello + /compact + how are you") happens to land in the safe regime (tail = `[user, assistant]` so summary-prepend yields `[assistant_summary, user, assistant]` which is valid). But longer conversations where the tail boundary lands on an assistant message will 400.
+- Likely code areas:
+  - `src/compact/compactor.ts` (around line 145, after the lineage-recording write)
+  - `src/agent/sessionRecovery.ts:20` (`createClearedChildSession` — verify symmetric handling if the tail-cap happens there)
+- Effort: ~1 hr — fix + a Bun unit test that constructs a parent history whose tail starts with `assistant`, runs `compactSession`, and asserts the new child's persisted history alternates correctly.
+
+### 35. `isContextOverflowError` substring matcher unverified against real provider error shapes
+
+- Priority: **P2**
+- Status: open
+- Source: M6 pre-smoke critical review (2026-05-15) — Agent 1 server-flow findings, Q8
+- Recommendation: `src/providers/errors.ts:81-92` matches context-overflow via substring scan on `err.message` (`'context length'`, `'context window'`, `'maximum context'`, `'context_length_exceeded'`, `'prompt is too long'`) plus a `ProviderHttpError && status === 413` shortcut. T4's tests use `tests/helpers/transportWrappers.ts:107` which throws `new Error('context length exceeded by 12000 tokens')` — synthetic shape, not the actual provider error format. The matcher is plausible against Anthropic's `BadRequestError` (which formats `error.message` to include the body, typically containing "prompt is too long: N tokens > 200000 maximum") and OpenAI's `ProviderHttpError` body (typically contains both "context length" and "context_length_exceeded"), but **has never been verified in production code in this repo**. If the matcher misses, T4's overflow-recovery never fires; the user sees `turn_error` instead of `─ auto-compacted` and reasonably concludes recovery is broken.
+- Recommended fix: write a one-shot probe test (gated behind `INTEGRATION_REAL_PROVIDER=1` env or similar — not part of the default suite) that fires a single deliberate overflow against real Anthropic + real OpenAI + real Ollama, captures the thrown error, asserts `isContextOverflowError(err)` returns true. Document the verified error shapes in a code comment on `isContextOverflowError`. If any provider's shape doesn't match, extend the substring list. Pair with M6 Scenario 3 manual smoke pre-flight.
+- Evidence: `src/providers/errors.ts:81-92` (the matcher); `tests/helpers/transportWrappers.ts:107` (the synthetic test fixture); `src/providers/anthropic.ts:84-91` (where the throw happens); `src/providers/openai.ts:136-143` (OpenAI's throw).
+- Impact: **Latent bug for Scenario 3 manual smoke.** Could waste real-API tokens on a smoke that misses recovery silently. Also affects auto-recovery for any user hitting overflow in production.
+- Likely code areas:
+  - `src/providers/errors.ts` (matcher)
+  - `tests/integration/` (new probe test file — likely needs new directory)
+- Effort: ~1.5 hrs — probe + each-provider verification + matcher extension if needed + JSDoc on `isContextOverflowError`.
+
+### 36. `estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions
+
+- Priority: P3
+- Status: open
+- Source: M6 pre-smoke critical review (2026-05-15) — Agents 1+3, Q1
+- Recommendation: `compactSession` (`src/compact/compactor.ts:105-106, 154-157`) computes `estimatedBefore = systemPromptTokens + estimateMessagesTokens(history)` and `estimatedAfter = systemPromptTokens + summaryMessage + tail`. For a small history (say 2 messages) where `selectTailStart` returns 0 (full history fits in tail budget), `tail = entireHistory`, and `after = before + summaryMessageTokens` — strictly larger by ~70 tokens. Verified empirically by autonomous smoke: 2-message session reported `before=2247, after=2318`. The TUI's transcript marker renders `─ auto-compacted — 2247→2318 tokens — ...` which looks like compaction is broken even though the algorithm is correct (no head to summarize, so the operation is a no-op-plus-summary-message-overhead).
+- Recommended fix options:
+  - (a) **Early-return guard in `compactSession`**: when `head.length === 0`, skip compaction entirely and return a result indicating "nothing to compact" — caller (proactive / recovery / `/compact` route) decides whether to surface this as a no-op or treat it as success-with-nothing-changed.
+  - (b) **Friendlier marker text**: TUI renders `─ compacted (already minimal — 0 messages summarized)` when `before <= after`. Server side stays unchanged.
+  - (c) **Both**: guard server-side AND improve TUI marker for the case where compaction was meaningful but the delta is tiny.
+- Evidence: `src/compact/compactor.ts:91-170` (the calculation); autonomous smoke output from 2026-05-15 (saved in `docs/testing-log.md` 2026-05-15 entry); `packages/tui/internal/app/app.go:407-432` (the marker rendering).
+- Impact: **Cosmetic but credibility-impacting** for the user's first M6 smoke against a fresh session. They'll see "after > before" and reasonably think compaction is broken. Doesn't affect the underlying mechanism (large sessions produce real reductions; verified by `compactor.test.ts` plus the math: 100-message session goes 154,400 → 3,159 tokens).
+- Likely code areas:
+  - `src/compact/compactor.ts` (early-return guard)
+  - `packages/tui/internal/app/app.go` (marker text)
+  - `src/server/compactor.ts` (passthrough — unchanged)
+- Effort: ~30-45 min — server-side guard is the most defensive (also helps with #34 since skipping compaction skips the alternation-hazard message append) plus a unit test asserting the early-return shape.
+
+---
+
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
 - 10-min slot: item 33 (drop redundant `bus.isClosed()` guards) or item 29 (lipgloss `Style.Copy()` deprecation — single-line edit)
-- 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), or item 30 (only if router server-mode is on the near roadmap)
-- 1-2 hr slot: item 28 (DaemonEventBus wiring)
+- 30-min slot: item 31 (turns route id validation), item 32 (resume-after-compaction regression test), item 30 (only if router server-mode is on the near roadmap), or item 36 (cosmetic compaction-token-delta on tiny sessions)
+- 1-2 hr slot: item 28 (DaemonEventBus wiring), **item 34 (Anthropic alternation hazard — meaningful real-world risk)**, or **item 35 (overflow matcher real-provider probe — gates Scenario 3 smoke confidence)**
 - Half-day slot: (none currently open)
 - Multi-day: item 17
 
