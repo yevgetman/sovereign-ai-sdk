@@ -75,6 +75,25 @@ describe('turns route — overflow recovery (M6 T4)', () => {
       expect(createRes.status).toBe(201);
       const { sessionId } = (await createRes.json()) as { sessionId: string };
 
+      // Seed enough prior history that the recovery's compactSession() call
+      // has a non-empty `head` to summarize. Backlog #36: when the entire
+      // history fits within the tail budget AND the min-tail floor
+      // (DEFAULT_MIN_TAIL_MESSAGES=4), compactSession short-circuits to a
+      // no-op and the recovery branch surfaces the original overflow
+      // directly via turn_error rather than retrying. Without seeded
+      // history the recovery branch would never fire compaction_complete.
+      const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+        });
+      }
+
       const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -141,6 +160,24 @@ describe('turns route — overflow recovery (M6 T4)', () => {
       const createRes = await app.request('/sessions', { method: 'POST' });
       expect(createRes.status).toBe(201);
       const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // Seed enough prior history that the recovery's compactSession() call
+      // has a non-empty `head` to summarize. Backlog #36: empty-head
+      // compactions short-circuit to a no-op and the recovery branch
+      // surfaces the original overflow directly via turn_error WITHOUT
+      // ever firing compaction_complete — which would invalidate this
+      // test's "compaction_complete fired exactly once" pin.
+      const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+        });
+      }
 
       const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',
@@ -226,18 +263,27 @@ describe('turns route — overflow recovery (M6 T4)', () => {
       expect(createRes.status).toBe(201);
       const { sessionId } = (await createRes.json()) as { sessionId: string };
 
-      // Seed enough prior history that system + messages > 4_000 tokens (~12
-      // KB of text per side). Same shape as the T3 test so the proactive
-      // probe definitely returns true on this turn.
+      // Seed enough prior history that system + messages > 4_000 tokens AND
+      // both compactSession() calls have a non-empty `head` (proactive
+      // before query(), recovery before retry). Backlog #36: empty-head
+      // compactions short-circuit to a no-op — proactive returns without
+      // publishing compaction_complete; recovery surfaces the original
+      // overflow as turn_error WITHOUT firing compaction_complete and
+      // WITHOUT retrying. Both behaviors would invalidate this test's
+      // "exactly 2 compaction_complete events on the wire" pin. The min
+      // -tail floor (DEFAULT_MIN_TAIL_MESSAGES=4) requires 5+ messages to
+      // leave any messages in head; we seed 6 + the route's user save = 7.
       const filler = 'lorem ipsum dolor sit amet '.repeat(500);
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'user',
-        content: [{ type: 'text', text: `prior turn: ${filler}` }],
-      });
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'assistant',
-        content: [{ type: 'text', text: `prior reply: ${filler}` }],
-      });
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+        });
+      }
 
       const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',

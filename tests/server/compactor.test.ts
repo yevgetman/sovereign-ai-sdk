@@ -33,19 +33,29 @@ describe('server compactor primitive', () => {
       platform: 'test',
     });
 
-    const history: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
-      { role: 'user', content: [{ type: 'text', text: 'thanks' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'sure' }] },
-      { role: 'user', content: [{ type: 'text', text: 'one more thing' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
-    ];
+    // Backlog #36: a small history that fits entirely within the default
+    // tail budget (4_000 tokens) AND under the min-tail floor
+    // (DEFAULT_MIN_TAIL_MESSAGES=4) yields an empty `head` — compactSession
+    // short-circuits to a no-op (parentSessionId === newSessionId, noOp:
+    // true), and the same-provider summarize callback never runs. Seed
+    // enough messages to clear the floor and large enough text per message
+    // to push some content into `head`, so the same-provider summarize
+    // path is genuinely exercised here (the original test's purpose).
+    const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+    const history: Message[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      history.push({ role: 'user', content: [{ type: 'text', text: `user ${i}: ${filler}` }] });
+      history.push({
+        role: 'assistant',
+        content: [{ type: 'text', text: `assistant ${i}: ${filler}` }],
+      });
+    }
 
     const result = await runtime.compact(history, sessionId, new AbortController().signal);
 
     expect(result.parentSessionId).toBe(sessionId);
     expect(result.newSessionId).not.toBe(sessionId);
+    expect(result.noOp).not.toBe(true);
     expect(typeof result.summary).toBe('string');
     expect(result.summary.length).toBeGreaterThan(0);
     // Proves the same-provider summarize closure ran (vs. compactSession

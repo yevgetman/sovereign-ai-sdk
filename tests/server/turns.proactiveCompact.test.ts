@@ -69,19 +69,25 @@ describe('turns route — proactive compaction', () => {
       expect(createRes.status).toBe(201);
       const { sessionId } = (await createRes.json()) as { sessionId: string };
 
-      // Seed enough prior history that system + messages > 4,000 tokens.
-      // ~12 KB of text (~3,000 tokens) per message, two messages → ~6,000
-      // total message tokens, plus the ~2,200 system → comfortably past
-      // the limit. Bypasses the route's own user-text persistence.
+      // Seed enough prior history that system + messages > 4,000 tokens
+      // AND that at least one message lands in `head` after selectTailStart
+      // walks back enough messages to satisfy DEFAULT_MIN_TAIL_MESSAGES=4
+      // (backlog #36: a history that fits entirely in the tail budget OR
+      // doesn't reach the min-tail floor produces an empty head and the
+      // compactor short-circuits to a no-op — which would suppress
+      // compaction_complete on the wire). 6 small + filler messages
+      // comfortably clear the floor with one message left for `head`.
       const filler = 'lorem ipsum dolor sit amet '.repeat(500);
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'user',
-        content: [{ type: 'text', text: `prior turn: ${filler}` }],
-      });
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'assistant',
-        content: [{ type: 'text', text: `prior reply: ${filler}` }],
-      });
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+        });
+      }
 
       const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',
@@ -170,17 +176,21 @@ describe('turns route — proactive compaction', () => {
       const { sessionId } = (await createRes.json()) as { sessionId: string };
 
       // Same seeding as the happy-path test — pushes system+messages over
-      // the threshold so shouldCompactProactively returns true and the
-      // route invokes runtime.compact().
+      // the threshold so shouldCompactProactively returns true AND clears
+      // the DEFAULT_MIN_TAIL_MESSAGES=4 floor so `head` is non-empty (else
+      // backlog #36's no-op short-circuit would skip the failing summarize
+      // call entirely and this test would lose its target).
       const filler = 'lorem ipsum dolor sit amet '.repeat(500);
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'user',
-        content: [{ type: 'text', text: `prior turn: ${filler}` }],
-      });
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'assistant',
-        content: [{ type: 'text', text: `prior reply: ${filler}` }],
-      });
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+        });
+      }
 
       const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',

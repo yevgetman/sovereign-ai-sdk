@@ -61,6 +61,14 @@ export function compactRoute(runtime: Runtime): Hono {
       // use) the signal is a never-aborted AbortSignal and the call runs
       // to completion.
       const result = await runtime.compact(history, sessionId, c.req.raw.signal);
+      // Backlog #36: when the entire history fit within the tail budget,
+      // compactSession returns a no-op (parentSessionId === newSessionId,
+      // noOp: true). Surface the flag in the JSON response so the TUI can
+      // suppress the session-id pivot AND the visual marker — the explicit
+      // /compact verb still returns 200 (the call succeeded — it just had
+      // nothing to do), and `activeSessionId` carries the unchanged parent
+      // id. Backwards-compatible: callers that don't read `noOp` see the
+      // same shape as the happy path with `activeSessionId === parentSessionId`.
       return c.json({
         activeSessionId: result.newSessionId,
         parentSessionId: result.parentSessionId,
@@ -68,6 +76,7 @@ export function compactRoute(runtime: Runtime): Hono {
         estimatedBeforeTokens: result.estimatedBeforeTokens,
         estimatedAfterTokens: result.estimatedAfterTokens,
         usedAuxiliary: result.usedAuxiliary,
+        ...(result.noOp === true ? { noOp: true } : {}),
       });
     } catch (err) {
       // Surface the failure as JSON so the TUI can render a useful message.

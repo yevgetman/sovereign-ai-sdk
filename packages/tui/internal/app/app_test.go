@@ -497,6 +497,136 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestApp_compactSlashHandlesNoOp guards backlog #36's TUI surface: when
+// the server returns a no-op compact response (entire history fit within
+// the tail budget — activeSessionId === parentSessionId, noOp: true),
+// the TUI must:
+//
+//  1. NOT render the misleading "─ compacted — new session <prefix>"
+//     marker (the prefix would be the SAME id the user already had).
+//  2. Render the "─ nothing to compact (history already fits)" marker
+//     instead so the user understands the call succeeded but no
+//     compaction took place.
+//  3. NOT pivot m.sessionID — subsequent turn POSTs must continue to
+//     hit the parent session id, not a phantom child.
+//
+// Pre-fix (M6 baseline) the TUI rendered the "new session" marker
+// unconditionally, which combined with the server's misleading
+// "estimatedAfterTokens > estimatedBeforeTokens" output produced the
+// "auto-compacted — 2247→2318 tokens — new session abcd1234" cosmetic
+// bug the backlog item was filed against.
+func TestApp_compactSlashHandlesNoOp(t *testing.T) {
+	const parentID = "parent-session"
+
+	var (
+		mu            sync.Mutex
+		compactPosts  []string
+		turnPostsPath []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Compact route — return the no-op shape: activeSessionId echoes
+		// the input parent id, noOp=true.
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/"+parentID+"/compact" {
+			mu.Lock()
+			compactPosts = append(compactPosts, r.URL.Path)
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"activeSessionId":       parentID,
+				"parentSessionId":       parentID,
+				"summary":               "",
+				"estimatedBeforeTokens": 2247,
+				"estimatedAfterTokens":  2247,
+				"usedAuxiliary":         false,
+				"noOp":                  true,
+			})
+			return
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/turns") {
+			mu.Lock()
+			turnPostsPath = append(turnPostsPath, r.URL.Path)
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(parentID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "›")
+	}, teatest.WithDuration(2*time.Second))
+
+	// Type "/compact" then ENTER — same client-side intercept as the
+	// happy-path test, but the server returns a no-op response.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/compact")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(compactPosts)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	gotCompactPosts := append([]string(nil), compactPosts...)
+	mu.Unlock()
+	if len(gotCompactPosts) != 1 {
+		t.Fatalf("expected 1 POST to /compact, got %d", len(gotCompactPosts))
+	}
+
+	// The friendlier no-op marker must surface AND the misleading
+	// "new session" marker must be ABSENT.
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "nothing to compact")
+	}, teatest.WithDuration(3*time.Second))
+
+	// Type a normal message — the POST MUST hit the PARENT session id,
+	// proving m.sessionID was not pivoted.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(turnPostsPath)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	gotTurnPaths := append([]string(nil), turnPostsPath...)
+	mu.Unlock()
+	if len(gotTurnPaths) != 1 {
+		t.Fatalf("expected 1 POST to /turns after no-op compact, got %d", len(gotTurnPaths))
+	}
+	wantPath := "/sessions/" + parentID + "/turns"
+	if gotTurnPaths[0] != wantPath {
+		t.Fatalf("post-noOp /turns path = %q, want %q (m.sessionID was pivoted on a no-op response)",
+			gotTurnPaths[0], wantPath)
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // TestApp_reconsumesSSEAfterTurnComplete pins the multi-turn contract:
 // after the server closes the SSE stream on turn_complete (events.ts:63-74
 // dispose the bus by design), the TUI must re-Consume a fresh subscription

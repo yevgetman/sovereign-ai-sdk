@@ -1339,12 +1339,27 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
       ) {
         writeStatusLine(chalk.yellow('[compact] context threshold exceeded; compacting'), 'err');
         const result = await compactNow();
-        process.stderr.write(
-          chalk.yellow(
-            `[compact] ${result.parentSessionId} -> ${result.newSessionId}; estimated tokens ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}\n`,
-          ),
-        );
-        contextMeter.reset();
+        // Backlog #36: a no-op result means the entire history fit within
+        // the tail budget — the threshold probe tripped (system prompt
+        // alone is large) but compaction itself had nothing to summarize.
+        // Render a different marker so the user understands compaction
+        // didn't actually run and the contextMeter isn't reset (a reset
+        // would mask the next overflow until the threshold is crossed
+        // again).
+        if (result.noOp === true) {
+          process.stderr.write(
+            chalk.yellow(
+              '[compact] nothing to compact (history fits within tail budget); skipping\n',
+            ),
+          );
+        } else {
+          process.stderr.write(
+            chalk.yellow(
+              `[compact] ${result.parentSessionId} -> ${result.newSessionId}; estimated tokens ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}\n`,
+            ),
+          );
+          contextMeter.reset();
+        }
       }
 
       process.stdout.write('\n');
@@ -1663,6 +1678,31 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
             chalk.yellow('\n[compact] context overflow; compacting and retrying once\n'),
           );
           const result = await compactNow();
+          // Backlog #36: a no-op result here means compaction couldn't
+          // free up any headroom (entire history already fit in the tail
+          // budget — the overflow was driven by the system prompt or a
+          // single oversized tool result the tail keeper preserved).
+          // Retrying with the same session would just hit the same
+          // overflow, so surface the original error instead of looping.
+          if (result.noOp === true) {
+            process.stderr.write(
+              chalk.yellow(
+                '[compact] nothing to compact (history fits within tail budget); cannot recover\n',
+              ),
+            );
+            writeStatusLine(chalk.red(`[error] ${msg}`), 'err');
+            transcript?.record({
+              type: 'provider_error',
+              stage: 'turn',
+              sessionId: activeSessionId,
+              providerName,
+              model: activeModel,
+              message: msg,
+              mutationPaths: [...completedMutationPaths],
+            });
+            if (!latestAssistant) history.pop();
+            return;
+          }
           process.stderr.write(
             chalk.yellow(
               `[compact] ${result.parentSessionId} -> ${result.newSessionId}; estimated tokens ${result.estimatedBeforeTokens} -> ${result.estimatedAfterTokens}\n`,
@@ -1727,6 +1767,17 @@ export async function runRepl(opts: ReplOpts): Promise<void> {
         history,
         warn: (message) => process.stderr.write(chalk.yellow(`[compact] ${message}\n`)),
       });
+      // Backlog #36: when the entire history fit within the tail budget,
+      // compactSession returns a no-op (parentSessionId === newSessionId,
+      // noOp: true). Skip the history rewrite — the in-memory `history`
+      // matches what's already on the parent session, and there's no
+      // summary message to prepend (would double-render). The microcompact
+      // post-pass below also doesn't apply (no new tool_results landed in
+      // the tail). Just return the result so the caller's marker logic can
+      // surface the no-op via `result.noOp`.
+      if (result.noOp === true) {
+        return result;
+      }
       activeSessionId = result.newSessionId;
       toolContext.sessionId = activeSessionId;
       history.length = 0;

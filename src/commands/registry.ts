@@ -86,6 +86,17 @@ export const COMMANDS: SlashCommand[] = [
     description: 'Compress this conversation into a new child session with rollback lineage.',
     call: async (_args, ctx) => {
       const result = await ctx.compact();
+      // Backlog #36: a no-op result means the entire history fit within the
+      // tail budget — there was nothing to summarize. Surface a friendlier
+      // message so the user knows the call succeeded (no error) but no
+      // child session was minted, no rollback target exists, and the
+      // session id stays on the parent.
+      if (result.noOp === true) {
+        return [
+          'nothing to compact: the conversation already fits within the tail budget',
+          `current session preserved: ${result.parentSessionId}`,
+        ].join('\n');
+      }
       const aux = result.usedAuxiliary
         ? `aux=${result.auxiliaryProvider ?? 'unknown'}/${result.auxiliaryModel ?? 'unknown'}`
         : 'aux=fallback';

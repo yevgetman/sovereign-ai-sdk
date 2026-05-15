@@ -81,6 +81,14 @@ func FetchMessages(ctx context.Context, baseURL, sessionID string) ([]StoredMess
 // fallback auxiliary client was consulted (M6-06 same-provider path is
 // the default; UsedAuxiliary=true only when the same-provider summarize
 // call failed and the auxiliary route succeeded).
+//
+// NoOp (backlog #36) is `true` when the entire history fit within the
+// tail budget — there was nothing meaningful to summarize. The route
+// still returns 200 (the call succeeded; it just had nothing to do)
+// and ActiveSessionID === ParentSessionID. The TUI must suppress the
+// session-id pivot AND the visual marker on this branch — otherwise
+// the user sees "compacted — new session abcd1234" pointing at the
+// SAME id they had before.
 type CompactResponse struct {
 	ActiveSessionID       string `json:"activeSessionId"`
 	ParentSessionID       string `json:"parentSessionId"`
@@ -88,6 +96,7 @@ type CompactResponse struct {
 	EstimatedBeforeTokens int    `json:"estimatedBeforeTokens"`
 	EstimatedAfterTokens  int    `json:"estimatedAfterTokens"`
 	UsedAuxiliary         bool   `json:"usedAuxiliary"`
+	NoOp                  bool   `json:"noOp,omitempty"`
 }
 
 // compactClient — separate from fetchClient because the same-provider

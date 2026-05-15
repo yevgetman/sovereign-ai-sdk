@@ -905,20 +905,24 @@ describe('tuiLauncher integration smoke — M6 long-session survival', () => {
       throw new Error('runtime never captured by buildRuntime wrapper');
     }
 
-    // Seed enough prior history that system + messages > 4_000 tokens.
-    // ~12 KB of text (~3,000 tokens) per message, two messages → ~6,000
-    // total message tokens, plus the ~2,200 system → comfortably past the
-    // limit. Bypasses the route's own user-text persistence to avoid
-    // double-saving the new turn's user message.
+    // Seed enough prior history that system + messages > 4_000 tokens AND
+    // that compactSession's `head` is non-empty after selectTailStart
+    // satisfies DEFAULT_MIN_TAIL_MESSAGES=4. Backlog #36: a history that
+    // fits within the tail budget OR doesn't reach the min-tail floor
+    // produces an empty head and the compactor short-circuits to a no-op
+    // — which suppresses compaction_complete on the wire and would
+    // invalidate this test's "exactly 1 compaction_complete event" pin.
     const filler = 'lorem ipsum dolor sit amet '.repeat(500);
-    runtime.sessionDb.saveMessage(sessionId, {
-      role: 'user',
-      content: [{ type: 'text', text: `prior turn: ${filler}` }],
-    });
-    runtime.sessionDb.saveMessage(sessionId, {
-      role: 'assistant',
-      content: [{ type: 'text', text: `prior reply: ${filler}` }],
-    });
+    for (let i = 0; i < 3; i += 1) {
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+      });
+    }
 
     const turnRes = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/turns`, {
       method: 'POST',
@@ -976,6 +980,24 @@ describe('tuiLauncher integration smoke — M6 long-session survival', () => {
     const runtime = m6RuntimeHooks.capturedRuntime;
     if (runtime === undefined) {
       throw new Error('runtime never captured by buildRuntime wrapper');
+    }
+
+    // Seed enough prior history so the recovery branch's compactSession
+    // call has a non-empty `head`. Backlog #36: empty-head compactions
+    // short-circuit to a no-op and the recovery branch surfaces the
+    // original overflow as turn_error WITHOUT firing compaction_complete
+    // — which would invalidate this test's "compaction_complete fired
+    // exactly once" + "turn_complete fired" assertions.
+    const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+    for (let i = 0; i < 3; i += 1) {
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: `prior user turn ${i}: ${filler}` }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: `prior reply ${i}: ${filler}` }],
+      });
     }
 
     const turnRes = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/turns`, {

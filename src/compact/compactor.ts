@@ -79,6 +79,19 @@ export type CompactResult = {
   usedAuxiliary: boolean;
   auxiliaryProvider?: string;
   auxiliaryModel?: string;
+  /** Backlog #36: true when compactSession short-circuited because the
+   *  entire history fit within the tail budget — `head` was empty so there
+   *  was nothing meaningful to summarize. The pre-fix behavior still ran
+   *  the summarizer + minted a child session, producing
+   *  `estimatedAfterTokens > estimatedBeforeTokens` (after = before +
+   *  summary-message overhead) which the TUI surfaced as a misleading
+   *  "auto-compacted — 2247→2318 tokens" marker. The fix returns a no-op
+   *  result with `parentSessionId === newSessionId`, the original history
+   *  echoed as `tail`, and `noOp: true` so callers can suppress the SSE
+   *  marker (proactive/recovery), the session-id pivot (TUI), and the
+   *  compaction-summary visual artifact. The flag is OPTIONAL — happy-path
+   *  results omit it (callers that don't check it continue working). */
+  noOp?: boolean;
 };
 
 export type ProactiveCompactionInput = {
@@ -100,10 +113,36 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   const pruned = pruneToolResultsForCompaction(options.history);
   const head = pruned.slice(0, tailStart);
   const tail = options.history.slice(tailStart).map(cloneMessage);
-  const previousSummary = extractLatestHandoffSummary(options.history);
-  const transcript = capTranscript(renderMessages(head));
   const estimatedBeforeTokens =
     estimateSystemPromptTokens(options.systemPrompt) + estimateMessagesTokens(options.history);
+
+  // Backlog #36: short-circuit when the entire history fits within the tail
+  // budget. With `head` empty there's nothing to summarize — the pre-fix
+  // behavior still ran the summarizer, minted a child session, and reported
+  // `estimatedAfterTokens > estimatedBeforeTokens` (after = before + summary
+  // -message overhead). The TUI surfaced this as a misleading
+  // "auto-compacted — 2247→2318 tokens" marker even though the operation
+  // was a no-op-plus-summary-overhead. Return a no-op result with
+  // `parentSessionId === newSessionId` so callers (proactive/recovery in
+  // turns route, /compact route, terminalRepl compactNow) can key off
+  // `noOp: true` and skip the SSE compaction_complete event, the session-id
+  // pivot, and the visual marker.
+  if (head.length === 0) {
+    return {
+      parentSessionId: options.sessionId,
+      newSessionId: options.sessionId,
+      summary: '',
+      tail,
+      compactedMessages: 0,
+      estimatedBeforeTokens,
+      estimatedAfterTokens: estimatedBeforeTokens,
+      usedAuxiliary: false,
+      noOp: true,
+    };
+  }
+
+  const previousSummary = extractLatestHandoffSummary(options.history);
+  const transcript = capTranscript(renderMessages(head));
   const summaryResult = await runSummarizer(options, {
     previousSummary,
     transcript,

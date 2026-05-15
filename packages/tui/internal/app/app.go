@@ -49,9 +49,16 @@ type messagesFetchedMsg struct {
 // unrendered (the M6 marker is intentionally minimal); M9 will use it
 // for the styled "compaction summary" card. Keeping it on the message
 // avoids re-decoding the response body when M9 lands.
+//
+// noOp (backlog #36) is true when the server short-circuited because
+// the entire history fit within the tail budget. The TUI must suppress
+// both the session-id pivot AND the "new session" marker — otherwise
+// the user sees "─ compacted — new session <prefix>" where the prefix
+// is the SAME id they had before. Render a friendlier marker instead.
 type compactCompleteMsg struct {
 	activeSessionID string
 	summary         string
+	noOp            bool
 }
 
 // compactErrorMsg surfaces a /compact route failure (non-2xx or
@@ -288,8 +295,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// contract puts the child as `activeSessionId` rather than reseating
 		// the SSE subscription).
 		m.transcript.RemoveLastLine()
-		m.sessionID = msg.activeSessionID
 		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+		// Backlog #36: when the server returns noOp=true the entire history
+		// fit within the tail budget — there was nothing to summarize. Skip
+		// the session-id pivot (activeSessionID === parent id anyway) and
+		// render a friendlier marker so the user understands the call
+		// succeeded but no compaction took place.
+		if msg.noOp {
+			m.transcript.AppendLine(dim.Render("─ nothing to compact (history already fits)"))
+			return m, nil
+		}
+		m.sessionID = msg.activeSessionID
 		// Truncate the new id to 8 chars in the user marker — full uuid is
 		// noise; the prefix is enough to disambiguate. M9 owns the styled
 		// "compaction summary" card that will render the full id + summary.
@@ -516,6 +532,7 @@ func (m Model) compactCmd() tea.Cmd {
 		return compactCompleteMsg{
 			activeSessionID: resp.ActiveSessionID,
 			summary:         resp.Summary,
+			noOp:            resp.NoOp,
 		}
 	}
 }

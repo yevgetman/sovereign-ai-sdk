@@ -213,6 +213,76 @@ describe('compactSession', () => {
     db.close();
   });
 
+  test('returns no-op result when head is empty (nothing to summarize)', async () => {
+    // Backlog #36: when selectTailStart returns 0 (the entire history fits
+    // within tailTokenBudget / minTailMessages), `head` is empty so the
+    // summarizer has nothing meaningful to compress. The pre-fix behavior
+    // still ran the summarizer, minted a child session, and reported
+    // estimatedAfterTokens > estimatedBeforeTokens (after = before +
+    // summary-message overhead). The TUI then rendered "auto-compacted —
+    // 2247→2318 tokens" which looked like compaction was broken even
+    // though the algorithm was correct (no-op-plus-summary-overhead).
+    //
+    // The fix: short-circuit and return a result with `noOp: true`, the
+    // same parent id as newSessionId, and the original history unchanged
+    // as the tail. Callers key off `result.noOp` to skip the SSE marker
+    // (proactive/recovery), the session-id pivot (TUI), and the visual
+    // child-id marker (terminalRepl).
+    const db = openDb();
+    const parent = createParent(db);
+    const summarizeCalls: number[] = [];
+    const history: Message[] = [
+      { role: 'user', content: [text('hi')] },
+      { role: 'assistant', content: [text('hello')] },
+    ];
+    for (const message of history) {
+      db.saveMessage(parent, { role: message.role, content: message.content });
+    }
+
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt: [],
+      history,
+      // Tail budget large enough to swallow both messages — selectTailStart
+      // returns 0, head is empty.
+      tailTokenBudget: 10_000,
+      minTailMessages: 1,
+      summarize: async (input) => {
+        summarizeCalls.push(input.transcript.length);
+        return 'unexpected — summarizer should not run on empty head';
+      },
+    });
+
+    // Summarizer must NOT have been called — the early-return short-circuits
+    // before the runSummarizer call.
+    expect(summarizeCalls.length).toBe(0);
+
+    // No-op shape: same id on both sides; explicit flag for callers to key off.
+    expect(result.noOp).toBe(true);
+    expect(result.parentSessionId).toBe(parent);
+    expect(result.newSessionId).toBe(parent);
+
+    // Token estimates: after === before (no summary message overhead added).
+    expect(result.estimatedAfterTokens).toBe(result.estimatedBeforeTokens);
+
+    // No new session minted — only the parent exists in the db.
+    const lineage = db.getCompactionsForParent(parent);
+    expect(lineage.length).toBe(0);
+
+    // No new messages were persisted on the parent (the early-return skipped
+    // the saveMessage loop).
+    expect(db.loadMessages(parent)).toHaveLength(history.length);
+
+    // The result's tail echoes the original history so callers that rebuild
+    // their local history from result.tail still see the same messages.
+    expect(result.tail).toHaveLength(history.length);
+    expect(result.compactedMessages).toBe(0);
+    db.close();
+  });
+
   test('feeds previous handoff summaries into iterative summary merging', async () => {
     const db = openDb();
     const parent = createParent(db);

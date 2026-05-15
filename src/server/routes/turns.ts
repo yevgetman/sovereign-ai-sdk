@@ -202,13 +202,21 @@ async function runTurnInBackground(
       })
     ) {
       const result = await runtime.compact(messages, sessionId, bus.abortSignal);
-      publishCompactionComplete(bus, sessionId, result);
-      sessionId = result.newSessionId;
-      // The child's persisted state (summary + tail) is now the source of
-      // truth for the model. Reload from the DB rather than mutating
-      // result.tail in place so we pick up the persisted summary message
-      // compactSession wrote at the head of the child's transcript.
-      messages = hydrate();
+      // Backlog #36: when the entire history fit within the tail budget,
+      // compactSession returns a no-op (parentSessionId === newSessionId,
+      // noOp: true) — there's no new child id to pivot onto and no SSE
+      // event worth publishing. Skip both. The TUI never sees a phantom
+      // marker, the local sessionId stays on the parent, and the next
+      // query() call uses the unchanged hydrated messages.
+      if (result.noOp !== true) {
+        publishCompactionComplete(bus, sessionId, result);
+        sessionId = result.newSessionId;
+        // The child's persisted state (summary + tail) is now the source of
+        // truth for the model. Reload from the DB rather than mutating
+        // result.tail in place so we pick up the persisted summary message
+        // compactSession wrote at the head of the child's transcript.
+        messages = hydrate();
+      }
     }
 
     // Build a session-scoped canUseTool. The runtime's own `canUseTool`
@@ -379,6 +387,27 @@ async function runTurnInBackground(
     // tests/server/turns.overflowRecovery.test.ts pins the two-event shape.
     if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
       const compactResult = await runtime.compact(messages, sessionId, bus.abortSignal);
+      // Backlog #36: a no-op result here means compaction couldn't free up
+      // any headroom (entire history already fit in the tail budget — the
+      // overflow was driven by the system prompt or a single oversized
+      // tool result the tail keeper preserved). No new session id to pivot
+      // onto, no wire event worth publishing. Falling straight through to
+      // a same-session retry would just hit the same overflow, so skip the
+      // retry entirely and surface the original overflow via the normal
+      // turn_error path below — `terminal` already carries it.
+      if (compactResult.noOp === true) {
+        if (!bus.isClosed()) {
+          bus.publish({
+            type: 'turn_error',
+            seq: bus.nextSeq(),
+            sessionId,
+            error:
+              terminal.error?.message ?? 'context overflow with no compactable history to recover',
+            recoverable: false,
+          });
+        }
+        return;
+      }
       publishCompactionComplete(bus, sessionId, compactResult);
       sessionId = compactResult.newSessionId;
       messages = hydrate();

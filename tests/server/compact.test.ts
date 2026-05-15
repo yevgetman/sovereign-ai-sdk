@@ -59,19 +59,25 @@ describe('POST /sessions/:id/compact (M6 T5)', () => {
       expect(createRes.status).toBe(201);
       const { sessionId } = (await createRes.json()) as { sessionId: string };
 
-      // Seed enough prior history so the compactor has something to summarize.
-      // The exact size doesn't matter for the explicit-verb path (no threshold
-      // probe — the user is asking for it) but a non-empty transcript ensures
-      // the summarize callback gets a real prompt and the before/after token
-      // counts are positive.
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'user',
-        content: [{ type: 'text', text: 'first user turn body for compaction input' }],
-      });
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'first assistant reply containing facts' }],
-      });
+      // Seed enough prior history that the compactor has something to
+      // summarize AND clears the DEFAULT_MIN_TAIL_MESSAGES=4 floor so
+      // `head` is non-empty. Backlog #36: a history that fits within the
+      // tail budget OR doesn't reach the min-tail floor short-circuits to
+      // a no-op (parentSessionId === newSessionId, noOp: true) — the
+      // original 2-message arrangement now hits that path, which would
+      // make activeSessionId === sessionId and break the happy-path
+      // assertion. 6 filler messages clear both thresholds.
+      const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `assistant reply ${i}: ${filler}` }],
+        });
+      }
 
       const compactRes = await app.request(`/sessions/${sessionId}/compact`, {
         method: 'POST',
@@ -204,18 +210,22 @@ describe('POST /sessions/:id/compact (M6 T5)', () => {
 
       // Seed a non-empty history so the route hydrates and reaches the
       // runtime.compact() call (the summarize path inside compactSession is
-      // what throws). An empty history would still reach compact() — the
-      // throw site is in the summarize callback — but a real transcript
-      // mirrors the happy-path test setup and keeps this test honest about
-      // which code path the catch is rescuing.
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'user',
-        content: [{ type: 'text', text: 'first user turn body for compaction input' }],
-      });
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'first assistant reply containing facts' }],
-      });
+      // what throws). Backlog #36: a tiny history that fits within the
+      // tail budget short-circuits to a no-op (noOp: true) and the
+      // failing summarize callback never runs — losing this test's target.
+      // 6 filler messages clear both DEFAULT_TAIL_TOKEN_BUDGET=4_000 and
+      // DEFAULT_MIN_TAIL_MESSAGES=4 so `head` is non-empty.
+      const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+      for (let i = 0; i < 3; i += 1) {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `user turn ${i}: ${filler}` }],
+        });
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'assistant',
+          content: [{ type: 'text', text: `assistant reply ${i}: ${filler}` }],
+        });
+      }
 
       const compactRes = await app.request(`/sessions/${sessionId}/compact`, {
         method: 'POST',
