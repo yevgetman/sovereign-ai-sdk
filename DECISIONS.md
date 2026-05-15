@@ -2,6 +2,61 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## ADR M7-01 — Per-session subsystems live in a Map on Runtime
+
+Decision: M7 introduces a per-session subsystem cluster — trace writer, learning observer, review manager, trajectory metadata — that lives on `SessionContext`, materialized in `Runtime.sessionContexts: Map<sessionId, SessionContext>`. The map is built lazily via `runtime.getSessionContext(sessionId)` (constructs on first reference, caches afterwards) and torn down via `runtime.disposeSession(sessionId)` (runs the disposal sequence; removes from map). The turns route fetches the context per turn and threads its members onto the per-turn `ToolContext` so `query()` consumers (orchestrator, scheduler, tools) see them through their existing optional-chain reads.
+
+Rationale: M3–M6 fields on `Runtime` were process-global singletons. M7's per-session subsystems are per-session by design — trace files are named by sessionId, learning observers wrap a per-cwd project identity, review managers carry per-session dispatch counters, and trajectory records are emitted per-session at disposal. Hoisting them onto a process-global `Runtime` field would either force every consumer to take a sessionId argument (intrusive) or invite cross-session leakage (correctness hazard). The Map keeps construction local to where it's needed and gives `disposeSession` a clean teardown contract independent of `runtime.dispose()`. Multi-session UX (the future M8/M9 surface) becomes mechanically possible without rewiring — each session id materializes its own subsystem cluster on first reference.
+
+Status: implemented (M7 — `7a333cc` (T3 — SessionContext + per-session trace writer) + `345dcad` (T4 — trajectory metadata + disposal-time write) + `7a39748` (T5 — learning observer) + `40032e1` (T6 — review manager + disposal-time session_summary)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+
+## ADR M7-02 — Trace writer rebuilt on compaction
+
+Decision: When M6's compaction creates a new child session id mid-turn, the turns route does NOT reuse the parent's `TraceWriter` for the child. The parent's writer continues to receive any events emitted before the pivot; after `compaction_complete` lands and `sessionId` reassigns to the child id, the turns route's next `runtime.getSessionContext(childId)` call constructs a fresh `SessionContext` (with a fresh trace writer) for the child. The parent's writer remains open until the parent session is explicitly disposed (or `runtime.dispose()` walks the map at shutdown).
+
+Rationale: trace files are named by sessionId — `<harnessHome>/traces/<sessionId>.jsonl`. Reusing the parent's writer for the child would write the child's events into the parent's file under the wrong session attribution. `sov trace show <childId>` would find nothing; `sov trace show <parentId>` would surface child events with the parent's session header — useless for forensic replay. Per-session writers also bound resource cost: each child gets a separate `WriteStream`; the parent's stays open only as long as anyone references it. The disposal contract picks up the cleanup at session end.
+
+Status: implemented (M7 — `7a333cc` (T3 — trace writer per-session, registry-cached, disposed at session end)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+
+## ADR M7-03 — Trajectory writes on session disposal, not per-turn
+
+Decision: `tryWriteTrajectory()` fires from `disposeSessionContext()` (called by `runtime.disposeSession()`), not from each turn's terminal event. The full session history (per `sessionDb.loadMessages(sessionId)`) is written as one ShareGPT-shaped JSONL record into `<artifactsRoot>/trajectories/{samples,failed}.jsonl`. Bucket selection by `trajectoryMetadata.terminalReason` (default `'completed'`; set to `'error'` by the turns route on `turn_error`). Redaction applied at write per Invariant #15. Empty-history sessions short-circuit without writing.
+
+Rationale: trajectory's contract is "full session as one JSON record" (per the Sovereign moat brief — the corpus is per-session, not per-turn). Per-turn writes would either overwrite a file the user expects to grow monotonically (drift from what the consumer reads), or fragment one session across N partial records the consumer would have to reassemble (defeats the ShareGPT shape). Disposal-driven writes match how terminalRepl flushes its trajectory today (`src/ui/terminalRepl.ts:1755-1820`). Trade-off accepted: process crashes lose trajectories for sessions that haven't been disposed — mitigated by `tryWriteTrajectory()` being fire-and-forget so disposal itself completes even if the write fails, and by the operational pattern that crashes are rare relative to graceful end-of-session disposal.
+
+Status: implemented (M7 — `345dcad` (T4 — trajectory writes at disposal) + `73483e5` (T4 cleanup — dropped unused `terminalError`)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+
+## ADR M7-05 — Review manager same lifecycle as trace; scheduler-dispatched
+
+Decision: Per-session `ReviewManager` is constructed in `buildSessionContext` alongside the trace writer and learning observer, threaded onto the per-turn `ToolContext.reviewManager`. The existing in-process triggers (orchestrator's `toolCtx.reviewManager?.onToolIteration(...)` at `src/core/query.ts:352`, scheduler's `parentToolContext.reviewManager?.onChildCompletion(...)` at `src/runtime/scheduler.ts:326`, and the turns route's `sessionCtx.reviewManager?.onUserTurn(sessionId)` added in M7 T6 follow-up) fire when the field is populated. Counter-tripping dispatches route through `runReviewFork` (via `runtime.subagentScheduler.delegate(...)`) into `memory_propose` / `skill_propose` proposals written under `<harnessHome>/review/pending/`. At session disposal, `ctx.reviewAbortController.abort()` fires unconditionally and `getDispatchSummary()` emits as a `session_summary` SSE event onto the disposal bus when present.
+
+Rationale: `ReviewManager` dispatches fire-and-forget sub-agents through the `SubagentScheduler` that already lives on `Runtime` from M5. The construction needs handles to trace + trajectory paths and the per-project instincts dir — which all exist within `SessionContext` once T3+T4+T5 land. Keeping `ReviewManager` on the same per-session lifecycle as the trace writer means a single disposal pathway (`disposeSessionContext`) tears down all four subsystems in a deterministic order. The existing call sites in the orchestrator and scheduler already optional-chain on the field — M7 T6 just needed to populate it on the `ToolContext` and on the dispatch-time `parentToolContext` snapshot the scheduler reads. Review/learning observe via direct ToolContext call-sites, NOT via the `DaemonEventBus` (see ADR M7-06).
+
+Status: implemented (M7 — `40032e1` (T6 — ReviewManager wired into SessionContext + ToolContext + disposal summary) + `e2f6492` (T6 follow-up — `onUserTurn` wired into turns route + dropped `as ToolContext` cast)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+
+## ADR M7-06 — `DaemonEventBus` is plumbing-only in M7
+
+Decision: M7 T2 closes backlog item #28 by constructing a `DaemonEventBus` inside `buildRuntime` and passing it to `new TaskManager({ store, scheduler, bus })`. The bus is exposed as `runtime.daemonEventBus` so cross-process subscribers can attach in the future. No subscriber is wired inside the server process in M7 itself — review/learning observe via direct optional-chain reads on `ToolContext.reviewManager` / `ToolContext.learningObserver` after every tool call (the call sites already in `src/core/query.ts` and `src/core/orchestrator.ts`). The bus is plumbing for the future daemon-mode (and any future cross-process consumer that needs the TaskManager lifecycle stream).
+
+Rationale: M5 already exposed `TaskManager` lifecycle events but the server-mode `TaskManager` had no bus subscriber wiring, so the events went nowhere — closing #28 was the natural M7 home because the review/learning subsystems landing in the same milestone are the prospective consumers. But wiring an in-process subscriber inside the same `buildRuntime` would duplicate the direct-call observation pattern review/learning already use, with two complete observation paths to keep in sync going forward. The direct-call pattern is what terminalRepl uses today; staying with it preserves parity. Treating the bus as plumbing-only lets future daemon-mode subscribers attach without rewiring the construction, and unblocks any future Phase 16.0a daemon-mode resurrection without circling back through `buildRuntime`.
+
+Status: implemented (M7 — `bfaeaad` (T2 — DaemonEventBus constructed in buildRuntime, threaded into TaskManager, exposed on `Runtime.daemonEventBus`)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`. Backlog item #28 closed in the same commit.
+
+## ADR M7-08 — `runtime.dispose()` order — per-session → MCP → approvals → sessionDb
+
+Decision: When `runtime.dispose()` is called (process shutdown), the teardown runs in a specific order:
+
+1. **Walk `sessionContexts` Map** — call `disposeSessionContext(ctx, { runtime })` on each registered session. Each disposal closes the trace writer, drains the learning observer, writes the trajectory, aborts the review controller, and emits a logged `session_summary` (no bus at shutdown — the SSE consumer has already disconnected).
+2. **Shut down `mcpClientPool`** — terminate stdio MCP child processes.
+3. **Close `approvalQueue`** — dispose any pending approval promises.
+4. **Close `sessionDb`** — release the SQLite connection.
+
+The same order applies even when `disposeSession(sessionId)` is called for a specific session (steps 1 + the per-session subsystem teardown sequence within `disposeSessionContext`).
+
+Rationale: trajectory writes inside step 1 read messages from `sessionDb` — closing the database first would break the write. MCP child processes may be referenced by in-flight tool calls; closing them mid-disposal could surface as a tool-call failure that interferes with the trajectory write. Approval queue may have pending Promises waiting on bus closure; closing it last ensures any in-flight approval rejects cleanly. Crashing on step N still leaves the prior steps' data intact per the fire-and-forget invariants on trajectory/trace writes — the per-step ordering is about graceful disposal, not crash safety.
+
+Status: implemented (M7 — `7a333cc` (T3 — initial dispose order set) + `345dcad` (T4 — trajectory step inserted before MCP/approvals/sessionDb)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+
 ## ADR M6-01 — Compaction creates a new session id; client tracks it
 
 Decision: every compaction (proactive, overflow recovery, or explicit `/compact`) creates a fresh child session id via `compactSession`. The new id surfaces to the client through two channels: (a) the `compaction_complete` SSE event (`{ sessionId: parent, activeSessionId: child, summary, estimatedBeforeTokens, estimatedAfterTokens }`) emitted onto the parent session's bus during background turns, and (b) the JSON response body of `POST /sessions/:id/compact` (`{ activeSessionId, parentSessionId, summary, ... }`). The TUI updates its in-memory `m.sessionID` on receiving either signal so subsequent POSTs (turns, approvals, further compactions) route to the new child id.

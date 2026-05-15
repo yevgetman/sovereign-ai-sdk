@@ -11,18 +11,18 @@ These are the surfaces that were silently broken in the Phase 16.0b Ink TUI. The
 | # | Status | Surface | What it does | Source location |
 |---|---|---|---|---|
 | 1 | `[x]` (M5 — 2026-05-14) | **Hooks system** | PreToolUse / PostToolUse / UserPromptSubmit / Stop hooks fire around tool calls per `~/.harness/settings.json` `hooks` block | `src/hooks/runner.ts`, `src/hooks/consent.ts` |
-| 2 | `[ ]` | **MCP client pool** | stdio MCP servers connect; their tools wrap as `mcp__<server>__<tool>` and enter the tool pool | `src/mcp/client.ts`, `src/mcp/toolWrapper.ts` |
+| 2 | `[x]` (M7 — 2026-05-15) | **MCP client pool** | stdio MCP servers connect; their tools wrap as `mcp__<server>__<tool>` and enter the tool pool | `src/mcp/client.ts`, `src/mcp/toolWrapper.ts` |
 | 3 | `[x]` (M5 — 2026-05-14) | **Permission prompt UI** | When a tool needs consent in `ask` mode, the user gets a modal prompt with `[y]es / [n]o / [a]lways` | `src/permissions/prompt.ts` (readline asker), `src/permissions/canUseTool.ts` |
 | 4 | `[x]` (M5 — 2026-05-14) | **Sub-agent scheduler** | AgentTool + task_create delegate to bounded child sessions with per-lane semaphores and a global write-path lock | `src/runtime/scheduler.ts`, `src/runtime/laneSemaphores.ts`, `src/runtime/semaphore.ts`, `src/runtime/agentRunner.ts` |
-| 5 | `[ ]` | **TaskManager construction** | `task_create` etc. depend on a live `TaskManager` in CommandContext — without it the tool throws "no task manager" | `src/tasks/manager.ts`, `src/tasks/store.ts` |
+| 5 | `[x]` (M7 — 2026-05-15) | **TaskManager construction** | `task_create` etc. depend on a live `TaskManager` in CommandContext — without it the tool throws "no task manager" | `src/tasks/manager.ts`, `src/tasks/store.ts` |
 | 6 | `[x]` (M4 — 2026-05-14) | **Session DB persistence** | Every turn writes to `~/.harness/sessions.db`; `--resume <id>` rehydrates frozen system prompt + history | `src/agent/sessionDb.ts`, `src/agent/sessionRecovery.ts` |
 | 7 | `[x]` (M6 — 2026-05-14) | **Compactor** | `/compact` summarizes prior turns into a child session with rollback lineage; `shouldCompactProactively` triggers above the configured threshold | `src/compact/compactor.ts`, `src/compact/microcompact.ts` |
 | 8 | `[x]` (M6 — 2026-05-14) | **Microcompaction** | Per-part tool-result clearing during a long turn to keep context bounded | `src/compact/microcompact.ts` + `shouldMicrocompact` |
 | 9 | `[x]` (M4 — 2026-05-14) | **Preflight checks** | Provider auth + tool-calling smoke check at startup | `src/providers/preflight.ts` |
-| 10 | `[ ]` | **Trace writer** | Phase 10.5 — `~/.harness/traces/<session-id>.jsonl` per-turn event log feeds `sov trace show` | `src/trace/writer.ts` |
-| 11 | `[ ]` | **Trajectory capture** | The Sovereign moat — ShareGPT-shaped JSONL per session, redacted at write | `src/trajectory/writer.ts`, `src/trajectory/redact.ts`, `src/trajectory/shareGpt.ts` |
-| 12 | `[ ]` | **Learning observer** | Per-tool-call observation stream → instinct corpus | `src/learning/observer.ts`, `src/learning/paths.ts`, `src/learning/project.ts` |
-| 13 | `[ ]` | **Review manager / review fork** | `memory_propose` / `skill_propose` propose-then-promote lifecycle; `/review` slash command | `src/review/manager.ts`, `src/review/consolidate.ts`, `src/review/stall.ts` |
+| 10 | `[x]` (M7 — 2026-05-15) | **Trace writer** | Phase 10.5 — `~/.harness/traces/<session-id>.jsonl` per-turn event log feeds `sov trace show` | `src/trace/writer.ts` |
+| 11 | `[x]` (M7 — 2026-05-15) | **Trajectory capture** | The Sovereign moat — ShareGPT-shaped JSONL per session, redacted at write | `src/trajectory/writer.ts`, `src/trajectory/redact.ts`, `src/trajectory/shareGpt.ts` |
+| 12 | `[x]` (M7 — 2026-05-15) | **Learning observer** | Per-tool-call observation stream → instinct corpus | `src/learning/observer.ts`, `src/learning/paths.ts`, `src/learning/project.ts` |
+| 13 | `[x]` (M7 — 2026-05-15) | **Review manager / review fork** | `memory_propose` / `skill_propose` propose-then-promote lifecycle; `/review` slash command | `src/review/manager.ts`, `src/review/consolidate.ts`, `src/review/stall.ts` |
 | 14 | `[ ]` | **Local-model router** | Phase 10.6 — `RouterProvider` dispatches to cheap models when a router config is present; `RouterAuditLogger` records decisions | `src/router/provider.ts`, `src/router/auditLogger.ts` |
 
 ## Major — feature loss is user-visible but recoverable

@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-15. Runtime close-out reached `d888aa8` (M6 + post-T7 SSE multi-turn fix shipped + backlog #31 + #33 + #34 + #35 + #36 closed + autonomous M6 smoke verified end-to-end against real Anthropic); 1939/1939 unit tests green. Items 1-11, 14-16, 18-23, 25-27, 31, 33, 34, 35, 36 closed across thirteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Item 37 added 2026-05-15 from M6 smoke pre-flight (user noted `sov --version` doesn't print the git SHA). Remaining open: 17, 28, 29, 30, 32, 37. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases). Item 37 originated from M6 smoke pre-flight.
+**Last sync:** 2026-05-15. Runtime close-out reached the Phase 16.1 M7 close-out commit (six Hermes-layer subsystems wired into the server-mode runtime — MCP client pool, TaskManager DaemonEventBus integration, trace writer, trajectory capture, learning observer, review manager); 1965/1965 unit tests green. Items 1-11, 14-16, 18-23, 25-28, 31-37 closed across fifteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Item 37 added 2026-05-15 from M6 smoke pre-flight (user noted `sov --version` doesn't print the git SHA). Items 38-39 added 2026-05-15 from Phase 16.1 M7 T5/T6 reviews (reviewAutoPromote* settings snapshot gap + Go TUI mirror for SessionSummaryEvent). Remaining open: 17, 29, 30, 38, 39. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases). Item 37 originated from M6 smoke pre-flight. Items 38-39 originated from Phase 16.1 M7 reviews.
 
 ## Priority order
 
@@ -38,8 +38,9 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 26. ~~Server-side `SubagentScheduler` does not receive `artifactsRoot`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 27. ~~Server-side `LaneSemaphores` cap config not wired from settings~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
 31. ~~M3.4 turns route does not validate `:id` shape~~ **[M6 review 2026-05-14] — closed `b9a4ad8` (added `isValidSessionId` guard at top of POST /sessions/:id/turns handler; mirrors sibling routes)**
-32. Resume-after-compaction regression test **[M6 review 2026-05-14]**
+32. ~~Resume-after-compaction regression test~~ **[M6 review 2026-05-14] — closed `09da469`**
 36. ~~`estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions~~ **[M6 review 2026-05-15] — closed 2026-05-15 (early-return guard in `compactSession`; `noOp: true` flag wired through all callers)**
+38. `reviewAutoPromoteMemory` / `reviewAutoPromoteSkills` snapshot gap in `parentToolContext` **[M7 T6 2026-05-15]**
 
 P4 (small ergonomics + nits):
 14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
@@ -49,10 +50,11 @@ P4 (small ergonomics + nits):
 18. ~~Glob inline tool block: count footer drifts vs. summary line~~ **[soak 2026-05-07] — closed `d52fb75` (footer reads canonical count from envelope summary)**
 20. ~~`HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs)~~ **[soak 2026-05-07] — closed `e677676`**
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
-28. Server-side TaskManager not wired to `DaemonEventBus` (live task events skip daemon publishing) **[M5 T7 2026-05-14]**
+28. ~~Server-side TaskManager not wired to `DaemonEventBus`~~ **[M5 T7 2026-05-14] — closed `bfaeaad` (M7 T2; `Runtime.daemonEventBus` constructed in `buildRuntime` and threaded into `new TaskManager({...,bus})`)**
 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal **[M5 T9 2026-05-14]**
 33. ~~Asymmetric `bus.isClosed()` guards in turns route~~ **[M6 review 2026-05-14] — closed `79a5c39` (dropped all three redundant guards; eventBus.publish is idempotent on closed buses)**
-37. `sov --version` should print the git SHA (currently shows static `0.1.0`) **[M6 smoke 2026-05-15]**
+37. ~~`sov --version` should print the git SHA (currently shows static `0.1.0`)~~ **[M6 smoke 2026-05-15] — closed `a89b03c` + `4bd849c`**
+39. Go TUI mirror struct for `SessionSummaryEvent` not added **[M7 T6 2026-05-15]**
 
 ---
 
@@ -383,7 +385,7 @@ Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-ag
 ### 28. Server-side TaskManager not wired to `DaemonEventBus`
 
 - Priority: P4
-- Status: open
+- Status: **complete (2026-05-15, commit `bfaeaad`)** — `buildRuntime` constructs a `new DaemonEventBus()` per-runtime and passes it to `new TaskManager({ store, scheduler, bus })`. M7 T2 contract closes here: TaskManager lifecycle events (`task_created`, `task_progress`, `task_completed`, `task_failed`) publish onto the bus from server-mode the same way they do in terminalRepl. No subscriber wired inside the server process itself in M7 — review/learning observe via the orchestrator's direct ToolContext call-sites (per ADR M7-06). The bus is plumbing-only here; cross-process daemon subscribers can attach in future without rewiring the runtime construction. `Runtime.daemonEventBus` field exposes the bus for the integration smoke (verified by `tests/server/m7Full.test.ts`) and any future subscriber that needs the handle.
 - Source: Phase 16.1 M5 T10 code-quality review (T7 follow-up)
 - Recommendation: `buildRuntime` constructs `TaskManager` without subscribing the daemon event bus. terminalRepl's TaskManager publishes lifecycle events (`task_started`, `task_completed`, `task_failed`) onto `DaemonEventBus` so the Phase 16.0a daemon (currently dormant) and any future review/learning consumers can subscribe. Server-mode TaskManager today only emits events onto the parent session's SSE feed; nothing outside the live session sees them.
 - Evidence: terminalRepl's TaskManager construction includes a `DaemonEventBus` subscriber wiring step; `buildRuntime` omits it.
@@ -527,6 +529,41 @@ The user requested a focused, critical code-side review before running the three
   - `package.json` postinstall script
   - Possibly: `bin/sov` shim
 - Effort: ~30 min if going the postinstall-write-version route; ~10 min if just shelling out to `bun pm ls -g`.
+
+---
+
+## Items discovered during Phase 16.1 M7 reviews (2026-05-15)
+
+Two follow-ups surfaced during the M7 Hermes-layer parity work. Neither blocked M7 acceptance — the six-subsystem wiring landed end-to-end (1965/1965 tests green; integration smoke at `tests/server/m7Full.test.ts`). Each is a small downstream parity / mirror gap to land alongside the consumer that will exercise it.
+
+### 38. `reviewAutoPromoteMemory` / `reviewAutoPromoteSkills` snapshot gap in `parentToolContext`
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M7 T6 code-quality review (carry-forward, 2026-05-15)
+- Recommendation: `src/server/sessionContext.ts:168-177` builds a minimal `parentToolContext` snapshot for `ReviewManager` covering `cwd`, `sessionId`, `harnessHome`, `agents`, `subagentScheduler`, `taskManager`, `parentToolPool`. The snapshot omits `reviewAutoPromoteMemory` and `reviewAutoPromoteSkills` — two booleans that `MemoryProposeTool` (`src/tools/MemoryProposeTool.ts:54`) and `SkillProposeTool` (`src/tools/SkillProposeTool.ts:105`) read off `ctx` to decide whether to skip the review queue and promote the proposal immediately. A user who sets `review.autoPromoteMemory: true` in their config will find the flag silently inert when proposals dispatch from review-fork sub-agents because the parent's `ToolContext` snapshot doesn't carry it. Server-mode `buildSessionToolContext` (`src/server/routes/turns.ts:139-158`) also doesn't thread these two booleans, so the same gap exists at the turn-time ToolContext shape — not just the review-fork snapshot. Wire both through, reading from `userSettings.review?.autoPromoteMemory` / `userSettings.review?.autoPromoteSkills` at the same `readConfig()` call `buildSessionContext` already makes.
+- Evidence: file paths above; `MemoryProposeTool` reads `ctx.reviewAutoPromoteMemory`; `buildSessionContext` and `buildSessionToolContext` neither set the field. Same parity-gap shape as item #28 (also pre-T2): plumbing for a feature the user thinks they configured.
+- Impact: A user configuring `review.autoPromoteMemory` or `review.autoPromoteSkills` to `true` in server mode sees no behavioral change — proposals still queue. The pre-T6 review-fork dispatch path never exercised these, so this gap is technically pre-existing, but T6 made the surface area explicit.
+- Likely code areas:
+  - `src/server/sessionContext.ts:168-177` (the `parentToolContext` snapshot)
+  - `src/server/routes/turns.ts:139-158` (per-turn `buildSessionToolContext`)
+  - `src/tools/MemoryProposeTool.ts:54` (read site)
+  - `src/tools/SkillProposeTool.ts:105` (read site)
+- Effort: ~30 min — two two-line edits + a regression test asserting auto-promotion fires when the flag is set in user settings.
+
+### 39. Go TUI mirror struct for `SessionSummaryEvent` not added
+
+- Priority: P4
+- Status: open
+- Source: Phase 16.1 M7 T6 code-quality review (carry-forward, 2026-05-15)
+- Recommendation: M6's `CompactionCompleteEvent` got a corresponding Go struct at `packages/tui/internal/transport/types.go:144` so the TUI can deserialize the SSE wire event. M7 T6's `SessionSummaryEvent` (`src/server/schema.ts:114-118`) was added to the TS-side Zod discriminated union but no Go mirror was added — `--ui tui` won't deserialize the event when M9 visual polish wires the goodbye card. Add a `SessionSummaryEvent` struct (`Type`, `Seq`, `SessionID`, `TotalDispatched`, `ByAgent map[string]int`) to `types.go` matching the JSON shape, plus a `DecodeSessionSummary` helper alongside `DecodeCompactionComplete`.
+- Evidence: `packages/tui/internal/transport/types.go` (CompactionCompleteEvent precedent); `src/server/schema.ts:114-118` (TS-side SessionSummaryEvent shape).
+- Impact: M7 alone — the event is emitted but no Go consumer exists yet, so the gap is dormant. Becomes a real visible bug when M9 wires the styled goodbye card and the TUI fails to decode the event at session disposal.
+- Likely code areas:
+  - `packages/tui/internal/transport/types.go` (mirror struct + decode helper)
+  - Tests in `packages/tui/internal/transport/` (decode round-trip)
+  - Future M9 polish work in `packages/tui/internal/app/app.go` (render path)
+- Effort: ~30 min — straightforward mirror + decode test; pairs naturally with M9 styled-goodbye-card work.
 
 ---
 

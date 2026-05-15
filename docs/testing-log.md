@@ -8,6 +8,60 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Phase 16.1 M7 T7 — close-out (6 prereq boxes flipped, #28 closed)
+
+**Scope:** Final task of M7 (Hermes-layer parity group). Integration smoke test drives all six subsystems (MCP, DaemonEventBus, trace, trajectory, learning, review) through one end-to-end scenario via the public POST /sessions + POST /sessions/:id/turns + SSE drain pattern. Six prereq boxes (rows 2, 5, 10, 11, 12, 13) flipped in `docs/backlog/phase-16-rebuild-prereqs.md`; backlog item #28 (DaemonEventBus → server-mode TaskManager) closed; two new backlog items added (#38 reviewAutoPromote* parentToolContext snapshot gap + #39 Go TUI mirror for SessionSummaryEvent). Six ADRs added to DECISIONS.md (M7-01, M7-02, M7-03, M7-05, M7-06, M7-08). M7-04 and M7-07 are scope/sequencing decisions, noted in the state snapshot, not promoted to ADRs. Old `docs/state/2026-05-14.md` archived as `docs/state/archive/2026-05-14-pm.md` (the existing `2026-05-14.md` archive — covering M4 + M5 + M5.1 — is preserved untouched). New canonical snapshot at `docs/state/2026-05-15.md`. CLAUDE.md / AGENTS.md state-snapshot pointer updated; byte-identical mirror preserved.
+
+**Approach:**
+1. **Integration smoke design.** Single `tests/server/m7Full.test.ts` file (flat under `tests/server/` — no `integration/` subdir per the prior layout convention; matches the T5/T6 turns.* test placement). One test, 19 expects, ~155 lines. Drives the runtime through `buildAppWithRuntime` + `app.request(...)` (the same in-process Hono surface every other turns test uses) so the contract is the public route surface, not an internal helper. Mock provider with `MockProvider.toolUseMode = true` and `process.env.SOV_TEST_MOCK_PROVIDER = '1'` drives a real Bash tool_use → tool_result → observe iteration. Touches `runtime.getSessionContext(sessionId)` BEFORE the turn POST so the `onUserTurn` spy can be installed on the cached `ReviewManager` before `runTurnInBackground` calls `getSessionContext` (which returns the cached instance). After turn drain, calls `runtime.disposeSession(sessionId, { bus })` with a fresh disposal bus, then asserts six output sinks:
+   - **(1)** `runtime.daemonEventBus` is defined (T2 plumbing reachable from the integration shape).
+   - **(2)** `traces/<sessionId>.jsonl` exists and contains `"type":"turn_start"` + `"type":"provider_request"` (T3).
+   - **(3)** `trajectories/samples.jsonl` exists and contains the session id + `"from":"human"` (T4).
+   - **(4)** `learning/<projectId>/observations.jsonl` exists and contains `"tool_name":"Bash"` (T5).
+   - **(5)** `onUserTurn` was invoked exactly once with the session id (T6 follow-up wiring).
+   - **(6)** `session_summary` event with the correct sessionId and `totalDispatched === 0` landed in the disposal bus (T6 contract).
+   MCP wiring (T1) is verified by `tests/server/runtime.mcp.test.ts` (no MCP servers are configured in this smoke). DaemonEventBus correctness (T2) verified by `tests/server/runtime.daemonBus.test.ts`. The smoke covers per-session subsystems through a real turn — that's where parity matters most.
+
+2. **Prereq box flips.** Rows 2, 5, 10, 11, 12, 13 in `docs/backlog/phase-16-rebuild-prereqs.md` updated from `[ ]` to `[x] (M7 — 2026-05-15)`. Format matches the M4/M5/M6 precedent (`(MX — YYYY-MM-DD)`). Remaining `[ ]` count drops from 15 to 9 — all in M8 polish surfaces.
+
+3. **Backlog #28 closure.** Item #28 in `docs/backlog/post-phase-13-4.md` marked complete with the T2 commit SHA (`bfaeaad`). Priority-order line at the top of the file updated. The "Last sync" paragraph rewritten to reflect the M7 close-out (1965/1965 tests, items 1-11, 14-16, 18-23, 25-28, 31-37 closed; open: 17, 29, 30, 38, 39).
+
+4. **Two new backlog items added (#38, #39).** Per the carry-forward notes from T5/T6 reviews:
+   - **#38** (P3): `reviewAutoPromoteMemory` / `reviewAutoPromoteSkills` are read by `MemoryProposeTool` (`src/tools/MemoryProposeTool.ts:54`) and `SkillProposeTool` (`src/tools/SkillProposeTool.ts:105`) off `ctx.review*`, but the `parentToolContext` snapshot in `src/server/sessionContext.ts:168-177` doesn't thread them, and `buildSessionToolContext` (`src/server/routes/turns.ts:139-158`) doesn't either. A user setting `review.autoPromoteMemory: true` finds the flag silently inert when proposals dispatch from review forks. Same shape as #28 was before T2 — plumbing for future.
+   - **#39** (P4): M6's `CompactionCompleteEvent` got a Go mirror struct at `packages/tui/internal/transport/types.go:144`. T6's `SessionSummaryEvent` (`src/server/schema.ts:114-118`) did not. The Go TUI can't deserialize the event when M9 polish wires the goodbye card. Pair with M9 styled-card work.
+
+5. **Six ADR stubs added to `DECISIONS.md`.** M7-01 (Per-session subsystems on Runtime Map), M7-02 (Trace writer rebuilt on compaction), M7-03 (Trajectory disposal-driven, not per-turn), M7-05 (Review manager same lifecycle as trace; scheduler-dispatched), M7-06 (DaemonEventBus plumbing-only), M7-08 (`runtime.dispose()` order — per-session → MCP → approvals → sessionDb). Each links back to the T1–T6 commits that implemented the decision and to the plan at `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`. M7-04 (direct-call observation pattern) and M7-07 (real-Anthropic smoke deferred) are scope/sequencing decisions, noted in the snapshot but not promoted to ADRs.
+
+6. **State snapshot.** New `docs/state/2026-05-15.md` (~200 lines) follows the M6 snapshot template: HEAD SHA + suite numbers + sov binary version + what shipped (newest-first table) + per-task narrative + scope decisions noted + ADRs added + what does NOT work / known gaps + behavioral notes + what's open / what's next + manual smoke status + resolutions of prior open questions + pointers to deeper M7 narrative. Old `docs/state/2026-05-14.md` archived to `docs/state/archive/2026-05-14-pm.md` (a non-colliding name — the existing `2026-05-14.md` archive covers M4 + M5 + M5.1, the new `-pm` one covers M6 + 2026-05-15 hardening + autonomous smoke + PM #32/#37). `git mv` used so the move shows in git as a rename.
+
+7. **CLAUDE.md / AGENTS.md state-snapshot pointer updated.** Three references in CLAUDE.md updated: (a) the Session boot list item 3 (pointer to the canonical snapshot + one-line description), (b) the Doc index Current state row (snapshot table cell), (c) the Doc index Forward-looking row for the backlog count + Open items list, (d) the latest implementation plan pointer in Forward-looking. `cp CLAUDE.md AGENTS.md` ensures byte-identical mirror. Verified with `diff CLAUDE.md AGENTS.md` (no output).
+
+**Commit structure:** Two atomic commits per the lint-and-commit convention:
+1. `feat(server): M7 T7 — integration smoke test for all 6 subsystems` (`0eafd8f`) — only the new test file. 155 lines added.
+2. `docs: M7 close-out — 6 prereq boxes flipped, #28 closed, state snapshot` (this commit) — everything else: prereq flips, backlog edits, ADR stubs, state snapshot, archive move, CLAUDE.md / AGENTS.md, testing-log entry. No `src/` changes in this commit so only one `sov upgrade` needed (after the test commit).
+
+**TDD:** Integration smoke went GREEN on first run (the underlying T1–T6 wirings were correct and the test just stitched them through one scenario). 19 expects, 543ms. No RED step was meaningful — the test asserts integration of already-tested-in-isolation subsystems, so a failure here would surface as an integration-shape gap that the per-subsystem tests wouldn't catch.
+
+**Pre-commit gate (test commit):**
+- `bun run lint` — exit 0. Same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`. Own changes clean.
+- `bun run typecheck` — clean.
+- `bun run test` — `1965 pass, 0 fail, 4940 expect()` in 44.96s. Baseline 1964 → 1965; +1 new integration test.
+
+**Pre-commit gate (docs commit):** No `src/` changes; running lint + typecheck + test again would be redundant. The state of the test suite is unchanged from the test commit.
+
+**Diff summary (docs commit):**
+- `docs/backlog/phase-16-rebuild-prereqs.md` — 6 box flips
+- `docs/backlog/post-phase-13-4.md` — #28 closed + 2 new items (#38, #39) + priority-order list updated + "Last sync" paragraph rewritten
+- `DECISIONS.md` — 6 new ADR stubs prepended (M7-01, M7-02, M7-03, M7-05, M7-06, M7-08)
+- `docs/state/2026-05-15.md` — new (~200 lines)
+- `docs/state/2026-05-14.md` → `docs/state/archive/2026-05-14-pm.md` (git mv)
+- `CLAUDE.md`, `AGENTS.md` — state-snapshot pointer + open-backlog count + latest-plan pointer updated; byte-identical mirror preserved
+- `docs/testing-log.md` — this entry
+
+**Tests added:** 1 (T6 follow-up baseline 1964 → 1965 after T7 integration smoke).
+
+**Status:** GREEN. M7 closed. The server-mode runtime now reaches functional parity with `terminalRepl.ts` on the six Hermes-layer subsystems behind long-running, learning-enabled, review-driven sessions. Next: post-M7 hardening session (separate, cost-bounded real-Anthropic smoke per the plan's "Post-M7 backlog audit" section) → M8 polish surfaces plan.
+
 ## 2026-05-15 — Phase 16.1 M7 T6 — review manager wired into SessionContext
 
 **Scope:** Sixth task of M7 (Hermes-layer parity group). Closes prereq row 13 by hoisting the per-session `ReviewManager` onto `SessionContext` (constructed in `buildSessionContext`, summary emitted in `disposeSessionContext`) and threading it through `ToolContext.reviewManager` so the existing in-process triggers fire when populated: the orchestrator's `toolCtx.reviewManager?.onToolIteration(...)` (src/core/query.ts:352) ticks after every successful tool call, and the scheduler's `input.parentToolContext.reviewManager?.onChildCompletion(...)` (src/runtime/scheduler.ts:326) fires when a child sub-agent terminates. Counter-tripping dispatches route through `runReviewFork` (via `SubagentScheduler`) into `memory_propose` / `skill_propose` proposals written under `<harnessHome>/review/pending/`. At session disposal, `getDispatchSummary()` runs and the result emits as a new `session_summary` SSE wire event for the TUI to render as a goodbye card (M9 polish). Settings cascade is honored — `userSettings.review.disabled === true` leaves the field undefined (orchestrator/scheduler optional-chains become no-ops; no review forks dispatched, no proposal files written) and the per-threshold settings (`userTurnsForMemoryReview`, `toolIterationsForSkillReview`, `childReviewEveryN`, `minIntervalMs`, plus the two synthesizer cadence knobs `learning.synthesizerEveryN` / `learning.synthesizerEveryNToolIterations`) are forwarded via the optional-spread pattern so the ReviewManager constructor picks its own defaults for unset fields.
