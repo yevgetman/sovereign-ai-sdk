@@ -8,6 +8,38 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-15 — Critical fix: TUI multi-turn SSE — re-Consume after turn_complete
+
+**Bug class:** Latent M3-era correctness bug in the Go TUI. Pre-fix the TUI subscribed to the SSE event stream exactly ONCE in `New()` (`packages/tui/internal/app/app.go:101-103`) and never reconnected when the stream closed. The server closes the SSE response and disposes the per-session bus on every `turn_complete` / `turn_error` (`src/server/routes/events.ts:63-74` — by design — the bus is per-turn). So all turns AFTER the first delivered 202 from POST `/sessions/:id/turns` (the bus was recreated on the publish side) but the events were silently dropped client-side because the original SSE subscription had already terminated and was never replaced. The user saw their input echo, then the dim "…thinking" placeholder, then nothing.
+
+**Evidence (autonomous probe before fix, prompt-supplied):** Two consecutive POST `/sessions/:id/turns` calls against the production `mock` provider on a single GET `/sessions/:id/events` subscription. Turn 1 streamed `text_delta`, `text_delta`, `turn_complete` and the server closed the stream + called `disposeBus(sessionId)`. Turn 2 returned 202; the server created a fresh bus on the same session id and published events; the original SSE subscription was closed; no events ever arrived to the client. The Go TUI's `sseDoneMsg` handler appended a `[stream closed]` line to the transcript and returned `nil` — no reconnect.
+
+**Impact:** Every multi-turn `--ui tui` session was effectively single-turn from the user's perspective. Specifically blocked all three M6 manual smoke scenarios (the explicit `/compact` scenario worked because that uses the synchronous HTTP verb, but the post-compact normal-turn dispatch was silently broken; the proactive + overflow recovery scenarios both require multi-turn sessions).
+
+**Fix (`3365fb3`):** In `packages/tui/internal/app/app.go`'s `sseDoneMsg` handler, re-Consume a fresh SSE stream against the current `m.sessionID` (which may have pivoted via `/compact` or `compaction_complete`). Skip when the app context is cancelled (user pressed ESC / Ctrl+C) or `baseURL == ""` (render-only test fixtures). Drop the `[stream closed]` transcript line — it was meaningful when the design was single-turn-per-launch but with reconnect it would be noise after every turn.
+
+**Bubble Tea correctness check:** `waitEvent` is a value-receiver method (not a closure capturing channels at construction time), so the latest `m.events` / `m.errs` are read fresh at each invocation. Reassigning these fields in Update and returning `m.waitEvent` as the next Cmd lets the new channels take effect on the next wait. Verified by reading `app.go:132-151` before applying the fix.
+
+**Test (`TestApp_reconsumesSSEAfterTurnComplete`):** New test pins the multi-turn contract by driving two consecutive turns through `teatest.NewTestModel` against an `httptest.Server`. The server's SSE handler counts connections and serves two distinct SSE responses for the two turns: connection #1 emits `text_delta` + `turn_complete` and returns (closing the response body — exactly what the production server does after `disposeBus`); connection #2 emits a distinct `text_delta` + `turn_complete`; subsequent reconnects (after turn 2's `turn_complete`) hold open via `<-r.Context().Done()` so `srv.Close()` doesn't block on test teardown.
+
+**RED-GREEN verification:** Stashed the fix with `git stash`, ran the new test against the pre-fix code: timed out at 3s waiting for `TURN_TWO_REPLY` with the transcript showing `[stream closed]`. Restored the fix with `git stash pop`, ran the new test: PASS in 0.32s. Then ran the full Go suite twice (`go test -count=2 ./...`): all 4 packages green, no flakes.
+
+**Existing test fixture adjustment:** `TestApp_consumesMultipleEventsFromSingleConnection`'s pre-existing handler emitted 3 events including `turn_complete` and then returned. With the new reconnect behavior, that handler would be invoked repeatedly in a tight loop (every reconnect re-served the same `turn_complete`, triggering another reconnect). Tightened the handler to hold the first connection open via `<-r.Context().Done()` after emitting (so all 3 events are PROVEN to arrive on connection #1) and changed the assertion from `connectionCount == 1` to `connectionCount <= 2` (initial subscription + 1 post-turn_complete reconnect = 2 in steady state; > 2 would indicate the original per-event-reconnect regression). The invariant being guarded — "all 3 events arrive on a single connection, not via per-event reconnect" — is preserved.
+
+**Connect cadence pin:** The new test's final assertion bounds connection count to `[2, 3]` for a 2-turn flow. 2 = bare minimum (1 per turn). 3 = steady state (initial + 1 reconnect after turn 1's `turn_complete` + 1 reconnect after turn 2's `turn_complete`). > 3 would indicate a tight reconnect loop bug.
+
+**Compaction interaction (verified by existing tests, no new regressions):** During a turn, mid-turn compaction events (`compaction_complete`) arrive on the SAME bus as the rest of the turn's events (the bus is captured into `bus` at `runTurnInBackground`'s start). Mid-turn re-Consume would drop in-flight events, so the fix does NOT reconnect on `compaction_complete` — `m.sessionID` is mutated and the next `sseDoneMsg` (after the post-pivot `turn_complete`) triggers the re-Consume against the new id. Verified by `TestApp_compactionCompleteSSEPivotsSession` (pre-existing) and `TestApp_compactSlashRoutesToCompactEndpoint` (pre-existing) both still pass post-fix.
+
+**Commands:**
+- Targeted (RED before fix): `cd packages/tui && go test -count=1 -v -run TestApp_reconsumesSSEAfterTurnComplete ./internal/app/` — TIMEOUT (transcript showed `[stream closed]`, no `TURN_TWO_REPLY`).
+- Targeted (GREEN after fix): same command — PASS in 0.32s.
+- Full Go suite: `cd packages/tui && go test -count=2 ./...` — `internal/app` green (8 PASS, 3 SKIP — the same 3 t.Skip'd teatest tests inherited from M3); `internal/components` green; `internal/transport` green; no flakes across 2 runs.
+- TS pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing warnings); typecheck clean; full TS suite **1924 pass / 0 fail / 4794 expects / 44.32s** (unchanged from M6 close-out baseline).
+- `sov upgrade` ran post-push to keep the global binary current with the fix (the `~/.bun/install/cache` shows commit `3365fb3` after the upgrade).
+
+**Net:** One atomic commit `3365fb3` ships the fix + test + existing-test-fixture adjustment. AGENTS.md ≡ CLAUDE.md byte-identical (no doc changes in this commit). The fix unblocks all multi-turn TUI usage including the three M6 manual smoke scenarios — those are now actionable for the user (state snapshot updated to reflect that).
+
+
 ## 2026-05-14 — Phase 16.1 M6 final cleanup — DRY + backlog
 
 **Scope:** Final whole-branch reviewer flagged two Important + a handful of Minors against the M6 (long-session survival) close-out at `1e52af2`. Two cleanups applied (test wrapper extraction + history hydration helper); three remaining items captured as backlog 31/32/33. No behavior change — the M6 acceptance criteria stay green at 1924/1924.
