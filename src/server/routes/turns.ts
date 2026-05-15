@@ -29,6 +29,7 @@ import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { CanUseTool } from '../../permissions/types.js';
+import { isContextOverflowError } from '../../providers/errors.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
@@ -216,96 +217,166 @@ async function runTurnInBackground(
       redactSecretsTransformer,
     ]);
 
-    // Cancel the in-flight provider stream + tool loop when the bus is
-    // disposed (SSE client disconnect or server.stop()). The bus aborts
-    // on close(); query() propagates the signal to the provider's
-    // streaming http request and tool calls cooperatively, so a stopped
-    // server doesn't leave background turns running.
-    const stream = query({
-      provider: runtime.resolvedProvider.transport,
-      model: runtime.model,
-      messages,
-      systemPrompt: runtime.systemSegments,
-      tools: runtime.toolPool,
-      toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool),
-      maxTokens: runtime.maxTokens,
-      sessionId,
-      cwd: runtime.cwd,
-      signal: bus.abortSignal,
-      // Session-scoped canUseTool: the `ask` callback emits a
-      // permission_request event on this session's bus and awaits the
-      // matching POST /approvals/:requestId. Replaces the runtime-level
-      // deny placeholder (M3) with the live SSE bridge (M5 T5).
-      canUseTool: sessionCanUseTool,
-      // Forward the hook runner so UserPromptSubmit fires before turn 0,
-      // PreToolUse/PostToolUse fire around each tool call, and Stop fires
-      // at terminal. Constructed in buildRuntime (M5 T1); always present
-      // — a no-op when no hooks are configured.
-      hookRunner: runtime.hookRunner,
-      // Microcompaction config — buildRuntime always populates this from
-      // userSettings.microcompaction. Without it, query() would fall back
-      // to DEFAULT_MICROCOMPACT_CONFIG and ignore the user's settings.
-      microcompactConfig: runtime.microcompactConfig,
-    });
+    // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the iteration
+    // once; if the resulting Terminal carries a context-overflow error, run
+    // runtime.compact(), publish compaction_complete, then run the iteration
+    // ONCE more against the post-compaction child session id. A second
+    // overflow on the retry surfaces via the normal turn-error path below
+    // (we do NOT recurse). Mirrors src/ui/terminalRepl.ts:1659-1675 — the
+    // canonical shape — but adapted to the server's bus/SSE surface.
+    //
+    // The iteration is extracted into an inner runOnce() closure so the
+    // retry doesn't need to re-derive permission/canUseTool plumbing or
+    // rebuild the QueryParams. canUseTool is captured by reference and
+    // remains valid across the hop (the session id it was bound to is the
+    // OUTER `sessionId` let, which the recovery branch reassigns before the
+    // retry — the bound serverAsk continues to publish permission_request
+    // events under whatever the current sessionId is at the moment of the
+    // ask, which is the POST-COMPACTION id post-retry).
+    const runOnce = async (currentMessages: Message[]): Promise<Terminal | undefined> => {
+      // Cancel the in-flight provider stream + tool loop when the bus is
+      // disposed (SSE client disconnect or server.stop()). The bus aborts
+      // on close(); query() propagates the signal to the provider's
+      // streaming http request and tool calls cooperatively, so a stopped
+      // server doesn't leave background turns running.
+      const stream = query({
+        provider: runtime.resolvedProvider.transport,
+        model: runtime.model,
+        messages: currentMessages,
+        systemPrompt: runtime.systemSegments,
+        tools: runtime.toolPool,
+        toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool),
+        maxTokens: runtime.maxTokens,
+        sessionId,
+        cwd: runtime.cwd,
+        signal: bus.abortSignal,
+        // Session-scoped canUseTool: the `ask` callback emits a
+        // permission_request event on this session's bus and awaits the
+        // matching POST /approvals/:requestId. Replaces the runtime-level
+        // deny placeholder (M3) with the live SSE bridge (M5 T5).
+        canUseTool: sessionCanUseTool,
+        // Forward the hook runner so UserPromptSubmit fires before turn 0,
+        // PreToolUse/PostToolUse fire around each tool call, and Stop fires
+        // at terminal. Constructed in buildRuntime (M5 T1); always present
+        // — a no-op when no hooks are configured.
+        hookRunner: runtime.hookRunner,
+        // Microcompaction config — buildRuntime always populates this from
+        // userSettings.microcompaction. Without it, query() would fall back
+        // to DEFAULT_MICROCOMPACT_CONFIG and ignore the user's settings.
+        microcompactConfig: runtime.microcompactConfig,
+      });
 
-    // M3 collapses all assistant output onto block 0. Per-block indexing
-    // would require tracking the position of each tool_use within its
-    // assistant message — deferred until the TUI needs it for richer
-    // multi-call rendering (M4+).
-    const currentBlock = 0;
-    const pendingToolUses = new Map<string, PendingToolUse>();
-    let terminalEmitted = false;
+      // M3 collapses all assistant output onto block 0. Per-block indexing
+      // would require tracking the position of each tool_use within its
+      // assistant message — deferred until the TUI needs it for richer
+      // multi-call rendering (M4+).
+      const currentBlock = 0;
+      const pendingToolUses = new Map<string, PendingToolUse>();
 
-    // Manual iteration — `for await...of` discards the generator's
-    // return value, which is the `Terminal` (the real end-of-turn
-    // signal). We need that to emit exactly one wire `turn_complete`
-    // per user turn regardless of how many internal model calls
-    // query() made.
-    while (true) {
-      const result = await stream.next();
-      if (result.done) {
-        if (!bus.isClosed() && !terminalEmitted) {
-          const terminal: Terminal | undefined = result.value;
+      // Manual iteration — `for await...of` discards the generator's
+      // return value, which is the `Terminal` (the real end-of-turn
+      // signal). We need that to inspect Terminal.error for overflow
+      // recovery and to emit exactly one wire `turn_complete` per user
+      // turn regardless of how many internal model calls query() made.
+      while (true) {
+        const result = await stream.next();
+        if (result.done) {
+          return result.value;
+        }
+        const event = result.value;
+
+        // User-role Messages flow out of query() for tool-result and
+        // guidance batches (see core/orchestrator.ts and core/query.ts).
+        // Assistant Messages flow out as `assistant_message` StreamEvents,
+        // not as bare Message objects — they're handled below.
+        if (typeof event === 'object' && event !== null && 'role' in event) {
+          handleUserMessage(
+            event,
+            bus,
+            sessionId,
+            currentBlock,
+            pendingToolUses,
+            runtime.sessionDb,
+          );
+          continue;
+        }
+
+        // StreamEvent. Special-case `assistant_message`: it carries the
+        // full assistant Message whose `tool_use` content blocks need to
+        // be projected onto the wire as `tool_use_start` / `tool_use_done`
+        // pairs. Everything else flows through mapStreamEventToServerEvent.
+        const streamEvent = event;
+        if (streamEvent.type === 'assistant_message') {
+          handleAssistantMessage(
+            streamEvent.message,
+            bus,
+            sessionId,
+            currentBlock,
+            pendingToolUses,
+            runtime.toolPool,
+            runtime.sessionDb,
+          );
+          continue;
+        }
+        const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
+        if (mapped !== null) bus.publish(mapped);
+      }
+    };
+
+    let terminal = await runOnce(messages);
+
+    // Overflow recovery path (retry-once). query() captures provider
+    // exceptions into Terminal { reason: 'error', error } at
+    // src/core/query.ts:156-164, so an overflow surfaces here as a
+    // populated terminal.error rather than a thrown exception. If
+    // runtime.compact() itself throws (recursive overflow case), the
+    // outer try/catch publishes turn_error — symmetric to T3's safety
+    // net for the proactive path. A second overflow on the retry's
+    // Terminal falls through to the normal turn_complete path below
+    // (mapTerminalReason maps reason: 'error' → finishReason: 'error',
+    // which the TUI surfaces as a turn-level error to the user) — we
+    // intentionally do NOT recurse into a second compact + retry.
+    if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
+      const compactResult = await runtime.compact(messages, sessionId, bus.abortSignal);
+      bus.publish({
+        type: 'compaction_complete',
+        seq: bus.nextSeq(),
+        sessionId,
+        activeSessionId: compactResult.newSessionId,
+        summary: compactResult.summary,
+        estimatedBeforeTokens: compactResult.estimatedBeforeTokens,
+        estimatedAfterTokens: compactResult.estimatedAfterTokens,
+      });
+      sessionId = compactResult.newSessionId;
+      messages = hydrate();
+      terminal = await runOnce(messages);
+      // M6-02 retry-once: if the retry's terminal also carries an overflow
+      // error, surface it as turn_error rather than turn_complete (the
+      // post-recovery overflow is a distinct failure surface — "compaction
+      // didn't yield enough headroom" — that the TUI should not gloss as a
+      // normal turn end). Mirrors the second-overflow contract pinned by
+      // the M6 T4 test.
+      if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
+        if (!bus.isClosed()) {
           bus.publish({
-            type: 'turn_complete',
+            type: 'turn_error',
             seq: bus.nextSeq(),
             sessionId,
-            finishReason: mapTerminalReason(terminal),
+            error: terminal.error?.message ?? 'context overflow after compaction',
+            recoverable: false,
           });
-          terminalEmitted = true;
         }
-        break;
+        return;
       }
-      const event = result.value;
+    }
 
-      // User-role Messages flow out of query() for tool-result and
-      // guidance batches (see core/orchestrator.ts and core/query.ts).
-      // Assistant Messages flow out as `assistant_message` StreamEvents,
-      // not as bare Message objects — they're handled below.
-      if (typeof event === 'object' && event !== null && 'role' in event) {
-        handleUserMessage(event, bus, sessionId, currentBlock, pendingToolUses, runtime.sessionDb);
-        continue;
-      }
-
-      // StreamEvent. Special-case `assistant_message`: it carries the
-      // full assistant Message whose `tool_use` content blocks need to
-      // be projected onto the wire as `tool_use_start` / `tool_use_done`
-      // pairs. Everything else flows through mapStreamEventToServerEvent.
-      const streamEvent = event;
-      if (streamEvent.type === 'assistant_message') {
-        handleAssistantMessage(
-          streamEvent.message,
-          bus,
-          sessionId,
-          currentBlock,
-          pendingToolUses,
-          runtime.toolPool,
-          runtime.sessionDb,
-        );
-        continue;
-      }
-      const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
-      if (mapped !== null) bus.publish(mapped);
+    if (!bus.isClosed()) {
+      bus.publish({
+        type: 'turn_complete',
+        seq: bus.nextSeq(),
+        sessionId,
+        finishReason: mapTerminalReason(terminal),
+      });
     }
   } catch (err) {
     bus.publish({
