@@ -36,8 +36,17 @@ func TestBareScaffold_rendersThreeRegions(t *testing.T) {
 // regression where the SSE Cmd opened a fresh HTTP connection per event
 // (read one event, return, re-Consume from seq=1 on a new connection).
 // Drives three distinct SSE events through the model on a single connection
-// and asserts each rendered exactly once, and that the server observed
-// exactly one client connection.
+// and asserts each rendered exactly once.
+//
+// Post-multi-turn-fix the model re-Consumes after each turn_complete to
+// pick up the next turn's events (the production server disposes the bus
+// per turn — see TestApp_reconsumesSSEAfterTurnComplete). So the steady
+// state after a single turn is exactly 2 connections: the initial
+// subscription + 1 reconnect after turn_complete. The first connection
+// holds open via <-r.Context().Done() to PROVE all 3 events arrived on
+// it (rather than racing against the reconnect). Anything > 2 means the
+// reconnect fired more than once per turn — i.e. the original
+// per-event-reconnect regression resurrected.
 func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 	var connectionCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,20 +56,30 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 			fmt.Fprint(w, `{"messages":[]}`)
 			return
 		}
-		atomic.AddInt32(&connectionCount, 1)
+		n := atomic.AddInt32(&connectionCount, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			return
 		}
-		// Emit 3 distinct events on this single connection.
-		fmt.Fprint(w, "event: text_delta\nid: 1\ndata: {\"type\":\"text_delta\",\"seq\":1,\"sessionId\":\"s\",\"block\":0,\"text\":\"Hello \"}\n\n")
-		flusher.Flush()
-		fmt.Fprint(w, "event: text_delta\nid: 2\ndata: {\"type\":\"text_delta\",\"seq\":2,\"sessionId\":\"s\",\"block\":0,\"text\":\"world \"}\n\n")
-		flusher.Flush()
-		fmt.Fprint(w, "event: turn_complete\nid: 3\ndata: {\"type\":\"turn_complete\",\"seq\":3,\"sessionId\":\"s\",\"finishReason\":\"end_turn\"}\n\n")
-		flusher.Flush()
+		if n == 1 {
+			// Emit 3 distinct events on this single connection.
+			fmt.Fprint(w, "event: text_delta\nid: 1\ndata: {\"type\":\"text_delta\",\"seq\":1,\"sessionId\":\"s\",\"block\":0,\"text\":\"Hello \"}\n\n")
+			flusher.Flush()
+			fmt.Fprint(w, "event: text_delta\nid: 2\ndata: {\"type\":\"text_delta\",\"seq\":2,\"sessionId\":\"s\",\"block\":0,\"text\":\"world \"}\n\n")
+			flusher.Flush()
+			fmt.Fprint(w, "event: turn_complete\nid: 3\ndata: {\"type\":\"turn_complete\",\"seq\":3,\"sessionId\":\"s\",\"finishReason\":\"end_turn\"}\n\n")
+			flusher.Flush()
+			// Hold the connection open: this proves all 3 events
+			// arrived on connection #1, rather than racing against
+			// the reconnect after turn_complete.
+			<-r.Context().Done()
+			return
+		}
+		// Post-turn_complete reconnect lands here. Hold open until the
+		// test client disconnects (ESC → ctx cancel → request cancels).
+		<-r.Context().Done()
 	}))
 	defer srv.Close()
 
@@ -70,7 +89,7 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 	// proves the model consumed all three events on the single connection.
 	// (We don't assert on the rendered text of intermediate text_deltas
 	// because teatest's ANSI compressor may coalesce frames and drop
-	// overwritten content; the connectionCount==1 check at the end is the
+	// overwritten content; the connectionCount<=2 check at the end is the
 	// deterministic regression guard.)
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
 		return contains(b, "turn complete")
@@ -79,8 +98,10 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
-	if got := atomic.LoadInt32(&connectionCount); got != 1 {
-		t.Fatalf("expected exactly 1 SSE connection, got %d (event-per-connection regression)", got)
+	// Steady state after one turn: 1 initial + 1 post-turn_complete
+	// reconnect = 2. >2 means a per-event reconnect regression.
+	if got := atomic.LoadInt32(&connectionCount); got > 2 {
+		t.Fatalf("expected at most 2 SSE connections (initial + 1 post-turn_complete reconnect), got %d (event-per-connection regression)", got)
 	}
 }
 
@@ -470,6 +491,143 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 	if gotTurnPaths[0] != wantPath {
 		t.Fatalf("post-SSE /turns path = %q, want %q (compaction_complete didn't pivot session id)",
 			gotTurnPaths[0], wantPath)
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestApp_reconsumesSSEAfterTurnComplete pins the multi-turn contract:
+// after the server closes the SSE stream on turn_complete (events.ts:63-74
+// dispose the bus by design), the TUI must re-Consume a fresh subscription
+// so subsequent turns within the same TUI launch deliver their events to
+// the user. Pre-fix the TUI subscribed once in New() and never reconnected,
+// so all turns after the first delivered 202 from POST /turns but their
+// SSE events were silently dropped.
+//
+// Drives two consecutive turns through teatest:
+//  1. Initial SSE handler invocation streams turn 1 events + turn_complete
+//     and then returns (server closes the stream).
+//  2. After the first turn_complete renders, type a second message and
+//     ENTER. The /turns POST must land, the SSE handler must be invoked
+//     a SECOND time on a fresh connection, and turn 2's events must
+//     render in the transcript.
+func TestApp_reconsumesSSEAfterTurnComplete(t *testing.T) {
+	const sessionID = "test-session"
+	var (
+		sseConnCount   int32
+		turnPostsCount int32
+		turn1Done      = make(chan struct{})
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// /turns — accept POSTs and count them so we can correlate
+		// turn-N body with the SSE stream for that turn.
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/turns") {
+			atomic.AddInt32(&turnPostsCount, 1)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		// /messages backlog — empty so hydration resolves cleanly.
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// /events SSE — branch on connection count. First connection
+		// streams turn 1 events + turn_complete and returns (closing
+		// the response body, simulating the production server's
+		// disposeBus on turn_complete). Second connection streams turn
+		// 2 events + turn_complete.
+		n := atomic.AddInt32(&sseConnCount, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		switch n {
+		case 1:
+			// Turn 1: emit a text_delta then turn_complete and return.
+			fmt.Fprint(w, "event: text_delta\nid: 1\ndata: {\"type\":\"text_delta\",\"seq\":1,\"sessionId\":\"test-session\",\"block\":0,\"text\":\"TURN_ONE_REPLY\"}\n\n")
+			flusher.Flush()
+			fmt.Fprint(w, "event: turn_complete\nid: 2\ndata: {\"type\":\"turn_complete\",\"seq\":2,\"sessionId\":\"test-session\",\"finishReason\":\"end_turn\"}\n\n")
+			flusher.Flush()
+			close(turn1Done)
+			// Returning closes the response body, which is exactly
+			// what the production server does after disposeBus.
+			return
+		case 2:
+			// Turn 2: emit a distinct text_delta then turn_complete.
+			fmt.Fprint(w, "event: text_delta\nid: 1\ndata: {\"type\":\"text_delta\",\"seq\":1,\"sessionId\":\"test-session\",\"block\":0,\"text\":\"TURN_TWO_REPLY\"}\n\n")
+			flusher.Flush()
+			fmt.Fprint(w, "event: turn_complete\nid: 2\ndata: {\"type\":\"turn_complete\",\"seq\":2,\"sessionId\":\"test-session\",\"finishReason\":\"end_turn\"}\n\n")
+			flusher.Flush()
+			return
+		default:
+			// After turn 2's turn_complete the TUI re-Consumes again
+			// (its design — every turn_complete reconnects so the
+			// NEXT user turn lands on a live subscription). Hold this
+			// idle connection until the client disconnects (ESC/quit).
+			// The request context cancels when the test client closes,
+			// so srv.Close() doesn't block.
+			<-r.Context().Done()
+			return
+		}
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(sessionID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	// Wait for the server to confirm turn 1's SSE handler returned (so
+	// the consumer side has observed EOF and the model has processed
+	// sseDoneMsg). We don't sleep on a hard duration — we wait for the
+	// wire signal then give the Update goroutine a brief settle window
+	// to process the channel close into sseDoneMsg + reconnect. (We
+	// don't WaitFor "TURN_ONE_REPLY" in the rendered output because
+	// teatest's ANSI compressor may drop intermediate text_deltas; the
+	// SAME pre-existing limitation is documented at
+	// TestApp_consumesMultipleEventsFromSingleConnection. The server-
+	// side wire signal is the deterministic substitute.)
+	select {
+	case <-turn1Done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("turn 1 SSE handler never finished serving")
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Now drive turn 2.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi2")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for the second /turns POST to land server-side.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&turnPostsCount) >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&turnPostsCount); got < 1 {
+		t.Fatalf("expected at least 1 POST to /turns, got %d", got)
+	}
+
+	// The fix's load-bearing assertion: turn 2's SSE events must arrive
+	// at the model and render in the transcript. Pre-fix this WaitFor
+	// times out because the SSE consumer was closed after turn 1 and
+	// no fresh subscription was opened, so turn 2's POST returns 202
+	// but its events are silently dropped.
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "TURN_TWO_REPLY")
+	}, teatest.WithDuration(3*time.Second))
+
+	// Pin the connect cadence: at least 2 SSE connections, and at most 3.
+	// One per turn_complete reconnect: initial subscription + reconnect
+	// after turn 1's turn_complete + reconnect after turn 2's turn_complete
+	// = 3 in steady state. The minimum is 2 (one connection per turn
+	// observed). >3 would indicate a tight reconnect loop bug — for example
+	// re-Consuming inside a loop on every event rather than every turn end.
+	got := atomic.LoadInt32(&sseConnCount)
+	if got < 2 || got > 3 {
+		t.Fatalf("expected 2 or 3 SSE connections, got %d (>3 = tight reconnect loop bug)", got)
 	}
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})

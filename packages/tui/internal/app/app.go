@@ -217,8 +217,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleEvent(msg.env)
 		return m, m.waitEvent
 	case sseDoneMsg:
-		m.transcript.AppendLine("[stream closed]")
-		return m, nil
+		// The server closes the SSE stream and disposes the per-session bus
+		// after every turn_complete / turn_error (events.ts:63-74) by M3
+		// design. Without reconnect the TUI subscribes once in New() and
+		// never sees events from any subsequent turn — the user submits a
+		// turn (POST returns 202) but nothing ever renders. Re-Consume on
+		// a fresh subscription against the CURRENT m.sessionID (which may
+		// have pivoted via /compact or compaction_complete). Skip when:
+		//   - app context is cancelled (user pressed ESC / Ctrl+C)
+		//   - baseURL is empty (render-only test fixtures with no server)
+		// The dim "[stream closed]" marker that this branch used to emit
+		// was meaningful when the design was single-turn-per-launch; with
+		// reconnect it would be noise after every turn so we drop it.
+		if m.ctx.Err() != nil || m.baseURL == "" {
+			return m, nil
+		}
+		streamURL := fmt.Sprintf("%s/sessions/%s/events", m.baseURL, m.sessionID)
+		m.events, m.errs = transport.Consume(m.ctx, streamURL)
+		return m, m.waitEvent
 	case turnSubmitErrMsg:
 		m.transcript.AppendLine(
 			lipgloss.NewStyle().
