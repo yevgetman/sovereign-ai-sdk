@@ -34,7 +34,7 @@ import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
-import { loadHistoryAsMessages } from '../sessionId.js';
+import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
 
 /** State captured at `tool_use_start` emission, drained when the matching
  *  `tool_result` arrives so the tool_result wire event can echo the same
@@ -79,6 +79,14 @@ export function turnsRoute(runtime: Runtime): Hono {
 
   r.post('/sessions/:id/turns', async (c) => {
     const sessionId = c.req.param('id');
+    // Backlog #31 — sibling routes (sessions, events, approvals, compact) all
+    // validate :id via isValidSessionId and 400 on malformed input. Without
+    // this guard, a malformed id flows into getOrCreateBus + the persisted
+    // user message — neither call sanitizes, so the id would echo
+    // unsanitized into SSE event payloads and the sessions table.
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
     const body = (await c.req.json()) as { text?: string };
     const text = typeof body.text === 'string' ? body.text : '';
     if (text === '') return c.json({ error: 'text is required' }, 400);

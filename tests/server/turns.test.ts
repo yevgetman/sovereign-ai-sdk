@@ -154,6 +154,44 @@ describe('POST /sessions + POST /sessions/:id/turns', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test('returns 400 for invalid session id', async () => {
+    // Backlog #31 — sibling routes (sessions, events, approvals, compact) all
+    // validate the :id path param via isValidSessionId and 400 on malformed
+    // input. The turns route was the outlier: it silently accepted any string
+    // and ran the per-session bus + background turn loop on it. Mirrors the
+    // canonical 400 pattern from sessions.test.ts:80-97 — same sibling-route
+    // validator, same rejected-character rationale.
+    const home = join(tmpdir(), `backlog-31-${Date.now()}`);
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      const app = buildAppWithRuntime(runtime);
+      // 'bad id!' contains characters outside [A-Za-z0-9_-] so
+      // isValidSessionId rejects it before any bus creation or background
+      // turn dispatch. Body shape MUST match sibling routes (sessions.ts:39,
+      // events.ts:20, approvals.ts:23, compact.ts:41) — `{ error: 'invalid
+      // session id' }`.
+      const res = await app.request('/sessions/bad%20id!/turns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe('invalid session id');
+    } finally {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('turns route — message persistence', () => {
