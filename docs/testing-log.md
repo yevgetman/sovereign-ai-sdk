@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-14 — Phase 16.1 M6 final cleanup — DRY + backlog
+
+**Scope:** Final whole-branch reviewer flagged two Important + a handful of Minors against the M6 (long-session survival) close-out at `1e52af2`. Two cleanups applied (test wrapper extraction + history hydration helper); three remaining items captured as backlog 31/32/33. No behavior change — the M6 acceptance criteria stay green at 1924/1924.
+
+**Fix A — extract shared test transport wrappers:** Three duplicated wrappers whose own source comments cited "extract on the third caller per YAGNI" — the third callers had all arrived. New `tests/helpers/transportWrappers.ts` hosts:
+- `wrapTransportWithFailingSummarize` — was duplicated across `tests/server/compact.test.ts` and `tests/server/turns.proactiveCompact.test.ts` (~20 identical lines per copy).
+- `wrapTransportWithOverflow` (factory) — `tests/server/turns.overflowRecovery.test.ts` had it inline plus two convenience wrappers; `tests/cli/tuiLauncherIntegration.test.ts` inlined a copy of the "once" variant without the factory shape (~25 lines duplicated).
+- `MicrocompactTransport` — replaces `MicrocompactTestProvider` in `tests/server/turns.microcompact.test.ts` and `MicrocompactSmokeTransport` in `tests/cli/tuiLauncherIntegration.test.ts` (~60 identical lines per copy). Helper accepts `toolUseId` + `bashCommand` config so the smoke and unit callers retain their distinct fixture strings (the only behavioural delta between the two copies); the Transport implementation is otherwise byte-equivalent. Switched from static `callMessages` to per-instance for cleaner test isolation — tests now hold a transport reference instead of calling a static reset.
+
+Net for Fix A: 6 files changed, +243/-326 lines, 1 new file (`tests/helpers/transportWrappers.ts`). Suite green at 1924/1924 after each call-site swap.
+
+**Fix B — extract `loadHistoryAsMessages` helper:** Identical history-hydration projection in `src/server/routes/turns.ts:166-172` (the `hydrate()` closure) and `src/server/routes/compact.ts:56-61`. Both call `sessionDb.loadMessages` + map each row to `Message` with the same `Message['role']` cast; the compact route's source comment explicitly noted drift would diverge the model's pre-compaction view from the turn-time view. Helper landed in `src/server/sessionId.ts` (already a small server-side util module; adding the helper kept the surface focused on session-scoped operations). The turns route's `hydrate` closure is preserved (still binds the mutable `sessionId` let so the proactive/recovery hops automatically pick up the post-hop child id) — only its body changes from inline `.map()` to the helper call. Net: 3 files changed, +41/-23 lines.
+
+**Backlog updates (items 31/32/33):**
+- **Item 31 (P3):** turns route does not validate `:id` shape via `isValidSessionId`. Sibling routes (`sessions.ts`, `events.ts`, `approvals.ts`, `compact.ts`) all validate; `turns.ts:79` accepts any string. Pre-existing M3.4 gap M6 made visible because the new compact route DOES validate. ~30 min effort.
+- **Item 32 (P3):** Resume-after-compaction regression test. `--resume <parentId>` after compaction works by construction (immutable sessionDb + persisted lineage) but isn't pinned by test. Backlog row 7 mentioned "rollback lineage" — covered by `--resume` but unverified. ~30 min effort.
+- **Item 33 (P4):** Asymmetric `bus.isClosed()` guards in turns route. Lines 397/410 guard `publish()` with `!bus.isClosed()`; line 419 (catch's turn_error publish) does not. Functionally safe (`eventBus.ts:51` short-circuits on closed) but visually asymmetric. Either drop the redundant guards (preferred — single source of truth) or add the missing one. ~10 min effort.
+
+**Commands:**
+- Targeted (after each cleanup): `bun test tests/server/compact.test.ts tests/server/turns.proactiveCompact.test.ts tests/server/turns.overflowRecovery.test.ts tests/server/turns.microcompact.test.ts` — **12 pass / 0 fail / 98 expects** after Fix A; same after Fix B.
+- Targeted (broader): `bun test tests/server/ tests/cli/` — **183 pass / 0 fail / 550 expects / 32.96s**.
+- Pre-commit gate: `bun run lint && bun run typecheck && bun run test` — lint clean (same 2 pre-existing warnings in `src/permissions/shellSemantics.ts` — unrelated, untouched in this pass; biome auto-formatter collapsed the two-import block to single-line on first run, applied via `bun run format`); typecheck clean; full suite **1924 pass / 0 fail / 4794 expects / 44.26s** (unchanged from M6 T7 baseline).
+- Go: `cd packages/tui && go test ./...` — **all 4 packages green** (app, components, transport, sov-tui no test files); cached after no Go-side touches.
+
+**Contract verification (Fix A):** Confirmed the wrappers being merged are byte-equivalent before extracting. The two `wrapTransportWithFailingSummarize` copies were identical (only doc-comments differed). The four `wrapTransportWithOverflow` shapes (factory + 2 convenience wrappers in turns.overflowRecovery + the inlined "once" in tuiLauncherIntegration) shared identical stream() body and identical error-message string. The two `Microcompact*Transport` implementations differed in two places: (a) `toolUseId` (`'mc-test-tool-use-0'` vs `'mc-smoke-tool-use-0'`) and (b) the Bash command string (`'echo mc-test'` vs `'echo mc-smoke'`). Reconciliation: helper accepts both as constructor config so the test transcripts stay distinct (per-caller fixture strings); the Transport behavior is otherwise identical. Per-instance `callMessages` rather than static for cleaner concurrent-test isolation.
+
+**Net:** M6 final cleanup ships green. Three commits on origin/master (`d61c535` → `27bfad4` → `f3c00fb`); `sov upgrade` ran after the src/ commit. 1924/1924 suite + 4 Go packages all green. Three backlog items (31/32/33) capture the remaining minor follow-ups for future sessions; none affect M6 acceptance.
+
+
 ## 2026-05-14 — Phase 16.1 M6 T7 — integration smoke extension + close-out
 
 **Scope:** Final task in the M6 long-session-survival group. Three new scenarios extend `tests/cli/tuiLauncherIntegration.test.ts` to drive the M6 paths through the full launcher → `buildRuntime` → Hono → `query()` flow end-to-end. Plus the close-out doc work: three prereq boxes flipped (rows 7, 8, 15), three ADR stubs (M6-01 / M6-02 / M6-03), the same-day-predecessor `2026-05-14.md` archived to `docs/state/archive/2026-05-14.md`, a fresh `2026-05-14.md` written for the M6 close-out narrative, the CLAUDE.md / AGENTS.md state-snapshot pointers updated (byte-identical mirror preserved). The previously-untracked M6 implementation plan (`docs/plans/2026-05-14-phase-16-1-m6-long-session.md`) lands as part of this commit chain per the close-out discipline.
