@@ -30,11 +30,14 @@ import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 /**
- * Wrap a transport so the FIRST non-summarize stream call throws an overflow
- * error (caught inside `query()` and surfaced as `Terminal.error`), and every
- * subsequent non-summarize call passes through. Summarize-shaped calls
- * (detected by the `compressionSystemPrompt()` text in `req.system`) always
- * pass through so `runtime.compact()` can run normally during recovery.
+ * Factory: wrap a transport so non-summarize stream calls THROW an overflow
+ * when `shouldThrow(mainCalls)` returns true, and otherwise pass through to
+ * `inner`. Summarize-shaped calls (detected by the exact `compressionSystem
+ * Prompt()` text in `req.system`) always pass through so `runtime.compact()`
+ * can run normally — only the model's primary calls participate in the throw
+ * decision. `mainCalls` is the 1-indexed count of NON-summarize calls so far
+ * (incremented BEFORE `shouldThrow` is invoked, so the first main call is
+ * `n === 1`).
  *
  * The overflow-detection test in `src/providers/errors.ts:81` is string-based
  * (no `ContextOverflowError` class exists in the codebase), so we throw a
@@ -43,8 +46,9 @@ import { buildRuntime } from '../../src/server/runtime.js';
  * a real provider's HTTP-413 / OpenAI-style `context_length_exceeded` body
  * would surface as after string-coercion.
  */
-function wrapTransportWithOverflowOnce<T extends Transport>(
+function wrapTransportWithOverflow<T extends Transport>(
   inner: T,
+  shouldThrow: (mainCalls: number) => boolean,
 ): {
   transport: T;
   callCounter: () => { mainCalls: number; summarizeCalls: number };
@@ -66,10 +70,10 @@ function wrapTransportWithOverflowOnce<T extends Transport>(
         return yield* inner.stream(req);
       }
       mainCalls += 1;
-      if (mainCalls === 1) {
-        // First model turn — surface an overflow. Thrown from inside the
-        // async generator, caught at `src/core/query.ts:156-164`, surfaced
-        // back to the route via `Terminal { reason: 'error', error }`.
+      if (shouldThrow(mainCalls)) {
+        // Surface an overflow. Thrown from inside the async generator, caught
+        // at `src/core/query.ts:156-164`, surfaced back to the route via
+        // `Terminal { reason: 'error', error }`.
         throw new Error('context length exceeded by 12000 tokens');
       }
       return yield* inner.stream(req);
@@ -81,43 +85,17 @@ function wrapTransportWithOverflowOnce<T extends Transport>(
   };
 }
 
-/**
- * Wrap a transport so EVERY non-summarize call throws an overflow. Used to
- * pin the "second overflow → turn_error, no further retry" half of the M6-02
- * retry-once contract. Summarize calls still pass through so the recovery
- * attempt's `runtime.compact()` can run; the second `query()` then fails
- * with overflow again, which the route must NOT recover from a second time.
- */
-function wrapTransportWithOverflowAlways<T extends Transport>(
-  inner: T,
-): {
-  transport: T;
-  callCounter: () => { mainCalls: number; summarizeCalls: number };
-} {
-  const compressionPrompt = compressionSystemPrompt();
-  let mainCalls = 0;
-  let summarizeCalls = 0;
-  const wrapped: Transport = {
-    name: inner.name,
-    apiMode: inner.apiMode,
-    toProviderMessages: inner.toProviderMessages.bind(inner),
-    toProviderTools: inner.toProviderTools.bind(inner),
-    buildKwargs: inner.buildKwargs.bind(inner),
-    normalizeResponse: inner.normalizeResponse.bind(inner),
-    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
-      if (isSummarizeCall) {
-        summarizeCalls += 1;
-        return yield* inner.stream(req);
-      }
-      mainCalls += 1;
-      throw new Error('context length exceeded by 12000 tokens');
-    },
-  };
-  return {
-    transport: wrapped as T,
-    callCounter: () => ({ mainCalls, summarizeCalls }),
-  };
+/** First non-summarize call throws overflow; rest pass through. */
+function wrapTransportWithOverflowOnce<T extends Transport>(inner: T) {
+  return wrapTransportWithOverflow(inner, (n) => n === 1);
+}
+
+/** Every non-summarize call throws overflow. Pins the second-overflow → turn_error
+ *  half of the M6-02 retry-once contract — the retry's compact runs (summarize
+ *  passes through) but the second main call also throws, and the route must NOT
+ *  recover a second time. */
+function wrapTransportWithOverflowAlways<T extends Transport>(inner: T) {
+  return wrapTransportWithOverflow(inner, () => true);
 }
 
 describe('turns route — overflow recovery (M6 T4)', () => {
@@ -262,6 +240,119 @@ describe('turns route — overflow recovery (M6 T4)', () => {
       const counts = wrapped.callCounter();
       expect(counts.mainCalls).toBe(2);
       expect(counts.summarizeCalls).toBeGreaterThanOrEqual(1);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  // Proactive + recovery interaction (Path A — independent budgets). The
+  // proactive block (M6 T3) and the overflow recovery branch (M6 T4) fire
+  // INDEPENDENTLY: there is no per-turn semaphore that blocks one once the
+  // other has run. This mirrors `terminalRepl.ts:1660` where the
+  // `retriedAfterCompact` flag guards ONLY the recovery retry — a proactive
+  // compaction earlier in the same turn does NOT prevent the recovery hop
+  // from firing if `query()` then throws overflow. Pinning this contract here
+  // so future "DRY the compaction logic" refactors don't accidentally collapse
+  // both compactions onto a single per-turn flag and silently regress the TUI
+  // session-pivot semantics (it expects to handle TWO `compaction_complete`
+  // events per turn in this scenario, each with a fresh `activeSessionId`).
+  test('fires both proactive and recovery compactions in the same turn', async () => {
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      // Same threshold mechanics as turns.proactiveCompact.test.ts: 0.02 of
+      // 200_000 = 4_000 tokens — comfortably above the mock's ~2,200-token
+      // system prompt (so the self-guard at compactor.ts:177-183 doesn't trip)
+      // but small enough that the seeded large history below trips the
+      // overall limit and `shouldCompactProactively` returns true.
+      proactiveCompactThreshold: 0.02,
+    });
+    try {
+      // Wrap so the proactive's summarize call passes through (mainCalls is
+      // not incremented for summarize), then the FIRST post-proactive main
+      // call throws overflow → triggers the recovery branch. The recovery's
+      // own summarize call also passes through, and the SECOND main call
+      // (the recovery retry) succeeds. Net: 2 summarize + 2 main calls.
+      const wrapped = wrapTransportWithOverflowOnce(runtime.resolvedProvider.transport);
+      runtime.resolvedProvider.transport = wrapped.transport;
+
+      const app = buildAppWithRuntime(runtime);
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // Seed enough prior history that system + messages > 4_000 tokens (~12
+      // KB of text per side). Same shape as the T3 test so the proactive
+      // probe definitely returns true on this turn.
+      const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: `prior turn: ${filler}` }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: `prior reply: ${filler}` }],
+      });
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'next turn' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      expect(eventsRes.status).toBe(200);
+      const body = await eventsRes.text();
+
+      // Both compactions fired and the turn ultimately completed normally.
+      // No turn_error — the recovery retry succeeded.
+      expect(body).toContain('event: compaction_complete');
+      expect(body).toContain('event: turn_complete');
+      expect(body).not.toContain('event: turn_error');
+
+      // EXACTLY two compaction_complete events on the wire — one from the
+      // proactive block, one from the recovery branch. A regression that
+      // collapsed both onto a single per-turn semaphore would land here as
+      // either 1 (recovery suppressed) or, in a runaway loop, more than 2.
+      const compactionMatches = body.match(/event: compaction_complete/g) ?? [];
+      expect(compactionMatches.length).toBe(2);
+
+      // Lineage chain: parent → proactiveChild → recoveryChild. Two distinct
+      // rows because each compactSession() call records its own. The
+      // proactive child becomes the parent for the recovery row (the local
+      // `let sessionId` was reassigned to it before the recovery's compact
+      // ran — see Path A note in turns.ts).
+      const proactiveLineage = runtime.sessionDb.getCompactionsForParent(sessionId);
+      expect(proactiveLineage.length).toBe(1);
+      const proactiveChildId = proactiveLineage[0]?.childSessionId;
+      expect(typeof proactiveChildId).toBe('string');
+      expect(proactiveChildId).not.toBe(sessionId);
+
+      const recoveryLineage = runtime.sessionDb.getCompactionsForParent(proactiveChildId ?? '');
+      expect(recoveryLineage.length).toBe(1);
+      const recoveryChildId = recoveryLineage[0]?.childSessionId;
+      expect(typeof recoveryChildId).toBe('string');
+      expect(recoveryChildId).not.toBe(proactiveChildId);
+      expect(recoveryChildId).not.toBe(sessionId);
+
+      // Both child ids surface on the wire as activeSessionId payloads. The
+      // TUI consumer reads compaction_complete events in order and pivots to
+      // the LATEST activeSessionId — so the recovery child id must be present
+      // somewhere in the SSE body.
+      expect(body).toContain(`"activeSessionId":"${proactiveChildId}"`);
+      expect(body).toContain(`"activeSessionId":"${recoveryChildId}"`);
+
+      // Call-count sanity: 2 summarize calls (one per compaction) and exactly
+      // 2 main calls (the overflow-throwing first call after proactive + the
+      // successful recovery retry). A third main call would mean the route
+      // ran a second recovery retry — a regression of the M6-02 retry-once
+      // contract under the proactive-precedes-recovery scenario.
+      const counts = wrapped.callCounter();
+      expect(counts.mainCalls).toBe(2);
+      expect(counts.summarizeCalls).toBeGreaterThanOrEqual(2);
     } finally {
       await runtime.dispose();
     }

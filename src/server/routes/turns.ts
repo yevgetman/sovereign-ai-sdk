@@ -21,7 +21,7 @@
 
 import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
-import { shouldCompactProactively } from '../../compact/compactor.js';
+import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { loadPermissionSettings } from '../../config/settings.js';
 import { query } from '../../core/query.js';
 import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../core/types.js';
@@ -44,6 +44,34 @@ type PendingToolUse = {
   input: unknown;
   renderHint: RenderHint;
 };
+
+/** Publish a `compaction_complete` SSE event for the given parent → child hop.
+ *
+ *  Field-ordering invariant: `sessionId` carries the PARENT id (the one the
+ *  client subscribed against) and `activeSessionId` carries the new child id
+ *  the rest of the turn pivots onto. Callers MUST publish under the parent id
+ *  BEFORE reassigning their local `sessionId` let to the child — otherwise the
+ *  TUI never learns of the hop and continues POSTing onto the stale parent.
+ *
+ *  Three call sites in M6: T3 (proactive block, before query() runs), T4
+ *  (overflow recovery branch, between the two runOnce calls), and T5 (the
+ *  POST /sessions/:id/compact route — explicit user-driven compaction). All
+ *  three share the same wire shape so the TUI handles them uniformly. */
+function publishCompactionComplete(
+  bus: ServerEventBus,
+  parentSessionId: string,
+  result: CompactResult,
+): void {
+  bus.publish({
+    type: 'compaction_complete',
+    seq: bus.nextSeq(),
+    sessionId: parentSessionId,
+    activeSessionId: result.newSessionId,
+    summary: result.summary,
+    estimatedBeforeTokens: result.estimatedBeforeTokens,
+    estimatedAfterTokens: result.estimatedAfterTokens,
+  });
+}
 
 export function turnsRoute(runtime: Runtime): Hono {
   const r = new Hono();
@@ -159,6 +187,16 @@ async function runTurnInBackground(
     // promise rejection — the route's invariant ("runTurnInBackground
     // catches its own errors and publishes them as turn_error events") must
     // hold for compaction failures too.
+    //
+    // Per-turn compaction budget: this proactive hop and the M6 T4 overflow
+    // recovery branch below are INDEPENDENT — both can fire in the same turn
+    // if proactive succeeds but the post-proactive query() still surfaces an
+    // overflow (e.g., the freshly-compacted context plus a runaway tool loop
+    // pushes back over the limit). Mirrors terminalRepl.ts: the `retriedAfter
+    // Compact` flag at :1660 guards ONLY the recovery retry, not all
+    // compactions per turn. TUI consumers must therefore handle TWO
+    // `compaction_complete` events per turn (each with a distinct
+    // `activeSessionId`) and pivot to the latest one.
     if (
       shouldCompactProactively({
         messages,
@@ -168,15 +206,7 @@ async function runTurnInBackground(
       })
     ) {
       const result = await runtime.compact(messages, sessionId, bus.abortSignal);
-      bus.publish({
-        type: 'compaction_complete',
-        seq: bus.nextSeq(),
-        sessionId,
-        activeSessionId: result.newSessionId,
-        summary: result.summary,
-        estimatedBeforeTokens: result.estimatedBeforeTokens,
-        estimatedAfterTokens: result.estimatedAfterTokens,
-      });
+      publishCompactionComplete(bus, sessionId, result);
       sessionId = result.newSessionId;
       // The child's persisted state (summary + tail) is now the source of
       // truth for the model. Reload from the DB rather than mutating
@@ -234,6 +264,11 @@ async function runTurnInBackground(
     // events under whatever the current sessionId is at the moment of the
     // ask, which is the POST-COMPACTION id post-retry).
     const runOnce = async (currentMessages: Message[]): Promise<Terminal | undefined> => {
+      // Reads outer `sessionId` let — the recovery branch reassigns it between
+      // calls. Do not shadow with a local `const sessionId = …` inside this
+      // closure; doing so would silently break the recovery hop (the second
+      // runOnce would still target the parent session id instead of the
+      // post-compaction child).
       // Cancel the in-flight provider stream + tool loop when the bus is
       // disposed (SSE client disconnect or server.stop()). The bus aborts
       // on close(); query() propagates the signal to the provider's
@@ -336,17 +371,19 @@ async function runTurnInBackground(
     // (mapTerminalReason maps reason: 'error' → finishReason: 'error',
     // which the TUI surfaces as a turn-level error to the user) — we
     // intentionally do NOT recurse into a second compact + retry.
+    //
+    // Per-turn compaction budget (Path A): this branch fires INDEPENDENTLY
+    // of the proactive block above. If proactive ALREADY compacted earlier
+    // in this turn, this recovery hop still runs — the local `sessionId` at
+    // that point is the post-proactive child id, so the recovery's
+    // `compaction_complete` carries that child as the parent and a NEW
+    // grandchild as the activeSessionId. Mirrors terminalRepl.ts's
+    // `retriedAfterCompact` flag at :1660, which guards ONLY this recovery
+    // retry (not all per-turn compactions). The third test in
+    // tests/server/turns.overflowRecovery.test.ts pins the two-event shape.
     if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
       const compactResult = await runtime.compact(messages, sessionId, bus.abortSignal);
-      bus.publish({
-        type: 'compaction_complete',
-        seq: bus.nextSeq(),
-        sessionId,
-        activeSessionId: compactResult.newSessionId,
-        summary: compactResult.summary,
-        estimatedBeforeTokens: compactResult.estimatedBeforeTokens,
-        estimatedAfterTokens: compactResult.estimatedAfterTokens,
-      });
+      publishCompactionComplete(bus, sessionId, compactResult);
       sessionId = compactResult.newSessionId;
       messages = hydrate();
       terminal = await runOnce(messages);
