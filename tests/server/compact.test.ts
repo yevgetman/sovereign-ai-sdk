@@ -27,8 +27,41 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { compressionSystemPrompt } from '../../src/compact/compactor.js';
+import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { ProviderRequest, Transport } from '../../src/providers/types.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
+
+/**
+ * Wraps an existing transport so the summarize-shaped call (detected by the
+ * exact `compressionSystemPrompt()` text in `req.system`) throws while every
+ * other call passes through. Lets the 500 test exercise the route's catch
+ * branch without disturbing any other provider invocation in this file or
+ * test run. Mirrors the same-named helper in
+ * `tests/server/turns.proactiveCompact.test.ts:51-69` — inlined here rather
+ * than extracted because two call sites doesn't justify the cross-file
+ * coupling yet (extract on the third caller per YAGNI).
+ */
+function wrapTransportWithFailingSummarize<T extends Transport>(inner: T): T {
+  const compressionPrompt = compressionSystemPrompt();
+  const wrapped: Transport = {
+    name: inner.name,
+    apiMode: inner.apiMode,
+    toProviderMessages: inner.toProviderMessages.bind(inner),
+    toProviderTools: inner.toProviderTools.bind(inner),
+    buildKwargs: inner.buildKwargs.bind(inner),
+    normalizeResponse: inner.normalizeResponse.bind(inner),
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
+      if (isSummarizeCall) {
+        throw new Error('mock summarizer failure');
+      }
+      return yield* inner.stream(req);
+    },
+  };
+  return wrapped as T;
+}
 
 describe('POST /sessions/:id/compact (M6 T5)', () => {
   let home: string;
@@ -138,9 +171,101 @@ describe('POST /sessions/:id/compact (M6 T5)', () => {
       });
       expect(res.status).toBe(404);
 
+      // Body shape MUST match sessions.ts (:41, :54) — `{ error: 'not found' }`
+      // with no echoed sessionId. Pinning the exact string keeps the wire
+      // contract aligned across sibling 404s; a future drift to a different
+      // message would land here as a regression.
+      const body = (await res.json()) as { error?: string; sessionId?: string };
+      expect(body.error).toBe('not found');
+      expect(body.sessionId).toBeUndefined();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('returns 400 for an invalid session id', async () => {
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+
+      // 'bad id!' contains characters outside [A-Za-z0-9_-] so
+      // isValidSessionId rejects it before any sessionDb lookup. Mirrors
+      // the canonical 400 pattern from sessions.test.ts:80-97 — same
+      // sibling-route validator, same rejected-character rationale.
+      const res = await app.request('/sessions/bad%20id!/compact', {
+        method: 'POST',
+      });
+      expect(res.status).toBe(400);
+
       const body = (await res.json()) as { error?: string };
-      expect(typeof body.error).toBe('string');
-      expect((body.error ?? '').length).toBeGreaterThan(0);
+      expect(body.error).toBe('invalid session id');
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('returns 500 with a JSON error body when runtime.compact() throws', async () => {
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+    });
+    try {
+      // Wrap the resolved transport so the summarize-shaped call (detected
+      // by the exact `compressionSystemPrompt()` text in `req.system`)
+      // throws. compactSession then rejects, runtime.compact propagates the
+      // error, and the route's catch lands a 500 — exactly the hazard
+      // surface this test is here to pin. Pass-through on every other call
+      // keeps the wrapper drop-in compatible with any other in-runtime
+      // provider invocation.
+      runtime.resolvedProvider.transport = wrapTransportWithFailingSummarize(
+        runtime.resolvedProvider.transport,
+      );
+
+      const app = buildAppWithRuntime(runtime);
+
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // Seed a non-empty history so the route hydrates and reaches the
+      // runtime.compact() call (the summarize path inside compactSession is
+      // what throws). An empty history would still reach compact() — the
+      // throw site is in the summarize callback — but a real transcript
+      // mirrors the happy-path test setup and keeps this test honest about
+      // which code path the catch is rescuing.
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: 'first user turn body for compaction input' }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'first assistant reply containing facts' }],
+      });
+
+      const compactRes = await app.request(`/sessions/${sessionId}/compact`, {
+        method: 'POST',
+      });
+      expect(compactRes.status).toBe(500);
+
+      const body = (await compactRes.json()) as { error?: string };
+      // The route surfaces the thrown Error's message verbatim. Pinning
+      // the exact string ensures the catch isn't accidentally swallowing
+      // the failure detail (e.g. via a generic 'compaction failed' label).
+      expect(body.error).toBe('mock summarizer failure');
+
+      // No lineage row — compactSession threw before recordCompactionLineage,
+      // so the parent must show zero compactions even though the route was
+      // invoked. Confirms the 500 path didn't accidentally persist partial
+      // state.
+      const lineage = runtime.sessionDb.getCompactionsForParent(sessionId);
+      expect(lineage.length).toBe(0);
     } finally {
       await runtime.dispose();
     }

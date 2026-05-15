@@ -9,10 +9,13 @@
 // Response codes:
 //   200 — { activeSessionId, parentSessionId, summary,
 //           estimatedBeforeTokens, estimatedAfterTokens, usedAuxiliary }
-//   400 — invalid session id shape (matches sessions.ts validation)
-//   404 — valid-shaped id but not in sessionDb
+//   400 — invalid session id shape (matches sessions.ts validation):
+//          body `{ error: 'invalid session id' }`
+//   404 — valid-shaped id but not in sessionDb:
+//          body `{ error: 'not found' }` (matches sessions.ts envelope —
+//          sibling routes return the same shape, no echoed sessionId)
 //   500 — runtime.compact() threw (summarizer failure, db write failure,
-//          auxiliary 429, etc.); body { error }
+//          auxiliary 429, etc.); body `{ error: <message> }`
 //
 // Why parentSessionId is on the response (not in the wire SSE event):
 // the TUI invokes this route directly — having the input id echoed back
@@ -40,7 +43,10 @@ export function compactRoute(runtime: Runtime): Hono {
     }
     const session = runtime.sessionDb.getSession(sessionId);
     if (session === null) {
-      return c.json({ error: 'session not found', sessionId }, 404);
+      // Align with sessions.ts (:41, :54) — same wire shape across sibling
+      // routes. The TUI / scripts already know which sessionId they POSTed
+      // against, so echoing it back was redundant.
+      return c.json({ error: 'not found' }, 404);
     }
 
     // Same hydrate shape the turns route uses (turns.ts:166-172) — the cast
