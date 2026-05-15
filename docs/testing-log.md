@@ -46,6 +46,27 @@ Implementation backlogs from these findings live in
 
 **Status:** GREEN. M7 T6 closed.
 
+### Follow-up: I1 + M1 cleanup
+
+Code-quality review flagged one Important issue + one Minor bundle on the T6 commit (40032e1):
+
+- **I1 (Important) — `onUserTurn` missing from server turns route.** Per `src/review/manager.ts:163-182`, `ReviewManager.onUserTurn(callerSessionId)` is the only call site that increments `userTurnsSince` (gating `userTurnsForMemoryReview` default 10) and `synthesizerSince` (gating `synthesizerEveryN` default 20). The server turns route never called it. Result: those two user-tunable settings were silently inert in server mode — only `onToolIteration` (via orchestrator) and `onChildCompletion` (via scheduler) were firing. terminalRepl wires `onUserTurn` at three sites (`src/ui/terminalRepl.ts:1126,1283,1290`); the M7 T6 plan goal text literally said "Triggers fire from existing in-process call sites (orchestrator's onToolIteration, scheduler's onChildCompletion, turns route's onUserTurn)" — the executable steps just didn't enumerate it.
+
+  Fix: added `sessionCtx.reviewManager?.onUserTurn(sessionId);` inside `runTurnInBackground` immediately after the user-message persist (`runtime.sessionDb.saveMessage(...)`) and before the `hydrate()` call, using the existing `sessionCtx` binding T3 already declared. Optional-chain keeps it a no-op when review is disabled. Same semantic moment as terminalRepl (right after persisting the user's message, before the model turn).
+
+- **M1 (Minor) — `as ToolContext` cast at `src/server/sessionContext.ts:178`.** Tried dropping it; typecheck clean. The literal already contained all required `ToolContext` fields (`cwd`, `sessionId`, plus the optional ones the scheduler spreads). Dropped the cast AND the now-unused `import type { ToolContext } from '../tool/types.js'` (tsc TS6133 surfaced the dead import). Net: `as ToolContext,` → `,` plus the import line removed.
+
+- **Test added:** 4th test in `tests/server/turns.review.test.ts` — `POST /sessions/:id/turns invokes reviewManager.onUserTurn`. Spy-based wiring check (preferred over a brittle scheduler-dispatch assertion): builds an in-process app via `buildAppWithRuntime`, creates a session, fetches the cached `SessionContext`, monkey-patches `ctx.reviewManager.onUserTurn` to record calls (delegating to original via `bind`), POSTs a turn, drains SSE. Asserts `calls === [sessionId]` — exactly one invocation with the right id. Doesn't depend on agent fixtures or scheduler internals.
+
+**Pre-commit gate:**
+- `bun run lint` — exit 0. Two pre-existing warnings on `src/permissions/shellSemantics.ts` survive (unrelated). Own changes clean.
+- `bun run typecheck` — clean (after dropping the now-unused `ToolContext` import).
+- `bun run test` — `1964 pass, 0 fail, 4921 expect()` in 45.05s. Baseline 1963 → 1964; +1 new test in the T6 suite.
+
+**Tests added:** 1 (1963 → 1964).
+
+**Status:** GREEN. I1 + M1 closed.
+
 ## 2026-05-15 — Phase 16.1 M7 T5 — learning observer wired into ToolContext
 
 **Scope:** Fifth task of M7 (Hermes-layer parity group). Closes prereq row 12 by hoisting the per-session `LearningObserver` onto `SessionContext` (constructed in `buildSessionContext`, drained in `disposeSessionContext`) and threading it through `ToolContext.learningObserver` so the orchestrator's existing `ctx.learningObserver?.observe(...)` call after every tool call (src/core/orchestrator.ts:581 — M7-04 direct-call pattern, not bus-subscribed) writes observation records into `<harnessHome>/learning/<projectId>/observations.jsonl`. Settings cascade is honored — `userSettings.learning.disabled === true` leaves the field undefined (orchestrator becomes a no-op; no observations.jsonl ever produced) and `userSettings.learning.observationBufferSize` is forwarded into the observer constructor. Drain happens at disposal time (step 2 of the disposal sequence, after trace close, before trajectory write) with a try/catch and `[sessionContext]` log prefix matching the T4 carry-forward.

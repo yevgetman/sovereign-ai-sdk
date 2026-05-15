@@ -23,6 +23,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { __test_resetProjectIdCache } from '../../src/learning/project.js';
+import { MockProvider } from '../../src/providers/mock.js';
+import { buildAppWithRuntime } from '../../src/server/app.js';
 import { ServerEventBus } from '../../src/server/eventBus.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { ServerEvent } from '../../src/server/schema.js';
@@ -36,6 +38,9 @@ describe('turns route — review manager (M7 T6)', () => {
   });
 
   afterEach(() => {
+    MockProvider.toolUseMode = false;
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
     // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
     delete process.env.HARNESS_CONFIG;
     rmSync(tmpHome, { recursive: true, force: true });
@@ -127,6 +132,66 @@ describe('turns route — review manager (M7 T6)', () => {
         expect(summary.totalDispatched).toBe(0);
         expect(summary.byAgent).toEqual({});
       }
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  // M7 T6 follow-up (review I1) — the turns route must invoke
+  // reviewManager.onUserTurn(sessionId) on every user prompt. Without this
+  // wiring, two user-tunable settings (review.userTurnsForMemoryReview and
+  // learning.synthesizerEveryN) are silently inert in server mode because
+  // their counters never increment. Mirrors terminalRepl.ts:1283,1290.
+  //
+  // Spy-based assertion (preferred over a real scheduler-dispatch test): we
+  // monkey-patch onUserTurn on the live ReviewManager instance before firing
+  // the turn, then assert it was called with the session id. Dispatch
+  // internals (and the `review-memory` agent fixture availability) stay out
+  // of scope — we only verify the wire is connected.
+  test('POST /sessions/:id/turns invokes reviewManager.onUserTurn', async () => {
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    const runtime = await buildRuntime({
+      cwd: tmpHome,
+      harnessHome: tmpHome,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+    });
+
+    try {
+      const app = buildAppWithRuntime(runtime);
+
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // Build the SessionContext up-front so the ReviewManager exists before
+      // the spy is installed. runTurnInBackground also calls
+      // getSessionContext, but it returns the cached instance (lazy-build).
+      const ctx = runtime.getSessionContext(sessionId);
+      expect(ctx.reviewManager).toBeDefined();
+
+      const calls: string[] = [];
+      const original = ctx.reviewManager?.onUserTurn.bind(ctx.reviewManager);
+      // biome-ignore lint/style/noNonNullAssertion: guarded by the expect above.
+      ctx.reviewManager!.onUserTurn = (callerSessionId: string) => {
+        calls.push(callerSessionId);
+        original?.(callerSessionId);
+      };
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hello' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      // Drain SSE so the background turn completes deterministically.
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      expect(eventsRes.status).toBe(200);
+      await eventsRes.text();
+
+      expect(calls).toEqual([sessionId]);
     } finally {
       await runtime.dispose();
     }

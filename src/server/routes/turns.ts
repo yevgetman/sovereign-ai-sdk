@@ -190,6 +190,15 @@ async function runTurnInBackground(
     role: userMessage.role,
     content: userMessage.content,
   });
+  // M7 T6 follow-up (review I1) — fire the review/synthesizer user-turn trigger
+  // exactly once per user prompt, at the same semantic moment terminalRepl
+  // does (src/ui/terminalRepl.ts:1126,1283,1290): right after persisting the
+  // user's message, before the model run. This is the only call site that
+  // increments userTurnsSince / synthesizerSince — without it, the user-tunable
+  // `review.userTurnsForMemoryReview` and `learning.synthesizerEveryN`
+  // settings are silently inert in server mode. The optional-chain handles
+  // the review-disabled case (reviewManager undefined → no-op).
+  sessionCtx.reviewManager?.onUserTurn(sessionId);
   // Hydrate the model's context with the full conversation history
   // (including the user message we just persisted). T9 hydrates the TUI
   // transcript visually on resume; this is the model-side companion.

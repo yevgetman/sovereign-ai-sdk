@@ -24,7 +24,6 @@ import { LearningObserver } from '../learning/observer.js';
 import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
 import { ReviewManager } from '../review/manager.js';
-import type { ToolContext } from '../tool/types.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
 import type { ServerEventBus } from './eventBus.js';
@@ -175,7 +174,7 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           subagentScheduler: runtime.subagentScheduler,
           taskManager: runtime.taskManager,
           parentToolPool: runtime.toolPool,
-        } as ToolContext,
+        },
         enabled: true,
         traceRecorder: (event) => traceWriter.record(event),
         projectIdentity: () => getProjectId(runtime.cwd),
