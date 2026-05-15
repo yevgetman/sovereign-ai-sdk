@@ -43,13 +43,6 @@ type messagesFetchedMsg struct {
 	err      error
 }
 
-// compactRequestedMsg fires when the user types `/compact` and presses
-// ENTER. Update appends a dim "[compacting…]" placeholder, then runs
-// compactCmd to POST /sessions/:id/compact. On success the response's
-// activeSessionId becomes m.sessionID (subsequent turn POSTs hit the
-// new session). M6 T6.
-type compactRequestedMsg struct{}
-
 // compactCompleteMsg carries the synchronous /compact route's response.
 // activeSessionID is the new child session id (subsequent POST /turns
 // route to it). summary is the compaction summary text — currently
@@ -191,12 +184,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// POST /turns dispatch. The user-visible echo + clear still
 			// happens (so the input doesn't sit in the prompt) but we
 			// route to the synchronous /compact HTTP verb instead of
-			// sending the literal string as a turn. The compactRequestedMsg
-			// branch below renders the placeholder + kicks off the POST.
+			// sending the literal string as a turn. Render the dim
+			// placeholder so the user sees feedback during the
+			// same-provider summarize wait (can take several seconds);
+			// the compactCompleteMsg / compactErrorMsg branches replace
+			// it with the result marker.
 			if text == "/compact" {
 				m.transcript.AppendLine("» " + text)
 				m.prompt.Clear()
-				return m, func() tea.Msg { return compactRequestedMsg{} }
+				dimStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#6e7681")).
+					Italic(true)
+				m.transcript.AppendLine(dimStyle.Render("[compacting…]"))
+				return m, m.compactCmd()
 			}
 			m.transcript.AppendLine("» " + text)
 			m.prompt.Clear()
@@ -264,17 +264,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// /sessions/:id/approvals/:requestId and resumes the paused turn.
 		m.permission = nil
 		return m, m.postApproval(msg)
-	case compactRequestedMsg:
-		// M6 T6: render a dim placeholder so the user sees feedback during
-		// the same-provider summarize wait (can take several seconds), then
-		// kick off the synchronous POST. The compactCompleteMsg /
-		// compactErrorMsg branches replace the placeholder with the result
-		// marker. Mirrors the "…thinking" placeholder pattern from ENTER.
-		dimStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6e7681")).
-			Italic(true)
-		m.transcript.AppendLine(dimStyle.Render("[compacting…]"))
-		return m, m.compactCmd()
 	case compactCompleteMsg:
 		// M6 T6: pop the placeholder and pivot the session id. Subsequent
 		// POST /turns hit the new child session — the SSE stream stays on
@@ -288,11 +277,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Truncate the new id to 8 chars in the user marker — full uuid is
 		// noise; the prefix is enough to disambiguate. M9 owns the styled
 		// "compaction summary" card that will render the full id + summary.
-		shortID := msg.activeSessionID
-		if len(shortID) > 8 {
-			shortID = shortID[:8]
-		}
-		m.transcript.AppendLine(dim.Render(fmt.Sprintf("─ compacted — new session %s", shortID)))
+		m.transcript.AppendLine(dim.Render(fmt.Sprintf("─ compacted — new session %s", shortSessionID(msg.activeSessionID))))
 		return m, nil
 	case compactErrorMsg:
 		// M6 T6: pop the placeholder and surface the failure. The session
@@ -420,14 +405,10 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		}
 		m.clearThinkingIfPending()
 		m.sessionID = cc.ActiveSessionID
-		shortID := cc.ActiveSessionID
-		if len(shortID) > 8 {
-			shortID = shortID[:8]
-		}
 		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
 		m.transcript.AppendLine(dim.Render(fmt.Sprintf(
 			"─ auto-compacted — %d→%d tokens — new session %s",
-			cc.EstimatedBeforeTokens, cc.EstimatedAfterTokens, shortID,
+			cc.EstimatedBeforeTokens, cc.EstimatedAfterTokens, shortSessionID(cc.ActiveSessionID),
 		)))
 	}
 }
@@ -444,6 +425,16 @@ func (m *Model) clearThinkingIfPending() {
 	}
 	m.transcript.RemoveLastLine()
 	m.thinkingPending = false
+}
+
+// shortSessionID returns the first 8 chars of a session id, or the full
+// id if shorter. Production session ids are UUIDs so the truncation
+// always fires; the guard is defense against a future short-id format.
+func shortSessionID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 func (m Model) View() string {

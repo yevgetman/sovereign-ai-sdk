@@ -389,10 +389,10 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 	const childID = "child-session"
 
 	var (
-		mu             sync.Mutex
-		turnPostsPath  []string
-		eventsServed   bool
-		eventsServedCh = make(chan struct{})
+		mu               sync.Mutex
+		turnPostsPath    []string
+		eventsServedOnce sync.Once
+		eventsServedCh   = make(chan struct{})
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/turns") {
@@ -420,12 +420,7 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 		payload := fmt.Sprintf("event: compaction_complete\nid: 1\ndata: {\"type\":\"compaction_complete\",\"seq\":1,\"sessionId\":\"%s\",\"activeSessionId\":\"%s\",\"summary\":\"auto\",\"estimatedBeforeTokens\":1000,\"estimatedAfterTokens\":50}\n\n", parentID, childID)
 		fmt.Fprint(w, payload)
 		flusher.Flush()
-		mu.Lock()
-		if !eventsServed {
-			eventsServed = true
-			close(eventsServedCh)
-		}
-		mu.Unlock()
+		eventsServedOnce.Do(func() { close(eventsServedCh) })
 		<-r.Context().Done()
 	}))
 	defer srv.Close()
