@@ -27,7 +27,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { compressionSystemPrompt } from '../../src/compact/compactor.js';
+import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import { MockProvider } from '../../src/providers/mock.js';
+import type { ProviderRequest, Transport } from '../../src/providers/types.js';
+import type { Runtime, RuntimeOptions } from '../../src/server/runtime.js';
 import { type ServerEvent, parseServerEvent } from '../../src/server/schema.js';
 
 // Empirically: server bind on loopback takes <10ms on a typical macOS
@@ -564,6 +568,547 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
     // and turn_error must not.
     expect(sse.events.find((e) => e.event === 'turn_complete')).toBeDefined();
     expect(sse.events.find((e) => e.event === 'turn_error')).toBeUndefined();
+
+    const code = await launchPromise;
+    expect(code).toBe(0);
+  }, 15_000);
+});
+
+// Phase 16.1 M6 T7 — integration smoke for the three long-session-survival
+// subsystems (microcompaction, proactive compaction, overflow recovery).
+// Each scenario boots `runTuiLauncher` with a real `buildRuntime` (mock
+// provider) + real Hono server on a free port, then drives a turn end-to-end
+// over HTTP. The mocked spawn keeps the child parked for ~5s so the test
+// can POST + drain SSE before the launcher settles.
+//
+// Why we wrap `buildRuntime`: the launcher doesn't expose injection seams
+// for `microcompactConfig`, `proactiveCompactThreshold`, or transport
+// overrides — those live on `RuntimeOptions` for unit-test convenience but
+// the launcher's CLI-shaped opts bag doesn't forward them. We mock the
+// runtime module so each test can (a) override RuntimeOptions before
+// `buildRuntime` runs and (b) capture the produced runtime via a module-
+// level holder so the test can mutate `runtime.resolvedProvider.transport`
+// or seed `runtime.sessionDb` before the test's POST /turns.
+//
+// The wrapping is layered on top of the M5 suite's defensive re-pin so the
+// real runtime modules are still the source — we wrap the production
+// `buildRuntime` rather than replacing it wholesale.
+
+/** Holder shape: tests register a `pre` hook to mutate `RuntimeOptions`
+ *  before the wrapped `buildRuntime` runs, and a `post` hook to mutate
+ *  the produced `Runtime` before the launcher hands it to `startServer`.
+ *  Both hooks fire once per `buildRuntime` call (the launcher only calls
+ *  it once) and are reset in `afterEach`. */
+type RuntimeWrapHooks = {
+  pre?: (opts: RuntimeOptions) => RuntimeOptions;
+  post?: (runtime: Runtime) => void;
+  capturedRuntime?: Runtime;
+};
+
+const m6RuntimeHooks: RuntimeWrapHooks = {};
+
+/** Wraps the real `buildRuntime` so each test can intercept options +
+ *  produced runtime. The real `buildRuntime` function reference is captured
+ *  separately (`realBuildRuntime`) rather than through the module proxy
+ *  because bun's `mock.module()` swaps the module's exports IN PLACE — so
+ *  reading `realModule.buildRuntime` at wrapper-call time would re-enter
+ *  the wrapper and stack-overflow. The function reference captured before
+ *  the M6 mock is installed stays bound to the real implementation. */
+function buildWrappedRuntimeModule(
+  realModule: typeof import('../../src/server/runtime.js'),
+  realBuildRuntime: typeof import('../../src/server/runtime.js').buildRuntime,
+): typeof import('../../src/server/runtime.js') {
+  return {
+    ...realModule,
+    buildRuntime: async (opts: RuntimeOptions): Promise<Runtime> => {
+      const transformed = m6RuntimeHooks.pre?.(opts) ?? opts;
+      const runtime = await realBuildRuntime(transformed);
+      m6RuntimeHooks.capturedRuntime = runtime;
+      m6RuntimeHooks.post?.(runtime);
+      return runtime;
+    },
+  };
+}
+
+/** Wrap an existing transport so non-summarize stream calls THROW an overflow
+ *  the FIRST time. Mirrors `wrapTransportWithOverflowOnce` in
+ *  `tests/server/turns.overflowRecovery.test.ts:89-91` — copied (not extracted)
+ *  because two callers doesn't yet justify a shared `tests/helpers/` module
+ *  per YAGNI; the inner `wrapTransportWithOverflow` factory is the canonical
+ *  shape if a third caller appears. */
+function wrapTransportWithOverflowOnce<T extends Transport>(inner: T): T {
+  const compressionPrompt = compressionSystemPrompt();
+  let mainCalls = 0;
+  const wrapped: Transport = {
+    name: inner.name,
+    apiMode: inner.apiMode,
+    toProviderMessages: inner.toProviderMessages.bind(inner),
+    toProviderTools: inner.toProviderTools.bind(inner),
+    buildKwargs: inner.buildKwargs.bind(inner),
+    normalizeResponse: inner.normalizeResponse.bind(inner),
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      const isSummarizeCall = req.system.some((seg) => seg.text === compressionPrompt);
+      if (isSummarizeCall) {
+        return yield* inner.stream(req);
+      }
+      mainCalls += 1;
+      if (mainCalls === 1) {
+        // Same overflow-shaped error as the unit test in
+        // tests/server/turns.overflowRecovery.test.ts:77 — string-coerced to
+        // match `isContextOverflowError`'s substring check.
+        throw new Error('context length exceeded by 12000 tokens');
+      }
+      return yield* inner.stream(req);
+    },
+  };
+  return wrapped as T;
+}
+
+/** Test transport for the microcompact scenario. The default `MockProvider`
+ *  in `toolUseMode` short-circuits to "done." when the message history
+ *  contains ANY prior tool_result — but the microcompact unit test needs to
+ *  SEED prior tool_results (so there's something to clear) AND have the
+ *  current turn issue another Bash call (so the loop reaches the microcompact
+ *  check after runTools). This narrower transport detects "iteration 1" via
+ *  the LAST message containing a tool_result (rather than ANY message) so
+ *  seeded historical tool_results don't trip the continuation branch.
+ *  Captures every messages array via the static `lastMessages` field by call
+ *  index so the test can assert what query() handed the provider on call N.
+ *  Mirrors `MicrocompactTestProvider` in
+ *  `tests/server/turns.microcompact.test.ts:49-107` — copied here (not
+ *  extracted) per YAGNI; if a third caller surfaces the inner shape lifts to
+ *  `tests/helpers/microcompactTransport.ts`. */
+class MicrocompactSmokeTransport implements Transport {
+  readonly name = 'mock';
+  readonly apiMode = 'anthropic' as const;
+  readonly toolUseId = 'mc-smoke-tool-use-0';
+
+  static callMessages: Array<ReadonlyArray<unknown>> = [];
+
+  static reset(): void {
+    MicrocompactSmokeTransport.callMessages = [];
+  }
+
+  toProviderMessages<M>(messages: M[]): M[] {
+    return messages;
+  }
+
+  toProviderTools<S>(tools?: S[]): S[] | undefined {
+    return tools;
+  }
+
+  buildKwargs(): unknown {
+    return {};
+  }
+
+  // biome-ignore lint/correctness/useYield: body is an unconditional throw; the AsyncGenerator return-type signature is required by the Transport interface.
+  async *normalizeResponse(): AsyncGenerator<StreamEvent, AssistantMessage> {
+    throw new Error('normalizeResponse() unused; this transport implements stream() directly.');
+  }
+
+  async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    MicrocompactSmokeTransport.callMessages.push(req.messages);
+
+    const lastMsg = req.messages[req.messages.length - 1];
+    const isContinuation =
+      lastMsg !== undefined &&
+      lastMsg.role === 'user' &&
+      lastMsg.content.some((b) => b.type === 'tool_result');
+
+    if (isContinuation) {
+      yield { type: 'message_start' };
+      yield { type: 'text_delta', text: 'done.' };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      const assistant: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done.' }],
+      };
+      yield { type: 'assistant_message', message: assistant };
+      return assistant;
+    }
+
+    const toolInput = { command: 'echo mc-smoke' };
+    yield { type: 'message_start' };
+    yield { type: 'tool_use_delta', id: this.toolUseId, partial: toolInput };
+    yield { type: 'message_stop', stop_reason: 'tool_use' };
+    const assistant: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: this.toolUseId, name: 'Bash', input: toolInput }],
+    };
+    yield { type: 'assistant_message', message: assistant };
+    return assistant;
+  }
+}
+
+describe('tuiLauncher integration smoke — M6 long-session survival', () => {
+  let prevSovTuiBin: string | undefined;
+  let prevHarnessHome: string | undefined;
+  let prevCwd: string;
+  let prevMockEnv: string | undefined;
+  let tmpHome: string;
+  let tmpCwd: string;
+  let realRuntimeModule: typeof import('../../src/server/runtime.js');
+  let realBuildRuntime: typeof import('../../src/server/runtime.js').buildRuntime;
+  let realServerModule: typeof import('../../src/server/index.js');
+  let realChildProcessModule: typeof import('node:child_process');
+
+  beforeAll(async () => {
+    realRuntimeModule = await import('../../src/server/runtime.js');
+    // Capture the function reference BEFORE the M6 wrapper is mounted so
+    // the wrapper's recursion into "the real" buildRuntime resolves to the
+    // production implementation rather than re-entering the wrapper.
+    realBuildRuntime = realRuntimeModule.buildRuntime;
+    realServerModule = await import('../../src/server/index.js');
+    realChildProcessModule = await import('node:child_process');
+  });
+
+  beforeEach(() => {
+    prevSovTuiBin = process.env.SOV_TUI_BIN;
+    prevHarnessHome = process.env.HARNESS_HOME;
+    prevMockEnv = process.env.SOV_TEST_MOCK_PROVIDER;
+    prevCwd = process.cwd();
+    tmpHome = mkdtempSync(join(tmpdir(), 'm6-t7-home-'));
+    tmpCwd = mkdtempSync(join(tmpdir(), 'm6-t7-cwd-'));
+    process.env.SOV_TUI_BIN = '/bin/true';
+    process.env.HARNESS_HOME = tmpHome;
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    process.chdir(tmpCwd);
+    // Mount the wrapped runtime module so each test can register pre/post
+    // hooks. The wrapper invokes `realBuildRuntime` directly (a captured
+    // function reference) so the production code path stays load-bearing.
+    mock.module('../../src/server/runtime.js', () =>
+      buildWrappedRuntimeModule(realRuntimeModule, realBuildRuntime),
+    );
+    mock.module('../../src/server/index.js', () => realServerModule);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpCwd, { recursive: true, force: true });
+    if (prevSovTuiBin === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TUI_BIN;
+    } else {
+      process.env.SOV_TUI_BIN = prevSovTuiBin;
+    }
+    if (prevHarnessHome === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.HARNESS_HOME;
+    } else {
+      process.env.HARNESS_HOME = prevHarnessHome;
+    }
+    if (prevMockEnv === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+    } else {
+      process.env.SOV_TEST_MOCK_PROVIDER = prevMockEnv;
+    }
+    MockProvider.toolUseMode = false;
+    // Reset the M6 hooks so the next test starts clean. The captured runtime
+    // is dropped here; the launcher's `runtime.dispose()` already ran on
+    // settle so we don't need to dispose again. `delete` rather than
+    // `= undefined` to satisfy `exactOptionalPropertyTypes`; this mirrors
+    // the `delete process.env.X` pattern the M5 suite uses for the same
+    // reason.
+    // biome-ignore lint/performance/noDelete: exactOptionalPropertyTypes rejects `= undefined` on optional fields.
+    delete m6RuntimeHooks.pre;
+    // biome-ignore lint/performance/noDelete: exactOptionalPropertyTypes rejects `= undefined` on optional fields.
+    delete m6RuntimeHooks.post;
+    // biome-ignore lint/performance/noDelete: exactOptionalPropertyTypes rejects `= undefined` on optional fields.
+    delete m6RuntimeHooks.capturedRuntime;
+    mock.module('node:child_process', () => realChildProcessModule);
+    mock.restore();
+  });
+
+  /** Spawn-mock factory shared with the M5 suite — kept inline here rather
+   *  than extracted so each suite's reset/teardown stays local. The M5 suite
+   *  documents the rationale at length; this is the M6-scoped copy. */
+  function installSpawnMock(delayMs: number): {
+    getSpawnedArgs: () => string[] | null;
+    getServerPort: () => number | null;
+  } {
+    let spawnedArgs: string[] | null = null;
+    let serverPort: number | null = null;
+    mock.module('node:child_process', () => ({
+      ...realChildProcessModule,
+      spawn: (_bin: string, args: string[]) => {
+        spawnedArgs = args;
+        const portIdx = args.indexOf('--port');
+        if (portIdx !== -1) {
+          const raw = args[portIdx + 1];
+          if (raw !== undefined) serverPort = Number(raw);
+        }
+        const child = new EventEmitter();
+        setTimeout(() => child.emit('exit', 0), delayMs);
+        return child;
+      },
+    }));
+    return {
+      getSpawnedArgs: () => spawnedArgs,
+      getServerPort: () => serverPort,
+    };
+  }
+
+  async function waitForServerBind(
+    getSpawnedArgs: () => string[] | null,
+    getServerPort: () => number | null,
+  ): Promise<{ args: string[]; port: number; sessionId: string }> {
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 5000;
+      const t = setInterval(() => {
+        if (getServerPort() !== null && getSpawnedArgs() !== null) {
+          clearInterval(t);
+          resolve();
+        } else if (Date.now() > deadline) {
+          clearInterval(t);
+          reject(new Error('server never bound within 5s'));
+        }
+      }, 10);
+    });
+    // biome-ignore lint/style/noNonNullAssertion: poll loop above guarantees non-null.
+    const args = getSpawnedArgs()!;
+    // biome-ignore lint/style/noNonNullAssertion: poll loop above guarantees non-null.
+    const port = getServerPort()!;
+    const sessionIdIdx = args.indexOf('--session-id');
+    const sessionId = args[sessionIdIdx + 1];
+    if (typeof sessionId !== 'string') {
+      throw new Error('--session-id arg missing from spawn args');
+    }
+    return { args, port, sessionId };
+  }
+
+  test('microcompact clears prior tool_results inside a launcher-driven turn', async () => {
+    // Microcompaction observability through the launcher: the `microcompact`
+    // event emitted inside query() (src/core/query.ts:421) is NOT forwarded
+    // to the SSE wire today — the turns route's mapServerStreamEvent
+    // intentionally returns null for it (see turns.ts:567-571 — deferred to
+    // M4+ wire-event richness). The integration smoke therefore uses the
+    // SAME signal the unit test in tests/server/turns.microcompact.test.ts
+    // does: inspect the messages array handed to the provider on iteration 1
+    // and assert the in-flight `tool_result` blocks were cleared (replaced
+    // by `[Tool result cleared`-prefixed placeholders by `microcompact()` in
+    // src/compact/microcompact.ts).
+    //
+    // Pre hook: tighten microcompactConfig so any compactable token triggers
+    // — the default 40% threshold would need a much larger seeded history
+    // than makes sense for a smoke test.
+    // Post hook: substitute a narrower test transport that returns Bash on
+    // iteration 0 regardless of seeded history (the default MockProvider's
+    // toolUseMode short-circuits to "done." when ANY prior tool_result is
+    // present).
+    m6RuntimeHooks.pre = (opts) => ({
+      ...opts,
+      microcompactConfig: {
+        enabled: true,
+        keepRecent: 1,
+        triggerThresholdPct: 1,
+        compactableTools: new Set(['Bash']),
+      },
+    });
+    MicrocompactSmokeTransport.reset();
+    m6RuntimeHooks.post = (runtime) => {
+      runtime.resolvedProvider.transport = new MicrocompactSmokeTransport();
+    };
+
+    const { getSpawnedArgs, getServerPort } = installSpawnMock(MOCK_CHILD_M5_TURN_DELAY_MS);
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const launchPromise = runTuiLauncher({ provider: 'mock' });
+    const { port, sessionId } = await waitForServerBind(getSpawnedArgs, getServerPort);
+
+    const runtime = m6RuntimeHooks.capturedRuntime;
+    if (runtime === undefined) {
+      throw new Error('runtime never captured by buildRuntime wrapper');
+    }
+
+    // Seed 4 prior Bash tool_use+tool_result pairs so the next turn's
+    // microcompaction check has compactable history to clear. The
+    // tool_result bodies are ~1.6kb each so the compactable share dominates
+    // the (small) history and shouldMicrocompact returns true.
+    for (let i = 0; i < 4; i++) {
+      const toolUseId = `seed-tool-${i}`;
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: toolUseId, name: 'Bash', input: { command: `echo seed-${i}` } },
+        ],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: `seed-${i} `.repeat(200),
+          },
+        ],
+      });
+    }
+
+    const turnRes = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/turns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'do another bash' }),
+    });
+    expect(turnRes.status).toBe(202);
+
+    const sse = openLiveSse(
+      `http://127.0.0.1:${port}/sessions/${sessionId}/events`,
+      (ev) => ev.event === 'turn_complete' || ev.event === 'turn_error',
+    );
+    await sse.done;
+
+    // The transport captured every messages[] handed to it. Iteration 0 is
+    // the initial call; iteration 1 is the continuation after Bash ran.
+    // Microcompaction fires AFTER iteration 0's tool dispatch and mutates
+    // the in-flight history before iteration 1's call — so the signal lives
+    // in callMessages[1].
+    expect(MicrocompactSmokeTransport.callMessages.length).toBeGreaterThanOrEqual(2);
+    const continuationMessages = (MicrocompactSmokeTransport.callMessages[1] ?? []) as Array<{
+      content: Array<{ type: string; content?: string }>;
+    }>;
+    const cleared = continuationMessages.flatMap((m) =>
+      m.content.filter(
+        (b) =>
+          b.type === 'tool_result' &&
+          typeof b.content === 'string' &&
+          b.content.startsWith('[Tool result cleared'),
+      ),
+    );
+    // With 4 seeded pre-boundary results + keepRecent=1, microcompact clears
+    // 3 of them (the 4th seeded result is within the keepRecent window; the
+    // in-flight tool_result is post-boundary and also untouched).
+    expect(cleared.length).toBe(3);
+    expect(sse.events.find((e) => e.event === 'turn_error')).toBeUndefined();
+
+    const code = await launchPromise;
+    expect(code).toBe(0);
+  }, 15_000);
+
+  test('proactive compaction completes through the launcher', async () => {
+    // Override the proactive threshold so a small seeded history trips it.
+    // 0.02 of 200_000 = 4_000 tokens — comfortably above the mock's ~2,200
+    // -token system prompt (so the self-guard at compactor.ts:177-183
+    // doesn't trip) but small enough that the seeded history below trips
+    // the overall limit. Same mechanics as the unit test in
+    // tests/server/turns.proactiveCompact.test.ts:96.
+    m6RuntimeHooks.pre = (opts) => ({
+      ...opts,
+      proactiveCompactThreshold: 0.02,
+    });
+
+    const { getSpawnedArgs, getServerPort } = installSpawnMock(MOCK_CHILD_M5_TURN_DELAY_MS);
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const launchPromise = runTuiLauncher({ provider: 'mock' });
+    const { port, sessionId } = await waitForServerBind(getSpawnedArgs, getServerPort);
+
+    const runtime = m6RuntimeHooks.capturedRuntime;
+    if (runtime === undefined) {
+      throw new Error('runtime never captured by buildRuntime wrapper');
+    }
+
+    // Seed enough prior history that system + messages > 4_000 tokens.
+    // ~12 KB of text (~3,000 tokens) per message, two messages → ~6,000
+    // total message tokens, plus the ~2,200 system → comfortably past the
+    // limit. Bypasses the route's own user-text persistence to avoid
+    // double-saving the new turn's user message.
+    const filler = 'lorem ipsum dolor sit amet '.repeat(500);
+    runtime.sessionDb.saveMessage(sessionId, {
+      role: 'user',
+      content: [{ type: 'text', text: `prior turn: ${filler}` }],
+    });
+    runtime.sessionDb.saveMessage(sessionId, {
+      role: 'assistant',
+      content: [{ type: 'text', text: `prior reply: ${filler}` }],
+    });
+
+    const turnRes = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/turns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'next turn' }),
+    });
+    expect(turnRes.status).toBe(202);
+
+    const sse = openLiveSse(
+      `http://127.0.0.1:${port}/sessions/${sessionId}/events`,
+      (ev) => ev.event === 'turn_complete' || ev.event === 'turn_error',
+    );
+    await sse.done;
+
+    // compaction_complete must surface on the wire BEFORE turn_complete
+    // (the proactive block fires before the post-compaction query()).
+    const compactionEvents = sse.events.filter((e) => e.event === 'compaction_complete');
+    expect(compactionEvents.length).toBe(1);
+    expect(sse.events.find((e) => e.event === 'turn_complete')).toBeDefined();
+    expect(sse.events.find((e) => e.event === 'turn_error')).toBeUndefined();
+
+    // Lineage row exists: parent → child via getCompactionsForParent.
+    const lineage = runtime.sessionDb.getCompactionsForParent(sessionId);
+    expect(lineage.length).toBe(1);
+    const childSessionId = lineage[0]?.childSessionId;
+    expect(typeof childSessionId).toBe('string');
+    expect(childSessionId).not.toBe(sessionId);
+
+    // Ordering: compaction_complete arrives before turn_complete.
+    const compactionIdx = sse.events.findIndex((e) => e.event === 'compaction_complete');
+    const completeIdx = sse.events.findIndex((e) => e.event === 'turn_complete');
+    expect(compactionIdx).toBeGreaterThan(-1);
+    expect(completeIdx).toBeGreaterThan(compactionIdx);
+
+    const code = await launchPromise;
+    expect(code).toBe(0);
+  }, 15_000);
+
+  test('overflow-then-retry completes through the launcher', async () => {
+    // Wrap the resolved transport so the first non-summarize call throws
+    // an overflow-shaped error; subsequent calls (the recovery retry's
+    // main call + any summarize calls) pass through. Mirrors
+    // tests/server/turns.overflowRecovery.test.ts's happy-path scenario.
+    m6RuntimeHooks.post = (runtime) => {
+      runtime.resolvedProvider.transport = wrapTransportWithOverflowOnce(
+        runtime.resolvedProvider.transport,
+      );
+    };
+
+    const { getSpawnedArgs, getServerPort } = installSpawnMock(MOCK_CHILD_M5_TURN_DELAY_MS);
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const launchPromise = runTuiLauncher({ provider: 'mock' });
+    const { port, sessionId } = await waitForServerBind(getSpawnedArgs, getServerPort);
+
+    const runtime = m6RuntimeHooks.capturedRuntime;
+    if (runtime === undefined) {
+      throw new Error('runtime never captured by buildRuntime wrapper');
+    }
+
+    const turnRes = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/turns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hi' }),
+    });
+    expect(turnRes.status).toBe(202);
+
+    const sse = openLiveSse(
+      `http://127.0.0.1:${port}/sessions/${sessionId}/events`,
+      (ev) => ev.event === 'turn_complete' || ev.event === 'turn_error',
+    );
+    await sse.done;
+
+    // Recovery path: compaction_complete fired (proves first-overflow
+    // recovery triggered), turn_complete fired (proves the retry
+    // succeeded), and turn_error did NOT fire (the first overflow was
+    // absorbed by the recovery branch).
+    const compactionEvents = sse.events.filter((e) => e.event === 'compaction_complete');
+    expect(compactionEvents.length).toBe(1);
+    expect(sse.events.find((e) => e.event === 'turn_complete')).toBeDefined();
+    expect(sse.events.find((e) => e.event === 'turn_error')).toBeUndefined();
+
+    // Lineage pinned: parent=original sessionId, child=new id minted by
+    // compactSession during the recovery hop.
+    const lineage = runtime.sessionDb.getCompactionsForParent(sessionId);
+    expect(lineage.length).toBe(1);
+    const childSessionId = lineage[0]?.childSessionId;
+    expect(typeof childSessionId).toBe('string');
+    expect(childSessionId).not.toBe(sessionId);
 
     const code = await launchPromise;
     expect(code).toBe(0);
