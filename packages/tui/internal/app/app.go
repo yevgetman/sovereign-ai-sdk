@@ -81,6 +81,18 @@ type skillsFetchedMsg struct {
 	err    error
 }
 
+// focusTarget tracks which sub-component receives non-modal key events.
+// Default focusTranscript routes keys to the prompt input + transcript.
+// focusDiffView routes j/k to the most-recent DiffView for hunk nav.
+// focusAutocomplete (added in T8) routes Tab/Esc/Up/Down to the popup.
+type focusTarget int
+
+const (
+	focusTranscript focusTarget = iota
+	focusDiffView
+	focusAutocomplete
+)
+
 type Model struct {
 	keys             keyMap
 	transcript       components.Transcript
@@ -99,6 +111,8 @@ type Model struct {
 	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
 	completedBlocks  []CompletedBlock       // M8 T6: ring buffer of tool_result blocks for /expand re-render
 	theme            theme.Theme            // M9 T1: active color/style palette (constructor-injected per ADR M9-01)
+	mostRecentDiff   *components.DiffView   // M9 T5: points to the diff in the latest FileEdit/FileWrite tool_result; Ctrl+] focuses
+	focus            focusTarget            // M9 T5: routing target for j/k/Esc when not in modal
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -213,6 +227,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.permission.Update(msg)
 			m.permission = &updated
 			return m, cmd
+		}
+		// M9 T5: diff view focus routing. Ctrl+] focuses the most-recent
+		// FileEdit/FileWrite diff; Esc defocuses. j/k navigate while focused.
+		if key := msg.String(); key == "ctrl+]" && m.mostRecentDiff != nil {
+			m.mostRecentDiff.SetFocused(true)
+			m.focus = focusDiffView
+			return m, nil
+		}
+		if m.focus == focusDiffView && m.mostRecentDiff != nil {
+			if msg.String() == "esc" {
+				m.mostRecentDiff.SetFocused(false)
+				m.focus = focusTranscript
+				return m, nil
+			}
+			updated := m.mostRecentDiff.Update(msg)
+			*m.mostRecentDiff = updated
+			return m, nil
 		}
 		if key := msg.String(); key == "esc" || key == "ctrl+c" {
 			m.cancel()
@@ -480,6 +511,17 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		if hint == "" {
 			hint = "text"
 		}
+		// M9 T5 — detect FileEdit / FileWrite and parse the output as a
+		// unified diff. If hunks are present, construct a DiffView, expand
+		// the card by default, and track the pointer for Ctrl+] focus.
+		var diff *components.DiffView
+		if tr.Tool == "FileEdit" || tr.Tool == "FileWrite" {
+			dv := components.NewDiffView(string(tr.Output), m.theme)
+			if dv.HasHunks() {
+				diff = &dv
+				m.mostRecentDiff = diff
+			}
+		}
 		card := components.ToolCard{
 			Tool:       tr.Tool,
 			RenderHint: hint,
@@ -487,6 +529,8 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Output:     string(tr.Output),
 			Language:   tr.Language,
 			Theme:      m.theme, // M9 T4 — pass theme so the body renders via render.Code
+			Expanded:   diff != nil, // M9 T5 — auto-expand diffs so the user sees the hunks
+			Diff:       diff,
 		}
 		m.transcript.AppendLine(card.View(m.width))
 		// M8 T6 — record the block onto the local ring for /expand [N]

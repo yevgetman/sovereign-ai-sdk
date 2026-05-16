@@ -27,6 +27,7 @@ type ToolCard struct {
 	Language   string      // M9 T4 — language hint from ToolResult.Language wire field
 	Theme      theme.Theme // M9 T4 — palette for header, border, body
 	Expanded   bool        // M9 T6 — collapsed by default; auto-expanded for diffs
+	Diff       *DiffView   // M9 T5 — when set + Expanded, body renders the diff
 }
 
 func (tc ToolCard) View(width int) string {
@@ -38,6 +39,10 @@ func (tc ToolCard) View(width int) string {
 	header := tc.Theme.HeaderStyle().Render(fmt.Sprintf("> %s", tc.Tool))
 	var body string
 	switch {
+	case tc.Diff != nil && tc.Expanded:
+		// M9 T5 — diff view rendering. Pointer indirection because app.go
+		// retains a reference to the same DiffView to route j/k focus events.
+		body = tc.Diff.View(width - 4)
 	case tc.Expanded && tc.Output != "":
 		if tc.Language != "" || tc.RenderHint == "code" {
 			body = render.Code(tc.Output, tc.Language, tc.Theme, width-4)
