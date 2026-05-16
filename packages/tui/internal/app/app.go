@@ -110,16 +110,17 @@ func New(sessionID, baseURL string) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	st := components.NewStatusLine()
 	st.Cwd = cwd
+	defaultTheme := theme.Dark() // M9 T1: default theme; user toggles via /theme
 	m := Model{
 		keys:       defaultKeys(),
-		transcript: components.NewTranscript(),
+		transcript: components.NewTranscript(defaultTheme),
 		prompt:     components.NewPrompt(),
 		statusLine: st,
 		sessionID:  sessionID,
 		baseURL:    baseURL,
 		ctx:        ctx,
 		cancel:     cancel,
-		theme:      theme.Dark(), // M9 T1: default theme; user toggles via /theme
+		theme:      defaultTheme,
 	}
 	if baseURL != "" {
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
@@ -241,6 +242,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.theme = newTheme
+				m.transcript.SetTheme(m.theme)
 				m.transcript.AppendLine(m.theme.DimStyle().Render("theme: " + name))
 				return m, nil
 			}
@@ -439,7 +441,10 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			return
 		}
 		m.clearThinkingIfPending()
-		m.transcript.AppendLine(td.Text)
+		// M9 T3 — stream the delta into the in-progress assistant card and
+		// re-render via render.Markdown. Non-text events finalize the card
+		// (see tool_use_start, tool_result, turn_complete below).
+		m.transcript.AppendAssistantDelta(td.Text)
 	case "thinking_delta":
 		td, err := transport.DecodeThinkingDelta(env.Raw)
 		if err != nil {
@@ -458,6 +463,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			return
 		}
 		m.clearThinkingIfPending()
+		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
 		m.transcript.AppendLine(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#6e7681")).
@@ -469,6 +475,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			return
 		}
 		m.clearThinkingIfPending()
+		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
 		hint := tr.RenderHint
 		if hint == "" {
 			hint = "text"
@@ -527,10 +534,12 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			// Schema parse failed — still surface SOMETHING so the user
 			// knows the turn ended. Don't regress on the pre-fix marker.
 			m.clearThinkingIfPending()
+			m.transcript.EndAssistantCard() // M9 T3
 			m.transcript.AppendLine("[turn complete]")
 			return
 		}
 		m.clearThinkingIfPending()
+		m.transcript.EndAssistantCard() // M9 T3 — finalize the streamed card before the marker
 		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
 		if tc.FinishReason == "" || tc.FinishReason == "end_turn" {
 			m.transcript.AppendLine(dim.Render("─ turn complete"))
