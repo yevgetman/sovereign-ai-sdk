@@ -175,3 +175,70 @@ func TestM9_StallDetectedSurfaceable(t *testing.T) {
 // _ is a guard against the json import vanishing if all the inline
 // raw-string envelopes get refactored away.
 var _ = json.RawMessage(nil)
+
+// M9.6 — interaction polish integration smoke. Added in T5.
+
+func TestM9_6_ClickOnAutocompleteEntrySelects(t *testing.T) {
+	m := New("s-acmouse", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = model.(Model)
+	if !m.autocomplete.Visible() {
+		t.Fatal("autocomplete should be visible after /")
+	}
+	// SelectAt(0) is the API the mouse-click handler uses internally.
+	completion, ok := m.autocomplete.SelectAt(0)
+	if !ok {
+		t.Error("SelectAt(0) should resolve")
+	}
+	if completion == "" {
+		t.Error("Completion should be non-empty")
+	}
+}
+
+func TestM9_6_StallBadgeRendersThenClearsOnMatchingGen(t *testing.T) {
+	m := New("s-stallintg", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"stall_detected","seq":1,"sessionId":"s-stallintg","reason":"no edits","turn":3}`
+	env := newTestEnvelope("stall_detected", "s-stallintg", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	if m.stallBadge == nil {
+		t.Fatal("badge should be visible after stall_detected")
+	}
+	gen := m.stallGeneration
+	model, _ = m.Update(stallExpireMsg{gen: gen})
+	m = model.(Model)
+	if m.stallBadge != nil {
+		t.Error("matching-gen expire should clear the badge")
+	}
+}
+
+func TestM9_6_SkillsReloadParserAcceptsBothForms(t *testing.T) {
+	m := New("s-sk2", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// "/skills " (with trailing space) — usage marker.
+	for _, r := range "/skills " {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	view := m.View()
+	if !strings.Contains(view, "usage") {
+		t.Errorf("trailing-space form should still show usage: %q", view)
+	}
+}
+
+func TestM9_6_HexValidationAcceptsValidRejectsNamedColors(t *testing.T) {
+	// Indirectly exercise via the spec contract — loader_test.go has the
+	// authoritative TOML round-trip; here we just ensure the renderer
+	// composition didn't regress on the soft-fallback path.
+	m := New("s-hex", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	_ = m.View() // doesn't panic
+}

@@ -678,3 +678,35 @@ Decision: A TOML theme file may omit any color field; missing fields fall back t
 Rationale: Forces no one to copy a 13-color baseline just to tweak a primary. Matches the "Dark is the default" precedent set in M9 ADR M9-01 (theme construction). Future-proofs: any new color field added to `Theme` will use Dark's value for legacy themes without an explicit migration. The "name is mandatory" carve-out keeps the loader's contract honest — a theme without a self-declared identity is malformed.
 
 Status: implemented (M9.5 — `496a1b6` (T1 — LoadFromFile + pickColor helper)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
+
+## ADR M9.6-01 — Mouse click v1 = toolcard collapse-toggle + autocomplete-select only
+
+Decision: Left-press mouse clicks in the TUI dispatch by screen-Y to (a) toggle the `Expanded` field of a tool card when the click lands in the transcript region and `Transcript.ClickAt(y)` resolves to a stored card, or (b) select + Tab-complete the entry under the click when the click lands in the slash-autocomplete popup region. All other click regions (prompt row, status line, dead transcript space) are silent no-ops. Wheel/motion events forward to the transcript viewport unchanged (M9 T9 behavior preserved). Click-on-prompt focus is NOT implemented in M9.6.
+
+Rationale: The textinput component is focused by default; adding click-to-focus introduces interaction with the permission-modal + diff-view focus stacks that warrants its own design pass. Toolcard collapse-toggle is the highest-value click target (users with long tool output stop scrolling past full-text dumps), and autocomplete-entry-select pairs naturally with the M9 T8 popup. Future click targets (status-line theme switcher, statusbar buttons) plug into the same `handleMouseClick` switch by adding region cases.
+
+Status: implemented (M9.6 — `e05fd2b` (T1 — mouse click + --no-mouse opt-out)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+
+## ADR M9.6-02 — Stall badge auto-fades 5s with generation counter
+
+Decision: `stall_detected` SSE events paint a 1-line warning badge between transcript and prompt in `theme.Warning` bold. The badge auto-clears 5 seconds after the event via a `tea.Tick`. A `stallGeneration int` field on `Model` increments per stall; the tick's closure captures the gen at schedule time. On expire, the handler clears the badge ONLY if the captured gen matches the current model gen — newer stalls bumped the gen, so the stale tick is a no-op (the new stall's own tick clears the refreshed badge).
+
+Rationale: A persistent badge would crowd the statusline indefinitely on a long-stalled session. 5 seconds is enough for the user to read + react without the badge becoming permanent visual noise. The generation counter avoids the alternative of cancelling/replacing in-flight `tea.Tick`s (Bubble Tea ticks fire-and-forget; we can't cancel them, so we filter on receipt). Mirrors the wire-event "soft warning" intent the M8 T7 spec called for.
+
+Status: implemented (M9.6 — `f752882` (T2 — stallbadge component + Model state + tea.Tick + stallExpireMsg handler)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+
+## ADR M9.6-03 — /skills reload is a subcommand; shares dispatch with future verbs and compaction_complete
+
+Decision: `/skills` is a multi-verb slash command parsed at the top of the ENTER handler (BEFORE the existing `/skillname` skill-as-slash matcher). v1 ships exactly one verb: `/skills reload` triggers `fetchSkillsCmd`. Empty verb (`/skills` alone) renders a usage marker; unknown verb (`/skills bogus`) renders a red error marker. The `compaction_complete` SSE handler ALSO returns `fetchSkillsCmd` so the skill cache automatically invalidates on every session-id pivot — the post-pivot child session may expose different skills.
+
+Rationale: Subcommand pattern (`/skills <verb>`) avoids top-level slash namespace pollution (no need for `/skills-reload`, `/skills-list`, `/skills-show` etc.); future verbs plug into the same switch. The compaction-share matters because skills can theoretically vary per session-id (per-session toolset overrides are a future surface, M9-era ADR M9-04); even without that, the cache pointing at a defunct session id is just garbage. The dispatch ordering — `/skills` parsed BEFORE `matchSkillSlash` — means a user can never define a skill literally named "skills" that would shadow the subcommand.
+
+Status: implemented (M9.6 — `6751094` (T3 — /skills <verb> parser + compaction_complete fetchSkillsCmd return)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+
+## ADR M9.6-04 — Hex string validation in TOML loader is soft per-field
+
+Decision: `theme.LoadFromFile` validates each color string against `^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$` via `regexp.MustCompile` in package init. Invalid strings (named colors like "red", malformed hex like "#abcd", or anything that doesn't match the regex) fall back to the corresponding `Dark()` field value. The whole TOML still loads — only bad fields drop. RGBA forms (`#rrggbbaa`) and named colors are NOT supported.
+
+Rationale: Whole-TOML rejection would punish users for typos in 1 of 13 color fields; a single bad `primary = "red"` shouldn't make a 12-other-valid-colors file unusable. Matches ADR M9.5-03 partial-file fallback policy — both decisions favor "the user gets something working with their tweaks" over "the user gets clean errors and starts over." Aggregate validation surface (warn on N bad fields) deferred — if it becomes a real workflow gap, a `theme validate <file>` CLI command can land later without changing the loader's runtime contract.
+
+Status: implemented (M9.6 — `3762504` (T4 — hex regex in pickColor)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.

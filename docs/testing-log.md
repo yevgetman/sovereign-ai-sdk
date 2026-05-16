@@ -8,6 +8,33 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M9.6 close-out (interaction polish; 5 tasks; M9.x track complete)
+
+**Scope:** 5-task interaction-polish mini-milestone closing every M9 + M9.5 deferred item. T1 mouse click handling + `--no-mouse` opt-out flag (toolcard collapse-toggle on click, autocomplete-entry select on click, wheel-scroll preserved) → T2 `stall_detected` visual badge (1-line warning surface in `theme.Warning`, 5s auto-fade via `tea.Tick` + generation counter for new-event reset) → T3 `/skills <verb>` subcommand parser (`/skills reload` triggers `fetchSkillsCmd`; future verbs plug into the same switch; `compaction_complete` returns the same Cmd so cache auto-invalidates on session-id pivot) → T4 hex string validation in TOML loader (regex `^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`; soft per-field fallback) → T5 integration smoke + close-out.
+
+**Suite delta:** TS unchanged at 1997/1997 (zero TS-side changes in M9.6). Go: ~22 new tests across `internal/components/stallbadge_test.go` (4 cases), `transcript_test.go` (5 added: ClickAt resolves, bounds, ToggleCardExpanded flips, no-op on non-card line), `slashautocomplete_test.go` (4 added: SelectAt range checks, PopupHeight border math), `theme/loader_test.go` (5 added: invalid-hex per-field fallback, short-hex/uppercase accept, 4-char/empty reject), `app/app_test.go` (10 added across T1+T2+T3), `app/m9Full_test.go` (4 added: M9.6 integration smoke). All Go packages green. Lint clean. Typecheck clean.
+
+**ADRs landed (4):** M9.6-01 (mouse click v1 = toolcard + autocomplete only; click-on-prompt deferred), M9.6-02 (stall badge 5s auto-fade + generation counter), M9.6-03 (/skills as subcommand sharing dispatch with future verbs + compaction_complete), M9.6-04 (soft per-field hex validation).
+
+**Backlog closures:** none. M9.6 didn't have backlog targets — it implemented the polish-deferral items documented in M9 + M9.5 close-out snapshots. Open backlog count stays at 2 (#17, #38).
+
+**Bug surfaces caught + fixed mid-build:**
+- T1 — initial Model field added `stallBadge *components.StallBadge` before the type existed (T2's deliverable); build broke with `undefined: components.StallBadge`. Fixed by moving the field to T2's commit.
+- T1 — initial handleMouseClick referenced `m.stallBadge` for layout math; reverted to flat layout in T1, then T2's commit reintroduces the badge row properly when it adds the field.
+- T2 — `handleEvent`'s signature change from `void` to `tea.Cmd` required updating every `return` inside the switch (5 sites). Verified by running the full suite after the change; no other call sites broke.
+
+**Postmortem-rule compliance verified before close-out:**
+- Rule 1 — `src/ui/terminalRepl.ts` untouched across M9.6: `git diff` returns empty.
+- Rule 2 — no helper module deletion: `git diff --diff-filter=D -- src/` returns empty.
+- Rule 3 — parity audit NOT done in M9.6; M10's job.
+- Rule 4 — `--ui tui` stays opt-in through M11; `src/main.ts` default unchanged.
+
+**Manual smoke:** Real-Anthropic visual smoke deferred to a post-M9.x hardening session. Mock-provider integration smoke in `internal/app/m9Full_test.go` covers click + stall + skills + hex validation paths through Model.Update + theme.LoadFromFile.
+
+**Net summary:** 7 commits between M9.5 close-out and M9.6 close-out (spec + plan + T1-T4 + close-out). Two new Go files (stallbadge.go + stallbadge_test.go). One new `regexp` import in theme/loader.go. Suite delta: +22-ish Go tests. Zero production bugs surfaced during close-out (the two mid-build catches were structural — undefined-type forward references, signature-change cascade — both caught at build time).
+
+**The M9.x track is now complete.** Next milestone gate: M10 parity audit (independent audit of `src/ui/terminalRepl.ts` import list per Postmortem Rule 3).
+
 ## 2026-05-16 — Phase 16.1 M9.5 close-out (theme polish; 4 tasks)
 
 **Scope:** 4-task M9.5 theme-polish mini-milestone closing the deferred ADR M9-03 (TOML loader) from M9. T1 TOML loader (`internal/theme/loader.go` + BurntSushi/toml dep + partial-file Dark fallback) → T2 two new built-in palettes (Tokyo Night Storm + Sovereign brand-aligned — `Resolve` now handles 4 names) → T3 persistence (`internal/app/themeconfig.go` + boot read + /theme write to `~/.harness/config.json`, atomic temp+rename preserving unknown fields, LoadFromFile fallback in `/theme` slash) → T4 integration smoke (`internal/theme/integration_test.go` — TOML round-trip + builtins-resolvable + builtins-always-win regression guards) + close-out.

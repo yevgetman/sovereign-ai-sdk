@@ -10,7 +10,7 @@ This file is a **lean index** — a table of contents into the deeper docs. Read
 
 1. **This file** (`CLAUDE.md`) — index and standing rules
 2. **`README.md`** — repo intro, install, layout
-3. **`docs/state/2026-05-16.md`** — most recent close-out snapshot (Phase 16.1 M9.5 shipped 2026-05-16 — theme polish: TOML loader + Tokyo Night + Sovereign palettes (4 built-ins total) + persistence to `~/.harness/config.json`; **3 ADRs M9.5-01..03**; M0–M9 closed earlier). Read this BEFORE the build plan to know what shipped and where to start. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
+3. **`docs/state/2026-05-16.md`** — most recent close-out snapshot (Phase 16.1 M9.6 shipped 2026-05-16 — interaction polish: mouse click + --no-mouse opt-out + stall_detected badge + /skills reload + compaction cache invalidation + hex validation in TOML loader; **4 ADRs M9.6-01..04; M9.x track COMPLETE**; M0–M9.5 closed earlier). Read this BEFORE the build plan to know what shipped and where to start. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
 4. **`docs/backlog/post-phase-13-4.md`** — open backlog items not in the canonical build plan.
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -48,8 +48,8 @@ Each link is a chapter loaded on demand. Don't pre-read.
 
 | File | What's in it |
 |---|---|
-| [`docs/state/2026-05-16.md`](docs/state/2026-05-16.md) | Canonical current-state snapshot — Phase 16.1 M9.5 shipped (theme polish: TOML loader at `~/.harness/themes/*.toml`, Tokyo Night + Sovereign palettes (4 built-ins total), boot read + /theme write to `~/.harness/config.json`; **3 ADRs M9.5-01..03; suite green at 1997/1997**). The snapshot itself pins the HEAD SHA and exact counts. |
-| [`docs/state/archive/`](docs/state/archive/) | Historical snapshots: `2026-05-07.md` (Phase 13.4), `2026-05-11.md` (Phase 16.0a), `2026-05-12.md` (Phase 16 revert), `2026-05-13.md` (Phase 16.1 M0–M3), `2026-05-14.md` (Phase 16.1 M4 + M5 + M5.1), `2026-05-14-pm.md` (Phase 16.1 M6 close-out + 2026-05-15 hardening + autonomous M6 smoke + PM #32/#37), `2026-05-15.md` (Phase 16.1 M7 close-out + post-close-out hardening + autonomous M7 smoke), `2026-05-16.md` (Phase 16.1 M8 close-out), `2026-05-16-m9.md` (Phase 16.1 M9 close-out — same-day predecessor of the active snapshot). |
+| [`docs/state/2026-05-16.md`](docs/state/2026-05-16.md) | Canonical current-state snapshot — Phase 16.1 M9.6 shipped (interaction polish: mouse click handlers, --no-mouse flag, stall_detected badge with 5s auto-fade, /skills reload + compaction cache invalidation, hex validation in TOML loader; **4 ADRs M9.6-01..04; M9.x track COMPLETE; suite green at 1997/1997**). The snapshot itself pins the HEAD SHA and exact counts. |
+| [`docs/state/archive/`](docs/state/archive/) | Historical snapshots: `2026-05-07.md` (Phase 13.4), `2026-05-11.md` (Phase 16.0a), `2026-05-12.md` (Phase 16 revert), `2026-05-13.md` (Phase 16.1 M0–M3), `2026-05-14.md` (Phase 16.1 M4 + M5 + M5.1), `2026-05-14-pm.md` (Phase 16.1 M6 close-out + 2026-05-15 hardening + autonomous M6 smoke + PM #32/#37), `2026-05-15.md` (Phase 16.1 M7 close-out + post-close-out hardening + autonomous M7 smoke), `2026-05-16.md` (Phase 16.1 M8 close-out), `2026-05-16-m9.md` (Phase 16.1 M9 close-out), `2026-05-16-m9-5.md` (Phase 16.1 M9.5 close-out — same-day predecessor of the active snapshot). |
 
 ### Forward-looking
 
@@ -59,7 +59,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/backlog/phase-16-rebuild-prereqs.md`](docs/backlog/phase-16-rebuild-prereqs.md) | 24 subsystems any Phase 16.1 foreground refactor must re-wire — **24/24 complete after M8; M9 visual polish landed 2026-05-16** |
 | [`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`](docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md) | Active design spec for the Phase 16.1 TUI rebuild |
 | [`docs/specs/2026-05-13-production-harness-roadmap-design.md`](docs/specs/2026-05-13-production-harness-roadmap-design.md) | Umbrella production polish roadmap |
-| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-16-phase-16-1-m9-5-theme-polish.md` |
+| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-16-phase-16-1-m9-6-interaction-polish.md` |
 
 ### Postmortems — required reading before similar work
 
