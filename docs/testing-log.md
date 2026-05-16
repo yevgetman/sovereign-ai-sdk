@@ -8,6 +8,30 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T5 — skill-as-slash server-side expansion
+
+**Scope:** Fifth task of the M8 polish-surfaces group. POST `/sessions/:id/turns` now accepts an optional `kind: 'skill'` body field. When present, the route parses the leading `/skillname args…` slash, resolves the name against `runtime.skills.byName` (T4-populated), and rewrites `body.text` with the result of `expandSkillPrompt(skill, { args, cwd, sessionId })` BEFORE the existing T3 @file-expansion + `saveMessage` + `query()` flow runs. The persisted user message and the model's view both see the EXPANDED body, never the raw slash. Closes phase-16 prereq row 19 (server-side half).
+
+**The fix (single atomic `feat(server):` commit):**
+
+- **`src/server/routes/turns.ts`** — Two edits:
+  - Imported `{ expandSkillPrompt }` from `../../skills/loader.js`.
+  - In the POST handler, added a `body.kind === 'skill'` branch sitting between the body parse and the `runTurnInBackground` dispatch. The branch trims `body.text`, asserts the leading `/`, splits on the first space (so `/greet` parses to `name='greet', args=''` and `/greet Alice Bob` parses to `name='greet', args='Alice Bob'`), looks the skill up via `runtime.skills.byName.get(skillName)`, and either returns a 400 envelope (`{ error: 'unknown skill: <name>' }` for an unknown name, `{ error: 'kind: skill requires text to start with /' }` for a missing leading slash) or calls `expandSkillPrompt` and reassigns the local `text` let. The `kind` is intentionally NOT forwarded into `runTurnInBackground`; downstream code treats the post-expansion text as a plain user prompt, which means T3's `expandContextReferences` composes naturally — a skill body containing `@file:foo.md` gets the file inlined the same way a hand-typed prompt would.
+
+- **`tests/server/turns.skillSlash.test.ts`** (new) — Two tests pinning the success + unknown-skill 400 contracts. The success test seeds a project-local skill at `<cwd>/.harness/skills/greet.md` with `Hello {{args}}, nice to meet you.` as its body, POSTs `{ text: '/greet Alice', kind: 'skill' }`, drains the SSE stream, then asserts the persisted message contains `Hello Alice, nice to meet you.` and does NOT contain `/greet` (proving the route overwrote `body.text` before the saveMessage call rather than appending). The 400 test POSTs `{ text: '/unknownskill arg', kind: 'skill' }` and asserts both the status code and that the error envelope mentions both `unknown skill` and the bad name.
+
+**Divergence from the plan:** None on shape. The plan's Step 3 illustration mutates `body.text` in place; the implementation uses a local `let text = rawText` instead so the mutation is local to the handler closure (matches the existing pattern around the rawText / text rename). Same net behavior — `runTurnInBackground` receives the expanded text either way. Also passes `cwd` + `sessionId` into `expandSkillPrompt`'s options object (the plan example showed `{ args }` only) so `${HARNESS_SESSION_ID}` / inline-shell interpolation work the same way they do in the REPL adapter at `src/skills/commands.ts:19-26`.
+
+**Tests run:**
+
+- `bun test tests/server/turns.skillSlash.test.ts` — `2 pass / 0 fail / 7 expect() calls`.
+- `bun run test` — `1983 pass / 0 fail / 5023 expect() calls` (241 files). Delta from `abcf940`'s 1981: `+2`, matches the plan's expected `+2`.
+- `bun run lint` — clean for changed files. Same two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` (lines 219, 343) carried from T3 / T4.
+- `bun run typecheck` — clean (`tsc --noEmit`).
+- `sov upgrade` will run after push.
+
+**Why this matters:** This is the server-side half of prereq row 19 — Phase 16 named "skill-as-slash invocation" as a foundational TUI feature that terminalRepl supports via `src/skills/commands.ts`'s `skillToCommand` PromptCommand adapter. Without server-side dispatch, the Go TUI can render `/skills` discovery (T4) but can't actually fire a skill — every `/greet Alice` would hit the model as raw `/greet Alice` text. T6 (the TUI-side half) wires the client interception that flips `kind: 'skill'` on once the user's slash matches a known name; the contract pinned here is the protocol both halves rely on.
+
 ## 2026-05-16 — Phase 16.1 M8 T4 — skill loading + visibility + GET /skills
 
 **Scope:** Fourth task of the M8 polish-surfaces group. `buildRuntime` now calls `loadSkills` once at boot and exposes the unfiltered `SkillRegistry` on `runtime.skills`. `buildSessionToolContext` derives the active toolset from `runtime.toolPool`, runs `inferActiveToolsets` + `filterSkillRegistry`, and threads `skills` + `activeToolNames` + `activeToolsets` onto every `ToolContext` the turn loop hands to `query()`. A new `GET /sessions/:id/skills` route returns the per-request filtered registry as JSON `{ skills: [{ name, whenToUse, description }] }` for the Go TUI's `/skills` discovery surface. Closes phase-16 prereq row 20 and the server-side half of row 19.

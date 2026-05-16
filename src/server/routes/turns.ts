@@ -38,6 +38,7 @@ import { redactSecretsTransformer } from '../../permissions/redactSecretsTransfo
 import type { CanUseTool } from '../../permissions/types.js';
 import { isContextOverflowError } from '../../providers/errors.js';
 import { estimateCostUsd } from '../../providers/pricing.js';
+import { expandSkillPrompt } from '../../skills/loader.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import type { TraceEvent } from '../../trace/types.js';
@@ -98,9 +99,37 @@ export function turnsRoute(runtime: Runtime): Hono {
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    const body = (await c.req.json()) as { text?: string };
-    const text = typeof body.text === 'string' ? body.text : '';
-    if (text === '') return c.json({ error: 'text is required' }, 400);
+    const body = (await c.req.json()) as { text?: string; kind?: string };
+    const rawText = typeof body.text === 'string' ? body.text : '';
+    if (rawText === '') return c.json({ error: 'text is required' }, 400);
+
+    // M8 T5 — skill-as-slash dispatch. When the client (Go TUI) recognises
+    // the leading slash as a known skill name, it POSTs with `kind: 'skill'`
+    // to opt into server-side expansion. We parse `/name args…`, resolve
+    // `name` against `runtime.skills.byName` (T4-populated), and replace
+    // `text` with the expanded body BEFORE the rest of the turn runs.
+    // Downstream @file expansion (T3) then sees the expanded prompt and
+    // composes naturally — a skill body containing `@file:foo.md` gets the
+    // file inlined the same way a hand-typed prompt would. The `kind` is
+    // intentionally NOT forwarded; `runTurnInBackground` treats the post-
+    // expansion text as plain user input. Unknown-skill names short-circuit
+    // with a 400 so the TUI surfaces the mistake immediately rather than
+    // letting a raw `/foo` slash leak into the model's context.
+    let text = rawText;
+    if (body.kind === 'skill') {
+      const trimmed = rawText.trim();
+      if (!trimmed.startsWith('/')) {
+        return c.json({ error: 'kind: skill requires text to start with /' }, 400);
+      }
+      const space = trimmed.indexOf(' ');
+      const skillName = space === -1 ? trimmed.slice(1) : trimmed.slice(1, space);
+      const args = space === -1 ? '' : trimmed.slice(space + 1).trim();
+      const skill = runtime.skills.byName.get(skillName);
+      if (!skill) {
+        return c.json({ error: `unknown skill: ${skillName}` }, 400);
+      }
+      text = await expandSkillPrompt(skill, { args, cwd: runtime.cwd, sessionId });
+    }
 
     const bus = getOrCreateBus(sessionId);
     // POST /turns is fire-and-forget: kick off the background turn loop
