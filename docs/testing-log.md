@@ -8,6 +8,37 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M7 — autonomous real-Anthropic smoke verified (post cost fix) + script committed
+
+**Scope:** Second run of `scripts/m7-real-smoke.ts` against real Anthropic Haiku 4.5 (`claude-haiku-4-5-20251001`) after the `1bedd55` cost-recording fix landed. Confirms all six per-session sinks land correctly end-to-end against the real provider. The smoke script itself is now committed to `scripts/` as a reusable hardening artifact — parallel to `scripts/build-tui.ts`.
+
+**Result:** ALL GREEN. 23 assertions, 0 failures, 2.08s elapsed, **cost $0.000822** (less than a tenth of a cent on Haiku).
+
+**Sinks verified (post-fix run):**
+
+- **Trace** at `<tmpHome>/traces/<sessionId>.jsonl` — 7/7 lifecycle events: `session_start` (T3 + I3 fix auto-emission from `buildSessionContext`), `turn_start`, `provider_request`, `provider_response`, `tool_start` (Bash), `tool_end`, `session_end` (I3 auto-emission from `disposeSessionContext` before `traceWriter.close()`).
+- **Trajectory** at `<tmpHome>/trajectories/samples.jsonl` (correctly bucketed; `failed.jsonl` absent) — ShareGPT shape with `<tool_call name="Bash" id="toolu_...">` and `<tool_result>...</tool_result>` wrapping in a `human` record (matches `src/trajectory/shareGpt.ts:50-66`; the `tool` role branch at :92-100 is unreachable for this harness's Message shape since tool_result lives in user messages). Counters: `toolCallCount=1`, `iterationsUsed=1`, `estimatedCostUsd=$0.000822` (real Anthropic pricing applied via the cost fix). `terminalReason="completed"`, `completed=true`.
+- **Observations** at `<tmpHome>/learning/<projectId>/observations.jsonl` — record with `tool_name=Bash`, `status=success`.
+- **session_summary** SSE event on the disposal bus — payload `{ sessionId, totalDispatched: 0, byAgent: {} }`. (Zero dispatches because the smoke is one short turn; thresholds for review-memory/synthesizer don't cross.)
+- **Runtime.daemonEventBus** reachable (T2 plumbing — verified live).
+- **MCP client pool** intentionally NOT exercised by this smoke (no MCP servers configured in tmpdir); verified by dedicated `tests/server/runtime.mcp.test.ts`.
+
+**First run (pre-fix) caught two findings:** `estimatedCostUsd: 0` (production bug → fixed at `1bedd55`) and a smoke-assertion bug (initial assertion expected a `tool` role in the ShareGPT output; actual behavior is `<tool_result>` wrapping inside a `human` record — assertion corrected before re-run). Both surfaced in 2 minutes of wall-time across ~$0.002 in API cost — exactly the kind of high-leverage parity issue per-task synthetic-provider tests can't catch.
+
+**Smoke script design notes** (for future M-milestone hardening passes adapting this template):
+
+- Reads Anthropic API key from `~/.harness/config.json` → exports to `ANTHROPIC_API_KEY` env var so resolver finds it. Uses `mkdtempSync` for an isolated harness home — does not pollute real `~/.harness/`.
+- Drives through the public route surface via `buildAppWithRuntime(runtime).request(...)` — same pattern as `tests/server/m7Full.test.ts`. No reaching into private helpers.
+- Dynamic imports of harness modules AFTER env var is set so module-level credential lookup resolves correctly.
+- Per-assertion `ok(label, condition, detail?)` reporter prints `✓`/`✗` with optional `actual: X` context. Failing run preserves tmpHome for inspection; passing run cleans up.
+- Total cost on Haiku 4.5: $0.000822 per run (one short tool-using turn). Affordable to run on every M-milestone close-out.
+
+**Suite state:** Unchanged from the cost-fix entry below — 1968 TS tests pass, lint + typecheck clean, sov binary still at `1bedd55`. This entry documents the smoke verification AT that HEAD, not a code change.
+
+**Status:** GREEN. M7 verified end-to-end against real Anthropic. Smoke script committed for future reuse.
+
+---
+
 ## 2026-05-16 — Phase 16.1 M7 — record token usage server-side (production cost was zero)
 
 **Scope:** Autonomous M7 smoke against real Anthropic Haiku 4.5 (via `scripts/m7-real-smoke.ts`) produced a trajectory carrying `"estimatedCostUsd": 0`. The M7 whole-branch I1 fix wired the disposal-time READ (`sessionContext.ts:297` calls `runtime.sessionDb.getSessionCost`) but no production code in `src/server/routes/turns.ts` ever called `runtime.sessionDb.recordTokenUsage`. The terminalRepl parity reference at `src/ui/terminalRepl.ts:1655-1663` captures `latestUsage` from `usage_delta` StreamEvents and records via `db.recordTokenUsage(activeSessionId, latestUsage, cost)`. The server's `runOnce` loop in `runTurnInBackground` iterated the same stream but never captured `usage_delta` — `mapStreamEventToServerEvent` filters them out. Every server-mode trajectory shipped with `estimatedCostUsd: 0`. Caught by real-Anthropic smoke; synthetic mock-provider tests had previously passed because no assertion targeted the cost.
