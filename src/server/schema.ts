@@ -111,10 +111,51 @@ export const CompactionCompleteEvent = BaseEvent.extend({
 // forks across the session plus a per-agent breakdown (review-memory,
 // review-skill, review-consolidate, instinct-synthesizer). The TUI renders
 // this as a goodbye card; M9 polish wires the renderer.
+//
+// M8 T7 — extended payload for the M9 goodbye-card consumer. All extension
+// fields are optional so M7-vintage consumers (and the existing wire-event
+// suite) still parse the event. Populated by disposeSessionContext from
+// SessionDb.getSessionMetrics — the token columns come from the M7 cost-fix
+// recordTokenUsage call site, and the tool-call count is a transcript scan
+// for tool_use blocks on the persisted messages. Durations are left optional
+// (no DB-side tracking yet — terminalRepl's in-memory accumulators in
+// src/ui/sessionSummary.ts are server-side TODO until M9 polish).
 export const SessionSummaryEvent = BaseEvent.extend({
   type: z.literal('session_summary'),
   totalDispatched: z.number().int().nonnegative(),
   byAgent: z.record(z.string(), z.number().int().nonnegative()),
+  tokens: z
+    .object({
+      input: z.number().int().nonnegative(),
+      output: z.number().int().nonnegative(),
+      cacheRead: z.number().int().nonnegative().optional(),
+      cacheWrite: z.number().int().nonnegative().optional(),
+      estimatedCostUsd: z.number().nonnegative(),
+    })
+    .optional(),
+  startedAtMs: z.number().nonnegative().optional(),
+  endedAtMs: z.number().nonnegative().optional(),
+  agentActiveMs: z.number().nonnegative().optional(),
+  apiTimeMs: z.number().nonnegative().optional(),
+  toolTimeMs: z.number().nonnegative().optional(),
+  toolCalls: z.number().int().nonnegative().optional(),
+  toolOk: z.number().int().nonnegative().optional(),
+  toolErr: z.number().int().nonnegative().optional(),
+});
+
+// M8 T7 — stall detection wire event. Emitted by the turns route when the
+// orchestrator's per-turn detectStall (src/core/query.ts:391) flags a
+// 3-iteration window with no progress (no edits, no decisions, no memory
+// writes — or repeated tool errors). Forwarded from query()'s recordTrace
+// closure via the route's traceRecorder decoration in runTurnInBackground
+// (option (c) from the M8 T7 brief — least invasive; no new StreamEvent
+// type needed since stall_detected is a TraceEvent, not a StreamEvent).
+// Advisory only — the turn continues normally; the TUI surfaces it as a
+// soft warning the user can act on.
+export const StallDetectedEvent = BaseEvent.extend({
+  type: z.literal('stall_detected'),
+  reason: z.string(),
+  turn: z.number().int().nonnegative(),
 });
 
 export const ServerEventSchema = z.discriminatedUnion('type', [
@@ -131,6 +172,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   SessionResumedEvent,
   CompactionCompleteEvent,
   SessionSummaryEvent,
+  StallDetectedEvent,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;

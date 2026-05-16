@@ -349,6 +349,14 @@ export async function disposeSessionContext(
     if (ctx.reviewManager) {
       const summary = ctx.reviewManager.getDispatchSummary();
       if (opts.bus) {
+        // M8 T7 — rich session_summary payload. The metrics snapshot folds
+        // chat + compaction lanes into a single goodbye-card view and
+        // counts tool_use blocks across the persisted transcript so the
+        // M9 renderer can surface "X tool calls, $Y cost" without a
+        // separate fetch. All extension fields are optional in the wire
+        // schema — empty sessions still produce a valid event for the
+        // "ended a fresh session" path.
+        const metrics = readSessionMetricsSafely(ctx.sessionId, runtime, log);
         // Bus-attached disposal: emit unconditionally so the TUI can render
         // a goodbye card even when no reviews fired (an empty card still
         // confirms the session ended).
@@ -358,6 +366,14 @@ export async function disposeSessionContext(
           sessionId: ctx.sessionId,
           totalDispatched: summary.totalDispatched,
           byAgent: summary.byAgent,
+          ...(metrics !== null
+            ? {
+                tokens: metrics.tokens,
+                toolCalls: metrics.toolCalls,
+                toolOk: metrics.toolOk,
+                toolErr: metrics.toolErr,
+              }
+            : {}),
         });
       } else if (summary.totalDispatched > 0) {
         // Process-shutdown walk: no SSE consumer, so the summary is
@@ -372,5 +388,24 @@ export async function disposeSessionContext(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     log(`[sessionContext] review summary failed for ${ctx.sessionId}: ${reason}`);
+  }
+}
+
+/** M8 T7 — best-effort wrapper around `sessionDb.getSessionMetrics`. Returns
+ *  null on failure so the surrounding session_summary publish can still
+ *  emit the M7-shape payload (just without the extended fields). Mirrors
+ *  the swallow-and-log pattern the rest of disposeSessionContext uses for
+ *  best-effort disposal (Invariant #10). */
+function readSessionMetricsSafely(
+  sessionId: string,
+  runtime: Runtime,
+  log: (message: string) => void,
+): ReturnType<Runtime['sessionDb']['getSessionMetrics']> | null {
+  try {
+    return runtime.sessionDb.getSessionMetrics(sessionId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log(`[sessionContext] getSessionMetrics failed for ${sessionId}: ${reason}`);
+    return null;
   }
 }

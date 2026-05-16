@@ -44,6 +44,18 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  for every other test in the suite. */
   static toolUseMode = false;
 
+  /** M8 T7 — when true, `stream()` emits a Bash tool_use on every call
+   *  until the history contains `stallTargetIterations` tool_result blocks.
+   *  Each iteration is a "no edits, no memory writes, no errors" turn, so
+   *  the orchestrator's per-turn sliding window (src/core/query.ts:391)
+   *  fills with all-zero TurnSummaries and `detectStall` returns
+   *  stalled=true at iteration 3. Used by the M8 T7 stall_detected SSE
+   *  test in tests/server/turns.stallDetected.test.ts. Default target of
+   *  4 makes sure the stall fires (window=3) before the mock surrenders;
+   *  raise it if a future test needs more iterations. */
+  static stallMode = false;
+  static stallTargetIterations = 4;
+
   /** Records the maxTokens value from the last stream() invocation.
    *  Tests reset this to `undefined` before driving a turn to avoid
    *  cross-test leak, then assert the value after draining SSE. */
@@ -110,10 +122,55 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
       // expects.
       throw new Error('mock preflight failure');
     }
+    if (MockProvider.stallMode) {
+      return yield* this.streamStall(req);
+    }
     if (MockProvider.toolUseMode) {
       return yield* this.streamToolUse(req);
     }
     return yield* this.streamHelloWorld();
+  }
+
+  /** M8 T7 — emit a Bash tool_use repeatedly until the history carries
+   *  `MockProvider.stallTargetIterations` tool_result blocks, then emit
+   *  one final text response. Each tool call uses a fresh tool_use id
+   *  (suffix = count of existing tool_results) so the orchestrator's
+   *  tool_use → tool_result pairing stays well-defined across iterations.
+   *  No edits, no memory writes, no errors — exactly the input shape
+   *  detectStall's "no edits, no decisions, no memory writes for 3 turns"
+   *  branch matches. */
+  private async *streamStall(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    const iterations = countToolResults(req.messages);
+    if (iterations >= MockProvider.stallTargetIterations) {
+      yield { type: 'message_start' };
+      yield { type: 'text_delta', text: 'stall done.' };
+      yield {
+        type: 'usage_delta',
+        usage: { inputTokens: 0, outputTokens: 2 },
+      };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      const content: ContentBlock[] = [{ type: 'text', text: 'stall done.' }];
+      const assistant: AssistantMessage = { role: 'assistant', content };
+      yield { type: 'assistant_message', message: assistant };
+      return assistant;
+    }
+    const toolId = `mock-stall-${iterations}`;
+    const toolUseInput = { command: `echo iter-${iterations}` };
+    yield { type: 'message_start' };
+    yield { type: 'text_delta', text: 'checking.' };
+    yield { type: 'tool_use_delta', id: toolId, partial: toolUseInput };
+    yield {
+      type: 'usage_delta',
+      usage: { inputTokens: 0, outputTokens: 5 },
+    };
+    yield { type: 'message_stop', stop_reason: 'tool_use' };
+    const content: ContentBlock[] = [
+      { type: 'text', text: 'checking.' },
+      { type: 'tool_use', id: toolId, name: 'Bash', input: toolUseInput },
+    ];
+    const assistant: AssistantMessage = { role: 'assistant', content };
+    yield { type: 'assistant_message', message: assistant };
+    return assistant;
   }
 
   /** Default behavior — emit "Hello world." in two text deltas then stop.
@@ -190,4 +247,18 @@ function hasToolResult(messages: Message[]): boolean {
     }
   }
   return false;
+}
+
+/** M8 T7 — count tool_result content blocks across all user messages.
+ *  Used by `streamStall` to gate when the mock provider transitions from
+ *  emitting more tool_use blocks into the final text response. */
+function countToolResults(messages: Message[]): number {
+  let n = 0;
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+    for (const block of msg.content) {
+      if (block.type === 'tool_result') n += 1;
+    }
+  }
+  return n;
 }

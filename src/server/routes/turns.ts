@@ -249,6 +249,23 @@ async function runTurnInBackground(
   let sessionCtx = runtime.getSessionContext(sessionId);
   const traceRecorder = (event: TraceEvent): void => {
     sessionCtx.traceWriter.record(event);
+    // M8 T7 — forward stall_detected onto the SSE bus so the TUI can render
+    // it as a soft warning. The trace event itself is emitted by query()
+    // at src/core/query.ts:393; the route's traceRecorder closure already
+    // dual-purposes (trace file write + post-pivot session id awareness),
+    // so adding the bus publish here keeps the wire surface synchronized
+    // with the trace surface without introducing a new StreamEvent type
+    // through core/query.ts. Other trace events stay file-only — only
+    // stall_detected has a wire counterpart today.
+    if (event.type === 'stall_detected') {
+      bus.publish({
+        type: 'stall_detected',
+        seq: bus.nextSeq(),
+        sessionId,
+        reason: event.reason,
+        turn: event.turn,
+      });
+    }
   };
   // M8 T3 — expand @file:path / @folder: / @url: / @diff / @staged references
   // in the user's text BEFORE persisting + handing it to the model. Mirrors

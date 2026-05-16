@@ -225,6 +225,23 @@ export type SessionCost = {
   estimatedCompactionCostUsd: number;
 };
 
+/** M8 T7 — snapshot for the `session_summary` SSE event's extended payload.
+ *  Token fields fold chat + compaction lanes into the single goodbye-card
+ *  view; tool counts come from a scan of persisted message content (v1
+ *  trade-off — no JSON1 dependency). Returned by `getSessionMetrics`. */
+export type SessionMetricsSnapshot = {
+  tokens: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    estimatedCostUsd: number;
+  };
+  toolCalls: number;
+  toolOk: number;
+  toolErr: number;
+};
+
 export type SessionCompaction = {
   parentSessionId: string;
   childSessionId: string;
@@ -523,6 +540,72 @@ export class SessionDb {
       };
     }
     return rowToCost(row);
+  }
+
+  /** M8 T7 — session-end metrics for the rich `session_summary` SSE event.
+   *
+   *  Returns aggregated token usage from the `sessions` columns the M7 cost
+   *  fix populates plus a tool-call breakdown derived by scanning persisted
+   *  message content for `tool_use` blocks (assistant messages) and the
+   *  matching `tool_result` blocks (user messages, `is_error=true` for the
+   *  err split).
+   *
+   *  Token totals fold the chat lane (input_tokens, output_tokens) into
+   *  `input` / `output` and surface the cache lanes alongside. The
+   *  compaction lane is folded into estimatedCostUsd so the goodbye-card
+   *  consumer sees the full session cost. Returns zeros for an unknown
+   *  session id so a freshly created session still produces a parseable
+   *  payload. Pragmatic v1 — durations are not tracked DB-side yet (the
+   *  server doesn't have the in-memory accumulators terminalRepl maintains
+   *  in src/ui/sessionSummary.ts); the disposer surfaces them as undefined
+   *  and the M9 renderer falls back to an "n/a" cell. */
+  getSessionMetrics(sessionId: string): SessionMetricsSnapshot {
+    const cost = this.getSessionCost(sessionId);
+    // tool_use blocks live inside assistant message content; tool_result
+    // blocks (with optional is_error) live inside user messages. The JSON
+    // content column is stringified at write time (saveMessage:350), so
+    // LIKE patterns over the substring are the cheapest scan that works
+    // without a JSON1 dependency.
+    const toolUseRow = this.db
+      .query<{ n: number }, [string]>(
+        `SELECT COUNT(*) AS n
+         FROM messages
+         WHERE session_id = ?
+           AND role = 'assistant'
+           AND content LIKE '%"type":"tool_use"%'`,
+      )
+      .get(sessionId);
+    const toolErrRow = this.db
+      .query<{ n: number }, [string]>(
+        `SELECT COUNT(*) AS n
+         FROM messages
+         WHERE session_id = ?
+           AND role = 'user'
+           AND content LIKE '%"type":"tool_result"%'
+           AND content LIKE '%"is_error":true%'`,
+      )
+      .get(sessionId);
+    // A single assistant message may pack N tool_use blocks; the LIKE
+    // counts MESSAGES with at least one. The exact-N answer requires
+    // parsing JSON, which we accept as a v1 trade-off — the metric is for
+    // a goodbye card, not billing. The terminalRepl path also reports per
+    // tool call (it accumulates from the tool_start event stream), so the
+    // counts diverge slightly on multi-call turns. Documented for M9.
+    const toolCalls = toolUseRow?.n ?? 0;
+    const toolErr = toolErrRow?.n ?? 0;
+    const toolOk = Math.max(0, toolCalls - toolErr);
+    return {
+      tokens: {
+        input: cost.inputTokens,
+        output: cost.outputTokens,
+        cacheRead: cost.cacheReadInputTokens,
+        cacheWrite: cost.cacheCreationInputTokens,
+        estimatedCostUsd: cost.estimatedCostUsd + cost.estimatedCompactionCostUsd,
+      },
+      toolCalls,
+      toolOk,
+      toolErr,
+    };
   }
 
   getSystemPrompt(sessionId: string): SystemSegment[] | null {
