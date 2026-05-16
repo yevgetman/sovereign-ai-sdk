@@ -23,6 +23,7 @@ import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { loadPermissionSettings } from '../../config/settings.js';
+import { expandContextReferences } from '../../context/references.js';
 import { query } from '../../core/query.js';
 import type {
   AssistantMessage,
@@ -163,6 +164,13 @@ export function buildSessionToolContext(
     // M7 T6 (placeholder — populated by T6) — per-session review manager.
     // The optional spread keeps the shape stable across the T5/T6 hop.
     ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
+    // M8 T3 — per-session subdirectory-hint dedup state. The orchestrator's
+    // `maybeAppendHints` call at src/core/orchestrator.ts:636-653 reads this
+    // after every successful tool result and appends ancestor AGENTS.md /
+    // CONTEXT.md / .cursorrules files exactly once per touched directory.
+    // Passed by reference so the dedup Set persists across the session's
+    // turn loop.
+    subdirectoryHintState: sessionCtx.subdirectoryHintState,
   };
 }
 
@@ -189,9 +197,18 @@ async function runTurnInBackground(
   const traceRecorder = (event: TraceEvent): void => {
     sessionCtx.traceWriter.record(event);
   };
+  // M8 T3 — expand @file:path / @folder: / @url: / @diff / @staged references
+  // in the user's text BEFORE persisting + handing it to the model. Mirrors
+  // terminalRepl.ts:1288 (`enrichedInput = await expandContextReferences(
+  // trimmed, { cwd: process.cwd() })`). Failures inline as `[ERROR: ...]`
+  // markers — `expandContextReferences` never throws — so this never blocks
+  // the turn. The expanded text is what lands in `sessionDb` AND what the
+  // model sees, so resume reconstructs the exact same context the original
+  // turn ran against.
+  const expandedText = await expandContextReferences(text, { cwd: runtime.cwd });
   const userMessage: Message = {
     role: 'user',
-    content: [{ type: 'text', text }],
+    content: [{ type: 'text', text: expandedText }],
   };
   // Persist before the try block so a query() failure still preserves the user's prompt in the transcript.
   runtime.sessionDb.saveMessage(sessionId, {

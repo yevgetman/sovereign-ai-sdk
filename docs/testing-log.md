@@ -8,6 +8,39 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T3 — @file expansion + subdir hints in server runtime
+
+**Scope:** Third task of the M8 polish-surfaces group. Two pre-turn context surfaces that terminalRepl carries (`expandContextReferences` for `@file:` / `@folder:` / `@url:` / `@diff` / `@staged`, and `createSubdirectoryHintState` for the orchestrator's per-touched-directory hint append) are now wired into the server's POST `/sessions/:id/turns` route + `SessionContext`. Closes phase-16 prereq rows 17 and 18.
+
+**The fix (single atomic `feat(server):` commit):**
+
+- **`src/server/sessionContext.ts`** — Two surgical edits:
+  - Imported `{ SubdirectoryHintState, createSubdirectoryHintState }` from `../context/subdirectoryHints.js`.
+  - Added a required `subdirectoryHintState: SubdirectoryHintState` field to the exported `SessionContext` type with a doc comment describing the per-session-scope choice (turns are independent requests, so the dedup state lives on the SessionContext rather than being rebuilt per turn like terminalRepl does).
+  - `buildSessionContext` populates it via `createSubdirectoryHintState()` at construction time; the `touched` Set starts empty and accumulates ancestor directories as the orchestrator's `appendSubdirectoryHints` fires.
+
+- **`src/server/routes/turns.ts`** — Two edits:
+  - Added `import { expandContextReferences } from '../../context/references.js'` at the top of the file.
+  - `buildSessionToolContext` now threads `subdirectoryHintState: sessionCtx.subdirectoryHintState` onto the returned `ToolContext` (by reference — the orchestrator's dedup semantics depend on a single shared `Set` per session). The `ToolContext` type already exposes the field as optional (`src/tool/types.ts:64`), so no type-side change was needed.
+  - `runTurnInBackground` calls `await expandContextReferences(text, { cwd: runtime.cwd })` BEFORE constructing the `userMessage` literal and persisting it via `sessionDb.saveMessage`. Mirrors `src/ui/terminalRepl.ts:1288`. The expanded text is what lands in the DB (so resume reconstructs the same context the original turn ran against) AND what the model sees.
+
+- **`tests/server/turns.references.test.ts`** (new) — Two tests. (1) `@file:hello.txt` in user text — the persisted message body contains `'hello from file'` and no longer contains the raw `@file:hello.txt` reference, proving expansion happened BEFORE `saveMessage`. (2) `@file:nonexistent.txt` — the route still returns 202 and the persisted message body contains the inline `[ERROR: file not found` marker, proving `expandContextReferences` errors do not bubble as exceptions through the route.
+
+- **`tests/server/sessionContext.subdirHints.test.ts`** (new) — Two tests. (1) `getSessionContext` returns a context whose `subdirectoryHintState.touched` is an empty `Set` (the dedup state is constructed and ready). (2) `buildSessionToolContext` returns a `ToolContext` whose `subdirectoryHintState` is the SAME reference as the one on the `SessionContext` (`toBe`, not `toEqual`) — the orchestrator's dedup depends on shared state, not a per-turn copy.
+
+**Divergence from the plan:** The plan suggested a dynamic `await import('../../context/references.js')` to defer the load. Hoisted it to the top of the file instead — `expandContextReferences` is a small synchronous module with no side-effect-laden top-level work, and Biome enforces import grouping at the file head. Net behavior identical, but the static import keeps the route file consistent with every other import site in the project and avoids a tooling battle.
+
+**Tests run:**
+
+- `bun test tests/server/turns.references.test.ts tests/server/sessionContext.subdirHints.test.ts` — `4 pass / 0 fail / 11 expect() calls`.
+- `bun test tests/server/` — `123 pass / 0 fail / 458 expect() calls` (36 files).
+- `bun run test` — `1977 pass / 0 fail / 4996 expect() calls` (238 files). Delta from `912379b`'s 1973: `+4`, matches the plan's expected `~+4-5`.
+- `bun run lint` — clean for changed files. Two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` (lines 219, 343) are unchanged.
+- `bun run typecheck` — clean (`tsc --noEmit`).
+- `sov upgrade` ran after push.
+
+**Why this matters:** Without `expandContextReferences` in the turns route, a server-mode client typing `read @file:src/server/runtime.ts` got the literal string `@file:src/server/runtime.ts` in the model's context — the entire `@`-prefixed reference surface terminalRepl users depend on was dead. Without `subdirectoryHintState` threaded through, the orchestrator's `maybeAppendHints` call (`src/core/orchestrator.ts:636-653`) short-circuited on the `!ctx.subdirectoryHintState` guard, so ancestor `AGENTS.md` / `CONTEXT.md` / `.cursorrules` files never landed on tool results — server-mode agents lost the per-directory operating-conventions context terminalRepl agents get for free.
+
 ## 2026-05-16 — Phase 16.1 M8 T2 — capture/replay support in buildRuntime
 
 **Scope:** Second task of the M8 polish-surfaces group — server-mode runtime now wires `--capture-fixture` and `--replay-fixture` end-to-end. Mirrors the terminalRepl wiring at `src/ui/terminalRepl.ts:307-329` (replay branch), `:430-443` (capture provider wrap), `:728-740` (tool-pool wrap), and `:1957-1966` (dispose-time fixture write). Closes phase-16 prereq row 16.

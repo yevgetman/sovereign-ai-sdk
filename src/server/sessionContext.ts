@@ -19,6 +19,10 @@
 // to extend without churning callers.
 
 import { readConfig } from '../config/store.js';
+import {
+  type SubdirectoryHintState,
+  createSubdirectoryHintState,
+} from '../context/subdirectoryHints.js';
 import type { Terminal } from '../core/types.js';
 import { LearningObserver } from '../learning/observer.js';
 import { instinctsDir } from '../learning/paths.js';
@@ -68,6 +72,18 @@ export type SessionContext = {
    *  consumer, and we abort upstream before reaching getDispatchSummary so
    *  no lingering background work survives session teardown. */
   reviewAbortController: AbortController;
+  /** M8 T3 — per-session ancestor-walk dedup state for subdirectory hints.
+   *  Populated by `createSubdirectoryHintState()` at SessionContext build
+   *  time and threaded onto every ToolContext built for this session by
+   *  `buildSessionToolContext` (src/server/routes/turns.ts). Consumed by
+   *  the orchestrator's `appendSubdirectoryHints` call after every
+   *  successful tool result (src/core/orchestrator.ts:640-653) — the
+   *  `touched` Set guarantees a directory's AGENTS.md / CONTEXT.md /
+   *  .cursorrules files are appended at most once per session. Mirrors
+   *  the per-turn state terminalRepl rebuilds on each turn; the server
+   *  carries it on the session because turns are independent requests
+   *  rather than a single REPL loop. */
+  subdirectoryHintState: SubdirectoryHintState;
 };
 
 export type BuildSessionContextOpts = {
@@ -207,6 +223,9 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
       estimatedCostUsd: 0,
     },
     reviewAbortController,
+    // M8 T3 — fresh per-session hint state; `touched` starts empty and
+    // accumulates directories as tools fire across the session's turns.
+    subdirectoryHintState: createSubdirectoryHintState(),
     ...(learningObserver !== undefined ? { learningObserver } : {}),
     ...(reviewManager !== undefined ? { reviewManager } : {}),
   };
