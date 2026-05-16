@@ -558,3 +558,99 @@ HTTP + Server-Sent Events. Not WebSockets. Bun + Hono server side; standard `net
 Source: user direction during 2026-05-13 brainstorming
 
 Phase 14 (npm publish, Homebrew tap, install.sh, public docs site) is dropped entirely. The harness is proprietary; distribution is deferred until the product is production-grade. `bun install -g git+ssh://...` remains the single supported install path.
+
+## ADR M9-01 — Theme is constructor-injected, never a global
+
+Decision: Every component that needs theme tokens takes `theme.Theme` in its `New(...)` constructor (or as a struct field initialized at construction). There is no package-level `theme.Current` or singleton. Theme switching (`/theme <name>`) updates `app.Model.theme` and dispatches a re-render; each component receives the new theme via `SetTheme(t theme.Theme)` accessors.
+
+Rationale: A package-level global would couple every render path to module-load order and would make `tea.Msg`-driven theme switching require a full re-init of the model tree. Constructor injection makes the swap a pure re-render. Mirrors the pattern from the M7 SessionContext (per-session state passed in, not global).
+
+Status: implemented (M9 — `ba8f389` (T1 — theme package foundation + constructor injection)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-02 — `internal/render/*` is pure: `(text, theme, width) → string`
+
+Decision: All functions under `packages/tui/internal/render/` are pure: they take their inputs (text, theme, width) and return a styled string. No `tea.Msg`, no `tea.Model`, no I/O. Errors fall back to `render.Plain` rather than propagating — the TUI must never crash on garbage input from the model.
+
+Rationale: Pure renderers are testable with table-driven unit tests; impure ones would need the teatest harness for every assertion and would couple to component lifecycle. The fallback-on-error policy matches the M6/M8 pattern of "the model can produce anything; the TUI must remain functional."
+
+Status: implemented (M9 — `6cda7b7` (T2 — render package with glamour + chroma + Plain)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-03 — TOML theme loader deferred to M9.5; built-in light + dark only in M9
+
+Decision: M9 ships exactly two themes: Catppuccin Mocha (dark, default) and Catppuccin Latte (light). The `~/.harness/themes/*.toml` loader specified in `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §6 is deferred to M9.5 — a small mini-phase between M9 and M10 dedicated to TOML schema + loader + precedence.
+
+Rationale: The loader is ~80 LoC but adds a config-resolution surface (precedence: env > config > built-in) that benefits from its own design pass. Better to ship demo-quality with 2 themes than have 3 weeks of TOML schema discussion. Two built-ins already validate the constructor-injection pattern (ADR M9-01) and the theme-swap re-render path.
+
+Status: implemented (M9 — `ba8f389`); loader deferred to M9.5.
+
+## ADR M9-04 — `status_update` live-cost source = server-pushed SSE event
+
+Decision: The TUI's streaming spinner + live cost field are driven by `status_update` SSE events emitted from `src/server/routes/turns.ts` at turn start (`streaming: true`) and just before `turn_complete` (`streaming: false`, plus `tokensIn` / `tokensOut` / `cost`). The cost is computed via `estimateCostUsd` against the resolved provider so it matches what `disposeSessionContext`'s `session_summary` will report.
+
+Rationale: Client-derived cost from `turn_complete.usage` would only update at end of turn — no liveness during streaming. Server-push provides the start-of-stream signal the spinner pivots on. Throttling on the server side is light because `usage_delta` fires once per provider response, not per token — no high-frequency burst to debounce.
+
+Status: implemented (M9 — `cd3cc51` (T10 — status_update emission + statusline streaming spinner)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-05 — Slash autocomplete cache: fetched at boot, slightly stale tolerated
+
+Decision: The slash autocomplete popup (`components/slashautocomplete.go`) fetches its skill list via the M8 T6 hydration once per session (`fetchSkillsCmd` at boot) and caches it. Subsequent skill additions during a long-running session won't show until the next session start; the popup falls through to the static slash-command list (`/compact`, `/expand`, `/theme`) if the cache is empty or 5xx'd.
+
+Rationale: Per-keystroke fetch adds latency to a hot-path keypress; cache-and-tolerate-stale matches the M8 T6 skill-cache pattern and the cost is bounded (the user can always type the slash without completion and the server still dispatches correctly via M8 T5's `kind: 'skill'` route). M9.5 may add invalidation on `compaction_complete` if skill churn becomes a real workflow.
+
+Status: implemented (M9 — `8922b8c` (T8 — slash autocomplete popup)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-06 — Mouse v1 = wheel-scroll only; click handling deferred
+
+Decision: `cmd/sov-tui/main.go` enables `tea.WithMouseCellMotion()` so mouse events reach the model. The app's `Update` forwards `tea.MouseMsg` events to `transcript.Update` — bubbles' viewport handles wheel-scroll natively. Click events (focus, toggle-collapse, hover) are NOT handled in M9; they fall through silently.
+
+Rationale: Click handling requires modal-stack interaction analysis (does a click inside the permission modal pass through to the transcript? does a click outside the slash autocomplete dismiss it?) — that's M9.5 work once the modals' coexistence rules are settled. Wheel-scroll has zero modal interaction and delivers most of the user-perceived "this feels alive" benefit.
+
+Status: implemented (M9 — `0dc6a8c` (T9 — mouse wheel scroll)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-07 — `/expand` ring buffer (M8 T6) stays untouched; diff focus is orthogonal
+
+Decision: M8 T6's `/expand [N]` ring buffer and M9 T5's `DiffView` focus state are SEPARATE state. `/expand` re-renders the Nth-most-recent tool block in the transcript. `DiffView` (focused via `Ctrl+]`, navigated via `j`/`k`) is the cursor that moves through hunks WITHIN an expanded diff. The two never interact: expanding a diff does not auto-focus it; focusing a diff does not modify the ring.
+
+Rationale: Conflating "expanded tool result" with "focused diff view" would make `j`/`k` ambiguous (scroll inside the expanded result? navigate hunks?). Keeping them as orthogonal states preserves vim-like navigation semantics inside a focused diff while the `/expand` ring stays a pure re-render registry.
+
+Status: implemented (M9 — `166ce21` (T5 — DiffView component + focus-target Model field)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-08 — Compaction marker is an inline transcript element, not a status-line indicator
+
+Decision: `compaction_complete` SSE events render through `components/compactioncard.go` as a full-width pill inserted into the transcript at the moment of the compaction. The status line does NOT show "compaction in progress" or "post-compaction" state.
+
+Rationale: Compaction is a discrete in-history moment ("at this point the session hopped from parent to child"), not a continuous state. Status-line space is already crowded (cwd + profile + model + streaming + cost + cache); adding compaction state would crowd it further. An inline pill is also the "right" semantic — it's a marker in the transcript timeline.
+
+Status: implemented (M9 — `279e387` (T7 — components/compactioncard.go + inline render in handleEvent)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-09 — Goodbye card degrades gracefully when M7-shape `session_summary` lands
+
+Decision: `components/goodbye.go`'s `RenderGoodbye` renders the M7 base shape (`totalDispatched` + `byAgent`) ALWAYS, and conditionally appends the M8 T7 extension blocks (tokens + cost, tool counts, durations) only when the respective optional fields are non-nil on the decoded `SessionSummary`. M7-vintage payloads render just the forks block.
+
+Rationale: Forward-compat with older `sov` binaries that pre-date the M8 T7 extension fields. The TS-side schema marked those fields optional; the Go-side renderer matches. Without graceful degradation, an old `sov` server paired with a fresh `sov-tui` would render a half-empty card on legitimate sessions.
+
+Status: implemented (M9 — `279e387` (T7 — RenderGoodbye conditional blocks)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-10 — `src/ui/terminalRepl.ts` untouched (Postmortem Rule 1, again)
+
+Decision: Throughout the M9 12-task implementation, no edits to `src/ui/terminalRepl.ts` or any of its imports. All M9 code lives parallel-additive in `packages/tui/` (Go side) plus minimal additions to `src/server/routes/turns.ts` (one new `status_update` emission site).
+
+Rationale: Postmortem Rule 1 binds through M11 (default flip). M9 is foreground-surface refactor adjacent — it's the milestone where the new TUI becomes visibly polished — but the parity audit (M10) and the default flip (M11) are still ahead. terminalRepl must remain the default + functional through both.
+
+Status: verified (M9 — final regression suite confirms `git diff master -- src/ui/terminalRepl.ts` returns empty). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+
+## ADR M9-11 — Theme palette = Catppuccin (Mocha dark, Latte light)
+
+Decision: M9 ships Catppuccin Mocha for the dark palette and Catppuccin Latte for the light palette. Both are free-to-use, AA-contrast tested, and well-known to developers. The palette tokens map onto `theme.Theme`'s 13 fields (background, foreground, dim, border, primary, success, warning, error, info, codeBackground, diffAdded, diffRemoved, diffContext).
+
+Rationale: Catppuccin is a deliberately neutral choice — no strong personality, broad community familiarity, no licensing concerns. The 2-theme initial set validates the constructor-injection pattern; a custom Sovereign palette can land in M9.5 alongside the TOML loader.
+
+Status: implemented (M9 — `ba8f389` (T1 — light.go + dark.go palettes)).
+
+## ADR M9-12 — `/theme <name>` is a dedicated slash command, not a delegate to /config
+
+Decision: The TUI registers `/theme <name>` as a first-class slash command in the ENTER handler, parsed inline by `app.go`'s slash interception block (before `/compact`, `/expand`, `/skillname`, etc.). It updates `m.theme` in-memory and propagates via `SetTheme` calls to transcript + autocomplete + statusline. Persistence to `~/.harness/config.json` is deferred; the choice is per-session.
+
+Rationale: A dedicated slash gives the feature discoverability (the slash autocomplete popup lists `/theme` first thing). Falling through to a `/config set theme <name>` semantic would have required a server round-trip (the harness-config write is server-side); per-session in-memory is simpler and matches user mental model ("I'm switching themes for this session"). M9.5's TOML loader will add persistence + cross-session theme memory.
+
+Status: implemented (M9 — `ba8f389` (T1 — /theme slash handler in app.go)).

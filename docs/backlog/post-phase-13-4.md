@@ -399,14 +399,9 @@ Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-ag
 ### 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal
 
 - Priority: P4
-- Status: open
+- Status: **CLOSED** (Phase 16.1 M9 T11, 2026-05-16)
 - Source: Phase 16.1 M5 T10 code-quality review (T9 follow-up)
-- Recommendation: `packages/tui/internal/components/permission.go` calls `.Copy().Bold(true)` on a `lipgloss.Style`. The `Copy()` method is deprecated in modern lipgloss (`>= 0.10`) because `Style` values are value-type semantically — `.Bold(true)` already returns a new style without mutating the receiver. Replace `style.Copy().Bold(true)` with `style.Bold(true)` directly.
-- Evidence: lipgloss release notes mark `Copy()` deprecated; the linter on packages/tui will eventually catch this.
-- Impact: Cosmetic — no rendering difference today. Future lipgloss versions may remove `Copy()`, which would break the build.
-- Likely code areas:
-  - `packages/tui/internal/components/permission.go` (the only `Copy().Bold(true)` call introduced in T9)
-- Effort: ~5 min — single-line edit, no logic change.
+- Resolution: M9 T11 replaced the two `.Copy()` calls in `packages/tui/internal/components/permission.go` with direct field-chain calls (`yellow.Bold(true)` instead of `yellow.Copy().Bold(true)`; `bold.Underline(true)` instead of `bold.Copy().Underline(true)`). `lipgloss.Style` is value-typed so `.Copy()` was a no-op identity helper; the field-chain calls already return new values. Permission modal tests stay green.
 
 ### 30. Server-mode `subagentDefaultProvider`/`subagentDefaultModel` not specialized for router mode
 
@@ -549,16 +544,9 @@ Two follow-ups surfaced during the M7 Hermes-layer parity work. Neither blocked 
 ### 39. Go TUI mirror struct for `SessionSummaryEvent` not added
 
 - Priority: P4
-- Status: open
+- Status: **CLOSED** (Phase 16.1 M9 T7, 2026-05-16)
 - Source: Phase 16.1 M7 T6 code-quality review (carry-forward, 2026-05-15)
-- Recommendation: M6's `CompactionCompleteEvent` got a corresponding Go struct at `packages/tui/internal/transport/types.go:144` so the TUI can deserialize the SSE wire event. M7 T6's `SessionSummaryEvent` (`src/server/schema.ts:114-118`) was added to the TS-side Zod discriminated union but no Go mirror was added — `--ui tui` won't deserialize the event when M9 visual polish wires the goodbye card. Add a `SessionSummaryEvent` struct (`Type`, `Seq`, `SessionID`, `TotalDispatched`, `ByAgent map[string]int`) to `types.go` matching the JSON shape, plus a `DecodeSessionSummary` helper alongside `DecodeCompactionComplete`.
-- Evidence: `packages/tui/internal/transport/types.go` (CompactionCompleteEvent precedent); `src/server/schema.ts:114-118` (TS-side SessionSummaryEvent shape).
-- Impact: M7 alone — the event is emitted but no Go consumer exists yet, so the gap is dormant. Becomes a real visible bug when M9 wires the styled goodbye card and the TUI fails to decode the event at session disposal.
-- Likely code areas:
-  - `packages/tui/internal/transport/types.go` (mirror struct + decode helper)
-  - Tests in `packages/tui/internal/transport/` (decode round-trip)
-  - Future M9 polish work in `packages/tui/internal/app/app.go` (render path)
-- Effort: ~30 min — straightforward mirror + decode test; pairs naturally with M9 styled-goodbye-card work.
+- Resolution: M9 T7 added the Go mirror at `packages/tui/internal/transport/types.go` as `SessionSummary` + `SessionTokens` + `DecodeSessionSummary`, matching the full TS-side `SessionSummaryEvent` shape (M7 base + M8 T7 extension fields). The TUI's new `components/goodbye.go` consumes the decoded struct and renders the styled goodbye card. Extension fields are pointer-or-zero so M7-vintage payloads (no tokens, no tool counts) still decode and render — ADR M9-09 graceful degradation.
 
 ---
 

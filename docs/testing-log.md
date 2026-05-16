@@ -8,6 +8,33 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M9 close-out (visual polish; 12 tasks; #29 + #39 closed)
+
+**Scope:** 12-task M9 visual-polish milestone shipped in a single contiguous session. T1 theme package → T2 renderer package → T3 markdown wiring → T4 syntax highlight → T5 inline diff + hunk nav → T6 toolcard final polish → T7 goodbye + compaction + #39 → T8 slash autocomplete → T9 mouse wheel → T10 status_update + statusline streaming → T11 t.Skip rescue + #29 → T12 integration smoke + close-out (this entry).
+
+**Suite delta:** TS 1991 → 1997 (+6: T10 turns.statusUpdate.test.ts adds 2, T12 m9Full.test.ts adds 3, sundry +1). Go: 5 packages (`internal/app/`, `internal/components/`, `internal/transport/`, `internal/render/`, `internal/theme/`) all green; T11 re-enabled three previously-skipped `t.Skip`'d tests via deterministic Update-driven rewrites; T12's `internal/app/m9Full_test.go` adds 9 Model-level smoke tests covering every M9 visible surface. Lint clean (2 expected pre-existing warnings). Typecheck clean.
+
+**ADRs landed (12):** M9-01 through M9-12 in `DECISIONS.md` covering theme constructor injection (no global), renderer purity contract, TOML loader deferral, server-pushed live cost, autocomplete caching, mouse v1 = wheel-only, /expand orthogonality from DiffView focus, compaction inline marker placement, goodbye M7-shape degradation, terminalRepl untouched (Postmortem Rule 1 audit), Catppuccin palette choice, dedicated /theme slash.
+
+**Backlog closures (2):** #29 (lipgloss `Style.Copy()` deprecation in permission modal) closed in T11. #39 (Go TUI mirror for `SessionSummaryEvent`) closed in T7 via `transport.SessionSummary` + `transport.SessionTokens` + `DecodeSessionSummary`. Open backlog count: 4 → 2.
+
+**Bug surfaces caught + fixed mid-build:**
+- T2 — chroma's `Style` type lives in `chroma/v2` main package, not `chroma/v2/styles`. Initial `*styles.Style` declaration broke the build; fixed by importing `chroma/v2` and using `*chroma.Style`.
+- T5 — `ParseDiff` initial implementation appended a trailing empty DiffContext line because `strings.Split` on a trailing `\n` yields an empty string. Fix: skip zero-length raw lines in the default branch (preserves legitimate empty context lines).
+- T8 — `/compact` slash regression: the autocomplete popup state stayed visible after ENTER submission because slash handlers cleared the prompt but didn't dismiss the popup. Fix: every ENTER-handled path now calls `m.autocomplete.Dismiss()`.
+- T10 — TypeScript narrowing edge case: assigning `latestUsage` to `finalUsage` lost the `TokenUsage | undefined` type through async control flow (TS narrowed to `never`). Fix: explicit cast preserves the type contract.
+- T10 — Initial test used `input_tokens` / `output_tokens` (snake_case from the wire schema) for the TokenUsage Go field reads; the internal TS type uses camelCase. Fix: read the correct internal field names.
+
+**Postmortem-rule compliance verified before close-out:**
+- Rule 1 — `src/ui/terminalRepl.ts` untouched across M9: `git diff` returns empty.
+- Rule 2 — no helper module deletion: `git diff --diff-filter=D -- src/` returns empty; M9 only added/extended.
+- Rule 3 — parity audit NOT done in M9; M10's job.
+- Rule 4 — `--ui tui` stays opt-in through M11; `src/main.ts` default unchanged.
+
+**Manual smoke:** Real-Anthropic visual smoke deferred to a post-M9 hardening session (M7/M8 precedent; `scripts/m9-real-smoke.ts` adapted from `scripts/m8-real-smoke.ts`; estimated $0.005 budget). The mock-provider integration smoke in `tests/server/m9Full.test.ts` + `packages/tui/internal/app/m9Full_test.go` covers every M9 visible surface end-to-end.
+
+**Net summary:** 14 commits between M8 close-out and M9 close-out (spec + plan + T1..T11 + close-out chain). Two new Go packages (`internal/theme/` + `internal/render/`) added; 4 new components (goodbye, compactioncard, diffview, slashautocomplete). One TS-side test file added (`tests/server/turns.statusUpdate.test.ts`). One TS-side wire emission added (`status_update` in `src/server/routes/turns.ts`). Suite delta: +6 TS tests, +40-ish Go tests including the 3 rescued t.Skips and the m9Full smoke. Zero production bugs surfaced during the close-out (all surfaces caught at write/build time and fixed inline).
+
 ## 2026-05-16 — Phase 16.1 M8 — `--capture-fixture` / `--replay-fixture` threaded through `--ui tui` launcher
 
 **Scope:** M8 T2 wired `captureFixturePath` / `replayFixturePath` into `RuntimeOptions` + `buildRuntime` (commits earlier in M8). The `--ui tui` launcher at `src/cli/tuiLauncher.ts` still classified both flags as "deferred — targeting M8" and emitted stderr warnings WITHOUT forwarding them to `buildRuntime`. Result: `sov --ui tui --capture-fixture foo.json` silently dropped the flag — user-visible parity gap with `--ui repl` where the same flags work. This pass closes that gap.
