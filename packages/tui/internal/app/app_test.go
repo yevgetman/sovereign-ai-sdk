@@ -56,6 +56,14 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 			fmt.Fprint(w, `{"messages":[]}`)
 			return
 		}
+		// M8 T6: skill cache hydration. Empty list keeps the slash
+		// intercept inert (every leading slash falls through to normal
+		// turn dispatch), which matches the pre-M8 behavior these tests
+		// were written against.
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
 		n := atomic.AddInt32(&connectionCount, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -140,6 +148,13 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 		// endpoint or polluting the transcript.
 		if r.URL.Path == fmt.Sprintf("/sessions/%s/messages", sessionID) {
 			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// M8 T6: serve an empty skills list so fetchSkillsCmd resolves
+		// without blocking. The slash intercept stays inert because the
+		// cache is empty.
+		if r.URL.Path == fmt.Sprintf("/sessions/%s/skills", sessionID) {
+			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
 		// events endpoint — keep the connection open with no payload until
@@ -228,6 +243,12 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 			fmt.Fprint(w, `{"messages":[]}`)
 			return
 		}
+		// M8 T6: skill cache hydration. Empty list keeps the slash
+		// intercept inert so existing assertions don't shift.
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, ok := w.(http.Flusher)
@@ -310,6 +331,12 @@ func TestApp_compactSlashRoutesToCompactEndpoint(t *testing.T) {
 		// Messages backlog — empty so hydration resolves cleanly.
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// M8 T6: skill cache hydration — empty list keeps the slash
+		// intercept inert across this test.
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
 		// Events stream — keep open so the SSE consumer doesn't drive
@@ -425,6 +452,12 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 		}
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// M8 T6: skill cache hydration — empty list keeps the slash
+		// intercept inert across this test.
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
 		// Events stream — emit a single compaction_complete then hold
@@ -552,6 +585,12 @@ func TestApp_compactSlashHandlesNoOp(t *testing.T) {
 			fmt.Fprint(w, `{"messages":[]}`)
 			return
 		}
+		// M8 T6: skill cache hydration — empty list keeps the slash
+		// intercept inert across this test.
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -660,6 +699,12 @@ func TestApp_reconsumesSSEAfterTurnComplete(t *testing.T) {
 		// /messages backlog — empty so hydration resolves cleanly.
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		// M8 T6: skill cache hydration — empty list keeps the slash
+		// intercept inert across this test.
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
 		// /events SSE — branch on connection count. First connection

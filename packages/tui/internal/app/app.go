@@ -68,21 +68,35 @@ type compactErrorMsg struct {
 	err error
 }
 
+// skillsFetchedMsg carries the result of the M8 T6 skill cache hydration.
+// On success the model populates `skills` so the leading-slash intercept
+// can match user input against known skill names. On failure the
+// message carries err; the TUI logs a dim line and falls back to
+// no-skill-cache behavior (every slash falls through to normal turn
+// dispatch). This mirrors the messagesFetchedMsg contract for
+// hydration fetch failures — degrade gracefully rather than crash.
+type skillsFetchedMsg struct {
+	skills []transport.Skill
+	err    error
+}
+
 type Model struct {
-	keys            keyMap
-	transcript      components.Transcript
-	prompt          components.Prompt
-	statusLine      components.StatusLine
-	sessionID       string
-	baseURL         string
-	width           int
-	height          int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	events          <-chan transport.Envelope
-	errs            <-chan error
-	thinkingPending bool
-	permission      *components.Permission // M5 T9: active approval modal; nil when not visible
+	keys             keyMap
+	transcript       components.Transcript
+	prompt           components.Prompt
+	statusLine       components.StatusLine
+	sessionID        string
+	baseURL          string
+	width            int
+	height           int
+	ctx              context.Context
+	cancel           context.CancelFunc
+	events           <-chan transport.Envelope
+	errs             <-chan error
+	thinkingPending  bool
+	permission       *components.Permission // M5 T9: active approval modal; nil when not visible
+	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
+	completedBlocks  []CompletedBlock       // M8 T6: ring buffer of tool_result blocks for /expand re-render
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -115,13 +129,18 @@ func (m Model) Init() tea.Cmd {
 	if m.baseURL == "" {
 		return nil
 	}
-	// Fire the backlog hydration in parallel with the SSE subscription.
-	// On a resume the user sees prior turns immediately; on a fresh
-	// session the fetch returns zero messages and the handler is a no-op.
+	// Fire the backlog hydration + skill cache hydration in parallel with
+	// the SSE subscription. On a resume the user sees prior turns
+	// immediately; on a fresh session the messages fetch returns zero
+	// messages and the handler is a no-op. The skills fetch populates
+	// the leading-slash intercept cache so /skillname dispatches against
+	// the project + user + bundle skill registry land server-side as
+	// `kind: 'skill'` rather than as literal text. Failure of either
+	// fetch is non-fatal — the message handlers degrade gracefully.
 	if m.events == nil {
-		return m.fetchMessagesCmd()
+		return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd())
 	}
-	return tea.Batch(m.fetchMessagesCmd(), m.waitEvent)
+	return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd(), m.waitEvent)
 }
 
 // fetchMessagesCmd issues the GET /sessions/<id>/messages backlog fetch
@@ -130,6 +149,19 @@ func (m Model) fetchMessagesCmd() tea.Cmd {
 	return func() tea.Msg {
 		msgs, err := transport.FetchMessages(m.ctx, m.baseURL, m.sessionID)
 		return messagesFetchedMsg{messages: msgs, err: err}
+	}
+}
+
+// fetchSkillsCmd issues the GET /sessions/<id>/skills hydration off the
+// Update goroutine (M8 T6). The result populates m.skills so the
+// leading-slash intercept in the ENTER handler can match user input
+// against known skill names and POST as `kind: 'skill'` when matched.
+// Failure is non-fatal — the skillsFetchedMsg handler surfaces a dim
+// transcript line and falls back to no-skill-cache behavior.
+func (m Model) fetchSkillsCmd() tea.Cmd {
+	return func() tea.Msg {
+		skills, err := transport.GetSkills(m.ctx, m.baseURL, m.sessionID)
+		return skillsFetchedMsg{skills: skills, err: err}
 	}
 }
 
@@ -204,6 +236,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Italic(true)
 				m.transcript.AppendLine(dimStyle.Render("[compacting…]"))
 				return m, m.compactCmd()
+			}
+			// M8 T6 — /expand [N] interception. Re-renders the Nth-most-recent
+			// tool block from the local ring buffer with no truncation. Purely
+			// client-side — no POST is fired. The echo line uses the same "» "
+			// prefix as a normal turn so the user sees what they typed; the
+			// expandToolBlock call appends the rendered block (or an error
+			// marker if N is out of range) below it. No "[thinking]" placeholder
+			// because there's no network round trip.
+			if n, ok := parseExpandCommand(text); ok {
+				m.transcript.AppendLine("» " + text)
+				m.prompt.Clear()
+				return m, m.expandToolBlock(n)
+			}
+			// M8 T6 — /skillname interception. When the slash matches a
+			// cached skill name (populated by fetchSkillsCmd on boot), POST
+			// to /turns with `kind: 'skill'` so the server-side T5 handler
+			// expands the prompt via expandSkillPrompt before saveMessage.
+			// On no-match the input falls through to the normal turn POST
+			// — the user might be typing a future slash command or a
+			// literal /-prefixed string the model should see as-is.
+			if name, ok := matchSkillSlash(text, m.skills); ok {
+				m.transcript.AppendLine("» " + text)
+				m.prompt.Clear()
+				dimStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#6e7681")).
+					Italic(true)
+				m.transcript.AppendLine(dimStyle.Render("…expanding /" + name))
+				m.thinkingPending = true
+				return m, m.submitSkillTurn(text)
 			}
 			m.transcript.AppendLine("» " + text)
 			m.prompt.Clear()
@@ -322,6 +383,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Render(fmt.Sprintf("compact failed: %v", msg.err)),
 		)
 		return m, nil
+	case skillsFetchedMsg:
+		// M8 T6: store the cached skill list. On failure we surface a dim
+		// line and continue — the slash intercept falls through to normal
+		// turn dispatch when m.skills is empty, so the TUI stays usable
+		// even if the /skills route is offline. No visible marker on
+		// success — the cache is silently warmed.
+		if msg.err != nil {
+			m.transcript.AppendLine(
+				lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#6e7681")).
+					Italic(true).
+					Render(fmt.Sprintf("could not load skills: %v", msg.err)),
+			)
+			return m, nil
+		}
+		m.skills = msg.skills
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.transcript, cmd = m.transcript.Update(msg)
@@ -376,6 +454,17 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Summary:    fmt.Sprintf("rendered as %s", hint),
 		}
 		m.transcript.AppendLine(card.View(m.width))
+		// M8 T6 — record the block onto the local ring for /expand [N]
+		// re-render. The wire `output` is json.RawMessage so we render
+		// it as a string verbatim; the expand path treats it as plain
+		// text (multi-line splits on \n) which matches how the user
+		// would read raw tool output in a debug log. The card view above
+		// is a one-line summary; the ring keeps the full payload.
+		m.appendCompletedBlock(CompletedBlock{
+			Seq:    env.Seq,
+			Tool:   tr.Tool,
+			Output: string(tr.Output),
+		})
 	case "permission_request":
 		// M5 T9: push the interactive permission modal. The modal renders
 		// as a centered yellow box; key dispatch is routed to it in
@@ -564,4 +653,51 @@ func (m Model) submitTurn(text string) tea.Cmd {
 		// Successful 202 — events will arrive via the SSE consumer.
 		return nil
 	}
+}
+
+// submitSkillTurn POSTs the raw /skillname slash text to
+// /sessions/<id>/turns with `kind: 'skill'` so the server-side T5
+// handler at src/server/routes/turns.ts runs expandSkillPrompt before
+// saveMessage. The model layer's slash intercept (matchSkillSlash) has
+// already confirmed the name matches a known skill, so this Cmd's only
+// job is the HTTP round trip. On error a turnSubmitErrMsg surfaces a
+// red transcript line for visual parity with submitTurn.
+func (m Model) submitSkillTurn(rawText string) tea.Cmd {
+	return func() tea.Msg {
+		if err := transport.PostSkillTurn(m.ctx, m.baseURL, m.sessionID, rawText); err != nil {
+			return turnSubmitErrMsg{err: err}
+		}
+		return nil
+	}
+}
+
+// matchSkillSlash returns (name, true) when text is a leading-slash
+// command whose name matches one of the cached skills. Splits on the
+// first space so `/greet Alice Bob` resolves the name to `greet` and
+// drops the args (which travel along on the wire — the server-side
+// expansion at src/server/routes/turns.ts:122-126 parses them).
+//
+// Returns (_, false) on any text that doesn't start with `/`, on an
+// empty cache, or on a /name that isn't in the cache. The dispatch
+// path falls through to normal turn submission in either case — the
+// user might be typing a literal /-prefixed message the model should
+// see as-is.
+func matchSkillSlash(text string, skills []transport.Skill) (string, bool) {
+	if len(skills) == 0 || !strings.HasPrefix(text, "/") {
+		return "", false
+	}
+	stripped := text[1:]
+	if stripped == "" {
+		return "", false
+	}
+	name := stripped
+	if space := strings.IndexByte(stripped, ' '); space != -1 {
+		name = stripped[:space]
+	}
+	for _, s := range skills {
+		if s.Name == name {
+			return name, true
+		}
+	}
+	return "", false
 }

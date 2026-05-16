@@ -8,6 +8,41 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T6 — TUI /skillname + /expand dispatch
+
+**Scope:** Sixth task of the M8 polish-surfaces group. The Go TUI now fetches `GET /sessions/:id/skills` on boot (via a new `transport.GetSkills` helper) and caches the list of skill names on `Model.skills`. The ENTER handler intercepts three slash patterns in order: `/compact` (M6, unchanged), `/expand [N]` (new — re-renders the Nth-most-recent tool block from a local ring buffer without truncation), and `/skillname` (new — POSTs to `/sessions/:id/turns` with `kind: 'skill'` so the T5 server-side handler runs `expandSkillPrompt`). The `tool_result` SSE handler also pushes onto a 50-entry ring buffer that `/expand [N]` reads from. Unknown slashes still fall through to the normal turn POST. Closes phase-16 prereq rows 19 (TUI half) and 24.
+
+**The fix (single atomic `feat(tui):` commit):**
+
+- **`packages/tui/internal/transport/skills.go`** (new) — `transport.Skill` struct mirroring the wire shape (`name`, `whenToUse`, `description`). `GetSkills(ctx, baseURL, sessionID)` issues GET against `src/server/routes/skills.ts` and returns `[]Skill` (or error on non-2xx). `PostSkillTurn(ctx, baseURL, sessionID, rawText)` POSTs `{ text: rawText, kind: "skill" }` to `/turns`. Both share a 5s `skillsClient` matching `fetchClient`'s discovery-shape budget.
+
+- **`packages/tui/internal/transport/skills_test.go`** (new) — Three tests: success-path decode of the wire shape, non-2xx error surfacing for `GetSkills`, and `PostSkillTurn` body assertion (`text` + `kind: 'skill'`).
+
+- **`packages/tui/internal/app/expand.go`** (new) — `parseExpandCommand(input) → (n, ok)` parses `/expand` (defaulting to 1), `/expand N`, and rejects non-positive ints, non-numeric args, and any input that isn't exactly `/expand` (no longer prefix like `/expander`). `CompletedBlock` struct holds `{ Seq, Tool, Output, IsError }`. `appendCompletedBlock` enforces the `completedBlocksCap = 50` ring (copy + shrink eviction). `lookupCompletedBlock(n)` returns the Nth-most-recent (1 = newest). `expandToolBlock(n)` renders a dim header line plus the full output with no truncation (or an error marker if N is out of range). All client-side — no network round trip.
+
+- **`packages/tui/internal/app/expand_test.go`** (new) — Three tests pinning the parser contract (10 cases incl. whitespace + lookalike slashes), ring eviction (60 inserts → cap=50 with oldest 10 evicted), and newest-first indexing.
+
+- **`packages/tui/internal/app/app.go`** — Five edits:
+  - Added `skills []transport.Skill` and `completedBlocks []CompletedBlock` to `Model`.
+  - Added `skillsFetchedMsg` typed message and `fetchSkillsCmd()` Cmd. `Init()` now batches `fetchMessagesCmd()` + `fetchSkillsCmd()` (+ `waitEvent` when SSE is wired).
+  - The ENTER handler sandwiches the new dispatch between `/compact` and the fall-through to normal turn POST: `parseExpandCommand` → `m.expandToolBlock(n)` (client-side, no Cmd network); `matchSkillSlash(text, m.skills)` → `m.submitSkillTurn(text)` (POST `kind: 'skill'`) with a dim `…expanding /<name>` placeholder + `thinkingPending` flag for parity with the normal-turn UX.
+  - `handleEvent("tool_result")` now calls `m.appendCompletedBlock(...)` after rendering the card so `/expand` has the full payload to re-render.
+  - `Update()` learned `skillsFetchedMsg` — on success populates `m.skills`; on error emits a dim transcript line and falls back to no-cache behavior. New helpers `submitSkillTurn(rawText)` (thin `transport.PostSkillTurn` wrapper) and `matchSkillSlash(text, skills) → (name, ok)` for the cache lookup.
+
+- **`packages/tui/internal/app/app_test.go`** — Seven test-server handlers updated. Each previously short-circuited only `/messages` with `{"messages":[]}`; now they also short-circuit `/skills` with `{"skills":[]}` so the new `fetchSkillsCmd` doesn't hang on the test SSE branch and the slash intercept stays inert across the pre-existing assertions.
+
+**Divergence from the plan:** None on shape. The plan's Step 6 illustration inlines the skill-name match into the ENTER handler with a `for _, skill := range m.skills` loop; the implementation factors that into a `matchSkillSlash(text, skills) → (name, bool)` helper for testability + readability. Net behavior identical. Also: the implementation populates `Model.completedBlocks` from the existing `tool_result` SSE handler in `handleEvent` rather than (per the plan's Step 7) a parallel SSE loop — the existing handler already has `tr` decoded with the fields the ring needs, so a separate path would duplicate the decode for no gain.
+
+**Tests run:**
+
+- `cd packages/tui && go test ./...` — all 4 packages pass: `internal/app` 1.625s, `internal/components` 0.268s, `internal/transport` 0.437s, `cmd/sov-tui` no test files. Includes the 3 new `transport` cases and the 3 new `app` (expand) cases.
+- `bun run test` — `1983 pass / 0 fail / 5023 expect() calls` (241 files). Unchanged from T5's 1983 — the TS suite has no view of the TUI surface.
+- `bun run lint` — clean for changed files. Same two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` (lines 219, 343) carried from T3/T4/T5.
+- `bun run typecheck` — clean (`tsc --noEmit`).
+- `sov upgrade` will run after push.
+
+**Why this matters:** This is the client-side half of prereq row 19 — without TUI dispatch the server-side T5 expansion is unreachable: every `/greet Alice` would either be the literal text sent as a turn or (if the user manually crafted the JSON with `kind: 'skill'`) hit the server but with no UX path. The TUI also gets `/expand [N]` (prereq row 24) — the user can re-display a tool block's full output without truncation when the ToolCard's one-line summary isn't enough. Both surfaces match terminalRepl conventions while leaving the legacy REPL untouched (per the M8 hard rule).
+
 ## 2026-05-16 — Phase 16.1 M8 T5 — skill-as-slash server-side expansion
 
 **Scope:** Fifth task of the M8 polish-surfaces group. POST `/sessions/:id/turns` now accepts an optional `kind: 'skill'` body field. When present, the route parses the leading `/skillname args…` slash, resolves the name against `runtime.skills.byName` (T4-populated), and rewrites `body.text` with the result of `expandSkillPrompt(skill, { args, cwd, sessionId })` BEFORE the existing T3 @file-expansion + `saveMessage` + `query()` flow runs. The persisted user message and the model's view both see the EXPANDED body, never the raw slash. Closes phase-16 prereq row 19 (server-side half).
