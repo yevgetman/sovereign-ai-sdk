@@ -43,6 +43,13 @@ func (p *Prompt) Clear() {
 	p.ti.SetValue("")
 }
 
+// SetValue replaces the prompt input verbatim. Used by the slash-autocomplete
+// popup on Tab-complete (M9 T8). Leaves cursor at end.
+func (p *Prompt) SetValue(v string) {
+	p.ti.SetValue(v)
+	p.ti.SetCursor(len(v))
+}
+
 func (p Prompt) View() string {
 	border := lipgloss.NewStyle().BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444c56"))
 	return border.Width(p.width).Render(p.ti.View())

@@ -114,6 +114,7 @@ type Model struct {
 	mostRecentDiff   *components.DiffView   // M9 T5: points to the diff in the latest FileEdit/FileWrite tool_result; Ctrl+] focuses
 	focus            focusTarget            // M9 T5: routing target for j/k/Esc when not in modal
 	goodbyeSummary   *transport.SessionSummary // M9 T7: non-nil after session_summary event; View renders the card instead
+	autocomplete     components.SlashAutocomplete // M9 T8: popup shown when prompt starts with /
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -127,15 +128,16 @@ func New(sessionID, baseURL string) Model {
 	st.Cwd = cwd
 	defaultTheme := theme.Dark() // M9 T1: default theme; user toggles via /theme
 	m := Model{
-		keys:       defaultKeys(),
-		transcript: components.NewTranscript(defaultTheme),
-		prompt:     components.NewPrompt(),
-		statusLine: st,
-		sessionID:  sessionID,
-		baseURL:    baseURL,
-		ctx:        ctx,
-		cancel:     cancel,
-		theme:      defaultTheme,
+		keys:         defaultKeys(),
+		transcript:   components.NewTranscript(defaultTheme),
+		prompt:       components.NewPrompt(),
+		statusLine:   st,
+		sessionID:    sessionID,
+		baseURL:      baseURL,
+		ctx:          ctx,
+		cancel:       cancel,
+		theme:        defaultTheme,
+		autocomplete: components.NewSlashAutocomplete(defaultTheme),
 	}
 	if baseURL != "" {
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
@@ -246,6 +248,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			*m.mostRecentDiff = updated
 			return m, nil
 		}
+		// M9 T8 — autocomplete popup routing. When visible, Tab/Esc/Up/Down
+		// route here BEFORE the regular prompt input; other keys fall
+		// through to the prompt update which then re-filters via SetFilter.
+		if m.autocomplete.Visible() {
+			switch msg.String() {
+			case "tab":
+				completion := m.autocomplete.Completion()
+				if completion != "" {
+					m.prompt.SetValue(completion + " ")
+					m.autocomplete.Dismiss()
+				}
+				return m, nil
+			case "up":
+				m.autocomplete.MoveUp()
+				return m, nil
+			case "down":
+				m.autocomplete.MoveDown()
+				return m, nil
+			case "esc":
+				m.autocomplete.Dismiss()
+				return m, nil
+			}
+		}
 		if key := msg.String(); key == "esc" || key == "ctrl+c" {
 			m.cancel()
 			return m, tea.Quit
@@ -255,6 +280,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" {
 				return m, nil
 			}
+			// M9 T8 — dismiss the autocomplete popup on any ENTER submission
+			// so the suggestion overlay doesn't linger above the prompt.
+			m.autocomplete.Dismiss()
 			// M9 T1: intercept `/theme <name>` slash. Purely client-side —
 			// no POST is fired; the model never sees the theme switch. Update
 			// m.theme; later milestones (T3 markdown wiring, T6 toolcard,
@@ -275,6 +303,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.theme = newTheme
 				m.transcript.SetTheme(m.theme)
+				m.autocomplete.SetTheme(m.theme)
 				m.transcript.AppendLine(m.theme.DimStyle().Render("theme: " + name))
 				return m, nil
 			}
@@ -339,6 +368,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.prompt, cmd = m.prompt.Update(msg)
+		// M9 T8 — after every prompt update, sync the autocomplete popup
+		// against the new prompt text.
+		m.autocomplete.SetFilter(m.prompt.Value())
 		return m, cmd
 	case sseMsg:
 		m.handleEvent(msg.env)
@@ -458,6 +490,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.skills = msg.skills
+		m.autocomplete.SetSkills(msg.skills) // M9 T8 — surface skills in the popup
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -669,7 +702,12 @@ func (m Model) View() string {
 	if m.permission != nil && !m.permission.Done() {
 		return m.permission.View(m.width, m.height)
 	}
-	return m.transcript.View() + "\n" + m.prompt.View() + "\n" + m.statusLine.View()
+	// M9 T8 — autocomplete popup renders above the prompt row when visible.
+	prompt := m.prompt.View()
+	if m.autocomplete.Visible() {
+		prompt = m.autocomplete.View(m.width) + "\n" + prompt
+	}
+	return m.transcript.View() + "\n" + prompt + "\n" + m.statusLine.View()
 }
 
 // postApproval POSTs the user's permission decision to
