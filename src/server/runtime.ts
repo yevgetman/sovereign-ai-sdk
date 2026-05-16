@@ -42,7 +42,9 @@ import { redactSecretsTransformer } from '../permissions/redactSecretsTransforme
 import type { AskResponse, AskUser, CanUseTool, PermissionMode } from '../permissions/types.js';
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
-import type { LLMProvider } from '../providers/types.js';
+import type { LLMProvider, Transport } from '../providers/types.js';
+import { RouterAuditLogger } from '../router/auditLogger.js';
+import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
 import { Semaphore } from '../runtime/semaphore.js';
@@ -408,9 +410,79 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     tools: toolPool,
   });
 
-  const resolved = resolveProvider(opts.provider, opts.model, {
-    harnessHome,
-  });
+  // Determine provider mode BEFORE permission cascade reads userSettings —
+  // the router branch needs the same userSettings, so load it now and reuse
+  // below. M8 T1: when the user configures provider:router (either via
+  // opts.provider or settings.defaultProvider), resolveProvider can't be the
+  // single source of truth — the router wraps TWO providers. Construct it
+  // explicitly here, mirroring terminalRepl.ts:238-292.
+  const userSettings = readConfig();
+  const useRouter =
+    opts.provider === 'router' ||
+    (opts.provider === undefined && userSettings.defaultProvider === 'router');
+  let resolved: ResolvedProvider;
+  let routerAuditLogger: RouterAuditLogger | undefined;
+  if (useRouter) {
+    const routerCfg = userSettings.router;
+    if (!routerCfg) {
+      throw new Error(
+        'provider: router requires a `router` block in config.json (configure with: sov config set router.localProvider <name>, etc.)',
+      );
+    }
+    const localResolved = resolveProvider(routerCfg.localProvider, routerCfg.localModel, {
+      harnessHome,
+    });
+    const frontierResolved = resolveProvider(routerCfg.frontierProvider, routerCfg.frontierModel, {
+      harnessHome,
+    });
+    routerAuditLogger = new RouterAuditLogger({
+      harnessHome,
+      log: (m) => process.stderr.write(`${m}\n`),
+    });
+    const routerConfig = {
+      localProvider: routerCfg.localProvider,
+      frontierProvider: routerCfg.frontierProvider,
+      ...(routerCfg.localModel !== undefined ? { localModel: routerCfg.localModel } : {}),
+      ...(routerCfg.frontierModel !== undefined ? { frontierModel: routerCfg.frontierModel } : {}),
+      ...(routerCfg.defaultLane !== undefined ? { defaultLane: routerCfg.defaultLane } : {}),
+      ...(routerCfg.escalationMode !== undefined
+        ? { escalationMode: routerCfg.escalationMode }
+        : {}),
+      ...(routerCfg.maxConcurrentLocal !== undefined
+        ? { maxConcurrentLocal: routerCfg.maxConcurrentLocal }
+        : {}),
+      ...(routerCfg.maxConcurrentFrontier !== undefined
+        ? { maxConcurrentFrontier: routerCfg.maxConcurrentFrontier }
+        : {}),
+    };
+    const routerProvider = new RouterProvider({
+      config: routerConfig,
+      localProvider: localResolved.transport,
+      frontierProvider: frontierResolved.transport,
+      auditLogger: routerAuditLogger,
+      sessionId: 'pending',
+      localContextLength: localResolved.contextLength,
+    });
+    resolved = {
+      transport: routerProvider as unknown as Transport,
+      client: routerProvider,
+      baseUrl: 'router://',
+      model: `${localResolved.model} | ${frontierResolved.model}`,
+      contextLength: Math.min(localResolved.contextLength, frontierResolved.contextLength),
+      authType: 'none',
+      metadata: {
+        provider: 'router',
+        apiMode: 'router',
+        purpose: 'main',
+        localProvider: localResolved.metadata.provider,
+        frontierProvider: frontierResolved.metadata.provider,
+      },
+    };
+  } else {
+    resolved = resolveProvider(opts.provider, opts.model, {
+      harnessHome,
+    });
+  }
   const provider = resolved.transport;
 
   // Provider preflight — fail fast on bad credentials / quota / transport
@@ -466,7 +538,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // falls through to `'default'`, fires an `ask` callback that the
   // server has no interactive surface for, and the TUI receives a
   // `permission_request` event it can't approve. See M3 batch notes.
-  const userSettings = readConfig();
+  // (userSettings was loaded earlier for the router branch — reuse it.)
   const permissionSettings = loadPermissionSettings({
     cwd: opts.cwd,
     harnessHome,
@@ -547,6 +619,27 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // model defaults track the parent session.
   const laneSemaphores = new LaneSemaphores(resolveLaneSemaphoresOpts(userSettings));
   const writeLock = new Semaphore(1);
+  // M8 T1 / backlog #30 — when the runtime is router-mode, sub-agent
+  // defaults must specialize to the frontier lane. The literal `'router'`
+  // string isn't a real provider entry — resolveProvider would throw if a
+  // child tried to use it. Mirrors terminalRepl.ts:908-917: the frontier
+  // lane is the more capable lane and what the user already configured.
+  // The frontier model comes from userSettings.router?.frontierModel (the
+  // configured override), falling back to the resolved frontier child's
+  // own default model when no override is set.
+  const isRouterMode = resolved.transport.name === 'router';
+  const routerMeta = resolved.metadata as { frontierProvider?: string };
+  const subagentDefaultProvider =
+    isRouterMode && routerMeta.frontierProvider !== undefined
+      ? routerMeta.frontierProvider
+      : resolved.transport.name;
+  // When the parent is router-mode, resolved.model is the synthetic
+  // `"<localModel> | <frontierModel>"` string — split it to recover the
+  // frontier model rather than depending on settings (the settings field
+  // can be undefined when the user accepts the provider's default model).
+  const subagentDefaultModel = isRouterMode
+    ? (resolved.model.split(' | ')[1]?.trim() ?? resolved.model)
+    : resolved.model;
   const subagentScheduler = new SubagentScheduler({
     agents,
     laneSemaphores,
@@ -562,8 +655,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         metadata: { agentName: input.agentName, kind: 'subagent' },
       }),
     availableProviders: resolveSubagentAvailableProviders(resolved),
-    defaultProvider: resolved.transport.name,
-    defaultModel: resolved.model,
+    defaultProvider: subagentDefaultProvider,
+    defaultModel: subagentDefaultModel,
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     artifactsRoot: resolveSubagentArtifactsRoot(harnessHome, bundle),
     // Per-child trace file path mirrors terminalRepl:954: child events
@@ -690,16 +783,19 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     getSessionContext,
     disposeSession,
     dispose: async () => {
-      // M7-08 disposal order: per-session subsystems → MCP pool → approval
-      // queue → sessionDb. The per-session walk closes each trace writer
-      // first so the JSONL files are flushed before the surrounding state
-      // (DB connection, MCP transports) goes away. T1 handled MCP +
-      // approval + sessionDb only; T3 now hooks the per-session sweep at
-      // the front.
+      // M7-08 disposal order: per-session subsystems → router audit logger
+      // → MCP pool → approval queue → sessionDb. The per-session walk
+      // closes each trace writer first so the JSONL files are flushed
+      // before the surrounding state (DB connection, MCP transports) goes
+      // away. T1 handled MCP + approval + sessionDb only; T3 hooked the
+      // per-session sweep at the front; M8 T1 inserts the router audit
+      // logger's close() before MCP shutdown so its sequential write
+      // chain drains while everything else is still up.
       const liveSessionIds = Array.from(sessionContexts.keys());
       for (const liveId of liveSessionIds) {
         await disposeSession(liveId);
       }
+      if (routerAuditLogger) await routerAuditLogger.close();
       if (mcpClientPool) await mcpClientPool.shutdown();
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.

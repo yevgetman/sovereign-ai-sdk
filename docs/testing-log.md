@@ -8,6 +8,27 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T1 — router server-side construction (closes #30)
+
+**Scope:** First task of the M8 polish-surfaces group — server-mode runtime now constructs a `RouterProvider` when the user configures `provider: 'router'` (either via `opts.provider === 'router'` or `userSettings.defaultProvider === 'router'`). Previously, `buildRuntime` passed the literal `'router'` string straight to `resolveProvider`, which threw `unknown provider: router` because the resolver only knows about single providers — the router wraps two. Mirrors `terminalRepl.ts:238-292` for construction and `terminalRepl.ts:908-917` for sub-agent default specialization. Closes backlog #30 wiring; backlog entry stays open until M8 T8 close-out flips it.
+
+**The fix (single atomic `feat(server):` commit):**
+
+- **`src/server/runtime.ts`** — Three pieces:
+  - Router branch in `buildRuntime` after the existing `userSettings = readConfig()` (the original site at line 469 was hoisted up so the router branch can read it without duplicating the read). When `useRouter` is true, resolves the local + frontier child providers explicitly, constructs a `RouterAuditLogger` writing to `<harnessHome>/router/audit.jsonl`, builds a `RouterProvider` wrapping them, and synthesizes a `ResolvedProvider` whose transport is the router (cast to `Transport`), model is the synthetic `"<localModel> | <frontierModel>"` string, contextLength is the smaller of the two children's caps, authType is `'none'`, and metadata carries `provider: 'router'`, `apiMode: 'router'`, plus `localProvider`/`frontierProvider` names from the children's metadata. Throws a remediation-message error when `userSettings.router` is absent.
+  - Sub-agent default specialization: when `resolved.transport.name === 'router'`, `subagentDefaultProvider` falls back to the frontier lane (via `resolved.metadata.frontierProvider`) and `subagentDefaultModel` parses the frontier model out of the synthetic `"<local> | <frontier>"` string. Without this, a child agent dispatched in router-mode tries to resolve the literal `'router'` provider name and the resolver throws. Closes backlog #30.
+  - `runtime.dispose()` now closes `routerAuditLogger` before MCP shutdown, ensuring the audit logger's sequential write chain drains while the rest of the runtime is still up.
+
+- **`tests/server/runtime.router.test.ts`** (new) — Two tests. (1) `provider: 'router'` with valid router settings builds a runtime whose `resolvedProvider.transport.name === 'router'` and metadata exposes `localProvider`/`frontierProvider`. (2) `subagentScheduler.opts.defaultProvider` resolves to the frontier provider name (`'mock'`) and `subagentScheduler.opts.defaultModel` resolves to `'mock-frontier'` (parsed from the synthetic model string), confirming the closes-#30 specialization landed.
+
+**Divergence from the plan:** (a) The plan suggested reading `scheduler.defaultProvider` directly — the scheduler stores opts on a private `opts` field, so the test reaches in via `scheduler.opts.defaultProvider` instead (single-property cast). (b) The plan suggested specializing `subagentDefaultModel` to `userSettings.router?.frontierModel ?? resolved.model`, but `resolved.model` in router-mode is the synthetic combined string (`"local | frontier"`), so the test asserting `mock-frontier` requires parsing the substring after `' | '` — matches terminalRepl.ts:912-916 exactly. (c) Hoisted the existing `const userSettings = readConfig()` at line 469 up to the router-branch site at line 419 to avoid a duplicate read; the permission cascade reuses the hoisted value (verified by all 1970 tests passing).
+
+**Test counts:** 1968 → 1970 (+2 from the new test file). `bun run lint && bun run typecheck && bun run test` all green. 2 pre-existing lint warnings in `src/permissions/shellSemantics.ts` unchanged.
+
+**Status:** GREEN. Backlog #30 wiring landed (entry stays open until M8 T8 close-out). T2 ready to start.
+
+---
+
 ## 2026-05-16 — Phase 16.1 M7 — autonomous real-Anthropic smoke verified (post cost fix) + script committed
 
 **Scope:** Second run of `scripts/m7-real-smoke.ts` against real Anthropic Haiku 4.5 (`claude-haiku-4-5-20251001`) after the `1bedd55` cost-recording fix landed. Confirms all six per-session sinks land correctly end-to-end against the real provider. The smoke script itself is now committed to `scripts/` as a reusable hardening artifact — parallel to `scripts/build-tui.ts`.
