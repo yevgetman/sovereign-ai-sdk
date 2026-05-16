@@ -411,9 +411,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.autocomplete.SetFilter(m.prompt.Value())
 		return m, cmd
 	case tea.MouseMsg:
-		// M9 T9 — forward mouse events (wheel scroll in particular) to the
-		// transcript viewport. bubbles' viewport natively handles
-		// MouseButtonWheelUp/Down for scroll; click handling is M9.5.
+		// M9.6 T1: split click vs wheel/motion routing. Left-press events
+		// dispatch by Y-coordinate against the transcript / autocomplete
+		// popup regions; wheel + motion events forward to the transcript
+		// viewport (M9 T9 behavior preserved).
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			return m.handleMouseClick(msg)
+		}
 		var cmd tea.Cmd
 		m.transcript, cmd = m.transcript.Update(msg)
 		return m, cmd
@@ -612,7 +616,9 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Expanded:   diff != nil, // M9 T5 — auto-expand diffs so the user sees the hunks
 			Diff:       diff,
 		}
-		m.transcript.AppendLine(card.View(m.width))
+		// M9.6 T1: AppendLineAsCard retains the card struct so a mouse
+		// click in the transcript can flip Expanded and re-render in place.
+		m.transcript.AppendLineAsCard(card)
 		// M8 T6 — record the block onto the local ring for /expand [N]
 		// re-render. The wire `output` is json.RawMessage so we render
 		// it as a string verbatim; the expand path treats it as plain
@@ -726,6 +732,53 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			m.statusLine.CacheHit = su.CacheHitRate
 		}
 	}
+}
+
+// handleMouseClick dispatches a left-press click by screen-Y to one of
+// transcript (toolcard collapse-toggle), autocomplete popup (entry
+// select+complete), or no-op (prompt + status rows). M9.6 T1, ADR M9.6-01.
+//
+// Layout from top to bottom (current frame's vertical stack):
+//   transcript viewport (h = m.height - statusH - promptH - popupH)
+//   autocomplete popup (h = 0 or N+2 when visible)
+//   prompt (h = 2)
+//   status (h = 1)
+//
+// T2 inserts a stall-badge row above the prompt when present; the
+// transcriptH calculation is updated then.
+func (m Model) handleMouseClick(msg tea.MouseMsg) (Model, tea.Cmd) {
+	const statusH = 1
+	const promptH = 2
+	popupH := m.autocomplete.PopupHeight()
+
+	transcriptH := m.height - statusH - promptH - popupH
+	if transcriptH < 0 {
+		transcriptH = 0
+	}
+
+	if msg.Y < transcriptH {
+		// Click in transcript region.
+		if cardIdx, ok := m.transcript.ClickAt(msg.Y); ok {
+			m.transcript.ToggleCardExpanded(cardIdx)
+		}
+		return m, nil
+	}
+	if popupH > 0 {
+		popupStart := transcriptH
+		popupEnd := popupStart + popupH
+		if msg.Y >= popupStart && msg.Y < popupEnd {
+			// Click on autocomplete popup. Entry index is the row inside
+			// the popup minus 1 for the top border.
+			entryIdx := msg.Y - popupStart - 1
+			if completion, ok := m.autocomplete.SelectAt(entryIdx); ok {
+				m.prompt.SetValue(completion + " ")
+				m.autocomplete.Dismiss()
+			}
+			return m, nil
+		}
+	}
+	// Prompt + status rows + dead transcript area: no-op.
+	return m, nil
 }
 
 // clearThinkingIfPending removes the "…thinking" placeholder appended by the

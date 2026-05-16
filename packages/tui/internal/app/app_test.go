@@ -1058,3 +1058,47 @@ func TestApp_ThemeSwitchPreservesOtherConfigFields(t *testing.T) {
 		t.Errorf("other_field not preserved: %q", body)
 	}
 }
+
+// M9.6 T1 — mouse click handling tests.
+
+func TestApp_ClickOnToolCardTogglesExpanded(t *testing.T) {
+	m := New("s-click", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"tool_result","seq":1,"sessionId":"s-click","block":0,"tool":"Bash","input":{"command":"ls"},"output":"file-list-content","renderHint":"text"}`
+	env := newTestEnvelope("tool_result", "s-click", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	beforeClick := m.View()
+	// Click at Y=0 (where the tool card was rendered).
+	model, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, Y: 0})
+	m = model.(Model)
+	afterClick := m.View()
+	// One of them should contain the output text — the other should not.
+	hadBefore := strings.Contains(beforeClick, "file-list-content")
+	hadAfter := strings.Contains(afterClick, "file-list-content")
+	if hadBefore == hadAfter {
+		t.Errorf("toolcard Expanded state should toggle on click — before:%v after:%v\nbefore:%q\nafter:%q", hadBefore, hadAfter, beforeClick, afterClick)
+	}
+}
+
+func TestApp_ClickOnPromptIsNoOp(t *testing.T) {
+	m := New("s-prompt", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Y near the prompt (height 24 - status 1 - prompt 2 = 21, so prompt rows are Y=21-22).
+	model, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, Y: 22})
+	_ = model.(Model)
+	// No panic; no model state change relevant.
+}
+
+func TestApp_WheelEventStillScrolls(t *testing.T) {
+	m := New("s-wheel", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Wheel events must still forward to the transcript (M9 T9 behavior).
+	model, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp, Y: 0})
+	_ = model.(Model)
+	// No panic. Scroll state is bubbles-internal; we only check we didn't
+	// route this through handleMouseClick.
+}

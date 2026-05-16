@@ -109,6 +109,27 @@ func (s *SlashAutocomplete) Dismiss() {
 	s.visible = false
 }
 
+// SelectAt sets the selected index to idx and returns the corresponding
+// completion string. Used by mouse-click region routing (M9.6 T1).
+// Returns ("", false) for out-of-range indices.
+func (s *SlashAutocomplete) SelectAt(idx int) (string, bool) {
+	if idx < 0 || idx >= len(s.matches) {
+		return "", false
+	}
+	s.selected = idx
+	return s.matches[idx].Name, true
+}
+
+// PopupHeight returns the visible vertical height of the popup (entries
+// plus border lines). Returns 0 when hidden or empty. Used by mouse-
+// click region routing in app.go (M9.6 T1) to map screen-Y to entry idx.
+func (s SlashAutocomplete) PopupHeight() int {
+	if !s.visible || len(s.matches) == 0 {
+		return 0
+	}
+	return len(s.matches) + 2
+}
+
 // compute filters the entry list (static + skills) by the filter string.
 // Fuzzy match: case-insensitive prefix on the part after `/`.
 // Capped at 10 matches.

@@ -31,6 +31,7 @@ func main() {
 		port      = flag.Int("port", 0, "server port on 127.0.0.1 (required)")
 		sessionID = flag.String("session-id", "", "session ID (required)")
 		version   = flag.Bool("version", false, "print version and exit")
+		noMouse   = flag.Bool("no-mouse", false, "disable mouse mode (for terminals that mishandle mouse escape codes)")
 	)
 	flag.Parse()
 
@@ -45,7 +46,14 @@ func main() {
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
 	model := app.New(*sessionID, baseURL)
-	prog := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// M9.6 T1: --no-mouse opts out of mouse-mode escape sequences for
+	// terminals that mishandle them. ADR M9.6-01: click v1 is limited to
+	// toolcard + autocomplete; wheel-scroll is M9's only mouse behavior.
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if !*noMouse {
+		opts = append(opts, tea.WithMouseCellMotion())
+	}
+	prog := tea.NewProgram(model, opts...)
 	if _, err := prog.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "sov-tui: %v\n", err)
 		os.Exit(1)

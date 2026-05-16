@@ -140,3 +140,47 @@ func TestSlashAutocompleteMatchesCapAt10(t *testing.T) {
 		t.Errorf("matches not capped at 10: got %d", matchCount)
 	}
 }
+
+// M9.6 T1 — mouse-click helpers.
+
+func TestSlashAutocompleteSelectAtSelectsEntry(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	s.SetFilter("/")
+	completion, ok := s.SelectAt(0)
+	if !ok {
+		t.Error("SelectAt(0) should resolve")
+	}
+	if completion == "" {
+		t.Error("Completion should be non-empty")
+	}
+}
+
+func TestSlashAutocompleteSelectAtOutOfRangeReturnsFalse(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	s.SetFilter("/")
+	_, ok := s.SelectAt(999)
+	if ok {
+		t.Error("SelectAt(999) should return false")
+	}
+	_, ok = s.SelectAt(-1)
+	if ok {
+		t.Error("SelectAt(-1) should return false")
+	}
+}
+
+func TestSlashAutocompletePopupHeightIncludesBorder(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	s.SetFilter("/")
+	h := s.PopupHeight()
+	if h <= 0 {
+		t.Errorf("PopupHeight should be > 0 when visible; got %d", h)
+	}
+}
+
+func TestSlashAutocompletePopupHeightZeroWhenHidden(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	h := s.PopupHeight()
+	if h != 0 {
+		t.Errorf("PopupHeight hidden should be 0; got %d", h)
+	}
+}

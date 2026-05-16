@@ -14,6 +14,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
@@ -32,11 +33,17 @@ type Transcript struct {
 	currentAssistant    *strings.Builder
 	currentAssistantIdx int
 	theme               theme.Theme
+
+	// M9.6 T1 — tool-card retention for click-to-toggle. AppendLineAsCard
+	// stores the original ToolCard struct keyed by its line index in
+	// `lines`. ToggleCardExpanded looks up the card, flips Expanded, and
+	// re-renders that single line.
+	toolCards map[int]ToolCard
 }
 
 func NewTranscript(th theme.Theme) Transcript {
 	vp := viewport.New(80, 20)
-	return Transcript{vp: vp, atBottom: true, theme: th}
+	return Transcript{vp: vp, atBottom: true, theme: th, toolCards: map[int]ToolCard{}}
 }
 
 func (t Transcript) Update(msg tea.Msg) (Transcript, tea.Cmd) {
@@ -133,6 +140,58 @@ func (t *Transcript) RemoveLastLine() {
 
 func (t Transcript) View() string {
 	return t.vp.View()
+}
+
+// AppendLineAsCard records the original ToolCard alongside the rendered
+// line so ToggleCardExpanded can re-render in place. M9.6 T1. Falls
+// through to AppendLine for the actual append.
+func (t *Transcript) AppendLineAsCard(card ToolCard) {
+	rendered := card.View(t.width)
+	lineIdx := len(t.lines)
+	t.AppendLine(rendered)
+	t.toolCards[lineIdx] = card
+}
+
+// ClickAt returns the line index whose rendered Y-range contains the
+// click. The click Y is in viewport-relative coordinates (0 = top of
+// visible region). We add the viewport's YOffset to translate to the
+// absolute Y in the full content, then walk the cumulative line heights.
+// Returns (-1, false) when the click doesn't hit any line.
+//
+// Used by app.go's mouse-click handler (M9.6 T1).
+func (t Transcript) ClickAt(y int) (int, bool) {
+	if y < 0 {
+		return -1, false
+	}
+	absoluteY := y + t.vp.YOffset
+	cumulative := 0
+	for i, line := range t.lines {
+		h := lipgloss.Height(line)
+		if h <= 0 {
+			h = 1
+		}
+		if absoluteY >= cumulative && absoluteY < cumulative+h {
+			return i, true
+		}
+		cumulative += h
+	}
+	return -1, false
+}
+
+// ToggleCardExpanded flips the Expanded field of the card at lineIdx and
+// re-renders that line. No-op when lineIdx doesn't reference a stored
+// card (e.g., user clicked a non-card line). M9.6 T1.
+func (t *Transcript) ToggleCardExpanded(lineIdx int) {
+	card, ok := t.toolCards[lineIdx]
+	if !ok {
+		return
+	}
+	card.Expanded = !card.Expanded
+	t.toolCards[lineIdx] = card
+	if lineIdx >= 0 && lineIdx < len(t.lines) {
+		t.lines[lineIdx] = card.View(t.width)
+		t.vp.SetContent(joinLines(t.lines))
+	}
 }
 
 func joinLines(lines []string) string {
