@@ -285,6 +285,17 @@ async function runTurnInBackground(
     role: userMessage.role,
     content: userMessage.content,
   });
+  // M9 T10 — kick off the live status indicator. The TUI's statusline
+  // consumes status_update events to drive the streaming spinner and the
+  // live cost field; firing one with streaming:true at turn start is the
+  // explicit start-of-stream marker the spinner pivots on. A matching
+  // streaming:false event lands right before turn_complete below.
+  bus.publish({
+    type: 'status_update',
+    seq: bus.nextSeq(),
+    sessionId,
+    streaming: true,
+  });
   // M7 T6 follow-up (review I1) — fire the review/synthesizer user-turn trigger
   // exactly once per user prompt, at the same semantic moment terminalRepl
   // does (src/ui/terminalRepl.ts:1126,1283,1290): right after persisting the
@@ -662,6 +673,42 @@ async function runTurnInBackground(
     if (terminal && terminal.reason !== 'completed' && terminal.reason !== 'max_turns') {
       sessionCtx.trajectoryMetadata.terminalReason = terminal.reason;
     }
+    // M9 T10 — final status_update flushes the spinner off, plus a live
+    // cost/tokens snapshot if usage_delta captured something during the
+    // stream. The TUI reads `streaming: false` as the stop signal. Cost is
+    // estimated against the resolved provider so the final cost field
+    // matches what disposeSessionContext's session_summary will report.
+    const finalUsage = latestUsage as TokenUsage | undefined;
+    const finalCost =
+      finalUsage !== undefined
+        ? estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, finalUsage)
+        : undefined;
+    const finalStatusEvent: {
+      type: 'status_update';
+      seq: number;
+      sessionId: string;
+      streaming: boolean;
+      tokensIn?: number;
+      tokensOut?: number;
+      cost?: number;
+    } = {
+      type: 'status_update',
+      seq: bus.nextSeq(),
+      sessionId,
+      streaming: false,
+    };
+    if (finalUsage !== undefined) {
+      if (finalUsage.inputTokens !== undefined) {
+        finalStatusEvent.tokensIn = finalUsage.inputTokens;
+      }
+      if (finalUsage.outputTokens !== undefined) {
+        finalStatusEvent.tokensOut = finalUsage.outputTokens;
+      }
+    }
+    if (finalCost !== undefined) {
+      finalStatusEvent.cost = finalCost;
+    }
+    bus.publish(finalStatusEvent);
     bus.publish({
       type: 'turn_complete',
       seq: bus.nextSeq(),
@@ -678,6 +725,14 @@ async function runTurnInBackground(
     // or in the main query() loop silently buckets the trajectory into
     // samples.jsonl — corrupting the corpus consumer's success/failure split.
     runtime.getSessionContext(sessionId).trajectoryMetadata.terminalReason = 'error';
+    // M9 T10 — flush streaming spinner off on errors too. Without this the
+    // TUI's spinner spins forever when the turn dies before turn_complete.
+    bus.publish({
+      type: 'status_update',
+      seq: bus.nextSeq(),
+      sessionId,
+      streaming: false,
+    });
     bus.publish({
       type: 'turn_error',
       seq: bus.nextSeq(),

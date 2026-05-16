@@ -124,9 +124,9 @@ type Model struct {
 func New(sessionID, baseURL string) Model {
 	cwd, _ := os.Getwd()
 	ctx, cancel := context.WithCancel(context.Background())
-	st := components.NewStatusLine()
-	st.Cwd = cwd
 	defaultTheme := theme.Dark() // M9 T1: default theme; user toggles via /theme
+	st := components.NewStatusLine(defaultTheme)
+	st.Cwd = cwd
 	m := Model{
 		keys:         defaultKeys(),
 		transcript:   components.NewTranscript(defaultTheme),
@@ -304,6 +304,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.theme = newTheme
 				m.transcript.SetTheme(m.theme)
 				m.autocomplete.SetTheme(m.theme)
+				m.statusLine.SetTheme(m.theme)
 				m.transcript.AppendLine(m.theme.DimStyle().Render("theme: " + name))
 				return m, nil
 			}
@@ -665,6 +666,28 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			return
 		}
 		m.goodbyeSummary = &ss
+	case "status_update":
+		// M9 T10 — drive the streaming spinner + live cost on the status
+		// line. The server emits streaming:true at turn start and
+		// streaming:false on completion (with cost+tokens populated).
+		// Missing fields stay zero — partial payloads degrade gracefully.
+		su, err := transport.DecodeStatusUpdate(env.Raw)
+		if err != nil {
+			return
+		}
+		m.statusLine.Streaming = su.Streaming
+		if su.Cost > 0 {
+			m.statusLine.Cost = su.Cost
+		}
+		if su.TokensIn > 0 {
+			m.statusLine.TokensIn = su.TokensIn
+		}
+		if su.TokensOut > 0 {
+			m.statusLine.TokensOut = su.TokensOut
+		}
+		if su.CacheHitRate > 0 {
+			m.statusLine.CacheHit = su.CacheHitRate
+		}
 	}
 }
 
