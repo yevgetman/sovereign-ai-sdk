@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -914,4 +916,145 @@ func TestApp_hydratesTranscriptFromPriorMessages(t *testing.T) {
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// M9.5 T3 — theme persistence tests. Each uses t.TempDir() + t.Setenv to
+// isolate the harness home from the developer's real config.
+
+func TestApp_BootReadsConfigTheme(t *testing.T) {
+	tmpHome := t.TempDir()
+	configPath := filepath.Join(tmpHome, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"theme":"tokyo-night"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-cfg", "")
+	if m.theme.Name != "tokyo-night" {
+		t.Errorf("boot theme: got %q want tokyo-night", m.theme.Name)
+	}
+}
+
+func TestApp_BootMissingConfigDefaultsToDark(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-nocfg", "")
+	if m.theme.Name != "dark" {
+		t.Errorf("missing config: got %q want dark", m.theme.Name)
+	}
+}
+
+func TestApp_BootSovereignTheme(t *testing.T) {
+	tmpHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpHome, "config.json"), []byte(`{"theme":"sovereign"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-sov", "")
+	if m.theme.Name != "sovereign" {
+		t.Errorf("sovereign boot: got %q want sovereign", m.theme.Name)
+	}
+}
+
+func TestApp_BootLoadsTomlTheme(t *testing.T) {
+	tmpHome := t.TempDir()
+	themesDirPath := filepath.Join(tmpHome, "themes")
+	if err := os.MkdirAll(themesDirPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tomlContent := `name = "neon"
+
+[colors]
+primary = "#ff00ff"
+`
+	if err := os.WriteFile(filepath.Join(themesDirPath, "neon.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpHome, "config.json"), []byte(`{"theme":"neon"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-toml", "")
+	if m.theme.Name != "neon" {
+		t.Errorf("toml theme: got %q want neon", m.theme.Name)
+	}
+	if string(m.theme.Primary) != "#ff00ff" {
+		t.Errorf("toml primary not applied: %q", m.theme.Primary)
+	}
+}
+
+func TestApp_BootUnknownThemeFallsBackToDarkWithError(t *testing.T) {
+	tmpHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpHome, "config.json"), []byte(`{"theme":"made-up-3000"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-unk", "")
+	if m.theme.Name != "dark" {
+		t.Errorf("unknown theme: got %q want dark fallback", m.theme.Name)
+	}
+	if m.pendingThemeErr == nil {
+		t.Error("pendingThemeErr should be set for unknown theme")
+	}
+}
+
+func TestApp_ThemeSwitchWritesConfig(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-write", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	for _, r := range "/theme light" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+
+	data, err := os.ReadFile(filepath.Join(tmpHome, "config.json"))
+	if err != nil {
+		t.Fatalf("config.json not written: %v", err)
+	}
+	if !strings.Contains(string(data), `"theme"`) || !strings.Contains(string(data), "light") {
+		t.Errorf("config.json missing theme:light — %q", string(data))
+	}
+}
+
+func TestApp_ThemeSwitchPreservesOtherConfigFields(t *testing.T) {
+	tmpHome := t.TempDir()
+	// Pre-write a config with unrelated fields.
+	if err := os.WriteFile(filepath.Join(tmpHome, "config.json"), []byte(`{"theme":"dark","provider":"anthropic","other_field":42}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_HOME", tmpHome)
+
+	m := New("s-preserve", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	for _, r := range "/theme sovereign" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+
+	data, err := os.ReadFile(filepath.Join(tmpHome, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "sovereign") {
+		t.Errorf("theme not updated to sovereign: %q", body)
+	}
+	if !strings.Contains(body, "anthropic") {
+		t.Errorf("provider field not preserved: %q", body)
+	}
+	if !strings.Contains(body, "other_field") {
+		t.Errorf("other_field not preserved: %q", body)
+	}
 }

@@ -115,6 +115,9 @@ type Model struct {
 	focus            focusTarget            // M9 T5: routing target for j/k/Esc when not in modal
 	goodbyeSummary   *transport.SessionSummary // M9 T7: non-nil after session_summary event; View renders the card instead
 	autocomplete     components.SlashAutocomplete // M9 T8: popup shown when prompt starts with /
+	harnessHome      string                     // M9.5 T3: $HARNESS_HOME path for theme persistence reads/writes
+	pendingThemeErr  error                      // M9.5 T3: surfaced as a dim marker on first WindowSizeMsg
+	pendingThemeName string                     // M9.5 T3: theme name from config used in the dim marker text
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -124,20 +127,31 @@ type Model struct {
 func New(sessionID, baseURL string) Model {
 	cwd, _ := os.Getwd()
 	ctx, cancel := context.WithCancel(context.Background())
-	defaultTheme := theme.Dark() // M9 T1: default theme; user toggles via /theme
+
+	// M9.5 T3: boot read from ~/.harness/config.json. Resolve in order:
+	// (1) built-ins via theme.Resolve, (2) TOML user themes via
+	// theme.LoadFromFile, (3) Dark final fallback. Errors stash on the
+	// Model for surfacing on the first WindowSizeMsg as a dim marker.
+	harnessHome := resolveHarnessHome()
+	themeName := readThemeFromConfig(harnessHome)
+	defaultTheme, themeErr := resolveBootTheme(themeName, harnessHome)
+
 	st := components.NewStatusLine(defaultTheme)
 	st.Cwd = cwd
 	m := Model{
-		keys:         defaultKeys(),
-		transcript:   components.NewTranscript(defaultTheme),
-		prompt:       components.NewPrompt(),
-		statusLine:   st,
-		sessionID:    sessionID,
-		baseURL:      baseURL,
-		ctx:          ctx,
-		cancel:       cancel,
-		theme:        defaultTheme,
-		autocomplete: components.NewSlashAutocomplete(defaultTheme),
+		keys:             defaultKeys(),
+		transcript:       components.NewTranscript(defaultTheme),
+		prompt:           components.NewPrompt(),
+		statusLine:       st,
+		sessionID:        sessionID,
+		baseURL:          baseURL,
+		ctx:              ctx,
+		cancel:           cancel,
+		theme:            defaultTheme,
+		autocomplete:     components.NewSlashAutocomplete(defaultTheme),
+		harnessHome:      harnessHome,
+		pendingThemeErr:  themeErr,
+		pendingThemeName: themeName,
 	}
 	if baseURL != "" {
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
@@ -220,6 +234,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transcript.SetSize(msg.Width, msg.Height-statusH-promptH)
 		m.prompt.SetWidth(msg.Width)
 		m.statusLine.SetWidth(msg.Width)
+		// M9.5 T3 — surface the boot theme error (if any) once the
+		// transcript has a viewport; before WindowSizeMsg the bubbles
+		// viewport isn't sized and AppendLine would no-op the scroll.
+		if m.pendingThemeErr != nil {
+			m.transcript.AppendLine(m.theme.DimStyle().Render(
+				fmt.Sprintf("could not load theme %q: %v (falling back to %s)", m.pendingThemeName, m.pendingThemeErr, m.theme.Name),
+			))
+			m.pendingThemeErr = nil
+		}
 		return m, nil
 	case tea.KeyMsg:
 		// M5 T9: when a permission modal is active, route ALL keys to it
@@ -292,11 +315,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prompt.Clear()
 				parts := strings.SplitN(text, " ", 2)
 				if len(parts) < 2 {
-					m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /theme <light|dark>"))
+					m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /theme <light|dark|tokyo-night|sovereign|...>"))
 					return m, nil
 				}
 				name := strings.TrimSpace(parts[1])
 				newTheme, ok := theme.Resolve(name)
+				if !ok {
+					// M9.5 T3 — Resolve miss falls back to LoadFromFile so
+					// user-custom themes at ~/.harness/themes/<name>.toml work.
+					if loaded, err := theme.LoadFromFile(name, themesDir(m.harnessHome)); err == nil {
+						newTheme = loaded
+						ok = true
+					}
+				}
 				if !ok {
 					m.transcript.AppendLine(m.theme.ErrorStyle().Render("unknown theme: " + name))
 					return m, nil
@@ -305,6 +336,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcript.SetTheme(m.theme)
 				m.autocomplete.SetTheme(m.theme)
 				m.statusLine.SetTheme(m.theme)
+				// M9.5 T3 — persist the choice to ~/.harness/config.json. ADR
+				// M9.5-02: synchronous best-effort; failure logs a dim marker
+				// but doesn't roll back the in-memory switch.
+				if err := writeThemeToConfig(m.harnessHome, name); err != nil {
+					m.transcript.AppendLine(m.theme.DimStyle().Render(fmt.Sprintf("could not persist theme: %v", err)))
+				}
 				m.transcript.AppendLine(m.theme.DimStyle().Render("theme: " + name))
 				return m, nil
 			}
