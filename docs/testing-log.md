@@ -8,6 +8,32 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T2 — capture/replay support in buildRuntime
+
+**Scope:** Second task of the M8 polish-surfaces group — server-mode runtime now wires `--capture-fixture` and `--replay-fixture` end-to-end. Mirrors the terminalRepl wiring at `src/ui/terminalRepl.ts:307-329` (replay branch), `:430-443` (capture provider wrap), `:728-740` (tool-pool wrap), and `:1957-1966` (dispose-time fixture write). Closes phase-16 prereq row 16.
+
+**The fix (single atomic `feat(server):` commit):**
+
+- **`src/server/runtime.ts`** — Five pieces, all gated behind two new `RuntimeOptions`:
+  - `captureFixturePath?: string` — every provider stream event + tool result is mirrored into a `CaptureSink`; `runtime.dispose()` finalizes and writes the fixture atomically.
+  - `replayFixturePath?: string` — `buildRuntime` short-circuits provider resolution entirely, constructs a `ReplayProvider` around the loaded fixture, and wraps the tool pool with `wrapToolsForReplay` so canned tool results re-serve in-order.
+  - Mutex guard at the very top of `buildRuntime`: supplying both throws `captureFixturePath and replayFixturePath are mutually exclusive` before any side effect.
+  - Replay path skips preflight implicitly (the guard expands from `opts.preflight !== false` to `opts.preflight !== false && opts.replayFixturePath === undefined`) — a preflight probe against a ReplayProvider would either consume an unrelated captured turn or be actively misleading.
+  - Tool-pool wrapping happens AFTER preflight (so the Ollama tool-calling smoke check sees real implementations) and AFTER provider resolution (so capture mode captures the right `provider.name`); converted `const toolPool = ...` to `let` so the wrappers can rebind.
+  - Capture sink flush sequenced into `dispose()` BEFORE `mcpClientPool.shutdown()` (per the M8-08 ordering) so a teardown-induced MCP throw doesn't swallow the fixture. Errors during the write are logged to stderr and not re-thrown — capture is a side-channel and shouldn't mask the session's primary disposal outcome.
+
+- **`tests/server/runtime.capture.test.ts`** (new) — Two tests. (1) End-to-end: build runtime with `captureFixturePath`, drive one turn through the mock provider via `buildAppWithRuntime`, dispose, and assert a valid fixture lands on disk with `meta.provider === 'mock'`, `meta.model === 'mock-haiku'`, and at least one captured turn carrying provider events. (2) Mutex: passing both `captureFixturePath` and `replayFixturePath` rejects with `/capture.*replay.*mutually exclusive|cannot.*both/i`.
+
+- **`tests/server/runtime.replay.test.ts`** (new) — One test. Writes a minimal valid fixture (one turn ending in an `assistant_message`), builds a runtime with `replayFixturePath` and no `provider` override, and asserts the resolved provider's `transport.name === 'mock'` (from `fixture.meta.provider`), `runtime.model === 'mock-haiku'` (from `fixture.meta.model`), and `metadata.replay === true` (the marker the REPL splash uses to badge a replay session).
+
+**Divergence from the plan:** (a) The plan's pseudocode constructed `ReplayProvider` with `{ fixture, providerName: fixture.meta.provider }` then stored `transport: replayProvider` on the resolved record — TypeScript needs the cast `replayProvider as unknown as Transport` because `ReplayProvider implements LLMProvider`, not the wider `Transport` (which adds `apiMode` + four translation hooks). Mirrors what terminalRepl already does at `:316`. (b) The plan suggested calling `loadReplayFixture` twice (once for the provider, once for the tool wrapping). The implementation calls it once each at the two sites — the file is read fresh both times because `loadReplayFixture` is sync + cheap, and caching across the two reads would only matter for very large fixtures. (c) The plan suggested adding a `metadata.replay: true` marker — kept that, plus `metadata.apiMode: 'replay'` and `metadata.replayFixture: opts.replayFixturePath` to match terminalRepl's `buildReplayResolvedProvider` shape exactly.
+
+**Test counts:** 1970 → 1973 (+3 from the new test files — 2 capture + 1 replay). `bun run lint && bun run typecheck && bun run test` all green. 2 pre-existing lint warnings in `src/permissions/shellSemantics.ts` unchanged.
+
+**Status:** GREEN. Prereq row 16 closed (entry stays open until M8 T8 close-out). T3 ready to start.
+
+---
+
 ## 2026-05-16 — Phase 16.1 M8 T1 — router server-side construction (closes #30)
 
 **Scope:** First task of the M8 polish-surfaces group — server-mode runtime now constructs a `RouterProvider` when the user configures `provider: 'router'` (either via `opts.provider === 'router'` or `userSettings.defaultProvider === 'router'`). Previously, `buildRuntime` passed the literal `'router'` string straight to `resolveProvider`, which threw `unknown provider: router` because the resolver only knows about single providers — the router wraps two. Mirrors `terminalRepl.ts:238-292` for construction and `terminalRepl.ts:908-917` for sub-agent default specialization. Closes backlog #30 wiring; backlog entry stays open until M8 T8 close-out flips it.

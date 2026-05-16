@@ -30,6 +30,15 @@ import { readConfig } from '../config/store.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
 import { DaemonEventBus } from '../daemon/eventBus.js';
+import {
+  type CaptureSink,
+  CapturingProvider,
+  createCaptureSink,
+  wrapToolsForCapture,
+} from '../eval/replay/capture.js';
+import { loadReplayFixture, writeReplayFixture } from '../eval/replay/loader.js';
+import { ReplayProvider } from '../eval/replay/provider.js';
+import { wrapToolsForReplay } from '../eval/replay/toolPool.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import type { HookRunner } from '../hooks/types.js';
@@ -166,6 +175,17 @@ export type RuntimeOptions = {
    *  omitted, buildRuntime uses the default buildSessionContext() which
    *  opens a TraceWriter at <harnessHome>/traces/<sessionId>.jsonl. */
   sessionContextFactory?: (sessionId: string) => SessionContext;
+  /** Capture every provider call + tool call to a fixture file. On
+   *  runtime.dispose() the fixture is finalized and written atomically.
+   *  Mutually exclusive with replayFixturePath — supplying both throws.
+   *  Mirrors terminalRepl's --capture-fixture (Phase 10.5 part 2). */
+  captureFixturePath?: string;
+  /** Drive the runtime from a recorded fixture file. Skips live
+   *  provider/tool calls — `ReplayProvider` replays captured StreamEvents
+   *  and `wrapToolsForReplay` re-serves captured tool results. Mutually
+   *  exclusive with captureFixturePath. Mirrors terminalRepl's
+   *  --replay-fixture (Phase 10.5 part 2). */
+  replayFixturePath?: string;
 };
 
 export type Runtime = {
@@ -358,6 +378,14 @@ export function resolveLaneSemaphoresOpts(userSettings: Settings): LaneSemaphore
 }
 
 export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
+  // M8 T2 — capture and replay are mutually exclusive; they target the
+  // same provider/tool wrapping seam and combining them would silently
+  // produce a capture of a replay (i.e. the recorded fixture). Validate
+  // before any side effects (bundle load, mcp pool, etc.) so a
+  // misconfiguration fails fast.
+  if (opts.captureFixturePath !== undefined && opts.replayFixturePath !== undefined) {
+    throw new Error('captureFixturePath and replayFixturePath are mutually exclusive');
+  }
   const harnessHome = opts.harnessHome ?? resolveHarnessHome();
   const requestedBundleRoot = opts.bundleRoot ?? getDefaultBundlePath() ?? undefined;
   const bundle = await loadBundleIfPresent(requestedBundleRoot ?? null);
@@ -400,7 +428,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     harnessHome,
     agents,
   };
-  const toolPool = assembleToolPool(toolCtx, { mcpTools });
+  let toolPool = assembleToolPool(toolCtx, { mcpTools });
 
   const systemSegments = buildSystemSegments({
     ...(bundle ? { bundle } : {}),
@@ -422,7 +450,38 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     (opts.provider === undefined && userSettings.defaultProvider === 'router');
   let resolved: ResolvedProvider;
   let routerAuditLogger: RouterAuditLogger | undefined;
-  if (useRouter) {
+  // M8 T2 — capture sink, populated when opts.captureFixturePath is set
+  // *and* we're not in replay mode. The sink also wraps the tool pool
+  // further down, and runtime.dispose() finalizes it before MCP shutdown.
+  let captureSink: CaptureSink | undefined;
+  if (opts.replayFixturePath !== undefined) {
+    // Replay short-circuits everything: ReplayProvider re-emits captured
+    // StreamEvents in order, so credential / quota / preflight checks
+    // would be no-ops at best. Skip the entire provider-resolution path.
+    const fixture = loadReplayFixture(opts.replayFixturePath);
+    const replayProvider = new ReplayProvider({
+      fixture,
+      providerName: fixture.meta.provider,
+    });
+    resolved = {
+      transport: replayProvider as unknown as Transport,
+      client: replayProvider,
+      baseUrl: 'replay://',
+      model: fixture.meta.model,
+      // The 200k cap mirrors terminalRepl.buildReplayResolvedProvider — a
+      // replay never actually talks to a model, so the value only shapes
+      // downstream context-window math. Anthropic's cap is a safe choice.
+      contextLength: 200_000,
+      authType: 'none',
+      metadata: {
+        provider: fixture.meta.provider,
+        apiMode: 'replay',
+        purpose: 'main',
+        replayFixture: opts.replayFixturePath,
+        replay: true,
+      },
+    };
+  } else if (useRouter) {
     const routerCfg = userSettings.router;
     if (!routerCfg) {
       throw new Error(
@@ -483,12 +542,33 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       harnessHome,
     });
   }
+  // M8 T2 — capture wrapping for the non-replay paths. Replay already
+  // owns the provider transport, so capturing a replay would be a
+  // tautology (and the mutex guard above forbids the combination). The
+  // sink's sessionId is set to `'pending'` at construction because
+  // buildRuntime doesn't know the session id yet — sessions are minted
+  // on demand via POST /sessions. The fixture's `meta.sessionId` is
+  // informational only (replay creates fresh ids), so leaving it as
+  // `'pending'` is acceptable; future M9 work can plumb a real id in
+  // when capture is gated to a single session.
+  if (opts.captureFixturePath !== undefined) {
+    captureSink = createCaptureSink({
+      sessionId: 'pending',
+      provider: resolved.transport.name,
+      model: resolved.model,
+    });
+    const wrapped = new CapturingProvider(resolved.transport, captureSink);
+    resolved = { ...resolved, transport: wrapped as unknown as Transport };
+  }
   const provider = resolved.transport;
 
   // Provider preflight — fail fast on bad credentials / quota / transport
   // before opening the sessionDb or doing other side-effects. Mirrors
-  // terminalRepl.ts:447-504. Skip when opts.preflight === false.
-  if (opts.preflight !== false) {
+  // terminalRepl.ts:447-504. Skip when opts.preflight === false or when
+  // replay is configured: ReplayProvider re-emits captured events without
+  // a network round-trip, so a preflight probe would either be a no-op
+  // (consuming an unrelated captured turn) or actively misleading.
+  if (opts.preflight !== false && opts.replayFixturePath === undefined) {
     const result = await preflightProvider({
       provider,
       providerName: resolved.transport.name,
@@ -510,6 +590,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         throw new PreflightError(toolResult.kind, toolResult.message);
       }
     }
+  }
+
+  // M8 T2 — capture / replay tool-pool wrapping. Done AFTER preflight so
+  // the Ollama tool-calling smoke check sees the real tool implementations
+  // (otherwise its synthetic call would either record a phantom result
+  // into the capture sink or trip the replay queue's "exhausted" guard
+  // before the first session turn). Mirrors terminalRepl.ts:728-740.
+  if (opts.replayFixturePath !== undefined) {
+    const fixture = loadReplayFixture(opts.replayFixturePath);
+    toolPool = wrapToolsForReplay(toolPool, fixture);
+  } else if (captureSink !== undefined) {
+    toolPool = wrapToolsForCapture(toolPool, captureSink);
   }
 
   // On-disk session DB. terminalRepl opens the same DB at
@@ -796,6 +888,22 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         await disposeSession(liveId);
       }
       if (routerAuditLogger) await routerAuditLogger.close();
+      // M8 T2 — flush the capture sink BEFORE MCP shutdown so the
+      // fixture write succeeds even if MCP teardown later throws. The
+      // write is atomic (temp + rename inside writeReplayFixture), so a
+      // crash mid-write can't leave a corrupt fixture on disk. Errors
+      // are logged but not re-thrown — capture is a side-channel and
+      // shouldn't mask a session's primary disposal outcome.
+      if (captureSink !== undefined && opts.captureFixturePath !== undefined) {
+        try {
+          writeReplayFixture(opts.captureFixturePath, captureSink.finish());
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(
+            `[capture] failed to write fixture at ${opts.captureFixturePath}: ${msg}\n`,
+          );
+        }
+      }
       if (mcpClientPool) await mcpClientPool.shutdown();
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
