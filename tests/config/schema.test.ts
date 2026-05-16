@@ -35,6 +35,28 @@ describe('SettingsSchema — strict mode', () => {
   test('empty object is valid (every field optional)', () => {
     expect(SettingsSchema.parse({})).toEqual({});
   });
+
+  test('top-level `theme` accepts arbitrary string (M9.5 Go-TUI writeback)', () => {
+    // Regression: M9.5 T3 Go-TUI theme persistence writes a top-level
+    // `theme` field. Before this field was added to SettingsSchema, any
+    // developer who switched themes via /theme in the Go TUI would have
+    // their TS-side sov invocation throw a ZodError on every read.
+    for (const themeName of ['dark', 'light', 'tokyo-night', 'sovereign', 'my-custom-toml']) {
+      expect(() => SettingsSchema.parse({ theme: themeName })).not.toThrow();
+    }
+    expect(() => SettingsSchema.parse({ theme: 123 })).toThrow();
+  });
+
+  test('config with both top-level `theme` and nested `ui.theme` parses cleanly', () => {
+    // The Go TUI writes top-level `theme`; legacy configs may also carry
+    // `ui.theme`. Both must coexist without schema error.
+    const parsed = SettingsSchema.parse({
+      theme: 'tokyo-night',
+      ui: { theme: 'dark' },
+    });
+    expect(parsed.theme).toBe('tokyo-night');
+    expect(parsed.ui?.theme).toBe('dark');
+  });
 });
 
 describe('SettingsSchema — enum coverage', () => {

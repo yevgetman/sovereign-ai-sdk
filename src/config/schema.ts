@@ -257,6 +257,14 @@ export const SettingsSchema = z
       .optional(),
     behavior: BehaviorSchema.optional(),
     ui: UiSchema.optional(),
+    /** M9.5 — the Go TUI persists the active theme name as a top-level
+     *  `theme` field in `~/.harness/config.json` (Go-side `internal/app/
+     *  themeconfig.go`). The TS-side runtime does not render themes
+     *  (REPL uses chalk; theme is a Go-renderer concern), so this field
+     *  exists purely to satisfy strict-mode parsing. Accepts any string —
+     *  built-ins (`dark`, `light`, `tokyo-night`, `sovereign`) plus
+     *  user-defined TOML themes under `~/.harness/themes/<name>.toml`. */
+    theme: z.string().optional(),
   })
   .strict();
 
