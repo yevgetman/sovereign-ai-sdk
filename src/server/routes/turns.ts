@@ -25,6 +25,7 @@ import { type CompactResult, shouldCompactProactively } from '../../compact/comp
 import { loadPermissionSettings } from '../../config/settings.js';
 import { expandContextReferences } from '../../context/references.js';
 import { query } from '../../core/query.js';
+import { repairMissingToolResults } from '../../core/transcriptRepair.js';
 import type {
   AssistantMessage,
   Message,
@@ -313,7 +314,26 @@ async function runTurnInBackground(
   // Local closure binds the helper to the current sessionId — the value
   // changes when the proactive / recovery hops reassign it below, so each
   // hydrate() call picks up the post-hop child id automatically.
-  const hydrate = (): Message[] => loadHistoryAsMessages(runtime.sessionDb, sessionId);
+  //
+  // M10 audit fix (slice 2 HIGH): wire `repairMissingToolResults` into
+  // the resume path. terminalRepl.ts:2129 + :1824 call it on rehydrate
+  // and rollback to synthesize missing tool_result blocks for any
+  // orphaned tool_use in the persisted history. Without it, a session
+  // whose last persisted assistant turn had an unfulfilled tool_use
+  // (e.g., process crash mid-turn) would 400 on the next /turns call
+  // because Anthropic rejects the messages array as invalid. The repair
+  // is purely additive and idempotent — no orphan tool_use → no
+  // synthesized result → identical messages array.
+  const hydrate = (): Message[] => {
+    const raw = loadHistoryAsMessages(runtime.sessionDb, sessionId);
+    const { messages: repaired, insertedToolResults } = repairMissingToolResults(raw);
+    if (insertedToolResults > 0) {
+      process.stderr.write(
+        `[repair] synthesized ${insertedToolResults} missing tool_result block(s) for session ${sessionId}\n`,
+      );
+    }
+    return repaired;
+  };
   let messages: Message[] = hydrate();
 
   // M7 follow-up — track the most recent `usage_delta` emitted by the
