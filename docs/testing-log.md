@@ -8,6 +8,30 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M9.5 close-out (theme polish; 4 tasks)
+
+**Scope:** 4-task M9.5 theme-polish mini-milestone closing the deferred ADR M9-03 (TOML loader) from M9. T1 TOML loader (`internal/theme/loader.go` + BurntSushi/toml dep + partial-file Dark fallback) → T2 two new built-in palettes (Tokyo Night Storm + Sovereign brand-aligned — `Resolve` now handles 4 names) → T3 persistence (`internal/app/themeconfig.go` + boot read + /theme write to `~/.harness/config.json`, atomic temp+rename preserving unknown fields, LoadFromFile fallback in `/theme` slash) → T4 integration smoke (`internal/theme/integration_test.go` — TOML round-trip + builtins-resolvable + builtins-always-win regression guards) + close-out.
+
+**Suite delta:** TS unchanged at 1997/1997 (no TS-side changes in M9.5). Go: ~20 new tests across `loader_test.go` (6 cases), `tokyo_night_test.go` (2), `sovereign_test.go` (2), `integration_test.go` (3), `app_test.go` (7 persistence cases). All theme + app packages green. Lint clean (2 expected pre-existing warnings). Typecheck clean.
+
+**ADRs landed (3):** M9.5-01 (TOML schema flat snake_case; built-ins always win by name), M9.5-02 (theme persistence synchronous best-effort), M9.5-03 (partial TOML uses Dark per-field fallback). All three in `DECISIONS.md`.
+
+**Backlog closures:** none. M9.5 didn't have backlog targets — it implemented the M9-era ADR M9-03 deferral. Open backlog count stays at 2 (#17, #38).
+
+**Bug surfaces caught + fixed mid-build:**
+- T2 — initial test runner attempted `go test ./...` from harness root (no Go module there); fixed by `cd packages/tui` first.
+- T3 — `app.go`'s existing tests called `New()` which now reads HARNESS_HOME at boot; if a developer happens to have a `~/.harness/config.json` with a custom theme, prior tests could see it. Mitigation: all new T3 tests use `t.TempDir()` + `t.Setenv("HARNESS_HOME", tmpHome)` for hermetic isolation; existing tests still work because they don't check theme state.
+
+**Postmortem-rule compliance verified before close-out:**
+- Rule 1 — `src/ui/terminalRepl.ts` untouched across M9.5: `git diff` returns empty.
+- Rule 2 — no helper module deletion: `git diff --diff-filter=D -- src/` returns empty; M9.5 added 7 new Go files (4 production + 3 test).
+- Rule 3 — parity audit NOT done in M9.5; M10's job.
+- Rule 4 — `--ui tui` stays opt-in through M11; `src/main.ts` default unchanged.
+
+**Manual smoke:** Real-Anthropic visual smoke deferred to a post-M9.5 hardening session (M7/M8/M9 precedent). The integration smoke in `packages/tui/internal/theme/integration_test.go` covers the TOML round-trip + builtins-resolvable + builtins-always-win paths against the production code path.
+
+**Net summary:** 6 commits between M9 close-out and M9.5 close-out (spec + plan + T1-T4 + close-out). Two TOML schemas locked (loader on-disk + config.json wire). One new Go dependency (BurntSushi/toml v1.6.0). One new app subsystem (`internal/app/themeconfig.go`) for theme persistence. Suite delta: +20-ish Go tests. Zero production bugs surfaced during close-out.
+
 ## 2026-05-16 — Phase 16.1 M9 close-out (visual polish; 12 tasks; #29 + #39 closed)
 
 **Scope:** 12-task M9 visual-polish milestone shipped in a single contiguous session. T1 theme package → T2 renderer package → T3 markdown wiring → T4 syntax highlight → T5 inline diff + hunk nav → T6 toolcard final polish → T7 goodbye + compaction + #39 → T8 slash autocomplete → T9 mouse wheel → T10 status_update + statusline streaming → T11 t.Skip rescue + #29 → T12 integration smoke + close-out (this entry).

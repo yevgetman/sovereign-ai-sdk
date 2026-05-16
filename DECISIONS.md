@@ -654,3 +654,27 @@ Decision: The TUI registers `/theme <name>` as a first-class slash command in th
 Rationale: A dedicated slash gives the feature discoverability (the slash autocomplete popup lists `/theme` first thing). Falling through to a `/config set theme <name>` semantic would have required a server round-trip (the harness-config write is server-side); per-session in-memory is simpler and matches user mental model ("I'm switching themes for this session"). M9.5's TOML loader will add persistence + cross-session theme memory.
 
 Status: implemented (M9 — `ba8f389` (T1 — /theme slash handler in app.go)).
+
+## ADR M9.5-01 — TOML schema is flat snake_case; built-ins always win by name
+
+Decision: User TOML theme files live at `<harnessHome>/themes/<name>.toml` and use a flat snake_case schema (`background`, `code_background`, `diff_added`, etc.) that maps to the camelCase Go fields via BurntSushi/toml struct tags. When `theme.Resolve(name)` is called, the four built-ins (`dark`, `light`, `tokyo-night`, `sovereign`) ALWAYS win — TOML files cannot override a built-in name. Users who want to customize a built-in must save their TOML under a different name (e.g., `dark-pastel.toml`).
+
+Rationale: Override semantics introduce a precedence-resolution surface that has to be documented + tested + thought about for every name collision. Flat priority ("built-ins win") is trivially explainable and gives users the same fork-and-rename pattern they already use for shell themes / editor color schemes. The TOML schema being flat (not nested by category) matches the pattern Catppuccin / Tokyo Night themes ship with.
+
+Status: implemented (M9.5 — `496a1b6` (T1 — TOML loader)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
+
+## ADR M9.5-02 — Theme persistence is synchronous best-effort
+
+Decision: `/theme <name>` writes the new theme name to `<harnessHome>/config.json`'s `theme` field synchronously, immediately after the in-memory switch. Write failure (read-only filesystem, permission denied, disk full, etc.) logs a dim transcript marker but does NOT roll back the in-memory switch — the user keeps the new theme for the rest of the session even if persistence fails. The boot read is also best-effort: a missing / unreadable / malformed config.json silently defaults to `dark`.
+
+Rationale: Synchronous matches user mental model ("I switched themes; it persists"). Best-effort matches the M6/M8/M9 "the TUI never blocks on filesystem hiccups" policy — persistence is a convenience, not a correctness requirement. Write order (in-memory FIRST, then disk) means a UI-visible switch always happens; the persistence layer is the optional rider.
+
+Status: implemented (M9.5 — `9eee86d` (T3 — boot read + /theme write)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
+
+## ADR M9.5-03 — Partial TOML files use Dark() per-field fallback
+
+Decision: A TOML theme file may omit any color field; missing fields fall back to `Dark()` palette's value for that field. Only the `name` field is mandatory — its absence returns an error. A user can ship a 3-color TOML and get a working theme that's "Dark with three tweaks." Empty file (no `[colors]` section at all) is valid and produces a literal Dark palette with the file's `name`.
+
+Rationale: Forces no one to copy a 13-color baseline just to tweak a primary. Matches the "Dark is the default" precedent set in M9 ADR M9-01 (theme construction). Future-proofs: any new color field added to `Theme` will use Dark's value for legacy themes without an explicit migration. The "name is mandatory" carve-out keeps the loader's contract honest — a theme without a self-declared identity is malformed.
+
+Status: implemented (M9.5 — `496a1b6` (T1 — LoadFromFile + pickColor helper)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
