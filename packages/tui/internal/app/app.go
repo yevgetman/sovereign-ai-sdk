@@ -20,6 +20,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/components"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
 
@@ -97,6 +98,7 @@ type Model struct {
 	permission       *components.Permission // M5 T9: active approval modal; nil when not visible
 	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
 	completedBlocks  []CompletedBlock       // M8 T6: ring buffer of tool_result blocks for /expand re-render
+	theme            theme.Theme            // M9 T1: active color/style palette (constructor-injected per ADR M9-01)
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -117,6 +119,7 @@ func New(sessionID, baseURL string) Model {
 		baseURL:    baseURL,
 		ctx:        ctx,
 		cancel:     cancel,
+		theme:      theme.Dark(), // M9 T1: default theme; user toggles via /theme
 	}
 	if baseURL != "" {
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
@@ -217,6 +220,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Type == tea.KeyEnter {
 			text := strings.TrimSpace(m.prompt.Value())
 			if text == "" {
+				return m, nil
+			}
+			// M9 T1: intercept `/theme <name>` slash. Purely client-side —
+			// no POST is fired; the model never sees the theme switch. Update
+			// m.theme; later milestones (T3 markdown wiring, T6 toolcard,
+			// T10 statusline) consume m.theme via constructor or accessor.
+			if strings.HasPrefix(text, "/theme") {
+				m.transcript.AppendLine("» " + text)
+				m.prompt.Clear()
+				parts := strings.SplitN(text, " ", 2)
+				if len(parts) < 2 {
+					m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /theme <light|dark>"))
+					return m, nil
+				}
+				name := strings.TrimSpace(parts[1])
+				newTheme, ok := theme.Resolve(name)
+				if !ok {
+					m.transcript.AppendLine(m.theme.ErrorStyle().Render("unknown theme: " + name))
+					return m, nil
+				}
+				m.theme = newTheme
+				m.transcript.AppendLine(m.theme.DimStyle().Render("theme: " + name))
 				return m, nil
 			}
 			// M6 T6: intercept the `/compact` slash command BEFORE the
