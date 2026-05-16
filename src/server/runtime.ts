@@ -22,11 +22,13 @@ import { type MicrocompactConfig, buildMicrocompactConfig } from '../compact/mic
 import { resolveHarnessHome } from '../config/paths.js';
 import type { Settings } from '../config/schema.js';
 import {
+  getPermissionSettingsPaths,
   loadHookSettings,
   loadMcpServerSettings,
   loadPermissionSettings,
 } from '../config/settings.js';
 import { readConfig } from '../config/store.js';
+import { auditContextBudget } from '../context/budget.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
 import { DaemonEventBus } from '../daemon/eventBus.js';
@@ -63,6 +65,7 @@ import { TaskManager } from '../tasks/manager.js';
 import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
@@ -462,7 +465,85 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     harnessHome,
     agents,
   };
-  let toolPool = assembleToolPool(toolCtx, { mcpTools });
+
+  // M10 audit fix — wire HarnessInfoTool into the server-mode tool pool.
+  // REPL pattern (`src/ui/terminalRepl.ts:668-727`): the snapshot getter
+  // is lazy (called by the model at HarnessInfo tool-call time), so it
+  // can reference variables that get assigned later in this function via
+  // the `*Ref` closure-capture pattern. Slash commands intentionally
+  // return empty — the server has no client-side slash registry by design
+  // (separate M10 audit gap tracked for future remediation).
+  let finalToolPoolRef: Tool<unknown, unknown>[] = [];
+  let systemSegmentsRef: SystemSegment[] = [];
+  const harnessInfoSnapshot = (): HarnessInfoSnapshot => {
+    const ps = loadPermissionSettings({ cwd: opts.cwd, harnessHome });
+    const settingsPaths = getPermissionSettingsPaths({ cwd: opts.cwd, harnessHome });
+    const presentSources = new Set(ps.sources);
+    const liveByServer = new Map<string, string[]>();
+    if (mcpClientPool !== undefined) {
+      for (const handle of mcpClientPool.servers()) {
+        liveByServer.set(
+          handle.name,
+          handle.tools.map((t) => t.toolName),
+        );
+      }
+    }
+    return {
+      permissionMode: ps.mode,
+      settingsLayers: settingsPaths.map((p) => ({
+        name: p.name,
+        path: p.path,
+        present: presentSources.has(p.path),
+      })),
+      mcpServers: Object.entries(mcpSettings.servers).map(([name, cfg]) => {
+        const liveTools = liveByServer.get(name);
+        const status: 'connected' | 'failed' | 'not-attempted' = mcpClientPool
+          ? liveTools !== undefined
+            ? 'connected'
+            : 'failed'
+          : 'not-attempted';
+        return {
+          name,
+          command: cfg.command,
+          args: cfg.args ?? [],
+          status,
+          toolCount: liveTools?.length ?? 0,
+          tools: liveTools ?? [],
+        };
+      }),
+      tools: {
+        native: finalToolPoolRef.filter((t) => t.isMcp !== true).map((t) => t.name),
+        mcp: finalToolPoolRef.filter((t) => t.isMcp === true).map((t) => t.name),
+      },
+      // Server-mode does not surface a client-side slash registry — the
+      // TUI implements `/compact`, `/skills`, `/theme` as direct route
+      // calls. Returning an empty list (rather than synthesizing one) is
+      // honest: the model would otherwise advertise commands the user
+      // cannot type from within the TUI.
+      slashCommands: [],
+      agents: agents.agents.map((a) => ({
+        name: a.name,
+        description: a.description,
+        ...(a.whenToUse !== undefined ? { whenToUse: a.whenToUse } : {}),
+        ...(a.role !== undefined ? { role: a.role } : {}),
+        ...(a.model !== undefined ? { model: a.model } : {}),
+        readOnly: a.readOnly,
+        maxTurns: a.maxTurns,
+        allowedTools: a.allowedTools,
+        source: a.source,
+        trustTier: a.trustTier,
+      })),
+      budget: auditContextBudget({
+        systemSegments: systemSegmentsRef,
+        tools: finalToolPoolRef,
+        skills: skills.skills,
+        ...(bundle ? { bundle } : {}),
+      }),
+    };
+  };
+
+  let toolPool = assembleToolPool(toolCtx, { mcpTools, harnessInfoSnapshot });
+  finalToolPoolRef = toolPool;
 
   const systemSegments = buildSystemSegments({
     ...(bundle ? { bundle } : {}),
@@ -471,6 +552,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     cacheEnabled: opts.cacheEnabled !== false,
     tools: toolPool,
   });
+  systemSegmentsRef = systemSegments;
 
   // Determine provider mode BEFORE permission cascade reads userSettings —
   // the router branch needs the same userSettings, so load it now and reuse
@@ -634,8 +716,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   if (opts.replayFixturePath !== undefined) {
     const fixture = loadReplayFixture(opts.replayFixturePath);
     toolPool = wrapToolsForReplay(toolPool, fixture);
+    finalToolPoolRef = toolPool;
   } else if (captureSink !== undefined) {
     toolPool = wrapToolsForCapture(toolPool, captureSink);
+    finalToolPoolRef = toolPool;
   }
 
   // On-disk session DB. terminalRepl opens the same DB at
