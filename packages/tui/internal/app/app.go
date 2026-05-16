@@ -526,6 +526,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Tool:       tr.Tool,
 			RenderHint: hint,
 			Summary:    fmt.Sprintf("rendered as %s", hint),
+			Input:      string(tr.Input),  // M9 T6 — collapsed-card preview source
 			Output:     string(tr.Output),
 			Language:   tr.Language,
 			Theme:      m.theme, // M9 T4 — pass theme so the body renders via render.Code
