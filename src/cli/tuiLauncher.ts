@@ -80,13 +80,17 @@ export type TuiLaunchOptions = {
   cache?: unknown;
   /** CLI --no-preflight → opts.preflight === false; otherwise omitted/true. */
   preflight?: unknown;
+  /** Capture-fixture output path. Wires through buildRuntime as
+   *  `captureFixturePath`. M8 T2 wired the runtime side; this launcher
+   *  field threads the CLI flag the rest of the way. Mutually exclusive
+   *  with `replayFixture` — buildRuntime throws when both are present. */
+  captureFixture?: unknown;
+  /** Replay-fixture input path. Wires through buildRuntime as
+   *  `replayFixturePath`. Mutually exclusive with `captureFixture`. */
+  replayFixture?: unknown;
   // Deferred subsystems — accepted-and-warned (not wired until later milestones).
   /** Transcript output path. Targeting M7. */
   transcript?: unknown;
-  /** Capture fixture output path. Targeting M8. */
-  captureFixture?: unknown;
-  /** Replay fixture input path. Targeting M8. */
-  replayFixture?: unknown;
   /** Agent name override. Targeting M7. */
   agent?: unknown;
   /** State directory override. Targeting M7. */
@@ -142,17 +146,29 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     return 2;
   }
 
+  // M8 T3 — capture/replay are mutually exclusive at the runtime layer
+  // (buildRuntime throws). Pre-check here for a user-facing stderr
+  // message that mirrors terminalRepl's behavior, before any side
+  // effects (server boot, runtime build).
+  const captureFixturePath = pickString(opts.captureFixture);
+  const replayFixturePath = pickString(opts.replayFixture);
+  if (captureFixturePath !== undefined && replayFixturePath !== undefined) {
+    process.stderr.write('sov: --capture-fixture and --replay-fixture are mutually exclusive.\n');
+    return 2;
+  }
+
   // Flags whose subsystem lands in a later milestone — warn so users
   // aren't silently surprised by missing behavior. Per Postmortem Rule 3:
   // audit before declaring parity; the gap is explicit here.
+  // --capture-fixture / --replay-fixture were deferred-warned through M8 T2
+  // close-out; they now flow through buildRuntime below (M8 T3 — captureFixturePath
+  // / replayFixturePath threading) and are NOT in this list.
   const deferredFlagWarnings: ReadonlyArray<{
     flag: string;
     opt: keyof TuiLaunchOptions;
     milestone: string;
   }> = [
     { flag: '--transcript', opt: 'transcript', milestone: 'M7' },
-    { flag: '--capture-fixture', opt: 'captureFixture', milestone: 'M8' },
-    { flag: '--replay-fixture', opt: 'replayFixture', milestone: 'M8' },
     { flag: '--agent', opt: 'agent', milestone: 'M7' },
     { flag: '--state-dir', opt: 'stateDir', milestone: 'M7' },
     { flag: '--verbose', opt: 'verbose', milestone: 'M9' },
@@ -193,6 +209,10 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // convention); any other state → leave cacheEnabled at default-on.
   if (pickBoolean(opts.cache) === false) buildOpts.cacheEnabled = false;
   if (pickBoolean(opts.preflight) === false) buildOpts.preflight = false;
+  // M8 T3 — capture/replay fixtures (parity with --ui repl). The mutex
+  // pre-check above runs before this so only one is ever non-undefined.
+  if (captureFixturePath !== undefined) buildOpts.captureFixturePath = captureFixturePath;
+  if (replayFixturePath !== undefined) buildOpts.replayFixturePath = replayFixturePath;
 
   let runtime: Awaited<ReturnType<typeof buildRuntime>>;
   try {

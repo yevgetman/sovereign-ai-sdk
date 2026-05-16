@@ -8,6 +8,41 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 — `--capture-fixture` / `--replay-fixture` threaded through `--ui tui` launcher
+
+**Scope:** M8 T2 wired `captureFixturePath` / `replayFixturePath` into `RuntimeOptions` + `buildRuntime` (commits earlier in M8). The `--ui tui` launcher at `src/cli/tuiLauncher.ts` still classified both flags as "deferred — targeting M8" and emitted stderr warnings WITHOUT forwarding them to `buildRuntime`. Result: `sov --ui tui --capture-fixture foo.json` silently dropped the flag — user-visible parity gap with `--ui repl` where the same flags work. This pass closes that gap.
+
+**The fix (single atomic `fix(cli):` commit):**
+
+- **`src/cli/tuiLauncher.ts`** — Moved `captureFixture` and `replayFixture` out of the "Deferred subsystems" comment block in `TuiLaunchOptions` (now documented as wired). Added a mutex pre-check before any side effects: if both `--capture-fixture` and `--replay-fixture` are passed, write a user-facing stderr message and return exit code 2 — mirrors terminalRepl's pre-validation and avoids the less-friendly `Error: captureFixturePath and replayFixturePath are mutually exclusive` that `buildRuntime` throws. Threaded both paths into the `buildOpts` bag passed to `buildRuntime` (only one is ever set after the mutex check). Removed the two corresponding rows from the `deferredFlagWarnings` ReadonlyArray. The remaining deferred flags (`--transcript`, `--agent`, `--state-dir`, `--verbose`) are genuinely still unwired — `transcript`/`agent`/`stateDir` await M7 trajectory + scheduled-mission ports; `--verbose` awaits M9 visual polish.
+
+- **`tests/cli/tuiLauncher.test.ts`** — Added three new tests in the `flag-forwarding` describe block: (1) `forwards captureFixture to buildRuntime as captureFixturePath` — asserts the launcher renames the camelCased Commander flag to the buildRuntime field name; (2) `forwards replayFixture to buildRuntime as replayFixturePath` — same assertion for the replay path; (3) `rejects --capture-fixture + --replay-fixture together with exit code 2 (mutex)` — asserts the pre-check fires BEFORE `buildRuntime` is called (`recordedBuildOpts` stays null), the exit code is 2, and stderr mentions both flag names + "mutually exclusive". Removed the two stale `--capture-fixture` / `--replay-fixture` deferred-warning tests from the deferred-flag describe block (the wirings replaced the warnings).
+
+- **`docs/usage.md`** — Updated the `--ui tui` flag coverage table. The two M8 capture/replay rows moved from `**Warn**` to `Wired (M8)` with status text noting the mutex behavior. The four remaining `**Warn**` rows (transcript / agent / state-dir / verbose) carry the same milestone targets as before.
+
+**Audit of OTHER deferred flags in the same launcher block:** Verified each against `RuntimeOptions` in `src/server/runtime.ts`. The runtime exposes no `transcriptPath`, `agentName`, `stateDir`, or `verbose` options today (no matches in `src/server/runtime.ts`'s `RuntimeOptions` type, only the existing `subagentScheduler` agent-registry plumbing). All four remain genuinely deferred to later milestones and stay in the warnings array unchanged.
+
+**Tests run:**
+
+- `bun run lint` — clean (exit 0). Two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` unchanged.
+- `bun run typecheck` — clean (`tsc --noEmit`).
+- `bun run test` — `1992 pass / 0 fail / 5097 expect() calls` (244 files). Delta: 1991 → 1992 (+1, net of +3 new tests minus -2 removed deferred-warning tests).
+- `sov upgrade` runs after push.
+
+**Why this matters:** Closes a polish gap caught by the M8 docs-sweep agent — without this threading, the M8 T2 commit's claim that capture/replay is "Verified working post-Phase-16-revert" only held for `--ui repl`; the TUI launcher silently dropped the flags. Now both UI surfaces have parity.
+
+**Self-review checklist:**
+
+- [x] `buildRuntime` receives `captureFixturePath` when `--capture-fixture` is passed via `--ui tui`
+- [x] `buildRuntime` receives `replayFixturePath` when `--replay-fixture` is passed via `--ui tui`
+- [x] Mutex pre-check returns exit 2 with user-facing stderr; `buildRuntime` is NEVER invoked in the mutex path
+- [x] Test count delta matches: +3 new tests added, -2 stale deferred-warning tests removed (net +1)
+- [x] All four remaining deferred flags verified still genuinely unwired in `RuntimeOptions`
+- [x] `docs/usage.md` reflects the new wiring + remaining warnings
+- [x] Lint + typecheck + full suite green
+- [x] No emojis
+- [x] Atomic commit + autonomous push
+
 ## 2026-05-16 — Phase 16.1 M8 — autonomous real-Anthropic smoke + script committed
 
 **Scope:** Post-close-out hardening pass mirroring the M7 pattern (`scripts/m7-real-smoke.ts`). The M8 close-out's `tests/server/m8Full.test.ts` validated all nine polish-surfaces subsystems against the mock provider; this pass validates the same wire surface against REAL Anthropic (Haiku 4.5) to catch any production-parity gaps the mock provider couldn't surface (the M7 precedent caught two: cost-recording silently zero, and a smoke-assertion bug in ShareGPT tool-role rendering). M8's mock-provider tests were comprehensive enough that this pass surfaced **zero production bugs** — the only adjustment was one smoke-assertion loosening described below.

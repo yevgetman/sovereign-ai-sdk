@@ -90,9 +90,9 @@ sov --no-cache
 | `--resume <id>` | Wired (M4) | Hydrates prior transcript via `GET /sessions/:id/messages` |
 | `--no-cache` | Wired (M4) | |
 | `--no-preflight` | Wired (M4) | Skips provider preflight |
+| `--capture-fixture <path>` | Wired (M8) | Threads through `buildRuntime` as `captureFixturePath`; mutex-checked against `--replay-fixture` (exits 2 if both set) |
+| `--replay-fixture <path>` | Wired (M8) | Threads through `buildRuntime` as `replayFixturePath` |
 | `--transcript <path>` | **Warn** | Wires in M7 (trajectory capture) |
-| `--capture-fixture <path>` | **Warn** | Wires in M8 (capture/replay) |
-| `--replay-fixture <path>` | **Warn** | Wires in M8 |
 | `--agent <name>` | **Warn** | Wires in M7 (sub-agent scheduler + scheduled-mission) |
 | `--state-dir <path>` | **Warn** | Wires in M7 |
 | `-v, --verbose` | **Warn** | Wires in M9 (visual polish) |

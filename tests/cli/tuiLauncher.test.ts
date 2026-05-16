@@ -178,6 +178,58 @@ describe('runTuiLauncher — flag forwarding', () => {
     });
   });
 
+  test('forwards captureFixture to buildRuntime as captureFixturePath (M8 T3)', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const exitCode = await runTuiLauncher({
+      captureFixture: '/tmp/m8-capture.json',
+    });
+    expect(exitCode).toBe(0);
+    expect((recordedBuildOpts as { captureFixturePath?: string }).captureFixturePath).toBe(
+      '/tmp/m8-capture.json',
+    );
+    // replayFixturePath must not be set when only --capture-fixture is passed.
+    expect((recordedBuildOpts as { replayFixturePath?: string }).replayFixturePath).toBeUndefined();
+  });
+
+  test('forwards replayFixture to buildRuntime as replayFixturePath (M8 T3)', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const exitCode = await runTuiLauncher({
+      replayFixture: '/tmp/m8-replay.json',
+    });
+    expect(exitCode).toBe(0);
+    expect((recordedBuildOpts as { replayFixturePath?: string }).replayFixturePath).toBe(
+      '/tmp/m8-replay.json',
+    );
+    expect(
+      (recordedBuildOpts as { captureFixturePath?: string }).captureFixturePath,
+    ).toBeUndefined();
+  });
+
+  test('rejects --capture-fixture + --replay-fixture together with exit code 2 (mutex)', async () => {
+    const stderr: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      stderr.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+      const exitCode = await runTuiLauncher({
+        captureFixture: '/tmp/c.json',
+        replayFixture: '/tmp/r.json',
+      });
+      expect(exitCode).toBe(2);
+      // buildRuntime must NOT have been called — the pre-check fires first.
+      expect(recordedBuildOpts).toBeNull();
+      const buf = stderr.join('');
+      expect(buf).toContain('--capture-fixture');
+      expect(buf).toContain('--replay-fixture');
+      expect(buf).toMatch(/mutually exclusive/i);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
   test('forwards resume id and skips POST /sessions when resumeId is set', async () => {
     let postSessionsCalled = false;
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -289,20 +341,6 @@ describe('runTuiLauncher — deferred-flag warnings + legacy-input error', () =>
     await runTuiLauncher({ transcript: '/tmp/t.jsonl' });
     expect(stderrBuf).toContain('--transcript');
     expect(stderrBuf).toMatch(/M7/);
-  });
-
-  test('warns on --capture-fixture with M8', async () => {
-    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
-    await runTuiLauncher({ captureFixture: '/tmp/c.json' });
-    expect(stderrBuf).toContain('--capture-fixture');
-    expect(stderrBuf).toMatch(/M8/);
-  });
-
-  test('warns on --replay-fixture with M8', async () => {
-    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
-    await runTuiLauncher({ replayFixture: '/tmp/r.json' });
-    expect(stderrBuf).toContain('--replay-fixture');
-    expect(stderrBuf).toMatch(/M8/);
   });
 
   test('warns on --agent with M7', async () => {
