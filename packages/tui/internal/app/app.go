@@ -484,6 +484,9 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			Tool:       tr.Tool,
 			RenderHint: hint,
 			Summary:    fmt.Sprintf("rendered as %s", hint),
+			Output:     string(tr.Output),
+			Language:   tr.Language,
+			Theme:      m.theme, // M9 T4 — pass theme so the body renders via render.Code
 		}
 		m.transcript.AppendLine(card.View(m.width))
 		// M8 T6 — record the block onto the local ring for /expand [N]
