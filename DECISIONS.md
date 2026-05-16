@@ -710,3 +710,35 @@ Decision: `theme.LoadFromFile` validates each color string against `^#([0-9a-fA-
 Rationale: Whole-TOML rejection would punish users for typos in 1 of 13 color fields; a single bad `primary = "red"` shouldn't make a 12-other-valid-colors file unusable. Matches ADR M9.5-03 partial-file fallback policy — both decisions favor "the user gets something working with their tweaks" over "the user gets clean errors and starts over." Aggregate validation surface (warn on N bad fields) deferred — if it becomes a real workflow gap, a `theme validate <file>` CLI command can land later without changing the loader's runtime contract.
 
 Status: implemented (M9.6 — `3762504` (T4 — hex regex in pickColor)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+
+## ADR M10-01 — Parity audit by parallel Opus subagents reading import-list literally
+
+Decision: The M10 parity audit, required by Postmortem Rule 3 before any M11 default-flip, is conducted by 4 parallel Opus subagents. Each receives a ~23-import slice of `src/ui/terminalRepl.ts` (92 imports total) and reads the slice's source files independently — explicitly instructed NOT to trust the 24-subsystem prereq checkboxes and to verify wiring through `src/server/runtime.ts`, `src/server/sessionContext.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch, and `packages/tui/internal/`. Reports are synthesized into a single signed-off audit at `docs/state/<date>-tui-parity-audit.md`.
+
+Rationale: "Independently audited (not self-attested)" is the spirit of Rule 3 — the same agent that wired the new surface during M4-M8 is the one most likely to miss a gap by recall. Parallel dispatch gives 4 perspectives at no extra wall-time cost. The mechanical-by-file-read methodology means findings are reproducible on a future commit. Slice partitioning (23 imports × 4) keeps per-subagent context manageable and makes cross-slice synthesis straightforward.
+
+Status: implemented (M10 — `def43f9` (spec/plan) + 4 subagent reports synthesized into `docs/state/2026-05-16-tui-parity-audit.md`). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+
+## ADR M10-02 — Server-mode semantic-suite parity via existing in-process test coverage, not a new wire-driven harness
+
+Decision: M10's "semantic-suite identical pass set on both `--ui repl` and `--ui tui`" criterion is satisfied by the existing test infrastructure — ~1820 REPL-side TS tests + ~180 server-side tests using Hono `app.request()` against `buildAppWithRuntime` (the same Runtime instance the HTTP server fronts). A separate "run all 58 semantic suite cases through the HTTP wire" harness is NOT built.
+
+Rationale: The 180+ server-side integration tests already exercise every M4-M8-wired subsystem through the equivalent code path. Building a parallel infrastructure to drive the same semantic prompts through real HTTP would add maintenance burden without proportional confidence gain — the wire itself is thin (Hono routes → runtime methods), and the runtime methods are what the existing tests exercise. The semantic-suite-prompt format is also a poor fit for `app.request()`-style assertions; the existing per-subsystem tests have finer-grained, more durable assertions.
+
+Status: implemented (M10 — existing test suite serves as the both-paths coverage). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+
+## ADR M10-03 — Severity-classified gap disposition gates M11 on CRITICAL/HIGH only
+
+Decision: Parity-audit findings are classified CRITICAL / HIGH / MEDIUM / LOW. CRITICAL and HIGH gaps BLOCK M11's default-flip until fixed; MEDIUM and LOW gaps are documented in the audit report and may go to M11 prereq backlog or post-flip polish. The classification mirrors `~/.claude/rules/ecc/common/code-review.md`'s standard severity ladder.
+
+Rationale: Strict "any gap blocks M11" interpretation of Postmortem Rule 3 would stall M11 indefinitely on cosmetic deltas (a slightly different status emoji, an empty optional field). Severity classification lets the audit be honest about gaps without making M11 unreachable. The disposition rule is announced before the audit runs so finding-time severity calls aren't biased by "I want to ship."
+
+Status: implemented (M10 — applied to all 10 findings; 2 HIGH fixed in M10, 1 HIGH scope-bounded, 1 HIGH deferred as M11 prereq #40). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+
+## ADR M10-04 — M10 absorbs cheap HIGH fixes inline; defers expensive HIGH fixes to M11 prereq backlog
+
+Decision: When a HIGH gap surfaces during M10 audit, M10 fixes it inline if the fix is < 1 session of work (single-file change, < 100 LoC, clear pattern in terminalRepl to mirror). Larger HIGH fixes (e.g., new HTTP route + Go client integration) are documented and routed to the M11 prereq backlog. Two HIGH gaps fixed in M10 by this rule: `HarnessInfoTool` wire (single-file change in `src/server/runtime.ts` mirroring `terminalRepl.ts:668-727`) and `repairMissingToolResults` resume wire (single-file change in `src/server/routes/turns.ts` mirroring `terminalRepl.ts:2129`). One HIGH gap deferred: server-side slash-command dispatch route (new HTTP route, new Go client surface — multi-file, multi-component work).
+
+Rationale: M10 is the AUDIT milestone, not the fix-everything milestone. But cheap HIGH fixes during audit are higher-value than the same fix in a future milestone — the audit context is fresh, the test infrastructure is hot, and the user got the audit report quickly. The "< 1 session of work" line is the trade-off; anything beyond becomes its own milestone with its own plan/review cycle.
+
+Status: implemented (M10 — `53fda9e` HarnessInfo wire + `a892f71` resume repair wire; backlog item #40 opened for slash-dispatch). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.

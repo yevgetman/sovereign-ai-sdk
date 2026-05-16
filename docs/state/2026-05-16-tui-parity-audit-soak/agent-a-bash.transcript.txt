@@ -1,0 +1,4 @@
+The command printed:
+```
+m10-token-7af3
+```

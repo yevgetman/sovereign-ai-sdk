@@ -1,6 +1,6 @@
 # Phase 16 — foreground rebuild prerequisites
 
-> **Status (2026-05-16):** **24/24 prereq boxes are complete.** M4 closed 3 boxes, M5 closed 3, M6 closed 3, M7 closed 6, M8 closed the remaining 9 (rows 14, 16, 17, 18, 19, 20, 21, 22, 24). The next milestones are M9 (visual polish), M10 (parity audit), M11 (default flip).
+> **Status (2026-05-16):** **24/24 prereq boxes complete; M10 audit-shipped with caveat.** M4 closed 3 boxes, M5 closed 3, M6 closed 3, M7 closed 6, M8 closed the remaining 9. M9.x track shipped (M9 → M9.5 → M9.6). **M10 parity audit (2026-05-16) independently verified subsystem wiring** but ALSO surfaced a gap the original 24-subsystem methodology did not cover: the built-in slash-command-stack composition (`COMMANDS`, `buildCommandRegistry`, `dispatchSlashCommand` from `src/commands/registry.ts`) is unwired in server-mode. Tracked as **new backlog item #40 BLOCKING M11**. M9.5 theme regression (top-level `theme` field) also fixed inline in M10. Next milestone is M10.5/M11-prereq (close #40), then M11 (default flip).
 
 > **Authoritative phase plan:** `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §9. This backlog enumerates the 24 subsystems any new foreground must wire; the spec assigns them to milestones M4–M8.
 

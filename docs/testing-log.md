@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M10 close-out (independent parity audit + 3 inline fixes + backlog #40 opened)
+
+**Scope:** Independent mechanical parity audit of `src/ui/terminalRepl.ts` per Postmortem Rule 3. Four parallel Opus subagents, each given a ~23-import slice of the 92-import surface, verified wiring through `src/server/runtime.ts`, `src/server/sessionContext.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch, and `packages/tui/internal/`. Subagents explicitly instructed NOT to trust the 24/24 prereq checklist and to read source files directly. Synthesis into a single signed-off report at `docs/state/2026-05-16-tui-parity-audit.md`.
+
+**Audit findings:** 71/92 imports WIRED. **4 HIGH gaps surfaced** of which 2 fixed inline in M10 per ADR M10-04 (cheap HIGH fixes), 1 scope-bounded (mission FSM legitimately CLI-only via `sov mission run`), and **1 deferred to new backlog item #40 BLOCKING M11** (server-side slash-command dispatch route). 5 MEDIUM and 1 LOW also documented. Detailed slice-by-slice findings in the audit report.
+
+**Inline fixes shipped in M10:**
+- **`53fda9e`** — HarnessInfoTool wired into server-mode tool pool (`src/server/runtime.ts:465`). Mirrors REPL's `terminalRepl.ts:668-727` lazy-snapshot closure pattern. `slashCommands` returns `[]` intentionally (no client-side slash registry in server-mode yet — separate audit gap = backlog #40). Regression test pins toolPool composition + envelope shape. Real-Anthropic smoke (Agent B) confirms the model uses the tool and gets accurate runtime state.
+- **`a892f71`** — `repairMissingToolResults` wired into server resume hydrate path (`src/server/routes/turns.ts:316`). Mirrors `terminalRepl.ts:2129`. Regression test pins both the orphan-tool_use recovery path AND the no-spurious-inserts-on-clean-history happy path.
+- **`1f05ec6`** — M9.5 theme regression fix (top-level `theme` field in `~/.harness/config.json` rejected by strict-mode Zod). 118 silent unit-test failures on developer machines surfaced when M10 re-ran the full suite from real state. Added `theme: z.string().optional()` to `SettingsSchema` + 2 regression tests.
+
+**Backlog item #40 (NEW, P1):** Server-side built-in slash-command dispatcher route. The `terminalRepl.ts` slash dispatcher (`COMMANDS`, `buildCommandRegistry`, `dispatchSlashCommand`) has no server-mode equivalent. The TUI handles `/compact`, `/skills`, `/theme` via direct route calls; all other built-ins (`/clear`, `/context`, `/status`, `/cost`, `/agents`, `/permissions`, `/memory`, `/model`, `/review`) silently fall through to the model as plain text. Recommended fix: `POST /sessions/:id/commands { name, args }` route. Effort: ~1-2 sessions. **Blocks M11 default-flip.**
+
+**Real-Anthropic smoke (M10's absorbed visual smoke):** Test file `tests/parity/m10RealAnthropicSmoke.test.ts`, gated by `SOV_M10_REAL_SMOKE=1` env var. 4 prompts via Anthropic Haiku 4.5: Agent A (Bash dispatch with `m10-token-7af3` baseline check), Agent B (HarnessInfo invocation — M10 Fix 1 verification), Agent C (file Read/Write loop), Agent D (multi-turn cross-session recall). All 4 PASS. Transcripts at `docs/state/2026-05-16-tui-parity-audit-soak/`. Cost ~$0.05.
+
+**Suite delta:** TS — **2003 pass / 0 fail / 5142 expect()** (1997 baseline + 6 new tests: 2 schema regression in `tests/config/schema.test.ts`, 2 in `tests/parity/m10HarnessInfo.test.ts`, 2 in `tests/parity/m10ResumeRepair.test.ts`). 4 real-Anthropic smokes additionally gated by env var (skip by default). Go — `internal/render`, `internal/components`, `internal/theme` packages re-verified green.
+
+**ADRs landed (4):** M10-01 (parallel-subagent audit methodology), M10-02 (existing test coverage = server-mode parity), M10-03 (severity-classified gap disposition), M10-04 (M10 absorbs cheap HIGH fixes inline; defers expensive ones to backlog). All four in `DECISIONS.md`.
+
+**Postmortem-rule compliance verified before close-out:**
+- Rule 1 — `src/ui/terminalRepl.ts` untouched across M10: `git diff master -- src/ui/terminalRepl.ts` empty.
+- Rule 2 — no helper module deletion: `git diff master --diff-filter=D -- src/` empty.
+- Rule 3 — audit is independent + mechanical + checked-in. The audit report at `docs/state/2026-05-16-tui-parity-audit.md` is the Rule 3 attestation.
+- Rule 4 — `--ui tui` stays opt-in; M11 default-flip BLOCKED on backlog #40.
+
+**M11 status:** BLOCKED-pending-#40. Next milestone is M10.5/M11-prereq (close #40), then M11 (default flip), M12 (terminalRepl deprecation), M13 (removal). Each gets its own plan.
+
+**Surprises during execution:** (1) The M9.5 regression was the most consequential finding — 118 silent test failures on developer machines that CI never saw. The hermetic-test pattern (`t.TempDir()` + `t.Setenv("HARNESS_HOME")`) protected M9.5 from catching its own production bug. **Lesson:** integration-flavored tests should occasionally run against the developer's real config to catch this class of cross-tool schema drift. (2) The mechanical audit found that the 24-subsystem prereq checklist (which enumerates SUBSYSTEMS) did not catch the slash-command-stack composition gap — a wholly separate surface from the audited subsystems. **Lesson:** future audits should expand methodology to include slash-command surface coverage in addition to subsystem coverage.
+
 ## 2026-05-16 — Phase 16.1 M9.6 close-out (interaction polish; 5 tasks; M9.x track complete)
 
 **Scope:** 5-task interaction-polish mini-milestone closing every M9 + M9.5 deferred item. T1 mouse click handling + `--no-mouse` opt-out flag (toolcard collapse-toggle on click, autocomplete-entry select on click, wheel-scroll preserved) → T2 `stall_detected` visual badge (1-line warning surface in `theme.Warning`, 5s auto-fade via `tea.Tick` + generation counter for new-event reset) → T3 `/skills <verb>` subcommand parser (`/skills reload` triggers `fetchSkillsCmd`; future verbs plug into the same switch; `compaction_complete` returns the same Cmd so cache auto-invalidates on session-id pivot) → T4 hex string validation in TOML loader (regex `^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`; soft per-field fallback) → T5 integration smoke + close-out.

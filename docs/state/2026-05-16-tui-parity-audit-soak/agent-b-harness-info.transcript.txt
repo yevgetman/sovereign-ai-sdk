@@ -1,0 +1,15 @@
+I'll inspect the runtime state of the harness to see what MCP servers are connected and check the permission mode.## Summary
+
+Based on the harness runtime inspection:
+
+**MCP Servers Connected:** **0** — there are no external MCP servers connected to this harness.
+
+**Permission Mode:** **`default`** — the default permission mode is active.
+
+### Additional Context:
+- **Settings Layers:** All are absent (no local, project, or user settings files are configured)
+- **Native Tools Available:** 22 tools (including file operations, web access, bash, skill management, etc.)
+- **Sub-agents Available:** 8 specialized agents for tasks like exploration, verification, planning, memory review, and skill synthesis
+- **Skills Loaded:** 3 visible skills (security-audit, review, summarize)
+
+The harness is running in its default state with native tools only, no external MCP integrations, and standard permissions enabled.

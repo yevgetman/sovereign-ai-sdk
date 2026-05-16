@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-16. Runtime close-out reached the Phase 16.1 M8 close-out commit (nine polish-surfaces subsystems wired into the server-mode runtime — router-mode RouterProvider, capture/replay, @file expansion, subdirectory hints, skill loading + visibility + GET /skills, skill-as-slash, TUI ring buffer + /expand, stall detection, rich session_summary); 1991/1991 unit tests green; 24/24 Phase 16 rebuild prereq boxes complete. Items 1-11, 14-16, 18-23, 25-28, 30-37 closed across sixteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap; #30 closed 2026-05-16 via M8 T1 commit `49ed104`). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Item 37 added 2026-05-15 from M6 smoke pre-flight (user noted `sov --version` doesn't print the git SHA). Items 38-39 added 2026-05-15 from Phase 16.1 M7 T5/T6 reviews (reviewAutoPromote* settings snapshot gap + Go TUI mirror for SessionSummaryEvent). Remaining open: 17, 29, 38, 39. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases). Item 37 originated from M6 smoke pre-flight. Items 38-39 originated from Phase 16.1 M7 reviews.
+**Last sync:** 2026-05-16 — M10 close-out. Runtime is at the Phase 16.1 M10 audit close-out (independent mechanical parity audit per Postmortem Rule 3; 2 HIGH gaps fixed inline, 1 HIGH scope-bounded as CLI-only, 1 HIGH deferred as new backlog item #40 BLOCKING M11; M9.5 theme regression also fixed inline); 2003/2003 unit tests green; 24/24 Phase 16 rebuild prereq boxes complete (M10 audit verified independently — caveat: 1 HIGH on slash-command-stack composition not covered by the original prereq methodology). Items 1-11, 14-16, 18-23, 25-28, 30-37 closed across sixteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review. Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review. Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt. Item 37 added 2026-05-15 from M6 smoke pre-flight. Items 38-39 added 2026-05-15 from Phase 16.1 M7 T5/T6 reviews. **Item 40 added 2026-05-16 from Phase 16.1 M10 parity audit slice 1 HIGH — server-side built-in slash-command dispatcher route; BLOCKS M11.** Remaining open: **17, 29, 38, 39, 40**. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers). Item 37 originated from M6 smoke pre-flight. Items 38-39 originated from Phase 16.1 M7 reviews. **Item 40 originated from the Phase 16.1 M10 parity audit (4 parallel Opus subagents reading 92 imports of `terminalRepl.ts` literally).**
 
 ## Priority order
 
@@ -41,6 +41,9 @@ P3 (qwen-amendment deepenings — orthogonal to 13.x):
 32. ~~Resume-after-compaction regression test~~ **[M6 review 2026-05-14] — closed `09da469`**
 36. ~~`estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions~~ **[M6 review 2026-05-15] — closed 2026-05-15 (early-return guard in `compactSession`; `noOp: true` flag wired through all callers)**
 38. `reviewAutoPromoteMemory` / `reviewAutoPromoteSkills` snapshot gap in `parentToolContext` **[M7 T6 2026-05-15]**
+
+P1 (UX / observability) — surfaced in M10 audit:
+40. Server-side built-in slash-command dispatcher route **[M10 audit 2026-05-16]** — **BLOCKS M11**
 
 P4 (small ergonomics + nits):
 14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
@@ -91,6 +94,23 @@ P4 (small ergonomics + nits):
 ---
 
 ## P1 items
+
+### 40. Server-side built-in slash-command dispatcher route [M10 audit 2026-05-16] — BLOCKS M11
+
+- Priority: P1
+- Status: **open** — surfaced by M10 parity audit slice 1 (HIGH severity); deferred from M10 per ADR M10-04 (over-1-session of work; new HTTP route + Go client integration).
+- Source: M10 audit (`docs/state/2026-05-16-tui-parity-audit.md` §3 slice 1; ADR M10-04). The legacy `terminalRepl.ts` imports `COMMANDS`, `buildCommandRegistry`, `dispatchSlashCommand` from `src/commands/registry.ts` and routes `/clear`, `/context`, `/status`, `/cost`, `/agents`, `/permissions`, `/memory`, `/model`, `/review`, and all other built-ins through them. Server-mode has no equivalent — the TUI implements `/compact`, `/skills`, `/theme` via direct route calls but every other slash falls through to the model as plain text.
+- Recommendation: Add `POST /sessions/:id/commands { name, args }` to the Hono app. The handler builds a `CommandContext` against the runtime (similar to `src/cli/dispatchCommand.ts`'s pattern) and invokes `dispatchSlashCommand`. Output streams over SSE for multi-line responses, or returns as a JSON envelope for single-shot results. The Go TUI in `packages/tui/internal/app/` routes any `/` input not in its small client-side allowlist (`/compact`, `/skills`, `/theme`, `/skillname`) through this endpoint.
+- Evidence: `src/server/runtime.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch — none reference `dispatchSlashCommand`. Only `src/cli/dispatchCommand.ts` and `src/ui/terminalRepl.ts` import it.
+- Impact: User-visible regression in `--ui tui` for at least 9 commonly-used built-in slash commands. Blocks M11 default-flip per the severity-classified disposition rule (ADR M10-03).
+- Likely code areas:
+  - `src/server/routes/commands.ts` (new)
+  - `src/server/runtime.ts` (CommandContext construction helper, exposed)
+  - `src/server/app.ts` (mount the new route)
+  - `packages/tui/internal/transport/commands.go` (new Go client surface)
+  - `packages/tui/internal/app/` (slash handler routing in the input handler)
+- Effort: ~1-2 sessions (could be split into M10.5 server-side first, then Go client integration as a follow-up; or shipped as one M11 prereq commit chain)
+- Closes once shipped: also resolves slice 1 MEDIUM gaps for `createClearedChildSession` (`/clear`), `auditContextBudget` (`/context`), and the slice 2 MEDIUM for `createDefaultMemoryManager` / `resolveProjectScope` (`/memory`) — those all become reachable through the new route's dispatchSlashCommand call.
 
 ### 3. `/review revoke <id>` undo path
 
