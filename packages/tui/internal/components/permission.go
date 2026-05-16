@@ -118,10 +118,13 @@ func (p Permission) View(width, height int) string {
 	}
 	preview = strings.ReplaceAll(preview, "\n", " ")
 
+	// M9 T11: backlog #29 — lipgloss Style is value-typed; .Copy() is a
+	// deprecated identity helper. Direct field-chain assignments already
+	// produce new values, so the .Copy() calls were redundant.
 	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b"))
-	bold := yellow.Copy().Bold(true)
+	bold := yellow.Bold(true)
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
-	defaultChoice := bold.Copy().Underline(true)
+	defaultChoice := bold.Underline(true)
 
 	lines := []string{
 		bold.Render("permission required"),

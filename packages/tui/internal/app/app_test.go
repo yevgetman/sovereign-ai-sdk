@@ -15,7 +15,22 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
+
+// newTestEnvelope builds a transport.Envelope for direct Update-driven
+// tests. Used by the M9 T11 rewrites of the previously-skipped tests
+// (rendersTurnErrorVisibly / showsThinkingIndicatorOnEnter /
+// thinkingClearedByFirstResponseEvent) that bypass teatest's WaitFor
+// polling race by injecting events directly.
+func newTestEnvelope(eventType, sessionID string, seq int64, raw string) transport.Envelope {
+	return transport.Envelope{
+		Type:      eventType,
+		Seq:       seq,
+		SessionID: sessionID,
+		Raw:       json.RawMessage(raw),
+	}
+}
 
 func TestBareScaffold_rendersThreeRegions(t *testing.T) {
 	tm := teatest.NewTestModel(t, New("test-session", "http://127.0.0.1:0"), teatest.WithInitialTermSize(80, 24))
@@ -213,25 +228,74 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 // transport hiccup) must visibly land in the transcript. The pre-fix
 // handleEvent switch had no case for turn_error and silently dropped them,
 // so the user saw nothing at all after ENTER.
+//
+// M9 T11: rewritten to drive Model.Update directly with a synthesized
+// turn_error envelope, avoiding teatest's WaitFor polling race.
 func TestApp_rendersTurnErrorVisibly(t *testing.T) {
-	t.Skip("TODO: teatest output ordering race — implementation verified via M3 visual smoke; revisit test harness")
+	m := New("s-err", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	env := newTestEnvelope("turn_error", "s-err", 1,
+		`{"type":"turn_error","seq":1,"sessionId":"s-err","error":"boom","recoverable":true}`)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	view := m.View()
+	if !strings.Contains(view, "turn error") || !strings.Contains(view, "boom") {
+		t.Errorf("turn_error not rendered visibly: %q", view)
+	}
 }
 
 // TestApp_showsThinkingIndicatorOnEnter guards the M3 smoke regression's
 // second prong: between ENTER and the first response event there must be
 // visible feedback so a 1-3s real-provider round-trip doesn't look like a
-// dead UI. The events endpoint is held open with no payload so the
-// placeholder isn't cleared by an arriving event.
+// dead UI.
+//
+// M9 T11: rewritten to drive Model.Update directly with the ENTER keypress
+// after a non-empty prompt, then assert the dim placeholder lands in the
+// transcript. No teatest WaitFor needed.
 func TestApp_showsThinkingIndicatorOnEnter(t *testing.T) {
-	t.Skip("TODO: teatest output ordering race — implementation verified via M3 visual smoke; revisit test harness")
+	// baseURL must be non-empty for submitTurn to fire; point at a dead
+	// localhost socket so the POST errors out cleanly without retries.
+	m := New("s-think", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	view := m.View()
+	if !strings.Contains(view, "thinking") {
+		t.Errorf("thinking placeholder not rendered on ENTER: %q", view)
+	}
 }
 
 // TestApp_thinkingClearedByFirstResponseEvent guards the placeholder removal
 // path: when a text_delta arrives, the dim "…thinking" line should be popped
 // before the delta text is appended. Otherwise the user sees "…thinking"
 // stuck above every response.
+//
+// M9 T11: rewritten to drive Update directly: send ENTER to set the
+// placeholder, then inject a text_delta sseMsg and assert the placeholder
+// no longer appears in the rendered view.
 func TestApp_thinkingClearedByFirstResponseEvent(t *testing.T) {
-	t.Skip("TODO: teatest output ordering race — implementation verified via M3 visual smoke; revisit test harness")
+	m := New("s-clear", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	env := newTestEnvelope("text_delta", "s-clear", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-clear","block":0,"text":"response"}`)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	view := m.View()
+	if strings.Contains(view, "thinking") {
+		t.Errorf("thinking placeholder not cleared by text_delta: %q", view)
+	}
+	if !strings.Contains(view, "response") {
+		t.Errorf("text_delta content missing: %q", view)
+	}
 }
 
 // TestApp_renderToolResultAsCard guards M3.6: a tool_result event should
