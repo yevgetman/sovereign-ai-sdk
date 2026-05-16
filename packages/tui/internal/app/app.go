@@ -372,6 +372,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// against the new prompt text.
 		m.autocomplete.SetFilter(m.prompt.Value())
 		return m, cmd
+	case tea.MouseMsg:
+		// M9 T9 — forward mouse events (wheel scroll in particular) to the
+		// transcript viewport. bubbles' viewport natively handles
+		// MouseButtonWheelUp/Down for scroll; click handling is M9.5.
+		var cmd tea.Cmd
+		m.transcript, cmd = m.transcript.Update(msg)
+		return m, cmd
 	case sseMsg:
 		m.handleEvent(msg.env)
 		return m, m.waitEvent
