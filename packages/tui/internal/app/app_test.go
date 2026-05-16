@@ -1168,3 +1168,91 @@ func TestApp_StallExpireStaleGenIgnored(t *testing.T) {
 		t.Errorf("badge should hold latest reason: got %q", m.stallBadge.Reason)
 	}
 }
+
+// M9.6 T3 — /skills reload + compaction cache invalidation.
+
+func TestApp_SlashSkillsNoVerbShowsUsage(t *testing.T) {
+	m := New("s-usg", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	for _, r := range "/skills" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	view := m.View()
+	if !strings.Contains(view, "usage") {
+		t.Errorf("expected usage message: %q", view)
+	}
+}
+
+func TestApp_SlashSkillsUnknownVerbErrors(t *testing.T) {
+	m := New("s-unk", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	for _, r := range "/skills bogus" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	view := m.View()
+	if !strings.Contains(view, "unknown") || !strings.Contains(view, "bogus") {
+		t.Errorf("expected unknown-verb error: %q", view)
+	}
+}
+
+func TestApp_SlashSkillsReloadNoServerNoOps(t *testing.T) {
+	m := New("s-noserver", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	for _, r := range "/skills reload" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	view := m.View()
+	if !strings.Contains(view, "unavailable") {
+		t.Errorf("expected 'unavailable' marker for /skills reload without server: %q", view)
+	}
+}
+
+func TestApp_SlashSkillsReloadWithServerFetchesSkills(t *testing.T) {
+	var requestCount int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			atomic.AddInt32(&requestCount, 1)
+			fmt.Fprint(w, `{"skills":[{"name":"reloaded","description":"d","whenToUse":"w"}]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New("s-rel", srv.URL), teatest.WithInitialTermSize(80, 24))
+	// Wait for initial skills fetch (1 request from boot).
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return atomic.LoadInt32(&requestCount) >= 1
+	}, teatest.WithDuration(2*time.Second))
+
+	// Send /skills reload + ENTER.
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/skills reload")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return atomic.LoadInt32(&requestCount) >= 2
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}

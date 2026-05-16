@@ -206,6 +206,11 @@ func (m Model) fetchMessagesCmd() tea.Cmd {
 // against known skill names and POST as `kind: 'skill'` when matched.
 // Failure is non-fatal — the skillsFetchedMsg handler surfaces a dim
 // transcript line and falls back to no-skill-cache behavior.
+//
+// M9.6 T3: same Cmd is reused for /skills reload (manual refresh) and
+// compaction_complete (auto-refresh after session-id pivot). The session
+// id captured in the closure is m.sessionID at the time of the Cmd
+// construction — callers must rebuild the Cmd after a pivot.
 func (m Model) fetchSkillsCmd() tea.Cmd {
 	return func() tea.Msg {
 		skills, err := transport.GetSkills(m.ctx, m.baseURL, m.sessionID)
@@ -387,6 +392,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcript.AppendLine("» " + text)
 				m.prompt.Clear()
 				return m, m.expandToolBlock(n)
+			}
+			// M9.6 T3 — /skills <verb> subcommand parser. Must run BEFORE
+			// the /skillname matcher below so the literal /skills text is
+			// captured as a subcommand instead of being treated as a (non-
+			// existent) skill named "skills". ADR M9.6-03.
+			if text == "/skills" || strings.HasPrefix(text, "/skills ") {
+				m.transcript.AppendLine("» " + text)
+				m.prompt.Clear()
+				m.autocomplete.Dismiss()
+				parts := strings.SplitN(text, " ", 2)
+				verb := ""
+				if len(parts) == 2 {
+					verb = strings.TrimSpace(parts[1])
+				}
+				switch verb {
+				case "reload":
+					if m.baseURL == "" {
+						m.transcript.AppendLine(m.theme.DimStyle().Render("skills cache unavailable (no server)"))
+						return m, nil
+					}
+					m.transcript.AppendLine(m.theme.DimStyle().Render("reloading skill cache…"))
+					return m, m.fetchSkillsCmd()
+				case "":
+					m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /skills <reload>"))
+				default:
+					m.transcript.AppendLine(m.theme.ErrorStyle().Render("unknown /skills verb: " + verb))
+				}
+				return m, nil
 			}
 			// M8 T6 — /skillname interception. When the slash matches a
 			// cached skill name (populated by fetchSkillsCmd on boot), POST
@@ -726,6 +759,11 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			m.theme,
 			m.width,
 		))
+		// M9.6 T3 — invalidate the skill cache on session-id pivot.
+		// The post-pivot child session may have a different skill set;
+		// fetchSkillsCmd captures the CURRENT m.sessionID (just updated
+		// above), so the refetch targets the new child id automatically.
+		return m.fetchSkillsCmd()
 	case "session_summary":
 		// M9 T7 — server emitted the rich session summary on disposal.
 		// Store the payload; View() renders the goodbye card in place of
