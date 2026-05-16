@@ -118,3 +118,115 @@ func TestLoadFromFileEmptyNameErrors(t *testing.T) {
 		t.Error("expected error for empty name")
 	}
 }
+
+// M9.6 T4 — hex validation in pickColor.
+
+func TestLoadFromFileInvalidHexFallsBackPerField(t *testing.T) {
+	dir := t.TempDir()
+	tomlContent := `name = "mixed-bad"
+
+[colors]
+primary    = "not-a-color"
+background = "#abcdef"
+foreground = "red"
+border     = "#ff00ff"
+`
+	if err := os.WriteFile(filepath.Join(dir, "mixed-bad.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	th, err := LoadFromFile("mixed-bad", dir)
+	if err != nil {
+		t.Fatalf("LoadFromFile should still succeed with invalid hex: %v", err)
+	}
+	dark := Dark()
+	if th.Primary != dark.Primary {
+		t.Errorf("primary should be Dark fallback for invalid hex: got %q", th.Primary)
+	}
+	if th.Foreground != dark.Foreground {
+		t.Errorf("foreground should be Dark fallback for 'red': got %q", th.Foreground)
+	}
+	if string(th.Background) != "#abcdef" {
+		t.Errorf("background should be the valid hex: got %q", th.Background)
+	}
+	if string(th.Border) != "#ff00ff" {
+		t.Errorf("border should be the valid hex: got %q", th.Border)
+	}
+}
+
+func TestLoadFromFileShortHexAccepted(t *testing.T) {
+	dir := t.TempDir()
+	tomlContent := `name = "short-hex"
+
+[colors]
+primary = "#abc"
+`
+	if err := os.WriteFile(filepath.Join(dir, "short-hex.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	th, err := LoadFromFile("short-hex", dir)
+	if err != nil {
+		t.Fatalf("short-hex form should be valid: %v", err)
+	}
+	if string(th.Primary) != "#abc" {
+		t.Errorf("primary: got %q", th.Primary)
+	}
+}
+
+func TestLoadFromFileUppercaseHexAccepted(t *testing.T) {
+	dir := t.TempDir()
+	tomlContent := `name = "upper"
+
+[colors]
+primary = "#ABCDEF"
+`
+	if err := os.WriteFile(filepath.Join(dir, "upper.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	th, err := LoadFromFile("upper", dir)
+	if err != nil {
+		t.Fatalf("uppercase hex should be valid: %v", err)
+	}
+	if string(th.Primary) != "#ABCDEF" {
+		t.Errorf("primary: got %q", th.Primary)
+	}
+}
+
+func TestLoadFromFileFourCharHexRejected(t *testing.T) {
+	dir := t.TempDir()
+	tomlContent := `name = "four-char"
+
+[colors]
+primary = "#abcd"
+`
+	if err := os.WriteFile(filepath.Join(dir, "four-char.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	th, err := LoadFromFile("four-char", dir)
+	if err != nil {
+		t.Fatalf("LoadFromFile should still succeed: %v", err)
+	}
+	dark := Dark()
+	if th.Primary != dark.Primary {
+		t.Errorf("4-char hex should be rejected; expected Dark fallback, got %q", th.Primary)
+	}
+}
+
+func TestLoadFromFileEmptyStringIsFallback(t *testing.T) {
+	dir := t.TempDir()
+	tomlContent := `name = "empty-str"
+
+[colors]
+primary = ""
+`
+	if err := os.WriteFile(filepath.Join(dir, "empty-str.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	th, err := LoadFromFile("empty-str", dir)
+	if err != nil {
+		t.Fatalf("LoadFromFile: %v", err)
+	}
+	dark := Dark()
+	if th.Primary != dark.Primary {
+		t.Errorf("empty string should be Dark fallback: got %q", th.Primary)
+	}
+}

@@ -11,10 +11,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// hexRE matches `#rgb` and `#rrggbb` color strings (case-insensitive).
+// Invalid hex strings in user TOML files fall back to the corresponding
+// Dark() field value per ADR M9.6-04 — the whole TOML still loads, only
+// bad fields drop. Named colors (e.g. "red") and rgba forms are NOT
+// supported.
+var hexRE = regexp.MustCompile(`^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 // tomlTheme is the on-disk shape. We decode into strings and post-process
 // against Dark() so "field absent" (string == "") survives BurntSushi's
@@ -84,11 +92,16 @@ func LoadFromFile(name, dir string) (Theme, error) {
 	}, nil
 }
 
-// pickColor returns the parsed string as a lipgloss.Color when non-empty,
-// otherwise the fallback. No hex validation in v1 — lipgloss accepts the
-// color verbatim and renders best-effort.
+// pickColor returns the parsed string as a lipgloss.Color when it's a
+// valid hex code, otherwise the fallback. M9.6 T4 / ADR M9.6-04: soft
+// per-field validation — invalid hex (named colors, malformed strings)
+// falls back to the corresponding Dark() field value; the whole TOML
+// still loads.
 func pickColor(parsed string, fallback lipgloss.Color) lipgloss.Color {
 	if parsed == "" {
+		return fallback
+	}
+	if !hexRE.MatchString(parsed) {
 		return fallback
 	}
 	return lipgloss.Color(parsed)
