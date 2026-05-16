@@ -10,7 +10,7 @@ This file is a **lean index** — a table of contents into the deeper docs. Read
 
 1. **This file** (`CLAUDE.md`) — index and standing rules
 2. **`README.md`** — repo intro, install, layout
-3. **`docs/state/2026-05-15.md`** — most recent close-out snapshot (Phase 16.1 M7 shipped 2026-05-15 — Hermes-layer parity group: MCP client pool, TaskManager DaemonEventBus, per-session SessionContext with trace writer + trajectory capture + learning observer + review manager; M0–M6 closed earlier). Read this BEFORE the build plan to know what shipped and where to start. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
+3. **`docs/state/2026-05-16.md`** — most recent close-out snapshot (Phase 16.1 M8 shipped 2026-05-16 — polish-surfaces group: router-mode RouterProvider, capture/replay, @file expansion, subdirectory hints, skill loading + visibility + GET /skills, skill-as-slash, TUI ring buffer + /expand, stall detection, rich session_summary; **24/24 prereq boxes complete**; M0–M7 closed earlier). Read this BEFORE the build plan to know what shipped and where to start. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
 4. **`docs/backlog/post-phase-13-4.md`** — open backlog items not in the canonical build plan.
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -48,18 +48,18 @@ Each link is a chapter loaded on demand. Don't pre-read.
 
 | File | What's in it |
 |---|---|
-| [`docs/state/2026-05-15.md`](docs/state/2026-05-15.md) | Canonical current-state snapshot — Phase 16.1 M7 shipped (Hermes-layer parity group: MCP client pool, TaskManager DaemonEventBus, per-session SessionContext with trace + trajectory + learning + review wired; 6 prereq boxes flipped, backlog #28 closed; suite green at 1965/1965). The snapshot itself pins the HEAD SHA and exact counts. |
-| [`docs/state/archive/`](docs/state/archive/) | Historical snapshots: `2026-05-07.md` (Phase 13.4), `2026-05-11.md` (Phase 16.0a), `2026-05-12.md` (Phase 16 revert), `2026-05-13.md` (Phase 16.1 M0–M3), `2026-05-14.md` (Phase 16.1 M4 + M5 + M5.1), `2026-05-14-pm.md` (Phase 16.1 M6 close-out + 2026-05-15 hardening + autonomous M6 smoke + PM #32/#37 — same-day predecessor of the active snapshot). |
+| [`docs/state/2026-05-16.md`](docs/state/2026-05-16.md) | Canonical current-state snapshot — Phase 16.1 M8 shipped (polish-surfaces group: router-mode, capture/replay, @file + subdir hints, skills + GET /skills + skill-as-slash, TUI ring buffer + /expand, stall detection, rich session_summary; **9 prereq boxes flipped, 24/24 complete**; backlog #30 closed; suite green at 1991/1991). The snapshot itself pins the HEAD SHA and exact counts. |
+| [`docs/state/archive/`](docs/state/archive/) | Historical snapshots: `2026-05-07.md` (Phase 13.4), `2026-05-11.md` (Phase 16.0a), `2026-05-12.md` (Phase 16 revert), `2026-05-13.md` (Phase 16.1 M0–M3), `2026-05-14.md` (Phase 16.1 M4 + M5 + M5.1), `2026-05-14-pm.md` (Phase 16.1 M6 close-out + 2026-05-15 hardening + autonomous M6 smoke + PM #32/#37), `2026-05-15.md` (Phase 16.1 M7 close-out + post-close-out hardening + autonomous M7 smoke — same-day predecessor of the active snapshot). |
 
 ### Forward-looking
 
 | File | What's in it |
 |---|---|
-| [`docs/backlog/post-phase-13-4.md`](docs/backlog/post-phase-13-4.md) | Open backlog (5 items, 1 P3 + 4 P4): #17 eval-gated auto-promote, #29 lipgloss Style.Copy(), #30 router-mode subagent defaults, #38 reviewAutoPromote* snapshot gap (P3, NEW from M7), #39 Go TUI mirror for SessionSummaryEvent (NEW from M7) |
-| [`docs/backlog/phase-16-rebuild-prereqs.md`](docs/backlog/phase-16-rebuild-prereqs.md) | 24 subsystems any Phase 16.1 foreground refactor must re-wire |
+| [`docs/backlog/post-phase-13-4.md`](docs/backlog/post-phase-13-4.md) | Open backlog (4 items, 1 P3 + 3 P4): #17 eval-gated auto-promote, #29 lipgloss Style.Copy(), #38 reviewAutoPromote* snapshot gap (P3), #39 Go TUI mirror for SessionSummaryEvent |
+| [`docs/backlog/phase-16-rebuild-prereqs.md`](docs/backlog/phase-16-rebuild-prereqs.md) | 24 subsystems any Phase 16.1 foreground refactor must re-wire — **24/24 complete after M8** |
 | [`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`](docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md) | Active design spec for the Phase 16.1 TUI rebuild |
 | [`docs/specs/2026-05-13-production-harness-roadmap-design.md`](docs/specs/2026-05-13-production-harness-roadmap-design.md) | Umbrella production polish roadmap |
-| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-15-phase-16-1-m7-hermes-layer.md` |
+| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-16-phase-16-1-m8-polish-surfaces.md` |
 
 ### Postmortems — required reading before similar work
 

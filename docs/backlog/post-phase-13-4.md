@@ -4,7 +4,7 @@ This document is the record of truth for items not part of the canonical build p
 
 These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's next phase is Phase 13.5 (scheduled-mission sub-agents); these backlog items are orthogonal and can land between phases or as time permits.
 
-**Last sync:** 2026-05-15. Runtime close-out reached the Phase 16.1 M7 close-out commit (six Hermes-layer subsystems wired into the server-mode runtime — MCP client pool, TaskManager DaemonEventBus integration, trace writer, trajectory capture, learning observer, review manager); 1965/1965 unit tests green. Items 1-11, 14-16, 18-23, 25-28, 31-37 closed across fifteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Item 37 added 2026-05-15 from M6 smoke pre-flight (user noted `sov --version` doesn't print the git SHA). Items 38-39 added 2026-05-15 from Phase 16.1 M7 T5/T6 reviews (reviewAutoPromote* settings snapshot gap + Go TUI mirror for SessionSummaryEvent). Remaining open: 17, 29, 30, 38, 39. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases). Item 37 originated from M6 smoke pre-flight. Items 38-39 originated from Phase 16.1 M7 reviews.
+**Last sync:** 2026-05-16. Runtime close-out reached the Phase 16.1 M8 close-out commit (nine polish-surfaces subsystems wired into the server-mode runtime — router-mode RouterProvider, capture/replay, @file expansion, subdirectory hints, skill loading + visibility + GET /skills, skill-as-slash, TUI ring buffer + /expand, stall detection, rich session_summary); 1991/1991 unit tests green; 24/24 Phase 16 rebuild prereq boxes complete. Items 1-11, 14-16, 18-23, 25-28, 30-37 closed across sixteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review (T6/T7/T9 follow-ups + router-mode default-provider gap; #30 closed 2026-05-16 via M8 T1 commit `49ed104`). Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review (turns-route validation + resume regression-test gap + asymmetric isClosed guards). Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt (Anthropic alternation hazard + overflow matcher unverified vs real providers + cosmetic compaction-token-delta on tiny sessions). Item 37 added 2026-05-15 from M6 smoke pre-flight (user noted `sov --version` doesn't print the git SHA). Items 38-39 added 2026-05-15 from Phase 16.1 M7 T5/T6 reviews (reviewAutoPromote* settings snapshot gap + Go TUI mirror for SessionSummaryEvent). Remaining open: 17, 29, 38, 39. Items 18-24 originated from the 2026-05-07 ad-hoc 7-agent REPL soak (41/41 cases passed). Items 25-30 originated from the Phase 16.1 M5 T10 / M5.1 reviews. Items 31-33 originated from the Phase 16.1 M6 final whole-branch review. Items 34-36 originated from the M6 pre-smoke deep-dive review (three parallel Opus reviewers focused on server flow, TUI/wire, and edge cases). Item 37 originated from M6 smoke pre-flight. Items 38-39 originated from Phase 16.1 M7 reviews.
 
 ## Priority order
 
@@ -52,6 +52,7 @@ P4 (small ergonomics + nits):
 21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
 28. ~~Server-side TaskManager not wired to `DaemonEventBus`~~ **[M5 T7 2026-05-14] — closed `bfaeaad` (M7 T2; `Runtime.daemonEventBus` constructed in `buildRuntime` and threaded into `new TaskManager({...,bus})`)**
 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal **[M5 T9 2026-05-14]**
+30. ~~Server-mode `subagentDefaultProvider`/`subagentDefaultModel` not specialized for router mode~~ **[M5.1 review 2026-05-14] — closed `49ed104` (M8 T1; `provider: 'router'` constructs RouterProvider and specializes subagent defaults to the frontier lane)**
 33. ~~Asymmetric `bus.isClosed()` guards in turns route~~ **[M6 review 2026-05-14] — closed `79a5c39` (dropped all three redundant guards; eventBus.publish is idempotent on closed buses)**
 37. ~~`sov --version` should print the git SHA (currently shows static `0.1.0`)~~ **[M6 smoke 2026-05-15] — closed `a89b03c` + `4bd849c`**
 39. Go TUI mirror struct for `SessionSummaryEvent` not added **[M7 T6 2026-05-15]**
@@ -410,15 +411,9 @@ Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-ag
 ### 30. Server-mode `subagentDefaultProvider`/`subagentDefaultModel` not specialized for router mode
 
 - Priority: P4
-- Status: open
+- Status: **CLOSED** (Phase 16.1 M8 T1, 2026-05-16 — commit `49ed104`)
 - Source: Phase 16.1 M5.1 final whole-branch review (2026-05-14)
-- Recommendation: `buildRuntime` in `src/server/runtime.ts:455-456` passes `defaultProvider: resolved.transport.name` and `defaultModel: resolved.model` directly to `SubagentScheduler`. terminalRepl computes `subagentDefaultProvider`/`subagentDefaultModel` specially for router mode (`src/ui/terminalRepl.ts:908-917`) so child agents launched from a router-mode parent get sensible defaults instead of the literal `'router'` provider string.
-- Evidence: server-mode does NOT support `--provider router` yet (no `buildRouterResolvedProvider` equivalent in the server build), so the gap is hypothetical today. Becomes a real bug if/when router support lands in server mode.
-- Impact: Latent. M5.1's `availableProviders` fix correctly handles the router-metadata case for the available-provider list, but the default-provider/model fall-through is still uncomputed. A router-mode parent in server mode would dispatch children with `defaultProvider: 'router'` which doesn't resolve.
-- Likely code areas:
-  - `src/server/runtime.ts` (`buildRuntime` — extract `resolveSubagentDefaultProvider/Model(resolved)` alongside the M5.1 helpers, wire at the construction site)
-  - `src/ui/terminalRepl.ts:908-917` (reference pattern)
-- Effort: ~30 min — same shape as M5.1's three helpers; bundle with any future "wire router into server mode" work.
+- Resolution: M8 T1 landed `--provider router` in `buildRuntime` with the full RouterProvider wiring (the `useRouter` branch at `src/server/runtime.ts:518-573` constructs the wrapped provider, and the subagent default resolution at the scheduler construction site specializes to the configured frontier lane — `defaultProvider: routerCfg.frontierProvider`, `defaultModel: routerCfg.frontierModel` — exactly mirroring terminalRepl.ts:908-917). `tests/server/runtime.router.test.ts` pins both contracts; `tests/server/m8Full.test.ts` covers the subagent default fall-through in the integration smoke.
 
 ---
 
@@ -570,9 +565,8 @@ Two follow-ups surfaced during the M7 Hermes-layer parity work. Neither blocked 
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
-- 10-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit) or item 37 (sov --version SHA — small ergonomics)
-- 30-min slot: item 32 (resume-after-compaction regression test) or item 30 (only if router server-mode is on the near roadmap)
-- 1-2 hr slot: item 28 (DaemonEventBus wiring)
+- 10-min slot: item 29 (lipgloss `Style.Copy()` deprecation — single-line edit) or item 39 (Go TUI mirror struct for SessionSummaryEvent)
+- 30-min slot: item 38 (`reviewAutoPromote*` snapshot gap)
 - Half-day slot: (none currently open)
 - Multi-day: item 17
 

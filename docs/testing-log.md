@@ -8,6 +8,42 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T8 — close-out (9 prereq boxes flipped, 24/24 complete)
+
+**Scope:** Eighth and final task of the M8 polish-surfaces group. T8 is integration-smoke + close-out. The integration smoke (`tests/server/m8Full.test.ts`) drives all nine M8 subsystems through the public route surface; the close-out commits flip 9 prereq boxes (rows 14, 16, 17, 18, 19, 20, 21, 22, 24 — bringing 24/24 to complete), close backlog #30, add 7 ADR stubs, write the M8 close-out state snapshot, archive the M7 snapshot, and update CLAUDE.md / AGENTS.md to point at the new snapshot.
+
+**Two atomic commits (per M7 T7 pattern):**
+
+- **`692dc81` — `feat(server): M8 T8 — integration smoke for all 9 polish-surfaces subsystems`.** New `tests/server/m8Full.test.ts` with 5 tests / 43 expect() calls across two describe blocks. The main describe block boots a mock-provider runtime once and runs four tests: (1) `@file expansion + skill discovery + skill-as-slash dispatch + rich session_summary all wire together` — seeds a project-local `greet.md` skill + a `note.txt` target file, fetches `GET /sessions/:id/skills` (T4), POSTs `/turns` with `kind: 'skill'` (T5), asserts the persisted user message contains the expanded skill body (not the raw slash), POSTs a second turn with `@file:note.txt` (T3), asserts the file body landed in the persisted text, disposes with a bus and asserts the `session_summary` event carries the rich `tokens` field (T7); (2) `stall_detected SSE event fires when MockProvider.stallMode runs the loop > WINDOW iterations` — drives `MockProvider.stallMode = true` with `stallTargetIterations = 4`, parses SSE frames for `stall_detected` events, asserts at least one fires with the expected reason (T7); (3) `captureFixturePath drives capture sink wrap; fixture file lands on dispose` — boots with `captureFixturePath`, runs one turn, disposes the runtime, asserts the fixture file exists and contains the captured provider events (T2); (4) `toolUseMode triggers learning observer + trajectory write + cost recording` — M7 regression check confirming the M8 wirings don't break Hermes-layer parity. The second describe block tests router-mode separately (requires `HARNESS_CONFIG`): boots with `provider: 'router'`, asserts `resolvedProvider.transport.name === 'router'` and the subagent scheduler defaults to the frontier lane (T1, closes #30). Test count: 1986 → 1991 (+5).
+
+- **Docs close-out commit (this commit chain).** Flips 9 prereq boxes in `docs/backlog/phase-16-rebuild-prereqs.md` (rows 14, 16, 17, 18, 19, 20, 21, 22, 24 — all marked `[x] (M8 — 2026-05-16)`). Adds a status header at the top: "**24/24 prereq boxes are complete.** M4 closed 3, M5 closed 3, M6 closed 3, M7 closed 6, M8 closed the remaining 9. Next: M9 visual polish, M10 parity audit, M11 default flip." Closes backlog #30 in `docs/backlog/post-phase-13-4.md` with the resolution `closed via M8 T1 commit 49ed104 (provider: 'router' constructs RouterProvider and specializes subagent defaults to the frontier lane)`. Updates the P4 priority order, the "How to use this document" effort-bucket guide (removes references to closed items), and the per-commit-section running ledger. Adds 7 new ADR stubs to `DECISIONS.md` — M8-01 (router-mode construction in buildRuntime, not resolveProvider), M8-02 (capture/replay wraps provider + tool pool, mutex-guarded), M8-03 (@file expansion runs in the route, before persistence, and composes with skill-as-slash), M8-06 (skill registry loads at boot, per-call filter is per-turn), M8-07 (TUI skill cache + /skillname interception is Go-side; wire is `kind: 'skill'`), M8-08 (stall detection rides the trace recorder), M8-10 (rich session_summary payload extends, doesn't replace, the M7 shape). M8-04, M8-05, M8-09 are scope decisions documented in the snapshot but not promoted to ADRs (they're sequencing/scope choices, not runtime architecture). Writes `docs/state/2026-05-16.md` covering the full M8 narrative (HEAD chain, suite delta, prereq box flips, ADRs, scope decisions, behavioral notes, what's next). Moves `docs/state/2026-05-15.md` to `docs/state/archive/2026-05-15.md` (no filename collision — the existing `archive/2026-05-14-pm.md` is untouched). Updates CLAUDE.md and AGENTS.md state-snapshot pointers + the description line under "Current state"; mirror-diff verified byte-identical.
+
+**Tests + lint + typecheck:**
+
+- `bun test`: 1991 pass / 0 fail / 5090 expect() calls / 244 files / 45.51s
+- `bun run lint`: clean (the 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` unchanged)
+- `bun run typecheck`: clean
+- `diff CLAUDE.md AGENTS.md`: identical (the byte-identical mirror invariant per CLAUDE.md is preserved)
+
+**Suite delta:** 1986 (before T8) → 1991 (after T8) — exactly +5 (the m8Full integration smoke). No T1–T7 tests were modified by T8.
+
+**Self-review checklist:**
+
+- [x] Integration smoke passes
+- [x] Full suite passes (1991 tests)
+- [x] Lint + typecheck clean
+- [x] 9 prereq boxes flipped (rows 14, 16, 17, 18, 19, 20, 21, 22, 24) — verified `grep 'M8 — 2026-05-16' docs/backlog/phase-16-rebuild-prereqs.md` returns 9 lines; zero `[ ]` remaining
+- [x] #30 closed in backlog with resolution paragraph
+- [x] 7 ADR stubs in DECISIONS.md — verified `grep -c '^## ADR M8-' DECISIONS.md` returns 7
+- [x] State snapshot `docs/state/2026-05-16.md` created (follows 2026-05-15 template structure)
+- [x] Old snapshot moved to archive without collision
+- [x] CLAUDE.md ≡ AGENTS.md byte-identical (diff exits 0)
+- [x] Two atomic commits (feat + docs)
+- [x] `sov upgrade` ran
+- [x] No emojis added
+
+**Status:** Phase 16.1 M8 closed. Phase 16 rebuild prerequisites at 24/24 — every subsystem listed in `docs/backlog/phase-16-rebuild-prereqs.md` is wired. M9 visual polish + M10 parity audit are the gates to M11 default flip. User has not yet given the go-ahead to start M9 planning.
+
 ## 2026-05-16 — Phase 16.1 M8 T7 — stall SSE + rich session_summary payload
 
 **Scope:** Seventh task of the M8 polish-surfaces group. The wire schema gains `stall_detected` and an extended `session_summary` shape with optional `tokens`, `toolCalls`, `toolOk`, `toolErr`, and duration fields. The turns route's `traceRecorder` closure dual-purposes — it still writes every TraceEvent to the per-session JSONL trace file, but when it sees a `stall_detected` event it ALSO publishes the wire counterpart onto the SSE bus so the TUI can render the stall warning. `SessionDb.getSessionMetrics` aggregates tokens (chat + compaction lanes) and counts tool_use blocks across persisted messages — pragmatic v1; durations stay undefined until the M9 polish wires in-memory accumulators server-side. `disposeSessionContext` reads the metrics snapshot and folds it into the `session_summary` event when a bus is attached. Closes phase-16 prereq rows 21 (stall surface visible) and 22 (rich goodbye payload).

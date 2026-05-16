@@ -2,6 +2,62 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## ADR M8-01 — Router-mode construction lives in `buildRuntime`, not `resolveProvider`
+
+Decision: When `opts.provider === 'router'` (or `userSettings.defaultProvider === 'router'`), `buildRuntime` constructs the `RouterProvider` explicitly — wrapping the configured local + frontier providers — rather than routing through `resolveProvider()`. The router resolved-provider envelope advertises `transport.name === 'router'`, `metadata.provider === 'router'`, and `metadata.localProvider` / `metadata.frontierProvider` carry the underlying provider names. The `routerAuditLogger` is constructed alongside and closed before `mcpClientPool.shutdown()` inside `runtime.dispose()`.
+
+Rationale: `resolveProvider()` is a single-provider resolver — it returns one `ResolvedProvider` from one provider name. The router wraps two providers (cheap local + expensive frontier) and dispatches per call, so it cannot be expressed through a single resolveProvider call. Mirrors `src/ui/terminalRepl.ts:238-292`. The subagent default specialization (closing backlog #30) lives in the same construction site so child agents launched from a router-mode parent get `defaultProvider: routerCfg.frontierProvider` instead of the literal `'router'` string (which would fail to resolve in the child).
+
+Status: implemented (M8 — `49ed104` (T1 — router-mode construction + subagent default specialization + audit-logger close in dispose order)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`. Backlog item #30 closed in the same commit.
+
+## ADR M8-02 — Capture / replay fixture wraps the provider + tool pool, mutex-guarded
+
+Decision: `opts.captureFixturePath` wraps the resolved provider in `CapturingProvider` and the tool pool via `wrapToolsForCapture`, mirroring `src/ui/terminalRepl.ts:728-740`. The sink is finalized inside `runtime.dispose()` before `mcpClientPool.shutdown()` so the fixture write succeeds even if MCP teardown later throws. `opts.replayFixturePath` swaps the resolved provider for `ReplayProvider` and wraps the tool pool via `wrapToolsForReplay`; the replay path short-circuits provider preflight (no network round-trip happens). Setting both `captureFixturePath` and `replayFixturePath` throws — the two modes are mutually exclusive.
+
+Rationale: The capture sink needs to mirror BOTH the provider stream events and the tool results (otherwise replay can't reproduce the turn). Wrapping is per-runtime, not per-session, because the sink's `meta.provider` / `meta.model` are runtime-level; the fixture's `meta.sessionId` is set to `'pending'` at construction because the session id is minted per-POST and capture is single-session. The fixture write is best-effort — errors log to stderr but don't re-throw so a capture failure doesn't mask the primary disposal outcome.
+
+Status: implemented (M8 — `912379b` (T2 — capture/replay wiring in buildRuntime + dispose-time fixture write + mutex guard)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+
+## ADR M8-03 — `@file:` expansion runs in the route, before persistence and skill-as-slash composes with it
+
+Decision: `runTurnInBackground` in `src/server/routes/turns.ts` calls `expandContextReferences(text, { cwd: runtime.cwd })` BEFORE `sessionDb.saveMessage`. The expanded text is what lands in the messages table AND what the model sees, so resume reconstructs the exact same context the original turn ran against. `expandContextReferences` is the same helper terminalRepl uses (`src/ui/terminalRepl.ts:1288`) and inlines failures as `[ERROR: ...]` markers rather than throwing. When the turns route handles `kind: 'skill'`, skill expansion runs FIRST (via `expandSkillPrompt`); the expanded skill body is then fed into the same `expandContextReferences` hop, so a skill template containing `@file:foo.md` gets the file inlined the same way a hand-typed prompt would.
+
+Rationale: Persisting the raw `@file:` reference and expanding at query-time would break resume — a resumed session loading old messages would never re-expand. Persisting the expanded text means the model context is stable across the original turn and any subsequent resume. The pre-skill-expansion ordering composes naturally: skill template ⊃ `@file:` token, so file expansion runs over the skill's output. Subdirectory hints (M8 row 18) follow the same logic at the orchestrator's `appendSubdirectoryHints` site — per-session `SubdirectoryHintState` keeps each ancestor directory's `AGENTS.md`/`CONTEXT.md`/`.cursorrules` files appended at most once per session.
+
+Status: implemented (M8 — `c9da130` (T3 — @file expansion in turns route + per-session subdirectory hint state on SessionContext)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+
+## ADR M8-06 — Skill registry loads at boot; per-call filter is per-turn (or per-request for GET /skills)
+
+Decision: `runtime.skills` is the UNFILTERED skill registry loaded once at `buildRuntime` from project (`.harness/skills/`), user (`$HARNESS_HOME/skills/`), and bundle roots. Per-turn filtering — `filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames)` — happens in `buildSessionToolContext` so the orchestrator's `ToolContext.skills` view matches the active toolset. The `GET /sessions/:id/skills` route runs the same filter per request. The `kind: 'skill'` byName lookup in the POST /turns handler reads `runtime.skills.byName` UNFILTERED — a user dispatching `/skillname` must be able to invoke a skill even if it's gated for a different toolset (mirroring terminalRepl's `/skillname` semantics).
+
+Rationale: Filtering at boot would force the byName lookup to also filter (or risk a UX surprise where `/foo` works only on the right toolset). Keeping the registry unfiltered on Runtime preserves the byName invariant; filtering per turn keeps the model's view of available skills accurate. The two filter callers (turns route + skills route) compute the same projection because both derive from `runtime.toolPool` — symmetric with terminalRepl which filters per turn at `src/ui/terminalRepl.ts:476-478`.
+
+Status: implemented (M8 — `abcf940` (T4 — skill loading at boot + GET /skills route + per-turn filter in buildSessionToolContext) + `2b9d6f2` (T5 — kind:'skill' byName dispatch + expandSkillPrompt before saveMessage)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+
+## ADR M8-07 — TUI skill cache + `/skillname` interception is Go-side; the wire is `kind: 'skill'`
+
+Decision: The Go TUI fetches `GET /sessions/:id/skills` once per session to populate an in-memory skill cache (name → metadata). When the user types `/skillname args`, the TUI parses the leading slash, checks the cache, and POSTs to `/sessions/:id/turns` with `{ text: '/skillname args', kind: 'skill' }`. The server's POST handler dispatches via `runtime.skills.byName.get(skillName)` → `expandSkillPrompt(skill, { args })`, then continues into the regular turn loop. The TUI ring buffer holds the most recent tool blocks so `/expand [N]` can re-render an earlier block without a server round-trip.
+
+Rationale: Skill-as-slash needs server-side template expansion (skill bodies live in the bundle/project file tree the server walks). But the slash interception itself — turning `/greet` into the skill body before sending — needs client-side knowledge of what's a skill vs. what's a runtime slash command. Splitting at the wire boundary keeps both sides cohesive: the server owns expansion, the TUI owns intercept-and-tag. The same TUI cache feeds `/expand [N]` by keeping a ring of tool blocks indexed by the live transcript position; no server change was needed to support the expand registry (M8 row 24).
+
+Status: implemented (M8 — `b9fee79` (T6 — TUI /skillname interception + /expand dispatch + skill cache fetch)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+
+## ADR M8-08 — Stall detection rides the trace recorder; new SSE event added to the wire
+
+Decision: `query()` emits a `stall_detected` trace event when the per-turn `detectStall` sliding-window flags a 3-iteration window with no progress (no edits, no decisions, no memory writes — or repeated tool errors). The turns route's `traceRecorder` closure decorates the trace write so it ALSO publishes a typed `stall_detected` SSE wire event on the per-turn bus. The wire event carries `{ type, seq, sessionId, reason, turn }`. This is the SAME pattern other trace events use — only `stall_detected` has a wire counterpart today because the others (turn_start, provider_request, tool_use_start, etc.) already have purpose-built wire events. Advisory only: the turn continues normally; the TUI surfaces it as a soft warning the user can act on.
+
+Rationale: Option (c) from the M8 T7 brief — least invasive. The alternative — adding a new `StreamEvent` type and emitting from `query()` — would touch the StreamEvent union, every provider, and every consumer. Riding the trace recorder localizes the change to the route layer. The trace event itself is the source of truth (a single `query()` emission); the wire event is a projection for the TUI consumer.
+
+Status: implemented (M8 — `3366b91` (T7 — stall_detected SSE event + rich session_summary payload)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+
+## ADR M8-10 — Rich `session_summary` payload extends, doesn't replace, the M7 shape
+
+Decision: The `session_summary` SSE event emitted by `disposeSessionContext` on bus-attached disposal carries the M7 base fields (`totalDispatched`, `byAgent`) PLUS optional M8 extension fields: `tokens.{input, output, cacheRead?, cacheWrite?, estimatedCostUsd}`, `toolCalls`, `toolOk`, `toolErr`, `startedAtMs?`, `endedAtMs?`, `agentActiveMs?`, `apiTimeMs?`, `toolTimeMs?`. The extension fields are populated from `runtime.sessionDb.getSessionMetrics(sessionId)` — a new accessor that reads the per-session token-usage table (populated by `recordTokenUsage` in the turns route after the M7 cost fix) and scans the persisted message list for `tool_use` blocks. Durations are left optional (no DB-side tracking yet — server-side TODO until M9 polish). The `getSessionMetrics` call is wrapped in a best-effort closure so a metric read failure still emits the M7 base shape; the wire schema marks all M8 fields optional so M7-vintage consumers parse the event unchanged.
+
+Rationale: The M9 goodbye-card renderer needs cost + tool counts to display a meaningful "session ended" surface. Synthesizing these fields client-side would require the TUI to track token usage and tool calls separately from the server — duplicate observation surface. The server already has all the data in `sessionDb`; exposing a single rich payload at disposal is the minimal change. Optional extension fields preserve backward compatibility with any M7-vintage consumer of the wire event (the schema test enforces this).
+
+Status: implemented (M8 — `3366b91` (T7 — `sessionDb.getSessionMetrics` accessor + rich `session_summary` payload + wire schema extension)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+
 ## ADR M7-01 — Per-session subsystems live in a Map on Runtime
 
 Decision: M7 introduces a per-session subsystem cluster — trace writer, learning observer, review manager, trajectory metadata — that lives on `SessionContext`, materialized in `Runtime.sessionContexts: Map<sessionId, SessionContext>`. The map is built lazily via `runtime.getSessionContext(sessionId)` (constructs on first reference, caches afterwards) and torn down via `runtime.disposeSession(sessionId)` (runs the disposal sequence; removes from map). The turns route fetches the context per turn and threads its members onto the per-turn `ToolContext` so `query()` consumers (orchestrator, scheduler, tools) see them through their existing optional-chain reads.
