@@ -263,3 +263,22 @@ func DecodeSessionSummary(raw []byte) (SessionSummary, error) {
 	err := json.Unmarshal(raw, &t)
 	return t, err
 }
+
+// StallDetected mirrors the TS-side StallDetectedEvent (M8 T7). Advisory
+// only — the turn continues; the TUI surfaces it as a soft 5-second
+// warning per ADR M9.6-02.
+type StallDetected struct {
+	Type      string `json:"type"`
+	Seq       int64  `json:"seq"`
+	SessionID string `json:"sessionId"`
+	Reason    string `json:"reason"`
+	Turn      int    `json:"turn"`
+}
+
+// DecodeStallDetected unmarshals the raw SSE payload into the typed shape.
+// M9.6 T2.
+func DecodeStallDetected(raw []byte) (StallDetected, error) {
+	var t StallDetected
+	err := json.Unmarshal(raw, &t)
+	return t, err
+}

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -118,6 +119,18 @@ type Model struct {
 	harnessHome      string                     // M9.5 T3: $HARNESS_HOME path for theme persistence reads/writes
 	pendingThemeErr  error                      // M9.5 T3: surfaced as a dim marker on first WindowSizeMsg
 	pendingThemeName string                     // M9.5 T3: theme name from config used in the dim marker text
+	stallBadge       *components.StallBadge     // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
+	stallGeneration  int                        // M9.6 T2: increments per stall; tick closure captures + compares on expire
+}
+
+// stallExpireMsg is dispatched by a tea.Tick scheduled in the
+// stall_detected handler. The closure captures the current
+// stallGeneration; on fire, we compare against the model's gen — if
+// they match, the badge is cleared. Mismatch means a NEWER stall arrived
+// while we were waiting, so this tick is stale; the new tick will clear
+// the (refreshed) badge on its own schedule. M9.6 T2 ADR M9.6-02.
+type stallExpireMsg struct {
+	gen int
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -422,8 +435,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transcript, cmd = m.transcript.Update(msg)
 		return m, cmd
 	case sseMsg:
-		m.handleEvent(msg.env)
-		return m, m.waitEvent
+		eventCmd := m.handleEvent(msg.env)
+		return m, tea.Batch(m.waitEvent, eventCmd)
+	case stallExpireMsg:
+		// M9.6 T2: clear the badge only if no NEWER stall has arrived.
+		// Stale ticks (older gen than current) are no-ops; the newer
+		// stall's own tick will clear the refreshed badge.
+		if msg.gen == m.stallGeneration {
+			m.stallBadge = nil
+		}
+		return m, nil
 	case sseDoneMsg:
 		// The server closes the SSE stream and disposes the per-session bus
 		// after every turn_complete / turn_error (events.ts:63-74) by M3
@@ -547,12 +568,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) handleEvent(env transport.Envelope) {
+// handleEvent dispatches an SSE envelope into the model state. Returns
+// an optional tea.Cmd for events that need to schedule follow-up work
+// (M9.6 T2: stall_detected schedules a tea.Tick for badge auto-clear;
+// M9.6 T3: compaction_complete returns a refetch-skills cmd). Callers
+// in Update batch the returned cmd with m.waitEvent so neither is dropped.
+func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 	switch env.Type {
 	case "text_delta":
 		td, err := transport.DecodeTextDelta(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		// M9 T3 — stream the delta into the in-progress assistant card and
@@ -562,7 +588,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 	case "thinking_delta":
 		td, err := transport.DecodeThinkingDelta(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		m.transcript.AppendLine(
@@ -574,7 +600,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 	case "tool_use_start":
 		tus, err := transport.DecodeToolUseStart(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
@@ -586,7 +612,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 	case "tool_result":
 		tr, err := transport.DecodeToolResult(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
@@ -638,7 +664,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		// Update handler POSTs to /sessions/:id/approvals/:requestId.
 		pr, err := transport.DecodePermissionRequest(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		modal := components.NewPermission(components.PermissionRequest{
@@ -651,7 +677,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 	case "turn_error":
 		te, err := transport.DecodeTurnError(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		errStyle := lipgloss.NewStyle().
@@ -669,7 +695,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 			m.clearThinkingIfPending()
 			m.transcript.EndAssistantCard() // M9 T3
 			m.transcript.AppendLine("[turn complete]")
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		m.transcript.EndAssistantCard() // M9 T3 — finalize the streamed card before the marker
@@ -688,7 +714,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		// M9 T7: styled inline pill replaces the dim one-liner.
 		cc, err := transport.DecodeCompactionComplete(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.clearThinkingIfPending()
 		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text
@@ -706,7 +732,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		// the transcript on subsequent frames.
 		ss, err := transport.DecodeSessionSummary(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.goodbyeSummary = &ss
 	case "status_update":
@@ -716,7 +742,7 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		// Missing fields stay zero — partial payloads degrade gracefully.
 		su, err := transport.DecodeStatusUpdate(env.Raw)
 		if err != nil {
-			return
+			return nil
 		}
 		m.statusLine.Streaming = su.Streaming
 		if su.Cost > 0 {
@@ -731,7 +757,26 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		if su.CacheHitRate > 0 {
 			m.statusLine.CacheHit = su.CacheHitRate
 		}
+	case "stall_detected":
+		// M9.6 T2: paint the stall badge for 5 seconds. Increment the
+		// generation so any stale tick from an earlier stall (still in
+		// flight) becomes a no-op when it fires (see stallExpireMsg case
+		// in Update). The closure captures the generation at schedule time.
+		sd, err := transport.DecodeStallDetected(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.stallGeneration++
+		capturedGen := m.stallGeneration
+		m.stallBadge = &components.StallBadge{
+			Reason: sd.Reason,
+			Theme:  m.theme,
+		}
+		return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+			return stallExpireMsg{gen: capturedGen}
+		})
 	}
+	return nil
 }
 
 // handleMouseClick dispatches a left-press click by screen-Y to one of
@@ -827,7 +872,13 @@ func (m Model) View() string {
 	if m.autocomplete.Visible() {
 		prompt = m.autocomplete.View(m.width) + "\n" + prompt
 	}
-	return m.transcript.View() + "\n" + prompt + "\n" + m.statusLine.View()
+	// M9.6 T2 — stall badge renders between transcript and prompt area.
+	out := m.transcript.View() + "\n"
+	if m.stallBadge != nil {
+		out += m.stallBadge.View(m.width) + "\n"
+	}
+	out += prompt + "\n" + m.statusLine.View()
+	return out
 }
 
 // postApproval POSTs the user's permission decision to

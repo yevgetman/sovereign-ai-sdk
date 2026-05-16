@@ -1102,3 +1102,69 @@ func TestApp_WheelEventStillScrolls(t *testing.T) {
 	// No panic. Scroll state is bubbles-internal; we only check we didn't
 	// route this through handleMouseClick.
 }
+
+// M9.6 T2 — stall badge tests.
+
+func TestApp_StallDetectedShowsBadge(t *testing.T) {
+	m := New("s-stall", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"stall_detected","seq":1,"sessionId":"s-stall","reason":"no edits","turn":3}`
+	env := newTestEnvelope("stall_detected", "s-stall", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	if m.stallBadge == nil {
+		t.Fatal("stallBadge should be populated")
+	}
+	if m.stallBadge.Reason != "no edits" {
+		t.Errorf("reason: got %q", m.stallBadge.Reason)
+	}
+	view := m.View()
+	if !strings.Contains(view, "stalled") {
+		t.Errorf("view missing 'stalled': %q", view)
+	}
+}
+
+func TestApp_StallExpireMatchingGenClearsBadge(t *testing.T) {
+	m := New("s-exp", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"stall_detected","seq":1,"sessionId":"s-exp","reason":"x","turn":1}`
+	env := newTestEnvelope("stall_detected", "s-exp", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	if m.stallBadge == nil {
+		t.Fatal("badge should be visible after stall_detected")
+	}
+	gen := m.stallGeneration
+	model, _ = m.Update(stallExpireMsg{gen: gen})
+	m = model.(Model)
+	if m.stallBadge != nil {
+		t.Error("badge should be cleared on matching-gen expire")
+	}
+}
+
+func TestApp_StallExpireStaleGenIgnored(t *testing.T) {
+	m := New("s-stale", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw1 := `{"type":"stall_detected","seq":1,"sessionId":"s-stale","reason":"a","turn":1}`
+	env1 := newTestEnvelope("stall_detected", "s-stale", 1, raw1)
+	model, _ = m.Update(sseMsg{env: env1})
+	m = model.(Model)
+	firstGen := m.stallGeneration
+	// Second stall arrives (new gen).
+	raw2 := `{"type":"stall_detected","seq":2,"sessionId":"s-stale","reason":"b","turn":2}`
+	env2 := newTestEnvelope("stall_detected", "s-stale", 2, raw2)
+	model, _ = m.Update(sseMsg{env: env2})
+	m = model.(Model)
+	// First tick's expire fires with the now-stale gen.
+	model, _ = m.Update(stallExpireMsg{gen: firstGen})
+	m = model.(Model)
+	if m.stallBadge == nil {
+		t.Error("stale-gen expire should NOT clear an extended badge")
+	}
+	if m.stallBadge.Reason != "b" {
+		t.Errorf("badge should hold latest reason: got %q", m.stallBadge.Reason)
+	}
+}
