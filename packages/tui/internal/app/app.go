@@ -113,6 +113,7 @@ type Model struct {
 	theme            theme.Theme            // M9 T1: active color/style palette (constructor-injected per ADR M9-01)
 	mostRecentDiff   *components.DiffView   // M9 T5: points to the diff in the latest FileEdit/FileWrite tool_result; Ctrl+] focuses
 	focus            focusTarget            // M9 T5: routing target for j/k/Esc when not in modal
+	goodbyeSummary   *transport.SessionSummary // M9 T7: non-nil after session_summary event; View renders the card instead
 }
 
 // New constructs the App model. baseURL is the server origin (scheme +
@@ -600,19 +601,30 @@ func (m *Model) handleEvent(env transport.Envelope) {
 		// SSE subscription stays on the parent (the bus is keyed on
 		// parent), but subsequent POST /turns + approval requests must
 		// route to the new child id — pivot m.sessionID immediately.
-		// The marker is intentionally minimal; M9 owns the styled
-		// "compaction summary" card.
+		// M9 T7: styled inline pill replaces the dim one-liner.
 		cc, err := transport.DecodeCompactionComplete(env.Raw)
 		if err != nil {
 			return
 		}
 		m.clearThinkingIfPending()
+		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text
 		m.sessionID = cc.ActiveSessionID
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
-		m.transcript.AppendLine(dim.Render(fmt.Sprintf(
-			"─ auto-compacted — %d→%d tokens — new session %s",
-			cc.EstimatedBeforeTokens, cc.EstimatedAfterTokens, shortSessionID(cc.ActiveSessionID),
-		)))
+		m.transcript.AppendLine(components.RenderCompactionCard(
+			cc.EstimatedBeforeTokens,
+			cc.EstimatedAfterTokens,
+			shortSessionID(cc.ActiveSessionID),
+			m.theme,
+			m.width,
+		))
+	case "session_summary":
+		// M9 T7 — server emitted the rich session summary on disposal.
+		// Store the payload; View() renders the goodbye card in place of
+		// the transcript on subsequent frames.
+		ss, err := transport.DecodeSessionSummary(env.Raw)
+		if err != nil {
+			return
+		}
+		m.goodbyeSummary = &ss
 	}
 }
 
@@ -643,6 +655,12 @@ func shortSessionID(id string) string {
 func (m Model) View() string {
 	if m.height == 0 {
 		return ""
+	}
+	// M9 T7 — when the server has emitted session_summary, replace the
+	// whole frame with the styled goodbye card. The TUI is about to exit
+	// anyway; the card is the last thing the user sees.
+	if m.goodbyeSummary != nil {
+		return components.RenderGoodbye(*m.goodbyeSummary, m.theme, m.width, m.height)
 	}
 	// M5 T9: when a permission modal is active, overlay it over the whole
 	// frame (Place centers the box inside width/height). v1 suppresses the

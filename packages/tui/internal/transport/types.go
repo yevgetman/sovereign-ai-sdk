@@ -222,3 +222,44 @@ func DecodeCompactionComplete(raw []byte) (CompactionComplete, error) {
 	err := json.Unmarshal(raw, &t)
 	return t, err
 }
+
+// SessionSummary mirrors src/server/schema.ts's SessionSummaryEvent (M7 base
+// shape + M8 T7 extension fields). Emitted by disposeSession when an attached
+// bus is supplied. Extension fields (tokens, durations, tool counts) are
+// pointer-or-zero-checked because M7-vintage emissions don't include them.
+// Closes backlog #39 (Go mirror for SessionSummaryEvent).
+type SessionSummary struct {
+	Type            string         `json:"type"`
+	Seq             int64          `json:"seq"`
+	SessionID       string         `json:"sessionId"`
+	TotalDispatched int            `json:"totalDispatched"`
+	ByAgent         map[string]int `json:"byAgent"`
+	Tokens          *SessionTokens `json:"tokens,omitempty"`
+	StartedAtMs     *float64       `json:"startedAtMs,omitempty"`
+	EndedAtMs       *float64       `json:"endedAtMs,omitempty"`
+	AgentActiveMs   *float64       `json:"agentActiveMs,omitempty"`
+	APITimeMs       *float64       `json:"apiTimeMs,omitempty"`
+	ToolTimeMs      *float64       `json:"toolTimeMs,omitempty"`
+	ToolCalls       *int           `json:"toolCalls,omitempty"`
+	ToolOk          *int           `json:"toolOk,omitempty"`
+	ToolErr         *int           `json:"toolErr,omitempty"`
+}
+
+// SessionTokens carries the per-session token usage rollup. EstimatedCostUsd
+// is populated from recordTokenUsage in the M7 cost-fix; cache fields are
+// optional because not every provider returns cache deltas.
+type SessionTokens struct {
+	Input            int     `json:"input"`
+	Output           int     `json:"output"`
+	CacheRead        *int    `json:"cacheRead,omitempty"`
+	CacheWrite       *int    `json:"cacheWrite,omitempty"`
+	EstimatedCostUsd float64 `json:"estimatedCostUsd"`
+}
+
+// DecodeSessionSummary unmarshals the raw SSE payload into the typed shape.
+// M9 T7.
+func DecodeSessionSummary(raw []byte) (SessionSummary, error) {
+	var t SessionSummary
+	err := json.Unmarshal(raw, &t)
+	return t, err
+}
