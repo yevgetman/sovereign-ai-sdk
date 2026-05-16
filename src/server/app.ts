@@ -10,6 +10,7 @@ import { compactRoute } from './routes/compact.js';
 import { eventsRoute } from './routes/events.js';
 import { healthRoute } from './routes/health.js';
 import { sessionsRoute } from './routes/sessions.js';
+import { skillsRoute } from './routes/skills.js';
 import { turnsRoute } from './routes/turns.js';
 import type { Runtime } from './runtime.js';
 
@@ -28,6 +29,8 @@ export function buildAppWithRuntime(runtime: Runtime): Hono {
   app.route('/', turnsRoute(runtime));
   app.route('/', approvalsRoute(runtime));
   app.route('/', compactRoute(runtime));
+  // M8 T4 — GET /sessions/:id/skills, JSON-only discovery for the TUI.
+  app.route('/', skillsRoute(runtime));
   app.route('/', eventsRoute);
   return app;
 }

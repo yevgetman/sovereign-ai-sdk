@@ -8,6 +8,43 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M8 T4 — skill loading + visibility + GET /skills
+
+**Scope:** Fourth task of the M8 polish-surfaces group. `buildRuntime` now calls `loadSkills` once at boot and exposes the unfiltered `SkillRegistry` on `runtime.skills`. `buildSessionToolContext` derives the active toolset from `runtime.toolPool`, runs `inferActiveToolsets` + `filterSkillRegistry`, and threads `skills` + `activeToolNames` + `activeToolsets` onto every `ToolContext` the turn loop hands to `query()`. A new `GET /sessions/:id/skills` route returns the per-request filtered registry as JSON `{ skills: [{ name, whenToUse, description }] }` for the Go TUI's `/skills` discovery surface. Closes phase-16 prereq row 20 and the server-side half of row 19.
+
+**The fix (single atomic `feat(server):` commit):**
+
+- **`src/server/runtime.ts`** — Three pieces:
+  - Imported `loadSkills` and `type SkillRegistry`.
+  - Added `skills: SkillRegistry` to the exported `Runtime` type with a doc comment pinning the "unfiltered superset" contract: the registry on `Runtime` is canonical for the T5 `/skillname` `byName` lookup, while per-call filtering happens at the consumers (turns route, /skills route) so visibility narrows with the active toolset per turn / per request.
+  - `buildRuntime` calls `loadSkills({ cwd, harnessHome, bundleRoot, warn })` after the agent loader. Roots scanned: project-local `.harness/skills/`, user `$HARNESS_HOME/skills/`, plus (when a bundle is loaded) `bundle/skills/`, `bundle/harness/skills-trusted/`, `bundle/skills-community/`. Parse/duplicate warnings route to stderr — identical policy to the agents loader directly above.
+  - `skills` lands in the returned `Runtime` literal alongside `taskManager` / `daemonEventBus`.
+
+- **`src/server/routes/turns.ts`** — Two edits:
+  - Imported `{ filterSkillRegistry, inferActiveToolsets }` from `../../skills/visibility.js`.
+  - `buildSessionToolContext` now derives `activeToolNames = runtime.toolPool.map(t => t.name)`, `activeToolsets = inferActiveToolsets(activeToolNames)`, and `filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames)`. The three are threaded onto the returned `ToolContext` as `skills` + `activeToolNames` + `activeToolsets` so the surface matches terminalRepl's `src/ui/terminalRepl.ts:479-484`. Filtering at this site (not at boot) keeps the registry on `Runtime` unfiltered for the T5 dispatch path and the /skills route's per-request projection.
+
+- **`src/server/routes/skills.ts`** (new) — `skillsRoute(runtime)` returns a `Hono` that mounts `GET /sessions/:id/skills`. 400 on `isValidSessionId` reject; 404 on shape-valid but DB-missing id (same envelope as `sessions.ts` / `compact.ts`); 200 otherwise with `{ skills: [{ name, whenToUse, description }] }`. Body, path, source, trustTier, and guard intentionally NOT projected — the wire stays narrow to what the TUI renders.
+
+- **`src/server/app.ts`** — Imported `skillsRoute`; mounted via `app.route('/', skillsRoute(runtime))` between `compactRoute` and `eventsRoute` in `buildAppWithRuntime`.
+
+- **`tests/server/runtime.skills.test.ts`** (new) — One test pins the four contracts: `runtime.skills` defined, `skills.length > 0`, `'review'` (a well-known bundle-default skill) present, and `byName` is a `Map` (the T5 lookup shape).
+
+- **`tests/server/routes/skills.test.ts`** (new) — Three tests covering the 200 / 404 / 400 paths. The 200 case asserts that every returned skill has string `name` + `whenToUse` + `description` so a future field-name typo on the projection breaks the test. The 404 case uses a UUID-shaped id that isValidSessionId accepts but `sessionDb.getSession` returns null for. The 400 case uses `not.a.uuid` whose periods fall outside `[A-Za-z0-9_-]+` so `isValidSessionId` rejects.
+
+**Divergence from the plan:** None on shape. The plan's Step 7 illustration mounted `skillsRoute(runtime)` under `app.route('/sessions', ...)` with the path `/:id/skills`; the file follows the sibling routes' (`compactRoute`, `sessionsRoute`) convention of declaring full paths inside the route definition (`r.get('/sessions/:id/skills', ...)`) and mounting under `'/'`. Net behavior identical; the convention match keeps the routes file head consistent.
+
+**Tests run:**
+
+- `bun test tests/server/runtime.skills.test.ts tests/server/routes/skills.test.ts` — `4 pass / 0 fail / 20 expect() calls`.
+- `bun test tests/server/` — `127 pass / 0 fail / 478 expect() calls` (38 files). Delta from `c9da130`'s 123: `+4`.
+- `bun run test` — `1981 pass / 0 fail / 5016 expect() calls` (240 files). Delta from `c9da130`'s 1977: `+4`, matches the plan's expected `~+4`.
+- `bun run lint` — clean for changed files. Same two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` (lines 219, 343) carried from T3.
+- `bun run typecheck` — clean (`tsc --noEmit`).
+- `sov upgrade` will run after push.
+
+**Why this matters:** Without `runtime.skills` populated, the Go TUI's `/skills` discovery surface (and the T5 `/skillname` dispatch sitting on top of `runtime.skills.byName`) had nowhere to read from — server-mode users couldn't even enumerate their skills, let alone invoke them. Without filtering threaded onto `ToolContext`, the `SkillTool` (and `skills_list` / `skill_view` tools when M9 lands them) would have a `ctx.skills === undefined` view and short-circuit to empty results regardless of what's on disk. The unfiltered registry on `Runtime` is deliberate: T5's dispatch must be able to find `review` by name even on a runtime whose toolset gating would hide it for the current turn — the user explicitly asked for it.
+
 ## 2026-05-16 — Phase 16.1 M8 T3 — @file expansion + subdir hints in server runtime
 
 **Scope:** Third task of the M8 polish-surfaces group. Two pre-turn context surfaces that terminalRepl carries (`expandContextReferences` for `@file:` / `@folder:` / `@url:` / `@diff` / `@staged`, and `createSubdirectoryHintState` for the orchestrator's per-touched-directory hint append) are now wired into the server's POST `/sessions/:id/turns` route + `SessionContext`. Closes phase-16 prereq rows 17 and 18.

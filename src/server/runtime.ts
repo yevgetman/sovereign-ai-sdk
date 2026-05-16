@@ -57,6 +57,8 @@ import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
 import { Semaphore } from '../runtime/semaphore.js';
+import { loadSkills } from '../skills/loader.js';
+import type { SkillRegistry } from '../skills/types.js';
 import { TaskManager } from '../tasks/manager.js';
 import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
@@ -285,6 +287,18 @@ export type Runtime = {
    *  may inject their own bus via `RuntimeOptions.daemonEventBus`.
    *  Closes backlog #28. */
   daemonEventBus: DaemonEventBus;
+  /** Loaded skill registry (M8 T4). Populated once at buildRuntime boot
+   *  from project (.harness/skills/), user ($HARNESS_HOME/skills/), and
+   *  bundle (bundle-default/skills/, harness/skills-trusted/,
+   *  skills-community/) roots. This is the UNFILTERED superset — per-call
+   *  filtering via `inferActiveToolsets` + `filterSkillRegistry` happens
+   *  inside `buildSessionToolContext` (turns.ts) and the GET
+   *  /sessions/:id/skills route so the active toolset can narrow
+   *  visibility per turn / per request without re-walking disk. The T5
+   *  /skillname dispatch reads `byName` directly off this unfiltered
+   *  registry; visibility filtering is rendering-only.
+   *  Closes phase-16 prereq row 20. */
+  skills: SkillRegistry;
   /** Per-session subsystem registry (M7-01). Holds the trace writer
    *  (T3) and — in follow-up tasks — learning observer (T5), review
    *  manager (T6), and trajectory metadata (T4) for each active session
@@ -398,6 +412,26 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     harnessHome,
     cwd: opts.cwd,
     ...(bundle ? { bundleRoot: bundle.root } : {}),
+  });
+
+  // M8 T4 — load the skill registry once at boot. Roots scanned (in order)
+  // are project-local .harness/skills/, the user's $HARNESS_HOME/skills/,
+  // and (when a bundle is loaded) the bundle's three skill trees. The
+  // result is stored UNFILTERED on Runtime; per-call filtering via
+  // `inferActiveToolsets` + `filterSkillRegistry` happens at the call site
+  // (buildSessionToolContext for turns, the /skills route for TUI
+  // discovery) so visibility narrows with the active toolset without
+  // re-walking disk on every turn. Mirrors terminalRepl.ts:468-470 except
+  // the filter step lives at the consumers rather than at boot — server
+  // sessions are independent requests, not a single REPL with a stable
+  // tool surface, so the registry stays unfiltered up here. Warnings (parse
+  // failures, duplicate names) route to stderr — identical policy to the
+  // agents loader above.
+  const skills = await loadSkills({
+    cwd: opts.cwd,
+    harnessHome,
+    ...(bundle ? { bundleRoot: bundle.root } : {}),
+    warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
   });
 
   // M7 T1 — load MCP server settings + build pool when configured.
@@ -867,6 +901,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     subagentScheduler,
     taskManager,
     daemonEventBus,
+    skills,
     microcompactConfig,
     compact,
     proactiveCompactThreshold,

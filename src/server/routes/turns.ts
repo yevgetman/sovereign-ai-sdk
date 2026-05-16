@@ -38,6 +38,7 @@ import { redactSecretsTransformer } from '../../permissions/redactSecretsTransfo
 import type { CanUseTool } from '../../permissions/types.js';
 import { isContextOverflowError } from '../../providers/errors.js';
 import { estimateCostUsd } from '../../providers/pricing.js';
+import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import type { TraceEvent } from '../../trace/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
@@ -145,6 +146,20 @@ export function buildSessionToolContext(
   // every tool call and (T6) `ctx.reviewManager` can guard review forks.
   // The context is lazily built (or cached) by Runtime.getSessionContext.
   const sessionCtx = runtime.getSessionContext(sessionId);
+  // M8 T4 — per-turn skill visibility. The active toolset is derived from
+  // `runtime.toolPool` (the same pool the turn's `query()` runs against)
+  // and fed into `inferActiveToolsets` + `filterSkillRegistry` so any skill
+  // gated on a tool the turn lacks (or is the fallback half of a
+  // primary/fallback pair whose primary is active) is dropped from the
+  // ToolContext.skills view the orchestrator sees. Filtering here — not at
+  // buildRuntime — keeps the registry on Runtime unfiltered for the T5
+  // `/skillname` dispatch and the GET /skills route (which projects its
+  // own filtered view per request). Mirrors src/ui/terminalRepl.ts:476-478
+  // except the toolPool / activeToolNames / activeToolsets derivation
+  // happens per turn rather than once at REPL boot.
+  const activeToolNames = runtime.toolPool.map((t) => t.name);
+  const activeToolsets = inferActiveToolsets(activeToolNames);
+  const filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
   return {
     cwd: runtime.cwd,
     sessionId,
@@ -155,6 +170,15 @@ export function buildSessionToolContext(
     taskManager: runtime.taskManager,
     parentToolPool: runtime.toolPool,
     canUseTool: sessionCanUseTool,
+    // M8 T4 — filtered skill registry + active toolset/tool-name arrays so
+    // skill-aware tools (SkillTool, skills_list, skill_view) see the same
+    // visibility surface terminalRepl exposes. Threading the arrays as
+    // well keeps the ToolContext shape symmetric with terminalRepl's
+    // (`src/ui/terminalRepl.ts:479-484`) and avoids re-deriving them at
+    // each tool call site.
+    skills: filteredSkills,
+    activeToolNames,
+    activeToolsets,
     // M7 T5 — per-session learning observer. Orchestrator reads this via
     // optional-chain after every tool call (src/core/orchestrator.ts:581).
     // Left off entirely when learning.disabled === true upstream.
