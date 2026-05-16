@@ -24,12 +24,19 @@ import type { SessionDb } from '../../agent/sessionDb.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { loadPermissionSettings } from '../../config/settings.js';
 import { query } from '../../core/query.js';
-import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../core/types.js';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  Terminal,
+  TokenUsage,
+} from '../../core/types.js';
 import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { CanUseTool } from '../../permissions/types.js';
 import { isContextOverflowError } from '../../providers/errors.js';
+import { estimateCostUsd } from '../../providers/pricing.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import type { TraceEvent } from '../../trace/types.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
@@ -210,6 +217,33 @@ async function runTurnInBackground(
   // hydrate() call picks up the post-hop child id automatically.
   const hydrate = (): Message[] => loadHistoryAsMessages(runtime.sessionDb, sessionId);
   let messages: Message[] = hydrate();
+
+  // M7 follow-up — track the most recent `usage_delta` emitted by the
+  // provider stream across runOnce invocations so the final assistant
+  // response's token counts get recorded against the CURRENT sessionId
+  // after each model run. Mirrors terminalRepl.ts:1655-1663 — the only
+  // wiring that populates the sessionDb cost table. Without this,
+  // sessionDb.getSessionCost (read at disposal time by
+  // disposeSessionContext) always returns zero in server mode and every
+  // trajectory ships with estimatedCostUsd: 0 — caught by the autonomous
+  // smoke test against real Anthropic Haiku 4.5.
+  //
+  // Declared OUTSIDE runOnce because the recovery branch creates a SECOND
+  // runOnce invocation (after the overflow-driven compaction hop) — the
+  // outer scope keeps the helper closure-stable across both calls. Each
+  // runOnce resets it to undefined before iterating so a stale parent-turn
+  // usage never gets re-recorded against the post-recovery child session.
+  let latestUsage: TokenUsage | undefined;
+  const recordUsageIfPresent = (currentSessionId: string): void => {
+    if (latestUsage !== undefined) {
+      const cost = estimateCostUsd(
+        runtime.resolvedProvider.transport.name,
+        runtime.model,
+        latestUsage,
+      );
+      runtime.sessionDb.recordTokenUsage(currentSessionId, latestUsage, cost);
+    }
+  };
 
   try {
     // M6 T3 — proactive compaction. If the hydrated history (including the
@@ -414,12 +448,32 @@ async function runTurnInBackground(
           );
           continue;
         }
+        // M7 follow-up — capture the most recent usage_delta so
+        // recordUsageIfPresent below can populate the sessionDb cost table
+        // against the current sessionId. Last writer wins: only the final
+        // model response's usage matters for the per-turn cost record.
+        // Mirrors terminalRepl.ts:1626 — the stream-loop usage-capture
+        // half of the same recordTokenUsage call site.
+        if (streamEvent.type === 'usage_delta') {
+          latestUsage = streamEvent.usage;
+        }
         const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
         if (mapped !== null) bus.publish(mapped);
       }
     };
 
+    // Reset latestUsage before each runOnce so a stale usage from a prior
+    // model call never gets re-attributed. The mock provider's tool-use
+    // path only emits one usage_delta per call so this is belt-and-suspenders
+    // on the test surface; the real Anthropic transport emits one per response
+    // and the recovery branch below reassigns sessionId before the second
+    // runOnce — without this reset, the first call's usage would silently
+    // get re-recorded under the post-recovery child id.
+    latestUsage = undefined;
     let terminal = await runOnce(messages);
+    // Persist this runOnce's usage against the sessionId it ran under
+    // (still the parent here; the recovery branch reassigns AFTER this).
+    recordUsageIfPresent(sessionId);
 
     // Overflow recovery path (retry-once). query() captures provider
     // exceptions into Terminal { reason: 'error', error } at
@@ -476,7 +530,14 @@ async function runTurnInBackground(
       // events land in the child's trace file rather than the parent's.
       sessionCtx = runtime.getSessionContext(sessionId);
       messages = hydrate();
+      // M7 follow-up — clear the first runOnce's usage before the retry so
+      // the second runOnce starts fresh. recordUsageIfPresent already fired
+      // against the parent sessionId above, so the parent's row is safe;
+      // the retry's usage will record below against the post-compaction
+      // child sessionId.
+      latestUsage = undefined;
       terminal = await runOnce(messages);
+      recordUsageIfPresent(sessionId);
       // M6-02 retry-once: if the retry's terminal also carries an overflow
       // error, surface it as turn_error rather than turn_complete (the
       // post-recovery overflow is a distinct failure surface — "compaction

@@ -143,6 +143,15 @@ describe('M7 full integration — all six subsystems wired end-to-end', () => {
       // turn-time counter increments these would silently ship as zeros.
       expect(traj).toContain('"toolCallCount":1');
       expect(traj).toContain('"iterationsUsed":1');
+      // M7 follow-up — the route's recordUsageIfPresent helper must have
+      // fired against this session's cost row. MockProvider's tool-use path
+      // emits two `usage_delta` events (5 then 1 output tokens); the last
+      // writer wins, so outputTokens lands at 1. The mock model isn't in
+      // PRICE_TABLE so estimatedCostUsd stays $0 — what we're asserting is
+      // that the recording side fired at all. The dedicated coverage lives
+      // in tests/server/turns.cost.test.ts; this is the integration tie-in.
+      const cost = runtime.sessionDb.getSessionCost(sessionId);
+      expect(cost.outputTokens).toBe(1);
 
       // (4) Learning observations landed (T5).
       const projectId = getProjectId(tmpHome).id;

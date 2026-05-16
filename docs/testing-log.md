@@ -8,6 +8,42 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M7 — record token usage server-side (production cost was zero)
+
+**Scope:** Autonomous M7 smoke against real Anthropic Haiku 4.5 (via `scripts/m7-real-smoke.ts`) produced a trajectory carrying `"estimatedCostUsd": 0`. The M7 whole-branch I1 fix wired the disposal-time READ (`sessionContext.ts:297` calls `runtime.sessionDb.getSessionCost`) but no production code in `src/server/routes/turns.ts` ever called `runtime.sessionDb.recordTokenUsage`. The terminalRepl parity reference at `src/ui/terminalRepl.ts:1655-1663` captures `latestUsage` from `usage_delta` StreamEvents and records via `db.recordTokenUsage(activeSessionId, latestUsage, cost)`. The server's `runOnce` loop in `runTurnInBackground` iterated the same stream but never captured `usage_delta` — `mapStreamEventToServerEvent` filters them out. Every server-mode trajectory shipped with `estimatedCostUsd: 0`. Caught by real-Anthropic smoke; synthetic mock-provider tests had previously passed because no assertion targeted the cost.
+
+**The fix (single atomic `fix(server):` commit):**
+
+- **`src/server/routes/turns.ts`** — Capture and record token usage in the server-side turn loop. Three pieces:
+  - `let latestUsage: TokenUsage | undefined` declared in `runTurnInBackground`'s outer scope (NOT inside `runOnce` — the overflow-recovery branch creates a SECOND `runOnce` invocation after a compaction hop; the outer-scope let keeps state stable across the hop).
+  - `recordUsageIfPresent(currentSessionId)` helper closure captures the latest usage, calls `estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, latestUsage)`, and persists via `runtime.sessionDb.recordTokenUsage(currentSessionId, latestUsage, cost)`.
+  - Inside `runOnce`'s stream loop, right before `mapStreamEventToServerEvent`: `if (streamEvent.type === 'usage_delta') latestUsage = streamEvent.usage` — overwrite-style (last writer wins; only the final response's usage matters, matches terminalRepl's behavior at :1626).
+  - Around BOTH `runOnce` call sites (initial + overflow-recovery retry): reset `latestUsage = undefined` before each call so a stale value can't be re-attributed; call `recordUsageIfPresent(sessionId)` after each so the recording targets the current sessionId (which the recovery branch reassigns BEFORE the second `runOnce`, so the second recording targets the post-compaction CHILD id, not the parent).
+  - Two new imports: `TokenUsage` from `../../core/types.js` (already imported as a type-only group; added to the existing block) and `estimateCostUsd` from `../../providers/pricing.js`.
+
+**New test (`tests/server/turns.cost.test.ts`):**
+- Single-call hello-world turn → `getSessionCost(sessionId).outputTokens === 2` (mock streams 2 output tokens once).
+- Tool-use turn → `getSessionCost(sessionId).outputTokens === 1` (mock's two-call sequence emits 5 then 1; recordUsageIfPresent fires ONCE per runOnce; last writer wins).
+- Tokens (not dollars) are the assertion target because `mock-haiku` isn't in `PRICE_TABLE` so `estimateCostUsd` returns $0 even when usage is recorded — testing the cost amount would couple the test to the price table. Tokens are the strongest proof that `recordTokenUsage` fired.
+
+**Extended `tests/server/m7Full.test.ts`:** Added `expect(runtime.sessionDb.getSessionCost(sessionId).outputTokens).toBe(1)` to the existing tool-use smoke so the integration shape covers the cost row too.
+
+**TDD RED → GREEN:** Verified the new tests FAIL without the fix (stashed `src/server/routes/turns.ts`, ran `bun test tests/server/turns.cost.test.ts` → 2 fail). Restored the fix → 2 pass. Confirms the assertions are exercising the production path.
+
+**Pre-commit gate:**
+- `bun run lint` — exit 0. Same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts`. Own changes clean.
+- `bun run typecheck` — clean.
+- `bun run test` — `1968 pass, 0 fail, 4966 expect()` in 45.10s. Baseline 1966 → 1968; +2 new cost tests.
+- Server suite: `bun test tests/server/` — `114 pass, 0 fail` (was 112; +2 from turns.cost.test.ts).
+
+**Files changed:**
+- `src/server/routes/turns.ts` — +43 / -1 (TokenUsage type, estimateCostUsd import, latestUsage state, recordUsageIfPresent helper, usage_delta capture inside stream loop, reset + record around both runOnce call sites)
+- `tests/server/turns.cost.test.ts` — NEW (+126 LoC, 2 tests covering single-call + tool-use)
+- `tests/server/m7Full.test.ts` — +9 / -0 (cost-row integration assertion)
+- `docs/testing-log.md` — this entry
+
+**Production parity:** terminalRepl recorded usage at line 1657 (`db.recordTokenUsage(activeSessionId, latestUsage, cost)`); the server now does the equivalent at the same semantic moment (after each `runOnce`). `getSessionCost` reads from the same DB row regardless of which surface wrote it.
+
 ## 2026-05-15 — Phase 16.1 M7 — whole-branch follow-up (I1+I2+I3 from final review)
 
 **Scope:** Final whole-M7-branch review surfaced three production-parity bugs that per-task tests silently passed because the tests manually mutated the relevant fields to verify plumbing — but no PRODUCTION code populated them. All three fixed in a single atomic `fix(server):` commit, plus four strengthened tests (one new, three rewritten) that would now FAIL if any of the production wirings regressed.
