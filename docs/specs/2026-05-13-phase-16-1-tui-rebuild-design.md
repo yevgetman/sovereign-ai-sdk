@@ -284,7 +284,7 @@ If none resolve, `sov` defaults to `--ui repl` with a one-line warning at startu
 
 1. Each subsystem is wired in a numbered milestone. No batching across coherent groups.
 2. Each milestone closes with: (a) the prereq doc's checkbox for that row flipped to `[x]`, (b) a green semantic-suite run with `--surface tui` filter against the wired surface, (c) an entry in `docs/testing-log.md`.
-3. terminalRepl is untouched from M0 through M11. M9 (parity audit) runs the full semantic suite on both surfaces and requires an identical pass set. M11 flips the default to `tui` only after M9 sign-off.
+3. terminalRepl is untouched from M0 through M11. M10 (parity audit) runs the full semantic suite on both surfaces and requires an identical pass set. M11 flips the default to `tui` only after M10 sign-off.
 4. terminalRepl removal scheduled ≥2 releases after M11 (M12 = deprecation warning sustained across ≥2 releases; M13 = removal).
 5. No helper module of terminalRepl (`src/commands/*`, `src/ui/terminalRepl.ts`, etc.) is deleted or modified through M11. The TUI's wiring touches only its own surface and the new server module.
 
@@ -364,7 +364,7 @@ The split-process architecture makes most of these mechanically feasible later �
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Plumbing-lift recurrence (Phase 16.0b/c failure mode) | medium | Opt-in `--ui tui` through M10; terminalRepl untouched through M11; 24-prereq checkbox-gate; M9 requires identical semantic-suite pass set on both surfaces before flip |
+| Plumbing-lift recurrence (Phase 16.0b/c failure mode) | medium | Opt-in `--ui tui` through M10; terminalRepl untouched through M11; 24-prereq checkbox-gate; M10 requires identical semantic-suite pass set on both surfaces before flip |
 | Go/TS cross-language friction | low–medium | Thin Go client (no business logic); single boundary protocol (SSE+JSON); Go types generated from `src/server/schema.ts` via codegen step at M1 |
 | Renderer fidelity gap between TS readline render and Go TUI render | medium | `renderHint` pattern with per-tool declarations reviewed in M3; fixture-corpus comparison at M10 (same input rendered on both surfaces, diff'd against a tolerance threshold) |
 | `sov-tui` postinstall build failure on a user's machine | low (single-customer regime) | Clear Go-install error message; automatic fallback to `--ui repl`; documented in `docs/usage.md` |
