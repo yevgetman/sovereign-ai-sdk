@@ -63,12 +63,17 @@ func (t Theme) StatusBarStyle() lipgloss.Style {
 
 // Resolve returns the theme by name. Unknown names return Dark() with the
 // returned bool false; callers may log + fall back without erroring.
+// Built-ins always win over TOML user themes by name (ADR M9.5-01).
 func Resolve(name string) (Theme, bool) {
 	switch name {
 	case "light":
 		return Light(), true
 	case "dark":
 		return Dark(), true
+	case "tokyo-night":
+		return TokyoNight(), true
+	case "sovereign":
+		return Sovereign(), true
 	default:
 		return Dark(), false
 	}

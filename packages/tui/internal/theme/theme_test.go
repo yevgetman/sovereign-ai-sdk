@@ -26,13 +26,14 @@ func TestLightPaletteFieldsPopulated(t *testing.T) {
 }
 
 func TestResolveKnownNames(t *testing.T) {
-	d, ok := Resolve("dark")
-	if !ok || d.Name != "dark" {
-		t.Errorf("Resolve(dark): got (%v, %v) want (dark, true)", d.Name, ok)
-	}
-	l, ok := Resolve("light")
-	if !ok || l.Name != "light" {
-		t.Errorf("Resolve(light): got (%v, %v) want (light, true)", l.Name, ok)
+	for _, name := range []string{"dark", "light", "tokyo-night", "sovereign"} {
+		th, ok := Resolve(name)
+		if !ok {
+			t.Errorf("Resolve(%q): ok should be true", name)
+		}
+		if th.Name != name {
+			t.Errorf("Resolve(%q).Name: got %q want %q", name, th.Name, name)
+		}
 	}
 }
 
