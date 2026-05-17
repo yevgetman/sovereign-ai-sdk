@@ -438,6 +438,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.thinkingPending = true
 				return m, m.submitSkillTurn(text)
 			}
+			// M10.5 — generic slash-command dispatch via /sessions/:id/commands.
+			// Runs AFTER all dedicated branches so any leading-slash input that
+			// didn't match (/theme, /compact, /expand, /skills <verb>, or a
+			// known skill name) routes to the server's slash registry. Closes
+			// the M10-audit slice 1 HIGH gap that blocked M11. Pre-M10.5 these
+			// fell through to the normal turn POST and the model saw them as
+			// plain text.
+			if cmdName, cmdArgs, ok := parseGenericSlashCommand(text); ok {
+				m.transcript.AppendLine("» " + text)
+				m.prompt.Clear()
+				m.autocomplete.Dismiss()
+				if m.baseURL == "" {
+					m.transcript.AppendLine(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, nil
+				}
+				m.transcript.AppendLine(m.theme.DimStyle().Render("…running /" + cmdName))
+				return m, dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs)
+			}
 			m.transcript.AppendLine("» " + text)
 			m.prompt.Clear()
 			// Dim placeholder so the user sees feedback during the 1-3s
@@ -594,6 +612,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.skills = msg.skills
 		m.autocomplete.SetSkills(msg.skills) // M9 T8 — surface skills in the popup
+		return m, nil
+	case commandDispatchedMsg:
+		// M10.5 — pop the "…running /name" placeholder; render the dispatch
+		// result. Two failure channels:
+		//   - msg.err is a transport-level Go error (network, decode, non-2xx).
+		//     Surface in red, same style as turnSubmitErrMsg.
+		//   - msg.resp.Error is a command-level error (unknown command,
+		//     handler throw). Surface in warning style.
+		// Successful output renders verbatim. SideEffects update m.model
+		// and (future) hop m.sessionID for /clear.
+		m.transcript.RemoveLastLine()
+		if msg.err != nil {
+			m.transcript.AppendLine(
+				lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#e06c75")).
+					Render(fmt.Sprintf("/%s failed: %v", msg.name, msg.err)),
+			)
+			return m, nil
+		}
+		if msg.resp != nil && msg.resp.Error != "" {
+			m.transcript.AppendLine(
+				lipgloss.NewStyle().
+					Foreground(m.theme.Warning).
+					Bold(true).
+					Render(msg.resp.Error),
+			)
+			return m, nil
+		}
+		if msg.resp != nil && msg.resp.Output != "" {
+			// Append each output line individually so transcript scroll
+			// math stays accurate (Transcript.AppendLine is single-line).
+			for _, line := range strings.Split(msg.resp.Output, "\n") {
+				m.transcript.AppendLine(line)
+			}
+		}
+		// Apply sideEffects. SessionID pivot (newSessionId) and exit
+		// signals fire even on empty output. Note: StatusLine doesn't
+		// dynamically render the model (M2 fixed-field design); the
+		// model change is visible via the command's output text — no
+		// statusline mutation needed in M10.5.
+		if msg.resp != nil && msg.resp.SideEffects != nil {
+			se := msg.resp.SideEffects
+			if se.NewSessionID != "" {
+				m.sessionID = se.NewSessionID
+				m.transcript.AppendLine(
+					m.theme.DimStyle().Render(
+						fmt.Sprintf("─ session %s", shortSessionID(se.NewSessionID)),
+					),
+				)
+			}
+			if se.ExitRequested {
+				return m, tea.Quit
+			}
+		}
 		return m, nil
 	}
 	var cmd tea.Cmd
