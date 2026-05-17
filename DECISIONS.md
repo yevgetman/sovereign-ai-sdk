@@ -742,3 +742,27 @@ Decision: When a HIGH gap surfaces during M10 audit, M10 fixes it inline if the 
 Rationale: M10 is the AUDIT milestone, not the fix-everything milestone. But cheap HIGH fixes during audit are higher-value than the same fix in a future milestone — the audit context is fresh, the test infrastructure is hot, and the user got the audit report quickly. The "< 1 session of work" line is the trade-off; anything beyond becomes its own milestone with its own plan/review cycle.
 
 Status: implemented (M10 — `53fda9e` HarnessInfo wire + `a892f71` resume repair wire; backlog item #40 opened for slash-dispatch). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+
+## ADR M10.5-01 — Server-mode slash dispatch via a single generic /commands route, dedicated routes preserved
+
+Decision: M10.5 closes backlog #40 (M10-audit slice 1 HIGH gap blocking M11) by adding ONE new server route — `POST /sessions/:id/commands { name, args }` — that bridges the existing slash-command registry in `src/commands/registry.ts` into server-mode via a per-request `CommandContext`. The dedicated routes shipped earlier — `POST /sessions/:id/compact`, `GET/POST /sessions/:id/skills` — keep their existing shapes; the Go TUI's slash router picks the right backend per command name (`/compact`, `/skills` → dedicated; `/skillname` → /turns kind:'skill'; `/theme` → client-side; everything else → /commands).
+
+Rationale: Approach A from the M10.5 brainstorm. Three plausible architectures considered: (A) generic /commands + dedicated existing routes, (B) per-command server routes for each of ~20 commands, (C) unified /commands handling EVERYTHING (including /compact + /skills). (B) was rejected for boilerplate cost; (C) was rejected because /compact's CompactResult JSON shape and /skills's shaped registry-list payload are richer than a generic `{output, error?, sideEffects?}` envelope and existing TUI consumers depend on those shapes (M9.6 cache-invalidation is keyed on /skills's wire shape). (A) reuses 95% of existing slash-dispatch logic from `src/commands/registry.ts:dispatchSlashCommand` with a thin Hono wrapper; the Go side's routing rule is mechanical and small.
+
+Status: implemented (M10.5 — `17d456b` (server route + builder + tests) + `d515b9f` (Go transport client + slash router + tests)). Spec: `docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`.
+
+## ADR M10.5-02 — JSON envelope { output, error?, sideEffects? }, not SSE streaming
+
+Decision: The /commands route returns a single JSON envelope. `output` is the command-renderable text (always present, may be empty). `error` is set when the registry returns `kind: 'unknown'` or when a command handler throws — the TUI renders these in warning style. `sideEffects` carries mutations the TUI must react to: `newSessionId` (for /clear's child-session mint — deferred to backlog #41), `exitRequested` (for /quit), `modelChanged` (for /model <name>).
+
+Rationale: Most slash commands return a short string and have no side effects (/help, /cost, /tasks-list, etc.). Streaming via SSE would add protocol overhead for an N=1 event payload. The commands that DO take measurable time (/compact, /review consolidate) have their own dedicated routes that already stream when appropriate; /commands handles the cheap-and-fast remainder. The dual error channel (Go transport error vs envelope.error field) lets the TUI distinguish network/wire problems from command-level errors (unknown command, handler throw) and style them differently.
+
+Status: implemented (M10.5 — `17d456b` server schema + `d515b9f` Go decode). Spec: §6 (Error handling) of `docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`.
+
+## ADR M10.5-03 — Unwired commands return informative output, not server errors
+
+Decision: Some slash commands depend on subsystems M10 left unwired in server-mode (`/clear` needs `createClearedChildSession` — backlog #41; `/memory` needs `createDefaultMemoryManager` — backlog #43). For M10.5 these return their informative message as the `output` field (NOT `error`), so the TUI renders them as normal transcript content explaining what's coming. References the backlog item number explicitly so users see exactly what's tracked.
+
+Rationale: An `error` field would render in warning style and read as a failure; the user would assume the command is broken. An `output` field reads as the command's expected output ("here's the info you asked for") — which is more accurate, because /clear DOES return text in REPL ("history cleared"), just with a side-effect of session-id minting. Server-mode v1 returns the equivalent text minus the side-effect, plus a pointer to the work-in-progress item. Future M10.6/M11 closes #41 and #43; the TUI side requires no changes — the output text just becomes shorter and the sideEffects.newSessionId field starts being populated.
+
+Status: implemented (M10.5 — `17d456b` in src/server/commandContext.ts:UNWIRED_CLEAR_MSG/UNWIRED_ROLLBACK_MSG). Spec: §5 ("Side-effect path — /clear (unwired in M10.5)").

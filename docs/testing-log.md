@@ -8,6 +8,43 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-16 — Phase 16.1 M10.5 close-out (slash-command dispatcher; backlog #40 closed; M11 unblocked)
+
+**Scope:** Close backlog item #40 (server-side built-in slash-command dispatcher) — the M10-audit HIGH gap blocking M11. New `POST /sessions/:id/commands { name, args }` route at `src/server/routes/commands.ts` bridges the existing `src/commands/registry.ts` registry into server-mode via a per-request `CommandContext` factory at `src/server/commandContext.ts`. Go TUI slash router at `packages/tui/internal/app/slashrouter.go` routes any leading-slash input not handled by dedicated routes (/theme client-side, /compact dedicated, /skills <verb> dedicated, /expand client-side, /skillname dedicated) through the new endpoint. Closes the audit's main M11-blocker.
+
+**Approach A** selected (single unified /commands; existing dedicated routes preserved). Alternatives considered: Approach B (per-command server routes — rejected, boilerplate cost) and Approach C (unified /commands handles everything — rejected, would break /compact's CompactResult shape and /skills's M9.6 cache-invalidation contract). 3 ADRs (M10.5-01..03) cover the architectural choices.
+
+**Suite delta:**
+- TS: 2016 → **2018 pass / 0 fail / 5188 expect()** (+13 cases in tests/server/routes/commands.test.ts covering happy/unwired/unknown/sideEffects/validation paths)
+- Go: ~7 new tests across `packages/tui/internal/transport/commands_test.go` (5 cases: happy, error envelope, side effects, non-2xx HTTP, network failure, request-shape) + `packages/tui/internal/app/slashrouter_test.go` (2 cases: parse table + the //foo edge case)
+- All 5 Go packages green
+- Lint + typecheck clean
+
+**Inline fixes shipped in M10.5:**
+- **`17d456b`** — Server-side dispatcher. New route + buildServerCommandContext factory + schema types + app.ts mount. Per-request CommandContext mirrors `src/cli/dispatchCommand.ts:46+`'s wiring server-flavored. Closure-based side-effects collector lets the route surface mutations (modelChanged, exitRequested) back to the TUI.
+- **`d515b9f`** — Go-side. transport/commands.go HTTP client + slashrouter.go parser + app.go ENTER-handler integration + commandDispatchedMsg handler that renders output, surfaces warning-style for command-level error envelopes, applies sideEffects.
+
+**Mid-build bug catches:**
+- Schema's `getMetrics` typing surfaced an actual data-model gap: `SessionMetricsSnapshot` (DB-side) tracks tokens + tool counts but not wall-clock durations (`startedAtMs`, `agentActiveMs`, `apiTimeMs`, `toolTimeMs`). terminalRepl keeps those in-memory mid-session; server-mode has no equivalent. M10.5 fills with zeros + documents in commandContext.ts comments. Future polish (M11+) could thread per-session timing into SessionContext.
+- Go TUI: my initial draft used `m.theme.WarningStyle()` (didn't exist) and `m.statusLine.SetModel()` (also didn't exist). Both fixed inline by using raw lipgloss with `m.theme.Warning` color + skipping the statusline mutation (M2's fixed-field design didn't expose a setter). Documented in the commit message.
+- Test: my initial draft had a "validation invalid session id" test that used `not-a-uuid` — which is actually shaped-VALID per the regex `/^[A-Za-z0-9_-]+$/`. The test expected 400 but got 404 (route was reachable; session lookup returned null). Fixed by switching to `not%21a%21id` (URL-encoded exclamation marks, which fail the regex).
+
+**Real-Anthropic smoke (M10.5):** `tests/parity/m10_5SlashSmoke.test.ts`, gated by `SOV_M10_5_REAL_SMOKE=1`. 2 prompts against Anthropic Haiku 4.5: Agent A (/help via dispatcher returns registry text without LLM call), Agent B (slash + turn coexist in same session — model turn produces `m10-5-token-fb87`; /cost reports tokens post-turn). Both PASS. Transcripts at `docs/state/2026-05-16-m10-5-slash-soak/`. Cost ~$0.005.
+
+**Backlog updates:**
+- **#40 CLOSED** (commits `17d456b` + `d515b9f`)
+- **#41 ADDED (P2)** — `createClearedChildSession` server wiring (/clear, /rollback)
+- **#43 ADDED (P2)** — `createDefaultMemoryManager` + `resolveProjectScope` server wiring (/memory)
+- **#44 ADDED (P3)** — `appendProjectLocalPermissionRule` server-side persistence path
+
+**Postmortem-rule compliance verified before close-out:**
+- Rule 1 — `src/ui/terminalRepl.ts` untouched across M10.5
+- Rule 2 — no helper module deletion
+- Rule 3 — M10 audit informed this work; M10.5 itself doesn't need a new audit (M11 prereq audit verifies dispatcher parity matches REPL's slash surface)
+- Rule 4 — `--ui tui` stays opt-in; M11 is the flip — now unblocked
+
+**M11 status:** UNBLOCKED. Next milestone is M11 (default flip — `--ui tui` becomes default in src/main.ts), then M12 (deprecation), M13 (removal). Each gets its own plan.
+
 ## 2026-05-16 — Phase 16.1 M10 close-out (independent parity audit + 3 inline fixes + backlog #40 opened)
 
 **Scope:** Independent mechanical parity audit of `src/ui/terminalRepl.ts` per Postmortem Rule 3. Four parallel Opus subagents, each given a ~23-import slice of the 92-import surface, verified wiring through `src/server/runtime.ts`, `src/server/sessionContext.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch, and `packages/tui/internal/`. Subagents explicitly instructed NOT to trust the 24/24 prereq checklist and to read source files directly. Synthesis into a single signed-off report at `docs/state/2026-05-16-tui-parity-audit.md`.

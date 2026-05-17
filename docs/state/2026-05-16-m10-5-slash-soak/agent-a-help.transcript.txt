@@ -1,0 +1,49 @@
+slash commands
+
+── session ──
+  /clear            Clear conversation history by starting a fresh child session.
+  /compact          Compress this conversation into a new child session with rollback lineage.
+  /continue         Resume a turn paused by the tool-call checkin limit.
+  /cost             Show token usage and estimated cost for this session.
+  /help (/h /?)     List available slash commands.
+  /quit (/exit /q)  Exit the REPL after printing the session summary.
+  /resume           Pick a recent session by title and print its resume command.
+  /review           List, show, approve, reject, or revoke review proposals.
+                    /review [list|show <id>|approve <id>|reject <id>|revoke <id>|consolidate|activity]
+  /rollback         Switch back to the parent session after /compact.
+  /stats            Show the current session summary card (mid-session).
+  /tasks            List background sub-agent tasks; show or stop one by id.
+                    /tasks [all|show <id>|stop <id>]
+
+── info ──
+  /about           Show version, license, and current provider/model.
+  /context-budget  Audit context-window usage across system prompt, tool schemas, skills, bundle, and memory.
+  /expand          Re-render a recent tool block with no truncation. Defaults to the most recent block; pass an index (1 = most recent, 2 = second-most-recent, …) to expand an older one. Useful when the inline renderer's '+N more lines' summary hid output you want to see.
+                   /expand [N]
+  /permissions     Show the active permission mode and any auto-allow rules.
+  /skills          List the skills currently visible to this session.
+  /tools           List the tools registered in the current session.
+
+── config ──
+  /config    View or change durable user-level config (~/.harness/config.json).
+             /config [show|path|get <dotpath>|set <dotpath> <value>|unset <dotpath>]
+  /model     Switch the active model — opens a picker, or accepts a name as arg.
+             /model [<name>]
+  /settings  Open the interactive settings editor (raw-mode TTY only).
+  /theme     Switch the color theme — opens a picker, or accepts a name as arg.
+             /theme [<name>]
+
+── files ──
+  /copy    Copy the last assistant message to the system clipboard.
+  /export  Export the current session transcript (md / jsonl / json).
+           /export [md|jsonl|json]
+  /init    Scan the project and write a CONTEXT.md briefing.
+
+── git ──
+  /commit  Ask the model to stage changes, write a commit message, and commit.
+
+── skills ──
+  /security-audit  Run a real security audit of the current machine or codebase — verify findings against live state, model the threat surface, and produce a report whose every claim has evidence behind it.
+  /summarize       Read a file or directory and produce a tight, accurate summary — what it is, what it does, and what its main moving parts are. No fluff.
+
+hint: type / followed by a name; tab completion lands in Wave 4.

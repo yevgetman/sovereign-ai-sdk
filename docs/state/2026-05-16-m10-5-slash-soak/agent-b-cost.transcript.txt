@@ -1,0 +1,5 @@
+session: 4ea91614-1d2f-42f2-aa1a-c982dd85a0d3
+provider/model: anthropic / claude-haiku-4-5-20251001
+tokens: total=7203, input=2, output=12, cache_write=7189, cache_read=0
+compaction tokens: input=0, output=0
+estimated cost: $0.0090 (chat $0.0090, compaction $0.0000)
