@@ -185,3 +185,45 @@ export function parseServerEvent(raw: string): ServerEvent | null {
     return null;
   }
 }
+
+// M10.5 — slash-command dispatcher request/response envelope.
+// POST /sessions/:id/commands { name, args } → { output, error?, sideEffects? }
+// The Go TUI mirrors these shapes in
+// packages/tui/internal/transport/commands.go. The route bridges the
+// existing src/commands/registry.ts dispatchSlashCommand into server-mode;
+// /compact, /skills, /theme keep their dedicated routes (different result
+// shapes; M9.6 cache-invalidation depends on /skills's existing surface).
+
+export const CommandRequestSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    // Reject leading slash — the TUI strips the slash before POSTing.
+    // The registry's dispatchSlashCommand also accepts the bare name.
+    .regex(/^[^/]/, 'name must not start with /'),
+  args: z.string().max(8192).default(''),
+});
+
+export type CommandRequest = z.infer<typeof CommandRequestSchema>;
+
+export const CommandSideEffectsSchema = z.object({
+  // Set by /clear when it mints a new child session. The TUI hops
+  // m.sessionID to this value for subsequent POSTs. Unwired in M10.5
+  // (backlog #41); set to undefined.
+  newSessionId: z.string().optional(),
+  // Set by /quit. The TUI signals graceful exit.
+  exitRequested: z.boolean().optional(),
+  // Set by /model. The TUI updates its model display.
+  modelChanged: z.string().optional(),
+});
+
+export type CommandSideEffects = z.infer<typeof CommandSideEffectsSchema>;
+
+export const CommandResponseSchema = z.object({
+  output: z.string(),
+  error: z.string().optional(),
+  sideEffects: CommandSideEffectsSchema.optional(),
+});
+
+export type CommandResponse = z.infer<typeof CommandResponseSchema>;

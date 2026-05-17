@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import { approvalsRoute } from './routes/approvals.js';
+import { commandsRoute } from './routes/commands.js';
 import { compactRoute } from './routes/compact.js';
 import { eventsRoute } from './routes/events.js';
 import { healthRoute } from './routes/health.js';
@@ -31,6 +32,9 @@ export function buildAppWithRuntime(runtime: Runtime): Hono {
   app.route('/', compactRoute(runtime));
   // M8 T4 — GET /sessions/:id/skills, JSON-only discovery for the TUI.
   app.route('/', skillsRoute(runtime));
+  // M10.5 — POST /sessions/:id/commands, generic slash-command dispatcher.
+  // Closes M10 audit slice 1 HIGH gap; unblocks M11.
+  app.route('/', commandsRoute(runtime));
   app.route('/', eventsRoute);
   return app;
 }
