@@ -6,8 +6,8 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import type { Settings } from '../../src/config/schema.js';
 import { resolveSurface } from '../../src/cli/surfaceResolver.js';
+import type { Settings } from '../../src/config/schema.js';
 
 function captureStderr(): {
   write: (m: string) => void;
@@ -158,7 +158,7 @@ describe("resolveSurface — default 'tui' when all layers absent", () => {
 describe('resolveSurface — process.env fallback', () => {
   test('omitting input.env reads from process.env (default surface when SOV_UI is unset)', () => {
     const saved = process.env.SOV_UI;
-    delete process.env.SOV_UI;
+    Reflect.deleteProperty(process.env, 'SOV_UI');
     try {
       const result = resolveSurface({});
       expect(result).toEqual({ surface: 'tui', source: 'default' });
@@ -174,7 +174,7 @@ describe('resolveSurface — process.env fallback', () => {
       const result = resolveSurface({});
       expect(result).toEqual({ surface: 'repl', source: 'env' });
     } finally {
-      if (saved === undefined) delete process.env.SOV_UI;
+      if (saved === undefined) Reflect.deleteProperty(process.env, 'SOV_UI');
       else process.env.SOV_UI = saved;
     }
   });

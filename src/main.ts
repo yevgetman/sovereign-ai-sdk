@@ -179,7 +179,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
     .option('-v, --verbose', 'show full tool-result previews instead of one-line summaries')
     .option('--legacy-input', 'use the readline-based input (Wave-3 fallback for the new editor)')
-    .option('--ui <surface>', 'foreground surface: repl (default) or tui', 'repl')
+    .option('--ui <surface>', 'foreground surface: tui (default) or repl')
     .option(
       '--capture-fixture <path>',
       'wrap the provider + tools to record a deterministic-replay fixture at this path on session end',
@@ -204,9 +204,32 @@ async function main(argv: string[]): Promise<void> {
           "[deprecated] 'sov chat' is going away — use bare 'sov' for the interactive REPL, or 'sov dispatch' for headless slash-command testing.\n",
         );
       }
-      // Phase 16.1 M2: --ui tui spawns the Go TUI client against an HTTP+SSE
-      // server. Falls back to repl with a warning if the TUI binary is missing.
-      if (opts.ui === 'tui') {
+      // Phase 16.1 M11: resolve the foreground surface via
+      // CLI > env SOV_UI > config ui.surface > 'tui' default.
+      const { resolveSurface } = await import('./cli/surfaceResolver.js');
+      const resolution = resolveSurface({
+        cliFlag: typeof opts.ui === 'string' ? opts.ui : undefined,
+        env: process.env,
+        config: readConfig(),
+      });
+      let effectiveSurface = resolution.surface;
+
+      // Missing-binary fallback: when the resolved surface is 'tui' but
+      // sov-tui isn't installed, fall back to the readline REPL with a
+      // one-time stderr warning. Preserves the soft-degradation safety
+      // net users had pre-M11 when --ui tui was opt-in.
+      if (effectiveSurface === 'tui') {
+        const { findTuiBinary } = await import('./cli/tuiLauncher.js');
+        if (findTuiBinary() === null) {
+          process.stderr.write('sov: sov-tui binary not found — falling back to readline REPL.\n');
+          process.stderr.write(
+            '     to enable the TUI, run `bun pm -g trust @yevgetman/sov && sov upgrade`.\n',
+          );
+          effectiveSurface = 'repl';
+        }
+      }
+
+      if (effectiveSurface === 'tui') {
         const { runTuiLauncher } = await import('./cli/tuiLauncher.js');
         const code = await runTuiLauncher(opts);
         process.exit(code);
