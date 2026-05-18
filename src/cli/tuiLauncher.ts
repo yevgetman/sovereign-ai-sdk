@@ -124,14 +124,18 @@ function pickPermissionMode(value: unknown): 'default' | 'ask' | 'bypass' | unde
 export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   const binary = findTuiBinary();
   if (binary === null) {
-    // Earlier text claimed "falling back to --ui repl" but main.ts exits
-    // immediately on the returned 70 — there is no fallback wired today.
-    // The warning now reflects the actual remediation path.
+    // M11 — defensive guard. Post-M11, main.ts pre-checks findTuiBinary()
+    // before invoking the launcher and auto-falls back to the readline REPL
+    // when the binary is missing. This branch is unreachable from the bare
+    // `sov` flow but kept as belt-and-suspenders for direct importers of
+    // runTuiLauncher (tests, future callers). The warning text mirrors the
+    // main.ts fallback messaging so behavior stays consistent if reached.
     console.warn(
-      'sov: TUI binary not found — install Go ≥ 1.24 and run `sov upgrade` (with `bun pm -g trust @yevgetman/sov`).',
+      'sov: sov-tui binary not found — install Go ≥ 1.24 and run `bun pm -g trust @yevgetman/sov && sov upgrade`.',
     );
-    console.warn('     For the readline REPL, omit `--ui tui` (or pass `--ui repl`).');
-    // Caller (main.ts) propagates this exit code; no foreground fallback.
+    console.warn(
+      '     For the readline REPL, pass `--ui repl` or `SOV_UI=repl` (or set `ui.surface=repl` in ~/.harness/config.json).',
+    );
     return 70;
   }
 

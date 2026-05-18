@@ -8,6 +8,54 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-17 — Phase 16.1 M11 close-out (default-flip; --ui defaults to tui)
+
+**Scope:** Flip the foreground-surface default from `'repl'` to `'tui'` in `src/main.ts:182` while preserving the soft-degradation safety net users had pre-M11. Adds a four-layer surface resolver (CLI flag > env `SOV_UI` > config `ui.surface` > `'tui'` default) at `src/cli/surfaceResolver.ts` and wires a missing-binary fallback at `src/main.ts:221-230` that downgrades to the readline REPL with a one-line stderr warning when `findTuiBinary()` returns null. No edits to `src/ui/terminalRepl.ts` (Postmortem Rule 1). No deletions (Rule 2). Independent Opus parity re-audit before close-out (Rule 3). Three explicit escape hatches + auto-fallback preserve Rule 4's safety net.
+
+**Suite delta:**
+- TS: 2018 → **2033 pass / 0 fail / 5211 expect()** (+15 cases: 16 surfaceResolver precedence/fallthrough/process.env tests + 1 schema enum test; baseline went up by 15 instead of 17 because the schema test consolidated two assertions into one)
+- Go: unchanged (M11 makes no Go changes; all 5 packages still green)
+- Lint + typecheck clean. Same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` (unrelated).
+
+**Commit chain (HEAD: this commit pending):**
+- `4e6ef3d` — docs only: spec + plan
+- `be73eba` — `feat(config): add ui.surface schema field for M11 default-flip` (5-line schema add + 8-line test)
+- `18c5033` — `feat(cli): add surface resolver with cli/env/config precedence` (new 76-line module + 181-line test file; 16 tests)
+- `5a1291d` — `feat(cli): M11 — flip --ui default to tui + missing-binary fallback` (`src/main.ts` flip + fallback wiring + help-text update)
+- `0b528f3` — `docs: M11 — update README + usage.md for default-flip`
+- (pending close-out commit) — state snapshot, audit report, smoke transcripts, ADRs M11-01..03, backlog header, CLAUDE.md/AGENTS.md mirror, LOW-fix polish in `docs/conventions/sov-upgrade.md` + `src/server/commandContext.ts` (M11 opt-out messaging) + `src/cli/tuiLauncher.ts` (consistent warning text)
+
+**Audit:** Independent Opus subagent reading the code, not by recall, per Postmortem Rule 3. Report at `docs/state/2026-05-17-m11-parity-audit.md`. Disposition: **PASS-with-followups** (0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed inline). Verified that:
+- All 3 M10 HIGH gaps requiring code fixes (HarnessInfoTool, repairMissingToolResults, slash-command dispatcher) remain closed.
+- The 1 M10 HIGH classified as intentional scope-bound (mission FSM CLI-only) remains intentional.
+- M11 default-flip code surface introduces no new HIGH/CRITICAL/MEDIUM wiring gaps.
+- M10.5 cascading deferred items (#41, #43, #44) remain correctly scope-bounded with informative-output messages intact.
+- Postmortem rules 1, 2, 4 all honored.
+
+The 1 LOW finding (`docs/conventions/sov-upgrade.md:19` referenced "`sov --ui repl` (the default)" — stale post-M11) was fixed inline in the close-out, along with the auditor's optional polish recommendations: M11-aware opt-out strings in `src/server/commandContext.ts` informative messages and consistent warning text in `src/cli/tuiLauncher.ts`'s defensive null-binary branch.
+
+**Smoke:**
+- **Local boot-decision smoke** (`bun docs/state/2026-05-17-m11-smoke/run-smoke.ts`): 13 scenarios, all $0, verifying the surface resolver, missing-binary fallback (via temporarily moving `bin/sov-tui` aside), env/config/CLI precedence, invalid-CLI warning, invalid-env silent-fallthrough, top-level + chat-subcommand help text, and version output. All 13 pass.
+- **Real-Anthropic dispatcher rerun** (`SOV_M10_5_REAL_SMOKE=1 bun test tests/parity/m10_5SlashSmoke.test.ts`): re-runs M10.5's gated 2-prompt smoke against the live Anthropic API (~$0.005) to confirm slash-command dispatcher commands still work end-to-end post-flip. 2 pass / 0 fail / 5 expect() in ~3.7s.
+- Full transcripts at `docs/state/2026-05-17-m11-smoke/` (13 scenarios × stdout + stderr + exit code + 1 real-API rerun + README summary table). Cost total: ~$0.005.
+
+**Adaptation note:** The spec called for a single interactive Haiku 4.5 session running ~10 dispatcher commands inside the TUI. The autonomous-execution environment cannot drive an interactive TUI through arbitrary keystrokes, so the smoke split into (a) the boot-decision scenarios (verifying which surface gets reached) + (b) the dispatcher-command rerun (verifying the commands themselves work end-to-end against the live API). Both adaptations are documented in `docs/state/2026-05-17-m11-smoke/README.md`.
+
+**Mid-build bug catches:**
+- Biome lint flagged `delete process.env.SOV_UI` in `tests/cli/surfaceResolver.test.ts` (noDelete rule). Replaced with `Reflect.deleteProperty(process.env, 'SOV_UI')`, which biome accepts and which Bun handles correctly (vs. assigning `undefined` which can serialize as the string `"undefined"` in some runtimes).
+- First smoke draft used `SOV_TUI_BIN=/nonexistent/sov-tui` as the missing-binary trigger. `findTuiBinary()` only honors `SOV_TUI_BIN` if the path exists (it's a "prefer this if present" hint, not a "force missing" override), so the env var was ignored and the walk-up search found the working-tree binary. Fixed by temporarily moving `bin/sov-tui` aside via `renameSync` during the relevant scenario (restored after via try/finally). The fix surfaced a real understanding of how the binary lookup actually works.
+- macOS BSD doesn't ship GNU `timeout` or `gtimeout` by default. First bash-smoke attempt used a `perl -e 'alarm shift; exec @ARGV'` wrapper, which broke on env-variable shell interpolation. Rewrote the smoke as a Bun TypeScript script using `Bun.spawn(..., { timeout: 6000 })` — portable, no shell-escaping issues, and cleaner than the bash version.
+
+**Postmortem-rule compliance verification:**
+- Rule 1: `git diff d2de19b..HEAD -- src/ui/terminalRepl.ts` empty. ✓
+- Rule 2: `git diff d2de19b..HEAD --diff-filter=D -- src/` empty. ✓
+- Rule 3: Independent Opus parity re-audit performed before close-out. ✓
+- Rule 4: Four-layer escape hatch (CLI > env > config > default) + auto-fallback when binary missing. ✓
+
+**Open backlog after M11 (unchanged from M10.5):** #17 (P4), #29 (P4 nit), #38 (P3), #39 (P4 nit), #41 (P2), #43 (P2), #44 (P3). M11 introduced no new backlog items.
+
+**Next:** M12 — terminalRepl deprecation (add warning when `--ui repl` is explicitly passed); then M13 — terminalRepl removal (delete `src/ui/terminalRepl.ts` after M12 deprecation soak). Per Postmortem Rule 1, no deletion of any surface before M11 has soaked. Backlog items #41 + #43 + #44 could optionally land between M11 and M12 to remove the informative-output stubs from `/clear`, `/rollback`, and `/memory` before users start using those commands more frequently on the new default TUI.
+
 ## 2026-05-16 — Phase 16.1 M10.5 close-out (slash-command dispatcher; backlog #40 closed; M11 unblocked)
 
 **Scope:** Close backlog item #40 (server-side built-in slash-command dispatcher) — the M10-audit HIGH gap blocking M11. New `POST /sessions/:id/commands { name, args }` route at `src/server/routes/commands.ts` bridges the existing `src/commands/registry.ts` registry into server-mode via a per-request `CommandContext` factory at `src/server/commandContext.ts`. Go TUI slash router at `packages/tui/internal/app/slashrouter.go` routes any leading-slash input not handled by dedicated routes (/theme client-side, /compact dedicated, /skills <verb> dedicated, /expand client-side, /skillname dedicated) through the new endpoint. Closes the audit's main M11-blocker.

@@ -10,7 +10,7 @@ This file is a **lean index** — a table of contents into the deeper docs. Read
 
 1. **This file** (`CLAUDE.md`) — index and standing rules
 2. **`README.md`** — repo intro, install, layout
-3. **`docs/state/2026-05-16-m10-5.md`** — most recent close-out snapshot (Phase 16.1 M10.5 shipped 2026-05-16 — server-side slash-command dispatcher: `POST /sessions/:id/commands { name, args }` route + `buildServerCommandContext` builder + Go TUI slash router; backlog #40 closed; **M11 unblocked**; 2 HIGH gap from M10 audit closed inline; 3 new MEDIUM/P2 backlog items added (#41 createClearedChildSession, #43 createDefaultMemoryManager, #44 appendProjectLocalPermissionRule); **3 ADRs M10.5-01..03**; M0–M10 closed earlier). Read this BEFORE the build plan. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`. The M10 signed-off audit report at `docs/state/2026-05-16-tui-parity-audit.md` remains canonical.
+3. **`docs/state/2026-05-17-m11.md`** — most recent close-out snapshot (Phase 16.1 M11 shipped 2026-05-17 — **default-flip:** `--ui` default flipped from `'repl'` to `'tui'`; new surface resolver at `src/cli/surfaceResolver.ts` (CLI flag > env `SOV_UI` > config `ui.surface` > `'tui'` default); auto-fallback to readline REPL with stderr warning when `sov-tui` binary missing; **3 ADRs M11-01..03**; independent parity re-audit by Opus subagent returned PASS-with-followups (0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed inline); suite **2033/2033** green; 13 boot-decision smoke scenarios + 1 real-Anthropic dispatcher rerun all pass; **next gate: M12 terminalRepl deprecation** then M13 removal; backlog unchanged from M10.5). Read this BEFORE the build plan. Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`. The M11 audit report at `docs/state/2026-05-17-m11-parity-audit.md` and the M10 audit at `docs/state/2026-05-16-tui-parity-audit.md` both remain canonical.
 4. **`docs/backlog/post-phase-13-4.md`** — open backlog items not in the canonical build plan.
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -48,8 +48,11 @@ Each link is a chapter loaded on demand. Don't pre-read.
 
 | File | What's in it |
 |---|---|
-| [`docs/state/2026-05-16-m10-5.md`](docs/state/2026-05-16-m10-5.md) | Canonical current-state snapshot — Phase 16.1 M10.5 shipped (slash-command dispatcher: `POST /sessions/:id/commands` route + Go TUI slash router; closes #40; **M11 unblocked**; **3 ADRs M10.5-01..03; suite green at 2018/2018**). |
-| [`docs/state/2026-05-16-m10.md`](docs/state/2026-05-16-m10.md) | Prior M10 close-out (same-day predecessor of M10.5): parity audit by 4 parallel Opus subagents; 2 HIGH gaps fixed inline (HarnessInfoTool + repair-missing-tool-results); 1 HIGH scope-bounded (mission CLI-only); 1 HIGH deferred (closed by M10.5); 4 ADRs M10-01..04. |
+| [`docs/state/2026-05-17-m11.md`](docs/state/2026-05-17-m11.md) | Canonical current-state snapshot — Phase 16.1 M11 shipped (default-flip: `--ui` defaults to `'tui'`; new surface resolver with CLI > env > config > default precedence; auto-fallback to REPL when sov-tui missing; **3 ADRs M11-01..03; suite green at 2033/2033**; audit PASS-with-followups). |
+| [`docs/state/2026-05-17-m11-parity-audit.md`](docs/state/2026-05-17-m11-parity-audit.md) | The M11 audit report — Opus subagent re-audit per Postmortem Rule 3 verifying M10 HIGH gaps remain closed and M11 code surface introduces no new HIGH/CRITICAL/MEDIUM gaps. PASS-with-followups (1 LOW fixed inline). |
+| [`docs/state/2026-05-17-m11-smoke/`](docs/state/2026-05-17-m11-smoke/) | M11 smoke output — 13 boot-decision scenarios (`run-smoke.ts`) + 1 real-Anthropic dispatcher rerun + README summary. |
+| [`docs/state/2026-05-16-m10-5.md`](docs/state/2026-05-16-m10-5.md) | Prior M10.5 close-out (predecessor to M11): slash-command dispatcher route + Go TUI slash router; closed #40; unblocked M11. |
+| [`docs/state/2026-05-16-m10.md`](docs/state/2026-05-16-m10.md) | M10 close-out: parity audit by 4 parallel Opus subagents; 2 HIGH gaps fixed inline (HarnessInfoTool + repair-missing-tool-results); 1 HIGH scope-bounded (mission CLI-only); 1 HIGH deferred (closed by M10.5); 4 ADRs M10-01..04. |
 | [`docs/state/2026-05-16-tui-parity-audit.md`](docs/state/2026-05-16-tui-parity-audit.md) | The M10 audit report itself — slice-by-slice findings, severity classification, fixes-applied, M11 disposition. Postmortem Rule 3 attestation. |
 | [`docs/state/archive/`](docs/state/archive/) | Historical snapshots: `2026-05-07.md` (Phase 13.4), `2026-05-11.md` (Phase 16.0a), `2026-05-12.md` (Phase 16 revert), `2026-05-13.md` (Phase 16.1 M0–M3), `2026-05-14.md` (Phase 16.1 M4 + M5 + M5.1), `2026-05-14-pm.md` (Phase 16.1 M6 close-out + 2026-05-15 hardening + autonomous M6 smoke + PM #32/#37), `2026-05-15.md` (Phase 16.1 M7 close-out + post-close-out hardening + autonomous M7 smoke), `2026-05-16.md` (Phase 16.1 M8 close-out), `2026-05-16-m9.md` (Phase 16.1 M9 close-out), `2026-05-16-m9-5.md` (Phase 16.1 M9.5 close-out), `2026-05-16.md` again (Phase 16.1 M9.6 close-out). |
 
@@ -62,8 +65,9 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`](docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md) | Active design spec for the Phase 16.1 TUI rebuild |
 | [`docs/specs/2026-05-13-production-harness-roadmap-design.md`](docs/specs/2026-05-13-production-harness-roadmap-design.md) | Umbrella production polish roadmap |
 | [`docs/specs/2026-05-16-phase-16-1-m10-parity-audit-design.md`](docs/specs/2026-05-16-phase-16-1-m10-parity-audit-design.md) | M10 audit design spec |
-| [`docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`](docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md) | M10.5 slash-dispatcher design spec (just shipped) |
-| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-16-phase-16-1-m10-5-slash-dispatcher.md` |
+| [`docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`](docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md) | M10.5 slash-dispatcher design spec |
+| [`docs/specs/2026-05-17-phase-16-1-m11-default-flip-design.md`](docs/specs/2026-05-17-phase-16-1-m11-default-flip-design.md) | M11 default-flip design spec (just shipped) |
+| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-17-phase-16-1-m11-default-flip.md` |
 
 ### Postmortems — required reading before similar work
 

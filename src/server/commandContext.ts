@@ -95,9 +95,9 @@ export function buildServerCommandContext(
   // them as normal transcript content. References the backlog item
   // tracking the wire-up so users see exactly what's coming.
   const UNWIRED_CLEAR_MSG =
-    '/clear is not yet available in --ui tui (M10.5 scope-out; tracked as backlog item #41 — createClearedChildSession server wiring). Use `sov chat --ui repl` for now, or compact instead (/compact).';
+    '/clear is not yet available in --ui tui (M10.5 scope-out; tracked as backlog item #41 — createClearedChildSession server wiring). Compact instead (/compact), or fall back to the readline REPL via `sov --ui repl` (also `SOV_UI=repl` or `sov config set ui.surface repl` for persistent opt-out).';
   const UNWIRED_ROLLBACK_MSG =
-    '/rollback is not yet available in --ui tui (M10.5 scope-out; tracked as backlog item #41). Use `sov chat --ui repl` for now.';
+    '/rollback is not yet available in --ui tui (M10.5 scope-out; tracked as backlog item #41). Fall back to the readline REPL via `sov --ui repl` (also `SOV_UI=repl` or `sov config set ui.surface repl` for persistent opt-out).';
 
   const ctx: CommandContext = {
     sessionId,

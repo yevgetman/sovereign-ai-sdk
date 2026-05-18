@@ -1,0 +1,48 @@
+=== M11 smoke scenario: 13-chat-help-ui-text ===
+env: {}
+args: bun src/main.ts chat --help
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-home-XypDYH
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx
+config.json: (absent)
+--- stdout + stderr ---
+Usage: sov chat [options]
+
+[deprecated keyword — use bare 'sov'] Start an interactive chat session against
+a harness bundle (use --agent + --state-dir for scheduled-mission mode)
+
+Options:
+  -b, --bundle <path>       path to the harness bundle (or HARNESS_BUNDLE env)
+  --provider <name>         provider name: anthropic, openai, ollama, or
+                            openrouter
+  -m, --model <name>        model name (overrides provider/config default)
+  --max-tokens <n>          max tokens per turn (default: 12000)
+  --permission-mode <mode>  tool permissions: 'default' honors rules/tool
+                            checks, 'ask' prompts on fallthrough, 'bypass'
+                            allows on fallthrough (default: "default")
+  --resume <id>             resume a prior session by its UUID
+  --db <path>               session database path (default:
+                            ~/.harness/sessions.db)
+  --no-cache                disable provider prompt-cache markers for this
+                            session
+  --no-preflight            skip the startup provider health check
+  --transcript <path>       write a redacted JSONL terminal/event transcript
+  -v, --verbose             show full tool-result previews instead of one-line
+                            summaries
+  --legacy-input            use the readline-based input (Wave-3 fallback for
+                            the new editor)
+  --ui <surface>            foreground surface: tui (default) or repl
+  --capture-fixture <path>  wrap the provider + tools to record a
+                            deterministic-replay fixture at this path on
+                            session end
+  --replay-fixture <path>   replay a previously-captured fixture instead of
+                            resolving a real provider (no LLM calls)
+  --agent <name>            run as a named agent (uses the agent definition's
+                            system prompt and allowed tools)
+  --state-dir <path>        scheduled-mission mode: path to a mission directory
+                            (requires --agent with supportsMissionState:true)
+  -h, --help                display help for command
+
+--- stdout above; stderr below ---
+
+
+--- exit code: 0 ---

@@ -1,0 +1,13 @@
+=== M11 smoke scenario: 12-version ===
+env: {}
+args: bun src/main.ts --version
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-home-XypDYH
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx
+config.json: (absent)
+--- stdout + stderr ---
+0.1.0-0b528f3
+
+--- stdout above; stderr below ---
+
+
+--- exit code: 0 ---

@@ -1,0 +1,52 @@
+=== M11 smoke scenario: 03-env-sov-ui-repl ===
+env: {"SOV_UI":"repl"}
+args: bun src/main.ts 
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-home-XypDYH
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx
+config.json: (absent)
+--- stdout + stderr ---
+
+  ███████╗ ██████╗ ██╗   ██╗ 
+  ██╔════╝██╔═══██╗██║   ██║ 
+  ███████╗██║   ██║██║   ██║ 
+  ╚════██║██║   ██║╚██╗ ██╔╝ 
+  ███████║╚██████╔╝ ╚████╔╝  
+  ╚══════╝ ╚═════╝   ╚═══╝   
+
+╭──────────────────────────────────────────────────────────────────╮
+│  >_ Sovereign AI (v0.0.1)                                        │
+│  anthropic | API Key                                             │
+│  claude-haiku-4-5-20251001 (/model to change)                    │
+│  …/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx  │
+╰──────────────────────────────────────────────────────────────────╯
+
+Tips: type / for slash commands · @file:path to inline files · /quit to exit
+perms: default · tools: 19 · cache: on · new f0d58f2a · /quit or Ctrl-D to exit
+
+anthropic · claude-haiku-4-5-20251001 · ctx <1% · $0.00 · perms:default · tools:19 · bundle:sov-m11-smoke-bundle-jg7pjx
+────────────────────────────────────────────────────────────
+> ────────────────────────────────────────────────────────────
+
+╭───────────────────────────────────────────────────────╮
+│  Agent powering down. Goodbye!                        │
+│                                                       │
+│  Interaction Summary                                  │
+│  Session ID:    f0d58f2a-04a6-44b5-a1d4-6e47de33038e  │
+│  Tool Calls:    0 ( ✓ 0 · ✗ 0 )                       │
+│  Success Rate:  0.0%                                  │
+│                                                       │
+│  Performance                                          │
+│  Wall Time:     5ms                                   │
+│  Agent Active:  0ms                                   │
+│    » API Time:   0ms (0.0%)                           │
+│    » Tool Time:  0ms (0.0%)                           │
+│                                                       │
+│  Tokens                                               │
+│  Total:         0  (↑ 0 · ↓ 0)                        │
+╰───────────────────────────────────────────────────────╯
+to resume: sov --resume f0d58f2a-04a6-44b5-a1d4-6e47de33038e --bundle /var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx
+
+--- stdout above; stderr below ---
+
+
+--- exit code: 0 ---

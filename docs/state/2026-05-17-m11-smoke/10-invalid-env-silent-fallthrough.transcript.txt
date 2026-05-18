@@ -1,0 +1,14 @@
+=== M11 smoke scenario: 10-invalid-env-silent-fallthrough ===
+env: {"SOV_UI":"nonsense"}
+args: bun src/main.ts 
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-home-XypDYH
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx
+config.json: (absent)
+--- stdout + stderr ---
+
+--- stdout above; stderr below ---
+sov: tui server listening on 127.0.0.1:64869 session=c2d8a266-8f75-43db-b136-e0727ff502a3
+sov-tui: could not open a new TTY: open /dev/tty: device not configured
+
+
+--- exit code: 1 ---

@@ -8,7 +8,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/state/2026-05-16.md`](docs/state/2026-05-16.md) — Phase 16.1 M8 shipped (polish-surfaces group: router-mode RouterProvider, capture/replay, @file + subdirectory hints, skills loading + GET /skills + skill-as-slash, TUI ring buffer + /expand, stall detection, rich session_summary) + autonomous M8 real-Anthropic smoke (38/38). **24/24 prereq boxes complete**; backlog #30 closed. Unit suite **1991/1991**, Go tests green. M9 (visual polish) is next.
+- **Latest snapshot:** [`docs/state/2026-05-17-m11.md`](docs/state/2026-05-17-m11.md) — Phase 16.1 M11 shipped (default-flip: bare `sov` boots the Bubble Tea TUI; new surface resolver with CLI > env `SOV_UI` > config `ui.surface` > `'tui'` default precedence; auto-fallback to readline REPL with stderr warning when `sov-tui` is missing). Independent Opus parity re-audit returned PASS-with-followups. Unit suite **2033/2033**, Go tests green, 13 boot-decision smoke scenarios + 1 real-Anthropic dispatcher rerun all pass. Next: M12 — terminalRepl deprecation.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).

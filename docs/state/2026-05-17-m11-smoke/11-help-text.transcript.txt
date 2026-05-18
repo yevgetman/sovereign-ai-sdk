@@ -1,0 +1,52 @@
+=== M11 smoke scenario: 11-help-text ===
+env: {}
+args: bun src/main.ts --help
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-home-XypDYH
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m11-smoke-bundle-jg7pjx
+config.json: (absent)
+--- stdout + stderr ---
+Usage: sov [options] [command]
+
+Sovereign AI agent runtime
+
+Options:
+  -V, --version         output the version number
+  -p, --profile <name>  scope the run to a named profile under
+                        <harness-home>/profiles/<name>/ (use 'default' for the
+                        unscoped root)
+  -h, --help            display help for command
+
+Commands:
+  chat [options]        [deprecated keyword — use bare 'sov'] Start an
+                        interactive chat session against a harness bundle (use
+                        --agent + --state-dir for scheduled-mission mode)
+  dispatch [options]    Headless slash-command dispatch — boots a minimum
+                        context, reads slash commands from stdin (one per
+                        line), prints output to stdout, exits on EOF or /quit.
+                        Used for mechanical testing of read-only commands;
+                        commands that need the session DB, compactor, task
+                        manager, or review manager error informatively.
+  serve-dev [options]   boot the Phase 16.1 HTTP+SSE server on 127.0.0.1 (M1
+                        dev harness)
+  config                Read or write user-level config (no args opens an
+                        interactive picker)
+  profile               Manage profile-scoped state roots under
+                        <harness-home>/profiles/
+  init [options]        Bootstrap the current directory into a real harness
+                        bundle
+  eval                  Run golden-task evaluations against a live `sov chat`
+                        subprocess
+  trace                 Inspect operational traces written under
+                        <harness-home>/traces/
+  learning              Inspect and maintain the per-project instinct corpus
+                        (Phase 13.4)
+  upgrade [options]     Pull the latest sov from the private repo and re-link
+                        the global binary
+  mission               Manage scheduled autonomous missions
+  daemon                Start the harness daemon for the active profile.
+  help [command]        display help for command
+
+--- stdout above; stderr below ---
+
+
+--- exit code: 0 ---

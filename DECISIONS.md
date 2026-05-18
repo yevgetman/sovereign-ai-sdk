@@ -766,3 +766,33 @@ Decision: Some slash commands depend on subsystems M10 left unwired in server-mo
 Rationale: An `error` field would render in warning style and read as a failure; the user would assume the command is broken. An `output` field reads as the command's expected output ("here's the info you asked for") — which is more accurate, because /clear DOES return text in REPL ("history cleared"), just with a side-effect of session-id minting. Server-mode v1 returns the equivalent text minus the side-effect, plus a pointer to the work-in-progress item. Future M10.6/M11 closes #41 and #43; the TUI side requires no changes — the output text just becomes shorter and the sideEffects.newSessionId field starts being populated.
 
 Status: implemented (M10.5 — `17d456b` in src/server/commandContext.ts:UNWIRED_CLEAR_MSG/UNWIRED_ROLLBACK_MSG). Spec: §5 ("Side-effect path — /clear (unwired in M10.5)").
+
+## ADR M11-01 — Surface resolver with four-layer precedence: CLI > env SOV_UI > config ui.surface > 'tui'
+
+Decision: M11 introduces a dedicated `resolveSurface(input)` function at `src/cli/surfaceResolver.ts` that picks the foreground surface from four ordered sources. The default — when no layer supplies a value — is `'tui'`, completing the M11 default-flip. The function is pure: the caller passes the config object + env explicitly, and the resolver does no I/O. Invalid CLI values print a one-line stderr warning and fall through; invalid env values fall through silently; invalid config values can't reach the resolver because Zod rejects them at config-load time.
+
+Rationale: A single resolver consolidates the precedence rules in one testable, auditable place. Four layers preserve Postmortem Rule 4 (flag-based safety net): users have an explicit per-invocation flag, a shell-rc-friendly env var, a persistent config field, AND a default that flips to TUI. The pure-function shape makes the resolver trivially exercise-able (16 unit tests at `tests/cli/surfaceResolver.test.ts`) without filesystem fixtures. Warning-on-invalid-CLI (vs silent-on-invalid-env) reflects the user-experience trade-off: CLI typos are interactive and worth flagging immediately; env typos are shell-rc fixed costs and would spam stderr on every boot if warned.
+
+Alternatives rejected: (a) Three-layer (skip the env var) — would force users to either pass `--ui repl` per invocation or edit `~/.harness/config.json`, less ergonomic for shell-rc users. (b) Embedded resolver inline in `main.ts` — would duplicate the precedence logic between bare-`sov` and any future entry point, and would be harder to unit-test cleanly. (c) Config-only persistent opt-out (no env var) — same problem as (a).
+
+Status: implemented (M11 — commits `be73eba` schema field + `18c5033` resolver + `5a1291d` main.ts wiring). Spec: §4.1 ("Surface resolver"). Tests: `tests/cli/surfaceResolver.test.ts` (16 cases), `tests/config/schema.test.ts` (1 enum test).
+
+## ADR M11-02 — Auto-fallback to REPL when sov-tui binary missing
+
+Decision: When the resolved surface is `'tui'` but `findTuiBinary()` returns null (the postinstall script wasn't trusted, or Go ≥ 1.24 wasn't available at install time), `src/main.ts` falls back to the readline REPL instead of hard-failing. A one-line stderr warning prints the remediation path: ``sov: sov-tui binary not found — falling back to readline REPL. to enable the TUI, run `bun pm -g trust @yevgetman/sov && sov upgrade`.``
+
+Rationale: Pre-M11, `--ui tui` was opt-in — a user who explicitly opted in and didn't have the binary saw `tuiLauncher.ts:124-136`'s warning + exit 70 (the M2 design). Post-M11, the same hard-fail would hit every fresh-install user on bare `sov`, breaking their first impression of the tool. Auto-fallback preserves the soft-degradation safety net users had pre-M11 and aligns with the broader pattern of "give users something working, with a path to the better thing." The warning makes the missing-binary situation discoverable; users who want the TUI know exactly what command to run.
+
+Alternatives rejected: (a) Hard-fail with install hint — bad first-install UX; users have to do remediation BEFORE they can use sov, instead of being able to use the fallback and upgrade later. (b) Config-gated fallback (`tui.fallbackToRepl: true`) — most users wouldn't discover the config field, so behaves like (a) in practice. (c) Auto-install sov-tui on missing — opaque, slow, and outside the package's installer contract.
+
+Status: implemented (M11 — `5a1291d` at `src/main.ts:221-230`). Spec: §4.3 ("main.ts dispatch") and Risk #1 in §9. Smoke scenario 02 at `docs/state/2026-05-17-m11-smoke/02-missing-binary-fallback.transcript.txt` verifies REPL boots with the expected warning when the binary is moved aside.
+
+## ADR M11-03 — Scope discipline: no deprecation messaging on `--ui repl` in M11
+
+Decision: M11 strictly flips the default. Users who explicitly pass `--ui repl` (or `SOV_UI=repl`, or `ui.surface=repl`) see no commentary on stderr — the REPL just boots as it always has. A deprecation warning on `--ui repl` is M12's job; M13 will remove the REPL entirely.
+
+Rationale: Each milestone has one job; M11's job is "flip the default + give users a recovery path." Adding deprecation messaging would: (a) collapse part of M12 into M11, blurring the milestone boundary that has helped the Phase 16.1 work stay safe across reverts; (b) preemptively commit to a removal timeline before M11 has been validated in real usage; (c) mean any M11 revert would also reverse a deprecation message users had already received, creating mixed signals. Postmortem Rule 4's spirit is preserved by the three escape hatches + auto-fallback; users are NOT being pushed toward a removal date by M11 itself. M12 starts that clock once M11 has shipped, soaked, and been audited.
+
+Alternatives rejected: (a) Soft FYI ("TUI is the default now; REPL still supported") — informational and reasonable, but the line of where to put it is fuzzy and risks scope creep into a "what to say about REPL" debate that's properly M12's. Better to keep stderr silent on the explicit-opt-out path until M12 has its own design discussion. (b) Full deprecation warning — same scope-creep problem, plus the commitment-before-validation issue. (c) Soft FYI gated behind a `SOV_NOTICE_FLIP=1` env var — over-engineered for what's effectively a "what to display" debate.
+
+Status: implemented (M11 — by design; the `--ui repl` path at `src/main.ts:237-256` is bit-for-bit equivalent to pre-M11 modulo the resolver branch). Spec: §3 (Decision D5) and §2 (Non-goals). M12 design will revisit.
