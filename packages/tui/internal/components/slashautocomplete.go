@@ -160,19 +160,42 @@ func (s SlashAutocomplete) compute() []Entry {
 	return matches
 }
 
+// slashCommandColor is the pale-orange foreground for slash command
+// names in the autocomplete popup. Catppuccin "peach" — readable on
+// dark and light terminals, distinct from inline-code's sky-blue and
+// from theme.Primary's blue. M11.14: replaced theme.Primary (rendered
+// too dark on user palettes; same family of palette-mapping issues
+// documented in docs/conventions/tui-color-rendering.md, but for
+// accent colors that need a specific shade).
+var slashCommandColor = lipgloss.Color("#fab387")
+
 // View renders the popup above the prompt row. width is the popup's width.
 // Returns empty when hidden or empty matches list.
+//
+// M11.14 — non-selected rows render in pale orange (slashCommandColor)
+// without bold. Selected row drops the orange color and renders bold
+// with NO foreground so the terminal default fg (typically bright
+// white) shows through. The previous Background-highlight design made
+// the selected text invisible on terminals where palette mapping
+// inverts dark hexes. Bold + bright-default contrast against the
+// orange neighbours gives a clear selection signal that survives
+// every palette.
 func (s SlashAutocomplete) View(width int) string {
 	if !s.visible || len(s.matches) == 0 {
 		return ""
 	}
 	var lines []string
 	for i, m := range s.matches {
-		nameStyle := lipgloss.NewStyle().Foreground(s.theme.Primary).Bold(true)
+		var nameStyle lipgloss.Style
 		descStyle := lipgloss.NewStyle().Foreground(s.theme.Dim)
 		if i == s.selected {
-			nameStyle = nameStyle.Background(s.theme.Border)
-			descStyle = descStyle.Background(s.theme.Border)
+			// Selected: bold, no Foreground — terminal default fg
+			// (typically bright white) makes it pop against the
+			// pale-orange neighbour rows.
+			nameStyle = lipgloss.NewStyle().Bold(true)
+		} else {
+			// Non-selected: pale orange, regular weight.
+			nameStyle = lipgloss.NewStyle().Foreground(slashCommandColor)
 		}
 		line := nameStyle.Render(m.Name) + "  " + descStyle.Render(m.Description)
 		lines = append(lines, line)
