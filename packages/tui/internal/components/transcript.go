@@ -6,6 +6,12 @@
 // that re-renders through render.Markdown on every delta; non-text events
 // finalize the card via EndAssistantCard so the next text_delta starts a
 // new one.
+//
+// COLOR RULE: AppendUserLine renders body text WITHOUT a Foreground so
+// the terminal default fg makes it bright. The "» " marker uses
+// theme.Primary bold to stay distinct from assistant lines. See
+// docs/conventions/tui-color-rendering.md for the full rule + the
+// M11.5–M11.10 iteration narrative that produced it.
 
 package components
 

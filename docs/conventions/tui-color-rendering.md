@@ -1,0 +1,177 @@
+# TUI color rendering — when to set a foreground color, when NOT to
+
+**When to read:** Before adjusting any text color in `packages/tui/`.
+Especially before assuming "use a brighter hex" will solve a legibility
+complaint — that assumption cost ~6 commits (M11.5 → M11.10) before the
+right model emerged.
+
+## The hard rule
+
+**For body text — assistant responses, user-input echoes, notification
+content, anything that needs to be the user's primary reading surface —
+do NOT set a foreground color.** Let it inherit the terminal default.
+
+For accent colors — headings, links, errors, dim metadata, code
+keywords, the user-line `»` marker, anything that needs to be
+*distinguishable from body text* rather than just bright — keep using
+`theme.Primary` / `theme.Success` / `theme.Error` / `theme.Dim`. Those
+ARE different from terminal default, which is the point.
+
+## Why
+
+The terminal's actual color rendering is the composition of three
+independently-customizable layers:
+
+1. **What the program emits** — lipgloss / glamour / direct ANSI escapes.
+2. **What the multiplexer passes through** — tmux/screen strip or
+   quantize sequences based on their own profile.
+3. **What the terminal maps to pixels** — every terminal has a
+   user-configurable 16-color palette, and some allow customizing the
+   256-color extension table too.
+
+A "bright white" value (`#ffffff`, `#cdd6f4`, ANSI `15`, 256-color
+`231`) can land on a DIM pixel color in any of these three layers. The
+user's terminal palette can map "Bright White" to a muted shade for a
+softer aesthetic. tmux without `terminal-overrides ',xterm*:Tc'` strips
+truecolor sequences entirely. Forcing TrueColor via
+`lipgloss.DefaultRenderer().SetColorProfile(termenv.TrueColor)` makes
+that stripping worse, not better.
+
+The terminal default foreground (what bubbles textinput uses when no
+style is applied; what the prompt cursor renders in) is the one path
+that bypasses all of this. The user has already configured their
+terminal so the default foreground is what they want to read against
+the default background. Trust it.
+
+## The rule, restated as code
+
+```go
+// WRONG — assumes the terminal will render this brightly
+body := lipgloss.NewStyle().
+    Foreground(lipgloss.Color("#ffffff")).  // may quantize to dim grey in tmux
+    Render(text)
+
+// WRONG — assumes ANSI 15 is bright white
+body := lipgloss.NewStyle().
+    Foreground(lipgloss.Color("15")).  // maps to terminal's user-customizable "Bright White"
+    Render(text)
+
+// WRONG — assumes 256-color cube entry 231 is hardware-fixed
+body := lipgloss.NewStyle().
+    Foreground(lipgloss.Color("231")).  // some terminals customize the 256 palette too
+    Render(text)
+
+// CORRECT — terminal default fg renders body text
+body := text  // or lipgloss.NewStyle().Render(text) if you need bold/italic
+```
+
+For glamour StyleConfig:
+
+```go
+// WRONG
+Paragraph: ansi.StyleBlock{
+    StylePrimitive: ansi.StylePrimitive{
+        Color: &fg,  // any "bright" value can render dim
+    },
+},
+
+// CORRECT
+Paragraph: ansi.StyleBlock{
+    StylePrimitive: ansi.StylePrimitive{
+        // No Color — inherit terminal default foreground.
+    },
+},
+```
+
+## What's still OK to color
+
+Things that need to be **different from body** (so visually distinct,
+not just bright) still get explicit colors:
+
+| Element | Color | Why |
+|---|---|---|
+| `»` user-line marker | `theme.Primary` (bold) | distinguishes user lines from assistant |
+| Headings (H1–H6) | `theme.Primary` (bold) | structural distinction |
+| Links / images | `theme.Primary` | actionable / external reference |
+| Inline code | `theme.Success` on `theme.CodeBackground` | code-vs-prose distinction |
+| Block quotes | `theme.Dim` | quoted-source signal |
+| Horizontal rules | `theme.Dim` | structural separator |
+| Errors / diff removed | `theme.Error` | severity signal |
+| Diff added | `theme.Success` | severity signal |
+| Code comments | `theme.Dim` | de-emphasized in syntax highlighting |
+| Status-line metadata | `theme.Dim` | ambient context |
+| Splash logo | hex gradient | brand cue (independent of theme) |
+| Spinner glyph | hex gradient | brand cue (independent of theme) |
+| Boot-notice borders | `theme.Warning` | informational-but-noticeable |
+
+Bold/italic attributes can stand in for color when they're sufficient
+to distinguish — e.g., `Strong` (`**bold**`) and `GenericStrong` use
+Bold only, no Color. The terminal's bold rendering is typically also
+brighter than the regular default, doubling as a brightness boost.
+
+## The iteration loop that produced this rule (M11.5 → M11.10)
+
+For posterity — so the same path doesn't get re-walked:
+
+1. **M11.5** (`c9faf6b`) — bumped assistant body from `#cdd6f4`
+   (Catppuccin Mocha text) to `#e2e8f0` (Slate 200). User: "no change."
+2. **M11.6** (`a814a0d`) — bumped to `#f1f5f9` (Slate 100) and moved
+   notifications into transcript so they scroll. User: "no change."
+3. **M11.7** (`d040c0a`) — bumped to `#ffffff` AND forced
+   `lipgloss.DefaultRenderer().SetColorProfile(termenv.TrueColor)`.
+   User: "**worse than before**." tmux without Tc-override stripped
+   the truecolor sequences entirely; text fell back to terminal-default
+   AT BEST, often dimmer.
+4. **M11.8** (`a5457a0`) — reverted TrueColor force, switched to
+   ANSI `15` (the universal "bright white" 16-color code). User: "no
+   improvement." Many iTerm/Terminal color schemes (Solarized,
+   Gruvbox-soft, etc.) set the "Bright White" palette entry to a dim
+   shade like `#cccccc` for a softer aesthetic.
+5. **M11.9** (`d18617c`) — switched to 256-color `231`, claimed to be
+   palette-fixed at RGB (255,255,255). User: "still dark." Some
+   terminals customize the 256-color extension table too; "231 is
+   spec-fixed" is true in principle but not in practice.
+6. **M11.10** (`444b7f2`) — gave up on picking the "right bright
+   color." Removed `Color` from all body-text style fields entirely.
+   Body text now inherits the terminal default — same path the
+   bubbles textinput uses for the typing cursor. User: **"ok its
+   working now."**
+
+The diagnostic clue was visible in the user's M11.9 screenshot:
+the text being actively typed in the prompt input was BRIGHT WHITE
+while everything I'd styled was dim grey. The textinput component
+uses no foreground style and inherits terminal default. That was the
+proof — my "bright" colors were ALL rendering dimmer than the
+terminal default.
+
+## How to verify a color change actually shipped
+
+The Go binary is rebuilt by `scripts/build-tui.ts` (postinstall) on
+every `sov upgrade`. To confirm a change reached the running binary:
+
+```bash
+# Check the installed binary's mtime vs. now
+ls -la ~/.bun/install/global/node_modules/@yevgetman/sov/bin/sov-tui
+
+# Verify which commit the installed sov reports
+sov --version  # prints VERSION-<short-sha>
+```
+
+If `sov-tui` mtime is old, postinstall didn't run — either the trust
+hasn't been granted (`bun pm -g trust @yevgetman/sov`) or Go ≥ 1.24
+isn't on PATH. `sov upgrade` does NOT fail when the postinstall fails;
+the TS runtime installs successfully but the TUI binary stays stale.
+
+If the SHA in `sov --version` matches the latest commit but text still
+looks wrong, the binary is current and the color choice itself is the
+problem (apply the rule at the top of this file).
+
+## See also
+
+- `packages/tui/internal/render/markdown.go` — the glamour StyleConfig
+  where this rule was learned in full. Section comments explain
+  per-field why some still have Color and some don't.
+- `packages/tui/internal/components/transcript.go` — `AppendUserLine`
+  applies this rule.
+- `packages/tui/internal/components/notification.go` — `Notification`
+  applies this rule.

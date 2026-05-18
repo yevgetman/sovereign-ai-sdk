@@ -5,6 +5,12 @@
 // a yellow-tinted rounded border so the user sees them as guidance
 // rather than as errors. Mirrors the Qwen Code reference layout where
 // a notification bar sits between the splash and the first user input.
+//
+// COLOR RULE: Notification body renders WITHOUT a Foreground so the
+// terminal default fg makes the message text bright. The yellow
+// rounded border (theme.Warning) is what marks the box as a notice;
+// the body itself doesn't need a special color. See
+// docs/conventions/tui-color-rendering.md for the full rule.
 
 package components
 

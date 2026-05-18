@@ -1,3 +1,21 @@
+// Package render — glamour-driven markdown rendering for the TUI.
+//
+// HARD RULE: do NOT set a foreground color for body-text glamour
+// fields (Document, Paragraph, Text, List items, Strong, Emph,
+// CodeBlock body, table body, definition descriptions). The terminal
+// default foreground is the reliable bright path; every hex / ANSI
+// "bright white" value can render DIM in some user's terminal because
+// of palette customization or tmux 256-color quantization. The full
+// rationale + iteration narrative lives at
+// docs/conventions/tui-color-rendering.md. Trying to "fix dim text by
+// picking a brighter color" cost 6 commits (M11.5 → M11.10) before
+// we settled on the right model. Don't repeat.
+//
+// Accent fields (headings, links, inline code, errors, diff added/
+// removed, code keywords, comments, blockquotes, horizontal rules)
+// keep their theme colors because they need to be DIFFERENT from
+// body text, not just bright.
+
 package render
 
 import (
