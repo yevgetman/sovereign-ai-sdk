@@ -62,8 +62,19 @@ func RenderSplash(info SplashInfo, t theme.Theme, width int) string {
 	const gutter = 2
 	const safetyMargin = 2
 
-	// Build the info card once and measure it.
-	card := buildInfoCard(info, t)
+	// Build the info card once and measure it. M11.3 — wrap in a
+	// rounded lipgloss border so the card reads as a discrete element
+	// (mirrors the REPL splash + the Qwen Code reference layout).
+	cardContent := buildInfoCard(info, t)
+	var card []string
+	if len(cardContent) > 0 {
+		borderStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Border).
+			Padding(0, 1)
+		boxed := borderStyle.Render(strings.Join(cardContent, "\n"))
+		card = strings.Split(boxed, "\n")
+	}
 	cardWidth := visualWidthMax(card)
 
 	useStacked := width < logoWidth+gutter+cardWidth+safetyMargin
@@ -80,11 +91,27 @@ func RenderSplash(info SplashInfo, t theme.Theme, width int) string {
 		rows = append(rows, card...)
 	} else {
 		// Side-by-side: pad the shorter block to the taller block's height
-		// so the join sees equal-length slices.
+		// so the join sees equal-length slices. Center the card vertically
+		// against the logo for a balanced look.
 		colored := colorize(logoLines)
 		height := max(len(colored), len(card))
 		left := padBlock(colored, height, logoWidth)
-		right := padBlock(card, height, cardWidth)
+		cardOffset := max(0, (height-len(card))/2)
+		right := make([]string, height)
+		pad := strings.Repeat(" ", cardWidth)
+		for i := 0; i < height; i++ {
+			cardIdx := i - cardOffset
+			if cardIdx >= 0 && cardIdx < len(card) {
+				line := card[cardIdx]
+				fill := cardWidth - lipgloss.Width(line)
+				if fill < 0 {
+					fill = 0
+				}
+				right[i] = line + strings.Repeat(" ", fill)
+			} else {
+				right[i] = pad
+			}
+		}
 		for i := 0; i < height; i++ {
 			rows = append(rows, left[i]+strings.Repeat(" ", gutter)+right[i])
 		}

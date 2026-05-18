@@ -20,11 +20,12 @@ import (
 )
 
 type Transcript struct {
-	vp       viewport.Model
-	lines    []string
-	width    int
-	height   int
-	atBottom bool
+	vp        viewport.Model
+	lines     []string
+	width     int
+	maxHeight int // M11.3: cap on viewport height; viewport sizes to min(content, maxHeight)
+	height    int // M11.3: actual viewport height after sizing — equals min(content, maxHeight)
+	atBottom  bool
 
 	// M9 T3 — buffered current-assistant card. Streaming text_delta events
 	// append to currentAssistant and re-render lines[currentAssistantIdx]
@@ -52,19 +53,59 @@ func (t Transcript) Update(msg tea.Msg) (Transcript, tea.Cmd) {
 	return t, cmd
 }
 
+// SetSize stores the maximum height budget the caller (app.go's
+// WindowSizeMsg handler) can spare for the transcript. The viewport's
+// actual height is computed as min(content, maxHeight) so the prompt
+// floats just below the content until enough is appended to fill the
+// budget. M11.3 — the change from "viewport is always maxHeight tall"
+// to "viewport sizes to content" is what makes the input bar follow
+// immediately after the splash instead of being anchored at the bottom
+// of the terminal.
 func (t *Transcript) SetSize(w, h int) {
 	t.width = w
 	// On tiny terminals where WindowSizeMsg.Height < statusH + promptH the
-	// caller hands us a negative height. Pass that into bubbles' viewport
-	// and we get a slice-out-of-range panic. Clamp to 0 so the viewport
-	// shrinks to nothing but doesn't crash the UI.
+	// caller hands us a negative height. Clamp the max to 0 so the
+	// viewport shrinks to nothing but doesn't crash the UI.
+	if h < 0 {
+		h = 0
+	}
+	t.maxHeight = h
+	t.vp.Width = w
+	t.rebuildHeight()
+}
+
+// rebuildHeight reapplies the size-to-content policy after a content
+// change. vp.Height = min(contentHeight, maxHeight). Called from
+// every append/update path so the prompt can immediately follow new
+// content. M11.3.
+func (t *Transcript) rebuildHeight() {
+	content := joinLines(t.lines)
+	contentHeight := 0
+	if content != "" {
+		contentHeight = lipgloss.Height(content)
+	}
+	h := contentHeight
+	if h > t.maxHeight {
+		h = t.maxHeight
+	}
 	if h < 0 {
 		h = 0
 	}
 	t.height = h
-	t.vp.Width = w
 	t.vp.Height = h
-	t.vp.SetContent(joinLines(t.lines))
+	t.vp.SetContent(content)
+}
+
+// ContentHeight returns the total visual height of the transcript's
+// lines (sum of lipgloss.Height for each line). Useful for callers
+// laying out below the transcript who need to know how many rows the
+// transcript actually occupies. M11.3.
+func (t Transcript) ContentHeight() int {
+	content := joinLines(t.lines)
+	if content == "" {
+		return 0
+	}
+	return lipgloss.Height(content)
 }
 
 // SetTheme swaps the theme used for in-progress markdown rendering and
@@ -74,7 +115,7 @@ func (t *Transcript) SetTheme(th theme.Theme) {
 	t.theme = th
 	if t.currentAssistant != nil && t.currentAssistantIdx < len(t.lines) {
 		t.lines[t.currentAssistantIdx] = render.Markdown(t.currentAssistant.String(), t.theme, t.width)
-		t.vp.SetContent(joinLines(t.lines))
+		t.rebuildHeight()
 	}
 }
 
@@ -84,7 +125,7 @@ func (t *Transcript) AppendLine(line string) {
 	// open should use AppendAssistantDelta instead.
 	t.currentAssistant = nil
 	t.lines = append(t.lines, line)
-	t.vp.SetContent(joinLines(t.lines))
+	t.rebuildHeight()
 	// Only scroll if the viewport has been sized; calling GotoBottom on an
 	// unsized viewport panics with slice-out-of-range (bubbles viewport bug
 	// surfaced when sse events arrive before WindowSizeMsg).
@@ -115,7 +156,7 @@ func (t *Transcript) AppendLiveLine(line string) int {
 	t.currentAssistant = nil
 	idx := len(t.lines)
 	t.lines = append(t.lines, line)
-	t.vp.SetContent(joinLines(t.lines))
+	t.rebuildHeight()
 	if t.atBottom && t.width > 0 && t.height > 0 {
 		t.vp.GotoBottom()
 	}
@@ -130,7 +171,7 @@ func (t *Transcript) UpdateLiveLine(lineIdx int, line string) {
 		return
 	}
 	t.lines[lineIdx] = line
-	t.vp.SetContent(joinLines(t.lines))
+	t.rebuildHeight()
 	if t.atBottom && t.width > 0 && t.height > 0 {
 		t.vp.GotoBottom()
 	}
@@ -148,7 +189,7 @@ func (t *Transcript) AppendAssistantDelta(delta string) {
 	t.currentAssistant.WriteString(delta)
 	rendered := render.Markdown(t.currentAssistant.String(), t.theme, t.width)
 	t.lines[t.currentAssistantIdx] = rendered
-	t.vp.SetContent(joinLines(t.lines))
+	t.rebuildHeight()
 	if t.atBottom && t.width > 0 && t.height > 0 {
 		t.vp.GotoBottom()
 	}
@@ -175,7 +216,7 @@ func (t *Transcript) RemoveLastLine() {
 	if t.currentAssistant != nil && t.currentAssistantIdx >= len(t.lines) {
 		t.currentAssistant = nil
 	}
-	t.vp.SetContent(joinLines(t.lines))
+	t.rebuildHeight()
 	if t.atBottom && t.width > 0 && t.height > 0 {
 		t.vp.GotoBottom()
 	}
@@ -233,7 +274,7 @@ func (t *Transcript) ToggleCardExpanded(lineIdx int) {
 	t.toolCards[lineIdx] = card
 	if lineIdx >= 0 && lineIdx < len(t.lines) {
 		t.lines[lineIdx] = card.View(t.width)
-		t.vp.SetContent(joinLines(t.lines))
+		t.rebuildHeight()
 	}
 }
 

@@ -126,6 +126,7 @@ type Model struct {
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
 	spinnerLabel     string                     // M11.2: current spinner label ("thinking", "expanding /name", etc.)
 	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
+	bootNotices      []string                   // M11.3: contextual advisories rendered between splash and prompt (running in $HOME, no bundle, etc.)
 }
 
 // spinnerTickMsg is dispatched by the spinner's recurring tea.Tick. The
@@ -270,7 +271,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		const statusH = 1
 		const promptH = 2
-		m.transcript.SetSize(msg.Width, msg.Height-statusH-promptH)
+		const hintH = 1 // M11.3: "? for shortcuts" hint between prompt and status
+		// Notices and the stall badge are variable-height; their max
+		// combined footprint at typical widths is ~6 rows. Reserving
+		// space here means the transcript caps lower so the splash +
+		// notices + prompt all fit at boot without overflow.
+		noticeH := lipgloss.Height(components.JoinNotices(m.bootNotices, m.theme, msg.Width))
+		maxTranscriptH := msg.Height - statusH - promptH - hintH - noticeH
+		if maxTranscriptH < 1 {
+			maxTranscriptH = 1
+		}
+		m.transcript.SetSize(msg.Width, maxTranscriptH)
 		m.prompt.SetWidth(msg.Width)
 		m.statusLine.SetWidth(msg.Width)
 		// M9.5 T3 — surface the boot theme error (if any) once the
@@ -292,6 +303,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// has a real server URL.
 		if !m.splashShown && m.baseURL != "" {
 			cwd, _ := os.Getwd()
+			home := os.Getenv("HOME")
 			info := components.SplashInfo{
 				Version:  "0.1.0",
 				Provider: "anthropic",
@@ -301,6 +313,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
 			}
 			m.transcript.AppendLine(components.RenderSplash(info, m.theme, msg.Width))
+			// M11.3 — collect contextual boot notices (e.g., running in
+			// $HOME). Rendered between the transcript and prompt in
+			// View() so they sit visually after the splash but stay out
+			// of the scrollable transcript history.
+			bundlePath := os.Getenv("HARNESS_BUNDLE")
+			m.bootNotices = components.BootNotices(cwd, home, bundlePath)
 			m.splashShown = true
 		}
 		return m, nil
@@ -1060,12 +1078,28 @@ func (m Model) View() string {
 	if m.autocomplete.Visible() {
 		prompt = m.autocomplete.View(m.width) + "\n" + prompt
 	}
+	// M11.3 — render the notification bar between transcript content and
+	// the prompt so contextual advisories (running in $HOME, no bundle,
+	// etc.) sit visually next to the splash but stay out of the
+	// scrollable transcript history.
+	notice := components.JoinNotices(m.bootNotices, m.theme, m.width)
+	// M11.3 — hint line below the prompt, dim/italic. "? for shortcuts"
+	// matches the Qwen Code reference layout.
+	hint := components.HintLine("? for shortcuts", m.theme)
+
 	// M9.6 T2 — stall badge renders between transcript and prompt area.
 	out := m.transcript.View() + "\n"
+	if notice != "" {
+		out += notice + "\n"
+	}
 	if m.stallBadge != nil {
 		out += m.stallBadge.View(m.width) + "\n"
 	}
-	out += prompt + "\n" + m.statusLine.View()
+	out += prompt + "\n"
+	if hint != "" {
+		out += hint + "\n"
+	}
+	out += m.statusLine.View()
 	return out
 }
 
