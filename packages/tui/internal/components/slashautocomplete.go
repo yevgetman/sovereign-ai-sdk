@@ -121,15 +121,16 @@ func (s *SlashAutocomplete) SelectAt(idx int) (string, bool) {
 }
 
 // PopupHeight returns the visible vertical height of the popup
-// (entries + hint line + top/bottom border = entries+3). Returns 0
-// when hidden or empty. Used by mouse-click region routing in app.go
-// (M9.6 T1) to map screen-Y to entry idx. M11.15 bumped by 1 to
-// account for the Tab-autocomplete hint line inside the box.
+// (entries + blank spacer + hint line + top/bottom border =
+// entries+4). Returns 0 when hidden or empty. Used by mouse-click
+// region routing in app.go (M9.6 T1) to map screen-Y to entry idx.
+// M11.15 bumped by 1 for the Tab-autocomplete hint; M11.16 bumped
+// by 1 more for the spacer between matches and hint.
 func (s SlashAutocomplete) PopupHeight() int {
 	if !s.visible || len(s.matches) == 0 {
 		return 0
 	}
-	return len(s.matches) + 3
+	return len(s.matches) + 4
 }
 
 // compute filters the entry list (static + skills) by the filter string.
@@ -212,9 +213,12 @@ func (s SlashAutocomplete) View(width int) string {
 	// M11.15 — subtle grey-blue hint at the bottom of the popup so
 	// new users discover Tab autocompletion. Italic to match the
 	// general "ambient guidance" style used in HintLine/notifications.
+	// M11.16 — blank-line spacer between the match list and the hint
+	// so the hint reads as a separate informational footer rather
+	// than as another match row.
 	hintStyle := lipgloss.NewStyle().Foreground(autocompleteHintColor).Italic(true)
-	hint := hintStyle.Render("press Tab to autocomplete")
-	body := strings.Join(lines, "\n") + "\n" + hint
+	hint := hintStyle.Render("Press Tab to autocomplete")
+	body := strings.Join(lines, "\n") + "\n\n" + hint
 	if width < 6 {
 		return body
 	}
