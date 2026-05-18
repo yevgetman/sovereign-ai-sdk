@@ -67,8 +67,8 @@ describe('slash command registry', () => {
     expect(text).toContain('── config ──');
     expect(text).toContain('── files ──');
     expect(text).toContain('── git ──');
-    // Wave-4 footer hint
-    expect(text).toContain('tab completion lands in Wave 4');
+    // Footer hint — tab autocomplete (Phase 10.5e Wave 4 shipped 2026-05-03)
+    expect(text).toContain('Press Tab to autocomplete');
   });
 
   test('/help bucketing places commands in the right categories', async () => {

@@ -94,7 +94,7 @@ assert_contains "T1.10 lists /resume"               "$TESTDIR/t1.txt" '/resume'
 assert_contains "T1.11 lists /export"               "$TESTDIR/t1.txt" '/export'
 assert_contains "T1.12 lists /init"                 "$TESTDIR/t1.txt" '/init'
 assert_contains "T1.13 lists /commit"               "$TESTDIR/t1.txt" '/commit'
-assert_contains "T1.14 hint about Wave 4"           "$TESTDIR/t1.txt" 'tab completion lands in Wave 4'
+assert_contains "T1.14 hint about Tab autocomplete" "$TESTDIR/t1.txt" 'Press Tab to autocomplete'
 
 section "T2 — /about boxed info card"
 run_sov '/about\n/quit\n' "$TESTDIR/t2.txt"

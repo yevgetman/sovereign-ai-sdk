@@ -251,7 +251,7 @@ function formatHelp(registry: ReadonlyMap<string, SlashCommand>): string {
     sections.push(rows.join('\n'));
   }
   sections.push('');
-  sections.push(chalk.dim('hint: type / followed by a name; tab completion lands in Wave 4.'));
+  sections.push(chalk.dim('hint: type / followed by a name. Press Tab to autocomplete.'));
   return sections.join('\n');
 }
 
