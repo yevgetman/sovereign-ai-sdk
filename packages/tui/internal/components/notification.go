@@ -23,6 +23,11 @@ import (
 // The border picks up theme.Warning for the soft yellow accent — the
 // notification is informational guidance, not an error, so the warning
 // color reads as "noticeable but not alarming."
+//
+// M11.10 — body text renders WITHOUT a foreground color so it inherits
+// the terminal default foreground (same path as user-input rendering).
+// Explicit theme.Foreground rendered dim on terminals with custom
+// palettes; terminal default is reliably bright.
 func Notification(message string, t theme.Theme, width int) string {
 	if message == "" {
 		return ""
@@ -36,8 +41,8 @@ func Notification(message string, t theme.Theme, width int) string {
 	if contentWidth < 10 {
 		contentWidth = 10
 	}
+	// No Foreground on the body — terminal default renders it bright.
 	body := lipgloss.NewStyle().
-		Foreground(t.Foreground).
 		Width(contentWidth).
 		Render(message)
 	box := lipgloss.NewStyle().

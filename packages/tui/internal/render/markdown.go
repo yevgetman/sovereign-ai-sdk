@@ -43,15 +43,19 @@ func Markdown(text string, t theme.Theme, width int) string {
 // ANSI 256 indices) keeps the rendered text consistent across terminals
 // with different color-cube interpretations.
 //
-// M11.5 — assistant body text uses a brighter foreground hex than the
-// raw theme.Foreground when the active theme is dark. Catppuccin's
-// #cdd6f4 (Mocha text) reads as dim grey against many terminal
-// backgrounds; bumping to #e2e8f0 (a cool off-white) keeps responses
-// clearly legible without sacrificing the theme aesthetic. Light themes
-// retain their original foreground since making it brighter would
-// reduce contrast against the light background.
+// M11.10 — body text (Document, Paragraph, Text, List items, Strong,
+// Emph) intentionally does NOT set a Color so the terminal renders it
+// with its default foreground. Repeated attempts to pick a "bright
+// white" (Catppuccin Mocha text, slate-100, pure white via #ffffff,
+// ANSI 15, ANSI 256-color index 231) all rendered DIMMER than the
+// user's terminal default. The text-input cursor at the bottom uses
+// no foreground style and renders as the brightest white the user's
+// terminal can produce — so we follow the same approach for body
+// text. Accent colors (headings, links, code-spans, code-blocks,
+// errors) keep their theme.Primary / theme.Success / theme.Error
+// styling because they need to be DIFFERENT from body text, not just
+// bright.
 func styleForTheme(t theme.Theme) ansi.StyleConfig {
-	fg := assistantBodyFg(t)
 	dim := string(t.Dim)
 	primary := string(t.Primary)
 	success := string(t.Success)
@@ -72,7 +76,7 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 			StylePrimitive: ansi.StylePrimitive{
 				BlockPrefix: "\n",
 				BlockSuffix: "\n",
-				Color:       &fg,
+				// No Color — inherit terminal default foreground.
 			},
 			Margin: &margin,
 		},
@@ -85,13 +89,13 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		Paragraph: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Color: &fg,
+				// No Color — inherit terminal default foreground.
 			},
 		},
 		List: ansi.StyleList{
 			StyleBlock: ansi.StyleBlock{
 				StylePrimitive: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 			},
 			LevelIndent: listLevelIndent,
@@ -145,18 +149,18 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 			},
 		},
 		Text: ansi.StylePrimitive{
-			Color: &fg,
+			// No Color — inherit terminal default foreground.
 		},
 		Strikethrough: ansi.StylePrimitive{
 			CrossedOut: &bold,
 		},
 		Emph: ansi.StylePrimitive{
-			Color:  &fg,
 			Italic: &italic,
 		},
 		Strong: ansi.StylePrimitive{
-			Color: &fg,
-			Bold:  &bold,
+			// No Color — inherit terminal default; Bold is enough to
+			// visually distinguish strong text from body.
+			Bold: &bold,
 		},
 		HorizontalRule: ansi.StylePrimitive{
 			Color:  &dim,
@@ -164,15 +168,15 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		Item: ansi.StylePrimitive{
 			BlockPrefix: bullet + " ",
-			Color:       &fg,
+			// No Color — inherit terminal default foreground.
 		},
 		Enumeration: ansi.StylePrimitive{
 			BlockPrefix: ". ",
-			Color:       &fg,
+			// No Color — inherit terminal default foreground.
 		},
 		Task: ansi.StyleTask{
 			StylePrimitive: ansi.StylePrimitive{
-				Color: &fg,
+				// No Color — inherit terminal default foreground.
 			},
 			Ticked:   "[✓] ",
 			Unticked: "[ ] ",
@@ -204,13 +208,13 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		CodeBlock: ansi.StyleCodeBlock{
 			StyleBlock: ansi.StyleBlock{
 				StylePrimitive: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 				Margin: &margin,
 			},
 			Chroma: &ansi.Chroma{
 				Text: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 				Error: ansi.StylePrimitive{
 					Color: &error_,
@@ -234,13 +238,13 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 					Color: &primary,
 				},
 				Operator: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 				Punctuation: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 				Name: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 				NameBuiltin: ansi.StylePrimitive{
 					Color: &primary,
@@ -278,15 +282,15 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 					Color: &error_,
 				},
 				GenericEmph: ansi.StylePrimitive{
-					Color:  &fg,
+					// No Color — italic alone distinguishes.
 					Italic: &italic,
 				},
 				GenericInserted: ansi.StylePrimitive{
 					Color: &success,
 				},
 				GenericStrong: ansi.StylePrimitive{
-					Color: &fg,
-					Bold:  &bold,
+					// No Color — bold alone distinguishes.
+					Bold: &bold,
 				},
 				GenericSubheading: ansi.StylePrimitive{
 					Color: &primary,
@@ -299,7 +303,7 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		Table: ansi.StyleTable{
 			StyleBlock: ansi.StyleBlock{
 				StylePrimitive: ansi.StylePrimitive{
-					Color: &fg,
+					// No Color — inherit terminal default foreground.
 				},
 			},
 			CenterSeparator: stringPtr("┼"),
@@ -308,25 +312,9 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		DefinitionDescription: ansi.StylePrimitive{
 			BlockPrefix: "\n🠶 ",
-			Color:       &fg,
+			// No Color — inherit terminal default foreground.
 		},
 	}
 }
 
 func stringPtr(s string) *string { return &s }
-
-// assistantBodyFg returns the foreground used for assistant-body text
-// in the markdown renderer. Dark themes use ANSI 256-color index 231
-// — the fixed pure-white entry in the 6x6x6 color cube (RGB 255,255,255).
-// Unlike ANSI "15" (which maps to the terminal's user-configurable
-// "Bright White" palette entry — often set to a dim shade in popular
-// iTerm/Terminal color schemes), color 231 is fixed in the 256-color
-// spec and cannot be palette-overridden. This survives both tmux
-// 256-color stripping AND terminal-palette customization. Light themes
-// keep theme.Foreground for contrast against the light background.
-func assistantBodyFg(t theme.Theme) string {
-	if t.Name == "light" {
-		return string(t.Foreground)
-	}
-	return "231"
-}

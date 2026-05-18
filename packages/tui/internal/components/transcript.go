@@ -139,20 +139,20 @@ func (t *Transcript) AppendLine(line string) {
 // from model responses, dim system messages, and tool cards. Centralizes
 // the styling so every call site stays in sync. M11.1.
 //
-// M11.9 — body uses ANSI 256-color index 231 (pure white from the
-// 6x6x6 color cube). Unlike code "15" (which maps to the terminal's
-// user-configurable "Bright White" palette entry — often a dim shade
-// in popular iTerm/Terminal color schemes), 231 is fixed in the
-// 256-color spec and renders as pure white regardless of palette.
-// Light themes use theme.Foreground for proper contrast.
+// M11.10 — body text is rendered WITHOUT a foreground color so it
+// inherits the terminal's default foreground (same path the bubbles
+// textinput uses for the typing cursor). Every prior attempt to set
+// a "bright" color via lipgloss/glamour rendered DIMMER than the
+// terminal default — the user has a terminal palette where 256-color
+// "231" and ANSI "15" both map to dim shades. Letting the terminal
+// default render means the body text matches the brightness of the
+// text the user is actively typing. The "» " marker stays styled in
+// theme.Primary bold so user lines are still visually distinct from
+// assistant responses.
 func (t *Transcript) AppendUserLine(text string) {
 	marker := lipgloss.NewStyle().Foreground(t.theme.Primary).Bold(true).Render("» ")
-	bodyColor := lipgloss.Color("231")
-	if t.theme.Name == "light" {
-		bodyColor = t.theme.Foreground
-	}
-	body := lipgloss.NewStyle().Foreground(bodyColor).Render(text)
-	t.AppendLine(marker + body)
+	// No Foreground on the body — terminal default renders it bright.
+	t.AppendLine(marker + text)
 }
 
 // AppendLiveLine appends a line and records its index so subsequent
