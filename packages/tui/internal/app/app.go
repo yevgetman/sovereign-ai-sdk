@@ -871,20 +871,27 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 	case "turn_complete":
 		tc, err := transport.DecodeTurnComplete(env.Raw)
 		if err != nil {
-			// Schema parse failed — still surface SOMETHING so the user
-			// knows the turn ended. Don't regress on the pre-fix marker.
+			// Schema parse failed — still surface a separator so the
+			// user sees turn boundaries; failure mode degrades to the
+			// same visual as a normal end_turn.
 			m.clearThinkingIfPending()
 			m.transcript.EndAssistantCard() // M9 T3
-			m.transcript.AppendLine("[turn complete]")
+			m.transcript.AppendLine(turnSeparator(m.theme, m.width))
 			return nil
 		}
 		m.clearThinkingIfPending()
-		m.transcript.EndAssistantCard() // M9 T3 — finalize the streamed card before the marker
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+		m.transcript.EndAssistantCard() // M9 T3 — finalize the streamed card before the separator
+		// M11.7 — pure separator line, no text. Previously rendered
+		// "─ turn complete" / "─ turn complete (max_tokens)" which read
+		// as system noise between conversational turns. Now: a single
+		// dim horizontal rule, with the finish reason surfaced ONLY
+		// when it's something the user should notice (non-end_turn).
 		if tc.FinishReason == "" || tc.FinishReason == "end_turn" {
-			m.transcript.AppendLine(dim.Render("─ turn complete"))
+			m.transcript.AppendLine(turnSeparator(m.theme, m.width))
 		} else {
-			m.transcript.AppendLine(dim.Render("─ turn complete (" + tc.FinishReason + ")"))
+			dim := lipgloss.NewStyle().Foreground(m.theme.Dim).Italic(true)
+			m.transcript.AppendLine(turnSeparator(m.theme, m.width))
+			m.transcript.AppendLine(dim.Render("  ⚠ " + tc.FinishReason))
 		}
 	case "compaction_complete":
 		// M6 T6: T3 (proactive) and T4 (overflow recovery) publish this
@@ -1046,6 +1053,24 @@ func (m *Model) startSpinner(label string) tea.Cmd {
 	return tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
 		return spinnerTickMsg{gen: capturedGen}
 	})
+}
+
+// turnSeparator renders a subtle horizontal rule between conversational
+// turns. M11.7 — replaces the previous "─ turn complete" text marker
+// with a pure visual delimiter; the rule reads as a turn boundary
+// without adding system-chatter noise to the transcript. Length is a
+// quarter of the terminal width (clamped to 8..32 chars) so it stays
+// proportional on narrow + wide terminals.
+func turnSeparator(t theme.Theme, width int) string {
+	n := width / 4
+	if n < 8 {
+		n = 8
+	}
+	if n > 32 {
+		n = 32
+	}
+	rule := strings.Repeat("─", n)
+	return lipgloss.NewStyle().Foreground(t.Dim).Render(rule)
 }
 
 // shortSessionID returns the first 8 chars of a session id, or the full

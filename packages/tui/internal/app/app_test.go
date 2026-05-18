@@ -110,14 +110,16 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 
 	tm := teatest.NewTestModel(t, New("test-session", srv.URL), teatest.WithInitialTermSize(80, 24))
 
-	// Wait until the transcript has rendered the turn_complete marker — this
+	// Wait until the transcript has rendered the turn separator — this
 	// proves the model consumed all three events on the single connection.
+	// M11.7 replaced "turn complete" text with a pure horizontal rule
+	// (turnSeparator) so we look for the box-drawing character instead.
 	// (We don't assert on the rendered text of intermediate text_deltas
 	// because teatest's ANSI compressor may coalesce frames and drop
 	// overwritten content; the connectionCount<=2 check at the end is the
 	// deterministic regression guard.)
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return contains(b, "turn complete")
+		return contains(b, "────────")
 	}, teatest.WithDuration(3*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
