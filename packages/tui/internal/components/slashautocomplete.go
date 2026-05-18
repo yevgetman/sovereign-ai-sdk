@@ -120,14 +120,16 @@ func (s *SlashAutocomplete) SelectAt(idx int) (string, bool) {
 	return s.matches[idx].Name, true
 }
 
-// PopupHeight returns the visible vertical height of the popup (entries
-// plus border lines). Returns 0 when hidden or empty. Used by mouse-
-// click region routing in app.go (M9.6 T1) to map screen-Y to entry idx.
+// PopupHeight returns the visible vertical height of the popup
+// (entries + hint line + top/bottom border = entries+3). Returns 0
+// when hidden or empty. Used by mouse-click region routing in app.go
+// (M9.6 T1) to map screen-Y to entry idx. M11.15 bumped by 1 to
+// account for the Tab-autocomplete hint line inside the box.
 func (s SlashAutocomplete) PopupHeight() int {
 	if !s.visible || len(s.matches) == 0 {
 		return 0
 	}
-	return len(s.matches) + 2
+	return len(s.matches) + 3
 }
 
 // compute filters the entry list (static + skills) by the filter string.
@@ -169,6 +171,13 @@ func (s SlashAutocomplete) compute() []Entry {
 // accent colors that need a specific shade).
 var slashCommandColor = lipgloss.Color("#fab387")
 
+// autocompleteHintColor is a subtle grey-blue for the "press Tab to
+// autocomplete" hint at the bottom of the popup. Picked specifically
+// to read as ambient guidance — visible enough that users notice it,
+// recessive enough that it doesn't compete with the command names
+// above it. M11.15.
+var autocompleteHintColor = lipgloss.Color("#7a8eb8")
+
 // View renders the popup above the prompt row. width is the popup's width.
 // Returns empty when hidden or empty matches list.
 //
@@ -200,7 +209,12 @@ func (s SlashAutocomplete) View(width int) string {
 		line := nameStyle.Render(m.Name) + "  " + descStyle.Render(m.Description)
 		lines = append(lines, line)
 	}
-	body := strings.Join(lines, "\n")
+	// M11.15 — subtle grey-blue hint at the bottom of the popup so
+	// new users discover Tab autocompletion. Italic to match the
+	// general "ambient guidance" style used in HintLine/notifications.
+	hintStyle := lipgloss.NewStyle().Foreground(autocompleteHintColor).Italic(true)
+	hint := hintStyle.Render("press Tab to autocomplete")
+	body := strings.Join(lines, "\n") + "\n" + hint
 	if width < 6 {
 		return body
 	}
