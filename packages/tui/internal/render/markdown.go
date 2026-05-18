@@ -19,6 +19,9 @@
 package render
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
@@ -28,12 +31,11 @@ import (
 // Plain on any glamour error so the TUI never crashes on garbage input
 // from the model. Width is the wrap column (glamour's WordWrap).
 //
-// M11.1 — uses a theme-driven custom StyleConfig so body text picks up
-// theme.Foreground (e.g., Catppuccin Mocha #cdd6f4) instead of glamour's
-// default ANSI 256 "252" which renders as dark grey on terminals with
-// non-standard color cubes. This was the dominant readability complaint
-// after the M11 default-flip; users saw model responses as illegible
-// dark text on a dark background.
+// M11.1 — uses a theme-driven custom StyleConfig (see styleForTheme).
+// M11.12 — pre-processes the input to wrap file-path-shaped tokens in
+// backticks so the inline Code style (light-blue bold) auto-applies.
+// Models inconsistently use backticks for file refs; this pass makes
+// the formatting consistent without depending on prompt engineering.
 func Markdown(text string, t theme.Theme, width int) string {
 	if text == "" {
 		return ""
@@ -41,6 +43,7 @@ func Markdown(text string, t theme.Theme, width int) string {
 	if width <= 0 {
 		return text
 	}
+	text = wrapFileRefs(text)
 	style := styleForTheme(t)
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(style),
@@ -54,6 +57,69 @@ func Markdown(text string, t theme.Theme, width int) string {
 		return Plain(text, t, width)
 	}
 	return out
+}
+
+// fileRefPattern matches file-reference tokens that should be styled
+// as inline code so they pick up the M11.11 light-blue bold treatment:
+//
+//   - Paths starting with /, ~/, ./, ../ followed by non-space chars
+//     (e.g., /Users/julie/x, ~/code/foo, ./script.sh, ../README.md)
+//   - Bare filenames ending in a recognized extension (e.g., foo.png,
+//     hello.go, config.yaml)
+//
+// Word boundaries on both ends keep the regex from grabbing into
+// surrounding prose. Extension list covers what models typically
+// mention in agent responses; not exhaustive but conservative.
+var fileRefPattern = regexp.MustCompile(
+	`(?:^|[\s(\[{"'])((?:/|~/|\./|\.\./)[\w./\-]+|[\w\-][\w\-.]*\.(?:png|jpe?g|gif|svg|webp|ico|md|mdx|txt|json|ya?ml|toml|csv|tsv|log|go|ts|tsx|js|jsx|mjs|cjs|py|rs|sh|bash|zsh|fish|html?|css|scss|sass|sql|c|cc|cpp|cxx|h|hpp|java|kt|rb|php|swift|mm?|xml|conf|cfg|ini|env|lock|gitignore|gitattributes|dockerfile|makefile))(?:$|[\s),.!?:;\]}"'])`,
+)
+
+// wrapFileRefs wraps detected file-reference tokens in backticks so
+// glamour renders them via the inline-Code style. Skips text already
+// inside backtick spans (single or triple) so we don't double-wrap
+// and don't modify content inside fenced code blocks. M11.12.
+func wrapFileRefs(text string) string {
+	// First split on triple-backtick code fences so we leave those
+	// blocks untouched.
+	fenced := strings.Split(text, "```")
+	for i := range fenced {
+		if i%2 == 1 {
+			// Inside a fenced code block; preserve verbatim.
+			continue
+		}
+		fenced[i] = wrapFileRefsOutsideBackticks(fenced[i])
+	}
+	return strings.Join(fenced, "```")
+}
+
+// wrapFileRefsOutsideBackticks runs the file-ref regex over text
+// segments that sit OUTSIDE inline backtick spans, leaving anything
+// already in backticks unchanged.
+func wrapFileRefsOutsideBackticks(text string) string {
+	parts := strings.Split(text, "`")
+	for i := range parts {
+		if i%2 == 1 {
+			// Inside an inline backtick span; preserve verbatim.
+			continue
+		}
+		parts[i] = fileRefPattern.ReplaceAllStringFunc(parts[i], func(match string) string {
+			// The regex captures both the leading delimiter (if any)
+			// and the trailing delimiter. We re-find the file-ref
+			// substring via the same regex's submatch to wrap only
+			// that portion in backticks.
+			subs := fileRefPattern.FindStringSubmatch(match)
+			if len(subs) < 2 {
+				return match
+			}
+			fileRef := subs[1]
+			idx := strings.Index(match, fileRef)
+			if idx < 0 {
+				return match
+			}
+			return match[:idx] + "`" + fileRef + "`" + match[idx+len(fileRef):]
+		})
+	}
+	return strings.Join(parts, "`")
 }
 
 // styleForTheme builds a glamour StyleConfig that picks up the active

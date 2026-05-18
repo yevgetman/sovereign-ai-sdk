@@ -779,17 +779,19 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 				Render(td.Text),
 		)
 	case "tool_use_start":
-		tus, err := transport.DecodeToolUseStart(env.Raw)
+		_, err := transport.DecodeToolUseStart(env.Raw)
 		if err != nil {
 			return nil
 		}
+		// M11.12 — clear the thinking spinner and finalize any
+		// streaming assistant text, but do NOT emit a separate
+		// "→ <Tool> starting..." line. The subsequent tool_result event
+		// renders the full tool card (with header + output), which is
+		// the only visible artifact the user needs to see. The starting
+		// line was redundant pre-M11.12 — same information as the
+		// card's header, but without the result content.
 		m.clearThinkingIfPending()
 		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
-		m.transcript.AppendLine(
-			lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6e7681")).
-				Render(fmt.Sprintf("-> %s starting...", tus.Tool)),
-		)
 	case "tool_result":
 		tr, err := transport.DecodeToolResult(env.Raw)
 		if err != nil {
@@ -1056,21 +1058,19 @@ func (m *Model) startSpinner(label string) tea.Cmd {
 }
 
 // turnSeparator renders a subtle horizontal rule between conversational
-// turns. M11.7 — replaces the previous "─ turn complete" text marker
-// with a pure visual delimiter; the rule reads as a turn boundary
-// without adding system-chatter noise to the transcript. Length is a
-// quarter of the terminal width (clamped to 8..32 chars) so it stays
-// proportional on narrow + wide terminals.
+// turns. M11.7 introduced the pure visual delimiter (no "turn complete"
+// text); M11.12 changes it to full-terminal-width and uses
+// theme.Border instead of theme.Dim so the rule reads as ambient
+// page-break chrome rather than as an active element — visible enough
+// to mark the turn boundary, recessive enough to disappear into the
+// background while reading.
 func turnSeparator(t theme.Theme, width int) string {
-	n := width / 4
+	n := width
 	if n < 8 {
 		n = 8
 	}
-	if n > 32 {
-		n = 32
-	}
 	rule := strings.Repeat("─", n)
-	return lipgloss.NewStyle().Foreground(t.Dim).Render(rule)
+	return lipgloss.NewStyle().Foreground(t.Border).Render(rule)
 }
 
 // shortSessionID returns the first 8 chars of a session id, or the full
