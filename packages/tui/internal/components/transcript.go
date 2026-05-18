@@ -103,6 +103,39 @@ func (t *Transcript) AppendUserLine(text string) {
 	t.AppendLine(marker + body)
 }
 
+// AppendLiveLine appends a line and records its index so subsequent
+// UpdateLiveLine calls can re-render it in place without disturbing
+// surrounding content. Returns the line's index for the caller to
+// retain. M11.2 — drives the thinking spinner.
+//
+// Mirrors AppendAssistantDelta's in-place update pattern but without
+// the markdown-rendering pipeline; the live line is a fully-rendered
+// string the caller produces (e.g., the spinner's View output).
+func (t *Transcript) AppendLiveLine(line string) int {
+	t.currentAssistant = nil
+	idx := len(t.lines)
+	t.lines = append(t.lines, line)
+	t.vp.SetContent(joinLines(t.lines))
+	if t.atBottom && t.width > 0 && t.height > 0 {
+		t.vp.GotoBottom()
+	}
+	return idx
+}
+
+// UpdateLiveLine replaces the content at lineIdx with the new string
+// and re-renders the viewport. No-op when lineIdx is out of range
+// (e.g., when ClearLiveLine has already popped it). M11.2.
+func (t *Transcript) UpdateLiveLine(lineIdx int, line string) {
+	if lineIdx < 0 || lineIdx >= len(t.lines) {
+		return
+	}
+	t.lines[lineIdx] = line
+	t.vp.SetContent(joinLines(t.lines))
+	if t.atBottom && t.width > 0 && t.height > 0 {
+		t.vp.GotoBottom()
+	}
+}
+
 // AppendAssistantDelta appends a text_delta to the in-progress assistant
 // card and re-renders the line through render.Markdown. The first call
 // starts a new card; subsequent calls update the same line in place. M9 T3.

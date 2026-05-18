@@ -122,7 +122,25 @@ type Model struct {
 	stallBadge       *components.StallBadge     // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
 	stallGeneration  int                        // M9.6 T2: increments per stall; tick closure captures + compares on expire
 	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
+	spinner          components.Spinner         // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
+	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
+	spinnerLabel     string                     // M11.2: current spinner label ("thinking", "expanding /name", etc.)
+	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
 }
+
+// spinnerTickMsg is dispatched by the spinner's recurring tea.Tick. The
+// captured gen tracks which spinner generation scheduled the tick; on
+// fire we compare against m.spinnerGen and drop the tick when stale
+// (e.g., the spinner was cleared by clearThinkingIfPending and a new
+// one started in the meantime). M11.2.
+type spinnerTickMsg struct {
+	gen int
+}
+
+// spinnerTickInterval is how often the thinking spinner advances a
+// frame. 80ms feels lively without being a strobe; matches Claude
+// Code's perception. M11.2.
+const spinnerTickInterval = 80 * time.Millisecond
 
 // stallExpireMsg is dispatched by a tea.Tick scheduled in the
 // stall_detected handler. The closure captures the current
@@ -166,6 +184,8 @@ func New(sessionID, baseURL string) Model {
 		harnessHome:      harnessHome,
 		pendingThemeErr:  themeErr,
 		pendingThemeName: themeName,
+		spinner:          components.NewSpinner(),
+		spinnerLineIdx:   -1,
 	}
 	if baseURL != "" {
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
@@ -453,12 +473,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if name, ok := matchSkillSlash(text, m.skills); ok {
 				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
-				dimStyle := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#6e7681")).
-					Italic(true)
-				m.transcript.AppendLine(dimStyle.Render("…expanding /" + name))
+				// M11.2 — branded spinner for skill expansion. Same gen
+				// counter as the main thinking spinner; clearThinkingIfPending
+				// stops it on the first response event.
 				m.thinkingPending = true
-				return m, m.submitSkillTurn(text)
+				spinCmd := m.startSpinner("expanding /" + name)
+				return m, tea.Batch(m.submitSkillTurn(text), spinCmd)
 			}
 			// M10.5 — generic slash-command dispatch via /sessions/:id/commands.
 			// Runs AFTER all dedicated branches so any leading-slash input that
@@ -480,15 +500,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.transcript.AppendUserLine(text)
 			m.prompt.Clear()
-			// Dim placeholder so the user sees feedback during the 1-3s
-			// network wait before the first text_delta arrives. The first
-			// response event clears it (see clearThinkingIfPending).
-			dimStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6e7681")).
-				Italic(true)
-			m.transcript.AppendLine(dimStyle.Render("…thinking"))
+			// M11.2 — branded thinking spinner replaces the static dim
+			// "…thinking" placeholder. The spinner advances every 80ms
+			// via spinnerTickMsg until clearThinkingIfPending bumps
+			// m.spinnerGen on the first response event.
 			m.thinkingPending = true
-			return m, m.submitTurn(text)
+			spinCmd := m.startSpinner("thinking")
+			return m, tea.Batch(m.submitTurn(text), spinCmd)
 		}
 		var cmd tea.Cmd
 		m.prompt, cmd = m.prompt.Update(msg)
@@ -518,6 +536,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stallBadge = nil
 		}
 		return m, nil
+	case spinnerTickMsg:
+		// M11.2: animate the thinking spinner. Drop stale ticks
+		// (gen mismatch means clearThinkingIfPending invalidated us
+		// or a newer startSpinner ran). When still current, advance
+		// the frame, update the line in place, and schedule the
+		// next tick — recurring chain that stops naturally on the
+		// next clearThinkingIfPending.
+		if msg.gen != m.spinnerGen || m.spinnerLineIdx < 0 || !m.thinkingPending {
+			return m, nil
+		}
+		m.spinner = m.spinner.Tick()
+		m.transcript.UpdateLiveLine(m.spinnerLineIdx, m.spinner.View(m.spinnerLabel))
+		capturedGen := m.spinnerGen
+		return m, tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
+			return spinnerTickMsg{gen: capturedGen}
+		})
 	case sseDoneMsg:
 		// The server closes the SSE stream and disposes the per-session bus
 		// after every turn_complete / turn_error (events.ts:63-74) by M3
@@ -964,12 +998,34 @@ func (m Model) handleMouseClick(msg tea.MouseMsg) (Model, tea.Cmd) {
 // turn_error, turn_complete). The placeholder is always the most recent line
 // because the SSE stream is serialized into the Update goroutine, so we can
 // safely pop the tail.
+//
+// M11.2 — also invalidates the live spinner generation so any in-flight
+// spinnerTickMsg fires no-op and the recurring tick chain stops.
 func (m *Model) clearThinkingIfPending() {
 	if !m.thinkingPending {
 		return
 	}
 	m.transcript.RemoveLastLine()
 	m.thinkingPending = false
+	m.spinnerLineIdx = -1
+	m.spinnerGen++
+}
+
+// startSpinner appends the branded thinking spinner to the transcript
+// with the given label and returns a tea.Cmd that schedules the first
+// frame-advance tick. The Update handler for spinnerTickMsg advances the
+// frame, re-renders the line in place, and schedules the next tick — a
+// recurring chain that stops on its own when m.spinnerGen has advanced
+// past the captured gen (via clearThinkingIfPending). M11.2.
+func (m *Model) startSpinner(label string) tea.Cmd {
+	m.spinnerGen++
+	m.spinner = components.NewSpinner()
+	m.spinnerLabel = label
+	m.spinnerLineIdx = m.transcript.AppendLiveLine(m.spinner.View(label))
+	capturedGen := m.spinnerGen
+	return tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
+		return spinnerTickMsg{gen: capturedGen}
+	})
 }
 
 // shortSessionID returns the first 8 chars of a session id, or the full
