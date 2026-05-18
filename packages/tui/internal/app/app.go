@@ -126,7 +126,6 @@ type Model struct {
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
 	spinnerLabel     string                     // M11.2: current spinner label ("thinking", "expanding /name", etc.)
 	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
-	bootNotices      []string                   // M11.3: contextual advisories rendered between splash and prompt (running in $HOME, no bundle, etc.)
 }
 
 // spinnerTickMsg is dispatched by the spinner's recurring tea.Tick. The
@@ -273,12 +272,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		const promptH = 3 // M11.5: rounded-border box adds top + bottom border to the input row
 		const hintH = 1   // M11.3: "? for shortcuts" hint between prompt and status
 		const spacerH = 1 // M11.5: blank line above the prompt for visual separation
-		// Notices and the stall badge are variable-height; their max
-		// combined footprint at typical widths is ~6 rows. Reserving
-		// space here means the transcript caps lower so the splash +
-		// notices + prompt all fit at boot without overflow.
-		noticeH := lipgloss.Height(components.JoinNotices(m.bootNotices, m.theme, msg.Width))
-		maxTranscriptH := msg.Height - statusH - promptH - hintH - spacerH - noticeH
+		// M11.6 — notices are now appended into the transcript (one-time
+		// boot content that scrolls away) rather than rendered above the
+		// prompt every frame, so they no longer reserve permanent chrome
+		// space.
+		maxTranscriptH := msg.Height - statusH - promptH - hintH - spacerH
 		if maxTranscriptH < 1 {
 			maxTranscriptH = 1
 		}
@@ -314,12 +312,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
 			}
 			m.transcript.AppendLine(components.RenderSplash(info, m.theme, msg.Width))
-			// M11.3 — collect contextual boot notices (e.g., running in
-			// $HOME). Rendered between the transcript and prompt in
-			// View() so they sit visually after the splash but stay out
-			// of the scrollable transcript history.
+			// M11.6 — boot notices appended INTO the transcript (not
+			// rendered in View()) so they scroll away as the session
+			// builds output below them. Previously they sat anchored
+			// above the prompt for the entire session, which read as
+			// permanent chrome instead of one-time boot guidance.
 			bundlePath := os.Getenv("HARNESS_BUNDLE")
-			m.bootNotices = components.BootNotices(cwd, home, bundlePath)
+			for _, notice := range components.BootNotices(cwd, home, bundlePath) {
+				m.transcript.AppendLine(components.Notification(notice, m.theme, msg.Width))
+			}
 			m.splashShown = true
 		}
 		return m, nil
@@ -1079,24 +1080,18 @@ func (m Model) View() string {
 	if m.autocomplete.Visible() {
 		prompt = m.autocomplete.View(m.width) + "\n" + prompt
 	}
-	// M11.3 — render the notification bar between transcript content and
-	// the prompt so contextual advisories (running in $HOME, no bundle,
-	// etc.) sit visually next to the splash but stay out of the
-	// scrollable transcript history.
-	notice := components.JoinNotices(m.bootNotices, m.theme, m.width)
 	// M11.3 — hint line below the prompt, dim/italic. "? for shortcuts"
-	// matches the Qwen Code reference layout.
+	// matches the Qwen Code reference layout. M11.6: notices used to
+	// render here too but now sit inside the transcript so they scroll
+	// away with the rest of the splash content.
 	hint := components.HintLine("? for shortcuts", m.theme)
 
 	// M9.6 T2 — stall badge renders between transcript and prompt area.
-	// M11.5 — blank line spacers between transcript / notice / prompt /
-	// status make the input box a clearly-separated focal point, like
-	// Qwen Code's layout, instead of feeling crammed against the
-	// content above it.
+	// M11.5 — blank line spacers between transcript / prompt / status
+	// make the input box a clearly-separated focal point, like Qwen
+	// Code's layout, instead of feeling crammed against the content
+	// above it.
 	out := m.transcript.View() + "\n"
-	if notice != "" {
-		out += "\n" + notice + "\n"
-	}
 	if m.stallBadge != nil {
 		out += m.stallBadge.View(m.width) + "\n"
 	}

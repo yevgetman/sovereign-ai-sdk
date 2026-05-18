@@ -317,12 +317,13 @@ func stringPtr(s string) *string { return &s }
 
 // assistantBodyFg returns the foreground hex used for assistant-body
 // text in the markdown renderer. Dark themes get bumped to a brighter
-// off-white (#e2e8f0) for legibility; light themes keep their
-// theme.Foreground so contrast against a light background stays
-// correct. M11.5.
+// near-white (#f1f5f9 — Slate 100) for legibility; light themes keep
+// their theme.Foreground so contrast against a light background stays
+// correct. M11.6 bumped from #e2e8f0 because the previous value
+// still read as dim grey on some terminal palettes.
 func assistantBodyFg(t theme.Theme) string {
 	if t.Name == "light" {
 		return string(t.Foreground)
 	}
-	return "#e2e8f0"
+	return "#f1f5f9"
 }

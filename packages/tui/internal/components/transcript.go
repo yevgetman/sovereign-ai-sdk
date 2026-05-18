@@ -138,9 +138,17 @@ func (t *Transcript) AppendLine(line string) {
 // Primary color (bold) so user inputs are immediately distinguishable
 // from model responses, dim system messages, and tool cards. Centralizes
 // the styling so every call site stays in sync. M11.1.
+//
+// M11.6 — body picks up the bright slate near-white (#f1f5f9) on dark
+// themes for consistency with assistant-body markdown rendering. Light
+// themes use theme.Foreground for proper contrast.
 func (t *Transcript) AppendUserLine(text string) {
 	marker := lipgloss.NewStyle().Foreground(t.theme.Primary).Bold(true).Render("» ")
-	body := lipgloss.NewStyle().Foreground(t.theme.Foreground).Render(text)
+	bodyColor := lipgloss.Color("#f1f5f9")
+	if t.theme.Name == "light" {
+		bodyColor = t.theme.Foreground
+	}
+	body := lipgloss.NewStyle().Foreground(bodyColor).Render(text)
 	t.AppendLine(marker + body)
 }
 
