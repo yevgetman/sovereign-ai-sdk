@@ -100,6 +100,11 @@ const UiSchema = z
       })
       .strict()
       .optional(),
+    /** M11 — persistent foreground-surface preference. Resolved at
+     *  `sov` boot via the precedence: CLI --ui flag > env SOV_UI >
+     *  this field > 'tui' default. Recoverable via
+     *  `sov config unset ui.surface`. */
+    surface: z.enum(['tui', 'repl']).optional(),
   })
   .strict();
 

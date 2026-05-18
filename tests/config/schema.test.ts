@@ -74,6 +74,14 @@ describe('SettingsSchema — enum coverage', () => {
     expect(() => SettingsSchema.parse({ ui: { theme: 'solarized' } })).toThrow();
   });
 
+  test('ui.surface accepts tui | repl (M11 default-flip persistent opt-out)', () => {
+    for (const surface of ['tui', 'repl']) {
+      expect(() => SettingsSchema.parse({ ui: { surface } })).not.toThrow();
+    }
+    expect(() => SettingsSchema.parse({ ui: { surface: 'web' } })).toThrow();
+    expect(() => SettingsSchema.parse({ ui: { surface: 123 } })).toThrow();
+  });
+
   test('webSearch.provider accepts tavily | brave', () => {
     for (const provider of ['tavily', 'brave']) {
       expect(() => SettingsSchema.parse({ webSearch: { provider } })).not.toThrow();
