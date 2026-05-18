@@ -270,14 +270,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		const statusH = 1
-		const promptH = 2
-		const hintH = 1 // M11.3: "? for shortcuts" hint between prompt and status
+		const promptH = 3 // M11.5: rounded-border box adds top + bottom border to the input row
+		const hintH = 1   // M11.3: "? for shortcuts" hint between prompt and status
+		const spacerH = 1 // M11.5: blank line above the prompt for visual separation
 		// Notices and the stall badge are variable-height; their max
 		// combined footprint at typical widths is ~6 rows. Reserving
 		// space here means the transcript caps lower so the splash +
 		// notices + prompt all fit at boot without overflow.
 		noticeH := lipgloss.Height(components.JoinNotices(m.bootNotices, m.theme, msg.Width))
-		maxTranscriptH := msg.Height - statusH - promptH - hintH - noticeH
+		maxTranscriptH := msg.Height - statusH - promptH - hintH - spacerH - noticeH
 		if maxTranscriptH < 1 {
 			maxTranscriptH = 1
 		}
@@ -1088,14 +1089,18 @@ func (m Model) View() string {
 	hint := components.HintLine("? for shortcuts", m.theme)
 
 	// M9.6 T2 — stall badge renders between transcript and prompt area.
+	// M11.5 — blank line spacers between transcript / notice / prompt /
+	// status make the input box a clearly-separated focal point, like
+	// Qwen Code's layout, instead of feeling crammed against the
+	// content above it.
 	out := m.transcript.View() + "\n"
 	if notice != "" {
-		out += notice + "\n"
+		out += "\n" + notice + "\n"
 	}
 	if m.stallBadge != nil {
 		out += m.stallBadge.View(m.width) + "\n"
 	}
-	out += prompt + "\n"
+	out += "\n" + prompt + "\n"
 	if hint != "" {
 		out += hint + "\n"
 	}

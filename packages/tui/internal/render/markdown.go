@@ -42,8 +42,16 @@ func Markdown(text string, t theme.Theme, width int) string {
 // theme's foreground / accent colors. Returning explicit hex codes (vs.
 // ANSI 256 indices) keeps the rendered text consistent across terminals
 // with different color-cube interpretations.
+//
+// M11.5 — assistant body text uses a brighter foreground hex than the
+// raw theme.Foreground when the active theme is dark. Catppuccin's
+// #cdd6f4 (Mocha text) reads as dim grey against many terminal
+// backgrounds; bumping to #e2e8f0 (a cool off-white) keeps responses
+// clearly legible without sacrificing the theme aesthetic. Light themes
+// retain their original foreground since making it brighter would
+// reduce contrast against the light background.
 func styleForTheme(t theme.Theme) ansi.StyleConfig {
-	fg := string(t.Foreground)
+	fg := assistantBodyFg(t)
 	dim := string(t.Dim)
 	primary := string(t.Primary)
 	success := string(t.Success)
@@ -306,3 +314,15 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 }
 
 func stringPtr(s string) *string { return &s }
+
+// assistantBodyFg returns the foreground hex used for assistant-body
+// text in the markdown renderer. Dark themes get bumped to a brighter
+// off-white (#e2e8f0) for legibility; light themes keep their
+// theme.Foreground so contrast against a light background stays
+// correct. M11.5.
+func assistantBodyFg(t theme.Theme) string {
+	if t.Name == "light" {
+		return string(t.Foreground)
+	}
+	return "#e2e8f0"
+}

@@ -2,6 +2,12 @@
 //
 // M2: single-line bubbles/textinput; ENTER does nothing yet (M3 wires submit).
 // Width is set by parent on resize.
+//
+// M11.5 — the prompt now renders inside a rounded lipgloss box (full
+// top + side + bottom border with horizontal padding) so the input
+// area is a clearly-delimited element instead of a thin horizontal
+// rule. Matches the Qwen Code reference layout where the input box
+// is the primary focal point of the bottom chrome.
 
 package components
 
@@ -32,6 +38,9 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 
 func (p *Prompt) SetWidth(w int) {
 	p.width = w
+	// Reserve 4 columns for the box: 1 left border + 1 left padding +
+	// 1 right padding + 1 right border. Textinput then renders inside
+	// the box without overflowing.
 	p.ti.Width = w - 4
 }
 
@@ -51,6 +60,10 @@ func (p *Prompt) SetValue(v string) {
 }
 
 func (p Prompt) View() string {
-	border := lipgloss.NewStyle().BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444c56"))
-	return border.Width(p.width).Render(p.ti.View())
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#6c7086")). // Catppuccin overlay1 — visible but muted
+		Padding(0, 1).
+		Width(p.width - 2) // -2 for the left + right border characters
+	return box.Render(p.ti.View())
 }

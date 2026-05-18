@@ -65,27 +65,36 @@ func (s StatusLine) SpinnerFrame() string {
 }
 
 func (s StatusLine) View() string {
-	bg := s.Theme.StatusBarStyle().Width(s.width).Padding(0, 1)
+	// M11.5 — drop the explicit background fill. On terminals where
+	// the configured theme.Background hex doesn't match the actual
+	// terminal background the filled row reads as a distracting
+	// light strip. Letting the terminal background show through keeps
+	// the status line subtle and consistent regardless of how the
+	// terminal maps the theme's base color. The left half uses dim
+	// foreground (not the theme's full Foreground) so the path /
+	// profile / model read as ambient metadata, not primary content.
+	dimFg := lipgloss.NewStyle().Foreground(s.Theme.Dim)
 
-	left := fmt.Sprintf("%s  %s  %s",
+	left := dimFg.Render(fmt.Sprintf("%s  %s  %s",
 		s.Cwd,
 		s.Profile,
 		s.Model,
-	)
+	))
 
-	rightStyle := lipgloss.NewStyle().Foreground(s.Theme.Dim)
-	right := rightStyle.Render(fmt.Sprintf("$%.4f  cache %.0f%%", s.Cost, s.CacheHit*100))
+	right := dimFg.Render(fmt.Sprintf("$%.4f  cache %.0f%%", s.Cost, s.CacheHit*100))
 	if s.Streaming {
 		spinStyle := lipgloss.NewStyle().Foreground(s.Theme.Primary).Bold(true)
 		spin := spinStyle.Render(spinnerFrames[s.spinner])
 		right = spin + "  " + right
 	}
 
-	// Lay out left + right with padding between to fill width.
+	// Lay out left + right with padding between to fill width. The
+	// padding row uses no styling so the terminal background fills
+	// the gap naturally.
 	padding := s.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if padding < 1 {
 		padding = 1
 	}
-	text := left + lipgloss.NewStyle().Width(padding).Render(" ") + right
-	return bg.Render(text)
+	gap := lipgloss.NewStyle().Width(padding).Render(" ")
+	return " " + left + gap + right + " "
 }
