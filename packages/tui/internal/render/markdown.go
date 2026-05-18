@@ -74,13 +74,35 @@ var fileRefPattern = regexp.MustCompile(
 	`(?:^|[\s(\[{"'])((?:/|~/|\./|\.\./)[\w./\-]+|[\w\-][\w\-.]*\.(?:png|jpe?g|gif|svg|webp|ico|md|mdx|txt|json|ya?ml|toml|csv|tsv|log|go|ts|tsx|js|jsx|mjs|cjs|py|rs|sh|bash|zsh|fish|html?|css|scss|sass|sql|c|cc|cpp|cxx|h|hpp|java|kt|rb|php|swift|mm?|xml|conf|cfg|ini|env|lock|gitignore|gitattributes|dockerfile|makefile))(?:$|[\s),.!?:;\]}"'])`,
 )
 
+// fileExtensionTailPattern matches the trailing portion of a string that
+// looks like a known file extension. Used to confirm a markdown list
+// item's content is a filename (multi-word filenames need to be
+// recognized as a unit, since fileRefPattern is constrained to
+// space-free tokens).
+var fileExtensionTailPattern = regexp.MustCompile(
+	`\.(?:png|jpe?g|gif|svg|webp|ico|md|mdx|txt|json|ya?ml|toml|csv|tsv|log|go|ts|tsx|js|jsx|mjs|cjs|py|rs|sh|bash|zsh|fish|html?|css|scss|sass|sql|c|cc|cpp|cxx|h|hpp|java|kt|rb|php|swift|mm?|xml|conf|cfg|ini|env|lock|gitignore|gitattributes|dockerfile|makefile)$`,
+)
+
+// listBulletPattern matches a markdown list-item prefix:
+// optional indent, then "- " or "* " or "+ ".
+var listBulletPattern = regexp.MustCompile(`^(\s*[-*+]\s+)(.*)$`)
+
 // wrapFileRefs wraps detected file-reference tokens in backticks so
-// glamour renders them via the inline-Code style. Skips text already
-// inside backtick spans (single or triple) so we don't double-wrap
-// and don't modify content inside fenced code blocks. M11.12.
+// glamour renders them via the inline-Code style. Two-pass approach:
+//
+//  1. For each line, if it's a markdown bullet ("- foo bar.png")
+//     whose content ends in a recognized file extension, wrap the
+//     ENTIRE bullet content in backticks. This handles filenames
+//     with spaces (very common in user-facing file listings).
+//
+//  2. For lines that don't match the bullet shape, fall through to
+//     the token-level fileRefPattern regex which catches paths and
+//     space-free filenames anywhere in prose.
+//
+// Both passes skip content already inside backtick spans (single or
+// triple) so we don't double-wrap and don't modify fenced code
+// blocks. M11.13.
 func wrapFileRefs(text string) string {
-	// First split on triple-backtick code fences so we leave those
-	// blocks untouched.
 	fenced := strings.Split(text, "```")
 	for i := range fenced {
 		if i%2 == 1 {
@@ -92,9 +114,10 @@ func wrapFileRefs(text string) string {
 	return strings.Join(fenced, "```")
 }
 
-// wrapFileRefsOutsideBackticks runs the file-ref regex over text
-// segments that sit OUTSIDE inline backtick spans, leaving anything
-// already in backticks unchanged.
+// wrapFileRefsOutsideBackticks processes a segment that sits outside
+// triple-backtick fences. Splits on single backticks so inline-code
+// spans are also preserved; the segments BETWEEN backticks get the
+// line-based pass.
 func wrapFileRefsOutsideBackticks(text string) string {
 	parts := strings.Split(text, "`")
 	for i := range parts {
@@ -102,11 +125,28 @@ func wrapFileRefsOutsideBackticks(text string) string {
 			// Inside an inline backtick span; preserve verbatim.
 			continue
 		}
-		parts[i] = fileRefPattern.ReplaceAllStringFunc(parts[i], func(match string) string {
-			// The regex captures both the leading delimiter (if any)
-			// and the trailing delimiter. We re-find the file-ref
-			// substring via the same regex's submatch to wrap only
-			// that portion in backticks.
+		parts[i] = wrapFileRefsByLine(parts[i])
+	}
+	return strings.Join(parts, "`")
+}
+
+// wrapFileRefsByLine processes a backtick-free segment line by line.
+// Bullet lines whose content ends in a recognized extension get the
+// whole content (spaces and all) wrapped. Non-bullet lines run the
+// token-level regex.
+func wrapFileRefsByLine(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if m := listBulletPattern.FindStringSubmatch(line); m != nil {
+			prefix := m[1]
+			content := m[2]
+			if fileExtensionTailPattern.MatchString(content) {
+				lines[i] = prefix + "`" + content + "`"
+				continue
+			}
+		}
+		// Fall through: run token-level regex.
+		lines[i] = fileRefPattern.ReplaceAllStringFunc(line, func(match string) string {
 			subs := fileRefPattern.FindStringSubmatch(match)
 			if len(subs) < 2 {
 				return match
@@ -119,7 +159,7 @@ func wrapFileRefsOutsideBackticks(text string) string {
 			return match[:idx] + "`" + fileRef + "`" + match[idx+len(fileRef):]
 		})
 	}
-	return strings.Join(parts, "`")
+	return strings.Join(lines, "\n")
 }
 
 // styleForTheme builds a glamour StyleConfig that picks up the active
@@ -145,6 +185,14 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	success := string(t.Success)
 	error_ := string(t.Error)
 	_ = t.CodeBackground // M11.11 — kept on the theme for future renderers; no longer applied here, see Code/CodeBlock comments below
+
+	// M11.13 — inline-code accent color, picked specifically for "light
+	// blue file path" readability. Lighter than theme.Primary's
+	// #89b4fa which rendered too dark on the user's terminal.
+	// #7dd3fc is Tailwind's sky-300 — a clean, recognizable light
+	// sky-blue. Bound to a local var so we can take its address for
+	// the StylePrimitive.Color field below.
+	inlineCodeColor := "#7dd3fc"
 
 	margin := uint(2)
 	listLevelIndent := uint(4)
@@ -283,17 +331,18 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		Code: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				// M11.11 — inline code (backtick spans, typically file paths
-				// in assistant responses) renders in light-blue bold with NO
-				// background. The previous BackgroundColor: &codeBg (Catppuccin
-				// mantle #181825 — meant to be a dark code-block fill) rendered
-				// as a near-white strip on terminals where palette mapping
-				// inverts dark hexes. Same root-cause family as the body-text
-				// rule in docs/conventions/tui-color-rendering.md: dark hex
-				// backgrounds are as unreliable as bright hex foregrounds.
-				// Light-blue (theme.Primary) + Bold gives a clear "this is
-				// code" signal without a background to misrender.
-				Color: &primary,
+				// M11.13 — inline code (backtick spans, typically file paths
+				// in assistant responses) renders in a clear sky-blue bold
+				// with NO background. Uses inlineCodeBlue (a fixed hex
+				// brighter/lighter than theme.Primary) because theme.Primary's
+				// #89b4fa rendered too dark/saturated on the user's terminal
+				// palette — sky-blue #7dd3fc reads as the intended "light
+				// blue" cue across more palettes.
+				//
+				// Background was dropped in M11.11 (dark hex backgrounds are
+				// as unreliable as bright hex foregrounds — see
+				// docs/conventions/tui-color-rendering.md).
+				Color: &inlineCodeColor,
 				Bold:  &bold,
 			},
 		},

@@ -136,3 +136,61 @@ func TestWrapFileRefs_NoFileRefsLeavesTextAlone(t *testing.T) {
 		t.Errorf("plain prose was modified:\n  in:  %q\n  out: %q", in, out)
 	}
 }
+
+// M11.13 — multi-word filename handling. Bullet lists are the
+// common shape; the WHOLE bullet content gets wrapped when it ends
+// in a known extension, including internal spaces.
+
+func TestWrapFileRefs_BulletWithSpacesInFilename(t *testing.T) {
+	in := "- Babyboard logo circulat.png"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`Babyboard logo circulat.png`") {
+		t.Errorf("expected full multi-word filename wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_BulletWithUnderscoresAndDashes(t *testing.T) {
+	in := "- ChatGPT Image May 2, 2026, 04_54_57 PM.png"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`ChatGPT Image May 2, 2026, 04_54_57 PM.png`") {
+		t.Errorf("expected full filename with punctuation wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_BulletWithStarPrefix(t *testing.T) {
+	in := "* Screenshot 2026-05-18 at 5.15.30 AM.png"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`Screenshot 2026-05-18 at 5.15.30 AM.png`") {
+		t.Errorf("expected * bullet content wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_BulletWithoutExtensionLeftAlone(t *testing.T) {
+	in := "- this is just a plain bullet"
+	out := wrapFileRefs(in)
+	if strings.Contains(out, "`") {
+		t.Errorf("non-file bullet should NOT be wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_IndentedBullet(t *testing.T) {
+	in := "  - nested file.md"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`nested file.md`") {
+		t.Errorf("expected indented bullet content wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_MultipleBulletsInList(t *testing.T) {
+	in := "- one file.png\n- another doc.md\n- plain bullet\n- third file.json"
+	out := wrapFileRefs(in)
+	for _, want := range []string{"`one file.png`", "`another doc.md`", "`third file.json`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %s in output, got %q", want, out)
+		}
+	}
+	// Plain bullet should NOT get wrapped.
+	if strings.Contains(out, "`plain bullet`") {
+		t.Errorf("non-file bullet incorrectly wrapped: %q", out)
+	}
+}
