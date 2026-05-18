@@ -93,6 +93,16 @@ func (t *Transcript) AppendLine(line string) {
 	}
 }
 
+// AppendUserLine renders a "» <text>" marker styled with the theme's
+// Primary color (bold) so user inputs are immediately distinguishable
+// from model responses, dim system messages, and tool cards. Centralizes
+// the styling so every call site stays in sync. M11.1.
+func (t *Transcript) AppendUserLine(text string) {
+	marker := lipgloss.NewStyle().Foreground(t.theme.Primary).Bold(true).Render("» ")
+	body := lipgloss.NewStyle().Foreground(t.theme.Foreground).Render(text)
+	t.AppendLine(marker + body)
+}
+
 // AppendAssistantDelta appends a text_delta to the in-progress assistant
 // card and re-renders the line through render.Markdown. The first call
 // starts a new card; subsequent calls update the same line in place. M9 T3.

@@ -121,6 +121,7 @@ type Model struct {
 	pendingThemeName string                     // M9.5 T3: theme name from config used in the dim marker text
 	stallBadge       *components.StallBadge     // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
 	stallGeneration  int                        // M9.6 T2: increments per stall; tick closure captures + compares on expire
+	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
 }
 
 // stallExpireMsg is dispatched by a tea.Tick scheduled in the
@@ -261,6 +262,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			))
 			m.pendingThemeErr = nil
 		}
+		// M11.1 — splash on the first WindowSizeMsg. Renders the SOV
+		// brand mark + tips line so the TUI default surface shows the
+		// same boot cue the REPL does. Splash precedes any backlog
+		// hydration content for resumed sessions (messagesFetchedMsg
+		// arrives after the first WindowSizeMsg in practice).
+		// Gated on baseURL — render-only tests pass "" and rely on
+		// specific Y coordinates for click handling; production always
+		// has a real server URL.
+		if !m.splashShown && m.baseURL != "" {
+			cwd, _ := os.Getwd()
+			info := components.SplashInfo{
+				Version:  "0.1.0",
+				Provider: "anthropic",
+				Auth:     "API Key",
+				Model:    m.statusLine.Model,
+				Cwd:      cwd,
+				Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
+			}
+			m.transcript.AppendLine(components.RenderSplash(info, m.theme, msg.Width))
+			m.splashShown = true
+		}
 		return m, nil
 	case tea.KeyMsg:
 		// M5 T9: when a permission modal is active, route ALL keys to it
@@ -329,7 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// m.theme; later milestones (T3 markdown wiring, T6 toolcard,
 			// T10 statusline) consume m.theme via constructor or accessor.
 			if strings.HasPrefix(text, "/theme") {
-				m.transcript.AppendLine("» " + text)
+				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				parts := strings.SplitN(text, " ", 2)
 				if len(parts) < 2 {
@@ -373,7 +395,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the compactCompleteMsg / compactErrorMsg branches replace
 			// it with the result marker.
 			if text == "/compact" {
-				m.transcript.AppendLine("» " + text)
+				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				dimStyle := lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#6e7681")).
@@ -389,7 +411,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// marker if N is out of range) below it. No "[thinking]" placeholder
 			// because there's no network round trip.
 			if n, ok := parseExpandCommand(text); ok {
-				m.transcript.AppendLine("» " + text)
+				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				return m, m.expandToolBlock(n)
 			}
@@ -398,7 +420,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// captured as a subcommand instead of being treated as a (non-
 			// existent) skill named "skills". ADR M9.6-03.
 			if text == "/skills" || strings.HasPrefix(text, "/skills ") {
-				m.transcript.AppendLine("» " + text)
+				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				m.autocomplete.Dismiss()
 				parts := strings.SplitN(text, " ", 2)
@@ -429,7 +451,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// — the user might be typing a future slash command or a
 			// literal /-prefixed string the model should see as-is.
 			if name, ok := matchSkillSlash(text, m.skills); ok {
-				m.transcript.AppendLine("» " + text)
+				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				dimStyle := lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#6e7681")).
@@ -446,7 +468,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// fell through to the normal turn POST and the model saw them as
 			// plain text.
 			if cmdName, cmdArgs, ok := parseGenericSlashCommand(text); ok {
-				m.transcript.AppendLine("» " + text)
+				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				m.autocomplete.Dismiss()
 				if m.baseURL == "" {
@@ -456,7 +478,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcript.AppendLine(m.theme.DimStyle().Render("…running /" + cmdName))
 				return m, dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs)
 			}
-			m.transcript.AppendLine("» " + text)
+			m.transcript.AppendUserLine(text)
 			m.prompt.Clear()
 			// Dim placeholder so the user sees feedback during the 1-3s
 			// network wait before the first text_delta arrives. The first
@@ -547,7 +569,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				switch sm.Role {
 				case "user":
-					m.transcript.AppendLine("» " + block.Text)
+					m.transcript.AppendUserLine(block.Text)
 				case "assistant":
 					m.transcript.AppendLine(block.Text)
 				}
