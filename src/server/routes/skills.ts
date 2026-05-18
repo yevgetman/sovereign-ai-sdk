@@ -29,10 +29,18 @@
 // (returning them would leak filesystem layout to the TUI and bloat the
 // response for no rendering benefit).
 
+import { join } from 'node:path';
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { installSkill, uninstallSkill } from '../../skills/install.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+
+const InstallBodySchema = z.object({
+  source: z.string().min(1, 'source path is required'),
+  force: z.boolean().optional(),
+});
 
 export function skillsRoute(runtime: Runtime): Hono {
   const r = new Hono();
@@ -64,6 +72,67 @@ export function skillsRoute(runtime: Runtime): Hono {
         description: s.description,
       })),
     });
+  });
+
+  // M11.17 — POST /sessions/:id/skills/install
+  // Body: { source: string, force?: boolean }
+  // Installs a skill from the given local path into
+  // `<harnessHome>/skills/<name>/`. Returns 200 with the result on
+  // success; 4xx with `{ error }` on bad input or refusal.
+  // Note: TUI typically runs colocated with the server (loopback only)
+  // so source paths point at files visible to both processes.
+  r.post('/sessions/:id/skills/install', async (c) => {
+    const sessionId = c.req.param('id');
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
+    if (runtime.sessionDb.getSession(sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400);
+    }
+    const parsed = InstallBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.issues[0]?.message ?? 'invalid body' }, 400);
+    }
+    const userSkillsRoot = join(runtime.harnessHome, 'skills');
+    const installArgs: Parameters<typeof installSkill>[0] = {
+      source: parsed.data.source,
+      userSkillsRoot,
+    };
+    if (parsed.data.force !== undefined) {
+      installArgs.force = parsed.data.force;
+    }
+    const result = await installSkill(installArgs);
+    if (!result.ok) {
+      return c.json({ error: result.reason }, 400);
+    }
+    return c.json({ ok: true, name: result.name, installedAt: result.installedAt });
+  });
+
+  // M11.17 — DELETE /sessions/:id/skills/:name
+  // Uninstalls a user-installed skill by name. Only removes the
+  // `<harnessHome>/skills/<name>/` directory; bundle/default skills
+  // are read-only here.
+  r.delete('/sessions/:id/skills/:name', async (c) => {
+    const sessionId = c.req.param('id');
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
+    if (runtime.sessionDb.getSession(sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const name = c.req.param('name');
+    const userSkillsRoot = join(runtime.harnessHome, 'skills');
+    const result = await uninstallSkill({ name, userSkillsRoot });
+    if (!result.ok) {
+      return c.json({ error: result.reason }, 400);
+    }
+    return c.json({ ok: true, name: result.name, removedFrom: result.removedFrom });
   });
 
   return r;

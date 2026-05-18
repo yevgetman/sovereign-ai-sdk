@@ -27,6 +27,7 @@ type Entry struct {
 var staticEntries = []Entry{
 	{Name: "/compact", Description: "summarize prior turns and start a child session"},
 	{Name: "/expand", Description: "re-render the Nth-most-recent tool block expanded"},
+	{Name: "/skills", Description: "list, install, uninstall, or reload skills"},
 	{Name: "/theme", Description: "switch between light and dark themes"},
 }
 

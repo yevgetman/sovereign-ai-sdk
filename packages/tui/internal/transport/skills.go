@@ -70,6 +70,101 @@ func GetSkills(ctx context.Context, baseURL, sessionID string) ([]Skill, error) 
 	return payload.Skills, nil
 }
 
+// InstallSkillResult is the decoded success envelope returned by
+// POST /sessions/:id/skills/install on success. M11.17.
+type InstallSkillResult struct {
+	Name        string `json:"name"`
+	InstalledAt string `json:"installedAt"`
+}
+
+// InstallSkill issues POST <baseURL>/sessions/<sessionID>/skills/install
+// with `{ source: <path>, force?: <bool> }`. The server validates the
+// source path, parses the frontmatter, and copies the file or directory
+// into `<harnessHome>/skills/<name>/`. The returned name reflects the
+// frontmatter's `name:` field, NOT the source path.
+//
+// Returns an error containing the server's `{ error: ... }` text on
+// 4xx/5xx so callers can render the reason verbatim in the transcript.
+// M11.17.
+func InstallSkill(ctx context.Context, baseURL, sessionID, source string, force bool) (*InstallSkillResult, error) {
+	url := fmt.Sprintf("%s/sessions/%s/skills/install", baseURL, sessionID)
+	body := map[string]any{"source": source}
+	if force {
+		body["force"] = true
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := skillsClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("install skill: %w", err)
+	}
+	defer res.Body.Close()
+	respBody, _ := io.ReadAll(res.Body)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var errEnv struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errEnv) == nil && errEnv.Error != "" {
+			return nil, fmt.Errorf("%s", errEnv.Error)
+		}
+		return nil, fmt.Errorf("install skill: status %d: %s", res.StatusCode, string(respBody))
+	}
+	var result InstallSkillResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode install response: %w", err)
+	}
+	return &result, nil
+}
+
+// UninstallSkillResult is the decoded success envelope returned by
+// DELETE /sessions/:id/skills/:name on success. M11.17.
+type UninstallSkillResult struct {
+	Name        string `json:"name"`
+	RemovedFrom string `json:"removedFrom"`
+}
+
+// UninstallSkill issues DELETE <baseURL>/sessions/<sessionID>/skills/<name>.
+// Removes the `<harnessHome>/skills/<name>/` directory if the named skill
+// is user-installed; refuses for bundle/default-bundle skills or for
+// anything that would escape the user skills root.
+//
+// Returns the server's `{ error: ... }` text on 4xx so the caller can
+// render the reason verbatim. M11.17.
+func UninstallSkill(ctx context.Context, baseURL, sessionID, name string) (*UninstallSkillResult, error) {
+	url := fmt.Sprintf("%s/sessions/%s/skills/%s", baseURL, sessionID, name)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	res, err := skillsClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("uninstall skill: %w", err)
+	}
+	defer res.Body.Close()
+	respBody, _ := io.ReadAll(res.Body)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var errEnv struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errEnv) == nil && errEnv.Error != "" {
+			return nil, fmt.Errorf("%s", errEnv.Error)
+		}
+		return nil, fmt.Errorf("uninstall skill: status %d: %s", res.StatusCode, string(respBody))
+	}
+	var result UninstallSkillResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode uninstall response: %w", err)
+	}
+	return &result, nil
+}
+
 // PostSkillTurn issues POST <baseURL>/sessions/<sessionID>/turns with
 // `{ text: <rawSlash>, kind: 'skill' }`. The server-side T5 handler at
 // src/server/routes/turns.ts (lines 117-132 at writing) parses the slash,

@@ -1173,7 +1173,9 @@ func TestApp_StallExpireStaleGenIgnored(t *testing.T) {
 
 // M9.6 T3 — /skills reload + compaction cache invalidation.
 
-func TestApp_SlashSkillsNoVerbShowsUsage(t *testing.T) {
+func TestApp_SlashSkillsNoVerbShowsListAndVerbs(t *testing.T) {
+	// M11.17 — bare /skills now renders the skill list (or empty marker)
+	// + a verbs-cheatsheet line so users discover install/uninstall/reload.
 	m := New("s-usg", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
@@ -1184,8 +1186,11 @@ func TestApp_SlashSkillsNoVerbShowsUsage(t *testing.T) {
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
 	view := m.View()
-	if !strings.Contains(view, "usage") {
-		t.Errorf("expected usage message: %q", view)
+	if !strings.Contains(view, "verbs:") {
+		t.Errorf("expected verbs-cheatsheet line: %q", view)
+	}
+	if !strings.Contains(view, "install") || !strings.Contains(view, "uninstall") || !strings.Contains(view, "reload") {
+		t.Errorf("expected install/uninstall/reload in cheatsheet: %q", view)
 	}
 }
 

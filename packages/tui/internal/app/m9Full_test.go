@@ -217,10 +217,14 @@ func TestM9_6_StallBadgeRendersThenClearsOnMatchingGen(t *testing.T) {
 }
 
 func TestM9_6_SkillsReloadParserAcceptsBothForms(t *testing.T) {
+	// M11.17 — both "/skills" and "/skills " forms render the list/verbs
+	// cheatsheet (not just "usage:" as in M9.6). Confirms the parser
+	// treats the empty-verb case as a list/help action regardless of
+	// trailing whitespace.
 	m := New("s-sk2", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
-	// "/skills " (with trailing space) — usage marker.
+	// "/skills " (with trailing space) — verbs cheatsheet.
 	for _, r := range "/skills " {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = model.(Model)
@@ -228,8 +232,8 @@ func TestM9_6_SkillsReloadParserAcceptsBothForms(t *testing.T) {
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
 	view := m.View()
-	if !strings.Contains(view, "usage") {
-		t.Errorf("trailing-space form should still show usage: %q", view)
+	if !strings.Contains(view, "verbs:") {
+		t.Errorf("trailing-space form should show verbs cheatsheet: %q", view)
 	}
 }
 

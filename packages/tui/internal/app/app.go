@@ -239,6 +239,45 @@ func (m Model) fetchSkillsCmd() tea.Cmd {
 	}
 }
 
+// skillInstalledMsg carries the result of a /skills install POST.
+// On success, name is the frontmatter name and installedAt is the
+// `<harnessHome>/skills/<name>/` path. Either err is non-nil OR result
+// is set; never both. The Update handler renders a status line and
+// fires fetchSkillsCmd on success so the new skill becomes visible in
+// autocomplete + /skillname dispatch immediately. M11.17.
+type skillInstalledMsg struct {
+	result *transport.InstallSkillResult
+	err    error
+}
+
+// skillUninstalledMsg carries the result of a /skills uninstall DELETE.
+// On success, name is the removed skill's name. Update handler renders
+// a status line and fires fetchSkillsCmd to refresh the cache. M11.17.
+type skillUninstalledMsg struct {
+	result *transport.UninstallSkillResult
+	err    error
+}
+
+// installSkillCmd issues POST /sessions/:id/skills/install off the
+// Update goroutine. The result lands as a skillInstalledMsg. M11.17.
+func (m Model) installSkillCmd(source string) tea.Cmd {
+	return func() tea.Msg {
+		// force:false — surface the "already installed" error so the
+		// user explicitly confirms re-install via uninstall first.
+		result, err := transport.InstallSkill(m.ctx, m.baseURL, m.sessionID, source, false)
+		return skillInstalledMsg{result: result, err: err}
+	}
+}
+
+// uninstallSkillCmd issues DELETE /sessions/:id/skills/:name off the
+// Update goroutine. The result lands as a skillUninstalledMsg. M11.17.
+func (m Model) uninstallSkillCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := transport.UninstallSkill(m.ctx, m.baseURL, m.sessionID, name)
+		return skillUninstalledMsg{result: result, err: err}
+	}
+}
+
 // waitEvent blocks until the next SSE event arrives (or the stream ends).
 // Idiomatic Bubble Tea pattern for an unbounded event source: the Cmd reads
 // from a long-lived channel and reschedules itself after each delivery.
@@ -459,14 +498,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the /skillname matcher below so the literal /skills text is
 			// captured as a subcommand instead of being treated as a (non-
 			// existent) skill named "skills". ADR M9.6-03.
+			// M11.17 — verbs: install <path>, uninstall <name>, reload, list.
 			if text == "/skills" || strings.HasPrefix(text, "/skills ") {
 				m.transcript.AppendUserLine(text)
 				m.prompt.Clear()
 				m.autocomplete.Dismiss()
 				parts := strings.SplitN(text, " ", 2)
-				verb := ""
+				rest := ""
 				if len(parts) == 2 {
-					verb = strings.TrimSpace(parts[1])
+					rest = strings.TrimSpace(parts[1])
+				}
+				// Split rest into verb + arg for install/uninstall.
+				verbParts := strings.SplitN(rest, " ", 2)
+				verb := strings.TrimSpace(verbParts[0])
+				verbArg := ""
+				if len(verbParts) == 2 {
+					verbArg = strings.TrimSpace(verbParts[1])
 				}
 				switch verb {
 				case "reload":
@@ -476,10 +523,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.transcript.AppendLine(m.theme.DimStyle().Render("reloading skill cache…"))
 					return m, m.fetchSkillsCmd()
-				case "":
-					m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /skills <reload>"))
+				case "install":
+					if m.baseURL == "" {
+						m.transcript.AppendLine(m.theme.ErrorStyle().Render("skills install requires a server connection"))
+						return m, nil
+					}
+					if verbArg == "" {
+						m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /skills install <path-to-SKILL.md-or-directory>"))
+						return m, nil
+					}
+					m.transcript.AppendLine(m.theme.DimStyle().Render("installing skill from " + verbArg + "…"))
+					return m, m.installSkillCmd(verbArg)
+				case "uninstall":
+					if m.baseURL == "" {
+						m.transcript.AppendLine(m.theme.ErrorStyle().Render("skills uninstall requires a server connection"))
+						return m, nil
+					}
+					if verbArg == "" {
+						m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /skills uninstall <name>"))
+						return m, nil
+					}
+					m.transcript.AppendLine(m.theme.DimStyle().Render("uninstalling skill " + verbArg + "…"))
+					return m, m.uninstallSkillCmd(verbArg)
+				case "list", "":
+					// Render the cached skill list directly — no server round trip.
+					if len(m.skills) == 0 {
+						m.transcript.AppendLine(m.theme.DimStyle().Render("no skills loaded for this session"))
+					} else {
+						m.transcript.AppendLine(m.theme.DimStyle().Render(fmt.Sprintf("skills (%d):", len(m.skills))))
+						for _, sk := range m.skills {
+							m.transcript.AppendLine("  /" + sk.Name + "  " + m.theme.DimStyle().Render(sk.Description))
+						}
+					}
+					m.transcript.AppendLine("")
+					m.transcript.AppendLine(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | uninstall <name> | reload"))
 				default:
 					m.transcript.AppendLine(m.theme.ErrorStyle().Render("unknown /skills verb: " + verb))
+					m.transcript.AppendLine(m.theme.DimStyle().Render("verbs: list, install <path>, uninstall <name>, reload"))
 				}
 				return m, nil
 			}
@@ -689,6 +769,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.skills = msg.skills
 		m.autocomplete.SetSkills(msg.skills) // M9 T8 — surface skills in the popup
 		return m, nil
+	case skillInstalledMsg:
+		// M11.17 — render install result and refresh the skill cache on
+		// success so the new skill becomes available immediately for
+		// /skillname dispatch + autocomplete suggestions.
+		if msg.err != nil {
+			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill install failed: " + msg.err.Error()))
+			return m, nil
+		}
+		if msg.result == nil {
+			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill install returned no result"))
+			return m, nil
+		}
+		m.transcript.AppendLine(m.theme.DimStyle().Render(
+			fmt.Sprintf("installed /%s → %s", msg.result.Name, msg.result.InstalledAt),
+		))
+		return m, m.fetchSkillsCmd()
+	case skillUninstalledMsg:
+		// M11.17 — render uninstall result and refresh the skill cache.
+		if msg.err != nil {
+			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill uninstall failed: " + msg.err.Error()))
+			return m, nil
+		}
+		if msg.result == nil {
+			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill uninstall returned no result"))
+			return m, nil
+		}
+		m.transcript.AppendLine(m.theme.DimStyle().Render(
+			fmt.Sprintf("uninstalled /%s (removed %s)", msg.result.Name, msg.result.RemovedFrom),
+		))
+		return m, m.fetchSkillsCmd()
 	case commandDispatchedMsg:
 		// M10.5 — pop the "…running /name" placeholder; render the dispatch
 		// result. Two failure channels:

@@ -795,6 +795,17 @@ Skills are markdown files. They can live in:
 - `<bundle>/harness/skills-trusted/`
 - `<bundle>/skills-community/`
 
+### Managing skills from the TUI (M11.17)
+
+| Command | Behavior |
+|---|---|
+| `/skills` (or `/skills list`) | Lists currently-visible skills + a cheatsheet of the verbs below |
+| `/skills install <path>` | Installs from a local path. `<path>` may be a `SKILL.md` file or a directory containing one. Reads the skill's `name:` from frontmatter and installs to `$HARNESS_HOME/skills/<name>/`. Refuses to overwrite an existing skill of the same name. |
+| `/skills uninstall <name>` | Removes `$HARNESS_HOME/skills/<name>/`. Only touches user-installed skills; bundle and default-bundle skills are read-only. |
+| `/skills reload` | Re-reads the skill cache without restarting the session. Useful after dropping a file in manually or running install/uninstall in another session. |
+
+Install/uninstall touch only the user skills root (`$HARNESS_HOME/skills/`). Bundle skills, agent-created skills (nested under `agent-created/`), and default-bundle skills are not affected. After install the cache auto-refreshes so the new skill is immediately available in the autocomplete popup and as a `/<name>` dispatch.
+
 Skill file format:
 
 ```md
