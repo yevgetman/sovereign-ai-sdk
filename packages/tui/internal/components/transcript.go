@@ -139,14 +139,14 @@ func (t *Transcript) AppendLine(line string) {
 // from model responses, dim system messages, and tool cards. Centralizes
 // the styling so every call site stays in sync. M11.1.
 //
-// M11.7 — body uses pure white (#ffffff) on dark themes for maximum
-// legibility. Combined with sov-tui's forced TrueColor profile this
-// produces the brightest possible text regardless of TERM / tmux
-// quantization. Light themes use theme.Foreground for proper contrast
-// against the light background.
+// M11.8 — body uses ANSI 16-color "15" (universal bright-white) on
+// dark themes. Hex values were getting quantized down to dim greys
+// in tmux 256-color mode; color "15" renders identically and brightly
+// across every profile. Light themes use theme.Foreground for proper
+// contrast against the light background.
 func (t *Transcript) AppendUserLine(text string) {
 	marker := lipgloss.NewStyle().Foreground(t.theme.Primary).Bold(true).Render("» ")
-	bodyColor := lipgloss.Color("#ffffff")
+	bodyColor := lipgloss.Color("15")
 	if t.theme.Name == "light" {
 		bodyColor = t.theme.Foreground
 	}

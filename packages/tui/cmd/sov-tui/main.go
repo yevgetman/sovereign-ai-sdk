@@ -12,8 +12,6 @@ import (
 	"runtime/debug"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/app"
 )
 
@@ -45,18 +43,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "sov-tui: --port and --session-id are required")
 		os.Exit(2)
 	}
-
-	// M11.7 — force the lipgloss renderer to truecolor. termenv's
-	// auto-detection is unreliable when TERM=screen-256color (typical
-	// inside tmux/screen) because it reads TERM instead of COLORTERM
-	// in some paths. Forcing TrueColor here means our hex colors emit
-	// actual 24-bit RGB ANSI sequences (`\033[38;2;R;G;Bm`) which
-	// every modern terminal handles correctly, instead of being
-	// quantized to the nearest 256-color entry which can land on a
-	// dim greyscale step. If the underlying terminal genuinely can't
-	// display truecolor it'll still degrade gracefully — the worst
-	// case is what we'd have gotten by auto-detection anyway.
-	lipgloss.DefaultRenderer().SetColorProfile(termenv.TrueColor)
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
 	model := app.New(*sessionID, baseURL)

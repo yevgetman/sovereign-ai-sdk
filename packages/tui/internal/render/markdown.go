@@ -315,18 +315,18 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 
 func stringPtr(s string) *string { return &s }
 
-// assistantBodyFg returns the foreground hex used for assistant-body
-// text in the markdown renderer. Dark themes use pure white (#ffffff)
-// for maximum legibility; light themes keep their theme.Foreground so
-// contrast against a light background stays correct. M11.7 bumped to
-// pure white because intermediate values (#cdd6f4 → #e2e8f0 → #f1f5f9)
-// all rendered as dim grey in tmux/screen environments where truecolor
-// sequences get quantized. Combined with sov-tui's forced TrueColor
-// profile this gives the brightest possible body text across every
-// terminal.
+// assistantBodyFg returns the foreground used for assistant-body text
+// in the markdown renderer. Dark themes use ANSI 16-color "15" (the
+// universal bright-white code) instead of a hex value, so the color
+// renders identically across every profile: 16-color (where it IS the
+// brightest white), 256-color (maps to color 15 of the standard
+// palette), and truecolor (also maps to color 15). Hex values get
+// quantized down to dim greys in tmux 256-color mode, which broke the
+// M11.5/6/7 attempts. Light themes keep theme.Foreground so contrast
+// against a light background stays correct.
 func assistantBodyFg(t theme.Theme) string {
 	if t.Name == "light" {
 		return string(t.Foreground)
 	}
-	return "#ffffff"
+	return "15"
 }
