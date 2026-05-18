@@ -28,16 +28,18 @@ var thinkingSpinnerFrames = []string{
 	"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
 }
 
-// thinkingSpinnerGradient cycles through the same hexes the splash logo uses
-// (skip / sapphire / blue-bright / lavender). The colors don't depend
-// on the active theme — the spinner is a brand cue, like the splash
-// logo, and reads identically on Catppuccin Mocha (dark), Latte
-// (light), Tokyo Night, and any user TOML theme.
+// thinkingSpinnerGradient cycles through the same 4-anchor palette the
+// splash logo uses (blue → teal → purple → pink). The colors don't
+// depend on the active theme — the spinner is a brand cue, like the
+// splash logo, and reads identically on Catppuccin Mocha (dark),
+// Latte (light), Tokyo Night, and any user TOML theme. Picks the
+// brightest hex from each anchor band so the rotating glyph stays
+// vivid across the full color sweep.
 var thinkingSpinnerGradient = []lipgloss.Color{
-	lipgloss.Color("#89dceb"), // sky / cyan-bright
-	lipgloss.Color("#74c7ec"), // sapphire / cyan
-	lipgloss.Color("#89b4fa"), // blue-bright
-	lipgloss.Color("#7287fd"), // lavender / blue
+	lipgloss.Color("#4f8fff"), // electric blue
+	lipgloss.Color("#22d3ee"), // cyan-teal
+	lipgloss.Color("#a78bfa"), // soft purple
+	lipgloss.Color("#ec4899"), // pink
 }
 
 // Spinner is an immutable snapshot of the spinner's frame state.

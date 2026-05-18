@@ -25,18 +25,21 @@ var logoLines = []string{
 	"  ╚══════╝ ╚═════╝   ╚═══╝   ",
 }
 
-// logoGradient is the cyan→blue vertical gradient applied per-row. Mirrors
-// the REPL palette (chalk.cyanBright/cyan/blueBright/blue) using Catppuccin-
-// adjacent hexes so it lands on both Catppuccin Mocha (dark) and Latte
-// (light) backgrounds. The colors are theme-independent — the splash is a
-// brand cue, not a status surface.
+// logoGradient is the blue → teal → purple → pink vertical gradient
+// applied per-row. Mirrors the Qwen Code splash palette (which sweeps
+// left-to-right) re-oriented top-to-bottom for SOV. The colors are
+// theme-independent — the splash is a brand cue, not a status surface
+// — so they read on Catppuccin Mocha (dark), Latte (light), Tokyo
+// Night, and any user TOML theme. Six rows × four anchor colors with
+// blended midpoints between them: blue → cyan-teal → teal → purple
+// → magenta → pink.
 var logoGradient = []lipgloss.Color{
-	lipgloss.Color("#89dceb"), // sky / cyan-bright
-	lipgloss.Color("#74c7ec"), // sapphire / cyan
-	lipgloss.Color("#89b4fa"), // blue-bright
-	lipgloss.Color("#7287fd"), // lavender / blue
-	lipgloss.Color("#7287fd"),
-	lipgloss.Color("#89b4fa"),
+	lipgloss.Color("#4f8fff"), // electric blue
+	lipgloss.Color("#22d3ee"), // cyan-teal
+	lipgloss.Color("#14b8a6"), // teal
+	lipgloss.Color("#a78bfa"), // soft purple
+	lipgloss.Color("#d946ef"), // magenta
+	lipgloss.Color("#ec4899"), // pink
 }
 
 // SplashInfo carries the optional info-card fields rendered next to the
