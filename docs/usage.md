@@ -75,9 +75,9 @@ sov --permission-mode ask
 sov --no-cache
 ```
 
-### `--ui tui` flag coverage (Phase 16.1 M4)
+### `--ui tui` flag coverage (Phase 16.1 M4; default flipped in M11)
 
-`--ui tui` is opt-in; `--ui repl` (default) routes to the legacy terminalRepl. The TUI accepts the following `sov` flags:
+As of M11 (2026-05-17), bare `sov` defaults to `--ui tui`. Pass `--ui repl` (or `SOV_UI=repl`, or `sov config set ui.surface repl`) to route to the legacy terminalRepl. The TUI accepts the following `sov` flags:
 
 | Flag | Status | Notes |
 |---|---|---|
@@ -104,7 +104,7 @@ sov --no-cache
 
 | Subcommand | Behavior |
 |---|---|
-| (bare `sov`) | Start the interactive REPL. This is the canonical interactive entrypoint. |
+| (bare `sov`) | Start the interactive session. Defaults to `--ui tui` (Bubble Tea TUI) as of M11. Pass `--ui repl` for the readline terminal REPL, or persist via `sov config set ui.surface repl` / `SOV_UI=repl`. Auto-falls back to REPL with a one-line stderr warning if `sov-tui` is missing. |
 | `chat` *(deprecated keyword)* | Same as bare `sov`. Typing `sov chat` explicitly prints a deprecation warning on stderr recommending bare `sov` (interactive) or `sov dispatch` (headless). The keyword still works for now. |
 | `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive REPL; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires the interactive REPL"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
 | `mission init <dir> --goal "..."` | (Phase 13.5.) Bootstrap a scheduled-mission directory at `<dir>` with `mission.md` (goal + plan template), `state.json` (FSM initial state), `notes.md`, and the `.lock/` subdir. Refuses to overwrite an existing mission dir. |
