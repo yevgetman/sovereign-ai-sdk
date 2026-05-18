@@ -78,7 +78,7 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	primary := string(t.Primary)
 	success := string(t.Success)
 	error_ := string(t.Error)
-	codeBg := string(t.CodeBackground)
+	_ = t.CodeBackground // M11.11 — kept on the theme for future renderers; no longer applied here, see Code/CodeBlock comments below
 
 	margin := uint(2)
 	listLevelIndent := uint(4)
@@ -217,10 +217,18 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		Code: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix:          " ",
-				Suffix:          " ",
-				Color:           &success,
-				BackgroundColor: &codeBg,
+				// M11.11 — inline code (backtick spans, typically file paths
+				// in assistant responses) renders in light-blue bold with NO
+				// background. The previous BackgroundColor: &codeBg (Catppuccin
+				// mantle #181825 — meant to be a dark code-block fill) rendered
+				// as a near-white strip on terminals where palette mapping
+				// inverts dark hexes. Same root-cause family as the body-text
+				// rule in docs/conventions/tui-color-rendering.md: dark hex
+				// backgrounds are as unreliable as bright hex foregrounds.
+				// Light-blue (theme.Primary) + Bold gives a clear "this is
+				// code" signal without a background to misrender.
+				Color: &primary,
+				Bold:  &bold,
 			},
 		},
 		CodeBlock: ansi.StyleCodeBlock{
@@ -314,7 +322,11 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 					Color: &primary,
 				},
 				Background: ansi.StylePrimitive{
-					BackgroundColor: &codeBg,
+					// M11.11 — no BackgroundColor; same reason as inline Code
+					// above (dark hex backgrounds can render white on
+					// terminals with inverted/non-standard palette mapping).
+					// Fenced code blocks rely on the chroma syntax-highlight
+					// colors for visual identity, not on a background fill.
 				},
 			},
 		},
