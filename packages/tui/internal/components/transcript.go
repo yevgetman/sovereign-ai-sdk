@@ -139,14 +139,15 @@ func (t *Transcript) AppendLine(line string) {
 // from model responses, dim system messages, and tool cards. Centralizes
 // the styling so every call site stays in sync. M11.1.
 //
-// M11.8 — body uses ANSI 16-color "15" (universal bright-white) on
-// dark themes. Hex values were getting quantized down to dim greys
-// in tmux 256-color mode; color "15" renders identically and brightly
-// across every profile. Light themes use theme.Foreground for proper
-// contrast against the light background.
+// M11.9 — body uses ANSI 256-color index 231 (pure white from the
+// 6x6x6 color cube). Unlike code "15" (which maps to the terminal's
+// user-configurable "Bright White" palette entry — often a dim shade
+// in popular iTerm/Terminal color schemes), 231 is fixed in the
+// 256-color spec and renders as pure white regardless of palette.
+// Light themes use theme.Foreground for proper contrast.
 func (t *Transcript) AppendUserLine(text string) {
 	marker := lipgloss.NewStyle().Foreground(t.theme.Primary).Bold(true).Render("» ")
-	bodyColor := lipgloss.Color("15")
+	bodyColor := lipgloss.Color("231")
 	if t.theme.Name == "light" {
 		bodyColor = t.theme.Foreground
 	}
