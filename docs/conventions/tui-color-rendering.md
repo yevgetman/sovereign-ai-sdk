@@ -144,6 +144,41 @@ uses no foreground style and inherits terminal default. That was the
 proof — my "bright" colors were ALL rendering dimmer than the
 terminal default.
 
+## Follow-on: dark hex backgrounds are also unreliable (M11.11)
+
+Same root cause family. Glamour's inline `Code` style had
+`BackgroundColor: &codeBg` where `codeBg = theme.CodeBackground`
+(`#181825` Catppuccin mantle — meant to be a *dark* code-block
+fill). On terminals where the palette inverts dark hexes, that fill
+rendered as a **near-white strip** behind every backtick span — the
+exact inverse of what the theme intended.
+
+**Rule:** dark hex backgrounds are as unreliable as bright hex
+foregrounds. Drop the `BackgroundColor` field; use bold + accent
+color to distinguish inline elements instead. Same fix shipped to
+the fenced `CodeBlock.Background` for the same reason.
+
+## Follow-on: even theme.Primary can render too dark (M11.13)
+
+The inline `Code` style picked `theme.Primary` (`#89b4fa` Catppuccin
+blue) for the foreground after dropping the background in M11.11.
+The user reported it rendered too dark/saturated — they wanted a
+clearly lighter sky-blue. Same palette-mapping issue at the
+foreground end this time.
+
+**Fix:** for inline code specifically, use a fixed sky-blue hex
+(`#7dd3fc` Tailwind sky-300) bound to a local `inlineCodeColor`
+variable. Not derived from `theme.Primary` so themes can't drift it
+back into a dark range. Other accent colors (headings, links,
+errors) still use theme tokens because they're not the
+"this-must-read-as-light-blue" element.
+
+**Lesson:** if an accent must read as a *specific shade family*
+(light blue, dark green, etc.) rather than just "some accent
+color," pin it to a fixed hex outside the theme tokens. Theme
+tokens are for thematic consistency; fixed hexes are for
+shade-specific identity.
+
 ## How to verify a color change actually shipped
 
 The Go binary is rebuilt by `scripts/build-tui.ts` (postinstall) on

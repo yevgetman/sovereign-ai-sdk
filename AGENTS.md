@@ -34,6 +34,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/conventions/estimation.md`](docs/conventions/estimation.md) | Before quoting effort/timeline — sessions/dispatches/wall-minutes, never weeks |
 | [`docs/conventions/repo-layout.md`](docs/conventions/repo-layout.md) | Before adding files in `src/`, naming a plan/spec, or moving things |
 | [`docs/conventions/tui-color-rendering.md`](docs/conventions/tui-color-rendering.md) | Before adjusting any text color in `packages/tui/` — body text MUST inherit terminal default; never assume a "bright" hex/ANSI value renders bright |
+| [`docs/conventions/tui-ux-patterns.md`](docs/conventions/tui-ux-patterns.md) | Before changing TUI layout, chrome, or visual behavior — flow layout, splash, spinner, separator, tool events, file-ref auto-wrap, prompt/status styling |
 
 ### Design reference
 
