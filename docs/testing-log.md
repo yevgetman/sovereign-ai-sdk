@@ -8,6 +8,37 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Backlog #41 closed: createClearedChildSession server wire (/clear + /rollback in TUI)
+
+**Scope:** Wire the existing `createClearedChildSession` helper (from `src/agent/sessionRecovery.ts`) into the server-mode CommandContext so `/clear` and `/rollback` work in `--ui tui`. Pre-fix, both commands returned informative-error strings pointing at backlog #41; users on the TUI default had to fall back to `sov --ui repl` or use `/compact` as a workaround.
+
+**Implementation:**
+- `src/server/commandContext.ts`:
+  - `clearHistory()` now calls `createClearedChildSession(runtime.sessionDb, {...})`, sets `sideEffects.newSessionId`, returns the same multi-line text the REPL emits (mirrors `terminalRepl.ts:1837-1858` `clearNow` closure for surface parity).
+  - `rollback()` now looks up the parent session via `runtime.sessionDb.getSession(...)`, surfaces three failure modes as descriptive error strings (current session not found, no parent, parent not found), and on success sets `sideEffects.newSessionId` to the parent id.
+  - Dropped the two `UNWIRED_CLEAR_MSG`/`UNWIRED_ROLLBACK_MSG` constants; updated the file's header comment to reflect that #41 is closed.
+- Go TUI side: no changes. The `newSessionId` field on `CommandSideEffects` was already part of the M10.5 envelope; `app.go:843-849` already hops `m.sessionID` and appends a session marker line on receipt.
+- The REPL's `rollbackNow` includes a "restored N messages" suffix; the server-side version drops it because `SessionMetricsSnapshot` doesn't carry message counts and loading the full history just to count rows would be wasteful. The hop itself is the success signal.
+
+**Tests:**
+- `tests/server/routes/commands.test.ts` — replaced the stale "unwired" test with 3 new cases:
+  - `/clear` mints a child session, surfaces `newSessionId`, and the new id is usable for subsequent dispatches (verified via `/cost` follow-up).
+  - `/rollback` from a child (post-`/clear`) returns the parent id via `newSessionId`.
+  - `/rollback` from an orphan (root) session returns a descriptive "no parent session" output with no `newSessionId` set.
+
+**Suite delta:**
+- TS: 2061 → **2063 pass / 0 fail / 14 skip / 5304 expect()** (+2 net: 3 new clear/rollback cases minus 1 stale unwired test).
+- Go: no changes; all 5 packages remain green.
+- Lint + typecheck clean. Same 2 pre-existing warnings.
+
+**Docs updated:** `docs/backlog/post-phase-13-4.md` (#41 marked closed with strikethrough + "Last sync" line refreshed); `docs/state/2026-05-19-m11-5.md` (open-backlog list shortened, #41 struck through); CLAUDE.md/AGENTS.md (state-doc table row revised to reflect 8 open items, mirror verified byte-identical).
+
+**Manual TUI smoke not yet driven** — the unit tests pin the server route's wire shape end-to-end (including a follow-up dispatch on the new sessionId), and the TUI's hop code is the same path M10.5 exercised for `modelChanged`. User-facing validation: launch `sov`, run `/clear`, expect "conversation history cleared into child session <id>" + the transcript scroll separator showing the new short id. Then `/rollback` returns to the previous session.
+
+**Remaining open from M11.5 close-out:** #43 (/memory wiring, P2), #44 (permission persistence, P3), #45 (slash-command discovery endpoint, P3), #46 (/theme pickerOpen migration, P4), plus the older P3/P4 nits #17/#29/#38/#39.
+
+---
+
 ## 2026-05-19 — Post-M11.5 polish + docs/tests audit
 
 **Scope:** Two follow-ups to M11.5 driven by user screenshots (`uxissue1.png`, `uxissue2.png`) plus an audit pass to make sure the latest TUI UI/UX work is fully documented and covered by tests.
