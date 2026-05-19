@@ -124,12 +124,35 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
     ctx.setModel(explicit);
     return `model set to ${explicit} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
   }
-  if (!process.stdin.isTTY) {
-    return `current model: ${ctx.model}\n(model picker requires a TTY; run \`/model <name>\` to set non-interactively.)`;
-  }
   const models = PROVIDER_MODELS[ctx.providerName] ?? [];
   if (models.length === 0) {
     return `current model: ${ctx.model}\nno preset models registered for provider \`${ctx.providerName}\`. Run \`/model <name>\` to set explicitly, or edit ${resolveConfigPath()}.`;
+  }
+
+  // M11.5 — server-mode branch: emit pickerOpen side-effect for the
+  // TUI to render an inline card. The selection re-dispatches as
+  // `/model <value>`, which hits the explicit-arg branch above. ADR
+  // M11.5-01.
+  if (ctx.requestPicker) {
+    ctx.requestPicker({
+      title: 'switch model',
+      subtitle: `provider: ${ctx.providerName}`,
+      items: models.map((name) => ({
+        label: name,
+        value: name,
+        ...(name === ctx.model ? { hint: '(current)' } : {}),
+      })),
+      initial: Math.max(
+        0,
+        models.findIndex((m) => m === ctx.model),
+      ),
+      onSelect: { command: 'model' },
+    });
+    return '';
+  }
+
+  if (!process.stdin.isTTY) {
+    return `current model: ${ctx.model}\n(model picker requires a TTY; run \`/model <name>\` to set non-interactively.)`;
   }
 
   const items: PickerItem<string>[] = models.map((name) => ({
