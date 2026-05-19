@@ -8,6 +8,54 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Phase 16.1 M12 close-out (readline REPL deprecation warning)
+
+**Scope:** Start the deprecation clock for the readline REPL surface per ADR M11-03's roadmap. M11 deliberately left `--ui repl` silent during the default-flip soak; M11.5 closed the M10-audit gaps that made the TUI feature-complete; with both P2 items (#41 `/clear`+`/rollback` and #43 memory manager) closed earlier today, the REPL has no functionality gap left and is now the right time to announce its end.
+
+**Implementation:**
+- `src/cli/replDeprecation.ts` (new, pure helper) — takes `{ source, env }`, returns the warning string or `null` when suppressed. Predicate semantics: fires for sources cli/env/config; silent for `'default'`; silent when `SOV_NO_DEPRECATION_WARNING=1`. Strict-equal-`'1'` to avoid accidental suppression via shell-rc typos. ADRs M12-01 + M12-02.
+- `src/main.ts` — emits the warning right after `resolveSurface(...)` and BEFORE the missing-binary fallback. Predicate reads `resolution.surface` (the user's chosen surface), NOT `effectiveSurface` (the post-fallback value), so the soft-degradation path stays silent.
+- `README.md` + `docs/usage.md` — `--ui` flag descriptions updated to note the deprecation and the `SOV_NO_DEPRECATION_WARNING` env-var escape hatch.
+- `DECISIONS.md` — 2 ADRs landed (M12-01 explicit-opt-in predicate, M12-02 env-var suppression vs config field).
+
+**Tests:**
+- `tests/cli/replDeprecation.test.ts` — 7 unit cases pin: each source label, the `'default'` short-circuit, suppression-via-`'1'`, no-suppression-for-other-values, and the trailing-newline contract.
+
+**Smoke:**
+- `docs/state/2026-05-19-m12-smoke/run-smoke.ts` — 6 scenarios pinning the predicate end-to-end:
+  - 01-03: explicit opt-ins (CLI / env / config) → deprecation present.
+  - 04: `--ui repl` + `SOV_NO_DEPRECATION_WARNING=1` → suppressed.
+  - 05: missing-binary fallback → M11 fallback warning fires; M12 deprecation does NOT (the distinguishing test for ADR M12-01).
+  - 06: bare `sov` default-TUI → silent.
+- **6/6 PASS** in ~5–10s; $0 cost.
+
+**Suite delta:**
+- TS: 2066 → **2073 pass / 0 fail / 14 skip / 5337 expect()** (+7 replDeprecation cases).
+- Go: unchanged; all 5 packages remain green (M12 makes no Go changes).
+- Lint + typecheck clean. Same 2 pre-existing warnings.
+
+**Commit chain (HEAD: this commit pending):**
+- `97d0429` — `docs: M12 spec + plan — readline REPL deprecation warning`
+- `<T1>` — `feat(cli): add formatReplDeprecationMessage helper (M12 T1)`
+- `85e7271` — `feat(cli): emit REPL deprecation warning at boot (M12 T2)`
+- `103d97d` — `docs: M12 — note REPL deprecation in README + usage.md`
+- (smoke commit) — `test(smoke): M12 boot-decision scenarios with deprecation messaging`
+- (pending close-out) — state snapshot + ADRs M12-01..02 + CLAUDE.md/AGENTS.md mirror + backlog header + testing-log + sov upgrade.
+
+**Postmortem-rule compliance:**
+- Rule 1: `src/ui/terminalRepl.ts` not modified.
+- Rule 2: No file deletions.
+- Rule 3 not gated (single-surface message change; smoke + unit tests cover the contract).
+- Rule 4: All three explicit opt-out paths for the REPL still work bit-for-bit; the only change is the stderr line that fires before they run. Suppression env var is the documented escape hatch.
+
+**Known limitations:**
+- Manual REPL smoke not driven by an interactive session. The boot smoke covers the deprecation predicate against `bun src/main.ts` with `stdin: 'ignore'`; an interactive launch is the user's responsibility post-`sov upgrade`.
+- Scenario 06 (default TUI) exits with code 1 because `Bun.spawn(... stdin: 'ignore')` triggers the TUI launcher's non-TTY bailout. The exit code isn't part of the M12 contract; the deprecation-absence assertion is what matters and it passes.
+
+**What's open:** #44 (permission persistence, P3), #45 (slash-command discovery, P3), #46 (/theme pickerOpen, P4), plus older P3/P4 nits #17/#29/#38/#39. **Next milestone: M13 — terminalRepl removal** (after M12 soaks).
+
+---
+
 ## 2026-05-19 — Backlog #43 closed: memory manager + project scope server wire
 
 **Scope:** Construct `createDefaultMemoryManager` and `resolveProjectScope` per SessionContext and thread them onto every ToolContext. Pre-fix `ctx.memoryManager` was undefined in server-mode, so `MemoryTool.onMemoryWrite(...)` notifications were silent no-ops and `ctx.projectScope` was undefined (writes routed globally even in a project context).
