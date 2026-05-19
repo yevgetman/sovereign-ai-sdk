@@ -294,7 +294,156 @@ line under the prompt. Uses `theme.Dim` italic. Empty hints return
 
 ---
 
-## Iteration narrative (M11 → M11.13)
+## Slash-command surfaces
+
+### Slash autocomplete popup — drops below input (M11.5 polish)
+
+The autocomplete popup that appears when the prompt starts with `/`
+renders **below** the input box, not above. Standard dropdown-suggestion
+pattern — users expect typed input → suggestions appearing under it.
+Pre-fix the popup rendered above the input, which read as a separate
+panel instead of a suggestion attached to what the user was typing.
+
+**Layout integration in `View()`:**
+
+```go
+prompt := m.prompt.View()
+if m.autocomplete.Visible() {
+    prompt = prompt + "\n" + m.autocomplete.View(m.width)
+}
+```
+
+The popup is part of the "prompt" string region, not the transcript.
+The mouse-click region math in `handleMouseClick` puts the popup at
+`[transcriptH + promptH, transcriptH + promptH + popupH)`. If you
+move the popup back above the input, update that calculation too.
+
+### Enter selects + submits; Tab fills only (M11.5 polish)
+
+When the autocomplete popup is visible:
+
+- **Enter** — fills the highlighted completion AND submits in one
+  keystroke. Falls through to the regular Enter submit handler after
+  populating the prompt. Hint text reflects this as the primary action.
+- **Tab** — fills the completion + trailing space, dismisses the popup,
+  leaves the prompt for the user to type args. Useful for arg-taking
+  commands like `/skills install <name>`.
+- **↑/↓** — navigate.
+- **Esc** — dismiss.
+
+**Critical guard: don't clobber typed args.** Only replace the prompt
+with the completion when the user hasn't started typing args yet —
+specifically, when `strings.TrimPrefix(promptText, "/")` contains no
+whitespace. Once args are present (e.g., `/skills reload`), Enter
+submits the typed text verbatim. The popup may still be visible
+because its filter logic just checks for a leading `/`, not whether
+args have been typed; the no-args guard is what makes the UX correct.
+
+Without the guard, `TestApp_SlashSkillsReloadWithServerFetchesSkills`
+times out — the test sends `/skills reload` + Enter, expects the
+reload to fire, but a destructive Enter handler would submit just
+`/skills` and the test would never see the reload request.
+
+**Hint text:** `"Press Enter to select · Esc to cancel"`. Lives in
+`packages/tui/internal/components/slashautocomplete.go:View`. Tab is
+intentionally not advertised — it's a power-user path for arg-taking
+commands; advertising it crowds the hint and confuses new users.
+
+### Static-entries list is hand-mirrored from the TS registry
+
+`packages/tui/internal/components/slashautocomplete.go:staticEntries`
+is a compile-time list of slash-command names + one-line descriptions.
+It must mirror the TS `COMMAND_REGISTRY` in `src/commands/registry.ts`
+because the popup is purely a discovery affordance — the dispatch
+itself routes through the M10.5 `POST /sessions/:id/commands` route,
+which reads the TS registry directly.
+
+**Drift hazard:** adding a TS-side command without adding a mirror
+entry means users can't discover it via the popup, even though it
+works when typed directly. Backlog item #45 plans a discovery
+endpoint that would eliminate the hand-mirror entirely.
+
+**When adding a new slash command:**
+1. Add it to the TS registry (`src/commands/registry.ts` or one of
+   the `*_OPS_COMMANDS` arrays).
+2. Add a mirror entry to `staticEntries`. Keep the description short,
+   verb-first, lowercase, no trailing period — matches existing style.
+3. The entry will appear in the popup at the next `sov` boot. No
+   special cache invalidation; the list is compile-time.
+
+### Inline PickerCard — dropdown for `pickerOpen` side-effect (M11.5)
+
+When the server emits a `pickerOpen` side-effect on a slash-command
+response (`/model`, `/resume`, `/export` no-args), the TUI renders
+an inline card matching the Claude Code reference UX (`~/Desktop/goodux.png`).
+
+**Layout integration in `View()`:**
+
+```go
+out := m.transcript.View() + "\n"
+if m.stallBadge != nil { ... }
+if m.picker != nil {
+    out += m.picker.View(m.width) + "\n"  // between transcript and prompt
+}
+out += "\n\n" + prompt + "\n"
+```
+
+The card renders **between** the transcript and the prompt (above
+the input box). Unlike the autocomplete popup, the picker is a
+modal-like affordance that owns the user's attention until they pick
+or cancel.
+
+**Visual conventions** mirror `slashautocomplete.go`:
+- Title: bold, no Foreground (terminal default fg renders bright).
+- Subtitle: dim italic. Optional — only when payload has one.
+- Selected row: `›` prefix + bold, no Foreground (default fg pops
+  against the pale-orange neighbour rows).
+- Unselected rows: pale orange (`#fab387` — same `slashCommandColor`
+  used by the autocomplete popup) for visual consistency.
+- Hint: dim text on the row, separated by two spaces from the label.
+- Footer: italic grey-blue (`#7a8eb8` — same as the autocomplete
+  hint color), reads as ambient guidance. Always shows
+  `"↑/↓ navigate · enter confirm · esc cancel"`.
+- Box: `theme.CardBorderStyle().Padding(0, 1).Width(width - 2)`.
+- Narrow-terminal fallback: when `width < 6`, drop the box and
+  render the inner body bare (same as the autocomplete popup).
+
+**Input lock** — while `m.picker != nil`, the input handler routes
+↑/↓/Enter/Esc to the picker and absorbs all other keys. Mirrors the
+permission-modal pattern. Other inline surfaces (autocomplete popup,
+diff focus) should not be active simultaneously; the dispatcher
+response that opens the picker arrives after the user has submitted
+their slash command, so there's no overlap in practice.
+
+**Resolution model — stateless server (ADR M11.5-03):** on Enter,
+the TUI dispatches `/<command> <selected.value>` as a fresh M10.5
+call. Server holds no suspended-command state. The arg-form of every
+picker command already works — the card just collects the arg
+interactively.
+
+**Adding a new picker-driven command:**
+1. Add a `requestPicker` branch to the command handler in
+   `src/commands/`, before the legacy `pick()` fallback:
+   ```ts
+   if (ctx.requestPicker) {
+     ctx.requestPicker({
+       title, subtitle, items, initial,
+       onSelect: { command: 'your-command' },
+     });
+     return '';
+   }
+   ```
+2. Ensure the explicit-arg form (`/your-command <value>`) works — the
+   picker's resolution dispatches that.
+3. The TUI side needs no changes; `PickerCard` handles any
+   `pickerOpen` payload.
+
+Location: `packages/tui/internal/components/pickercard.go` (component),
+`packages/tui/internal/app/app.go` (dispatch handling + key routing).
+
+---
+
+## Iteration narrative (M11 → M11.18 + formal M11.5)
 
 For posterity — the iteration order matters because some of these
 fixes depend on earlier rules being in place.
@@ -313,6 +462,12 @@ fixes depend on earlier rules being in place.
 | **M11.11** | Inline code light-blue bold | Dropped Code's dark-hex `BackgroundColor`; switched to `theme.Primary` + Bold (later revised in M11.13) |
 | **M11.12** | Tool/separator/file-ref polish | Removed "tool starting..." lines; full-width turn separator; auto-wrap file refs in backticks |
 | **M11.13** | Multi-word filenames + better blue | Bullet-aware wrapping for filenames with spaces; inline code color → `#7dd3fc` |
+| **M11.14** | Slash autocomplete colors | Pale orange (`#fab387`) for unselected rows, bold + default-fg for selected. Same color story as inline code in M11.10 — accents read against terminal default. |
+| **M11.15** | Tab-autocomplete hint | "press Tab to autocomplete" line at popup footer, italic + grey-blue (`#7a8eb8`) — recessive ambient guidance. Replaced in M11.5 (formal) with the Enter-selects hint. |
+| **M11.16** | Hint spacing + casing | Blank-line spacer between match list and footer hint; "Press" capitalized. |
+| **M11.17** | /skills install entries | `/skills install` and `/skills uninstall` added to `staticEntries`; pattern for new TS-side commands documented. |
+| **M11.18** | Static-entries audit | `staticEntries` grew from 4 to 25 entries (band-aid for the hand-mirror drift) — every TS-registered slash command now surfaces in the popup. Backlog #45 plans the discovery-endpoint fix. |
+| **M11.5 (formal)** | Inline picker card + popup polish | Half-milestone — see `docs/state/2026-05-19-m11-5.md`. NEW `requestPicker` capability on `CommandContext`; `/model`, `/resume`, `/export` migrated; new Go `PickerCard` component; T8 spacing fix (pre-prompt gap bumped to 2 lines); popup-below-input layout (uxissue1); Enter-selects-with-args-guard (uxissue2); hint text → "Press Enter to select · Esc to cancel". This M11.5 is distinct from the M11.5 commit-tag in `c9faf6b` (the body-text dim attempt) — the formal half-milestone supersedes that namespace usage. |
 
 The **most-skipped diagnostic step** between M11.5 and M11.10 was
 verifying what color the user's terminal actually rendered for the
@@ -337,6 +492,8 @@ almost certainly "remove the Color field entirely."
 | Add a hint below the prompt | `components.HintLine(text, theme)`. Empty string returns empty (no padding). |
 | Pick a brand color | Use one of the splash gradient hexes (`#4f8fff`, `#22d3ee`, etc.). Theme-independent. |
 | Pick an accent for theme integration | Use `theme.Primary` / `theme.Success` / `theme.Error` / `theme.Warning` / `theme.Dim`. |
+| Add a new slash command discoverable in the popup | Mirror it into `slashautocomplete.go:staticEntries` with a short verb-first description. Future fix: backlog #45 (discovery endpoint). |
+| Add a new picker-driven slash command | Add a `ctx.requestPicker(...)` branch before the legacy `pick()` fallback. The TUI's `PickerCard` handles any payload. |
 
 ## See also
 
@@ -354,7 +511,15 @@ almost certainly "remove the Color field entirely."
   row (no background fill).
 - `packages/tui/internal/components/notification.go` — boot-notice box
   (yellow border, body inherits terminal default).
+- `packages/tui/internal/components/slashautocomplete.go` — autocomplete
+  popup (drops below input, Enter selects, Tab fills, hand-mirrored
+  `staticEntries`).
+- `packages/tui/internal/components/pickercard.go` — inline picker card
+  rendered from `pickerOpen` side-effects.
 - `packages/tui/internal/render/markdown.go` — glamour StyleConfig +
   `wrapFileRefs` pre-processor.
 - `packages/tui/internal/app/app.go` — turn separator, tool event
-  handlers, splash dispatch.
+  handlers, splash dispatch, picker key handling.
+- `docs/specs/2026-05-19-phase-16-1-m11-5-inline-picker-card-design.md`
+  — full spec for the formal M11.5 picker work, including the
+  `requestPicker` capability and the side-effect protocol.
