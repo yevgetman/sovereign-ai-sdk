@@ -220,6 +220,18 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           subagentScheduler: runtime.subagentScheduler,
           taskManager: runtime.taskManager,
           parentToolPool: runtime.toolPool,
+          // Backlog #38 (closed 2026-05-19) — auto-promote opt-ins from
+          // settings.review. Mirrors terminalRepl.ts:974-980 so server-mode
+          // children inherit the same auto-promote behavior the REPL has.
+          // Optional spread to keep the omitted-when-false invariant
+          // (matches the M5.1 review's "don't lie about state we don't
+          // have" convention).
+          ...(userSettings.review?.autoPromoteMemory === true
+            ? { reviewAutoPromoteMemory: true }
+            : {}),
+          ...(userSettings.review?.autoPromoteSkills === true
+            ? { reviewAutoPromoteSkills: true }
+            : {}),
         },
         enabled: true,
         traceRecorder: (event) => traceWriter.record(event),
