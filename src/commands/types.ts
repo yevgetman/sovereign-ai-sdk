@@ -10,6 +10,26 @@ import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 import type { SessionMetrics } from '../ui/sessionSummary.js';
 
+/** One option in a server-emitted picker. M11.5. */
+export type PickerOpenItem = {
+  label: string;
+  value: string;
+  hint?: string;
+};
+
+/** Payload that a server-mode picker command emits in lieu of running an
+ *  in-process `pick()`. The TUI renders an inline card from this shape;
+ *  on selection it re-dispatches `/<onSelect.command> <value>` as a fresh
+ *  slash command (ADR M11.5-03). M11.5. */
+export type PickerOpenConfig = {
+  title: string;
+  subtitle?: string;
+  items: PickerOpenItem[];
+  initial?: number;
+  /** Command to dispatch with the selected value as args. */
+  onSelect: { command: string };
+};
+
 /** Runtime services exposed to slash command handlers. */
 export type CommandContext = {
   sessionId: string;
@@ -78,6 +98,12 @@ export type CommandContext = {
    *  Calling it clears the pending flag and resumes the model turn.
    *  Undefined when no checkin is pending. */
   resumeCheckin?: () => Promise<void>;
+  /** M11.5 — server-mode picker capability. When defined, picker-driven
+   *  commands (`/model`, `/resume`, `/export`) emit a `pickerOpen` side-
+   *  effect instead of running the in-process raw-mode `pick()`. When
+   *  undefined (REPL surface), commands fall back to the legacy `pick()`
+   *  flow. ADR M11.5-01 (capability detection). */
+  requestPicker?: (config: PickerOpenConfig) => void;
 };
 
 /** Slash command that runs locally and returns display text. */
