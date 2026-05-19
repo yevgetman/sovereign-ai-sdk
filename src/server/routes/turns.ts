@@ -22,7 +22,7 @@
 import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
-import { loadPermissionSettings } from '../../config/settings.js';
+import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
 import { expandContextReferences } from '../../context/references.js';
 import { query } from '../../core/query.js';
 import { repairMissingToolResults } from '../../core/transcriptRepair.js';
@@ -442,14 +442,21 @@ async function runTurnInBackground(
     const baseCanUseTool = buildCanUseTool({
       mode: runtime.permissionMode,
       ask: sessionAsk,
-      // M5 keeps the session-scoped allow set empty and the persistence
-      // hook a no-op (parity with the buildRuntime defaults). Project-local
-      // "always" persistence is a deferred follow-up; for now an `always`
-      // answer registers an in-memory rule for this turn only.
+      // Session-scoped allow set is fresh per turn — the per-turn
+      // canUseTool's lifecycle ends with the turn. Persistence across
+      // turns happens via project-local settings.local.json: an
+      // `always` answer is appended there, and the next turn's
+      // loadPermissionSettings call (above) picks it up as a rule
+      // layer. Backlog #44 (closed 2026-05-19) wired the persistence
+      // path; mirrors terminalRepl.ts:827.
       alwaysAllow: new Set<string>(),
       ruleLayers: permissionSettings.layers,
-      recordAlwaysAllow: () => {
-        /* no-op: M5 server doesn't persist session-scoped allow rules. */
+      recordAlwaysAllow: (rule) => {
+        appendProjectLocalPermissionRule({
+          cwd: runtime.cwd,
+          rule,
+          behavior: 'allow',
+        });
       },
     });
     // Defense-in-depth: secrets redactor wraps the resolved canUseTool

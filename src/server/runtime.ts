@@ -771,13 +771,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const baseCanUseTool = buildCanUseTool({
     mode: permissionMode,
     ask,
-    // M3 server has no project-local always-allow persistence; the set
-    // remains empty and recordAlwaysAllow is a no-op. M5 wires both
-    // through the approval queue.
+    // This is the runtime-level fallback canUseTool — its `ask` is a
+    // deny-always placeholder (line ~769). The `always` answer branch
+    // in canUseTool.ts:61 is unreachable from this chain because `ask`
+    // never returns 'always', so recordAlwaysAllow is genuinely
+    // never called. The per-session canUseTool in src/server/routes/
+    // turns.ts is the one users actually hit through the approval
+    // queue — that's where backlog #44 wired
+    // appendProjectLocalPermissionRule.
     alwaysAllow: new Set<string>(),
     ruleLayers: permissionSettings.layers,
     recordAlwaysAllow: () => {
-      /* no-op: M3 server doesn't persist session-scoped allow rules. */
+      /* unreachable: ask placeholder always denies. */
     },
   });
   // Defense-in-depth: secrets redactor wraps the resolved canUseTool
