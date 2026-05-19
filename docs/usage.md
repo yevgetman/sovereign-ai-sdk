@@ -75,9 +75,11 @@ sov --permission-mode ask
 sov --no-cache
 ```
 
-### `--ui tui` flag coverage (Phase 16.1 M4; default flipped in M11)
+### `--ui tui` flag coverage (Phase 16.1 M4; default flipped in M11; REPL deprecated in M12)
 
-As of M11 (2026-05-17), bare `sov` defaults to `--ui tui`. Pass `--ui repl` (or `SOV_UI=repl`, or `sov config set ui.surface repl`) to route to the legacy terminalRepl. The TUI accepts the following `sov` flags:
+As of M11 (2026-05-17), bare `sov` defaults to `--ui tui`. Pass `--ui repl` (or `SOV_UI=repl`, or `sov config set ui.surface repl`) to route to the legacy terminalRepl. **As of M12 (2026-05-19), explicit `--ui repl` / `SOV_UI=repl` / `ui.surface=repl` opt-ins emit a one-line stderr deprecation warning** — the readline REPL surface will be removed in M13. The missing-binary fallback to REPL (when `sov-tui` isn't installed) does NOT emit the deprecation; it's a soft-degradation, not a user choice. Set `SOV_NO_DEPRECATION_WARNING=1` to silence the warning for explicit-opt-in callers who can't migrate yet.
+
+The TUI accepts the following `sov` flags:
 
 | Flag | Status | Notes |
 |---|---|---|
@@ -104,7 +106,7 @@ As of M11 (2026-05-17), bare `sov` defaults to `--ui tui`. Pass `--ui repl` (or 
 
 | Subcommand | Behavior |
 |---|---|
-| (bare `sov`) | Start the interactive session. Defaults to `--ui tui` (Bubble Tea TUI) as of M11. Pass `--ui repl` for the readline terminal REPL, or persist via `sov config set ui.surface repl` / `SOV_UI=repl`. Auto-falls back to REPL with a one-line stderr warning if `sov-tui` is missing. |
+| (bare `sov`) | Start the interactive session. Defaults to `--ui tui` (Bubble Tea TUI) as of M11. Pass `--ui repl` for the readline terminal REPL (**deprecated as of M12; removal in M13**), or persist via `sov config set ui.surface repl` / `SOV_UI=repl`. Auto-falls back to REPL with a one-line stderr warning if `sov-tui` is missing (the fallback does NOT trigger the M12 deprecation warning — it's a soft-degradation, not a user choice). Set `SOV_NO_DEPRECATION_WARNING=1` to silence the explicit-opt-in warning. |
 | `chat` *(deprecated keyword)* | Same as bare `sov`. Typing `sov chat` explicitly prints a deprecation warning on stderr recommending bare `sov` (interactive) or `sov dispatch` (headless). The keyword still works for now. |
 | `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive REPL; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires the interactive REPL"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
 | `mission init <dir> --goal "..."` | (Phase 13.5.) Bootstrap a scheduled-mission directory at `<dir>` with `mission.md` (goal + plan template), `state.json` (FSM initial state), `notes.md`, and the `.lock/` subdir. Refuses to overwrite an existing mission dir. |
