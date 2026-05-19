@@ -428,9 +428,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// M9 T8 — autocomplete popup routing. When visible, Tab/Esc/Up/Down
+		// M9 T8 — autocomplete popup routing. When visible, Tab/Enter/Esc/Up/Down
 		// route here BEFORE the regular prompt input; other keys fall
 		// through to the prompt update which then re-filters via SetFilter.
+		//
+		// Post-M11.5 polish (uxissue2): Enter on the visible popup now
+		// fills the highlighted completion and falls through to the
+		// regular Enter submit handler below (so the command actually
+		// runs, instead of submitting the literal "/" the user typed).
+		// Tab still fills + space for users who want to type args first.
 		if m.autocomplete.Visible() {
 			switch msg.String() {
 			case "tab":
@@ -449,6 +455,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.autocomplete.Dismiss()
 				return m, nil
+			case "enter":
+				// Only replace the prompt with the highlighted
+				// completion when the user hasn't started typing args
+				// yet (no whitespace after the command name). Once
+				// they've typed args (e.g., "/skills reload"), Enter
+				// submits what they wrote verbatim — otherwise the
+				// completion would clobber the args. The popup may
+				// still be visible because its filter logic shows on
+				// any leading "/", regardless of args.
+				promptText := m.prompt.Value()
+				if !strings.Contains(strings.TrimPrefix(promptText, "/"), " ") {
+					if completion := m.autocomplete.Completion(); completion != "" {
+						m.prompt.SetValue(completion)
+					}
+				}
+				m.autocomplete.Dismiss()
+				// Don't return — fall through to the regular Enter
+				// handler below so the filled command actually submits.
 			}
 		}
 		if key := msg.String(); key == "esc" || key == "ctrl+c" {
@@ -1144,8 +1168,8 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 //
 // Layout from top to bottom (current frame's vertical stack):
 //   transcript viewport (h = m.height - statusH - promptH - popupH)
-//   autocomplete popup (h = 0 or N+2 when visible)
 //   prompt (h = 2)
+//   autocomplete popup (h = 0 or N+2 when visible)  ← below prompt post-uxissue1
 //   status (h = 1)
 //
 // T2 inserts a stall-badge row above the prompt when present; the
@@ -1168,7 +1192,8 @@ func (m Model) handleMouseClick(msg tea.MouseMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if popupH > 0 {
-		popupStart := transcriptH
+		// Popup now sits BELOW the prompt (uxissue1).
+		popupStart := transcriptH + promptH
 		popupEnd := popupStart + popupH
 		if msg.Y >= popupStart && msg.Y < popupEnd {
 			// Click on autocomplete popup. Entry index is the row inside
@@ -1264,10 +1289,15 @@ func (m Model) View() string {
 	if m.permission != nil && !m.permission.Done() {
 		return m.permission.View(m.width, m.height)
 	}
-	// M9 T8 — autocomplete popup renders above the prompt row when visible.
+	// M9 T8 — autocomplete popup renders next to the prompt row when visible.
+	// Post-M11.5 polish: popup drops DOWN below the input box (uxissue1
+	// feedback), matching the standard dropdown-suggestion pattern users
+	// expect from web UIs and Claude Code's reference. Pre-fix the popup
+	// rendered above the input, which read as a separate panel rather
+	// than a suggestion attached to what the user was typing.
 	prompt := m.prompt.View()
 	if m.autocomplete.Visible() {
-		prompt = m.autocomplete.View(m.width) + "\n" + prompt
+		prompt = prompt + "\n" + m.autocomplete.View(m.width)
 	}
 	// M11.3 — hint line below the prompt, dim/italic. "? for shortcuts"
 	// matches the Qwen Code reference layout. M11.6: notices used to

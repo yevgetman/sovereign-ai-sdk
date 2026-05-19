@@ -238,13 +238,17 @@ func (s SlashAutocomplete) View(width int) string {
 		lines = append(lines, line)
 	}
 	// M11.15 — subtle grey-blue hint at the bottom of the popup so
-	// new users discover Tab autocompletion. Italic to match the
-	// general "ambient guidance" style used in HintLine/notifications.
+	// new users discover the autocomplete controls. Italic to match
+	// the general "ambient guidance" style used in HintLine/notifications.
 	// M11.16 — blank-line spacer between the match list and the hint
 	// so the hint reads as a separate informational footer rather
 	// than as another match row.
+	// Post-M11.5 polish (uxissue2): Enter is the primary action — it
+	// fills the selection AND submits in one keystroke. Tab still works
+	// silently as the fill-only path for users typing args manually.
+	// Esc dismisses the popup.
 	hintStyle := lipgloss.NewStyle().Foreground(autocompleteHintColor).Italic(true)
-	hint := hintStyle.Render("Press Tab to autocomplete")
+	hint := hintStyle.Render("Press Enter to select · Esc to cancel")
 	body := strings.Join(lines, "\n") + "\n\n" + hint
 	if width < 6 {
 		return body
