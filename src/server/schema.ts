@@ -207,6 +207,26 @@ export const CommandRequestSchema = z.object({
 
 export type CommandRequest = z.infer<typeof CommandRequestSchema>;
 
+// M11.5 — picker-driven commands (/model, /resume, /export) emit this
+// in lieu of running an in-process raw-mode pick(). The TUI renders an
+// inline card; selection re-dispatches `/<onSelect.command> <value>`.
+// ADR M11.5-01, ADR M11.5-03.
+export const PickerOpenItemSchema = z.object({
+  label: z.string(),
+  value: z.string(),
+  hint: z.string().optional(),
+});
+
+export const PickerOpenConfigSchema = z.object({
+  title: z.string(),
+  subtitle: z.string().optional(),
+  items: z.array(PickerOpenItemSchema),
+  initial: z.number().int().nonnegative().optional(),
+  onSelect: z.object({ command: z.string() }),
+});
+
+export type PickerOpenConfigWire = z.infer<typeof PickerOpenConfigSchema>;
+
 export const CommandSideEffectsSchema = z.object({
   // Set by /clear when it mints a new child session. The TUI hops
   // m.sessionID to this value for subsequent POSTs. Unwired in M10.5
@@ -216,6 +236,10 @@ export const CommandSideEffectsSchema = z.object({
   exitRequested: z.boolean().optional(),
   // Set by /model. The TUI updates its model display.
   modelChanged: z.string().optional(),
+  // Set by /model, /resume, /export when invoked with no args (M11.5).
+  // The TUI renders the inline card; on Enter it re-dispatches the
+  // command with the chosen value as args.
+  pickerOpen: PickerOpenConfigSchema.optional(),
 });
 
 export type CommandSideEffects = z.infer<typeof CommandSideEffectsSchema>;

@@ -23,7 +23,7 @@
 //     handler will surface the limitation when invoked
 
 import { COMMANDS, buildCommandRegistry } from '../commands/registry.js';
-import type { CommandContext } from '../commands/types.js';
+import type { CommandContext, PickerOpenConfig } from '../commands/types.js';
 import { loadPermissionSettings } from '../config/settings.js';
 import { auditContextBudget } from '../context/budget.js';
 import type { Message, SystemSegment } from '../core/types.js';
@@ -42,6 +42,12 @@ export type CommandSideEffects = {
   newSessionId?: string;
   exitRequested?: boolean;
   modelChanged?: string;
+  /** M11.5 — picker-driven commands (`/model`, `/resume`, `/export`)
+   *  emit this in server mode so the TUI can render an inline card
+   *  instead of the broken raw-mode `pick()` overlay (`ux1.png`). The
+   *  card's selection is dispatched as a fresh `/<command> <value>`
+   *  call. ADR M11.5-01, ADR M11.5-03. */
+  pickerOpen?: PickerOpenConfig;
 };
 
 export type BuildServerCommandContextResult = {
@@ -175,6 +181,16 @@ export function buildServerCommandContext(
     }),
     requestExit: (): void => {
       sideEffects.exitRequested = true;
+    },
+    requestPicker: (config: PickerOpenConfig): void => {
+      // ADR M11.5-01: one picker per command dispatch. Double-emission
+      // is a programming error (a picker command shouldn't fire twice
+      // in one call); throwing surfaces it loudly rather than silently
+      // overwriting and dropping the first picker.
+      if (sideEffects.pickerOpen !== undefined) {
+        throw new Error('a picker is already open for this command dispatch');
+      }
+      sideEffects.pickerOpen = config;
     },
     taskManager: runtime.taskManager,
     ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
