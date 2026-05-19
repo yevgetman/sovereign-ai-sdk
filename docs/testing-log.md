@@ -8,6 +8,38 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Backlog #43 closed: memory manager + project scope server wire
+
+**Scope:** Construct `createDefaultMemoryManager` and `resolveProjectScope` per SessionContext and thread them onto every ToolContext. Pre-fix `ctx.memoryManager` was undefined in server-mode, so `MemoryTool.onMemoryWrite(...)` notifications were silent no-ops and `ctx.projectScope` was undefined (writes routed globally even in a project context).
+
+**Implementation:**
+- `src/server/sessionContext.ts`:
+  - SessionContext type gains `memoryManager: MemoryManager` and `projectScope: ProjectScope` (non-optional — they're always constructed).
+  - `buildSessionContext` resolves project scope and constructs the manager. Sync construction works because BuiltinMarkdownMemoryProvider's `initialize`/`onSessionStart` are no-ops; future non-builtin providers needing async init would require promoting this function to async + deferring to first use (note added in the comment).
+  - `disposeSessionContext` adds a step (5) that calls `onSessionEnd` + `shutdown` on the memory manager. No-op for the built-in provider; structure is in place for non-builtins.
+- `src/server/routes/turns.ts` (`buildSessionToolContext`):
+  - Threads `sessionCtx.memoryManager` + `sessionCtx.projectScope` onto every ToolContext. Same reference each turn, not a fresh copy (verified by test).
+- `src/server/commandContext.ts`:
+  - Header comment updated to note #43 is closed (mirrors the #41 closure pattern).
+
+**Tests:** `tests/server/sessionContext.memory.test.ts` (new, 3 cases):
+- SessionContext exposes both fields; projectScope.kind is `'project'` or `'none'` (env-dependent — gracefully handles either).
+- buildSessionToolContext threads the SAME references onto ToolContext (load-bearing for MemoryTool's optional-chain).
+- The MemoryRuntime contract surface (`prefetchSnapshot`, `syncTurn`, `onMemoryWrite`, `onDelegation`) resolves without throwing for the built-in markdown provider.
+
+**Suite delta:**
+- TS: 2063 → **2066 pass / 0 fail / 14 skip / 5316 expect()** (+3 new memory wiring tests).
+- Go: unchanged; all 5 packages remain green.
+- Lint + typecheck clean. Same 2 pre-existing warnings in shellSemantics.ts.
+
+**Manual TUI smoke not driven** — the wire is verified end-to-end via the unit tests (same-reference threading is the load-bearing invariant). User-facing impact today is subtle: `MemoryTool` writes now notify the manager (previously silent) and route via project scope. The visible difference will surface when a `/memory` slash command lands (currently not in the registry) or when a non-builtin memory provider is added.
+
+**Important caveat:** the underlying `MemoryManager.initialize()` is NOT called in server mode because `buildSessionContext` is synchronous. The built-in provider's `initialize` is a no-op so this is currently harmless, but a future external memory provider that needs setup-on-start (DB connection, RPC handshake, etc.) would silently skip that step. See the comment in `SessionContext.memoryManager` docstring.
+
+**Remaining open from M11.5 close-out:** #44 (permission persistence, P3), #45 (slash-command discovery endpoint, P3), #46 (/theme pickerOpen migration, P4), plus the older P3/P4 nits #17/#29/#38/#39. Both P2 items closed; next milestone is M12 (terminalRepl deprecation) per the roadmap.
+
+---
+
 ## 2026-05-19 — Backlog #41 closed: createClearedChildSession server wire (/clear + /rollback in TUI)
 
 **Scope:** Wire the existing `createClearedChildSession` helper (from `src/agent/sessionRecovery.ts`) into the server-mode CommandContext so `/clear` and `/rollback` work in `--ui tui`. Pre-fix, both commands returned informative-error strings pointing at backlog #41; users on the TUI default had to fall back to `sov --ui repl` or use `/compact` as a workaround.
