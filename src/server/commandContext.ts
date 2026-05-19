@@ -19,9 +19,9 @@
 //   - clearHistory / rollback → wired 2026-05-19 (backlog #41 closed)
 //     via createClearedChildSession; sideEffects.newSessionId tells
 //     the TUI to hop sessionID for subsequent POSTs.
-//   - The /memory slash command depends on a memory manager that the
-//     server runtime doesn't construct (backlog #43); /memory's own
-//     handler will surface the limitation when invoked.
+//   - Memory manager / project scope → wired 2026-05-19 (backlog #43
+//     closed) onto SessionContext + threaded into ToolContext by
+//     buildSessionToolContext. Affects MemoryTool routing in server-mode.
 
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { COMMANDS, buildCommandRegistry } from '../commands/registry.js';

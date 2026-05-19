@@ -225,6 +225,14 @@ export function buildSessionToolContext(
     // Passed by reference so the dedup Set persists across the session's
     // turn loop.
     subdirectoryHintState: sessionCtx.subdirectoryHintState,
+    // Backlog #43 (closed 2026-05-19) — per-session memory manager + project
+    // scope. MemoryTool's `ctx.memoryManager?.onMemoryWrite(...)` notifications
+    // now fire in server-mode (previously no-op), and ctx.projectScope routes
+    // writes to the correct global/per-project MEMORY.md when in a project
+    // (bundle or git repo). Mirrors terminalRepl.ts's ToolContext at
+    // src/ui/terminalRepl.ts:635-647.
+    memoryManager: sessionCtx.memoryManager,
+    projectScope: sessionCtx.projectScope,
   };
 }
 

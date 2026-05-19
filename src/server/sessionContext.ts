@@ -27,6 +27,8 @@ import type { Terminal } from '../core/types.js';
 import { LearningObserver } from '../learning/observer.js';
 import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
+import { type MemoryManager, createDefaultMemoryManager } from '../memory/provider.js';
+import { type ProjectScope, resolveProjectScope } from '../memory/scope.js';
 import { ReviewManager } from '../review/manager.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
@@ -84,6 +86,18 @@ export type SessionContext = {
    *  carries it on the session because turns are independent requests
    *  rather than a single REPL loop. */
   subdirectoryHintState: SubdirectoryHintState;
+  /** Backlog #43 (closed 2026-05-19) — per-session memory manager + project
+   *  scope, mirroring terminalRepl's setup at `src/ui/terminalRepl.ts:379-386`.
+   *  Threaded onto ToolContext by buildSessionToolContext so MemoryTool's
+   *  `ctx.memoryManager?.onMemoryWrite(...)` notifications fire and
+   *  `ctx.projectScope` routes writes correctly between global and
+   *  per-project MEMORY.md. The built-in markdown provider's initialize/
+   *  onSessionStart are no-ops so construction stays synchronous (matches
+   *  buildSessionContext's existing shape); if a non-builtin provider that
+   *  needs async init is added later, this constructor will need to be
+   *  promoted to async + initialize() called on first use. */
+  memoryManager: MemoryManager;
+  projectScope: ProjectScope;
 };
 
 export type BuildSessionContextOpts = {
@@ -214,6 +228,19 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
       })
     : undefined;
 
+  // Backlog #43 (closed 2026-05-19) — resolve project scope + construct
+  // the default memory manager. Mirrors terminalRepl.ts:379-386. The
+  // built-in markdown provider's initialize() and onSessionStart() are
+  // no-ops, so we can construct synchronously without making
+  // buildSessionContext itself async. Disposal calls onSessionEnd +
+  // shutdown to drain any provider state.
+  const projectScope = resolveProjectScope({
+    cwd: runtime.cwd,
+    bundle: runtime.bundle ?? null,
+    harnessHome: runtime.harnessHome,
+  });
+  const memoryManager = createDefaultMemoryManager(runtime.harnessHome, projectScope);
+
   return {
     sessionId,
     traceWriter,
@@ -226,6 +253,8 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     // M8 T3 — fresh per-session hint state; `touched` starts empty and
     // accumulates directories as tools fire across the session's turns.
     subdirectoryHintState: createSubdirectoryHintState(),
+    memoryManager,
+    projectScope,
     ...(learningObserver !== undefined ? { learningObserver } : {}),
     ...(reviewManager !== undefined ? { reviewManager } : {}),
   };
@@ -388,6 +417,18 @@ export async function disposeSessionContext(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     log(`[sessionContext] review summary failed for ${ctx.sessionId}: ${reason}`);
+  }
+
+  // (5) Backlog #43 — drain the memory manager. Built-in provider's
+  //     onSessionEnd/shutdown are no-ops, so this is currently
+  //     pass-through; the structure is in place for non-builtin providers
+  //     that need to flush state on session end.
+  try {
+    await ctx.memoryManager.onSessionEnd(ctx.sessionId);
+    await ctx.memoryManager.shutdown();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log(`[sessionContext] memory manager teardown failed for ${ctx.sessionId}: ${reason}`);
   }
 }
 
