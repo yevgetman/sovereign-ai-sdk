@@ -1,0 +1,6 @@
+{
+  "output": "model set to claude-sonnet-4-6 (persisted to session 015af2cc).",
+  "sideEffects": {
+    "modelChanged": "claude-sonnet-4-6"
+  }
+}

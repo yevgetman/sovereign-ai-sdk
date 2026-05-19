@@ -1,0 +1,28 @@
+{
+  "output": "",
+  "sideEffects": {
+    "pickerOpen": {
+      "title": "switch model",
+      "subtitle": "provider: anthropic",
+      "items": [
+        {
+          "label": "claude-haiku-4-5-20251001",
+          "value": "claude-haiku-4-5-20251001",
+          "hint": "(current)"
+        },
+        {
+          "label": "claude-sonnet-4-6",
+          "value": "claude-sonnet-4-6"
+        },
+        {
+          "label": "claude-opus-4-7",
+          "value": "claude-opus-4-7"
+        }
+      ],
+      "initial": 0,
+      "onSelect": {
+        "command": "model"
+      }
+    }
+  }
+}

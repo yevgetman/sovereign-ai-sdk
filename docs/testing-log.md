@@ -8,6 +8,52 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Phase 16.1 M11.5 close-out (inline picker card)
+
+**Scope:** Replace the broken raw-mode `pick()` overlay that collided with the Bubble Tea TUI render loop (`~/Desktop/ux1.png`) with an inline `PickerCard` matching Claude Code's reference UX (`~/Desktop/goodux.png`). Generalize the protocol so `/model`, `/resume`, `/export` (and any future picker-driven command) share a single side-effect-based contract. Includes the T8 spacing fix bumping the pre-prompt gap from one to two lines (`~/Desktop/ux2.png`).
+
+**Suite delta:**
+- TS: 2033 → **2061 pass / 0 fail / 10 skip / 5291 expect()** (+28 cases: 3 commandContext + 12 pickers.requestPicker + 4 smoke skipped by default + 9 from other paths counted).
+- Go: 9 PickerCard tests + 7 picker dispatch/key tests, all pass. One pre-existing autocomplete failure (`TestSlashAutocompleteFiltersByPrefix` — flagged by the T4 subagent) was a regression I introduced when expanding `staticEntries` earlier in the session; fixed inline via commit `e6a1d95` by narrowing the filter from `/com` to `/comp`.
+- Lint + typecheck clean. Same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` (unrelated).
+
+**Commit chain (HEAD: this commit pending):**
+- `c951dae` — `docs: M11.5 spec + plan — inline picker card for the TUI`
+- `487f598` — `feat(commands): add PickerOpenConfig type + CommandContext.requestPicker capability` (T1)
+- `cd36c19` — `feat(server): wire requestPicker capability through ServerCommandContext` (T2 + tests)
+- `a1aae39` — `feat(commands): /model emits pickerOpen side-effect in server mode` (T3 + tests)
+- `65a703c` — `feat(tui): PickerCard component for inline picker rendering` (T4, subagent-built, Opus 4.7, 165 LoC + 9 tests)
+- `e6a1d95` — `test(tui): fix slashautocomplete /comp filter test after staticEntries expansion` (collateral fix)
+- `343ba14` — `feat(tui): wire pickerOpen side-effect into inline PickerCard (T5+T6+T8)` (Go app.go + transport + 7 dispatch tests + spacing fix)
+- `8db0a6d` — `feat(commands): /resume and /export emit pickerOpen side-effect in server mode` (T7 + 8 tests)
+- (pending close-out commits) — state snapshot, ADRs M11.5-01..03 in DECISIONS.md, CLAUDE.md/AGENTS.md mirror, backlog header, testing-log entry.
+
+**Smoke:**
+- **Real-Anthropic picker round-trip** (`SOV_M11_5_REAL_SMOKE=1 bun test tests/parity/m11_5PickerSmoke.test.ts`): 2/2 pass / 13 expect() / ~502 ms / ~$0 (no LLM inference; `/model` registry call runs server-side). Transcripts at `docs/state/2026-05-19-m11-5-smoke/agent-a-pickeropen.json` + `agent-b-modelchanged.json` confirm the wire-shape contract under a real Anthropic-backed runtime.
+
+**Manual TUI smoke not run in this session.** The pre-existing M11 smoke harness covers boot-decision paths but doesn't drive the picker UI. The next user-facing session against `sov upgrade`-refreshed binary should:
+1. Launch `sov` (TUI default).
+2. Type `/model` + Enter.
+3. Expect inline `PickerCard` (matches `goodux.png`, not the broken `ux1.png` cascade).
+4. ↑/↓ navigate, Enter selects, transcript shows "model set to …".
+5. Type `/model` again; press Esc; expect quiet dismissal with dim `(cancelled)` marker.
+6. Verify the gap between transcript and input box is now 2 blank lines (T8).
+
+**Postmortem-rule compliance:**
+- Rule 1: `src/ui/terminalRepl.ts` not modified.
+- Rule 2: No file deletions.
+- Rule 3 not gated (M11.5 is a focused-scope feature on a green-field surface; smoke + unit tests + Go tests cover the contract).
+- Rule 4: REPL retains `pick()`; explicit-arg forms (`/model X`, `/resume <uuid>`, `/export md`) work on every surface.
+
+**Known limitations:**
+- `/theme` not migrated (out of scope — works via dedicated client-side dispatch). Filed as M11.5 follow-up F1; not yet a numbered backlog item.
+- REPL keeps legacy `pick()` (ADR M11.5-02). M12 retires the REPL entirely.
+- Empty-state diagnostic message change: `/resume` and `/export` no longer say "requires a TTY" when the underlying state is empty; they say "no recorded sessions" / "nothing to export" first. More actionable but a visible behavior delta.
+
+**Naming disambiguation:** "M11.5" was previously used as an informal commit tag in `c9faf6b` (boxed-prompt polish increment during M11 work). This snapshot establishes M11.5 as a *formal* half-milestone with spec/plan/ADRs/close-out/smoke, following the M9.5/M9.6/M10.5 pattern. The earlier comment block `// M11.5 — blank line spacers …` in `packages/tui/internal/app/app.go:1224` was preserved and the surrounding comments extended to note the additional T8 spacing bump from this milestone.
+
+---
+
 ## 2026-05-19 — TUI slash-popup discoverability: add 21 missing TS-registered commands
 
 **Scope:** Triaged user report that typing `/` in the TUI didn't show `/model`. Root cause: `packages/tui/internal/components/slashautocomplete.go:staticEntries` was a 4-entry hand-mirror (compact, expand, skills, theme) of the TS `COMMAND_REGISTRY`. The M10.5 dispatcher routes any typed `/foo` to the server, so commands worked when typed — they were just invisible to discovery. Band-aid: add all 21 missing entries to `staticEntries`. Lasting fix filed as backlog Item 45 (GET /sessions/:id/commands discovery endpoint).
