@@ -8,6 +8,42 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Backlog audit pass: close #29 + #39 (stale) and #38 (inline fix)
+
+**Scope:** Triaged the "quick-wins" batch (#29, #39, #46). Two of the three turned out to be already-fixed in code but still listed in the backlog. #38 surfaced during the audit as a genuine 4-line fix and was bundled.
+
+**Findings:**
+- **#29** ("lipgloss `Style.Copy()` deprecation in Go TUI permission modal") — closed by M9 T11 (no `.Copy()` calls remain anywhere under `packages/tui/`; `permission.go:121-123` documents the historical fix where direct field-chain assignments replaced the deprecated identity helper). Backlog entry was stale.
+- **#39** ("Go TUI mirror struct for `SessionSummaryEvent` not added") — closed already (`SessionSummary` struct at `packages/tui/internal/transport/types.go:231` with the full M8 T7 mirror including all extension fields; `DecodeSessionSummary` at line 261; comment explicitly references closing this item). Backlog entry was stale.
+- **#46** ("Migrate `/theme` to use `pickerOpen`") — NOT a quick win on inspection. `/theme` works purely client-side today; migration requires a new `themeChanged` side-effect protocol so the server can tell the TUI to apply a theme it picked. Deferred for a focused-scope session.
+- **#38** ("`reviewAutoPromoteMemory`/`reviewAutoPromoteSkills` snapshot gap in `parentToolContext`") — genuine 4-line fix. The REPL sets these fields on its writable ToolContext when `settings.review.autoPromote{Memory,Skills} === true` (terminalRepl.ts:974-980); the server's `parentToolContext` in `sessionContext.ts:215-228` didn't. Closed inline.
+
+**Implementation (#38):**
+```ts
+parentToolContext: {
+  ...existing fields,
+  ...(userSettings.review?.autoPromoteMemory === true ? { reviewAutoPromoteMemory: true } : {}),
+  ...(userSettings.review?.autoPromoteSkills === true ? { reviewAutoPromoteSkills: true } : {}),
+},
+```
+Optional spread to preserve the omitted-when-false invariant the rest of the SessionContext uses.
+
+**Suite delta:**
+- TS: still **2073 pass / 0 fail / 14 skip / 5337 expect()**. No new tests added — #38's code path is autoPromote-conditional and ships untested in the REPL too; adding scaffolding here would be over-procedure. The existing tests confirm no regression in the server-mode SessionContext build path.
+- Go: unchanged.
+- Lint + typecheck clean. Same 2 pre-existing warnings.
+
+**Docs:**
+- Backlog `#29`, `#38`, `#39` all marked closed with strikethrough + brief evidence pointer.
+- "Last sync" line refreshed; open backlog dropped from 7 to 4 (#17, #44, #45, #46).
+- CLAUDE.md / AGENTS.md state-doc row updated; mirror verified byte-identical.
+
+**Why no separate close-out snapshot:** these closures don't represent a milestone or substantive design change — they're a hygiene pass on the backlog. The M12 close-out (`docs/state/2026-05-19-m12.md`) remains the canonical "current state" snapshot; this testing-log entry + the backlog header is sufficient record.
+
+**Remaining open backlog:** #17 (eval-gated auto-promote, P4, conditional), #44 (permission persistence, P3), #45 (slash-command discovery, P3), #46 (/theme pickerOpen, P4). Next milestone is still M13 — terminalRepl removal (after M12 soaks).
+
+---
+
 ## 2026-05-19 — Phase 16.1 M12 close-out (readline REPL deprecation warning)
 
 **Scope:** Start the deprecation clock for the readline REPL surface per ADR M11-03's roadmap. M11 deliberately left `--ui repl` silent during the default-flip soak; M11.5 closed the M10-audit gaps that made the TUI feature-complete; with both P2 items (#41 `/clear`+`/rollback` and #43 memory manager) closed earlier today, the REPL has no functionality gap left and is now the right time to announce its end.

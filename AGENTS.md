@@ -66,7 +66,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 
 | File | What's in it |
 |---|---|
-| [`docs/backlog/post-phase-13-4.md`](docs/backlog/post-phase-13-4.md) | Open backlog (7 items): **#44 appendProjectLocalPermissionRule persistence (P3)**, **#45 TUI slash-command discovery endpoint (P3)**, **#46 /theme pickerOpen migration (P4)**, #17/#29/#38/#39 nits. #40 closed M10.5; #41 + #43 closed 2026-05-19. |
+| [`docs/backlog/post-phase-13-4.md`](docs/backlog/post-phase-13-4.md) | Open backlog (4 items): **#44 appendProjectLocalPermissionRule persistence (P3)**, **#45 TUI slash-command discovery endpoint (P3)**, **#46 /theme pickerOpen migration (P4)**, **#17 eval-gated auto-promote (P4)**. #40 closed M10.5; #41 + #43 closed 2026-05-19; #29 / #38 / #39 closed 2026-05-19 (stale-entry audit + small inline fix for #38). |
 | [`docs/backlog/phase-16-rebuild-prereqs.md`](docs/backlog/phase-16-rebuild-prereqs.md) | 24 subsystems any Phase 16.1 foreground refactor must re-wire — **24/24 complete after M8; M9 visual polish landed 2026-05-16; M10 audit verified independently with caveat that slash-command-stack composition (#40) was not covered by the original prereq methodology** |
 | [`docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md`](docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md) | Active design spec for the Phase 16.1 TUI rebuild |
 | [`docs/specs/2026-05-13-production-harness-roadmap-design.md`](docs/specs/2026-05-13-production-harness-roadmap-design.md) | Umbrella production polish roadmap |
