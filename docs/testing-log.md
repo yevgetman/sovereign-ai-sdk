@@ -8,6 +8,38 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Backlog #44 closed: server-side permission "remember (project)" persistence
+
+**Scope:** Wire `appendProjectLocalPermissionRule` into the server's per-session `canUseTool` so an "always" answer at the approval queue persists to project-local `.harness/settings.local.json`. Pre-fix the closure at `src/server/routes/turns.ts:451-453` was a no-op marked "Project-local 'always' persistence is a deferred follow-up." A user who answered "yes & remember" on the same tool action would see the prompt fire again every session.
+
+**Implementation:**
+- `src/server/routes/turns.ts` — `recordAlwaysAllow` closure now calls `appendProjectLocalPermissionRule({ cwd: runtime.cwd, rule, behavior: 'allow' })`. Mirrors `terminalRepl.ts:827`. Import added to the existing `loadPermissionSettings` import line.
+- `src/server/runtime.ts` — comment updated on the runtime-level fallback closure to be honest about WHY it stays no-op: that path's `ask` is a deny-always placeholder, so the always-answer branch in `canUseTool.ts:61` is unreachable. The per-session canUseTool in turns.ts is the user-facing path.
+- The persistence cycle: rule appended on this turn → next turn's `loadPermissionSettings(...)` reads it as a rule layer → `canUseTool`'s `evaluateRuleLayers` matches it as `'allow'` → tool runs without prompting.
+
+**Tests:** `tests/server/permissionPersistence.test.ts` (new, 3 cases):
+- Happy path: an "always" answer triggers the closure and writes `permissions.allow: ['FileWrite(note.txt)']` to `<cwd>/.harness/settings.local.json`.
+- Idempotency: two "always" answers on the same input write one entry, not duplicates.
+- Multi-rule: distinct paths produce distinct allow entries.
+
+Tests directly invoke `buildCanUseTool` with the same closure shape that turns.ts builds. Not a full end-to-end test through the approval queue (the existing approvals.test.ts pre-arms the queue and bypasses canUseTool); the wiring contract is what's load-bearing and it's covered here.
+
+**Suite delta:**
+- TS: 2073 → **2076 pass / 0 fail / 14 skip / 5344 expect()** (+3).
+- Go: unchanged.
+- Lint + typecheck clean. Same 2 pre-existing warnings.
+
+**Docs:**
+- Backlog #44 marked closed with strikethrough + brief evidence pointer.
+- "Last sync" line refreshed; open backlog dropped from 4 to 3 (#17, #45, #46).
+- CLAUDE.md / AGENTS.md state-doc row updated; mirror verified byte-identical.
+
+**Manual TUI smoke not yet driven** — the unit tests pin the closure contract; the file-write semantics of `appendProjectLocalPermissionRule` are pinned in `tests/config/settings.test.ts`; the per-turn rule-layer load semantics are pinned in `tests/permissions/`. Real-world verification: launch `sov`, trigger an approval (e.g., tool needing permission), click "always", observe `.harness/settings.local.json` populated; reboot `sov`, trigger the same tool action, expect no prompt.
+
+**Remaining open from M12 close-out:** #45 (slash-command discovery endpoint, P3), #46 (/theme → pickerOpen, P4 — needs new themeChanged side-effect protocol per the M11.5 follow-up audit), #17 (eval-gated auto-promote, P4, conditional). Next milestone: M13 — terminalRepl removal (after M12 soaks).
+
+---
+
 ## 2026-05-19 — Backlog audit pass: close #29 + #39 (stale) and #38 (inline fix)
 
 **Scope:** Triaged the "quick-wins" batch (#29, #39, #46). Two of the three turned out to be already-fixed in code but still listed in the backlog. #38 surfaced during the audit as a genuine 4-line fix and was bundled.
