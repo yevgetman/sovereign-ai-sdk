@@ -22,13 +22,39 @@ type Entry struct {
 	Description string
 }
 
-// staticEntries is the compile-time list of TUI-side slash commands. The
-// dispatch handlers for each live in app/app.go's ENTER key handler.
+// staticEntries is the compile-time list of slash commands shown in the
+// autocomplete popup. /compact, /expand, /skills, /theme have dedicated
+// client-side dispatch in app/app.go; everything else routes to the TS
+// server via POST /sessions/:id/commands (M10.5). The list is hand-
+// mirrored from the TS COMMAND_REGISTRY in src/commands/registry.ts —
+// backlog #45 plans a GET /sessions/:id/commands discovery endpoint
+// that would eliminate the drift hazard.
 var staticEntries = []Entry{
+	{Name: "/about", Description: "show version, provider, model, and bundle info"},
+	{Name: "/clear", Description: "clear history by starting a fresh child session"},
+	{Name: "/commit", Description: "ask the model to stage, write a message, and commit"},
 	{Name: "/compact", Description: "summarize prior turns and start a child session"},
+	{Name: "/config", Description: "view or change durable user-level config"},
+	{Name: "/context-budget", Description: "audit context-window usage across system, tools, skills, bundle, memory"},
+	{Name: "/continue", Description: "resume a turn paused by the tool-call checkin limit"},
+	{Name: "/copy", Description: "copy the last assistant message to the clipboard"},
+	{Name: "/cost", Description: "show token usage and estimated cost for this session"},
 	{Name: "/expand", Description: "re-render the Nth-most-recent tool block expanded"},
+	{Name: "/export", Description: "export the session transcript (md / jsonl / json)"},
+	{Name: "/help", Description: "list available slash commands"},
+	{Name: "/init", Description: "scan the project and write a CONTEXT.md briefing"},
+	{Name: "/model", Description: "switch the active model — opens a picker or accepts a name"},
+	{Name: "/permissions", Description: "show the active permission mode and any auto-allow rules"},
+	{Name: "/quit", Description: "exit the session and print the summary"},
+	{Name: "/resume", Description: "pick a recent session and print its resume command"},
+	{Name: "/review", Description: "list, show, approve, reject, or revoke review proposals"},
+	{Name: "/rollback", Description: "switch back to the parent session after /compact"},
+	{Name: "/settings", Description: "open the interactive settings editor (TTY only)"},
 	{Name: "/skills", Description: "list, install, uninstall, or reload skills"},
+	{Name: "/stats", Description: "show the current session summary card mid-session"},
+	{Name: "/tasks", Description: "list background sub-agent tasks; show or stop one"},
 	{Name: "/theme", Description: "switch between light and dark themes"},
+	{Name: "/tools", Description: "list the tools registered in the current session"},
 }
 
 // SlashAutocomplete is a popup overlay with fuzzy-matching against staticEntries
