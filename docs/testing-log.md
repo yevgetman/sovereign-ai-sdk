@@ -8,6 +8,58 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Backlog #45 + #46 closed: discovery endpoint + /theme migration
+
+**Scope:** Two related TUI architecture cleanups in one session. #45 eliminates the staticEntries hand-mirror drift hazard by introducing a live GET /commands endpoint. #46 unifies /theme with the M11.5 pickerOpen protocol (replaces the dedicated client-side dispatcher with a server-side flow).
+
+### Backlog #45 — slash-command discovery endpoint
+
+**Implementation:**
+- `src/server/routes/commands.ts` — added GET handler returning `{ commands: [{ name, description, usage? }] }` from the live `COMMANDS` array in `src/commands/registry.ts`. Mirrors the M8 T4 skills hydration shape.
+- `packages/tui/internal/transport/commands.go` — new `CommandDescriptor` type + `GetCommands` fetch helper.
+- `packages/tui/internal/components/slashautocomplete.go` — `SetCommands` method + new `entryList()` helper. When the dynamic list is non-empty (post-fetch), it REPLACES staticEntries; the static list stays as the compile-time fallback for pre-fetch / test scenarios.
+- `packages/tui/internal/app/app.go` — `commandsFetchedMsg` + `fetchCommandsCmd` added to the Init batch alongside `fetchSkillsCmd`. Failure is silent (the static fallback keeps the popup functional).
+
+**Test infrastructure fallout:** every mock httptest.Server in the app tests now needs a GET /commands branch returning empty list — otherwise the new fetch falls through to the SSE handler and the suite times out. Patched 7 handlers in `app_test.go` via replace_all + 2 in `slashautocomplete_keys_test.go` (the latter also splits GET-/commands from POST-/commands so the POST body capture doesn't get clobbered by the boot-time GET).
+
+**Tests:** 5 server-side cases (happy-path, registry-known names appear, usage field surfaces, 400 invalid session, 404 unknown session) + 4 Go component cases (SetCommands replaces static, hides static-only entries, empty list falls back, coexists with skills).
+
+### Backlog #46 — /theme → pickerOpen migration
+
+**Implementation:**
+- TS side:
+  - `src/commands/types.ts` — added `recordThemeChange?: (name) => void` to `CommandContext` (capability-detection pattern same as M11.5's `requestPicker`).
+  - `src/server/schema.ts` — added `themeChanged?: string` to `CommandSideEffectsSchema`.
+  - `src/server/commandContext.ts` — `buildServerCommandContext` populates `recordThemeChange` to record the side-effect; the `CommandSideEffects` bag type gains `themeChanged`.
+  - `src/server/routes/commands.ts` — `SideEffectsBag` + `hasSideEffects` + `pickSideEffects` carry the new field.
+  - `src/commands/pickers.ts` — `runThemePicker(args, ctx)` now takes ctx. Explicit name: calls `applyAndPersistTheme(name)` + `ctx.recordThemeChange?.(name)`. No-args + `ctx.requestPicker`: emits pickerOpen with the available themes; selection re-dispatches `/theme <name>` which hits the explicit branch.
+- Go side:
+  - `packages/tui/internal/transport/commands.go` — `CommandSideEffects` struct gains `ThemeChanged string`.
+  - `packages/tui/internal/app/app.go` — new `applyThemeByName(name)` helper extracts the theme.Resolve + component-update logic (formerly inline in the /theme interceptor). The `commandDispatchedMsg` handler calls it when `sideEffects.ThemeChanged` is set; unknown name surfaces a dim transcript marker.
+  - The dedicated `/theme` intercept in the ENTER handler is removed; /theme now falls through to the M10.5 generic dispatcher routing.
+  - `packages/tui/internal/app/themeconfig.go` — `writeThemeToConfig` deleted (dead code; server-side `applyAndPersistTheme` writes the config via `writeConfig + setAt`).
+- Two old Go persistence-path tests deleted (`TestApp_ThemeSwitchWritesConfig` + `TestApp_ThemeSwitchPreservesOtherConfigFields`) — they verified the deleted code path. The equivalent TS-side behavior is covered by existing tests of `applyAndPersistTheme` + `setAt`.
+
+**Tests:** 4 new TS cases (pickerOpen on no-args, themeChanged on explicit, unknown name does not record, REPL fallthrough without recordThemeChange) + 2 new Go cases (themeChanged side-effect applies, unknown name surfaces dim marker).
+
+### Suite delta
+
+- TS: 2076 → **2085 pass / 0 fail / 14 skip / 5473 expect()** (+9 net: +5 for #45, +4 for #46).
+- Go: all 5 packages green. Net +6 cases (4 #45 component, 2 #46 app) minus 2 removed (#46 persistence tests).
+- Lint + typecheck clean. Same 2 pre-existing warnings.
+
+### Docs
+
+- Backlog #45 + #46 marked closed with strikethrough + evidence pointers.
+- "Last sync" line refreshed; open backlog dropped from 3 to **1** (#17 conditional eval-gated auto-promote).
+- CLAUDE.md / AGENTS.md state-doc row revised; mirror verified byte-identical.
+
+### What's open
+
+**Just #17** — eval-gated auto-promote (P4, conditional — only matters with `settings.review.autoPromote=true`). All M10 audit MEDIUMs are now closed. Next milestone: M13 — terminalRepl removal (after M12 soaks).
+
+---
+
 ## 2026-05-19 — Backlog #44 closed: server-side permission "remember (project)" persistence
 
 **Scope:** Wire `appendProjectLocalPermissionRule` into the server's per-session `canUseTool` so an "always" answer at the approval queue persists to project-local `.harness/settings.local.json`. Pre-fix the closure at `src/server/routes/turns.ts:451-453` was a no-op marked "Project-local 'always' persistence is a deferred follow-up." A user who answered "yes & remember" on the same tool action would see the prompt fire again every session.
