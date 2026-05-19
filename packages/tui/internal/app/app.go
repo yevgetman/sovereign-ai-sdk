@@ -121,6 +121,7 @@ type Model struct {
 	pendingThemeName string                     // M9.5 T3: theme name from config used in the dim marker text
 	stallBadge       *components.StallBadge     // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
 	stallGeneration  int                        // M9.6 T2: increments per stall; tick closure captures + compares on expire
+	picker           *components.PickerCard     // M11.5: inline picker card rendered from a pickerOpen side-effect; nil when no picker is active
 	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
 	spinner          components.Spinner         // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
@@ -390,6 +391,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			*m.mostRecentDiff = updated
 			return m, nil
 		}
+		// M11.5 — picker card routing. When active, the picker absorbs
+		// all keys: ↑/↓ navigate, Enter dispatches the chosen value,
+		// Esc cancels (quiet dismiss + dim "cancelled." marker). Other
+		// keys are swallowed — input is locked while the card is up,
+		// matching the permission-modal pattern.
+		if m.picker != nil {
+			switch msg.String() {
+			case "up":
+				m.picker.MoveUp()
+				return m, nil
+			case "down":
+				m.picker.MoveDown()
+				return m, nil
+			case "enter":
+				value, ok := m.picker.Selected()
+				if !ok {
+					// Empty picker — defensive; the server shouldn't
+					// emit a payload with zero items, but if it does
+					// we close the card without dispatching.
+					m.picker = nil
+					return m, nil
+				}
+				cmdName := m.picker.Command()
+				m.picker = nil
+				if m.baseURL == "" {
+					m.transcript.AppendLine(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, nil
+				}
+				m.transcript.AppendLine(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
+				return m, dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value)
+			case "esc":
+				m.picker = nil
+				m.transcript.AppendLine(m.theme.DimStyle().Render("(cancelled)"))
+				return m, nil
+			}
+			return m, nil
+		}
 		// M9 T8 — autocomplete popup routing. When visible, Tab/Esc/Up/Down
 		// route here BEFORE the regular prompt input; other keys fall
 		// through to the prompt update which then re-filters via SetFilter.
@@ -455,6 +493,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcript.SetTheme(m.theme)
 				m.autocomplete.SetTheme(m.theme)
 				m.statusLine.SetTheme(m.theme)
+				if m.picker != nil {
+					m.picker.SetTheme(m.theme)
+				}
 				// M9.5 T3 — persist the choice to ~/.harness/config.json. ADR
 				// M9.5-02: synchronous best-effort; failure logs a dim marker
 				// but doesn't roll back the in-memory switch.
@@ -824,6 +865,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Bold(true).
 					Render(msg.resp.Error),
 			)
+			return m, nil
+		}
+		// M11.5 — pickerOpen side-effect opens an inline card. Picker
+		// payloads typically come with empty output; if non-empty, we
+		// still render it as a label above the card.
+		if msg.resp != nil && msg.resp.SideEffects != nil && msg.resp.SideEffects.PickerOpen != nil {
+			if msg.resp.Output != "" {
+				for _, line := range strings.Split(msg.resp.Output, "\n") {
+					m.transcript.AppendLine(line)
+				}
+			}
+			picker := components.NewPickerCard(*msg.resp.SideEffects.PickerOpen, m.theme)
+			m.picker = &picker
 			return m, nil
 		}
 		if msg.resp != nil && msg.resp.Output != "" {
@@ -1222,15 +1276,22 @@ func (m Model) View() string {
 	hint := components.HintLine("? for shortcuts", m.theme)
 
 	// M9.6 T2 — stall badge renders between transcript and prompt area.
-	// M11.5 — blank line spacers between transcript / prompt / status
-	// make the input box a clearly-separated focal point, like Qwen
-	// Code's layout, instead of feeling crammed against the content
-	// above it.
+	// M11.5 (boxed-prompt increment) — blank line spacers between
+	// transcript / prompt / status make the input box a clearly-
+	// separated focal point.
+	// M11.5 (picker card) — picker renders below the transcript and
+	// above the prompt when active (ADR M11.5-01).
+	// M11.5 (picker card, T8) — bumped the pre-prompt gap from one to
+	// two blank lines so the running-command indicator no longer
+	// crowds the input box (ux2.png feedback).
 	out := m.transcript.View() + "\n"
 	if m.stallBadge != nil {
 		out += m.stallBadge.View(m.width) + "\n"
 	}
-	out += "\n" + prompt + "\n"
+	if m.picker != nil {
+		out += m.picker.View(m.width) + "\n"
+	}
+	out += "\n\n" + prompt + "\n"
 	if hint != "" {
 		out += hint + "\n"
 	}

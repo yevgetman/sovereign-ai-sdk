@@ -20,7 +20,8 @@
 //	  "sideEffects": {           // optional, per-command
 //	    "newSessionId": "...",   // /clear (deferred to backlog #41)
 //	    "exitRequested": true,   // /quit
-//	    "modelChanged": "..."    // /model <m>
+//	    "modelChanged": "...",   // /model <m>
+//	    "pickerOpen": { ... }    // /model, /resume, /export no-args (M11.5)
 //	  }
 //	}
 
@@ -57,6 +58,11 @@ type CommandSideEffects struct {
 	// ModelChanged set when /model <name> mutated runtime.model. The
 	// TUI updates its model display.
 	ModelChanged string `json:"modelChanged,omitempty"`
+	// PickerOpen is set when a picker-driven command (/model, /resume,
+	// /export) was invoked with no args. The TUI renders an inline
+	// PickerCard from this payload; on Enter the selected value is
+	// dispatched as `/<command> <value>` (ADR M11.5-03). M11.5.
+	PickerOpen *PickerOpenPayload `json:"pickerOpen,omitempty"`
 }
 
 // CommandResponse is the JSON envelope returned by /commands.
