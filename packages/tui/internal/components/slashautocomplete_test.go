@@ -186,3 +186,59 @@ func TestSlashAutocompletePopupHeightZeroWhenHidden(t *testing.T) {
 		t.Errorf("PopupHeight hidden should be 0; got %d", h)
 	}
 }
+
+// Backlog #45 — dynamic command list takes precedence over staticEntries.
+
+func TestSlashAutocompleteSetCommandsReplacesStatic(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	// Inject a custom command set including one name NOT in staticEntries.
+	s.SetCommands([]transport.CommandDescriptor{
+		{Name: "synthetic-only", Description: "test entry not in staticEntries"},
+	})
+	s.SetFilter("/syn")
+	if s.Completion() != "/synthetic-only" {
+		t.Errorf("dynamic command list should drive matches; got %q want /synthetic-only", s.Completion())
+	}
+}
+
+func TestSlashAutocompleteSetCommandsHidesStaticEntries(t *testing.T) {
+	// When commands is set, staticEntries should NOT contribute. Test by
+	// filtering on a name that's only in staticEntries (e.g., "/clear")
+	// after SetCommands swaps in a list that doesn't include it.
+	s := NewSlashAutocomplete(theme.Dark())
+	s.SetCommands([]transport.CommandDescriptor{
+		{Name: "only-foo", Description: "single-entry dynamic list"},
+	})
+	s.SetFilter("/cle")
+	if s.Completion() != "" {
+		t.Errorf("staticEntries should be hidden when commands is set; got completion %q", s.Completion())
+	}
+}
+
+func TestSlashAutocompleteEmptyCommandsFallsBackToStatic(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	// SetCommands with empty list = no override. Static fallback active.
+	s.SetCommands([]transport.CommandDescriptor{})
+	s.SetFilter("/comp")
+	if s.Completion() != "/compact" {
+		t.Errorf("empty commands list should fall back to staticEntries; got %q want /compact", s.Completion())
+	}
+}
+
+func TestSlashAutocompleteDynamicCommandsAndSkillsCoexist(t *testing.T) {
+	s := NewSlashAutocomplete(theme.Dark())
+	s.SetCommands([]transport.CommandDescriptor{
+		{Name: "help", Description: "list available slash commands"},
+	})
+	s.SetSkills([]transport.Skill{
+		{Name: "summarize", Description: "summarize the conversation"},
+	})
+	s.SetFilter("/")
+	out := s.View(80)
+	if !strings.Contains(out, "/help") {
+		t.Errorf("expected /help (dynamic command) in view: %q", out)
+	}
+	if !strings.Contains(out, "/summarize") {
+		t.Errorf("expected /summarize (skill) in view: %q", out)
+	}
+}

@@ -82,6 +82,17 @@ type skillsFetchedMsg struct {
 	err    error
 }
 
+// commandsFetchedMsg carries the result of the backlog #45 GET
+// /sessions/:id/commands hydration. On success the autocomplete's
+// dynamic command list replaces the compile-time staticEntries; on
+// failure the static fallback continues to drive the popup. Failure
+// is non-fatal — the popup still works, just with the (potentially
+// stale) hand-mirrored entries.
+type commandsFetchedMsg struct {
+	commands []transport.CommandDescriptor
+	err      error
+}
+
 // focusTarget tracks which sub-component receives non-modal key events.
 // Default focusTranscript routes keys to the prompt input + transcript.
 // focusDiffView routes j/k to the most-recent DiffView for hunk nav.
@@ -208,9 +219,9 @@ func (m Model) Init() tea.Cmd {
 	// `kind: 'skill'` rather than as literal text. Failure of either
 	// fetch is non-fatal — the message handlers degrade gracefully.
 	if m.events == nil {
-		return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd())
+		return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd(), m.fetchCommandsCmd())
 	}
-	return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd(), m.waitEvent)
+	return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd(), m.fetchCommandsCmd(), m.waitEvent)
 }
 
 // fetchMessagesCmd issues the GET /sessions/<id>/messages backlog fetch
@@ -237,6 +248,18 @@ func (m Model) fetchSkillsCmd() tea.Cmd {
 	return func() tea.Msg {
 		skills, err := transport.GetSkills(m.ctx, m.baseURL, m.sessionID)
 		return skillsFetchedMsg{skills: skills, err: err}
+	}
+}
+
+// fetchCommandsCmd issues the backlog #45 GET /sessions/<id>/commands
+// hydration off the Update goroutine. Result populates the
+// autocomplete popup's dynamic command list (replacing staticEntries
+// for production runs). Failure is non-fatal — the popup falls back
+// to the compile-time staticEntries until a successful refetch.
+func (m Model) fetchCommandsCmd() tea.Cmd {
+	return func() tea.Msg {
+		commands, err := transport.GetCommands(m.ctx, m.baseURL, m.sessionID)
+		return commandsFetchedMsg{commands: commands, err: err}
 	}
 }
 
@@ -833,6 +856,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.skills = msg.skills
 		m.autocomplete.SetSkills(msg.skills) // M9 T8 — surface skills in the popup
+		return m, nil
+	case commandsFetchedMsg:
+		// Backlog #45 — store the dynamic command list. Failure is
+		// non-fatal: the autocomplete falls back to its compile-time
+		// staticEntries until a refetch succeeds. Silent on success —
+		// no transcript noise for a behind-the-scenes hydration. Silent
+		// on failure too (no dim line) because staticEntries continues
+		// to drive the popup — the user sees no degradation worth
+		// announcing.
+		if msg.err == nil {
+			m.autocomplete.SetCommands(msg.commands)
+		}
 		return m, nil
 	case skillInstalledMsg:
 		// M11.17 — render install result and refresh the skill cache on

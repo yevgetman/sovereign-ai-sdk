@@ -81,6 +81,12 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete popup driven by the compile-time staticEntries.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		}
 		n := atomic.AddInt32(&connectionCount, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -317,6 +323,12 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete popup driven by the compile-time staticEntries.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, ok := w.(http.Flusher)
@@ -405,6 +417,12 @@ func TestApp_compactSlashRoutesToCompactEndpoint(t *testing.T) {
 		// intercept inert across this test.
 		if strings.HasSuffix(r.URL.Path, "/skills") {
 			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete popup driven by the compile-time staticEntries.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
 			return
 		}
 		// Events stream — keep open so the SSE consumer doesn't drive
@@ -526,6 +544,12 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 		// intercept inert across this test.
 		if strings.HasSuffix(r.URL.Path, "/skills") {
 			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete popup driven by the compile-time staticEntries.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
 			return
 		}
 		// Events stream — emit a single compaction_complete then hold
@@ -659,6 +683,12 @@ func TestApp_compactSlashHandlesNoOp(t *testing.T) {
 			fmt.Fprint(w, `{"skills":[]}`)
 			return
 		}
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete popup driven by the compile-time staticEntries.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -773,6 +803,12 @@ func TestApp_reconsumesSSEAfterTurnComplete(t *testing.T) {
 		// intercept inert across this test.
 		if strings.HasSuffix(r.URL.Path, "/skills") {
 			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete popup driven by the compile-time staticEntries.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
 			return
 		}
 		// /events SSE — branch on connection count. First connection

@@ -1,4 +1,5 @@
 // M10.5 — POST /sessions/:id/commands route.
+// Backlog #45 (closed 2026-05-19) — GET /sessions/:id/commands route.
 //
 // Bridges the existing slash-command registry (src/commands/registry.ts)
 // into server-mode. The dedicated routes /sessions/:id/compact and
@@ -7,7 +8,7 @@
 // /review, /config, /commit, /agents, /permissions, /context-budget,
 // /resume, /continue, /history, /export, /status, /stats, …).
 //
-// Wire shape:
+// POST shape (M10.5):
 //   POST /sessions/<id>/commands { name, args } → 200 {
 //     output: string,         // text to render on the TUI transcript
 //     error?: string,         // when the command's own dispatch failed
@@ -23,6 +24,19 @@
 //   404 — unknown session
 //   500 — unexpected internal failure
 //
+// GET shape (backlog #45):
+//   GET /sessions/<id>/commands → 200 {
+//     commands: Array<{ name, description, usage? }>
+//   }
+//   400 — invalid session id
+//   404 — unknown session
+//
+// The GET surface lets the Go TUI populate its autocomplete popup
+// dynamically instead of relying on the hand-mirrored staticEntries
+// list in slashautocomplete.go. Mirrors the M8 T4 skills hydration
+// pattern (GET /sessions/:id/skills); the autocomplete merges
+// commands + skills client-side.
+//
 // Notes:
 //  - `dispatchSlashCommand` takes a single rawInput string ("/name args");
 //    we build it from the parsed envelope so callers don't have to think
@@ -30,9 +44,13 @@
 //  - Prompt-type commands (e.g., /commit) return their generated prompt
 //    text wrapped in a brief explanation. Server-mode v1 surfaces the
 //    template; auto-sending it as a /turns request is M11+ polish.
+//  - The GET endpoint returns only built-in commands from COMMANDS
+//    (registry.ts). Skill-derived slash commands are surfaced via the
+//    sibling GET /sessions/:id/skills endpoint; the TUI merges both
+//    sources when computing autocomplete matches.
 
 import { Hono } from 'hono';
-import { dispatchSlashCommand } from '../../commands/registry.js';
+import { COMMANDS, dispatchSlashCommand } from '../../commands/registry.js';
 import { buildServerCommandContext } from '../commandContext.js';
 import type { Runtime } from '../runtime.js';
 import { CommandRequestSchema, type CommandResponse } from '../schema.js';
@@ -40,6 +58,28 @@ import { isValidSessionId } from '../sessionId.js';
 
 export function commandsRoute(runtime: Runtime): Hono {
   const r = new Hono();
+
+  // Backlog #45 — GET discovery endpoint. Returns the built-in
+  // commands the dispatcher knows about so the TUI can populate its
+  // autocomplete popup dynamically. Prompt-type commands are included
+  // (they're dispatchable too) but no internal metadata is leaked —
+  // name + description + optional usage only.
+  r.get('/sessions/:id/commands', (c) => {
+    const sessionId = c.req.param('id');
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
+    if (runtime.sessionDb.getSession(sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    return c.json({
+      commands: COMMANDS.map((cmd) => ({
+        name: cmd.name,
+        description: cmd.description,
+        ...(cmd.usage !== undefined ? { usage: cmd.usage } : {}),
+      })),
+    });
+  });
 
   r.post('/sessions/:id/commands', async (c) => {
     const sessionId = c.req.param('id');

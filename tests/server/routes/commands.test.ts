@@ -227,4 +227,65 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     const { json } = await postCommand(sessionId, { name: 'help' });
     expect(json.sideEffects).toBeUndefined();
   });
+
+  // Backlog #45 (closed 2026-05-19) — GET discovery endpoint.
+  describe('GET /sessions/:id/commands (backlog #45)', () => {
+    test('happy path — returns a non-empty list of commands with name + description', async () => {
+      const sessionId = await newSession();
+      const res = await app.request(`/sessions/${sessionId}/commands`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        commands: { name: string; description: string; usage?: string }[];
+      };
+      expect(Array.isArray(body.commands)).toBe(true);
+      expect(body.commands.length).toBeGreaterThan(0);
+
+      // Every entry has a name + description; usage is optional.
+      for (const cmd of body.commands) {
+        expect(typeof cmd.name).toBe('string');
+        expect(cmd.name.length).toBeGreaterThan(0);
+        expect(typeof cmd.description).toBe('string');
+        expect(cmd.description.length).toBeGreaterThan(0);
+      }
+    });
+
+    test('happy path — registry-known names appear', async () => {
+      const sessionId = await newSession();
+      const res = await app.request(`/sessions/${sessionId}/commands`);
+      const body = (await res.json()) as { commands: { name: string }[] };
+      const names = body.commands.map((c) => c.name);
+      // A handful of stable built-ins users will type:
+      expect(names).toContain('help');
+      expect(names).toContain('cost');
+      expect(names).toContain('model');
+      expect(names).toContain('clear');
+      expect(names).toContain('compact');
+    });
+
+    test('happy path — usage field surfaces for commands that define it', async () => {
+      const sessionId = await newSession();
+      const res = await app.request(`/sessions/${sessionId}/commands`);
+      const body = (await res.json()) as {
+        commands: { name: string; usage?: string }[];
+      };
+      const model = body.commands.find((c) => c.name === 'model');
+      expect(model).toBeDefined();
+      // pickers.ts:41 sets usage: '/model [<name>]'
+      expect(model?.usage).toContain('<name>');
+    });
+
+    test('validation — invalid session id returns 400', async () => {
+      const res = await app.request('/sessions/not%21a%21id/commands');
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe('invalid session id');
+    });
+
+    test('validation — unknown session id returns 404', async () => {
+      const res = await app.request('/sessions/00000000-0000-0000-0000-000000000000/commands');
+      expect(res.status).toBe(404);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe('not found');
+    });
+  });
 });

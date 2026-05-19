@@ -57,8 +57,15 @@ var staticEntries = []Entry{
 	{Name: "/tools", Description: "list the tools registered in the current session"},
 }
 
-// SlashAutocomplete is a popup overlay with fuzzy-matching against staticEntries
-// + skill cache. Mutates state via SetFilter; render via View.
+// SlashAutocomplete is a popup overlay with fuzzy-matching against
+// staticEntries / dynamic commands + skill cache. Mutates state via
+// SetFilter; render via View.
+//
+// Backlog #45: `commands` is populated at boot by a GET
+// /sessions/:id/commands fetch. When non-empty, it REPLACES the
+// compile-time `staticEntries` as the source of slash-command names —
+// production runs see the live TS COMMAND_REGISTRY; tests + pre-fetch
+// race cases fall back to `staticEntries`.
 type SlashAutocomplete struct {
 	visible  bool
 	filter   string
@@ -66,6 +73,7 @@ type SlashAutocomplete struct {
 	matches  []Entry
 	theme    theme.Theme
 	skills   []transport.Skill
+	commands []transport.CommandDescriptor
 }
 
 // NewSlashAutocomplete returns a hidden, empty popup. Set the skill cache via
@@ -78,6 +86,33 @@ func NewSlashAutocomplete(t theme.Theme) SlashAutocomplete {
 // skillsFetchedMsg handler.
 func (s *SlashAutocomplete) SetSkills(skills []transport.Skill) {
 	s.skills = skills
+}
+
+// SetCommands replaces the cached slash-command list. Called from
+// app.go's commandsFetchedMsg handler at boot. When non-empty, the
+// dynamic list REPLACES `staticEntries` as the source of built-in
+// command names; when empty, the compile-time list is used as the
+// fallback. Backlog #45.
+func (s *SlashAutocomplete) SetCommands(commands []transport.CommandDescriptor) {
+	s.commands = commands
+}
+
+// entryList returns the slash-command entries to fuzzy-match against.
+// Dynamic commands (post-#45 fetch) take precedence over staticEntries
+// (the compile-time fallback). The "/" prefix is added here so callers
+// don't need to prepend it.
+func (s SlashAutocomplete) entryList() []Entry {
+	if len(s.commands) > 0 {
+		out := make([]Entry, 0, len(s.commands))
+		for _, c := range s.commands {
+			out = append(out, Entry{
+				Name:        "/" + c.Name,
+				Description: c.Description,
+			})
+		}
+		return out
+	}
+	return staticEntries
 }
 
 // SetTheme swaps the theme used to render the popup.
@@ -160,14 +195,19 @@ func (s SlashAutocomplete) PopupHeight() int {
 	return len(s.matches) + 4
 }
 
-// compute filters the entry list (static + skills) by the filter string.
-// Fuzzy match: case-insensitive prefix on the part after `/`.
-// Capped at 10 matches.
+// compute filters the entry list (dynamic commands or static fallback,
+// plus skills) by the filter string. Fuzzy match: case-insensitive
+// prefix on the part after `/`. Capped at 10 matches.
+//
+// Backlog #45: when s.commands is non-empty (post-fetch), it REPLACES
+// staticEntries entirely. When empty (pre-fetch / tests with no
+// server), staticEntries is the fallback source.
 func (s SlashAutocomplete) compute() []Entry {
 	q := strings.TrimPrefix(s.filter, "/")
 	q = strings.ToLower(q)
-	all := make([]Entry, 0, len(staticEntries)+len(s.skills))
-	all = append(all, staticEntries...)
+	commandEntries := s.entryList()
+	all := make([]Entry, 0, len(commandEntries)+len(s.skills))
+	all = append(all, commandEntries...)
 	for _, sk := range s.skills {
 		all = append(all, Entry{
 			Name:        "/" + sk.Name,

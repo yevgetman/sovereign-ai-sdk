@@ -31,6 +31,12 @@ func TestSlashAutocompleteEnterFillsAndSubmits(t *testing.T) {
 	var commandRequests int32
 	var commandName string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Backlog #45 — GET /commands hydration. Empty list keeps the
+		// autocomplete driven by staticEntries (which includes /about).
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"commands":[]}`))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/commands") {
 			atomic.AddInt32(&commandRequests, 1)
 			// Parse the body to capture which command was dispatched.
@@ -80,6 +86,12 @@ func TestSlashAutocompleteEnterFillsAndSubmits(t *testing.T) {
 func TestSlashAutocompleteEnterPreservesArgs(t *testing.T) {
 	var capturedBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Backlog #45 — separate GET /commands hydration from POST
+		// dispatch so the body capture below doesn't get clobbered.
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"commands":[]}`))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/commands") {
 			body := make([]byte, 4096)
 			n, _ := r.Body.Read(body)

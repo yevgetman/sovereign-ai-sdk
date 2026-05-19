@@ -81,6 +81,48 @@ var commandsClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
+// CommandDescriptor is the TUI-renderable projection of a slash-command
+// entry from src/commands/registry.ts. Mirrors the JSON shape returned
+// by GET /sessions/:id/commands (backlog #45).
+type CommandDescriptor struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Usage       string `json:"usage,omitempty"`
+}
+
+type commandsListResponse struct {
+	Commands []CommandDescriptor `json:"commands"`
+}
+
+// GetCommands issues GET <baseURL>/sessions/<sessionID>/commands and
+// returns the decoded built-in slash-command list. Mirrors GetSkills
+// (M8 T6). Used at boot to populate the autocomplete popup
+// dynamically — replaces the staticEntries hand-mirror on production
+// runs; the static list stays as a fallback for pre-fetch / test
+// scenarios. Failure is non-fatal — the autocomplete falls back to
+// its compile-time list. Backlog #45.
+func GetCommands(ctx context.Context, baseURL, sessionID string) ([]CommandDescriptor, error) {
+	url := fmt.Sprintf("%s/sessions/%s/commands", baseURL, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	res, err := commandsClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get commands: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		body, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("get commands: status %d: %s", res.StatusCode, string(body))
+	}
+	var payload commandsListResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode commands: %w", err)
+	}
+	return payload.Commands, nil
+}
+
 // DispatchCommand issues POST <baseURL>/sessions/<sessionID>/commands
 // with the given name + args and returns the decoded response.
 // Returns a CommandResponse (which may carry an Error field describing
