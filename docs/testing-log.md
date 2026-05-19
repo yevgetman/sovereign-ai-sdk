@@ -8,6 +8,34 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — TUI slash-popup discoverability: add 21 missing TS-registered commands
+
+**Scope:** Triaged user report that typing `/` in the TUI didn't show `/model`. Root cause: `packages/tui/internal/components/slashautocomplete.go:staticEntries` was a 4-entry hand-mirror (compact, expand, skills, theme) of the TS `COMMAND_REGISTRY`. The M10.5 dispatcher routes any typed `/foo` to the server, so commands worked when typed — they were just invisible to discovery. Band-aid: add all 21 missing entries to `staticEntries`. Lasting fix filed as backlog Item 45 (GET /sessions/:id/commands discovery endpoint).
+
+**Files touched:**
+- `packages/tui/internal/components/slashautocomplete.go` — `staticEntries` grew from 4 → 25 entries (alphabetical). Comment updated to reflect that some entries have dedicated client-side dispatch (compact/expand/skills/theme) and the rest route via the M10.5 dispatcher, with a forward reference to Item 45.
+- `docs/backlog/post-phase-13-4.md` — added Item 45 under a new "P3 (TUI architecture)" subsection; updated "Last sync" line to 2026-05-19 with the new open backlog list (17, 29, 38, 39, 41, 43, 44, 45).
+
+**Pre-commit gate:**
+- `bun run lint` — 2 warnings (pre-existing `noNonNullAssertion` in `src/permissions/shellSemantics.ts`, unrelated)
+- `bun run typecheck` — clean
+- `bun run test` — **2048 pass / 10 skip / 0 fail / 5247 expect() in 47.21s**
+- `bun run tui:build` — Go TUI compiled and `bin/sov-tui` rewritten
+
+**Commits:**
+- `e37740b` — `feat(tui): surface all TS-registered slash commands in autocomplete popup`
+- `3342c31` — `docs(backlog): item 45 — TUI slash-command discovery endpoint`
+
+**Post-push:** `git push origin master` clean; `sov upgrade` updated global binary to `#3342c313`.
+
+**Manual TUI verification not yet performed in this session.** Code-level verification suffices for the popup-entry change (no behavior change; just data added to a list literal). User-facing validation: launch `sov`, type `/`, expect to see the first 10 alphabetical entries (about, clear, commit, compact, config, context-budget, continue, copy, cost, expand); typing further filters — `/mo` → just `/model`.
+
+**Known limitations:**
+- `/init` and `/commit` are `PromptCommand` type — they dispatch as prompts to the model rather than returning text. The popup entries surface their existence; whether they round-trip correctly through the dispatcher is a separate concern.
+- Drift hazard persists until Item 45 lands — any new TS-side command added to `registry.ts` still has to be hand-mirrored into `staticEntries`.
+
+---
+
 ## 2026-05-17 — Phase 16.1 M11 close-out (default-flip; --ui defaults to tui)
 
 **Scope:** Flip the foreground-surface default from `'repl'` to `'tui'` in `src/main.ts:182` while preserving the soft-degradation safety net users had pre-M11. Adds a four-layer surface resolver (CLI flag > env `SOV_UI` > config `ui.surface` > `'tui'` default) at `src/cli/surfaceResolver.ts` and wires a missing-binary fallback at `src/main.ts:221-230` that downgrades to the readline REPL with a one-line stderr warning when `findTuiBinary()` returns null. No edits to `src/ui/terminalRepl.ts` (Postmortem Rule 1). No deletions (Rule 2). Independent Opus parity re-audit before close-out (Rule 3). Three explicit escape hatches + auto-fallback preserve Rule 4's safety net.
