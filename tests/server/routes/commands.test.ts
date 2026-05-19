@@ -86,14 +86,50 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     // Output is always a string (may be "no tasks" or a list)
   });
 
-  test('unwired command — /clear surfaces informative output referencing backlog', async () => {
+  test('/clear mints a child session and surfaces newSessionId side-effect (backlog #41)', async () => {
     const sessionId = await newSession();
     const { status, json } = await postCommand(sessionId, { name: 'clear' });
     expect(status).toBe(200);
-    expect((json.output as string).toLowerCase()).toContain('clear');
-    expect(json.output as string).toContain('#41');
-    // error field NOT set — the response is informational, not a failure
     expect(json.error).toBeUndefined();
+    expect((json.output as string).toLowerCase()).toContain('cleared into child session');
+    expect(json.output as string).toContain('parent session preserved');
+
+    const se = json.sideEffects as { newSessionId?: string };
+    const newSessionId = se?.newSessionId;
+    expect(newSessionId).toBeDefined();
+    expect(newSessionId).not.toBe(sessionId);
+
+    // The new id should be a real session — subsequent /cost on it works.
+    if (newSessionId === undefined) throw new Error('newSessionId missing');
+    const followup = await postCommand(newSessionId, { name: 'cost' });
+    expect(followup.status).toBe(200);
+    expect(followup.json.output).toBeDefined();
+  });
+
+  test('/rollback from a child returns parent id via newSessionId side-effect', async () => {
+    // First mint a child via /clear so the rollback target exists.
+    const parentId = await newSession();
+    const clearRes = await postCommand(parentId, { name: 'clear' });
+    const childId = (clearRes.json.sideEffects as { newSessionId: string }).newSessionId;
+
+    // Now /rollback from the child should hop back to the parent.
+    const { status, json } = await postCommand(childId, { name: 'rollback' });
+    expect(status).toBe(200);
+    expect(json.error).toBeUndefined();
+    expect((json.output as string).toLowerCase()).toContain('rolled back to parent session');
+
+    const se = json.sideEffects as { newSessionId?: string };
+    expect(se?.newSessionId).toBe(parentId);
+  });
+
+  test('/rollback from a session with no parent returns descriptive error message', async () => {
+    const orphanId = await newSession();
+    const { status, json } = await postCommand(orphanId, { name: 'rollback' });
+    expect(status).toBe(200);
+    // The "no parent" path returns the message as output (not error)
+    // because it's a user-facing surface, not a route failure.
+    expect((json.output as string).toLowerCase()).toContain('no parent session');
+    expect(json.sideEffects).toBeUndefined();
   });
 
   test('unknown command — /healp returns error field with unknown-command message', async () => {

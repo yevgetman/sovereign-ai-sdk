@@ -15,13 +15,15 @@
 // can surface mutations (modelChanged, exitRequested) back to the TUI.
 //
 // Fields whose underlying subsystem is unwired in server-mode return
-// stable informative error strings. M10 audit MEDIUMs not yet wired:
-//   - clearHistory / rollback → require createClearedChildSession
-//     (backlog #41); return an error referencing it
+// stable informative error strings. M10 audit MEDIUMs:
+//   - clearHistory / rollback → wired 2026-05-19 (backlog #41 closed)
+//     via createClearedChildSession; sideEffects.newSessionId tells
+//     the TUI to hop sessionID for subsequent POSTs.
 //   - The /memory slash command depends on a memory manager that the
 //     server runtime doesn't construct (backlog #43); /memory's own
-//     handler will surface the limitation when invoked
+//     handler will surface the limitation when invoked.
 
+import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { COMMANDS, buildCommandRegistry } from '../commands/registry.js';
 import type { CommandContext, PickerOpenConfig } from '../commands/types.js';
 import { loadPermissionSettings } from '../config/settings.js';
@@ -96,15 +98,6 @@ export function buildServerCommandContext(
     harnessHome: runtime.harnessHome,
   });
 
-  // M10.5 — informative error strings for unwired commands. Returned
-  // as the command output (string), not thrown — so the TUI renders
-  // them as normal transcript content. References the backlog item
-  // tracking the wire-up so users see exactly what's coming.
-  const UNWIRED_CLEAR_MSG =
-    '/clear is not yet available in --ui tui (M10.5 scope-out; tracked as backlog item #41 — createClearedChildSession server wiring). Compact instead (/compact), or fall back to the readline REPL via `sov --ui repl` (also `SOV_UI=repl` or `sov config set ui.surface repl` for persistent opt-out).';
-  const UNWIRED_ROLLBACK_MSG =
-    '/rollback is not yet available in --ui tui (M10.5 scope-out; tracked as backlog item #41). Fall back to the readline REPL via `sov --ui repl` (also `SOV_UI=repl` or `sov config set ui.surface repl` for persistent opt-out).';
-
   const ctx: CommandContext = {
     sessionId,
     cwd: runtime.cwd,
@@ -115,7 +108,28 @@ export function buildServerCommandContext(
       runtime.model = model;
       sideEffects.modelChanged = model;
     },
-    clearHistory: (): string => UNWIRED_CLEAR_MSG,
+    // Backlog #41 — wired 2026-05-19. Mints a fresh child session via
+    // the existing createClearedChildSession helper (also used by the
+    // REPL), sets sideEffects.newSessionId so the TUI hops sessionID
+    // for subsequent POSTs. Output text mirrors the REPL's clearNow
+    // closure (terminalRepl.ts:1837-1858) for surface parity.
+    clearHistory: (): string => {
+      const result = createClearedChildSession(runtime.sessionDb, {
+        parentSessionId: sessionId,
+        model: runtime.model,
+        provider: runtime.resolvedProvider.transport.name,
+        systemPrompt: systemSegmentsRef,
+        metadata: {
+          bundleRoot: runtime.bundle?.root ?? null,
+        },
+      });
+      sideEffects.newSessionId = result.newSessionId;
+      return [
+        `conversation history cleared into child session ${result.newSessionId}`,
+        `parent session preserved: ${result.parentSessionId}`,
+        'rollback: /rollback',
+      ].join('\n');
+    },
     getCost: () => runtime.sessionDb.getSessionCost(sessionId),
     compact: () => {
       // The TUI hits POST /sessions/:id/compact directly for /compact;
@@ -126,7 +140,29 @@ export function buildServerCommandContext(
       // dispatcher call.
       return runtime.compact(messages, sessionId, new AbortController().signal);
     },
-    rollback: async () => UNWIRED_ROLLBACK_MSG,
+    // Backlog #41 — wired 2026-05-19. Looks up the parent session id
+    // from sessionDb; sets sideEffects.newSessionId so the TUI hops.
+    // Server-mode doesn't need to "restore history in memory" the way
+    // the REPL's rollbackNow does — the next /turns POST on the parent
+    // id loads messages fresh from the DB. The REPL's "restored N
+    // messages" suffix is dropped here because SessionMetricsSnapshot
+    // doesn't carry message counts and loading the full history just
+    // to count rows is wasteful; the hop itself is the success signal.
+    rollback: async (): Promise<string> => {
+      const session = runtime.sessionDb.getSession(sessionId);
+      if (session === null) {
+        return `cannot rollback: current session ${sessionId} was not found`;
+      }
+      if (session.parentSessionId === null) {
+        return `cannot rollback: session ${sessionId} has no parent session`;
+      }
+      const parent = runtime.sessionDb.getSession(session.parentSessionId);
+      if (parent === null) {
+        return `cannot rollback: parent session ${session.parentSessionId} was not found`;
+      }
+      sideEffects.newSessionId = parent.sessionId;
+      return `rolled back to parent session ${parent.sessionId}`;
+    },
     tools: runtime.toolPool,
     registry,
     listSessions: (limit?: number) => runtime.sessionDb.listSessions(limit),
