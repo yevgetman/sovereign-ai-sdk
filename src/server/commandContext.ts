@@ -50,6 +50,12 @@ export type CommandSideEffects = {
    *  card's selection is dispatched as a fresh `/<command> <value>`
    *  call. ADR M11.5-01, ADR M11.5-03. */
   pickerOpen?: PickerOpenConfig;
+  /** Backlog #46 — `/theme <name>` records the chosen theme so the
+   *  TUI can apply it client-side. The server already persists via
+   *  applyAndPersistTheme; this side-effect carries the name to the
+   *  Go renderer (which is a separate process from the TS theme
+   *  singleton). */
+  themeChanged?: string;
 };
 
 export type BuildServerCommandContextResult = {
@@ -227,6 +233,9 @@ export function buildServerCommandContext(
         throw new Error('a picker is already open for this command dispatch');
       }
       sideEffects.pickerOpen = config;
+    },
+    recordThemeChange: (name: string): void => {
+      sideEffects.themeChanged = name;
     },
     taskManager: runtime.taskManager,
     ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),

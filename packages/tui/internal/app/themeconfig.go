@@ -48,32 +48,13 @@ func readThemeFromConfig(harnessHome string) string {
 	return parsed.Theme
 }
 
-// writeThemeToConfig persists the active theme name to config.json's `theme`
-// field, preserving any other fields already present. Best-effort: failure
-// returns an error which app.go surfaces as a dim transcript marker.
-// Atomic write: temp file + rename.
-func writeThemeToConfig(harnessHome, name string) error {
-	path := configFile(harnessHome)
-	existing := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil {
-		// Preserve unknown fields on success; on parse failure start fresh.
-		_ = json.Unmarshal(data, &existing)
-	}
-	existing["theme"] = name
-	data, err := json.MarshalIndent(existing, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
+// writeThemeToConfig used to persist the active theme name from the
+// Go-side /theme interceptor (M9.5 T3). Backlog #46 (2026-05-19)
+// moved persistence to the TS server's applyAndPersistTheme, so this
+// function had no callers and was removed. The Go side now reads the
+// config at boot (readThemeFromConfig above) and reacts to
+// themeChanged side-effects from the server (app.go's
+// applyThemeByName), but never writes the config itself.
 // resolveBootTheme picks the active theme at app boot. Tries Resolve first
 // (4 built-ins); on miss, tries LoadFromFile (TOML user themes); on second
 // miss, falls back to Dark and returns the load error so the caller can

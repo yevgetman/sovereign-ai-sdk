@@ -1040,60 +1040,69 @@ func TestApp_BootUnknownThemeFallsBackToDarkWithError(t *testing.T) {
 	}
 }
 
-func TestApp_ThemeSwitchWritesConfig(t *testing.T) {
-	tmpHome := t.TempDir()
-	t.Setenv("HARNESS_HOME", tmpHome)
+// Backlog #46 (2026-05-19) — `/theme` no longer applies + persists
+// client-side. The server's applyAndPersistTheme (pickers.ts) handles
+// persistence; the themeChanged side-effect tells the TUI to apply
+// the theme to m.theme + components. These two replaced tests
+// (TestApp_ThemeSwitchWritesConfig + TestApp_ThemeSwitchPreserves-
+// OtherConfigFields) verified the OLD Go-side persistence path that
+// has been deleted. The equivalent TS-side behavior is covered by
+// tests/commands/pickers.test.ts and config/store.ts's setAt tests.
 
-	m := New("s-write", "")
+func TestApp_ThemeChangedSideEffectAppliesTheme(t *testing.T) {
+	// Backlog #46 — when the server's commandDispatchedMsg carries
+	// sideEffects.themeChanged, the TUI applies the theme client-side
+	// (calls theme.Resolve + updates m.theme + propagates to
+	// transcript/autocomplete/statusline).
+	m := New("s-theme-applied", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
-	for _, r := range "/theme light" {
-		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		m = model.(Model)
+	beforeName := m.theme.Name
+	if beforeName == "light" {
+		// Pre-condition: starting theme should not be 'light' (default
+		// is 'dark'). If env state contradicts, skip the test.
+		t.Skip("starting theme is already 'light'; cannot verify switch")
 	}
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	resp := &transport.CommandResponse{
+		Output: "theme set to light",
+		SideEffects: &transport.CommandSideEffects{
+			ThemeChanged: "light",
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "theme", resp: resp})
 	m = model.(Model)
 
-	data, err := os.ReadFile(filepath.Join(tmpHome, "config.json"))
-	if err != nil {
-		t.Fatalf("config.json not written: %v", err)
-	}
-	if !strings.Contains(string(data), `"theme"`) || !strings.Contains(string(data), "light") {
-		t.Errorf("config.json missing theme:light — %q", string(data))
+	if m.theme.Name != "light" {
+		t.Errorf("theme not applied: before=%s want=light got=%s", beforeName, m.theme.Name)
 	}
 }
 
-func TestApp_ThemeSwitchPreservesOtherConfigFields(t *testing.T) {
-	tmpHome := t.TempDir()
-	// Pre-write a config with unrelated fields.
-	if err := os.WriteFile(filepath.Join(tmpHome, "config.json"), []byte(`{"theme":"dark","provider":"anthropic","other_field":42}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HARNESS_HOME", tmpHome)
-
-	m := New("s-preserve", "")
+func TestApp_ThemeChangedSideEffectUnknownNameSurfacesDimMarker(t *testing.T) {
+	// Backlog #46 — unknown theme name in themeChanged should NOT
+	// crash; the TUI logs a dim transcript marker and keeps the
+	// current theme.
+	m := New("s-theme-unknown", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
-	for _, r := range "/theme sovereign" {
-		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		m = model.(Model)
+	beforeName := m.theme.Name
+
+	resp := &transport.CommandResponse{
+		Output: "theme set to nonsense",
+		SideEffects: &transport.CommandSideEffects{
+			ThemeChanged: "nonsense-theme-that-does-not-exist",
+		},
 	}
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = m.Update(commandDispatchedMsg{name: "theme", resp: resp})
 	m = model.(Model)
 
-	data, err := os.ReadFile(filepath.Join(tmpHome, "config.json"))
-	if err != nil {
-		t.Fatal(err)
+	if m.theme.Name != beforeName {
+		t.Errorf("theme should not change on unknown name; was=%s now=%s", beforeName, m.theme.Name)
 	}
-	body := string(data)
-	if !strings.Contains(body, "sovereign") {
-		t.Errorf("theme not updated to sovereign: %q", body)
-	}
-	if !strings.Contains(body, "anthropic") {
-		t.Errorf("provider field not preserved: %q", body)
-	}
-	if !strings.Contains(body, "other_field") {
-		t.Errorf("other_field not preserved: %q", body)
+	// View output should contain the dim error marker.
+	view := m.View()
+	if !strings.Contains(view, "could not apply theme") {
+		t.Errorf("expected dim marker for unknown theme; view: %q", view)
 	}
 }
 

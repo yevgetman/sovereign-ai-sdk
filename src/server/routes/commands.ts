@@ -18,6 +18,7 @@
 //       exitRequested?: boolean,  // /quit
 //       modelChanged?: string,    // /model <m>
 //       pickerOpen?: { ... },     // /model, /resume, /export no-args (M11.5)
+//       themeChanged?: string,    // /theme <name> (backlog #46)
 //     }
 //   }
 //   400 — invalid session id or malformed body
@@ -170,6 +171,7 @@ type SideEffectsBag = {
   exitRequested?: boolean;
   modelChanged?: string;
   pickerOpen?: import('../../commands/types.js').PickerOpenConfig;
+  themeChanged?: string;
 };
 
 function hasSideEffects(s: SideEffectsBag): boolean {
@@ -177,7 +179,8 @@ function hasSideEffects(s: SideEffectsBag): boolean {
     s.newSessionId !== undefined ||
     s.exitRequested !== undefined ||
     s.modelChanged !== undefined ||
-    s.pickerOpen !== undefined
+    s.pickerOpen !== undefined ||
+    s.themeChanged !== undefined
   );
 }
 
@@ -187,5 +190,6 @@ function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
   if (s.exitRequested !== undefined) out.exitRequested = s.exitRequested;
   if (s.modelChanged !== undefined) out.modelChanged = s.modelChanged;
   if (s.pickerOpen !== undefined) out.pickerOpen = s.pickerOpen;
+  if (s.themeChanged !== undefined) out.themeChanged = s.themeChanged;
   return out;
 }

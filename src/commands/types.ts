@@ -104,6 +104,13 @@ export type CommandContext = {
    *  undefined (REPL surface), commands fall back to the legacy `pick()`
    *  flow. ADR M11.5-01 (capability detection). */
   requestPicker?: (config: PickerOpenConfig) => void;
+  /** Backlog #46 — server-mode theme-change notification. When defined,
+   *  `/theme <name>` records the chosen theme as a side-effect so the TUI
+   *  can apply it client-side (the TS-side singleton update from
+   *  applyAndPersistTheme has no effect on the Go renderer). When undefined
+   *  (REPL surface), the side-effect isn't emitted; the singleton update +
+   *  config persist drive everything the REPL renderer needs. */
+  recordThemeChange?: (name: string) => void;
 };
 
 /** Slash command that runs locally and returns display text. */

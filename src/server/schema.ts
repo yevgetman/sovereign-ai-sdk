@@ -240,6 +240,10 @@ export const CommandSideEffectsSchema = z.object({
   // The TUI renders the inline card; on Enter it re-dispatches the
   // command with the chosen value as args.
   pickerOpen: PickerOpenConfigSchema.optional(),
+  // Set by /theme <name> (backlog #46). Tells the TUI to apply the
+  // theme to its in-process state — the TS-side singleton update
+  // from applyAndPersistTheme has no effect on the Go renderer.
+  themeChanged: z.string().optional(),
 });
 
 export type CommandSideEffects = z.infer<typeof CommandSideEffectsSchema>;

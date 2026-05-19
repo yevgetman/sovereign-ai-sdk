@@ -211,3 +211,68 @@ describe('/export — requestPicker branch (M11.5 T7)', () => {
     expect(result.output).toContain('nothing to export');
   });
 });
+
+describe('/theme — requestPicker + themeChanged (backlog #46)', () => {
+  test('no-arg + requestPicker defined emits pickerOpen for /theme', async () => {
+    const captured: { payload: PickerOpenConfig | null } = { payload: null };
+    const ctx = makeCtx({
+      requestPicker: (config) => {
+        captured.payload = config;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/theme', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toBe('');
+    expect(captured.payload).not.toBeNull();
+
+    const payload = captured.payload as PickerOpenConfig;
+    expect(payload.title).toBe('switch theme');
+    expect(payload.onSelect).toEqual({ command: 'theme' });
+    expect(payload.items.length).toBeGreaterThan(0);
+    // Built-ins should include at least dark + light.
+    const values = payload.items.map((i) => i.value);
+    expect(values).toContain('dark');
+    expect(values).toContain('light');
+  });
+
+  test('explicit name + recordThemeChange defined records the side-effect', async () => {
+    const captured: { name: string | null } = { name: null };
+    const ctx = makeCtx({
+      recordThemeChange: (name) => {
+        captured.name = name;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/theme light', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(captured.name).toBe('light');
+    expect(result.output.toLowerCase()).toContain('light');
+  });
+
+  test('unknown name does not record themeChanged', async () => {
+    const captured: { name: string | null } = { name: null };
+    const ctx = makeCtx({
+      recordThemeChange: (name) => {
+        captured.name = name;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/theme nonsense', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(captured.name).toBeNull();
+    expect(result.output).toContain('unknown theme');
+  });
+
+  test('explicit name + recordThemeChange undefined (REPL surface) still applies', async () => {
+    // No recordThemeChange on ctx — applyAndPersistTheme still runs;
+    // no side-effect emission is the only difference.
+    const ctx = makeCtx({});
+    const result = await dispatchSlashCommand('/theme dark', ctx);
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output.toLowerCase()).toContain('dark');
+  });
+});

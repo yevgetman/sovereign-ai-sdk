@@ -48,7 +48,7 @@ export const themePickerCommand: LocalCommand = {
   name: 'theme',
   description: 'Switch the color theme — opens a picker, or accepts a name as arg.',
   usage: '/theme [<name>]',
-  call: async (args, _ctx) => runThemePicker(args),
+  call: async (args, ctx) => runThemePicker(args, ctx),
 };
 
 export const PICKER_COMMANDS: LocalCommand[] = [
@@ -217,7 +217,7 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
 // /theme
 // ──────────────────────────────────────────────────────────────────────
 
-async function runThemePicker(args: string): Promise<string> {
+async function runThemePicker(args: string, ctx: CommandContext): Promise<string> {
   const themes = listThemes();
   const explicit = args.trim();
   if (explicit) {
@@ -225,8 +225,41 @@ async function runThemePicker(args: string): Promise<string> {
       const names = themes.map((t) => t.name).join(', ');
       return `unknown theme: ${explicit}\nknown: ${names}`;
     }
-    return applyAndPersistTheme(explicit);
+    const output = applyAndPersistTheme(explicit);
+    // Backlog #46 — record the theme change as a side-effect so the
+    // TUI can apply it client-side. applyAndPersistTheme above
+    // mutates the TS-side theme singleton + persists to config; the
+    // Go renderer doesn't observe the singleton mutation, so the
+    // side-effect is what tells the TUI to update m.theme.
+    // Optional-chain because REPL CommandContexts don't define this.
+    ctx.recordThemeChange?.(explicit);
+    return output;
   }
+
+  // Backlog #46 — server-mode branch: emit pickerOpen so the TUI
+  // renders an inline card. Selection re-dispatches `/theme <name>`
+  // which hits the explicit-arg branch above (and emits
+  // themeChanged). Mirrors /model, /resume, /export.
+  if (ctx.requestPicker) {
+    ctx.requestPicker({
+      title: 'switch theme',
+      subtitle: 'changes apply immediately and persist to ~/.harness/config.json',
+      items: themes.map((t) => ({
+        label: t.name,
+        value: t.name,
+        ...(t.name === theme.name
+          ? { hint: `${t.description}  (current)` }
+          : { hint: t.description }),
+      })),
+      initial: Math.max(
+        0,
+        themes.findIndex((t) => t.name === theme.name),
+      ),
+      onSelect: { command: 'theme' },
+    });
+    return '';
+  }
+
   if (!process.stdin.isTTY) {
     const lines: string[] = [];
     lines.push(`current theme: ${theme.name}`);

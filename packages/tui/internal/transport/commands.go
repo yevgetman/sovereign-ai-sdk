@@ -63,6 +63,12 @@ type CommandSideEffects struct {
 	// PickerCard from this payload; on Enter the selected value is
 	// dispatched as `/<command> <value>` (ADR M11.5-03). M11.5.
 	PickerOpen *PickerOpenPayload `json:"pickerOpen,omitempty"`
+	// ThemeChanged is set by `/theme <name>` on the server side. The
+	// TS-side singleton update has no effect on the Go renderer, so
+	// this side-effect carries the theme name across the process
+	// boundary; the TUI applies it to m.theme + all components.
+	// Backlog #46.
+	ThemeChanged string `json:"themeChanged,omitempty"`
 }
 
 // CommandResponse is the JSON envelope returned by /commands.

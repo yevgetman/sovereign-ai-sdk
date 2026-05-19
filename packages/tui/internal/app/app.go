@@ -510,48 +510,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// M9 T8 — dismiss the autocomplete popup on any ENTER submission
 			// so the suggestion overlay doesn't linger above the prompt.
 			m.autocomplete.Dismiss()
-			// M9 T1: intercept `/theme <name>` slash. Purely client-side —
-			// no POST is fired; the model never sees the theme switch. Update
-			// m.theme; later milestones (T3 markdown wiring, T6 toolcard,
-			// T10 statusline) consume m.theme via constructor or accessor.
-			if strings.HasPrefix(text, "/theme") {
-				m.transcript.AppendUserLine(text)
-				m.prompt.Clear()
-				parts := strings.SplitN(text, " ", 2)
-				if len(parts) < 2 {
-					m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /theme <light|dark|tokyo-night|sovereign|...>"))
-					return m, nil
-				}
-				name := strings.TrimSpace(parts[1])
-				newTheme, ok := theme.Resolve(name)
-				if !ok {
-					// M9.5 T3 — Resolve miss falls back to LoadFromFile so
-					// user-custom themes at ~/.harness/themes/<name>.toml work.
-					if loaded, err := theme.LoadFromFile(name, themesDir(m.harnessHome)); err == nil {
-						newTheme = loaded
-						ok = true
-					}
-				}
-				if !ok {
-					m.transcript.AppendLine(m.theme.ErrorStyle().Render("unknown theme: " + name))
-					return m, nil
-				}
-				m.theme = newTheme
-				m.transcript.SetTheme(m.theme)
-				m.autocomplete.SetTheme(m.theme)
-				m.statusLine.SetTheme(m.theme)
-				if m.picker != nil {
-					m.picker.SetTheme(m.theme)
-				}
-				// M9.5 T3 — persist the choice to ~/.harness/config.json. ADR
-				// M9.5-02: synchronous best-effort; failure logs a dim marker
-				// but doesn't roll back the in-memory switch.
-				if err := writeThemeToConfig(m.harnessHome, name); err != nil {
-					m.transcript.AppendLine(m.theme.DimStyle().Render(fmt.Sprintf("could not persist theme: %v", err)))
-				}
-				m.transcript.AppendLine(m.theme.DimStyle().Render("theme: " + name))
-				return m, nil
-			}
+			// Backlog #46 — `/theme` no longer intercepted client-side.
+			// It flows through the M10.5 generic dispatcher; the server
+			// applies + persists; the themeChanged side-effect tells the
+			// TUI to update m.theme + all components (handled inside
+			// commandDispatchedMsg). The picker also works server-side
+			// via the M11.5 pickerOpen protocol.
 			// M6 T6: intercept the `/compact` slash command BEFORE the
 			// POST /turns dispatch. The user-visible echo + clear still
 			// happens (so the input doesn't sit in the prompt) but we
@@ -961,6 +925,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					),
 				)
 			}
+			// Backlog #46 — apply theme client-side. The server has
+			// already persisted to ~/.harness/config.json via
+			// applyAndPersistTheme; this is the runtime apply for the
+			// Go renderer (m.theme is a separate process from the TS
+			// theme singleton). Failure to resolve is non-fatal —
+			// the response output line already showed success, so a
+			// late "unknown theme" here would be confusing; we just
+			// log a dim marker.
+			if se.ThemeChanged != "" {
+				if err := m.applyThemeByName(se.ThemeChanged); err != nil {
+					m.transcript.AppendLine(
+						m.theme.DimStyle().Render(
+							fmt.Sprintf("could not apply theme '%s' client-side: %v", se.ThemeChanged, err),
+						),
+					)
+				}
+			}
 			if se.ExitRequested {
 				return m, tea.Quit
 			}
@@ -977,6 +958,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // (M9.6 T2: stall_detected schedules a tea.Tick for badge auto-clear;
 // M9.6 T3: compaction_complete returns a refetch-skills cmd). Callers
 // in Update batch the returned cmd with m.waitEvent so neither is dropped.
+// applyThemeByName resolves the named theme and updates m.theme + all
+// theme-aware components. Returns nil on success, error on unknown
+// name. Backlog #46: extracted from the prior /theme client-side
+// interceptor so the post-dispatch themeChanged side-effect handler
+// can reuse the same logic. Persistence is the SERVER's job now —
+// applyAndPersistTheme (TS side) writes to ~/.harness/config.json
+// before emitting the side-effect.
+func (m *Model) applyThemeByName(name string) error {
+	newTheme, ok := theme.Resolve(name)
+	if !ok {
+		if loaded, err := theme.LoadFromFile(name, themesDir(m.harnessHome)); err == nil {
+			newTheme = loaded
+			ok = true
+		}
+	}
+	if !ok {
+		return fmt.Errorf("unknown theme: %s", name)
+	}
+	m.theme = newTheme
+	m.transcript.SetTheme(m.theme)
+	m.autocomplete.SetTheme(m.theme)
+	m.statusLine.SetTheme(m.theme)
+	if m.picker != nil {
+		m.picker.SetTheme(m.theme)
+	}
+	return nil
+}
+
 func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 	switch env.Type {
 	case "text_delta":
