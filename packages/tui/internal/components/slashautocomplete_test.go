@@ -34,10 +34,12 @@ func TestSlashAutocompleteHiddenOnNonSlashInput(t *testing.T) {
 
 func TestSlashAutocompleteFiltersByPrefix(t *testing.T) {
 	s := NewSlashAutocomplete(theme.Dark())
-	s.SetFilter("/com")
+	// /comp disambiguates from /commit (added when staticEntries
+	// grew to cover every TS-registered command — backlog #45).
+	s.SetFilter("/comp")
 	completion := s.Completion()
 	if completion != "/compact" {
-		t.Errorf("filter /com: got %q want /compact", completion)
+		t.Errorf("filter /comp: got %q want /compact", completion)
 	}
 }
 
