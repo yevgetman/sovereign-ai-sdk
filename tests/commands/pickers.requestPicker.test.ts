@@ -1,4 +1,5 @@
-// M11.5 T3 — /model emits pickerOpen via ctx.requestPicker in server mode.
+// M11.5 T3 + T7 — /model, /resume, /export emit pickerOpen via
+// ctx.requestPicker in server mode.
 //
 // REPL surface continues to use the in-process pick() flow (no
 // requestPicker on its CommandContext); these tests pin the new
@@ -7,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
 import type { PickerOpenConfig } from '../../src/commands/types.js';
+import type { Message } from '../../src/core/types.js';
 import { makeCtx } from './_makeCtx.js';
 
 describe('/model — requestPicker branch (M11.5 T3)', () => {
@@ -89,5 +91,123 @@ describe('/model — requestPicker branch (M11.5 T3)', () => {
     if (result.kind !== 'local') throw new Error('expected local');
     expect(captured.payload).toBeNull();
     expect(result.output).toContain('no preset models registered');
+  });
+});
+
+describe('/resume — requestPicker branch (M11.5 T7)', () => {
+  function makeSessionEntry(overrides: { sessionId?: string; title?: string } = {}) {
+    return {
+      sessionId: overrides.sessionId ?? 'sess-aaa',
+      parentSessionId: null,
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      platform: 'darwin',
+      createdAt: Math.floor(Date.now() / 1000) - 120,
+      lastUpdated: Math.floor(Date.now() / 1000) - 60,
+      title: overrides.title ?? 'a recorded session',
+      msgCount: 4,
+      totalTokens: 200,
+      totalCostUsd: 0.02,
+    };
+  }
+
+  test('no-arg + requestPicker defined emits pickerOpen for /resume', async () => {
+    const captured: { payload: PickerOpenConfig | null } = { payload: null };
+    const ctx = makeCtx({
+      listSessions: () => [
+        makeSessionEntry({ sessionId: 'sess-aaa', title: 'session A' }),
+        makeSessionEntry({ sessionId: 'sess-bbb', title: 'session B' }),
+      ],
+      requestPicker: (config) => {
+        captured.payload = config;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/resume', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toBe('');
+    expect(captured.payload).not.toBeNull();
+
+    const payload = captured.payload as PickerOpenConfig;
+    expect(payload.title).toBe('resume session');
+    expect(payload.onSelect).toEqual({ command: 'resume' });
+    expect(payload.items.length).toBe(2);
+    expect(payload.items[0]?.value).toBe('sess-aaa');
+    expect(payload.items[0]?.label).toContain('session A');
+    expect(payload.items[0]?.hint).toContain('msg');
+  });
+
+  test('explicit session-id + requestPicker defined prints resume command and skips picker', async () => {
+    const captured: { payload: PickerOpenConfig | null } = { payload: null };
+    const ctx = makeCtx({
+      listSessions: () => [makeSessionEntry({ sessionId: 'sess-target', title: 'pick me' })],
+      requestPicker: (config) => {
+        captured.payload = config;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/resume sess-target', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(captured.payload).toBeNull();
+    expect(result.output).toContain('selected session sess-tar');
+    expect(result.output).toContain('sov --resume sess-target');
+  });
+
+  test('explicit session-id that does not match returns selection error', async () => {
+    const ctx = makeCtx({
+      listSessions: () => [makeSessionEntry({ sessionId: 'sess-aaa' })],
+      requestPicker: () => {},
+    });
+    const result = await dispatchSlashCommand('/resume sess-nonexistent', ctx);
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toContain('selection error');
+    expect(result.output).toContain('sess-nonexistent');
+  });
+});
+
+describe('/export — requestPicker branch (M11.5 T7)', () => {
+  const sampleMessages: Message[] = [
+    { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
+  ];
+
+  test('no-arg + requestPicker defined emits pickerOpen for /export', async () => {
+    const captured: { payload: PickerOpenConfig | null } = { payload: null };
+    const ctx = makeCtx({
+      getMessages: () => sampleMessages,
+      requestPicker: (config) => {
+        captured.payload = config;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/export', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(result.output).toBe('');
+    expect(captured.payload).not.toBeNull();
+
+    const payload = captured.payload as PickerOpenConfig;
+    expect(payload.title).toBe('export session');
+    expect(payload.onSelect).toEqual({ command: 'export' });
+    const values = payload.items.map((i) => i.value).sort();
+    expect(values).toEqual(['json', 'jsonl', 'md']);
+  });
+
+  test('empty messages short-circuits before the picker', async () => {
+    const captured: { payload: PickerOpenConfig | null } = { payload: null };
+    const ctx = makeCtx({
+      getMessages: () => [],
+      requestPicker: (config) => {
+        captured.payload = config;
+      },
+    });
+
+    const result = await dispatchSlashCommand('/export', ctx);
+
+    if (result.kind !== 'local') throw new Error('expected local');
+    expect(captured.payload).toBeNull();
+    expect(result.output).toContain('nothing to export');
   });
 });

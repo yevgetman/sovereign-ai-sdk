@@ -95,33 +95,54 @@ async function runExport(args: string, ctx: CommandContext): Promise<string> {
   }
 
   const explicit = args.trim().toLowerCase();
-  let format: ExportFormat | null = null;
   if (explicit) {
     if (explicit === 'md' || explicit === 'jsonl' || explicit === 'json') {
-      format = explicit;
-    } else {
-      return `unknown format: ${explicit}\nusage: /export [md|jsonl|json]`;
+      return writeSessionExport(messages, explicit, ctx);
     }
+    return `unknown format: ${explicit}\nusage: /export [md|jsonl|json]`;
   }
 
-  if (format === null) {
-    if (!process.stdin.isTTY) {
-      return 'export needs a format on non-TTY: /export md, /export jsonl, or /export json.';
-    }
-    const items: PickerItem<ExportFormat>[] = EXPORT_FORMATS.map((f) => ({
-      label: f.label,
-      hint: f.hint,
-      value: f.format,
-    }));
-    const chosen = await pick<ExportFormat>({
+  // M11.5 — server-mode branch: emit pickerOpen so the TUI renders
+  // the card. Selection re-dispatches `/export <format>` which hits
+  // the explicit-arg branch above. ADR M11.5-01.
+  if (ctx.requestPicker) {
+    ctx.requestPicker({
       title: 'export session',
       subtitle: `${messages.length} message${messages.length === 1 ? '' : 's'}`,
-      items,
+      items: EXPORT_FORMATS.map((f) => ({
+        label: f.label,
+        value: f.format,
+        hint: f.hint,
+      })),
+      initial: 0,
+      onSelect: { command: 'export' },
     });
-    if (chosen === null) return 'export cancelled.';
-    format = chosen;
+    return '';
   }
 
+  if (!process.stdin.isTTY) {
+    return 'export needs a format on non-TTY: /export md, /export jsonl, or /export json.';
+  }
+
+  const items: PickerItem<ExportFormat>[] = EXPORT_FORMATS.map((f) => ({
+    label: f.label,
+    hint: f.hint,
+    value: f.format,
+  }));
+  const chosen = await pick<ExportFormat>({
+    title: 'export session',
+    subtitle: `${messages.length} message${messages.length === 1 ? '' : 's'}`,
+    items,
+  });
+  if (chosen === null) return 'export cancelled.';
+  return writeSessionExport(messages, chosen, ctx);
+}
+
+function writeSessionExport(
+  messages: Message[],
+  format: ExportFormat,
+  ctx: CommandContext,
+): string {
   const ext = EXPORT_FORMATS.find((f) => f.format === format)?.ext ?? format;
   const filename = `session-${ctx.sessionId.slice(0, 8)}.${ext}`;
   const fullPath = join(ctx.cwd, filename);

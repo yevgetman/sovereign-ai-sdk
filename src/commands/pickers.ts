@@ -31,7 +31,8 @@ export const resumeCommand: LocalCommand = {
   type: 'local',
   name: 'resume',
   description: 'Pick a recent session by title and print its resume command.',
-  call: async (_args, ctx) => runResumePicker(ctx),
+  usage: '/resume [<session-id>]',
+  call: async (args, ctx) => runResumePicker(args, ctx),
 };
 
 export const modelPickerCommand: LocalCommand = {
@@ -60,25 +61,44 @@ export const PICKER_COMMANDS: LocalCommand[] = [
 // /resume
 // ──────────────────────────────────────────────────────────────────────
 
-async function runResumePicker(ctx: CommandContext): Promise<string> {
-  if (!process.stdin.isTTY) {
-    return 'resume picker requires a TTY. Use `sov --resume <uuid>` from the shell.';
-  }
+async function runResumePicker(args: string, ctx: CommandContext): Promise<string> {
+  const explicit = args.trim();
   const sessions = ctx.listSessions(20);
+
+  // M11.5 — explicit session-id form. Used as the picker's resolution
+  // path: selecting a row dispatches `/resume <uuid>` which hits this
+  // branch.
+  if (explicit) {
+    const chosen = sessions.find((s) => s.sessionId === explicit);
+    if (!chosen) return `selection error: session ${explicit} not found.`;
+    return formatResumeReport(chosen);
+  }
+
   if (sessions.length === 0) {
     return 'no recorded sessions yet — start chatting to build the resume list.';
   }
 
+  // M11.5 — server-mode branch: emit pickerOpen, let the TUI render
+  // the card. Selection re-dispatches /resume <session-id> which falls
+  // into the explicit branch above. ADR M11.5-01.
+  if (ctx.requestPicker) {
+    ctx.requestPicker({
+      title: 'resume session',
+      subtitle: `${sessions.length} most-recent session${sessions.length === 1 ? '' : 's'}`,
+      items: sessions.map((s) => buildResumeItem(s)),
+      initial: 0,
+      onSelect: { command: 'resume' },
+    });
+    return '';
+  }
+
+  if (!process.stdin.isTTY) {
+    return 'resume picker requires a TTY. Use `sov --resume <uuid>` from the shell.';
+  }
+
   const items: PickerItem<string>[] = sessions.map((s) => {
-    const titleText = s.title ?? '(no title)';
-    const ago = formatRelativeTime(s.lastUpdated);
-    const cost = s.totalCostUsd > 0 ? formatUsd(s.totalCostUsd) : '$0.00';
-    const meta = `${ago} · ${s.msgCount} msg · ${s.provider}/${s.model} · ${cost}`;
-    return {
-      label: truncate(titleText, 70),
-      hint: meta,
-      value: s.sessionId,
-    };
+    const item = buildResumeItem(s);
+    return { label: item.label, value: item.value, ...(item.hint ? { hint: item.hint } : {}) };
   });
 
   const sessionId = await pick<string>({
@@ -92,14 +112,31 @@ async function runResumePicker(ctx: CommandContext): Promise<string> {
   const chosen = sessions.find((s) => s.sessionId === sessionId);
   if (!chosen) return `selection error: session ${sessionId} not found.`;
 
+  return formatResumeReport(chosen);
+}
+
+function buildResumeItem(s: ReturnType<CommandContext['listSessions']>[number]): {
+  label: string;
+  value: string;
+  hint?: string;
+} {
+  const titleText = s.title ?? '(no title)';
+  const ago = formatRelativeTime(s.lastUpdated);
+  const cost = s.totalCostUsd > 0 ? formatUsd(s.totalCostUsd) : '$0.00';
+  const meta = `${ago} · ${s.msgCount} msg · ${s.provider}/${s.model} · ${cost}`;
+  return {
+    label: truncate(titleText, 70),
+    value: s.sessionId,
+    hint: meta,
+  };
+}
+
+function formatResumeReport(chosen: ReturnType<CommandContext['listSessions']>[number]): string {
   // For Wave 2, /resume prints the command rather than swapping in-
   // process. The user can /quit and run it. (The frequent flow — pick
   // a recent session and resume — works in the same pair of keystrokes
   // either way; in-process swap is an explicit Wave-4 deliverable.)
-  const cmd =
-    chosen.parentSessionId !== null
-      ? `sov --resume ${chosen.sessionId}`
-      : `sov --resume ${chosen.sessionId}`;
+  const cmd = `sov --resume ${chosen.sessionId}`;
   const lines = [
     `selected session ${chosen.sessionId.slice(0, 8)}`,
     `  title:    ${chosen.title ?? '(no title)'}`,

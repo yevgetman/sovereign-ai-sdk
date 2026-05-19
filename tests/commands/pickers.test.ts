@@ -80,8 +80,35 @@ describe('PROVIDER_MODELS registry', () => {
 });
 
 describe('/resume — non-TTY fallback', () => {
-  test('returns TTY-required hint when stdin is piped', async () => {
+  test('returns "no recorded sessions" when no sessions exist', async () => {
     const ctx = makeCtx({ listSessions: () => [] });
+    const result = await dispatchSlashCommand('/resume', ctx);
+    if (result.kind !== 'local') throw new Error('expected local');
+    // M11.5 T7 — empty-sessions check now runs BEFORE the TTY check
+    // so the message is actionable ("nothing to resume") instead of
+    // misleading ("needs a TTY" — even with a TTY there'd be nothing
+    // to pick).
+    expect(result.output).toContain('no recorded sessions');
+  });
+
+  test('returns TTY-required hint when sessions exist but stdin is piped', async () => {
+    const ctx = makeCtx({
+      listSessions: () => [
+        {
+          sessionId: 'sess-1',
+          parentSessionId: null,
+          model: 'claude-sonnet-4-6',
+          provider: 'anthropic',
+          platform: 'darwin',
+          createdAt: Math.floor(Date.now() / 1000) - 120,
+          lastUpdated: Math.floor(Date.now() / 1000) - 60,
+          title: 'old session',
+          msgCount: 3,
+          totalTokens: 100,
+          totalCostUsd: 0.01,
+        },
+      ],
+    });
     const result = await dispatchSlashCommand('/resume', ctx);
     if (result.kind !== 'local') throw new Error('expected local');
     expect(result.output).toContain('requires a TTY');
