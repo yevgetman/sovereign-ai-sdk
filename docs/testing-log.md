@@ -8,6 +8,39 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-19 — Post-M11.5 polish + docs/tests audit
+
+**Scope:** Two follow-ups to M11.5 driven by user screenshots (`uxissue1.png`, `uxissue2.png`) plus an audit pass to make sure the latest TUI UI/UX work is fully documented and covered by tests.
+
+**Polish fixes** (commit `ca8f670`):
+- **uxissue1** — slash autocomplete popup moved from above to below the input box. View() now appends `m.autocomplete.View(...)` after the prompt; `handleMouseClick`'s popup region math moved to `[transcriptH + promptH, + popupH)`.
+- **uxissue2** — Enter on the visible popup now fills the highlighted completion and falls through to the regular Enter submit handler. Critical no-args guard: only fill when `strings.TrimPrefix(promptText, "/")` contains no whitespace; otherwise typed args (e.g., `/skills reload`) would be clobbered to `/skills`. Tab still works silently as the fill-only path.
+- Hint text updated to **"Press Enter to select · Esc to cancel"** in `slashautocomplete.go:View`.
+
+**Audit pass** (this commit):
+- `docs/conventions/tui-ux-patterns.md` extended with three new sections under "Slash-command surfaces": the autocomplete popup layout/keys/hint, the `staticEntries` hand-mirror rule, and the inline `PickerCard` pattern (layout, visual conventions, input lock, resolution model). Quick decision table got two new rows; "See also" gained references to `slashautocomplete.go`, `pickercard.go`, and the M11.5 spec. Iteration narrative table extended with M11.14–18 + formal M11.5 (disambiguated from the earlier M11.5 commit-tag in `c9faf6b`).
+- 3 new explicit Go tests in `packages/tui/internal/app/slashautocomplete_keys_test.go`:
+  - `TestSlashAutocompleteEnterFillsAndSubmits` — typing `/abou` + Enter dispatches `about`, not the literal `/abou`.
+  - `TestSlashAutocompleteEnterPreservesArgs` — typing `/cost extra` + Enter dispatches `cost` with `args=extra` preserved (no-args guard explicitly tested rather than relying on the slashSkillsReload timeout as a canary).
+  - `TestSlashAutocompleteViewPositionsPopupBelowPrompt` — View() output places the prompt's `›` cursor before the popup's `/about` entry (uxissue1 layout verification).
+- Backlog item #46 filed for the `/theme` migration follow-up (formerly tagged F1 in the spec); close-out snapshot updated to reference #46.
+
+**Suite delta:**
+- TS: still **2061 pass / 0 fail / 14 skip / 5291 expect()**. No new TS tests (the polish was Go-side only).
+- Go: 3 new tests across the autocomplete-keys file, plus the existing `TestApp_SlashSkillsReloadWithServerFetchesSkills` continues to pass (was the canary that surfaced the no-args guard requirement). All 5 Go packages green.
+- Lint + typecheck clean. Same 2 pre-existing warnings in `src/permissions/shellSemantics.ts`.
+
+**Verification before commit:**
+- `go test ./...` — all packages pass.
+- `bun run lint && bun run typecheck && bun run test` — all green.
+- Manual TUI smoke still TODO — the user will exercise the dropdown + Enter behavior against the refreshed `sov-tui` binary.
+
+**Known limitations after this pass:**
+- Manual TUI verification not driven by automation. The new Go tests cover key handling + layout ordering but not end-to-end render fidelity.
+- The popup positioning change interacts with the picker card rendering (both inline surfaces). They're never co-active in practice — the picker only opens after a slash command has been dispatched — but no test exercises the "popup visible AND picker visible" guard (which would be a programming error since the dispatch closes the popup).
+
+---
+
 ## 2026-05-19 — Phase 16.1 M11.5 close-out (inline picker card)
 
 **Scope:** Replace the broken raw-mode `pick()` overlay that collided with the Bubble Tea TUI render loop (`~/Desktop/ux1.png`) with an inline `PickerCard` matching Claude Code's reference UX (`~/Desktop/goodux.png`). Generalize the protocol so `/model`, `/resume`, `/export` (and any future picker-driven command) share a single side-effect-based contract. Includes the T8 spacing fix bumping the pre-prompt gap from one to two lines (`~/Desktop/ux2.png`).
