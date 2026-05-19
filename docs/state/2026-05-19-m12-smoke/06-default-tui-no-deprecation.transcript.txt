@@ -1,0 +1,16 @@
+=== M12 smoke scenario: 06-default-tui-no-deprecation ===
+env: {}
+args: bun src/main.ts 
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-home-jpimXz
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x
+config.json: (absent)
+expect deprecation: absent
+--- stdout + stderr ---
+
+--- stdout above; stderr below ---
+sov: tui server listening on 127.0.0.1:55764 session=da3507e1-0edf-44e1-8ba4-0fc791931043
+sov-tui: could not open a new TTY: open /dev/tty: device not configured
+
+
+--- exit code: 1 ---
+--- deprecation present: false (expected absent) — PASS ---

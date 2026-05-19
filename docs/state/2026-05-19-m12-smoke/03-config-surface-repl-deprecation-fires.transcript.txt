@@ -1,0 +1,57 @@
+=== M12 smoke scenario: 03-config-surface-repl-deprecation-fires ===
+env: {}
+args: bun src/main.ts 
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-home-jpimXz
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x
+config.json: {   "ui": {     "surface": "repl"   } }
+expect deprecation: present
+--- stdout + stderr ---
+
+  ███████╗ ██████╗ ██╗   ██╗ 
+  ██╔════╝██╔═══██╗██║   ██║ 
+  ███████╗██║   ██║██║   ██║ 
+  ╚════██║██║   ██║╚██╗ ██╔╝ 
+  ███████║╚██████╔╝ ╚████╔╝  
+  ╚══════╝ ╚═════╝   ╚═══╝   
+
+╭──────────────────────────────────────────────────────────────────╮
+│  >_ Sovereign AI (v0.0.1)                                        │
+│  anthropic | API Key                                             │
+│  claude-haiku-4-5-20251001 (/model to change)                    │
+│  …/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x  │
+╰──────────────────────────────────────────────────────────────────╯
+
+Tips: type / for slash commands · @file:path to inline files · /quit to exit
+perms: default · tools: 19 · cache: on · new 9c0e25da · /quit or Ctrl-D to exit
+
+anthropic · claude-haiku-4-5-20251001 · ctx <1% · $0.00 · perms:default · tools:19 · bundle:sov-m12-smoke-bundle-ZkNr3x
+────────────────────────────────────────────────────────────
+> ────────────────────────────────────────────────────────────
+
+╭───────────────────────────────────────────────────────╮
+│  Agent powering down. Goodbye!                        │
+│                                                       │
+│  Interaction Summary                                  │
+│  Session ID:    9c0e25da-81cd-40c0-a8ca-47131d224504  │
+│  Tool Calls:    0 ( ✓ 0 · ✗ 0 )                       │
+│  Success Rate:  0.0%                                  │
+│                                                       │
+│  Performance                                          │
+│  Wall Time:     4ms                                   │
+│  Agent Active:  0ms                                   │
+│    » API Time:   0ms (0.0%)                           │
+│    » Tool Time:  0ms (0.0%)                           │
+│                                                       │
+│  Tokens                                               │
+│  Total:         0  (↑ 0 · ↓ 0)                        │
+╰───────────────────────────────────────────────────────╯
+to resume: sov --resume 9c0e25da-81cd-40c0-a8ca-47131d224504 --bundle /var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x
+
+--- stdout above; stderr below ---
+sov: the readline REPL is deprecated and will be removed in M13.
+     (you opted in via ui.surface=repl — the TUI is the default and now feature-complete).
+     set SOV_NO_DEPRECATION_WARNING=1 to silence this warning.
+
+
+--- exit code: 0 ---
+--- deprecation present: true (expected present) — PASS ---

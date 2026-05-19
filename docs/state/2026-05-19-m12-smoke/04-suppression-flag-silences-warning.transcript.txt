@@ -1,0 +1,54 @@
+=== M12 smoke scenario: 04-suppression-flag-silences-warning ===
+env: {"SOV_NO_DEPRECATION_WARNING":"1"}
+args: bun src/main.ts --ui repl
+HARNESS_HOME=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-home-jpimXz
+HARNESS_BUNDLE=/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x
+config.json: (absent)
+expect deprecation: absent
+--- stdout + stderr ---
+
+  ███████╗ ██████╗ ██╗   ██╗ 
+  ██╔════╝██╔═══██╗██║   ██║ 
+  ███████╗██║   ██║██║   ██║ 
+  ╚════██║██║   ██║╚██╗ ██╔╝ 
+  ███████║╚██████╔╝ ╚████╔╝  
+  ╚══════╝ ╚═════╝   ╚═══╝   
+
+╭──────────────────────────────────────────────────────────────────╮
+│  >_ Sovereign AI (v0.0.1)                                        │
+│  anthropic | API Key                                             │
+│  claude-haiku-4-5-20251001 (/model to change)                    │
+│  …/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x  │
+╰──────────────────────────────────────────────────────────────────╯
+
+Tips: type / for slash commands · @file:path to inline files · /quit to exit
+perms: default · tools: 19 · cache: on · new 75d0926a · /quit or Ctrl-D to exit
+
+anthropic · claude-haiku-4-5-20251001 · ctx <1% · $0.00 · perms:default · tools:19 · bundle:sov-m12-smoke-bundle-ZkNr3x
+────────────────────────────────────────────────────────────
+> ────────────────────────────────────────────────────────────
+
+╭───────────────────────────────────────────────────────╮
+│  Agent powering down. Goodbye!                        │
+│                                                       │
+│  Interaction Summary                                  │
+│  Session ID:    75d0926a-de3a-40ce-97d5-8568b6be471e  │
+│  Tool Calls:    0 ( ✓ 0 · ✗ 0 )                       │
+│  Success Rate:  0.0%                                  │
+│                                                       │
+│  Performance                                          │
+│  Wall Time:     5ms                                   │
+│  Agent Active:  0ms                                   │
+│    » API Time:   0ms (0.0%)                           │
+│    » Tool Time:  0ms (0.0%)                           │
+│                                                       │
+│  Tokens                                               │
+│  Total:         0  (↑ 0 · ↓ 0)                        │
+╰───────────────────────────────────────────────────────╯
+to resume: sov --resume 75d0926a-de3a-40ce-97d5-8568b6be471e --bundle /var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-m12-smoke-bundle-ZkNr3x
+
+--- stdout above; stderr below ---
+
+
+--- exit code: 0 ---
+--- deprecation present: false (expected absent) — PASS ---
