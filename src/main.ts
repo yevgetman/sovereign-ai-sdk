@@ -212,6 +212,21 @@ async function main(argv: string[]): Promise<void> {
         env: process.env,
         config: readConfig(),
       });
+
+      // M12 — REPL deprecation warning. Fires when the user explicitly
+      // opted into --ui repl / SOV_UI=repl / ui.surface=repl. Stays
+      // silent on the missing-binary fallback below because that path
+      // doesn't change resolution.surface (only effectiveSurface).
+      // ADR M12-01.
+      if (resolution.surface === 'repl') {
+        const { formatReplDeprecationMessage } = await import('./cli/replDeprecation.js');
+        const msg = formatReplDeprecationMessage({
+          source: resolution.source,
+          env: process.env,
+        });
+        if (msg !== null) process.stderr.write(msg);
+      }
+
       let effectiveSurface = resolution.surface;
 
       // Missing-binary fallback: when the resolved surface is 'tui' but
