@@ -83,7 +83,7 @@ export const quitCommand: LocalCommand = {
   type: 'local',
   name: 'quit',
   aliases: ['exit', 'q'],
-  description: 'Exit the REPL after printing the session summary.',
+  description: 'Exit the session after printing the session summary.',
   call: async (_args, ctx) => {
     ctx.requestExit();
     return 'goodbye.';

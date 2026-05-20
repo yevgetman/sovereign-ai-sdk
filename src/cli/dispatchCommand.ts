@@ -145,12 +145,12 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     }),
     compact: async () => {
       throw new Error(
-        'dispatch mode does not maintain a session DB — /compact requires the interactive REPL',
+        'dispatch mode does not maintain a session DB — /compact requires the interactive sov session',
       );
     },
     rollback: async () => {
       throw new Error(
-        'dispatch mode does not maintain a session DB — /rollback requires the interactive REPL',
+        'dispatch mode does not maintain a session DB — /rollback requires the interactive sov session',
       );
     },
     tools: toolPool,
@@ -204,7 +204,7 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
         const result = await dispatchSlashCommand(trimmed, commandContext);
         if (result.kind === 'prompt') {
           process.stdout.write(
-            `[dispatch mode] prompt commands ('${result.command.name}') require the interactive REPL — skipped\n`,
+            `[dispatch mode] prompt commands ('${result.command.name}') require the interactive sov session — skipped\n`,
           );
         } else {
           process.stdout.write(`${result.output}\n`);
