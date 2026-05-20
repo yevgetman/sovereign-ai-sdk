@@ -8,6 +8,20 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-20 — Phase 16.1 M13 T9: docs sweep of stale terminalRepl references
+
+**Scope:** Docs-only commit removing `--ui` / `SOV_UI` / `ui.surface` references from README and `docs/usage.md`, and cleaning code comments that pointed at `src/ui/terminalRepl.ts:NNN` (now deleted in M13).
+
+**Files touched (no behavior changes):**
+- `README.md`, `docs/usage.md` — dropped surface-flag rows + REPL deprecation prose; renamed the "REPL UX" section to "Session UX"; replaced "REPL"-as-noun with "session" / "TUI" where it referred to the runtime surface.
+- 16 source / test files — replaced inline `terminalRepl.ts:NNN` pointers with prose describing the mirrored behavior, or deleted the pointer when it was purely historical (commit covers: `src/server/runtime.ts`, `src/server/routes/turns.ts`, `src/server/sessionContext.ts`, `src/server/commandContext.ts`, `src/server/schema.ts`, `src/compact/compactor.ts`, `src/tools/HarnessInfoTool.ts`, `src/runtime/scheduler.ts`, `src/bundle/defaultBundle.ts`, `src/cli/tuiLauncher.ts`, `src/cli/missionRun.ts`, `src/commands/reviewOps.ts`, `src/tool/types.ts`, `src/mcp/types.ts`, `src/agent/sessionDb.ts`, plus 11 test files under `tests/`).
+
+**Gate:** `bun run lint && bun run typecheck && bun run test`. Lint clean (the two `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` are pre-existing — file untouched). Typecheck clean. Suite **1949 pass / 14 skip / 0 fail** — identical to predecessor HEAD `0b0c876` baseline.
+
+**Verification:** `grep -rn "terminalRepl\|readline REPL\|--ui repl\|SOV_UI=repl\|ui\.surface=repl" src tests` returns one match — the intentional M13 marker comment in `src/permissions/prompt.ts:3` explaining why the readline-based asker is gone. README and `docs/usage.md` are similarly clean of stale surface references.
+
+**Closes:** T9 of the Phase 16.1 M13 plan. CLAUDE.md / AGENTS.md / backlog header / state snapshots / postmortems / ADRs / specs / plans were intentionally NOT touched — they're either historical record or deferred to T12 (close-out commit) so they can reference the M13 state snapshot.
+
 ## 2026-05-19 — Backlog #45 + #46 closed: discovery endpoint + /theme migration
 
 **Scope:** Two related TUI architecture cleanups in one session. #45 eliminates the staticEntries hand-mirror drift hazard by introducing a live GET /commands endpoint. #46 unifies /theme with the M11.5 pickerOpen protocol (replaces the dedicated client-side dispatcher with a server-side flow).

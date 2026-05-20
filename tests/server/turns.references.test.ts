@@ -1,11 +1,10 @@
 // Phase 16.1 M8 T3 — @file:path / @url / @diff / @staged reference expansion
 // in the server's POST /turns route.
 //
-// terminalRepl.ts:1288 calls expandContextReferences on the user's text
-// before it ever lands in `messages`. The server route had no equivalent
-// hop until M8 T3 — `runTurnInBackground` persisted the raw text and
-// handed it to query() verbatim, so any @-prefixed reference reached the
-// model unexpanded. This file pins the contract:
+// The server route had no expansion hop until M8 T3 —
+// `runTurnInBackground` persisted the raw text and handed it to query()
+// verbatim, so any @-prefixed reference reached the model unexpanded.
+// This file pins the contract:
 //   1. `@file:<path>` substitutes the file contents (fenced + screened)
 //      into the persisted user message BEFORE saveMessage.
 //   2. `@file:<missing>` substitutes the `[ERROR: file not found …]`

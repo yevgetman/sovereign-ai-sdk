@@ -10,7 +10,7 @@
 // web search or guessing.
 //
 // Closure-injected (mirrors ToolSearchTool): the factory takes a snapshot
-// getter; terminalRepl supplies the getter after wiring is complete (the
+// getter; the runtime supplies the getter after wiring is complete (the
 // snapshot needs the live MCP pool and the post-assembly tool pool, so it
 // can't be captured eagerly).
 

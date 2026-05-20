@@ -138,10 +138,10 @@ describe('turns route — review manager (M7 T6)', () => {
   });
 
   // M7 T6 follow-up (review I1) — the turns route must invoke
-  // reviewManager.onUserTurn(sessionId) on every user prompt. Without this
-  // wiring, two user-tunable settings (review.userTurnsForMemoryReview and
-  // learning.synthesizerEveryN) are silently inert in server mode because
-  // their counters never increment. Mirrors terminalRepl.ts:1283,1290.
+  // reviewManager.onUserTurn(sessionId) on every user prompt. Without
+  // this wiring, two user-tunable settings (review.userTurnsForMemoryReview
+  // and learning.synthesizerEveryN) would be silently inert because their
+  // counters never increment.
   //
   // Spy-based assertion (preferred over a real scheduler-dispatch test): we
   // monkey-patch onUserTurn on the live ReviewManager instance before firing

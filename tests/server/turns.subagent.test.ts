@@ -16,10 +16,8 @@
 // rebuild the whole turn loop just to assert four field assignments. The
 // integration is implicitly exercised by tests/server/turns.test.ts (which
 // drives an actual MockProvider turn through the route); this file pins
-// the specific fields the plan calls out.
-//
-// Mirrors terminalRepl.ts:958-960 + 962-973 — the source-of-truth wiring
-// pattern referenced by the plan inventory.
+// the specific fields the plan calls out: subagentScheduler, taskManager,
+// parentToolPool, canUseTool.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';

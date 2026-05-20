@@ -1,15 +1,13 @@
 // Phase 16.1 M3.3 — server-side runtime construction.
 //
-// buildRuntime() produces the shared building blocks the M3 server needs:
+// buildRuntime() produces the shared building blocks the server needs:
 // session DB, bundle, agent registry, tool pool, system segments, provider.
-// It mirrors terminalRepl's boot sequence in a *parallel, additive* form —
-// terminalRepl stays untouched per Postmortem Rule 1 (coexistence). The
-// server lives next to terminalRepl, not on top of it.
+// It owns the boot sequence end-to-end now that the legacy terminal surface
+// has been removed (M13) — this module is the single in-process runtime
+// builder behind both the TUI launcher and the dispatch CLI.
 //
-// Scope for M3: a single in-process runtime owns one provider + one session
-// at a time. The session id is created on demand by POST /sessions; tool
-// runtime extras (memory, skills, mission, learning) intentionally land in
-// later milestones — this milestone wires a bare turn end-to-end.
+// Scope: a single in-process runtime owns one provider + one session at a
+// time. The session id is created on demand by POST /sessions.
 
 import { join } from 'node:path';
 import { SessionDb } from '../agent/sessionDb.js';
@@ -141,11 +139,11 @@ export type RuntimeOptions = {
    *  no-cache path. */
   cacheEnabled?: boolean;
   /** Explicit permission-mode override. When omitted (or `'default'`),
-   *  buildRuntime falls back to the same cascade terminalRepl uses:
+   *  buildRuntime falls back to the layered cascade:
    *  layered permission settings → user `config.json` → `'default'`. */
   permissionMode?: PermissionMode;
   /** Explicit session DB path override. When omitted, opens at
-   *  <harnessHome>/sessions.db — the same default terminalRepl uses. */
+   *  <harnessHome>/sessions.db. */
   dbPath?: string;
   /** Resume a prior session by UUID. buildRuntime validates the row
    *  exists in sessionDb and throws SessionNotFoundError if not. */
@@ -183,13 +181,13 @@ export type RuntimeOptions = {
   /** Capture every provider call + tool call to a fixture file. On
    *  runtime.dispose() the fixture is finalized and written atomically.
    *  Mutually exclusive with replayFixturePath — supplying both throws.
-   *  Mirrors terminalRepl's --capture-fixture (Phase 10.5 part 2). */
+   *  Surfaces the Phase 10.5 part 2 --capture-fixture flag. */
   captureFixturePath?: string;
   /** Drive the runtime from a recorded fixture file. Skips live
    *  provider/tool calls — `ReplayProvider` replays captured StreamEvents
    *  and `wrapToolsForReplay` re-serves captured tool results. Mutually
-   *  exclusive with captureFixturePath. Mirrors terminalRepl's
-   *  --replay-fixture (Phase 10.5 part 2). */
+   *  exclusive with captureFixturePath. Surfaces the Phase 10.5 part 2
+   *  --replay-fixture flag. */
   replayFixturePath?: string;
 };
 
@@ -231,9 +229,11 @@ export type Runtime = {
   /** PreToolUse / PostToolUse / UserPromptSubmit / Stop hook runner.
    *  Server-mode: consent gate is non-interactive (M5-01) — commands
    *  not already in `~/.harness/shell-hooks-allowlist.json` are denied
-   *  without prompting (the server doesn't own a TTY). Users pre-consent
-   *  via `sov --ui repl` once. The runner is always present; when no
-   *  hooks are configured it returns `{ block: false }` immediately. */
+   *  without prompting (the server doesn't own a TTY). The allowlist
+   *  must be pre-populated out of band (e.g., by editing the JSON
+   *  directly or by a future consent-management subcommand). The runner
+   *  is always present; when no hooks are configured it returns
+   *  `{ block: false }` immediately. */
   hookRunner: HookRunner;
   /** Permission-request approval queue. The serverAsk callback and the
    *  approvals route both reach into this — the queue is the rendezvous
@@ -243,9 +243,8 @@ export type Runtime = {
   /** Per-lane concurrency caps used by both the router (single-session
    *  escalations) and the sub-agent scheduler (parent dispatching N
    *  children). One instance shared across both consumers. M5.1 wires
-   *  caps from `userSettings.router.maxConcurrent{Local,Frontier}` so
-   *  server-mode behaves like terminalRepl. Undefined values leave the
-   *  affected lane unbounded. */
+   *  caps from `userSettings.router.maxConcurrent{Local,Frontier}`.
+   *  Undefined values leave the affected lane unbounded. */
   laneSemaphores: LaneSemaphores;
   /** Single-writer lock for write-capable children. Prevents two child
    *  agents from racing on the same path. v0 is a single in-memory
@@ -259,7 +258,7 @@ export type Runtime = {
    *  The TaskStore reads/writes against `sessionDb` (no separate database).
    *  The task_create / task_list / task_get / task_output tools (and the
    *  /tasks slash command) call into this manager once T8 threads it onto
-   *  toolContext. Mirrors terminalRepl.ts:962-972. */
+   *  toolContext. */
   taskManager: TaskManager;
   /** Per-part tool-result clearing config. Always populated — either the
    *  caller-supplied value or buildMicrocompactConfig(userSettings.microcompaction).
@@ -340,12 +339,7 @@ export type Runtime = {
  *  when the user has no ollama running. The right v0 default is to mirror
  *  what the parent session actually has wired up: in single-provider mode
  *  that's just the resolved provider name; in router mode it's both
- *  configured lanes from the resolved metadata.
- *
- *  Mirrors terminalRepl.ts:887-902. Router mode is currently a TS-only
- *  surface (terminalRepl) but the metadata read is kept symmetrical so
- *  the helper still does the right thing if server-mode router lands
- *  later. */
+ *  configured lanes from the resolved metadata. */
 export function resolveSubagentAvailableProviders(resolved: ResolvedProvider): readonly string[] {
   const providerName = String(resolved.metadata.provider);
   const meta = resolved.metadata as {
@@ -364,11 +358,10 @@ export function resolveSubagentAvailableProviders(resolved: ResolvedProvider): r
  *  writes, starving Phase 13.3's review daemon and Phase 13.4's instinct
  *  corpus pipelines.
  *
- *  Mirrors terminalRepl.ts:927-930. Client bundles own their state (write
- *  inside the bundle tree); the stock default bundle routes to harnessHome
- *  so `sov upgrade` doesn't wipe them and each profile gets its own state.
- *  The trajectory writer joins `/trajectories` to whichever root this
- *  returns (`src/trajectory/writer.ts:95`). */
+ *  Client bundles own their state (write inside the bundle tree); the
+ *  stock default bundle routes to harnessHome so `sov upgrade` doesn't
+ *  wipe them and each profile gets its own state. The trajectory writer
+ *  joins `/trajectories` to whichever root this returns. */
 export function resolveSubagentArtifactsRoot(harnessHome: string, bundle: Bundle | null): string {
   return bundle && !isDefaultBundlePath(bundle.root)
     ? join(bundle.root, 'state', 'artifacts')
@@ -380,9 +373,7 @@ export function resolveSubagentArtifactsRoot(harnessHome: string, bundle: Bundle
  *  server-mode runs cannot configure concurrency caps via `settings.json`
  *  for rate-limit / cost control. Undefined values are omitted so the
  *  caller's `new LaneSemaphores(...)` interprets them as "unbounded for
- *  that lane only" (per laneSemaphores.ts:29-32).
- *
- *  Mirrors terminalRepl.ts:879-886. */
+ *  that lane only" (per laneSemaphores.ts:29-32). */
 export function resolveLaneSemaphoresOpts(userSettings: Settings): LaneSemaphoresOpts {
   return {
     ...(userSettings.router?.maxConcurrentLocal !== undefined
@@ -424,12 +415,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // `inferActiveToolsets` + `filterSkillRegistry` happens at the call site
   // (buildSessionToolContext for turns, the /skills route for TUI
   // discovery) so visibility narrows with the active toolset without
-  // re-walking disk on every turn. Mirrors terminalRepl.ts:468-470 except
-  // the filter step lives at the consumers rather than at boot — server
-  // sessions are independent requests, not a single REPL with a stable
-  // tool surface, so the registry stays unfiltered up here. Warnings (parse
-  // failures, duplicate names) route to stderr — identical policy to the
-  // agents loader above.
+  // re-walking disk on every turn. Server sessions are independent
+  // requests rather than a single stable tool surface, so the registry
+  // stays unfiltered up here and the filter step lives at the consumers.
+  // Warnings (parse failures, duplicate names) route to stderr —
+  // identical policy to the agents loader above.
   const skills = await loadSkills({
     cwd: opts.cwd,
     harnessHome,
@@ -438,10 +428,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   });
 
   // M7 T1 — load MCP server settings + build pool when configured.
-  // Mirrors terminalRepl.ts:336,651-659. Pool tools land in the toolPool
-  // via assembleToolPool's `mcpTools` arg below, so the orchestrator sees
-  // mcp__<server>__<tool> entries on the very first turn. The pool is
-  // shut down before sessionDb.close() inside dispose() (M7-08 order).
+  // Pool tools land in the toolPool via assembleToolPool's `mcpTools` arg
+  // below, so the orchestrator sees mcp__<server>__<tool> entries on the
+  // very first turn. The pool is shut down before sessionDb.close()
+  // inside dispose() (M7-08 order).
   const mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
   const mcpClientPool: McpClientPool | undefined =
     opts.mcpClientPool ??
@@ -467,12 +457,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   };
 
   // M10 audit fix — wire HarnessInfoTool into the server-mode tool pool.
-  // REPL pattern (`src/ui/terminalRepl.ts:668-727`): the snapshot getter
-  // is lazy (called by the model at HarnessInfo tool-call time), so it
-  // can reference variables that get assigned later in this function via
-  // the `*Ref` closure-capture pattern. Slash commands intentionally
-  // return empty — the server has no client-side slash registry by design
-  // (separate M10 audit gap tracked for future remediation).
+  // The snapshot getter is lazy (called by the model at HarnessInfo
+  // tool-call time), so it can reference variables that get assigned
+  // later in this function via the `*Ref` closure-capture pattern. Slash
+  // commands intentionally return empty — the server has no client-side
+  // slash registry by design (separate M10 audit gap tracked for future
+  // remediation).
   let finalToolPoolRef: Tool<unknown, unknown>[] = [];
   let systemSegmentsRef: SystemSegment[] = [];
   const harnessInfoSnapshot = (): HarnessInfoSnapshot => {
@@ -559,7 +549,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // below. M8 T1: when the user configures provider:router (either via
   // opts.provider or settings.defaultProvider), resolveProvider can't be the
   // single source of truth — the router wraps TWO providers. Construct it
-  // explicitly here, mirroring terminalRepl.ts:238-292.
+  // explicitly here.
   const userSettings = readConfig();
   const useRouter =
     opts.provider === 'router' ||
@@ -584,9 +574,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       client: replayProvider,
       baseUrl: 'replay://',
       model: fixture.meta.model,
-      // The 200k cap mirrors terminalRepl.buildReplayResolvedProvider — a
-      // replay never actually talks to a model, so the value only shapes
-      // downstream context-window math. Anthropic's cap is a safe choice.
+      // The 200k cap is conservative — a replay never actually talks to
+      // a model, so the value only shapes downstream context-window math.
+      // Anthropic's cap is a safe choice.
       contextLength: 200_000,
       authType: 'none',
       metadata: {
@@ -679,11 +669,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const provider = resolved.transport;
 
   // Provider preflight — fail fast on bad credentials / quota / transport
-  // before opening the sessionDb or doing other side-effects. Mirrors
-  // terminalRepl.ts:447-504. Skip when opts.preflight === false or when
-  // replay is configured: ReplayProvider re-emits captured events without
-  // a network round-trip, so a preflight probe would either be a no-op
-  // (consuming an unrelated captured turn) or actively misleading.
+  // before opening the sessionDb or doing other side-effects. Skip when
+  // opts.preflight === false or when replay is configured: ReplayProvider
+  // re-emits captured events without a network round-trip, so a preflight
+  // probe would either be a no-op (consuming an unrelated captured turn)
+  // or actively misleading.
   if (opts.preflight !== false && opts.replayFixturePath === undefined) {
     const result = await preflightProvider({
       provider,
@@ -693,9 +683,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     if (!result.ok) {
       throw new PreflightError(result.kind, result.message);
     }
-    // Ollama needs the tool-calling smoke check too — see
-    // terminalRepl.ts:486-504. Other providers are tool-call-capable by
-    // schema; only Ollama can return a model that silently ignores tools.
+    // Ollama needs the tool-calling smoke check too — other providers
+    // are tool-call-capable by schema; only Ollama can return a model
+    // that silently ignores tools.
     if (provider.name === 'ollama' && toolPool.length > 0) {
       const toolResult = await preflightToolCalling({
         provider,
@@ -712,7 +702,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // the Ollama tool-calling smoke check sees the real tool implementations
   // (otherwise its synthetic call would either record a phantom result
   // into the capture sink or trip the replay queue's "exhausted" guard
-  // before the first session turn). Mirrors terminalRepl.ts:728-740.
+  // before the first session turn).
   if (opts.replayFixturePath !== undefined) {
     const fixture = loadReplayFixture(opts.replayFixturePath);
     toolPool = wrapToolsForReplay(toolPool, fixture);
@@ -722,11 +712,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     finalToolPoolRef = toolPool;
   }
 
-  // On-disk session DB. terminalRepl opens the same DB at
-  // <harnessHome>/sessions.db by default; the --db CLI flag overrides
-  // both surfaces identically (Postmortem Rule 1: parity, not parallel
-  // semantics). cleanupPhantomReviews sweeps stale review-fork rows
-  // from prior session crashes; mirrors terminalRepl.ts:402-405.
+  // On-disk session DB. Opens at <harnessHome>/sessions.db by default;
+  // the --db CLI flag overrides the path. cleanupPhantomReviews sweeps
+  // stale review-fork rows from prior session crashes.
   const sessionDb =
     opts.dbPath !== undefined ? SessionDb.open({ path: opts.dbPath }) : SessionDb.open({});
   const phantomsCleaned = sessionDb.cleanupPhantomReviews();
@@ -742,11 +730,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     }
   }
 
-  // Permission cascade — mirrors terminalRepl so the user's
-  // `~/.harness/config.json` `permissionMode` is honored by the server
-  // runtime. Without this the TUI hangs on any tool-using turn: query()
-  // falls through to `'default'`, fires an `ask` callback that the
-  // server has no interactive surface for, and the TUI receives a
+  // Permission cascade — honors the user's `~/.harness/config.json`
+  // `permissionMode`. Without this the TUI hangs on any tool-using turn:
+  // query() falls through to `'default'`, fires an `ask` callback that
+  // the server has no interactive surface for, and the TUI receives a
   // `permission_request` event it can't approve. See M3 batch notes.
   // (userSettings was loaded earlier for the router branch — reuse it.)
   const permissionSettings = loadPermissionSettings({
@@ -785,21 +772,19 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       /* unreachable: ask placeholder always denies. */
     },
   });
-  // Defense-in-depth: secrets redactor wraps the resolved canUseTool
-  // (matches the terminalRepl chain). Catches the failure class where
-  // an agent reads a secret while exploring and then writes it
-  // verbatim into a generated artifact.
+  // Defense-in-depth: secrets redactor wraps the resolved canUseTool.
+  // Catches the failure class where an agent reads a secret while
+  // exploring and then writes it verbatim into a generated artifact.
   const canUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [redactSecretsTransformer]);
 
   // Hook runner — loads the `hooks` block from layered settings and wires
   // the consent checker against the server-mode policy (M5-01). The server
   // doesn't own a TTY, so the consent gate's `ask` callback returns 'deny'
   // immediately for any (event, command) pair not already in the on-disk
-  // allowlist. Users pre-consent once via `sov --ui repl` to populate
-  // ~/.harness/shell-hooks-allowlist.json; from then on the hook fires
-  // through the cached decision. Mirrors terminalRepl.ts:1057-1064 except
-  // for the non-interactive ask. The runner is always built — its first-
-  // call cost when no hooks are configured is one map lookup.
+  // allowlist. The ~/.harness/shell-hooks-allowlist.json file must be
+  // populated out of band; from then on the hook fires through the cached
+  // decision. The runner is always built — its first-call cost when no
+  // hooks are configured is one map lookup.
   const hookSettings = loadHookSettings({ cwd: opts.cwd, harnessHome });
   const hookConsentStore = buildFileConsentStore(join(harnessHome, 'shell-hooks-allowlist.json'));
   const hookConsent = buildConsentChecker({
@@ -817,18 +802,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
   });
 
-  // M5 T6 — sub-agent infrastructure. Mirrors terminalRepl.ts:879-955.
-  // The server constructs the trio at boot and exposes them on Runtime;
-  // the turns route plumbs them onto toolContext at query() time (T8).
+  // M5 T6 — sub-agent infrastructure. The runtime constructs the trio at
+  // boot and exposes them on Runtime; the turns route plumbs them onto
+  // toolContext at query() time (T8).
   //
   // M5.1 (backlog items 25/26/27): lane caps, availableProviders, and
-  // artifactsRoot now thread from settings + the resolved provider so the
-  // server build matches terminalRepl's parity. Without these, the
-  // scheduler defaults pick the cheapest capability-profile match (often
-  // ollama/llama3.1:70b for a `role: explore` child), skip per-child
-  // trajectory capture (starving the offline learning/review pipelines),
-  // and leave concurrency unbounded. Derivations live in three pure
-  // helpers above so the wiring is unit-testable.
+  // artifactsRoot now thread from settings + the resolved provider.
+  // Without these, the scheduler defaults pick the cheapest
+  // capability-profile match (often ollama/llama3.1:70b for a
+  // `role: explore` child), skip per-child trajectory capture (starving
+  // the offline learning/review pipelines), and leave concurrency
+  // unbounded. Derivations live in three pure helpers above so the
+  // wiring is unit-testable.
   // Write lock: v0 profile-scoped Semaphore(1) for write-capable children.
   // `agents` is the registry loaded earlier; reuse it as-is. Provider/
   // model defaults track the parent session.
@@ -837,11 +822,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // M8 T1 / backlog #30 — when the runtime is router-mode, sub-agent
   // defaults must specialize to the frontier lane. The literal `'router'`
   // string isn't a real provider entry — resolveProvider would throw if a
-  // child tried to use it. Mirrors terminalRepl.ts:908-917: the frontier
-  // lane is the more capable lane and what the user already configured.
-  // The frontier model comes from userSettings.router?.frontierModel (the
-  // configured override), falling back to the resolved frontier child's
-  // own default model when no override is set.
+  // child tried to use it. The frontier lane is the more capable lane and
+  // what the user already configured. The frontier model comes from
+  // userSettings.router?.frontierModel (the configured override), falling
+  // back to the resolved frontier child's own default model when no
+  // override is set.
   const isRouterMode = resolved.transport.name === 'router';
   const routerMeta = resolved.metadata as { frontierProvider?: string };
   const subagentDefaultProvider =
@@ -874,19 +859,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     defaultModel: subagentDefaultModel,
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     artifactsRoot: resolveSubagentArtifactsRoot(harnessHome, bundle),
-    // Per-child trace file path mirrors terminalRepl:954: child events
-    // also land at <harnessHome>/traces/<childSessionId>.jsonl alongside
-    // the consolidated parent trace.
+    // Per-child trace file: child events land at
+    // <harnessHome>/traces/<childSessionId>.jsonl alongside the
+    // consolidated parent trace.
     harnessHome,
   });
 
   // M5 T7 — task manager. Wraps the SubagentScheduler with lifecycle
   // persistence so the model can dispatch background work via task_create
-  // and observe it via task_list / task_get / task_output. TaskStore reads
-  // against `sessionDb` (no separate DB). Mirrors terminalRepl.ts:962-972
-  // except for the agents-empty guard — the server build always carries a
-  // manager, and individual task tools no-op safely when the agent
-  // registry is empty.
+  // and observe it via task_list / task_get / task_output. TaskStore
+  // reads against `sessionDb` (no separate DB). The server build always
+  // carries a manager, and individual task tools no-op safely when the
+  // agent registry is empty.
   // M7 T2 — DaemonEventBus plumbing (closes backlog #28). Constructed once
   // per runtime; threaded into TaskManager so lifecycle events fire onto it
   // for future subscribers. No in-process subscriber in M7 — purely plumbing
@@ -907,8 +891,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
 
   // M6 T1 — microcompaction config. Sourced from userSettings.microcompaction
   // when no caller override is supplied so server-mode honors the user's
-  // ~/.harness/config.json `microcompaction` block (parity with terminalRepl,
-  // which calls buildMicrocompactConfig at REPL boot).
+  // ~/.harness/config.json `microcompaction` block.
   const microcompactConfig =
     opts.microcompactConfig ?? buildMicrocompactConfig(userSettings.microcompaction);
 
@@ -924,7 +907,6 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
 
   // M6 T3 — proactive-compaction threshold. Settings store as a percentage
   // (1..99) for human-friendly editing; the compactor expects a fraction.
-  // Mirrors terminalRepl.ts:356-359.
   const proactiveCompactThreshold =
     opts.proactiveCompactThreshold ??
     (userSettings.compaction?.proactiveThresholdPct !== undefined

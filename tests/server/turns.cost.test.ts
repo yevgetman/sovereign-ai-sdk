@@ -88,9 +88,9 @@ describe('POST /sessions/:id/turns records token usage (M7 follow-up)', () => {
     // streamToolUse emits two usage_delta events across the two model calls:
     //   call 1 (preamble + tool_use):    { inputTokens: 0, outputTokens: 5 }
     //   call 2 (final "done."):          { inputTokens: 0, outputTokens: 1 }
-    // recordTokenUsage fires ONCE per runOnce (mirrors terminalRepl), so the
-    // total ends up at 1 — the LAST stream's usage overwrites latestUsage
-    // before runOnce returns.
+    // recordTokenUsage fires ONCE per runOnce, so the total ends up at
+    // 1 — the LAST stream's usage overwrites latestUsage before runOnce
+    // returns.
     MockProvider.toolUseMode = true;
     const runtime = await buildRuntime({
       cwd: tmpHome,

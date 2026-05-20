@@ -124,9 +124,8 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   // "auto-compacted — 2247→2318 tokens" marker even though the operation
   // was a no-op-plus-summary-overhead. Return a no-op result with
   // `parentSessionId === newSessionId` so callers (proactive/recovery in
-  // turns route, /compact route, terminalRepl compactNow) can key off
-  // `noOp: true` and skip the SSE compaction_complete event, the session-id
-  // pivot, and the visual marker.
+  // turns route, /compact route) can key off `noOp: true` and skip the SSE
+  // compaction_complete event, the session-id pivot, and the visual marker.
   if (head.length === 0) {
     return {
       parentSessionId: options.sessionId,

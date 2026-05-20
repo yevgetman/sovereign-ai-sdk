@@ -226,8 +226,7 @@ describe('compactSession', () => {
     // The fix: short-circuit and return a result with `noOp: true`, the
     // same parent id as newSessionId, and the original history unchanged
     // as the tail. Callers key off `result.noOp` to skip the SSE marker
-    // (proactive/recovery), the session-id pivot (TUI), and the visual
-    // child-id marker (terminalRepl).
+    // (proactive/recovery) and the session-id pivot (TUI).
     const db = openDb();
     const parent = createParent(db);
     const summarizeCalls: number[] = [];

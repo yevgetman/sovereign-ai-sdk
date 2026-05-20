@@ -1,13 +1,12 @@
 // Backlog #44 (closed 2026-05-19) — server-side "yes & remember (project)"
 // persistence path.
 //
-// When the user answers `always` on a permission prompt in `--ui tui`,
-// the matching `canUseTool` closure must append the rule to project-
-// local `.harness/settings.local.json` so subsequent turns load it via
-// `loadPermissionSettings` and skip the prompt. The REPL has done this
-// since terminalRepl.ts:827; before this commit the server's
-// equivalent closure in `src/server/routes/turns.ts:451-453` was a
-// no-op marked "Project-local 'always' persistence is a deferred
+// When the user answers `always` on a permission prompt in the TUI, the
+// matching `canUseTool` closure must append the rule to project-local
+// `.harness/settings.local.json` so subsequent turns load it via
+// `loadPermissionSettings` and skip the prompt. Before this commit the
+// server's equivalent closure in `src/server/routes/turns.ts:451-453`
+// was a no-op marked "Project-local 'always' persistence is a deferred
 // follow-up."
 //
 // These tests verify the closure semantics directly via buildCanUseTool —

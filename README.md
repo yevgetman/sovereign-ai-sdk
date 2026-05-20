@@ -8,7 +8,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/state/2026-05-17-m11.md`](docs/state/2026-05-17-m11.md) — Phase 16.1 M11 shipped (default-flip: bare `sov` boots the Bubble Tea TUI; new surface resolver with CLI > env `SOV_UI` > config `ui.surface` > `'tui'` default precedence; auto-fallback to readline REPL with stderr warning when `sov-tui` is missing). Independent Opus parity re-audit returned PASS-with-followups. Unit suite **2033/2033**, Go tests green, 13 boot-decision smoke scenarios + 1 real-Anthropic dispatcher rerun all pass. Next: M12 — terminalRepl deprecation.
+- **Latest snapshot:** [`docs/state/2026-05-17-m11.md`](docs/state/2026-05-17-m11.md) — `docs/state/` carries the most recent close-out; check `ls docs/state/*.md | sort -r | head -1` for the latest dated snapshot.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
@@ -29,7 +29,7 @@ Both paths register the binary at `~/.bun/bin/sov`. Run only one of them; the la
 | Tool | Needed for |
 |---|---|
 | **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
-| **Go ≥ 1.24** | Building `sov-tui` (the Bubble Tea TUI client). Required to use bare `sov` (which defaults to `--ui tui` as of M11). If `sov-tui` is missing, `sov` auto-falls back to the readline REPL with a one-line stderr warning; `sov --ui repl` is also always available as an explicit opt-out. |
+| **Go ≥ 1.24** | Building `sov-tui` (the Bubble Tea TUI client). Required — `sov` launches the Go Bubble Tea client via the local Hono server. If `sov-tui` is missing the launcher prints an install hint and exits. |
 | **Provider API key** | Anthropic/OpenAI/OpenRouter access, depending on provider. Ollama can run local without a key. |
 | **Git + SSH to GitHub** | The repo is private — your SSH key must be authorized on the `yevgetman/sovereign-ai-harness` repo. Same for the docs bundle (`yevgetman/sovereign-ai-docs`) if you want it. |
 | **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
@@ -123,7 +123,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 # or: HARNESS_BUNDLE=~/code/sovereign-ai-docs bun run chat
 ```
 
-Flags: `-p, --profile <name>` (top-level — pin the run to `<harness-home>/profiles/<name>/`; use `default` for the unscoped root), `--ui <tui|repl>` (default `tui` as of M11; `tui` launches the Go Bubble Tea client via the local Hono server, `repl` runs the readline terminal REPL — **deprecated as of M12; removal in M13**. Persist via `sov config set ui.surface repl` or `SOV_UI=repl`. Set `SOV_NO_DEPRECATION_WARNING=1` to silence the boot warning), `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries), `--legacy-input` (force the readline-based input loop instead of the Wave-4 raw-mode editor; safety hatch for terminal-compat issues).
+Flags: `-p, --profile <name>` (top-level — pin the run to `<harness-home>/profiles/<name>/`; use `default` for the unscoped root), `--provider <name>` (default `anthropic`), `--model <name>` (provider/config default if omitted), `--max-tokens <n>` (default `12000`), `--bundle <path>` (or `HARNESS_BUNDLE` env, or auto-resolved from CWD), `--permission-mode <default|ask|bypass>` (default `default`), `--resume <uuid>` (resume a prior session), `--db <path>` (override the default `~/.harness/sessions.db`), `--no-cache` (disable provider prompt-cache markers for testing), `--no-preflight` (skip startup provider health checks), `--transcript <path>` (write a redacted JSONL terminal/event transcript), `-v, --verbose` (show full tool-result preview blocks instead of one-line summaries).
 
 `sov config` — open the interactive picker for user-level config (or `sov config get|set|unset|show|path <args>` to script it).
 
@@ -188,7 +188,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 | `src/review/` | Background review loop — ReviewManager, runReviewFork, ProposalStore, consolidation, stall detection (Hermes pattern) | 13.3 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5, 10.6 |
 | `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
-| `src/ui/` | Terminal REPL — splash, footer, modal, picker, diff renderer, theme system, input editor (keypress dispatcher + textBuffer + autocomplete + persistent history) | 0 stub, 1, 10.5b–e |
+| `src/ui/` | Shared terminal-rendering helpers — diff renderer, theme system, splash assets — consumed by the Go Bubble Tea client and headless surfaces | 0 stub, 1, 10.5b–e |
 | `src/server/` | Hono HTTP+SSE server backing the Phase 16.1 split-process TUI; routes for sessions, turns, approvals; event bus; on-disk SessionDb; preflight; CLI flag forwarding | 16.1 |
 | `src/cli/` | `sov dispatch` (headless slash surface) + `sov-tui` launcher (Phase 16.1 spawn-and-supervise) | 16.0c, 16.1 |
 | `packages/tui/` | Go + Bubble Tea TUI client (`sov-tui`); communicates with `sov` via localhost HTTP+SSE | 16.1 |

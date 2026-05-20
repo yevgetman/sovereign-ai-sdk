@@ -1,8 +1,7 @@
 // Backlog #43 (closed 2026-05-19) — server-side memory manager wire-up.
 //
-// terminalRepl.ts constructs a per-session memoryManager + projectScope at
-// `src/ui/terminalRepl.ts:379-386` and threads them onto every turn's
-// ToolContext (line 640+). The server's SessionContext now mirrors that:
+// The server's SessionContext owns a per-session memoryManager +
+// projectScope and threads them onto every turn's ToolContext:
 //   1. buildSessionContext constructs both and stores them on the
 //      SessionContext.
 //   2. buildSessionToolContext threads the SAME references (not copies)

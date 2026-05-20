@@ -143,7 +143,7 @@ describe('M8 full integration — polish-surfaces group end-to-end', () => {
 
       // (T3) Second turn — @file:note.txt expansion. The runtime's
       // expandContextReferences hop in runTurnInBackground must inline the
-      // file body before saveMessage, mirroring terminalRepl.ts:1288.
+      // file body before saveMessage.
       const turn2Res = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

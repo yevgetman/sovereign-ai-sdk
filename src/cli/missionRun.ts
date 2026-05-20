@@ -38,9 +38,9 @@ const DEFAULT_MAX_TOKENS = 4096;
 
 export type MissionWakeOpts = {
   readonly stateDir: string;
-  /** Optional bundle override. Defaults to the same lookup `terminalRepl`
-   *  uses today (`getDefaultBundlePath()`). Passing an explicit path is
-   *  primarily useful for tests and out-of-tree client bundles. */
+  /** Optional bundle override. Defaults to the standard bundle lookup
+   *  (`getDefaultBundlePath()`). Passing an explicit path is primarily
+   *  useful for tests and out-of-tree client bundles. */
   readonly bundlePath?: string;
   /** Optional agent name override. Defaults to `scheduled-mission`.
    *  Mission-mode agents must declare `supportsMissionState: true` in
@@ -135,8 +135,8 @@ async function runMissionWakeLocked(
     const resolved = resolveProvider(undefined, undefined);
     const cacheEnabled = true;
 
-    // Pre-canUseTool tool listing — drives the system prompt's <available-tools>
-    // block and the agent's restricted pool. Mirrors terminalRepl: assemble
+    // Pre-canUseTool tool listing — drives the system prompt's
+    // <available-tools> block and the agent's restricted pool. Assemble
     // the full pool, then scope it to the agent's allowedTools.
     const preliminaryToolContext: ToolContext = {
       cwd: process.cwd(),
@@ -156,8 +156,8 @@ async function runMissionWakeLocked(
     const toolPool: Tool<unknown, unknown>[] = scoped.tools;
 
     // System prompt: agent prompt → mission segments → standard base
-    // segments. Matches the agent-driven branch of openOrResumeSession()
-    // in terminalRepl so the model sees an identical prompt shape.
+    // segments. Matches the agent-driven session boot so the model sees
+    // an identical prompt shape regardless of entry surface.
     const baseSegments = buildSystemSegments({
       ...(bundle ? { bundle } : {}),
       tools: toolPool,

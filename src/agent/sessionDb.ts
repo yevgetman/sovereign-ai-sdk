@@ -555,10 +555,9 @@ export class SessionDb {
    *  compaction lane is folded into estimatedCostUsd so the goodbye-card
    *  consumer sees the full session cost. Returns zeros for an unknown
    *  session id so a freshly created session still produces a parseable
-   *  payload. Pragmatic v1 — durations are not tracked DB-side yet (the
-   *  server doesn't have the in-memory accumulators terminalRepl maintains
-   *  in src/ui/sessionSummary.ts); the disposer surfaces them as undefined
-   *  and the M9 renderer falls back to an "n/a" cell. */
+   *  payload. Pragmatic v1 — durations are not tracked DB-side yet; the
+   *  disposer surfaces them as undefined and the M9 renderer falls back
+   *  to an "n/a" cell. */
   getSessionMetrics(sessionId: string): SessionMetricsSnapshot {
     const cost = this.getSessionCost(sessionId);
     // tool_use blocks live inside assistant message content; tool_result
@@ -587,10 +586,11 @@ export class SessionDb {
       .get(sessionId);
     // A single assistant message may pack N tool_use blocks; the LIKE
     // counts MESSAGES with at least one. The exact-N answer requires
-    // parsing JSON, which we accept as a v1 trade-off — the metric is for
-    // a goodbye card, not billing. The terminalRepl path also reports per
-    // tool call (it accumulates from the tool_start event stream), so the
-    // counts diverge slightly on multi-call turns. Documented for M9.
+    // parsing JSON, which we accept as a v1 trade-off — the metric is
+    // for a goodbye card, not billing. A future renderer that
+    // accumulates from the tool_start event stream would report per
+    // tool call, so the counts diverge slightly on multi-call turns.
+    // Documented for M9.
     const toolCalls = toolUseRow?.n ?? 0;
     const toolErr = toolErrRow?.n ?? 0;
     const toolOk = Math.max(0, toolCalls - toolErr);

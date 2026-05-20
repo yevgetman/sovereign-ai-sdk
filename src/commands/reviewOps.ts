@@ -400,7 +400,7 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
   if (verb === 'activity') {
     // Query sessions for review-fork children of the current parent.
     // agentName is stored in the session title as "subagent:<agentName>"
-    // (set by terminalRepl.ts createChildSession). Filter to review-* agents.
+    // by createChildSession. Filter to review-* agents.
     const parentSessionId = ctx.sessionId;
 
     const collectReviewChildren = () =>

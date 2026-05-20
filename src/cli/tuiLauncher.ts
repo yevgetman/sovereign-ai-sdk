@@ -133,8 +133,7 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
 
   // M8 T3 — capture/replay are mutually exclusive at the runtime layer
   // (buildRuntime throws). Pre-check here for a user-facing stderr
-  // message that mirrors terminalRepl's behavior, before any side
-  // effects (server boot, runtime build).
+  // message before any side effects (server boot, runtime build).
   const captureFixturePath = pickString(opts.captureFixture);
   const replayFixturePath = pickString(opts.replayFixture);
   if (captureFixturePath !== undefined && replayFixturePath !== undefined) {
@@ -194,8 +193,8 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // convention); any other state → leave cacheEnabled at default-on.
   if (pickBoolean(opts.cache) === false) buildOpts.cacheEnabled = false;
   if (pickBoolean(opts.preflight) === false) buildOpts.preflight = false;
-  // M8 T3 — capture/replay fixtures (parity with --ui repl). The mutex
-  // pre-check above runs before this so only one is ever non-undefined.
+  // M8 T3 — capture/replay fixtures. The mutex pre-check above runs
+  // before this so only one is ever non-undefined.
   if (captureFixturePath !== undefined) buildOpts.captureFixturePath = captureFixturePath;
   if (replayFixturePath !== undefined) buildOpts.replayFixturePath = replayFixturePath;
 
@@ -213,7 +212,7 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     if (err instanceof SessionNotFoundError) {
       process.stderr.write(`sov: ${err.message}\n`);
       process.stderr.write(
-        '     list sessions with `sov --ui repl` then /resume, or omit --resume to start a fresh one.\n',
+        '     omit --resume to start a fresh session, or pick a valid session id from `sov`.\n',
       );
       return 1;
     }

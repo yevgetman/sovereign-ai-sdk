@@ -1,11 +1,10 @@
 // Phase 16.1 M7 T3/T4 — per-session subsystem registry.
 //
-// SessionContext holds the per-session subsystems that terminalRepl tracks
-// directly (trace writer today; learning observer and review manager in
-// M7 T5/T6). It also accumulates trajectory metadata over the session
-// lifetime so disposal can flush a ShareGPT-shaped record to the
-// per-bundle trajectories bucket (T4). On the server side these are
-// per-session because:
+// SessionContext holds the per-session subsystems the server runtime
+// tracks for each active session (trace writer, learning observer,
+// review manager). It also accumulates trajectory metadata over the
+// session lifetime so disposal can flush a ShareGPT-shaped record to
+// the per-bundle trajectories bucket (T4). These are per-session because:
 //   (a) their state is scoped to a single sessionId,
 //   (b) the file paths they write to are named by sessionId, and
 //   (c) M6 compaction creates a new child sessionId that warrants a fresh
@@ -81,21 +80,20 @@ export type SessionContext = {
    *  the orchestrator's `appendSubdirectoryHints` call after every
    *  successful tool result (src/core/orchestrator.ts:640-653) — the
    *  `touched` Set guarantees a directory's AGENTS.md / CONTEXT.md /
-   *  .cursorrules files are appended at most once per session. Mirrors
-   *  the per-turn state terminalRepl rebuilds on each turn; the server
-   *  carries it on the session because turns are independent requests
-   *  rather than a single REPL loop. */
+   *  .cursorrules files are appended at most once per session. The state
+   *  is carried on the session because turns are independent requests
+   *  rather than a single in-process loop. */
   subdirectoryHintState: SubdirectoryHintState;
-  /** Backlog #43 (closed 2026-05-19) — per-session memory manager + project
-   *  scope, mirroring terminalRepl's setup at `src/ui/terminalRepl.ts:379-386`.
-   *  Threaded onto ToolContext by buildSessionToolContext so MemoryTool's
-   *  `ctx.memoryManager?.onMemoryWrite(...)` notifications fire and
-   *  `ctx.projectScope` routes writes correctly between global and
-   *  per-project MEMORY.md. The built-in markdown provider's initialize/
-   *  onSessionStart are no-ops so construction stays synchronous (matches
-   *  buildSessionContext's existing shape); if a non-builtin provider that
-   *  needs async init is added later, this constructor will need to be
-   *  promoted to async + initialize() called on first use. */
+  /** Backlog #43 (closed 2026-05-19) — per-session memory manager +
+   *  project scope. Threaded onto ToolContext by buildSessionToolContext
+   *  so MemoryTool's `ctx.memoryManager?.onMemoryWrite(...)`
+   *  notifications fire and `ctx.projectScope` routes writes correctly
+   *  between global and per-project MEMORY.md. The built-in markdown
+   *  provider's initialize/onSessionStart are no-ops so construction
+   *  stays synchronous (matches buildSessionContext's existing shape); if
+   *  a non-builtin provider that needs async init is added later, this
+   *  constructor will need to be promoted to async + initialize() called
+   *  on first use. */
   memoryManager: MemoryManager;
   projectScope: ProjectScope;
 };
@@ -117,13 +115,11 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     sessionId,
     harnessHome: runtime.harnessHome,
   });
-  // Whole-branch review I3 — emit `session_start` immediately so server-mode
-  // trace files carry the same header bookend terminalRepl writes
-  // (src/ui/terminalRepl.ts:600-607). Without this, `sov trace show
-  // <serverSessionId>` can't render the provider/model/cwd header line —
-  // server-mode trace ergonomics would regress vs. terminalRepl. The
-  // optional `bundlePath` mirrors terminalRepl's emission when a bundle is
-  // loaded; omitted when no bundle is present (e.g., pure --provider mock).
+  // Whole-branch review I3 — emit `session_start` immediately so trace
+  // files carry a header bookend. Without this, `sov trace show
+  // <sessionId>` can't render the provider/model/cwd header line. The
+  // optional `bundlePath` is emitted when a bundle is loaded; omitted
+  // when no bundle is present (e.g., pure --provider mock).
   traceWriter.record({
     type: 'session_start',
     iso: new Date().toISOString(),
@@ -221,11 +217,11 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           taskManager: runtime.taskManager,
           parentToolPool: runtime.toolPool,
           // Backlog #38 (closed 2026-05-19) — auto-promote opt-ins from
-          // settings.review. Mirrors terminalRepl.ts:974-980 so server-mode
-          // children inherit the same auto-promote behavior the REPL has.
-          // Optional spread to keep the omitted-when-false invariant
-          // (matches the M5.1 review's "don't lie about state we don't
-          // have" convention).
+          // settings.review thread through to children so the runtime
+          // honors the user-configured auto-promote behavior. Optional
+          // spread to keep the omitted-when-false invariant (matches the
+          // M5.1 review's "don't lie about state we don't have"
+          // convention).
           ...(userSettings.review?.autoPromoteMemory === true
             ? { reviewAutoPromoteMemory: true }
             : {}),
@@ -241,11 +237,10 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     : undefined;
 
   // Backlog #43 (closed 2026-05-19) — resolve project scope + construct
-  // the default memory manager. Mirrors terminalRepl.ts:379-386. The
-  // built-in markdown provider's initialize() and onSessionStart() are
-  // no-ops, so we can construct synchronously without making
-  // buildSessionContext itself async. Disposal calls onSessionEnd +
-  // shutdown to drain any provider state.
+  // the default memory manager. The built-in markdown provider's
+  // initialize() and onSessionStart() are no-ops, so we can construct
+  // synchronously without making buildSessionContext itself async.
+  // Disposal calls onSessionEnd + shutdown to drain any provider state.
   const projectScope = resolveProjectScope({
     cwd: runtime.cwd,
     bundle: runtime.bundle ?? null,
@@ -298,11 +293,10 @@ export async function disposeSessionContext(
 
   // (1) Close the trace writer first — its file is final for this sessionId.
   //     Whole-branch review I3 — emit `session_end` as the closing bookend
-  //     BEFORE close() so the closing event lands in the JSONL. Mirrors
-  //     terminalRepl.ts:1947-1951. Without this, `sov trace show` won't
-  //     close out the final turn group — server-mode trace ergonomics
-  //     would regress vs. terminalRepl. Default reason is 'completed' when
-  //     no error was recorded on `trajectoryMetadata.terminalReason`.
+  //     BEFORE close() so the closing event lands in the JSONL. Without
+  //     this, `sov trace show` won't close out the final turn group.
+  //     Default reason is 'completed' when no error was recorded on
+  //     `trajectoryMetadata.terminalReason`.
   try {
     ctx.traceWriter.record({
       type: 'session_end',
@@ -346,12 +340,12 @@ export async function disposeSessionContext(
       const md = ctx.trajectoryMetadata;
       const terminal: Terminal = { reason: md.terminalReason ?? 'completed' };
       const artifactsRoot = resolveSubagentArtifactsRoot(runtime.harnessHome, runtime.bundle);
-      // Whole-branch review I1 — read cost from sessionDb at write time so
-      // the trajectory record carries the actual chat + compaction cost the
-      // session accumulated. Mirrors terminalRepl.ts:1914,1937
-      // (finalCost.estimatedCostUsd + finalCost.estimatedCompactionCostUsd).
-      // Falls back to the accumulator on the SessionContext when the DB
-      // read returns zeros (e.g., a fresh session with no usage rows yet)
+      // Whole-branch review I1 — read cost from sessionDb at write time
+      // so the trajectory record carries the actual chat + compaction
+      // cost the session accumulated (estimatedCostUsd +
+      // estimatedCompactionCostUsd). Falls back to the accumulator on
+      // the SessionContext when the DB read returns zeros (e.g., a fresh
+      // session with no usage rows yet)
       // so a test that sets trajectoryMetadata.estimatedCostUsd by hand
       // still surfaces its value.
       const cost = runtime.sessionDb.getSessionCost(ctx.sessionId);

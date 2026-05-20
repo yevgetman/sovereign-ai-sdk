@@ -89,12 +89,13 @@ export type ToolContext = {
   learningObserver?: import('../learning/observer.js').LearningObserver;
   /** Phase 13.4 follow-up (Item 19) — per-session project identity used
    *  by MemoryTool to route writes to global vs. per-project MEMORY.md.
-   *  Set by terminalRepl at session boot via resolveProjectScope().
+   *  Set by the runtime at session boot via resolveProjectScope().
    *  Optional — when absent, MemoryTool defaults all operations to
    *  global scope. */
   projectScope?: import('../memory/scope.js').ProjectScope;
-  /** Phase 13.5 — parent's full tool pool, captured at REPL bootstrap so
-   *  the scheduler can filter from it without reassembling per call. */
+  /** Phase 13.5 — parent's full tool pool, captured at session
+   *  bootstrap so the scheduler can filter from it without
+   *  reassembling per call. */
   parentToolPool?: import('./types.js').Tool<unknown, unknown>[];
   /** Phase 13.5 — parent's permission gate. The scheduler hands it to the
    *  child's AgentRunner so the same policy applies. */

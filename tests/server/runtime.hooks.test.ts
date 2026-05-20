@@ -3,7 +3,8 @@
 // The runner is exposed on Runtime so the turns route can pass it to query().
 // Server-mode consent gate is non-interactive (M5-01): commands not already in
 // ~/.harness/shell-hooks-allowlist.json are denied without prompting (the
-// server doesn't own a TTY). Users pre-consent via `sov --ui repl` once.
+// server doesn't own a TTY). The allowlist must be pre-populated out of
+// band (e.g., by editing the JSON directly).
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

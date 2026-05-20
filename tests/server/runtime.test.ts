@@ -1,6 +1,6 @@
 // Phase 16.1 M3.3 — server-side runtime construction.
-// buildRuntime() mirrors terminalRepl's boot sequence in a parallel,
-// additive form (terminalRepl is untouched per Postmortem Rule 1).
+// buildRuntime() owns the boot sequence end-to-end (M13 removed the
+// legacy terminal surface).
 
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';

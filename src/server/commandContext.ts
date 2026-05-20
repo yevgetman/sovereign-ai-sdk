@@ -3,11 +3,10 @@
 // The slash-command registry in src/commands/registry.ts is the single
 // source of truth for what `/help`, `/cost`, `/tasks`, etc. do. It takes
 // a CommandContext (defined in src/commands/types.ts) that's heavy with
-// fields the REPL builds during boot — sessionId, model, tools, registry,
-// listSessions, getCost, compact, rollback, getMetrics, taskManager,
-// reviewManager, getBudgetReport, expandToolBlock, etc.
+// fields the runtime supplies at session boot — sessionId, model, tools,
+// registry, listSessions, getCost, compact, rollback, getMetrics,
+// taskManager, reviewManager, getBudgetReport, expandToolBlock, etc.
 //
-// terminalRepl.ts builds it inline alongside its own session loop.
 // dispatchCommand.ts (headless CLI) builds it for one-shot stdin-driven
 // dispatch. M10.5 adds the server-mode equivalent: a per-request factory
 // that maps the live Runtime + SessionContext into a CommandContext the
@@ -115,10 +114,10 @@ export function buildServerCommandContext(
       sideEffects.modelChanged = model;
     },
     // Backlog #41 — wired 2026-05-19. Mints a fresh child session via
-    // the existing createClearedChildSession helper (also used by the
-    // REPL), sets sideEffects.newSessionId so the TUI hops sessionID
-    // for subsequent POSTs. Output text mirrors the REPL's clearNow
-    // closure (terminalRepl.ts:1837-1858) for surface parity.
+    // the existing createClearedChildSession helper, sets
+    // sideEffects.newSessionId so the TUI hops sessionID for subsequent
+    // POSTs. The output text matches the canonical "history cleared into
+    // child session ..." message the dispatch CLI surfaces.
     clearHistory: (): string => {
       const result = createClearedChildSession(runtime.sessionDb, {
         parentSessionId: sessionId,
@@ -147,13 +146,12 @@ export function buildServerCommandContext(
       return runtime.compact(messages, sessionId, new AbortController().signal);
     },
     // Backlog #41 — wired 2026-05-19. Looks up the parent session id
-    // from sessionDb; sets sideEffects.newSessionId so the TUI hops.
-    // Server-mode doesn't need to "restore history in memory" the way
-    // the REPL's rollbackNow does — the next /turns POST on the parent
-    // id loads messages fresh from the DB. The REPL's "restored N
-    // messages" suffix is dropped here because SessionMetricsSnapshot
-    // doesn't carry message counts and loading the full history just
-    // to count rows is wasteful; the hop itself is the success signal.
+    // from sessionDb; sets sideEffects.newSessionId so the TUI hops. The
+    // server doesn't keep an in-memory transcript — the next /turns POST
+    // on the parent id loads messages fresh from the DB. A "restored N
+    // messages" suffix isn't surfaced because SessionMetricsSnapshot
+    // doesn't carry message counts and loading the full history just to
+    // count rows is wasteful; the hop itself is the success signal.
     rollback: async (): Promise<string> => {
       const session = runtime.sessionDb.getSession(sessionId);
       if (session === null) {
@@ -178,11 +176,10 @@ export function buildServerCommandContext(
       // tracks tokens + tool counts. CommandContext.getMetrics expects
       // Omit<SessionMetrics, 'endedAtMs'> which ADDITIONALLY includes
       // wall-clock durations (startedAtMs, agentActiveMs, apiTimeMs,
-      // toolTimeMs) that terminalRepl tracks via in-memory accumulators
-      // mid-session. Server-mode does not yet maintain those accumulators
-      // (M9.x note); for /stats output we surface what we have and zero
-      // the unknown durations. Future polish (M11+) could thread the
-      // start time and per-turn timing through SessionContext.
+      // toolTimeMs). The server runtime does not yet maintain in-memory
+      // accumulators for those; for /stats output we surface what we
+      // have and zero the unknown durations. Future polish could thread
+      // the start time and per-turn timing through SessionContext.
       const snap = runtime.sessionDb.getSessionMetrics(sessionId);
       return {
         sessionId,

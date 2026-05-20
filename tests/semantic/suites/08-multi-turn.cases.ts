@@ -104,7 +104,7 @@ export const tests: SemanticTest[] = [
     id: 'rollback-restores-parent-session',
     name: '/rollback returns to the parent session and restores its full history',
     description:
-      'End-to-end test of session rollback. Per terminalRepl.ts:rollbackNow(), /rollback switches the ' +
+      'End-to-end test of session rollback. The /rollback slash command switches the ' +
       'active session back to the parent and restores its message history from the DB. This case ' +
       'pairs /compact (which spawns a child) with /rollback (which returns to parent) and verifies ' +
       'the agent can still reference the original Turn 1 fact afterwards. Bug class: /rollback fails ' +

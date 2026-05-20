@@ -3,8 +3,8 @@
 //
 // Regression guard: pre-M10, src/server/runtime.ts called assembleToolPool
 // without a harnessInfoSnapshot getter, so HarnessInfo was silently absent
-// from the tool pool in --ui tui mode (audit slice 4 HIGH finding). Fix:
-// pass a closure-based snapshot getter mirroring terminalRepl.ts:668-727.
+// from the tool pool (audit slice 4 HIGH finding). Fix: pass a
+// closure-based snapshot getter built from the live runtime state.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';

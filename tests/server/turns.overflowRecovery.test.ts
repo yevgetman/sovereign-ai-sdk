@@ -15,9 +15,8 @@
 //      surface non-overflow errors take). One lineage row exists from the
 //      single recovery attempt.
 //
-// Mirrors the proven shape in `src/ui/terminalRepl.ts:1659-1675`, adapted to
-// the server route. Closes prereq row 15 (overflow auto-recovery) and the
-// second half of prereq row 7 (full Compactor — proactive + overflow paths).
+// Closes prereq row 15 (overflow auto-recovery) and the second half of
+// prereq row 7 (full Compactor — proactive + overflow paths).
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -225,15 +224,16 @@ describe('turns route — overflow recovery (M6 T4)', () => {
     }
   });
 
-  // Proactive + recovery interaction (Path A — independent budgets). The
-  // proactive block (M6 T3) and the overflow recovery branch (M6 T4) fire
-  // INDEPENDENTLY: there is no per-turn semaphore that blocks one once the
-  // other has run. This mirrors `terminalRepl.ts:1660` where the
-  // `retriedAfterCompact` flag guards ONLY the recovery retry — a proactive
-  // compaction earlier in the same turn does NOT prevent the recovery hop
-  // from firing if `query()` then throws overflow. Pinning this contract here
-  // so future "DRY the compaction logic" refactors don't accidentally collapse
-  // both compactions onto a single per-turn flag and silently regress the TUI
+  // Proactive + recovery interaction (Path A — independent budgets).
+  // The proactive block (M6 T3) and the overflow recovery branch
+  // (M6 T4) fire INDEPENDENTLY: there is no per-turn semaphore that
+  // blocks one once the other has run. The `retriedAfterCompact` flag
+  // in the route guards ONLY the recovery retry — a proactive
+  // compaction earlier in the same turn does NOT prevent the recovery
+  // hop from firing if `query()` then throws overflow. Pinning this
+  // contract here so future "DRY the compaction logic" refactors don't
+  // accidentally collapse both compactions onto a single per-turn flag
+  // and silently regress the TUI
   // session-pivot semantics (it expects to handle TWO `compaction_complete`
   // events per turn in this scenario, each with a fresh `activeSessionId`).
   test('fires both proactive and recovery compactions in the same turn', async () => {

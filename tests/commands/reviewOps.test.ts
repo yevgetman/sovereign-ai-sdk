@@ -285,7 +285,7 @@ describe('/review activity', () => {
   });
 
   test('lists review children of the current parent session', async () => {
-    // title is stored as "subagent:<agentName>" by terminalRepl.ts
+    // title is stored as "subagent:<agentName>" by the runtime at child-session creation
     const ctx = {
       harnessHome: home,
       sessionId: 'parent-1',

@@ -51,7 +51,7 @@ export function shippedBundlePath(): string | null {
 }
 
 /** Returns true when bundleRoot resolves to the same real path as the
- *  stock default bundle (user-override or shipped). Used by terminalRepl
+ *  stock default bundle (user-override or shipped). Used by the runtime
  *  to route trajectories to <harnessHome>/ instead of
  *  <bundle>/state/artifacts/ — the default bundle is system content, not
  *  per-user state, so trajectory writes should not land inside it (they

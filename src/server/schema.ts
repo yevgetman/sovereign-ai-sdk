@@ -118,8 +118,8 @@ export const CompactionCompleteEvent = BaseEvent.extend({
 // SessionDb.getSessionMetrics — the token columns come from the M7 cost-fix
 // recordTokenUsage call site, and the tool-call count is a transcript scan
 // for tool_use blocks on the persisted messages. Durations are left optional
-// (no DB-side tracking yet — terminalRepl's in-memory accumulators in
-// src/ui/sessionSummary.ts are server-side TODO until M9 polish).
+// (no DB-side tracking yet — durations are deferred until SessionContext
+// gains per-turn timing accumulators in a future milestone).
 export const SessionSummaryEvent = BaseEvent.extend({
   type: z.literal('session_summary'),
   totalDispatched: z.number().int().nonnegative(),

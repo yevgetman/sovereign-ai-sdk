@@ -5,11 +5,11 @@
 // RouterProvider wrapping the configured local + frontier providers. The
 // existing resolveProvider() does NOT handle the 'router' string — it's
 // for single-provider resolution. The router wraps two providers, so the
-// server has to construct it explicitly (mirroring terminalRepl.ts:238-292).
+// runtime has to construct it explicitly.
 //
 // The subagent scheduler defaults must also specialize: the literal
 // 'router' provider name doesn't resolve in the child, so we fall back to
-// the frontier lane (matching terminalRepl.ts:908-917). Closes backlog #30.
+// the frontier lane. Closes backlog #30.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

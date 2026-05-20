@@ -60,7 +60,6 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--no-preflight` | Skip startup provider/model health checks. |
 | `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
 | `-v, --verbose` | Show full tool-result preview blocks instead of one-line summaries. |
-| `--legacy-input` | Force the readline-based input loop instead of the Wave-4 raw-mode editor. Safety hatch when the new editor misbehaves on a specific terminal. |
 | `--capture-fixture <path>` | (Phase 10.5 part 2.) Wrap the resolved provider + tools to write a deterministic-replay fixture at this path on session end. See [Eval Suite](#eval-suite). Verified working post-Phase-16-revert. |
 | `--replay-fixture <path>` | (Phase 10.5 part 2.) Replay a previously-captured fixture instead of resolving a real provider. No LLM calls. Mutually exclusive with `--capture-fixture`. Verified working post-Phase-16-revert. |
 | `--agent <name>` | (Phase 13.) Run as a named agent — uses the agent definition's system prompt and allowed tools instead of the default harness chat persona. Required when invoking a scheduled-mission agent. |
@@ -75,11 +74,9 @@ sov --permission-mode ask
 sov --no-cache
 ```
 
-### `--ui tui` flag coverage (Phase 16.1 M4; default flipped in M11; REPL deprecated in M12)
+### TUI flag coverage
 
-As of M11 (2026-05-17), bare `sov` defaults to `--ui tui`. Pass `--ui repl` (or `SOV_UI=repl`, or `sov config set ui.surface repl`) to route to the legacy terminalRepl. **As of M12 (2026-05-19), explicit `--ui repl` / `SOV_UI=repl` / `ui.surface=repl` opt-ins emit a one-line stderr deprecation warning** — the readline REPL surface will be removed in M13. The missing-binary fallback to REPL (when `sov-tui` isn't installed) does NOT emit the deprecation; it's a soft-degradation, not a user choice. Set `SOV_NO_DEPRECATION_WARNING=1` to silence the warning for explicit-opt-in callers who can't migrate yet.
-
-The TUI accepts the following `sov` flags:
+Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI accepts the following `sov` flags:
 
 | Flag | Status | Notes |
 |---|---|---|
@@ -98,17 +95,16 @@ The TUI accepts the following `sov` flags:
 | `--agent <name>` | **Warn** | Wires in M7 (sub-agent scheduler + scheduled-mission) |
 | `--state-dir <path>` | **Warn** | Wires in M7 |
 | `-v, --verbose` | **Warn** | Wires in M9 (visual polish) |
-| `--legacy-input` | **Error** | REPL-only; readline fallback for `--ui repl` |
 
 ## CLI Subcommands
 
-`sov` has top-level subcommands beyond the default interactive REPL:
+`sov` has top-level subcommands beyond the default interactive session:
 
 | Subcommand | Behavior |
 |---|---|
-| (bare `sov`) | Start the interactive session. Defaults to `--ui tui` (Bubble Tea TUI) as of M11. Pass `--ui repl` for the readline terminal REPL (**deprecated as of M12; removal in M13**), or persist via `sov config set ui.surface repl` / `SOV_UI=repl`. Auto-falls back to REPL with a one-line stderr warning if `sov-tui` is missing (the fallback does NOT trigger the M12 deprecation warning — it's a soft-degradation, not a user choice). Set `SOV_NO_DEPRECATION_WARNING=1` to silence the explicit-opt-in warning. |
+| (bare `sov`) | Start the interactive session using the Bubble Tea TUI (`sov-tui`) backed by the local Hono server. If `sov-tui` is missing the launcher prints an install hint and exits. |
 | `chat` *(deprecated keyword)* | Same as bare `sov`. Typing `sov chat` explicitly prints a deprecation warning on stderr recommending bare `sov` (interactive) or `sov dispatch` (headless). The keyword still works for now. |
-| `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive REPL; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires the interactive REPL"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
+| `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive session; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires an interactive session"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
 | `mission init <dir> --goal "..."` | (Phase 13.5.) Bootstrap a scheduled-mission directory at `<dir>` with `mission.md` (goal + plan template), `state.json` (FSM initial state), `notes.md`, and the `.lock/` subdir. Refuses to overwrite an existing mission dir. |
 | `mission run --state-dir <dir>` | (Phase 13.5.) Non-interactive scheduled-mission wake. Runs one mission cycle (load state → check FSM gate → inject mission segments → invoke `scheduled-mission` agent → parse `MISSION_TRANSITION=<state>` sentinel → append wake-log → atomic state write-back → release lock). Exits with `[mission] state is 'complete' (terminal) — nothing to do` if the FSM is in a terminal state. Designed for launchd / cron invocation. The interactive equivalent `sov --agent scheduled-mission --state-dir <dir>` still works. |
 | `daemon` | (Phase 16.0a — dormant.) Acquire a per-profile PID lock, init the daemon event bus + session cache + approval queue, emit `daemon_started`, wait for SIGTERM/SIGINT. Currently has no foreground subscriber; the intended subscriber (Phase 16.0b Ink TUI) was reverted on 2026-05-12. Functional but unused pending the eventual Phase 16.1 design. Use `harness daemon` interchangeably. |
@@ -294,7 +290,7 @@ The `default` name is reserved — it maps to `<harness-home>/` itself (the pre-
 - `work` profile: `~/.harness/profiles/work/{config.json,credentials.json,sessions.db,…}`
 - Active profile pin: `~/.harness/active-profile` (single line, profile name, empty for default)
 
-**Locking.** Each profile has its own `<profile>/.sov.lock/` directory available as a helper for callers that want exclusivity (atomic mkdir + PID file with stale-process detection). The REPL itself does not currently acquire it — concurrent `sov` sessions on the same profile keep working.
+**Locking.** Each profile has its own `<profile>/.sov.lock/` directory available as a helper for callers that want exclusivity (atomic mkdir + PID file with stale-process detection). The TUI itself does not currently acquire it — concurrent `sov` sessions on the same profile keep working.
 
 ### Scoping `HARNESS_HOME` for tests
 
@@ -323,19 +319,18 @@ Pattern (a) is preferred — single assignment, unambiguous scope, works correct
 
 **Why this happens:** the `VAR=value cmd` prefix syntax binds `VAR` only to `cmd`, not to the rest of a pipeline. Each command in a pipeline runs in its own subshell with its own environment. `printf` gets the override; `sov` does not.
 
-## REPL UX
+## Session UX
 
 Visual surfaces you'll see in a normal session:
 
 - **Splash** at startup — block-letter "SOV" logo (cyan→blue gradient) next to a boxed info card with version, provider/auth, model, and bundle path. The dim footer line collapses operational details (perms mode + count of loaded allow-rules, tools, cache, session id).
 - **Pre-prompt footer** — a single dim status line above each input frame: `provider · model · ctx N% · $cost · perms:mode · tools:N · bundle:label`. The `ctx` segment turns yellow above 60% utilization and red above 80%. Disable with `sov config set ui.footer.enabled false`.
-- **Input editor** (Wave 4) — multi-line raw-mode editor with persistent history at `~/.harness/input-history`. Type `\` at end of a line + Enter to insert a newline; Enter on a line not ending in `\` submits. Up/Down walk history (or move cursor when on multi-line buffer); Ctrl-R opens reverse-i-search; Tab autocompletes `/commands` and `@file:` paths. Long lines soft-wrap to terminal width. Full readline-style keybinds: Ctrl-A/E/B/F/U/K/W/L/P/N. Ctrl-C clears the buffer (second press exits); Ctrl-D exits when buffer is empty. Escape cancels reverse-search. Falls back to the legacy readline path under piped stdin or when `--legacy-input` is set.
 - **Modal permission prompts** — when a tool needs approval, a yellow-bordered box appears: title, tool name, input, optional reason, and `[y] allow   [N] deny   [a] always` choices. The thinking spinner suppresses itself while the modal is up so the prompt can't be visually buried.
 - **Thinking indicator** — `⠋ Thinking 12s ↑ 1234 ↓ 56` (cyan spinner + dim status) appears during silent waits (provider work, slow local model prompt processing, tool execution). 500ms grace, so it never flashes during normal fast streaming.
 - **Compact tool slot** — sequential tool calls share a single line that updates in place (`→ FileRead path=...` while running, `✓ N lines, M chars` after). With `--verbose`, the full 40-line preview block is shown instead.
 - **Inline diffs** — successful FileEdit and FileWrite calls render below the slot summary as `- ` (red) / `+ ` (green) lines with the file path and 1-based line number. FileEdit shows the full surrounding line, not just the matched substring. Long diffs truncate to head + `… N more lines …` + tail in non-verbose mode. Disable with `sov config set ui.diffRender.enabled false`.
 - **Multi-line tool errors** — failures surface the first line of the error followed by `· +N more lines` when the underlying tool produced a multi-line trace.
-- **Pre-compaction warning** — when context utilization crosses 5% below the proactive-compaction threshold, the REPL prints a one-shot `[compact] approaching threshold (ctx N% / trigger M%)` so you know auto-compaction may fire on the next turn.
+- **Pre-compaction warning** — when context utilization crosses 5% below the proactive-compaction threshold, the TUI prints a one-shot `[compact] approaching threshold (ctx N% / trigger M%)` so you know auto-compaction may fire on the next turn.
 - **Markdown rendering** of streamed text — headings, bold, italic, inline code, list bullets, blockquotes, fenced code blocks, horizontal rules.
 - **Goodbye box** at session end — Interaction Summary (session ID, tool calls ✓/✗, success rate), Performance (wall time, agent active, API time, tool time), Tokens (total, cache, est. cost). Followed by the resume command.
 
@@ -367,7 +362,7 @@ sov config set microcompaction.enabled false
 sov config unset microcompaction.enabled
 ```
 
-Bare `sov config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. The same picker is reachable in-session via `/settings`. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise readline takes a free-text value. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; a multi-page settings dialog is Wave 5+ work.)
+Bare `sov config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. The same picker is reachable in-session via `/settings`. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise a free-text value is accepted. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; a multi-page settings dialog is Wave 5+ work.)
 
 The same verbs work in-session via `/config`:
 
@@ -469,7 +464,7 @@ OPENROUTER_API_KEY=sk-or-...
 
 ## Sessions And Resume
 
-Every turn is saved to `~/.harness/sessions.db` by default. When the REPL exits, it prints a resume command:
+Every turn is saved to `~/.harness/sessions.db` by default. When the session exits, it prints a resume command:
 
 ```text
 to resume: sov --resume <uuid> --bundle <bundle-path>
@@ -517,7 +512,7 @@ Sensitive paths such as SSH, AWS, GPG, Kube config, shell rc files, sudoers, and
 
 ## Tool Result Visibility
 
-When the model runs a tool, the REPL prints a one-line summary under the `[tool: name input]` header by default — `└─ ok · 663 lines, 22.7K chars` for success, `└─ error · ...` (red) for failure. The full tool output stays available to the model but doesn't dominate your conversation view.
+When the model runs a tool, the TUI prints a one-line summary under the `[tool: name input]` header by default — `└─ ok · 663 lines, 22.7K chars` for success, `└─ error · ...` (red) for failure. The full tool output stays available to the model but doesn't dominate your conversation view.
 
 Pass `--verbose` (or set `verbose: true` in config) to see the full preview block (capped at 40 lines / 4,000 chars; longer results show a count summary):
 
@@ -564,9 +559,9 @@ Lines beginning with `/` are handled locally before normal model turns. `/help` 
 | `/cost` | Token totals and estimated USD cost for this session. |
 | `/compact` | Compress older history into a guarded handoff summary; switch to a child session. |
 | `/rollback` | Switch back to the parent session after `/compact` or `/clear`. |
-| `/resume` | Picker over recent sessions; prints the resume command for a fresh REPL. (TTY only.) |
+| `/resume` | Picker over recent sessions; prints the resume command for a fresh session. (TTY only.) |
 | `/stats` | Mid-session metrics card (mirrors the goodbye summary shape). |
-| `/quit` (`/exit`, `/q`) | Exit the REPL after printing the session summary. |
+| `/quit` (`/exit`, `/q`) | Exit the session after printing the summary. |
 
 ### Info
 
@@ -684,7 +679,7 @@ Source: `src/permissions/secretRedactor.ts` (detector), `src/permissions/inputTr
 
 Read-only Bash commands automatically resolve against `Read` permission rules. If your allow rules include `Read` or `Read(*.ts)`, then `Bash("cat src/main.ts")` runs without prompting because the shell AST analyzer classifies `cat` as a read operation. Write and edit commands (`cp`, `rm`, `chmod`, etc.) do not benefit from this — they still follow Bash-specific rules. Command substitution (`$(...)`, backticks) is always treated as unsafe and requires explicit Bash rules.
 
-When a prompt is required, the REPL renders a yellow-bordered modal:
+When a prompt is required, the TUI renders a yellow-bordered modal:
 
 ```text
 ╭─────────────────────────────────────────────╮
@@ -719,7 +714,7 @@ Modes:
 
 ## Inline Shell — `! <command>`
 
-Type `! <command>` at the REPL prompt to run the rest as a bash command with your TTY inherited. This is the explicit escape hatch for cases `BashTool` can't handle: `sudo`, TouchID, pagers, interactive editors. The harness does not capture inline-shell output for the model — you typed `!` to do something for yourself, not to feed state to the agent.
+Type `! <command>` at the input prompt to run the rest as a bash command with your TTY inherited. This is the explicit escape hatch for cases `BashTool` can't handle: `sudo`, TouchID, pagers, interactive editors. The harness does not capture inline-shell output for the model — you typed `!` to do something for yourself, not to feed state to the agent.
 
 ```text
 > ! sudo launchctl list | grep com.example
@@ -908,7 +903,7 @@ Configure in `~/.harness/config.json`:
 }
 ```
 
-When microcompaction fires, the REPL prints `[cleared N stale tool results, ~XK tokens]`. Set `"enabled": false` to disable.
+When microcompaction fires, the TUI prints `[cleared N stale tool results, ~XK tokens]`. Set `"enabled": false` to disable.
 
 ## Compaction And Rollback
 
@@ -925,7 +920,7 @@ Compaction creates a child session with:
 - a preserved recent tail
 - parent-child lineage in SQLite
 
-Use `/rollback` to switch the active REPL back to the parent:
+Use `/rollback` to switch the active session back to the parent:
 
 ```text
 /rollback

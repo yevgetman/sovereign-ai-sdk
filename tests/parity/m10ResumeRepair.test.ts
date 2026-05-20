@@ -1,6 +1,6 @@
 // M10 audit fix — verifies `repairMissingToolResults` is wired into the
-// server-side resume path. Audit slice 2 HIGH finding: terminalRepl.ts:2129
-// calls repair before query(), but src/server/routes/turns.ts did not. The
+// server-side resume path. Audit slice 2 HIGH finding:
+// src/server/routes/turns.ts did not call repair before query(). The
 // regression risk: a session whose last persisted assistant turn had an
 // unfulfilled tool_use (e.g., process crashed mid-turn) would 400 on the
 // next POST /sessions/:id/turns because the Anthropic API rejects messages
@@ -8,8 +8,8 @@
 // tool_result.
 //
 // Fix: turns.ts:hydrate() now wraps loadHistoryAsMessages with
-// repairMissingToolResults, mirroring terminalRepl.ts:2129. Repair is
-// additive — sessions without orphan tool_use are unaffected.
+// repairMissingToolResults. Repair is additive — sessions without
+// orphan tool_use are unaffected.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';

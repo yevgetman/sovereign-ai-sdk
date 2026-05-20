@@ -126,8 +126,7 @@ describe('M7 full integration — all six subsystems wired end-to-end', () => {
       // Whole-branch review I3 — `session_start` and `session_end` must be
       // emitted by buildSessionContext / disposeSessionContext respectively,
       // NOT by the route or test. Without these bookends, `sov trace show`
-      // can't render the per-trace header or close out the final turn group
-      // — server-mode trace ergonomics regress vs. terminalRepl.
+      // can't render the per-trace header or close out the final turn group.
       expect(trace).toContain('"type":"session_start"');
       expect(trace).toContain('"type":"session_end"');
 

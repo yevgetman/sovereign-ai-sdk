@@ -148,11 +148,11 @@ export function turnsRoute(runtime: Runtime): Hono {
 }
 
 /** Build the per-turn ToolContext for `runTurnInBackground`'s `query()`
- *  call. Mirrors terminalRepl.ts:958-973 — once buildRuntime constructs the
- *  scheduler + taskManager (T6 + T7), the turn-time context plumbs them
- *  onto the tool surface so AgentTool / task_create / task_list / task_get
- *  / task_output dispatch correctly. Without these four fields populated,
- *  every sub-agent and task tool throws "no scheduler / task manager in
+ *  call. Once buildRuntime constructs the scheduler + taskManager
+ *  (T6 + T7), the turn-time context plumbs them onto the tool surface
+ *  so AgentTool / task_create / task_list / task_get / task_output
+ *  dispatch correctly. Without these four fields populated, every
+ *  sub-agent and task tool throws "no scheduler / task manager in
  *  ToolContext" the moment the model invokes it.
  *
  *  The `parentToolPool` is the runtime's own pool. AgentTool reads it via
@@ -176,17 +176,17 @@ export function buildSessionToolContext(
   // every tool call and (T6) `ctx.reviewManager` can guard review forks.
   // The context is lazily built (or cached) by Runtime.getSessionContext.
   const sessionCtx = runtime.getSessionContext(sessionId);
-  // M8 T4 — per-turn skill visibility. The active toolset is derived from
-  // `runtime.toolPool` (the same pool the turn's `query()` runs against)
-  // and fed into `inferActiveToolsets` + `filterSkillRegistry` so any skill
-  // gated on a tool the turn lacks (or is the fallback half of a
-  // primary/fallback pair whose primary is active) is dropped from the
-  // ToolContext.skills view the orchestrator sees. Filtering here — not at
-  // buildRuntime — keeps the registry on Runtime unfiltered for the T5
-  // `/skillname` dispatch and the GET /skills route (which projects its
-  // own filtered view per request). Mirrors src/ui/terminalRepl.ts:476-478
-  // except the toolPool / activeToolNames / activeToolsets derivation
-  // happens per turn rather than once at REPL boot.
+  // M8 T4 — per-turn skill visibility. The active toolset is derived
+  // from `runtime.toolPool` (the same pool the turn's `query()` runs
+  // against) and fed into `inferActiveToolsets` + `filterSkillRegistry`
+  // so any skill gated on a tool the turn lacks (or is the fallback
+  // half of a primary/fallback pair whose primary is active) is dropped
+  // from the ToolContext.skills view the orchestrator sees. Filtering
+  // here — not at buildRuntime — keeps the registry on Runtime
+  // unfiltered for the T5 `/skillname` dispatch and the GET /skills
+  // route (which projects its own filtered view per request). The
+  // toolPool / activeToolNames / activeToolsets derivation happens per
+  // turn so visibility tracks any per-turn tool-pool changes.
   const activeToolNames = runtime.toolPool.map((t) => t.name);
   const activeToolsets = inferActiveToolsets(activeToolNames);
   const filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
@@ -200,12 +200,10 @@ export function buildSessionToolContext(
     taskManager: runtime.taskManager,
     parentToolPool: runtime.toolPool,
     canUseTool: sessionCanUseTool,
-    // M8 T4 — filtered skill registry + active toolset/tool-name arrays so
-    // skill-aware tools (SkillTool, skills_list, skill_view) see the same
-    // visibility surface terminalRepl exposes. Threading the arrays as
-    // well keeps the ToolContext shape symmetric with terminalRepl's
-    // (`src/ui/terminalRepl.ts:479-484`) and avoids re-deriving them at
-    // each tool call site.
+    // M8 T4 — filtered skill registry + active toolset/tool-name arrays
+    // so skill-aware tools (SkillTool, skills_list, skill_view) all see
+    // the same visibility surface. Threading the arrays here avoids
+    // re-deriving them at each tool call site.
     skills: filteredSkills,
     activeToolNames,
     activeToolsets,
@@ -228,9 +226,8 @@ export function buildSessionToolContext(
     // Backlog #43 (closed 2026-05-19) — per-session memory manager + project
     // scope. MemoryTool's `ctx.memoryManager?.onMemoryWrite(...)` notifications
     // now fire in server-mode (previously no-op), and ctx.projectScope routes
-    // writes to the correct global/per-project MEMORY.md when in a project
-    // (bundle or git repo). Mirrors terminalRepl.ts's ToolContext at
-    // src/ui/terminalRepl.ts:635-647.
+    // writes to the correct global/per-project MEMORY.md when in a
+    // project (bundle or git repo).
     memoryManager: sessionCtx.memoryManager,
     projectScope: sessionCtx.projectScope,
   };
@@ -276,14 +273,13 @@ async function runTurnInBackground(
       });
     }
   };
-  // M8 T3 — expand @file:path / @folder: / @url: / @diff / @staged references
-  // in the user's text BEFORE persisting + handing it to the model. Mirrors
-  // terminalRepl.ts:1288 (`enrichedInput = await expandContextReferences(
-  // trimmed, { cwd: process.cwd() })`). Failures inline as `[ERROR: ...]`
-  // markers — `expandContextReferences` never throws — so this never blocks
-  // the turn. The expanded text is what lands in `sessionDb` AND what the
-  // model sees, so resume reconstructs the exact same context the original
-  // turn ran against.
+  // M8 T3 — expand @file:path / @folder: / @url: / @diff / @staged
+  // references in the user's text BEFORE persisting + handing it to the
+  // model. Failures inline as `[ERROR: ...]` markers —
+  // `expandContextReferences` never throws — so this never blocks the
+  // turn. The expanded text is what lands in `sessionDb` AND what the
+  // model sees, so resume reconstructs the exact same context the
+  // original turn ran against.
   const expandedText = await expandContextReferences(text, { cwd: runtime.cwd });
   const userMessage: Message = {
     role: 'user',
@@ -305,14 +301,14 @@ async function runTurnInBackground(
     sessionId,
     streaming: true,
   });
-  // M7 T6 follow-up (review I1) — fire the review/synthesizer user-turn trigger
-  // exactly once per user prompt, at the same semantic moment terminalRepl
-  // does (src/ui/terminalRepl.ts:1126,1283,1290): right after persisting the
-  // user's message, before the model run. This is the only call site that
-  // increments userTurnsSince / synthesizerSince — without it, the user-tunable
-  // `review.userTurnsForMemoryReview` and `learning.synthesizerEveryN`
-  // settings are silently inert in server mode. The optional-chain handles
-  // the review-disabled case (reviewManager undefined → no-op).
+  // M7 T6 follow-up (review I1) — fire the review/synthesizer user-turn
+  // trigger exactly once per user prompt: right after persisting the
+  // user's message, before the model run. This is the only call site
+  // that increments userTurnsSince / synthesizerSince — without it, the
+  // user-tunable `review.userTurnsForMemoryReview` and
+  // `learning.synthesizerEveryN` settings would be silently inert. The
+  // optional-chain handles the review-disabled case (reviewManager
+  // undefined → no-op).
   sessionCtx.reviewManager?.onUserTurn(sessionId);
   // Hydrate the model's context with the full conversation history
   // (including the user message we just persisted). T9 hydrates the TUI
@@ -324,14 +320,13 @@ async function runTurnInBackground(
   // hydrate() call picks up the post-hop child id automatically.
   //
   // M10 audit fix (slice 2 HIGH): wire `repairMissingToolResults` into
-  // the resume path. terminalRepl.ts:2129 + :1824 call it on rehydrate
-  // and rollback to synthesize missing tool_result blocks for any
-  // orphaned tool_use in the persisted history. Without it, a session
-  // whose last persisted assistant turn had an unfulfilled tool_use
-  // (e.g., process crash mid-turn) would 400 on the next /turns call
-  // because Anthropic rejects the messages array as invalid. The repair
-  // is purely additive and idempotent — no orphan tool_use → no
-  // synthesized result → identical messages array.
+  // the resume path so the runtime synthesizes missing tool_result
+  // blocks for any orphaned tool_use in the persisted history. Without
+  // it, a session whose last persisted assistant turn had an unfulfilled
+  // tool_use (e.g., process crash mid-turn) would 400 on the next
+  // /turns call because Anthropic rejects the messages array as
+  // invalid. The repair is purely additive and idempotent — no orphan
+  // tool_use → no synthesized result → identical messages array.
   const hydrate = (): Message[] => {
     const raw = loadHistoryAsMessages(runtime.sessionDb, sessionId);
     const { messages: repaired, insertedToolResults } = repairMissingToolResults(raw);
@@ -347,12 +342,11 @@ async function runTurnInBackground(
   // M7 follow-up — track the most recent `usage_delta` emitted by the
   // provider stream across runOnce invocations so the final assistant
   // response's token counts get recorded against the CURRENT sessionId
-  // after each model run. Mirrors terminalRepl.ts:1655-1663 — the only
-  // wiring that populates the sessionDb cost table. Without this,
-  // sessionDb.getSessionCost (read at disposal time by
-  // disposeSessionContext) always returns zero in server mode and every
-  // trajectory ships with estimatedCostUsd: 0 — caught by the autonomous
-  // smoke test against real Anthropic Haiku 4.5.
+  // after each model run. This is the only wiring that populates the
+  // sessionDb cost table. Without this, sessionDb.getSessionCost (read
+  // at disposal time by disposeSessionContext) always returns zero and
+  // every trajectory ships with estimatedCostUsd: 0 — caught by the
+  // autonomous smoke test against real Anthropic Haiku 4.5.
   //
   // Declared OUTSIDE runOnce because the recovery branch creates a SECOND
   // runOnce invocation (after the overflow-driven compaction hop) — the
@@ -372,13 +366,13 @@ async function runTurnInBackground(
   };
 
   try {
-    // M6 T3 — proactive compaction. If the hydrated history (including the
-    // freshly-persisted user message) is over the configured threshold,
-    // compact BEFORE handing it to the model. compactSession mints a new
-    // child session, persists the summary + retained tail onto it, and
-    // records lineage (compactor.ts:145). The rest of the turn pivots onto
-    // the child id — including the SSE permission bridge below.
-    // Mirrors terminalRepl.ts:1332-1348.
+    // M6 T3 — proactive compaction. If the hydrated history (including
+    // the freshly-persisted user message) is over the configured
+    // threshold, compact BEFORE handing it to the model. compactSession
+    // mints a new child session, persists the summary + retained tail
+    // onto it, and records lineage (compactor.ts:145). The rest of the
+    // turn pivots onto the child id — including the SSE permission
+    // bridge below.
     //
     // Wrapped in the try {} so a compact() failure (summarizer throws,
     // sessionDb write fails, auxiliary provider 429s, etc.) routes through
@@ -387,14 +381,14 @@ async function runTurnInBackground(
     // catches its own errors and publishes them as turn_error events") must
     // hold for compaction failures too.
     //
-    // Per-turn compaction budget: this proactive hop and the M6 T4 overflow
-    // recovery branch below are INDEPENDENT — both can fire in the same turn
-    // if proactive succeeds but the post-proactive query() still surfaces an
-    // overflow (e.g., the freshly-compacted context plus a runaway tool loop
-    // pushes back over the limit). Mirrors terminalRepl.ts: the `retriedAfter
-    // Compact` flag at :1660 guards ONLY the recovery retry, not all
-    // compactions per turn. TUI consumers must therefore handle TWO
-    // `compaction_complete` events per turn (each with a distinct
+    // Per-turn compaction budget: this proactive hop and the M6 T4
+    // overflow recovery branch below are INDEPENDENT — both can fire in
+    // the same turn if proactive succeeds but the post-proactive
+    // query() still surfaces an overflow (e.g., the freshly-compacted
+    // context plus a runaway tool loop pushes back over the limit). The
+    // `retriedAfterCompact` flag below guards ONLY the recovery retry,
+    // not all compactions per turn. TUI consumers must therefore handle
+    // TWO `compaction_complete` events per turn (each with a distinct
     // `activeSessionId`) and pivot to the latest one.
     if (
       shouldCompactProactively({
@@ -448,7 +442,7 @@ async function runTurnInBackground(
       // `always` answer is appended there, and the next turn's
       // loadPermissionSettings call (above) picks it up as a rule
       // layer. Backlog #44 (closed 2026-05-19) wired the persistence
-      // path; mirrors terminalRepl.ts:827.
+      // path.
       alwaysAllow: new Set<string>(),
       ruleLayers: permissionSettings.layers,
       recordAlwaysAllow: (rule) => {
@@ -466,13 +460,12 @@ async function runTurnInBackground(
       redactSecretsTransformer,
     ]);
 
-    // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the iteration
-    // once; if the resulting Terminal carries a context-overflow error, run
-    // runtime.compact(), publish compaction_complete, then run the iteration
-    // ONCE more against the post-compaction child session id. A second
-    // overflow on the retry surfaces via the normal turn-error path below
-    // (we do NOT recurse). Mirrors src/ui/terminalRepl.ts:1659-1675 — the
-    // canonical shape — but adapted to the server's bus/SSE surface.
+    // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the
+    // iteration once; if the resulting Terminal carries a
+    // context-overflow error, run runtime.compact(), publish
+    // compaction_complete, then run the iteration ONCE more against the
+    // post-compaction child session id. A second overflow on the retry
+    // surfaces via the normal turn-error path below (we do NOT recurse).
     //
     // The iteration is extracted into an inner runOnce() closure so the
     // retry doesn't need to re-derive permission/canUseTool plumbing or
@@ -521,8 +514,8 @@ async function runTurnInBackground(
         // M7 T3 — server-side trace recorder. Forwards every TraceEvent
         // query() emits (turn_start, provider_request, provider_response,
         // tool_start, tool_end, microcompact, …) into the per-session
-        // TraceWriter so the resulting JSONL captures the same shape as
-        // terminalRepl's trace files. The closure dereferences sessionCtx
+        // TraceWriter so the resulting JSONL captures a complete trace
+        // for `sov trace show`. The closure dereferences sessionCtx
         // dynamically, so post-compaction events land in the child's file.
         traceRecorder,
       });
@@ -582,11 +575,11 @@ async function runTurnInBackground(
           continue;
         }
         // M7 follow-up — capture the most recent usage_delta so
-        // recordUsageIfPresent below can populate the sessionDb cost table
-        // against the current sessionId. Last writer wins: only the final
-        // model response's usage matters for the per-turn cost record.
-        // Mirrors terminalRepl.ts:1626 — the stream-loop usage-capture
-        // half of the same recordTokenUsage call site.
+        // recordUsageIfPresent below can populate the sessionDb cost
+        // table against the current sessionId. Last writer wins: only
+        // the final model response's usage matters for the per-turn
+        // cost record (the stream-loop usage-capture half of the
+        // recordTokenUsage call site).
         if (streamEvent.type === 'usage_delta') {
           latestUsage = streamEvent.usage;
         }
@@ -620,13 +613,13 @@ async function runTurnInBackground(
     // which the TUI surfaces as a turn-level error to the user) — we
     // intentionally do NOT recurse into a second compact + retry.
     //
-    // Per-turn compaction budget (Path A): this branch fires INDEPENDENTLY
-    // of the proactive block above. If proactive ALREADY compacted earlier
-    // in this turn, this recovery hop still runs — the local `sessionId` at
-    // that point is the post-proactive child id, so the recovery's
-    // `compaction_complete` carries that child as the parent and a NEW
-    // grandchild as the activeSessionId. Mirrors terminalRepl.ts's
-    // `retriedAfterCompact` flag at :1660, which guards ONLY this recovery
+    // Per-turn compaction budget (Path A): this branch fires
+    // INDEPENDENTLY of the proactive block above. If proactive ALREADY
+    // compacted earlier in this turn, this recovery hop still runs —
+    // the local `sessionId` at that point is the post-proactive child
+    // id, so the recovery's `compaction_complete` carries that child
+    // as the parent and a NEW grandchild as the activeSessionId. The
+    // local `retriedAfterCompact` semantics guard ONLY this recovery
     // retry (not all per-turn compactions). The third test in
     // tests/server/turns.overflowRecovery.test.ts pins the two-event shape.
     if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
@@ -695,16 +688,17 @@ async function runTurnInBackground(
 
     // Whole-branch review I2 — propagate the terminal's reason to the
     // SessionContext so disposal routes error/interrupted/max_tokens
-    // terminals into failed.jsonl. Mirrors terminalRepl.ts:1949 (the trace
-    // writer reads `lastTerminal?.reason ?? 'completed'` at disposal time)
-    // and terminalRepl.ts:1930 (the trajectory writer passes the terminal
-    // straight through). Without this, a `terminal.reason === 'error'`
-    // that surfaced via query()'s in-generator catch (src/core/query.ts:156-
-    // 164) would NOT bucket into failed.jsonl — the wire would emit
+    // terminals into failed.jsonl. Disposal reads
+    // `trajectoryMetadata.terminalReason ?? 'completed'` for both the
+    // trace `session_end` event and the trajectory writer. Without
+    // this, a `terminal.reason === 'error'` that surfaced via query()'s
+    // in-generator catch (src/core/query.ts:156-164) would NOT bucket
+    // into failed.jsonl — the wire would emit
     // `turn_complete{finishReason: 'error'}` but the trajectory record
-    // would mis-bucket as completed=true. `'completed'` and `'max_turns'`
-    // (the COMPLETED_REASONS set at src/trajectory/writer.ts:68) are left
-    // unset so the default 'completed' fallback kicks in at disposal.
+    // would mis-bucket as completed=true. `'completed'` and
+    // `'max_turns'` (the COMPLETED_REASONS set at
+    // src/trajectory/writer.ts:68) are left unset so the default
+    // 'completed' fallback kicks in at disposal.
     if (terminal && terminal.reason !== 'completed' && terminal.reason !== 'max_turns') {
       sessionCtx.trajectoryMetadata.terminalReason = terminal.reason;
     }
@@ -783,11 +777,10 @@ async function runTurnInBackground(
  *  `pending` so the matching `tool_result` wire event can echo them.
  *
  *  Whole-branch review I1 — increments `sessionCtx.trajectoryMetadata
- *  .toolCallCount` exactly once per `tool_use` block so the trajectory record
- *  flushed on disposal carries the actual count. Mirrors terminalRepl.ts:1564
- *  (`metrics.toolCalls++`). Without this, every server-mode trajectory ships
- *  with `toolCallCount: 0` — the corpus consumer's per-session activity
- *  signal would be dead. */
+ *  .toolCallCount` exactly once per `tool_use` block so the trajectory
+ *  record flushed on disposal carries the actual count. Without this,
+ *  every trajectory would ship with `toolCallCount: 0` — the corpus
+ *  consumer's per-session activity signal would be dead. */
 function handleAssistantMessage(
   msg: AssistantMessage,
   bus: ServerEventBus,
@@ -839,9 +832,8 @@ function handleAssistantMessage(
  *  Whole-branch review I1 — increments `sessionCtx.trajectoryMetadata
  *  .iterationsUsed` exactly once per `tool_result` block so the
  *  trajectory record flushed on disposal carries the actual iteration
- *  count. Mirrors terminalRepl.ts's `metrics.toolOk + metrics.toolErr`
- *  derivation at line 1936 — every tool_result that lands is one
- *  iteration through the tool loop, regardless of error state. */
+ *  count. Every tool_result that lands is one iteration through the
+ *  tool loop, regardless of error state. */
 function handleUserMessage(
   msg: Message,
   bus: ServerEventBus,

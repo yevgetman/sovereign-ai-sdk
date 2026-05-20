@@ -40,8 +40,8 @@ export type McpServerHandle = {
   tools: McpToolMeta[];
 };
 
-/** Pool surface used by toolWrapper.ts and terminalRepl.ts. Implementations
- *  hold the live SDK clients internally. */
+/** Pool surface used by toolWrapper.ts and the server runtime.
+ *  Implementations hold the live SDK clients internally. */
 export type McpClientPool = {
   /** Every successfully-connected server's metadata. */
   servers(): readonly McpServerHandle[];

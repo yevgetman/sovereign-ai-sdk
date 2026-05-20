@@ -4,8 +4,7 @@
 // query() time.
 //
 // M5.1 (backlog items 25/26/27) — extended with assertions that the
-// router/provider settings cascade is threaded through from userSettings
-// (matching terminalRepl.ts:879-955).
+// router/provider settings cascade is threaded through from userSettings.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -100,10 +99,10 @@ describe('runtime — M5.1 settings cascade helpers (backlog 25/26/27)', () => {
   });
 
   test('resolveSubagentAvailableProviders returns both lanes in router mode', () => {
-    // Router metadata mirrors what `buildRouterResolvedProvider` (terminalRepl)
-    // synthesizes — provider == 'router' with localProvider/frontierProvider
-    // attached to metadata. Kept in the server helper so server-mode router
-    // support is automatic when/if it lands.
+    // Router metadata mirrors what `buildRouterResolvedProvider`
+    // synthesizes — provider == 'router' with
+    // localProvider/frontierProvider attached to metadata. Kept in the
+    // server helper so server-mode router support is automatic.
     const resolved = {
       metadata: {
         provider: 'router',
@@ -240,7 +239,7 @@ describe('runtime — M5.1 wiring lands at buildRuntime call site', () => {
     });
 
     // No client bundle loaded in this test — the resolver should return
-    // harnessHome verbatim (matches terminalRepl.ts:927-930 fallback).
+    // harnessHome verbatim.
     const opts = (
       runtime.subagentScheduler as unknown as {
         opts: { artifactsRoot?: string };

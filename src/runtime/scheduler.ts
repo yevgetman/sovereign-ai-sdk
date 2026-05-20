@@ -320,7 +320,7 @@ export class SubagentScheduler {
         // feeds into the review pipeline. Skipped for review-* agents to
         // prevent recursion (the review fork itself is a child) and for
         // non-success terminal reasons. The reviewManager lives on the parent's
-        // ToolContext (set in terminalRepl.ts at session boot).
+        // ToolContext (set by the runtime at session boot).
         if (shouldFireReviewOnDelegation(agent.name, result.terminal.reason)) {
           try {
             input.parentToolContext.reviewManager?.onChildCompletion({

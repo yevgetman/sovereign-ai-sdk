@@ -1,9 +1,8 @@
 // Phase 16.1 M8 T3 — per-session subdirectory-hint state.
 //
-// terminalRepl.ts threads a fresh `createSubdirectoryHintState()` onto every
-// turn's ToolContext so the orchestrator's `appendSubdirectoryHints` call
-// (src/core/orchestrator.ts:640-653) fires after every tool result. The
-// server's SessionContext now mirrors that wiring:
+// The runtime threads a per-session `createSubdirectoryHintState()` onto
+// every turn's ToolContext so the orchestrator's `appendSubdirectoryHints`
+// call (src/core/orchestrator.ts:640-653) fires after every tool result:
 //   1. `buildSessionContext` constructs a state and attaches it to the
 //      SessionContext under `subdirectoryHintState`.
 //   2. `buildSessionToolContext` threads the same reference (not a copy)
