@@ -137,6 +137,17 @@ func TestToolCardLightThemeRenders(t *testing.T) {
 	}
 }
 
+// TestToolCardHeaderColorPinnedToBrandPurple guards the ux-fixes
+// choice: tool-card headers render in the SOV-gradient soft-purple
+// hex (#a78bfa) rather than theme.Primary so the header reads as
+// on-brand across every theme. Pinning the const value catches
+// drift to a different brand hex or a regression back to theme tokens.
+func TestToolCardHeaderColorPinnedToBrandPurple(t *testing.T) {
+	if ToolCardHeaderColor != "#a78bfa" {
+		t.Errorf("brand-purple hex changed: got %q want %q", ToolCardHeaderColor, "#a78bfa")
+	}
+}
+
 func TestTruncatePreviewClampsToMax(t *testing.T) {
 	got := truncatePreview("abcdefghij", 5)
 	if len(got) > 5 {
