@@ -138,6 +138,7 @@ type Model struct {
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
 	spinnerLabel     string                     // M11.2: current spinner label ("thinking", "expanding /name", etc.)
 	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
+	deltaGen         int                        // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
 }
 
 // spinnerTickMsg is dispatched by the spinner's recurring tea.Tick. The
@@ -153,6 +154,25 @@ type spinnerTickMsg struct {
 // frame. 80ms feels lively without being a strobe; matches Claude
 // Code's perception. M11.2.
 const spinnerTickInterval = 80 * time.Millisecond
+
+// idleCheckMsg fires after a content event (text_delta, thinking_delta,
+// tool_result) when no further event has arrived within idleCheckDelay.
+// The captured gen is compared against m.deltaGen at the time the tick
+// fires — mismatch means a newer event invalidated this check, so the
+// spinner stays cleared. When still current, the handler restarts the
+// branded thinking spinner so the user sees feedback during the
+// post-text/pre-tool gap where the model is still composing its next
+// block but has emitted nothing yet.
+type idleCheckMsg struct {
+	gen int
+}
+
+// idleCheckDelay is how long we wait after the most recent content
+// event before assuming the model is "still thinking" and restarting
+// the spinner. 700ms is short enough to give prompt feedback during a
+// real gap (often several seconds) but long enough to avoid flickering
+// the spinner on a brief pause between adjacent text_deltas.
+const idleCheckDelay = 700 * time.Millisecond
 
 // stallExpireMsg is dispatched by a tea.Tick scheduled in the
 // stall_detected handler. The closure captures the current
@@ -704,6 +724,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
 			return spinnerTickMsg{gen: capturedGen}
 		})
+	case idleCheckMsg:
+		// ux-fixes: a content event (text_delta / thinking_delta /
+		// tool_result) scheduled an idle-check tick. If m.deltaGen has
+		// advanced past the captured gen, a newer event already arrived
+		// — drop. If a spinner is already active (e.g., from the
+		// initial ENTER) keep it running rather than appending a second.
+		// Otherwise the model has been silent for idleCheckDelay; show
+		// the branded spinner so the user sees the gap as "still
+		// thinking" instead of as a dead UI.
+		if msg.gen != m.deltaGen || m.thinkingPending {
+			return m, nil
+		}
+		m.thinkingPending = true
+		return m, m.startSpinner("thinking")
 	case sseDoneMsg:
 		// The server closes the SSE stream and disposes the per-session bus
 		// after every turn_complete / turn_error (events.ts:63-74) by M3
@@ -998,6 +1032,12 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		// re-render via render.Markdown. Non-text events finalize the card
 		// (see tool_use_start, tool_result, turn_complete below).
 		m.transcript.AppendAssistantDelta(td.Text)
+		// ux-fixes — re-arm the spinner for the gap between this text
+		// block ending and the next block (tool_use_start, another text
+		// block, or turn_complete). If another delta or terminal event
+		// arrives within idleCheckDelay, the captured gen is stale and
+		// the tick no-ops in Update.
+		return m.scheduleIdleCheck()
 	case "thinking_delta":
 		td, err := transport.DecodeThinkingDelta(env.Raw)
 		if err != nil {
@@ -1010,6 +1050,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 				Italic(true).
 				Render(td.Text),
 		)
+		// ux-fixes — extended-thinking blocks have the same post-block
+		// gap as text blocks; arm the idle-check spinner.
+		return m.scheduleIdleCheck()
 	case "tool_use_start":
 		_, err := transport.DecodeToolUseStart(env.Raw)
 		if err != nil {
@@ -1071,6 +1114,11 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			Tool:   tr.Tool,
 			Output: string(tr.Output),
 		})
+		// ux-fixes — after a tool_result, the model often pauses to
+		// compose its next block (another tool call, follow-up text,
+		// or turn_complete). Arm the idle-check spinner so the gap
+		// reads as "still working" rather than as a dead UI.
+		return m.scheduleIdleCheck()
 	case "permission_request":
 		// M5 T9: push the interactive permission modal. The modal renders
 		// as a centered yellow box; key dispatch is routed to it in
@@ -1263,7 +1311,13 @@ func (m Model) handleMouseClick(msg tea.MouseMsg) (Model, tea.Cmd) {
 //
 // M11.2 — also invalidates the live spinner generation so any in-flight
 // spinnerTickMsg fires no-op and the recurring tick chain stops.
+//
+// ux-fixes — also bumps deltaGen so any in-flight idleCheckMsg (scheduled
+// by an earlier content event) becomes stale and no-ops on fire. The
+// generation is bumped unconditionally so the bookkeeping holds even
+// when there is no active spinner to clear.
 func (m *Model) clearThinkingIfPending() {
+	m.deltaGen++
 	if !m.thinkingPending {
 		return
 	}
@@ -1271,6 +1325,22 @@ func (m *Model) clearThinkingIfPending() {
 	m.thinkingPending = false
 	m.spinnerLineIdx = -1
 	m.spinnerGen++
+}
+
+// scheduleIdleCheck bumps m.deltaGen and returns a tea.Cmd that fires
+// an idleCheckMsg capturing the new generation after idleCheckDelay.
+// Callers use this from content-producing handlers (text_delta,
+// thinking_delta, tool_result) so the spinner re-appears in the
+// post-text/pre-next-block gap when the model is still composing but
+// has emitted nothing yet. If any newer event arrives before the tick
+// fires, m.deltaGen advances past the captured value and the tick is
+// dropped in Update's idleCheckMsg branch.
+func (m *Model) scheduleIdleCheck() tea.Cmd {
+	m.deltaGen++
+	captured := m.deltaGen
+	return tea.Tick(idleCheckDelay, func(time.Time) tea.Msg {
+		return idleCheckMsg{gen: captured}
+	})
 }
 
 // startSpinner appends the branded thinking spinner to the transcript
