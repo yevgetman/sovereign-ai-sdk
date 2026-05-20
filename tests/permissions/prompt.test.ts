@@ -1,45 +1,8 @@
-// parseAskResponse tests — pure string→enum parser. The readline wrapper is
-// thin and exercised by the canUseTool tests via a scripted asker.
+// Tests for surviving prompt.ts exports (post-M13 readline-asker removal):
+// serializeAskUser + previewToolInput. canUseTool.ts is their only consumer.
 
 import { describe, expect, test } from 'bun:test';
-import {
-  buildReadlineAsker,
-  parseAskResponse,
-  previewToolInput,
-  serializeAskUser,
-} from '../../src/permissions/prompt.js';
-
-describe('parseAskResponse', () => {
-  test('y/yes → allow', () => {
-    expect(parseAskResponse('y')).toBe('allow');
-    expect(parseAskResponse('yes')).toBe('allow');
-    expect(parseAskResponse(' Y ')).toBe('allow');
-    expect(parseAskResponse('YES')).toBe('allow');
-  });
-
-  test('n/no → deny', () => {
-    expect(parseAskResponse('n')).toBe('deny');
-    expect(parseAskResponse('no')).toBe('deny');
-    expect(parseAskResponse(' N ')).toBe('deny');
-  });
-
-  test('a/always → always', () => {
-    expect(parseAskResponse('a')).toBe('always');
-    expect(parseAskResponse('always')).toBe('always');
-    expect(parseAskResponse(' ALWAYS ')).toBe('always');
-  });
-
-  test('empty line defaults to deny (safe default)', () => {
-    expect(parseAskResponse('')).toBe('deny');
-    expect(parseAskResponse('   ')).toBe('deny');
-  });
-
-  test('unrecognised input returns undefined so the caller re-prompts', () => {
-    expect(parseAskResponse('maybe')).toBeUndefined();
-    expect(parseAskResponse('1')).toBeUndefined();
-    expect(parseAskResponse('yeah')).toBeUndefined();
-  });
-});
+import { previewToolInput, serializeAskUser } from '../../src/permissions/prompt.js';
 
 describe('previewToolInput', () => {
   test('renders Bash commands directly', () => {
@@ -90,38 +53,5 @@ describe('serializeAskUser', () => {
     releases[1]?.();
     await expect(second).resolves.toBe('allow');
     expect(order).toEqual(['start:A', 'end:A', 'start:B', 'end:B']);
-  });
-});
-
-describe('buildReadlineAsker', () => {
-  test('emits prompt and answer hooks', async () => {
-    const events: unknown[] = [];
-    const ask = buildReadlineAsker(async () => 'y', {
-      onPrompt: (event) => events.push({ type: 'prompt', ...event }),
-      onAnswer: (event) => events.push({ type: 'answer', ...event }),
-    });
-
-    const answer = await ask({
-      toolName: 'Bash',
-      preview: 'git status',
-      reason: 'needs approval',
-    });
-
-    expect(answer).toBe('allow');
-    expect(events).toEqual([
-      {
-        type: 'prompt',
-        toolName: 'Bash',
-        preview: 'git status',
-        reason: 'needs approval',
-      },
-      {
-        type: 'answer',
-        toolName: 'Bash',
-        preview: 'git status',
-        reason: 'needs approval',
-        answer: 'allow',
-      },
-    ]);
   });
 });
