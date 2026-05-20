@@ -6,26 +6,38 @@
 // "…thinking" placeholder that pre-M11.2 sat alone under the user's
 // input during the 1-3s network wait before the first text_delta.
 //
-// Two animations layer simultaneously: the Braille glyph rotates
-// (10 frames) and the color advances through the 4-color gradient
-// (cyan / sapphire / blue / lavender). 10 × 4 = 40 distinct visual
-// states before the loop repeats, which keeps the animation feeling
-// alive on a slow LLM response without the eye locking onto a single
-// pattern.
+// Three animations layer simultaneously: the Braille glyph rotates
+// (8 heavy-Braille frames), the color advances through the 4-color
+// gradient (cyan / sapphire / blue / lavender), and the trailing
+// ellipsis grows from "." to "..." (3-state cycle). 8 × 4 × 3 = 96
+// distinct visual states before the loop repeats, which keeps the
+// animation feeling alive on a slow LLM response without the eye
+// locking onto a single pattern.
+//
+// ux-fixes round 2 — the label was previously "thinking" in dim
+// italic. Capitalized to "Thinking", set to bold (no Foreground so it
+// inherits terminal default bright fg), heavier Braille frames
+// (⣾⣽⣻⢿⡿⣟⣯⣷ — 8-dot fully-filled Braille reads bigger than the prior
+// 6-dot set), animated growing-dot ellipsis, and a leading + trailing
+// blank line so the spinner reads as its own beat rather than being
+// crushed up against the surrounding tool cards.
 
 package components
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
-// thinkingSpinnerFrames is the Braille rotation used by the thinking indicator.
-// Mirrors the StatusLine's spinner for visual consistency between the
-// status bar (streaming spinner) and the transcript (thinking
-// indicator). Both code paths advance independently — each holds its
-// own frame counter.
+// thinkingSpinnerFrames is the Braille rotation used by the thinking
+// indicator. ux-fixes round 2: switched from the 6-dot light Braille
+// set (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) to the 8-dot fully-filled "heavy" set so the
+// glyph reads larger and weightier in the transcript — terminals
+// can't change font size, but a denser glyph occupies more pixels in
+// the same cell and gives the same "slightly bigger" effect.
 var thinkingSpinnerFrames = []string{
-	"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+	"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷",
 }
 
 // thinkingSpinnerGradient cycles through the same 4-anchor palette the
@@ -41,6 +53,13 @@ var thinkingSpinnerGradient = []lipgloss.Color{
 	lipgloss.Color("#a78bfa"), // soft purple
 	lipgloss.Color("#ec4899"), // pink
 }
+
+// dotCycleStride controls how many spinner frames pass between dot-count
+// changes. 5 frames at 80ms per frame = 400ms per dot step, ~1.2s for
+// the full "." → ".." → "..." cycle. Slow enough that the dot growth
+// reads as deliberate, fast enough that the eye sees it as an
+// indicator of ongoing activity rather than a stuck label.
+const dotCycleStride = 5
 
 // Spinner is an immutable snapshot of the spinner's frame state.
 // Callers advance via .Tick() which returns a new Spinner; the
@@ -68,10 +87,18 @@ func (s Spinner) Frame() int {
 	return s.frame
 }
 
-// View renders the spinner as "<colored-glyph> <muted-label>" suitable
-// for direct insertion into the transcript. The glyph picks up the
-// current gradient color; the label is dim-italic to match the prior
-// "…thinking" aesthetic. Pass an empty label to render the glyph alone.
+// View renders the spinner as "<colored-glyph> <bold-label>" wrapped
+// with blank lines top + bottom so the indicator reads as its own
+// breath in the transcript flow rather than crashing into the
+// surrounding cards. The glyph picks up the current gradient color
+// and bold attribute; the label is bold + no Foreground so it
+// inherits terminal default fg (the M11.10 "brightest reliable" rule).
+//
+// When a non-empty label is passed, the first letter is capitalized
+// and a growing ellipsis (".", "..", "...") is appended based on the
+// frame counter so the textual half of the indicator also animates.
+// Pass an empty label to render the glyph alone (with the same
+// surrounding blank lines for layout consistency).
 func (s Spinner) View(label string) string {
 	glyphIdx := s.frame % len(thinkingSpinnerFrames)
 	colorIdx := (s.frame / 3) % len(thinkingSpinnerGradient)
@@ -80,10 +107,22 @@ func (s Spinner) View(label string) string {
 		Bold(true).
 		Render(thinkingSpinnerFrames[glyphIdx])
 	if label == "" {
-		return glyph
+		return "\n" + glyph + "\n"
 	}
-	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9399b2")). // Catppuccin overlay2 — muted but readable
-		Italic(true)
-	return glyph + " " + labelStyle.Render(label)
+	// 3-state ellipsis cycle (1, 2, 3 dots) advancing every dotCycleStride
+	// frames so the dots read as "appearing sequentially" per the UX ask.
+	dotCount := 1 + (s.frame/dotCycleStride)%3
+	displayLabel := capitalizeFirst(label) + strings.Repeat(".", dotCount)
+	labelStyle := lipgloss.NewStyle().Bold(true)
+	return "\n" + glyph + "  " + labelStyle.Render(displayLabel) + "\n"
+}
+
+// capitalizeFirst returns label with its first byte uppercased. Used
+// to surface "Thinking" rather than "thinking" without forcing every
+// caller to pre-capitalize. Empty input returns empty.
+func capitalizeFirst(label string) string {
+	if label == "" {
+		return label
+	}
+	return strings.ToUpper(label[:1]) + label[1:]
 }

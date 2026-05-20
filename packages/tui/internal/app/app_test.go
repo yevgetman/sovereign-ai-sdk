@@ -274,8 +274,12 @@ func TestApp_showsThinkingIndicatorOnEnter(t *testing.T) {
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
 	view := m.View()
-	if !strings.Contains(view, "thinking") {
-		t.Errorf("thinking placeholder not rendered on ENTER: %q", view)
+	// ux-fixes round 2: spinner label is now capitalized "Thinking..."
+	// with an animated ellipsis. The presence of "Thinking" in the
+	// view proves the spinner is rendered (the dot count is animation-
+	// dependent and not relied on here).
+	if !strings.Contains(view, "Thinking") {
+		t.Errorf("Thinking spinner not rendered on ENTER: %q", view)
 	}
 }
 

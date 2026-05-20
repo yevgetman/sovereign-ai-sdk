@@ -49,11 +49,53 @@ func TestSpinner_ViewContainsGlyph(t *testing.T) {
 	}
 }
 
-func TestSpinner_ViewContainsLabel(t *testing.T) {
+func TestSpinner_ViewCapitalizesLabelAndAppendsEllipsis(t *testing.T) {
 	s := NewSpinner()
 	out := s.View("thinking")
-	if !strings.Contains(out, "thinking") {
-		t.Errorf("expected label text in output, got:\n%s", out)
+	if !strings.Contains(out, "Thinking") {
+		t.Errorf("expected capitalized label \"Thinking\" in output, got:\n%s", out)
+	}
+	if strings.Contains(out, "thinking") {
+		t.Errorf("expected lowercase \"thinking\" to be replaced by capitalized form, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Thinking.") {
+		t.Errorf("expected animated ellipsis (at least one dot) appended to label, got:\n%s", out)
+	}
+}
+
+func TestSpinner_ViewEllipsisGrowsWithFrame(t *testing.T) {
+	// dotCycleStride frames per dot step, 3-state cycle (1, 2, 3 dots).
+	// Walk a full cycle and record the dot counts; assert we hit
+	// "Thinking." and "Thinking..." and "Thinking..." across the cycle.
+	s := NewSpinner()
+	seen := map[string]bool{}
+	for i := 0; i < dotCycleStride*3; i++ {
+		out := s.View("thinking")
+		for _, suffix := range []string{"Thinking.", "Thinking..", "Thinking..."} {
+			if strings.Contains(out, suffix) {
+				seen[suffix] = true
+			}
+		}
+		s = s.Tick()
+	}
+	for _, suffix := range []string{"Thinking.", "Thinking..", "Thinking..."} {
+		if !seen[suffix] {
+			t.Errorf("expected to observe %q at some point during the dot cycle; only saw: %v", suffix, seen)
+		}
+	}
+}
+
+func TestSpinner_ViewIncludesLeadingAndTrailingNewlines(t *testing.T) {
+	// ux-fixes round 2 — spinner.View wraps its content with blank
+	// lines so the indicator has breathing room above and below in
+	// the transcript flow (was previously crushed against the prior
+	// tool card).
+	out := NewSpinner().View("thinking")
+	if !strings.HasPrefix(out, "\n") {
+		t.Errorf("expected leading newline for above-spacing, got:\n%q", out)
+	}
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("expected trailing newline for below-spacing, got:\n%q", out)
 	}
 }
 
