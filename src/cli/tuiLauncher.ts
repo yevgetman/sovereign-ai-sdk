@@ -97,9 +97,6 @@ export type TuiLaunchOptions = {
   stateDir?: unknown;
   /** Verbose logging flag. Targeting M9. */
   verbose?: unknown;
-  // REPL-only — hard error with --ui tui.
-  /** Readline fallback (REPL-only). Hard-errors when used with --ui tui. */
-  legacyInput?: unknown;
   /** Catch-all so Commander option bags don't trip the type. */
   [k: string]: unknown;
 };
@@ -124,30 +121,14 @@ function pickPermissionMode(value: unknown): 'default' | 'ask' | 'bypass' | unde
 export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   const binary = findTuiBinary();
   if (binary === null) {
-    // M11 — defensive guard. Post-M11, main.ts pre-checks findTuiBinary()
-    // before invoking the launcher and auto-falls back to the readline REPL
-    // when the binary is missing. This branch is unreachable from the bare
-    // `sov` flow but kept as belt-and-suspenders for direct importers of
-    // runTuiLauncher (tests, future callers). The warning text mirrors the
-    // main.ts fallback messaging so behavior stays consistent if reached.
+    // Defensive guard. Post-M13, main.ts hard-errors before invoking the
+    // launcher when the binary is missing — this branch is unreachable
+    // from the bare `sov` flow but kept as belt-and-suspenders for direct
+    // importers of runTuiLauncher (tests, future callers).
     console.warn(
       'sov: sov-tui binary not found — install Go ≥ 1.24 and run `bun pm -g trust @yevgetman/sov && sov upgrade`.',
     );
-    console.warn(
-      '     For the readline REPL, pass `--ui repl` or `SOV_UI=repl` (or set `ui.surface=repl` in ~/.harness/config.json).',
-    );
     return 70;
-  }
-
-  // --legacy-input is REPL-only by definition (readline fallback for
-  // terminalRepl). Refuse to launch with --ui tui rather than silently
-  // drop the flag — keeps the semantic gap visible.
-  if (opts.legacyInput === true) {
-    process.stderr.write(
-      'sov: --legacy-input is incompatible with --ui tui (readline fallback is REPL-only).\n',
-    );
-    process.stderr.write('     use --ui repl --legacy-input, or drop --legacy-input.\n');
-    return 2;
   }
 
   // M8 T3 — capture/replay are mutually exclusive at the runtime layer
