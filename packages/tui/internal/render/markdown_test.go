@@ -47,6 +47,25 @@ func TestMarkdownLightThemeRenders(t *testing.T) {
 	}
 }
 
+// TestMarkdownHeadingsAreThemeIndependent guards the ux-fixes choice:
+// H1–H6 colors are pinned to a fixed light-blue hex (sky-200 #bae6fd)
+// rather than derived from theme.Primary, so headings read as the
+// same shade across every theme. Dark.Primary (#89b4fa) and
+// Sovereign.Primary (#58a6ff) differ; if headings still tracked
+// Primary, this test would fail. A simple "## Header\n\nbody" input
+// touches only the Heading/H2 + Paragraph/Text glamour fields — all
+// other theme-derived fields (dim, success, error, code) are not
+// exercised — so the rendered output must be byte-identical across
+// themes when headings use a fixed hex.
+func TestMarkdownHeadingsAreThemeIndependent(t *testing.T) {
+	src := "## Header\n\nbody"
+	outDark := Markdown(src, theme.Dark(), 80)
+	outSov := Markdown(src, theme.Sovereign(), 80)
+	if outDark != outSov {
+		t.Errorf("markdown headings should be theme-independent (fixed light-blue hex); Dark and Sovereign produced different output:\n--- Dark:\n%q\n--- Sovereign:\n%q", outDark, outSov)
+	}
+}
+
 // M11.12 — wrapFileRefs auto-wraps file-path-shaped tokens in
 // backticks so the inline Code style applies. Tests pin the regex
 // boundaries and the backtick-respecting traversal.
@@ -192,5 +211,97 @@ func TestWrapFileRefs_MultipleBulletsInList(t *testing.T) {
 	// Plain bullet should NOT get wrapped.
 	if strings.Contains(out, "`plain bullet`") {
 		t.Errorf("non-file bullet incorrectly wrapped: %q", out)
+	}
+}
+
+// ux-fixes round 2 — wrapFileRefs gained a table-cell awareness pass
+// so multi-word filenames sitting in a markdown table row pick up the
+// inline-code styling. The token-level fileRefPattern is constrained
+// to space-free tokens; bullet path handles "- foo bar.png" but not
+// `| 1.1M | Babyboard logo circulat.png |`.
+
+func TestWrapFileRefs_TableCellWithMultiWordFilename(t *testing.T) {
+	in := "| 1.1M | Babyboard logo circulat.png |"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`Babyboard logo circulat.png`") {
+		t.Errorf("expected multi-word filename in table cell wrapped, got %q", out)
+	}
+	// Non-filename cells (size, separator) should NOT be wrapped.
+	if strings.Contains(out, "`1.1M`") {
+		t.Errorf("size cell incorrectly wrapped: %q", out)
+	}
+}
+
+func TestWrapFileRefs_TableCellWithFilenameWithCommasAndUnderscores(t *testing.T) {
+	in := "| 495K | ChatGPT Image May 2, 2026, 04_54_57 PM.png |"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`ChatGPT Image May 2, 2026, 04_54_57 PM.png`") {
+		t.Errorf("expected commas+underscores filename wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_TableHeaderRowLeftAlone(t *testing.T) {
+	in := "| Size | File Name |"
+	out := wrapFileRefs(in)
+	// Neither "Size" nor "File Name" ends in a recognized extension —
+	// the table pass should leave them alone.
+	if strings.Contains(out, "`Size`") || strings.Contains(out, "`File Name`") {
+		t.Errorf("header row cells incorrectly wrapped: %q", out)
+	}
+}
+
+func TestWrapFileRefs_TableSeparatorRowLeftAlone(t *testing.T) {
+	in := "|------|-----------|"
+	out := wrapFileRefs(in)
+	if strings.Contains(out, "`") {
+		t.Errorf("separator row should not be modified, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_TableCellWithSinglePathRefStillWrapped(t *testing.T) {
+	// Single-token paths in a table cell should still get wrapped via
+	// the token-level pass (the table pass requires the whole trimmed
+	// cell content to end in an extension, which `/path/to/foo.go`
+	// does; but token-level would also catch it). Either way, the
+	// output should have one backtick-wrapped ref and no double-wrap.
+	in := "| status | /path/to/foo.go |"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`/path/to/foo.go`") {
+		t.Errorf("expected single-path cell wrapped, got %q", out)
+	}
+	if strings.Contains(out, "``/path/to/foo.go``") {
+		t.Errorf("path was double-wrapped: %q", out)
+	}
+}
+
+func TestWrapFileRefs_TableCellAlreadyBacktickWrappedLeftAlone(t *testing.T) {
+	// If a model helpfully pre-wraps the filename in backticks, the
+	// table pass should not double-wrap. The outer backticks split in
+	// wrapFileRefsOutsideBackticks already handles this for the most
+	// part; the table pass also guards on prefix/suffix to be safe.
+	in := "| 1.1M | `already wrapped.png` |"
+	out := wrapFileRefs(in)
+	if strings.Contains(out, "``already wrapped.png``") {
+		t.Errorf("already-wrapped filename was double-wrapped: %q", out)
+	}
+}
+
+func TestWrapFileRefs_MultipleRowsOfTable(t *testing.T) {
+	in := strings.Join([]string{
+		"| Size | File Name |",
+		"|------|-----------|",
+		"| 1.1M | Babyboard logo circulat.png |",
+		"| 942K | Babyboard logo.png |",
+		"| 320K | uxc1.png |",
+	}, "\n")
+	out := wrapFileRefs(in)
+	for _, want := range []string{
+		"`Babyboard logo circulat.png`",
+		"`Babyboard logo.png`",
+		"`uxc1.png`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %s in output, got %q", want, out)
+		}
 	}
 }

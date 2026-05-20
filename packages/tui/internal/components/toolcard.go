@@ -20,6 +20,17 @@ import (
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
+// ToolCardHeaderColor is the fixed brand-purple hex used for the
+// "> <Tool>" header line on every tool card. Pinned outside the theme
+// tokens because the header must read as on-brand purple/pink across
+// every theme (same rationale as the splash + spinner gradient, which
+// are also theme-independent). #a78bfa is the "soft purple" anchor
+// from the SOV gradient (blue → teal → purple → pink). Per
+// docs/conventions/tui-color-rendering.md, accents that must read as a
+// specific shade family rather than just "some accent color" get
+// pinned to a fixed hex rather than derived from theme.Primary.
+const ToolCardHeaderColor = "#a78bfa"
+
 type ToolCard struct {
 	Tool       string
 	RenderHint string
@@ -41,7 +52,15 @@ func (tc ToolCard) View(width int) string {
 	// M9 T6 — header carries tool name + (when collapsed + Input set) a
 	// truncated input preview. Expanded card body shows the full input + output;
 	// collapsed body shows only the dim summary.
-	header := tc.Theme.HeaderStyle().Render(fmt.Sprintf("> %s", tc.Tool))
+	//
+	// ux-fixes — tool-card header uses a fixed brand-purple hex
+	// (ToolCardHeaderColor, the SOV-gradient "soft purple" anchor)
+	// rather than theme.Primary. See the const declaration above for
+	// the full rationale.
+	header := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ToolCardHeaderColor)).
+		Bold(true).
+		Render(fmt.Sprintf("> %s", tc.Tool))
 	if !tc.Expanded && tc.Input != "" {
 		preview := truncatePreview(tc.Input, width-len(tc.Tool)-6)
 		previewStyle := lipgloss.NewStyle().Foreground(tc.Theme.Dim)

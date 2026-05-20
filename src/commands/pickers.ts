@@ -1,14 +1,15 @@
-// Picker-driven slash commands: /resume, /model. Both take over the
-// terminal (raw mode, full-screen render) for the duration of the
-// pick, then return a short text summary that the REPL prints in
-// the normal flow.
+// Picker-driven slash commands: /resume, /model, /theme. Both surfaces
+// (the legacy REPL via raw-mode pick() and the Phase 16.1 TUI via the
+// requestPicker side-effect) flow through the same handlers — the REPL
+// fallback runs pick() and prints the result; the TUI handler emits a
+// pickerOpen side-effect and resolves via a fresh /<command> <value>
+// dispatch (ADR M11.5-03).
 //
-// /resume currently doesn't do an in-process session swap — that's
-// gated on Wave 4's input editor where we control more of the
-// cursor model. For Wave 2, /resume picks a session and prints
-// the resume command for the user to run on next launch. The pain
-// point it solves ("must remember the UUID to use --resume") is
-// fixed even without in-process loading.
+// /resume picks a session and prints its resume command for the user
+// to run in a fresh shell. An in-process session swap (where the
+// active session id and history reseat without a process restart) is
+// not implemented; it would need a TUI↔server protocol extension and
+// is not currently scheduled.
 //
 // /model uses the same provider→model mapping that configMenu.ts
 // uses. Both are kept in sync via a tiny shared registry.
@@ -132,10 +133,12 @@ function buildResumeItem(s: ReturnType<CommandContext['listSessions']>[number]):
 }
 
 function formatResumeReport(chosen: ReturnType<CommandContext['listSessions']>[number]): string {
-  // For Wave 2, /resume prints the command rather than swapping in-
-  // process. The user can /quit and run it. (The frequent flow — pick
-  // a recent session and resume — works in the same pair of keystrokes
-  // either way; in-process swap is an explicit Wave-4 deliverable.)
+  // /resume currently surfaces the resume command rather than swapping
+  // sessions in-process. The frequent flow — pick a recent session and
+  // resume it — works in the same pair of keystrokes either way (the
+  // user copies the command into a fresh shell). An in-process swap
+  // would need the TUI ↔ server protocol to reseat the active session
+  // id and replay history; that work is not scheduled.
   const cmd = `sov --resume ${chosen.sessionId}`;
   const lines = [
     `selected session ${chosen.sessionId.slice(0, 8)}`,
@@ -143,10 +146,10 @@ function formatResumeReport(chosen: ReturnType<CommandContext['listSessions']>[n
     `  model:    ${chosen.provider}/${chosen.model}`,
     `  messages: ${chosen.msgCount}`,
     '',
-    'to resume in a fresh REPL:',
+    'to resume in a fresh shell:',
     `  ${cmd}`,
     '',
-    '(in-process resume is Wave 4 work; for now /quit and run the command above.)',
+    '(in-process resume is not yet implemented — run the command above in a new shell.)',
   ];
   return lines.join('\n');
 }

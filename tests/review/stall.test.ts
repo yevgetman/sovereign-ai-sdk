@@ -9,6 +9,7 @@ function turn(partial: Partial<TurnSummary> = {}): TurnSummary {
     memoryWriteCount: 0,
     decisionCount: 0,
     toolErrorCount: 0,
+    toolCallCount: 0,
     ...partial,
   };
 }
@@ -26,15 +27,15 @@ describe('detectStall', () => {
     const r = detectStall([turn(), turn(), turn()]);
     expect(r.stalled).toBe(true);
     if (r.stalled) {
-      expect(r.reason).toContain('no edits');
+      expect(r.reason).toContain('no tool calls');
     }
   });
 
   test('three consecutive turns with only tool errors → stalled with errors reason', () => {
     const r = detectStall([
-      turn({ toolErrorCount: 2 }),
-      turn({ toolErrorCount: 1 }),
-      turn({ toolErrorCount: 3 }),
+      turn({ toolCallCount: 2, toolErrorCount: 2 }),
+      turn({ toolCallCount: 1, toolErrorCount: 1 }),
+      turn({ toolCallCount: 3, toolErrorCount: 3 }),
     ]);
     expect(r.stalled).toBe(true);
     if (r.stalled) {
@@ -52,5 +53,34 @@ describe('detectStall', () => {
     // Active turn at the start, then 3 empty — should still be stalled
     const r = detectStall([turn({ fileEditCount: 5 }), turn(), turn(), turn()]);
     expect(r.stalled).toBe(true);
+  });
+
+  // ux-fixes round 2 — research-only turns (read-only tool calls, no
+  // edits or memory writes) must count as progress so the stall warning
+  // doesn't fire while the model is exploring the codebase.
+
+  test('three turns of read-only tool calls → NOT stalled (research is progress)', () => {
+    // e.g., FileRead/Bash/Grep — toolCallCount > 0, no errors, no edits.
+    const r = detectStall([
+      turn({ toolCallCount: 4 }),
+      turn({ toolCallCount: 2 }),
+      turn({ toolCallCount: 3 }),
+    ]);
+    expect(r.stalled).toBe(false);
+  });
+
+  test('tool calls with some failures and some successes → NOT stalled', () => {
+    // 1 error out of 3 calls per turn — still making progress.
+    const r = detectStall([
+      turn({ toolCallCount: 3, toolErrorCount: 1 }),
+      turn({ toolCallCount: 3, toolErrorCount: 1 }),
+      turn({ toolCallCount: 3, toolErrorCount: 1 }),
+    ]);
+    expect(r.stalled).toBe(false);
+  });
+
+  test('mixed turns: 2 research turns + 1 truly empty turn → NOT stalled', () => {
+    const r = detectStall([turn({ toolCallCount: 5 }), turn(), turn({ toolCallCount: 2 })]);
+    expect(r.stalled).toBe(false);
   });
 });

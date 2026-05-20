@@ -274,8 +274,12 @@ func TestApp_showsThinkingIndicatorOnEnter(t *testing.T) {
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
 	view := m.View()
-	if !strings.Contains(view, "thinking") {
-		t.Errorf("thinking placeholder not rendered on ENTER: %q", view)
+	// ux-fixes round 2: spinner label is now capitalized "Thinking..."
+	// with an animated ellipsis. The presence of "Thinking" in the
+	// view proves the spinner is rendered (the dot count is animation-
+	// dependent and not relied on here).
+	if !strings.Contains(view, "Thinking") {
+		t.Errorf("Thinking spinner not rendered on ENTER: %q", view)
 	}
 }
 
@@ -1307,4 +1311,91 @@ func TestApp_SlashSkillsReloadWithServerFetchesSkills(t *testing.T) {
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestApp_idleCheckRestartsSpinnerAfterContentEvent guards the ux-fixes
+// behavior: after a text_delta clears the initial thinking spinner, the
+// scheduled idleCheckMsg should re-arm a spinner so the post-text/
+// pre-tool gap reads as "still thinking" instead of as a dead UI.
+func TestApp_idleCheckRestartsSpinnerAfterContentEvent(t *testing.T) {
+	m := New("s-idle", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	env := newTestEnvelope("text_delta", "s-idle", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-idle","block":0,"text":"intro"}`)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+
+	if m.thinkingPending {
+		t.Fatalf("text_delta should clear thinking spinner before idle check")
+	}
+
+	captured := m.deltaGen
+	model, _ = m.Update(idleCheckMsg{gen: captured})
+	m = model.(Model)
+
+	if !m.thinkingPending {
+		t.Errorf("idle check with current gen should restart spinner; thinkingPending=%v", m.thinkingPending)
+	}
+	if m.spinnerLineIdx < 0 {
+		t.Errorf("idle check should append a live spinner line; spinnerLineIdx=%d", m.spinnerLineIdx)
+	}
+}
+
+// TestApp_idleCheckDroppedWhenSupersededByNewerEvent guards the
+// stale-gen branch: when a newer SSE event arrives before the
+// idle-check tick fires, m.deltaGen advances past the captured gen
+// and the tick must no-op rather than appending an orphaned spinner.
+func TestApp_idleCheckDroppedWhenSupersededByNewerEvent(t *testing.T) {
+	m := New("s-stale", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	env1 := newTestEnvelope("text_delta", "s-stale", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-stale","block":0,"text":"part1"}`)
+	model, _ = m.Update(sseMsg{env: env1})
+	m = model.(Model)
+	stale := m.deltaGen
+
+	env2 := newTestEnvelope("text_delta", "s-stale", 2,
+		`{"type":"text_delta","seq":2,"sessionId":"s-stale","block":0,"text":"part2"}`)
+	model, _ = m.Update(sseMsg{env: env2})
+	m = model.(Model)
+
+	model, _ = m.Update(idleCheckMsg{gen: stale})
+	m = model.(Model)
+
+	if m.thinkingPending {
+		t.Errorf("stale-gen idle check must not restart spinner; thinkingPending=%v", m.thinkingPending)
+	}
+}
+
+// TestApp_idleCheckDroppedAfterTerminalEvent guards the turn-boundary
+// case: once turn_complete arrives, deltaGen advances (via
+// clearThinkingIfPending) and any pending idle-check from an earlier
+// content event must no-op so the spinner doesn't appear after the
+// turn has visibly ended.
+func TestApp_idleCheckDroppedAfterTerminalEvent(t *testing.T) {
+	m := New("s-done", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	env := newTestEnvelope("text_delta", "s-done", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-done","block":0,"text":"reply"}`)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	captured := m.deltaGen
+
+	tc := newTestEnvelope("turn_complete", "s-done", 2,
+		`{"type":"turn_complete","seq":2,"sessionId":"s-done","finishReason":"end_turn"}`)
+	model, _ = m.Update(sseMsg{env: tc})
+	m = model.(Model)
+
+	model, _ = m.Update(idleCheckMsg{gen: captured})
+	m = model.(Model)
+
+	if m.thinkingPending {
+		t.Errorf("post-turn_complete idle check must not restart spinner; thinkingPending=%v", m.thinkingPending)
+	}
 }

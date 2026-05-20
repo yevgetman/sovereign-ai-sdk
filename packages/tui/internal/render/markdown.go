@@ -87,6 +87,24 @@ var fileExtensionTailPattern = regexp.MustCompile(
 // optional indent, then "- " or "* " or "+ ".
 var listBulletPattern = regexp.MustCompile(`^(\s*[-*+]\s+)(.*)$`)
 
+// tableRowPattern matches a markdown table row: optional leading
+// whitespace, a leading `|`, at least one interior `|`, and a trailing
+// `|` (with optional trailing whitespace). Used to enable the
+// table-cell awareness pass in wrapFileRefsByLine so multi-word
+// filenames sitting in a table cell pick up the inline-code styling
+// (the token-level fileRefPattern is constrained to space-free tokens
+// and can't see "Babyboard logo circulat.png" as a single ref).
+//
+// ux-fixes round 2.
+var tableRowPattern = regexp.MustCompile(`^\s*\|.+\|.*\|\s*$`)
+
+// tableSeparatorCellPattern matches the content of a separator-row
+// cell after trimming — only dashes, colons (alignment markers), and
+// whitespace. Used to skip the `|---|:---:|---|` row that sits
+// between a table header and its body so we don't accidentally treat
+// dashes as filename content.
+var tableSeparatorCellPattern = regexp.MustCompile(`^[-:\s]+$`)
+
 // wrapFileRefs wraps detected file-reference tokens in backticks so
 // glamour renders them via the inline-Code style. Two-pass approach:
 //
@@ -131,9 +149,23 @@ func wrapFileRefsOutsideBackticks(text string) string {
 }
 
 // wrapFileRefsByLine processes a backtick-free segment line by line.
-// Bullet lines whose content ends in a recognized extension get the
-// whole content (spaces and all) wrapped. Non-bullet lines run the
-// token-level regex.
+// Three passes, in order of specificity:
+//
+//  1. Bullet lines (^- foo bar.png$) whose content ends in a
+//     recognized extension get the whole content wrapped.
+//  2. Table rows (^| ... | filename | ... |$) — for each cell whose
+//     trimmed content ends in a recognized extension, wrap that
+//     cell's trimmed content in backticks. Handles multi-word
+//     filenames in `ls`-style tables. ux-fixes round 2.
+//  3. Everything else runs the token-level fileRefPattern regex
+//     which catches paths and space-free filenames anywhere in prose.
+//
+// The passes don't conflict: bullets aren't tables aren't prose.
+// After a multi-cell table row is wrapped, the token-level pass still
+// runs on the same line (so a cell like "see /path/to/foo.go" with
+// surrounding prose still picks up its space-free ref) and skips
+// content inside the new backtick spans because fileRefPattern's
+// boundary class doesn't include backticks.
 func wrapFileRefsByLine(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
@@ -145,7 +177,12 @@ func wrapFileRefsByLine(text string) string {
 				continue
 			}
 		}
-		// Fall through: run token-level regex.
+		if tableRowPattern.MatchString(line) {
+			line = wrapFileRefsInTableRow(line)
+		}
+		// Token-level pass: catches single-token paths anywhere in
+		// prose, plus any space-free refs in table cells that the
+		// table pass left untouched.
 		lines[i] = fileRefPattern.ReplaceAllStringFunc(line, func(match string) string {
 			subs := fileRefPattern.FindStringSubmatch(match)
 			if len(subs) < 2 {
@@ -160,6 +197,35 @@ func wrapFileRefsByLine(text string) string {
 		})
 	}
 	return strings.Join(lines, "\n")
+}
+
+// wrapFileRefsInTableRow splits a markdown table row on `|` and
+// wraps each cell whose trimmed content ends in a recognized file
+// extension. Preserves leading/trailing whitespace inside each cell
+// so the table's column alignment stays intact. Separator-row cells
+// (only dashes, colons, and whitespace) are left alone.
+//
+// Returns the modified line. ux-fixes round 2.
+func wrapFileRefsInTableRow(line string) string {
+	parts := strings.Split(line, "|")
+	for i, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" || tableSeparatorCellPattern.MatchString(trimmed) {
+			continue
+		}
+		if !fileExtensionTailPattern.MatchString(trimmed) {
+			continue
+		}
+		// Already inline-code-wrapped (e.g., a model that helpfully
+		// pre-wrapped a single-token filename). Leave it alone.
+		if strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`") {
+			continue
+		}
+		leadingWS := part[:len(part)-len(strings.TrimLeft(part, " \t"))]
+		trailingWS := part[len(strings.TrimRight(part, " \t")):]
+		parts[i] = leadingWS + "`" + trimmed + "`" + trailingWS
+	}
+	return strings.Join(parts, "|")
 }
 
 // styleForTheme builds a glamour StyleConfig that picks up the active
@@ -193,6 +259,18 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	// sky-blue. Bound to a local var so we can take its address for
 	// the StylePrimitive.Color field below.
 	inlineCodeColor := "#7dd3fc"
+
+	// ux-fixes — markdown section headers (H1–H6) pin to a fixed
+	// light-blue hex rather than theme.Primary. The user reported
+	// theme.Primary (Catppuccin blue #89b4fa / Sovereign #58a6ff)
+	// rendered too dark/saturated for "## Heading" style structural
+	// markers. #bae6fd is Tailwind's sky-200 — one shade lighter than
+	// the inline-code sky-300 so headers and inline-code spans read
+	// as distinct visual elements while sharing the same "light sky
+	// blue" family. Pinning to a fixed hex (per
+	// docs/conventions/tui-color-rendering.md) ensures the chosen
+	// shade survives palette mapping across terminals and themes.
+	headingColor := "#bae6fd"
 
 	margin := uint(2)
 	listLevelIndent := uint(4)
@@ -235,49 +313,49 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		Heading: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				BlockSuffix: "\n",
-				Color:       &primary,
+				Color:       &headingColor,
 				Bold:        &bold,
 			},
 		},
 		H1: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "# ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H2: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "## ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H3: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "### ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H4: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "#### ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H5: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "##### ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H6: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "###### ",
-				Color:  &primary,
+				Color:  &headingColor,
 			},
 		},
 		Text: ansi.StylePrimitive{
