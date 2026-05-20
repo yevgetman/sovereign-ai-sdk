@@ -47,6 +47,25 @@ func TestMarkdownLightThemeRenders(t *testing.T) {
 	}
 }
 
+// TestMarkdownHeadingsAreThemeIndependent guards the ux-fixes choice:
+// H1–H6 colors are pinned to a fixed light-blue hex (sky-200 #bae6fd)
+// rather than derived from theme.Primary, so headings read as the
+// same shade across every theme. Dark.Primary (#89b4fa) and
+// Sovereign.Primary (#58a6ff) differ; if headings still tracked
+// Primary, this test would fail. A simple "## Header\n\nbody" input
+// touches only the Heading/H2 + Paragraph/Text glamour fields — all
+// other theme-derived fields (dim, success, error, code) are not
+// exercised — so the rendered output must be byte-identical across
+// themes when headings use a fixed hex.
+func TestMarkdownHeadingsAreThemeIndependent(t *testing.T) {
+	src := "## Header\n\nbody"
+	outDark := Markdown(src, theme.Dark(), 80)
+	outSov := Markdown(src, theme.Sovereign(), 80)
+	if outDark != outSov {
+		t.Errorf("markdown headings should be theme-independent (fixed light-blue hex); Dark and Sovereign produced different output:\n--- Dark:\n%q\n--- Sovereign:\n%q", outDark, outSov)
+	}
+}
+
 // M11.12 — wrapFileRefs auto-wraps file-path-shaped tokens in
 // backticks so the inline Code style applies. Tests pin the regex
 // boundaries and the backtick-respecting traversal.

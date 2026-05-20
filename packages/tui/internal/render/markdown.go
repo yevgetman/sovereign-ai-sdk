@@ -194,6 +194,18 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	// the StylePrimitive.Color field below.
 	inlineCodeColor := "#7dd3fc"
 
+	// ux-fixes — markdown section headers (H1–H6) pin to a fixed
+	// light-blue hex rather than theme.Primary. The user reported
+	// theme.Primary (Catppuccin blue #89b4fa / Sovereign #58a6ff)
+	// rendered too dark/saturated for "## Heading" style structural
+	// markers. #bae6fd is Tailwind's sky-200 — one shade lighter than
+	// the inline-code sky-300 so headers and inline-code spans read
+	// as distinct visual elements while sharing the same "light sky
+	// blue" family. Pinning to a fixed hex (per
+	// docs/conventions/tui-color-rendering.md) ensures the chosen
+	// shade survives palette mapping across terminals and themes.
+	headingColor := "#bae6fd"
+
 	margin := uint(2)
 	listLevelIndent := uint(4)
 	indent := uint(1)
@@ -235,49 +247,49 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		Heading: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				BlockSuffix: "\n",
-				Color:       &primary,
+				Color:       &headingColor,
 				Bold:        &bold,
 			},
 		},
 		H1: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "# ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H2: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "## ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H3: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "### ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H4: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "#### ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H5: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "##### ",
-				Color:  &primary,
+				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H6: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "###### ",
-				Color:  &primary,
+				Color:  &headingColor,
 			},
 		},
 		Text: ansi.StylePrimitive{
