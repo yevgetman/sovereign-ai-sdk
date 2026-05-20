@@ -74,12 +74,9 @@ describe('SettingsSchema — enum coverage', () => {
     expect(() => SettingsSchema.parse({ ui: { theme: 'solarized' } })).toThrow();
   });
 
-  test('ui.surface accepts tui | repl (M11 default-flip persistent opt-out)', () => {
-    for (const surface of ['tui', 'repl']) {
-      expect(() => SettingsSchema.parse({ ui: { surface } })).not.toThrow();
-    }
-    expect(() => SettingsSchema.parse({ ui: { surface: 'web' } })).toThrow();
-    expect(() => SettingsSchema.parse({ ui: { surface: 123 } })).toThrow();
+  test('ui.surface is no longer accepted (M13)', () => {
+    expect(() => SettingsSchema.parse({ ui: { surface: 'tui' } })).toThrow();
+    expect(() => SettingsSchema.parse({ ui: { surface: 'repl' } })).toThrow();
   });
 
   test('webSearch.provider accepts tavily | brave', () => {
