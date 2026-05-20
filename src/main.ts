@@ -1,10 +1,7 @@
 #!/usr/bin/env bun
-// CLI entry. Commander parses flags; dispatches to terminalRepl.
-//
-// Phase 5 scope: `chat` subcommand (the default) launches a streaming REPL
-// against a resolved provider. Accepts --provider, --bundle (or
-// HARNESS_BUNDLE env), --model, --max-tokens, --permission-mode, and
-// --no-cache.
+// CLI entry. Commander parses flags; bare `sov` boots the Go Bubble Tea TUI
+// via `runTuiLauncher`. Also defines the `dispatch`, `upgrade`, and other
+// subcommands.
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
@@ -199,7 +196,7 @@ async function main(argv: string[]): Promise<void> {
       // when the bare `sov` invocation triggers Commander's default action.
       if (process.argv[2] === 'chat') {
         process.stderr.write(
-          "[deprecated] 'sov chat' is going away — use bare 'sov' for the interactive REPL, or 'sov dispatch' for headless slash-command testing.\n",
+          "[deprecated] 'sov chat' is going away — use bare 'sov' for the interactive TUI, or 'sov dispatch' for headless slash-command testing.\n",
         );
       }
 
