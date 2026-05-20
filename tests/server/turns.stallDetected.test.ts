@@ -109,7 +109,12 @@ describe('turns route — stall_detected SSE event (M8 T7)', () => {
 
       expect(stallEvents.length).toBeGreaterThanOrEqual(1);
       const first = stallEvents[0];
-      expect(first?.reason).toMatch(/no edits|no decisions|no memory writes/);
+      // ux-fixes round 2: the mock now runs `false` so each iteration
+      // produces an is_error tool_result and the detector trips the
+      // "repeated tool errors" branch. The prior "no edits..." reason
+      // was tied to the all-empty branch which now requires zero tool
+      // calls and won't fire for a model that's making (failing) calls.
+      expect(first?.reason).toMatch(/repeated tool errors/);
       expect(first?.turn).toBeGreaterThanOrEqual(0);
     } finally {
       await runtime.dispose();

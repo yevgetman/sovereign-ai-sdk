@@ -244,7 +244,10 @@ describe('M8 full integration — polish-surfaces group end-to-end', () => {
       }
 
       expect(stallEvents.length).toBeGreaterThanOrEqual(1);
-      expect(stallEvents[0]?.reason).toMatch(/no edits|no decisions|no memory writes/);
+      // ux-fixes round 2: mock runs `false` so iterations trip the
+      // "repeated tool errors" branch (was "no edits..." under the old
+      // all-empty semantics — see src/providers/mock.ts header).
+      expect(stallEvents[0]?.reason).toMatch(/repeated tool errors/);
     } finally {
       await runtime.dispose();
     }

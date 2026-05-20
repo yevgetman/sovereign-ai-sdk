@@ -46,13 +46,21 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
 
   /** M8 T7 — when true, `stream()` emits a Bash tool_use on every call
    *  until the history contains `stallTargetIterations` tool_result blocks.
-   *  Each iteration is a "no edits, no memory writes, no errors" turn, so
-   *  the orchestrator's per-turn sliding window (src/core/query.ts:391)
-   *  fills with all-zero TurnSummaries and `detectStall` returns
-   *  stalled=true at iteration 3. Used by the M8 T7 stall_detected SSE
-   *  test in tests/server/turns.stallDetected.test.ts. Default target of
-   *  4 makes sure the stall fires (window=3) before the mock surrenders;
-   *  raise it if a future test needs more iterations. */
+   *
+   *  ux-fixes round 2: each iteration now runs `false` (exit code 1) so
+   *  the Bash tool_result carries `is_error: true`. detectStall's
+   *  "repeated tool errors with no progress" branch lights up after
+   *  three of these in a row. Previously the mock ran `echo` (success)
+   *  which the OLD detector flagged via the all-empty branch — that
+   *  branch now requires `toolCallCount === 0` so research tool calls
+   *  don't trip it. The new failing-command path keeps the integration
+   *  test exercising the same downstream wire (stall_detected SSE
+   *  event reaches the TUI) while matching the new "tool calls are
+   *  progress unless they all fail" semantics.
+   *
+   *  Default target of 4 makes sure the stall fires (WINDOW=3) before
+   *  the mock surrenders; raise it if a future test needs more
+   *  iterations. */
   static stallMode = false;
   static stallTargetIterations = 4;
 
@@ -136,9 +144,14 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  one final text response. Each tool call uses a fresh tool_use id
    *  (suffix = count of existing tool_results) so the orchestrator's
    *  tool_use → tool_result pairing stays well-defined across iterations.
-   *  No edits, no memory writes, no errors — exactly the input shape
-   *  detectStall's "no edits, no decisions, no memory writes for 3 turns"
-   *  branch matches. */
+   *
+   *  ux-fixes round 2: each iteration runs `false` (exit code 1) so the
+   *  Bash tool_result carries `is_error: true`. That trips detectStall's
+   *  "onlyErrors" branch (toolCallCount === toolErrorCount and no
+   *  edits/memory/decisions for 3 turns). The prior `echo iter-N`
+   *  command succeeded and tripped the old "allEmpty" branch; that
+   *  branch now requires `toolCallCount === 0` so research-only turns
+   *  aren't flagged as stalled. */
   private async *streamStall(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
     const iterations = countToolResults(req.messages);
     if (iterations >= MockProvider.stallTargetIterations) {
@@ -155,7 +168,10 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
       return assistant;
     }
     const toolId = `mock-stall-${iterations}`;
-    const toolUseInput = { command: `echo iter-${iterations}` };
+    // `false` exits with code 1 → isBashError returns true → tool_result
+    // carries is_error: true. The unique suffix keeps the iteration count
+    // visible in case the test runner ever surfaces tool inputs in logs.
+    const toolUseInput = { command: `false # iter-${iterations}` };
     yield { type: 'message_start' };
     yield { type: 'text_delta', text: 'checking.' };
     yield { type: 'tool_use_delta', id: toolId, partial: toolUseInput };

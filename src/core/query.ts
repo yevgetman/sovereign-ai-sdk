@@ -385,6 +385,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           memoryWriteCount,
           decisionCount: 0, // TODO(phase 13.3+): wire decision tracking when infrastructure lands
           toolErrorCount,
+          // ux-fixes round 2 — any tool call (read or write) counts as
+          // progress so research-only turns don't trip the stall detector.
+          toolCallCount: toolUseBlocks.length,
         };
         recentTurnSummaries.push(summary);
         if (recentTurnSummaries.length > 6) recentTurnSummaries.shift();
