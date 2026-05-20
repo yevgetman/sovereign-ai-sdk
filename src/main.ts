@@ -178,8 +178,6 @@ async function main(argv: string[]): Promise<void> {
     .option('--no-preflight', 'skip the startup provider health check')
     .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
     .option('-v, --verbose', 'show full tool-result previews instead of one-line summaries')
-    .option('--legacy-input', 'use the readline-based input (Wave-3 fallback for the new editor)')
-    .option('--ui <surface>', 'foreground surface: tui (default) or repl')
     .option(
       '--capture-fixture <path>',
       'wrap the provider + tools to record a deterministic-replay fixture at this path on session end',
@@ -204,71 +202,16 @@ async function main(argv: string[]): Promise<void> {
           "[deprecated] 'sov chat' is going away — use bare 'sov' for the interactive REPL, or 'sov dispatch' for headless slash-command testing.\n",
         );
       }
-      // Phase 16.1 M11: resolve the foreground surface via
-      // CLI > env SOV_UI > config ui.surface > 'tui' default.
-      const { resolveSurface } = await import('./cli/surfaceResolver.js');
-      const resolution = resolveSurface({
-        cliFlag: typeof opts.ui === 'string' ? opts.ui : undefined,
-        env: process.env,
-        config: readConfig(),
-      });
 
-      // M12 — REPL deprecation warning. Fires when the user explicitly
-      // opted into --ui repl / SOV_UI=repl / ui.surface=repl. Stays
-      // silent on the missing-binary fallback below because that path
-      // doesn't change resolution.surface (only effectiveSurface).
-      // ADR M12-01.
-      if (resolution.surface === 'repl') {
-        const { formatReplDeprecationMessage } = await import('./cli/replDeprecation.js');
-        const msg = formatReplDeprecationMessage({
-          source: resolution.source,
-          env: process.env,
-        });
-        if (msg !== null) process.stderr.write(msg);
+      const { findTuiBinary, runTuiLauncher } = await import('./cli/tuiLauncher.js');
+      if (findTuiBinary() === null) {
+        process.stderr.write('sov: sov-tui binary not found. Install with:\n');
+        process.stderr.write('     bun pm -g trust @yevgetman/sov && sov upgrade\n');
+        process.exit(1);
       }
 
-      let effectiveSurface = resolution.surface;
-
-      // Missing-binary fallback: when the resolved surface is 'tui' but
-      // sov-tui isn't installed, fall back to the readline REPL with a
-      // one-time stderr warning. Preserves the soft-degradation safety
-      // net users had pre-M11 when --ui tui was opt-in.
-      if (effectiveSurface === 'tui') {
-        const { findTuiBinary } = await import('./cli/tuiLauncher.js');
-        if (findTuiBinary() === null) {
-          process.stderr.write('sov: sov-tui binary not found — falling back to readline REPL.\n');
-          process.stderr.write(
-            '     to enable the TUI, run `bun pm -g trust @yevgetman/sov && sov upgrade`.\n',
-          );
-          effectiveSurface = 'repl';
-        }
-      }
-
-      if (effectiveSurface === 'tui') {
-        const { runTuiLauncher } = await import('./cli/tuiLauncher.js');
-        const code = await runTuiLauncher(opts);
-        process.exit(code);
-      }
-      const bundlePath = resolveBundlePath(opts.bundle);
-      const { runRepl } = await import('./ui/terminalRepl.js');
-      await runRepl({
-        ...(bundlePath !== null ? { bundlePath } : {}),
-        ...(opts.provider !== undefined ? { providerName: opts.provider } : {}),
-        ...(opts.model !== undefined ? { model: opts.model } : {}),
-        maxTokens: opts.maxTokens,
-        permissionMode: opts.permissionMode,
-        ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
-        ...(opts.db !== undefined ? { dbPath: opts.db } : {}),
-        ...(opts.cache === false ? { noCache: true } : {}),
-        preflight: opts.preflight !== false,
-        ...(opts.transcript !== undefined ? { transcriptPath: opts.transcript } : {}),
-        ...(opts.verbose === true ? { verbose: true } : {}),
-        ...(opts.legacyInput === true ? { legacyInput: true } : {}),
-        ...(opts.captureFixture !== undefined ? { captureFixturePath: opts.captureFixture } : {}),
-        ...(opts.replayFixture !== undefined ? { replayFixturePath: opts.replayFixture } : {}),
-        ...(opts.agent !== undefined ? { agentName: opts.agent } : {}),
-        ...(opts.stateDir !== undefined ? { stateDir: opts.stateDir } : {}),
-      });
+      const code = await runTuiLauncher(opts);
+      process.exit(code);
     });
 
   program
