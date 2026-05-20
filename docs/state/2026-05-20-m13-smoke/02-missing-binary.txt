@@ -1,0 +1,18 @@
+Scenario 2: sov-tui binary missing → hard error
+Method: temporarily renamed /Users/julie/.bun/install/global/node_modules/@yevgetman/sov/bin/sov-tui
+        to sov-tui.hidden-smoke-test, ran sov from /tmp, restored binary.
+        (PATH manipulation would not affect resolution — tuiLauncher does
+         no PATH lookup; it uses SOV_TUI_BIN override + upward-walk from
+         the module's install dir, which always finds the sibling bin/.)
+---STDOUT---
+---STDERR---
+sov: sov-tui binary not found. Install with:
+     bun pm -g trust @yevgetman/sov && sov upgrade
+---
+exit=1
+---
+Verdict: PASS
+  - stderr contains 'sov: sov-tui binary not found. Install with:': YES
+  - stderr contains 'bun pm -g trust @yevgetman/sov && sov upgrade': YES
+  - exit code 1: YES
+  - binary restored cleanly post-test: YES

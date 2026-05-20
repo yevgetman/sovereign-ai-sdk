@@ -1,0 +1,13 @@
+Scenario 1: bare `sov` boots Go TUI
+Command: script -q /tmp/sov-s1-tty.txt /bin/bash -c 'sov & sleep 2.5; kill -TERM $!'
+---
+Captured output (cat -v showing escape codes):
+^D^H^Hsov: tui server listening on 127.0.0.1:58067 session=96a6fa09-924b-4af1-87b3-19fa9f0b4660^M
+^[[?25l^[[?1049h^[[2J^[[H^[[?25l^[[?2004h^[[?1002h^[[?1006h^[[H^M ^[[Hexit=143^M
+---
+Analysis: output contains:
+  - 'tui server listening' on 127.0.0.1: YES (sov launched HTTP server for TUI)
+  - alt-screen enter sequence (ESC[?1049h): YES (Go TUI booted into alt buffer)
+  - mouse tracking enable (ESC[?1002h): YES (Bubble Tea init)
+---
+Verdict: PASS — bare sov boots the Go TUI (not REPL, not error)

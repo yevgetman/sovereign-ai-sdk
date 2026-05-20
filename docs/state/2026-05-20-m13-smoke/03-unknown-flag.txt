@@ -1,0 +1,12 @@
+Scenario 3: --ui repl → Commander rejects unknown option
+Command: sov --ui repl
+---STDOUT---
+---STDERR---
+error: unknown option '--ui'
+---
+exit=1
+
+Verdict: PASS
+  - stderr contains 'error: unknown option \'--ui\'': YES
+  - exit code 1: YES
+  - confirms --ui flag was removed in M13 T1
