@@ -848,3 +848,56 @@ The strict-equal-`'1'` semantics are intentional: `'0'`, empty string, `'true'`,
 Alternatives rejected: (a) `ui.suppressDeprecationWarning` config field — schema thrash for a one-milestone affordance; also commits the surface to the config schema's API contract. (b) No suppression at all — power users / scripted CI / users who can't migrate yet need an escape hatch; without one, the warning becomes noise users learn to ignore, devaluing future warnings. (c) Per-session in-memory acknowledgement (warning shown once then never again) — requires persistent state on disk for a one-line warning; overengineered.
 
 Status: implemented (M12 — `src/cli/replDeprecation.ts:36`). Spec: §4.1 + §6. Tests: `tests/cli/replDeprecation.test.ts` pins both the suppression-via-`'1'` and the no-suppression-for-other-values invariants. Smoke verified: scenario 04 at `docs/state/2026-05-19-m12-smoke/04-suppression-flag-silences-warning.transcript.txt` confirms the warning is absent when `SOV_NO_DEPRECATION_WARNING=1` is set alongside `--ui repl`.
+
+## ADR M13-01 — Missing-binary fallback = hard error
+
+Decision: When `sov` boots and `findTuiBinary()` returns null (the postinstall script wasn't trusted, or Go ≥ 1.24 wasn't available at install time), `src/main.ts` writes a one-line stderr message with the install command and exits 1. There is no fallback surface. The M11 auto-fallback to readline REPL (ADR M11-02) is reversed by M13.
+
+Rationale: With the readline REPL gone (the entire raison d'être of M13's deletion sweep), there is nothing to fall back to. Hard-erroring with the install command is the only honest behavior. The behavior is intentionally non-recoverable: `bun pm -g trust @yevgetman/sov && sov upgrade` is the documented remediation path; users see it in the error message itself. With no active users besides the author, the "bad first-install UX" concern that motivated M11's auto-fallback (ADR M11-02's rationale) no longer applies — the author can re-trust the package and `sov upgrade` in 30 seconds. Postmortem Rule 4's escape-hatch requirement is N/A per spec §3 (the rule protects active users; without any, there's nothing to protect).
+
+Behavior:
+```
+$ sov
+sov: sov-tui binary not found. Install with:
+     bun pm -g trust @yevgetman/sov && sov upgrade
+$ echo $?
+1
+```
+
+Alternatives rejected: (a) Keep M11's REPL fallback — defeats the entire purpose of M13 (the REPL is gone). (b) Fallback to a different surface (e.g., a minimal printf-based interaction loop) — invents a new surface to maintain in place of the one being deleted; same cost, no benefit. (c) Auto-install sov-tui on missing — opaque, slow, and outside the package's installer contract; also assumes Go ≥ 1.24 on PATH, which is exactly the failure mode the user is hitting.
+
+Status: implemented (M13 — `1281222` (T1 collapse main.ts boot flow) + `d557877` (T1 post-review main.ts header refresh)). Spec: `docs/specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md` §5 (ADR M13-01) + §6 (new main.ts boot flow). Smoke verified: scenario 02 at `docs/state/2026-05-20-m13-smoke/02-missing-binary.txt` confirms exit 1 + the install-command stderr line when the binary is moved aside.
+
+## ADR M13-02 — Drop `ui.surface` from config schema
+
+Decision: Remove the `surface: z.enum(['tui', 'repl']).optional()` field from `UiSchema` at `src/config/schema.ts`. The broader `ui` object (theme, footer, diffRender, contextMeter, toolOutput) survives unchanged. Zod's `.strict()` mode on `UiSchema` means existing configs that still carry `ui.surface: "repl"` will fail to parse at boot — no migration preprocessor is added.
+
+Rationale: With one valid surface, the field carries no information. Keeping it as accepted-but-ignored config surface would mislead users into thinking it has an effect ("did I spell it wrong? why doesn't the REPL come back?"). The strict-mode rejection is a feature, not a bug: it surfaces the stale field to the only user (the author) so the config gets cleaned up; the cost is a single edit to one file the author owns. With no active users, no migration preprocessor is needed; a downstream-consumer-aware migration would have been a tolerant preprocessor that strips the field with a one-time stderr warning, but that machinery would outlive its usefulness.
+
+Side effect: The test case at `tests/config/schema.test.ts` that exercised both `'tui'` and `'repl'` as valid surface values is deleted with the field. The remaining `UiSchema` tests (theme, footer, etc.) survive.
+
+Alternatives rejected: (a) Keep the field as accepted-but-unused — see above; misleading. (b) Add a tolerant preprocessor that strips `ui.surface` with a warning — buys migration politeness for users that don't exist; pure scope expansion. (c) Add a Zod refinement that rejects `ui.surface: "repl"` specifically (allowing `"tui"` for backward compat) — half-measure that still keeps the field documented as valid input; cleaner to delete it.
+
+Status: implemented (M13 — `24bbf45` (T7 drop ui.surface from schema)). Spec: §5 (ADR M13-02). The test deletion is bundled in the same commit. No migration preprocessor added.
+
+## ADR M13-03 — Drop `--ui` flag + `SOV_UI` env handling entirely
+
+Decision: Remove the `.option('--ui <surface>', ...)` declaration from `src/main.ts`. Remove all reads of the `SOV_UI` environment variable. Remove all handling of the `SOV_NO_DEPRECATION_WARNING` environment variable (which only existed to suppress the M12 warning that no longer exists). Commander now rejects `--ui <anything>` as an unknown CLI option with its default error message and non-zero exit; `SOV_UI` in the environment is silently ignored.
+
+Rationale: Cleaner CLI surface. The `--ui` flag never had a non-default valid value besides `repl`, which is gone. `SOV_UI=tui` was redundant with the new default (M11 default-flip). `SOV_NO_DEPRECATION_WARNING` was paired 1-to-1 with the M12 warning; both retire together. With no active users, the author can update shell rc and any per-invocation aliases in seconds; with a real user base, a one-version "flag accepted but ignored with deprecation warning" period would have been worth the cost.
+
+Alternatives rejected: (a) Keep `--ui` accepted but only allow `--ui tui` — same logical issue as M13-02's "tolerant accepted-but-unused" rejected alternative; misleading and pure cruft. (b) Keep `SOV_UI` for backward compat with shell rc — invisible compatibility surface that the author has to remember exists; the value can be removed from shell rc in the same minute as upgrading. (c) Soft-warn on `SOV_UI` set in env — punishes the user with stderr noise on every boot until they fix their rc; harder to debug than a silent ignore.
+
+Status: implemented (M13 — `1281222` (T1 collapse main.ts boot flow drops the option + env reads) + `d597037` (T3 deletes `replDeprecation.ts` removing the `SOV_NO_DEPRECATION_WARNING` consumer)). Spec: §5 (ADR M13-03). Smoke verified: scenario 03 at `docs/state/2026-05-20-m13-smoke/03-unknown-flag.txt` confirms Commander's "unknown option" rejection on `sov --ui repl`.
+
+## ADR M13-04 — Delete `src/cli/surfaceResolver.ts` outright
+
+Decision: Delete `src/cli/surfaceResolver.ts` and `tests/cli/surfaceResolver.test.ts`. The one main.ts call site that consumed the resolver — `resolveSurface(...)` — is replaced with a direct `findTuiBinary() === null` check inline. The four-layer precedence logic (ADR M11-01: CLI > env SOV_UI > config ui.surface > 'tui') becomes moot once the three non-default layers are gone (ADRs M13-02, M13-03).
+
+Rationale: A resolver that resolves to one value isn't a resolver. The module was 77 lines + a 178-line test file; both become dead code after M13-02 + M13-03. Inlining the one remaining decision ("is the TUI binary present?") into `src/main.ts` keeps the boot flow visible at the call site, removes an indirection that adds nothing, and brings the post-M13 main.ts boot flow to ~13 lines (down from ~65 post-M12).
+
+Postmortem Rule 1's "no helper deletion without consumer audit" (Rule 2 in the postmortem doc, restated colloquially as Rule 1 in some places) is satisfied: `resolveSurface` had exactly one caller (`src/main.ts`), which is being rewritten in the same commit chain (T1) before the resolver is deleted (T4). No surviving caller, by construction.
+
+Alternatives rejected: (a) Keep the resolver as a one-line wrapper that just returns 'tui' — pure dead indirection. (b) Move the `findTuiBinary` check into the resolver so it has a single non-trivial behavior — couples binary detection to surface resolution for no benefit; `findTuiBinary` already lives in `tuiLauncher.ts` where it belongs. (c) Rename + repurpose the resolver as a generic "boot precondition checker" — over-generalization; if a future need for that arises, the resolver can be reintroduced with that scope.
+
+Status: implemented (M13 — `da5dbfa` (T4 delete surfaceResolver + test) — depends on `1281222` (T1) which rewires main.ts off the resolver first). Spec: §5 (ADR M13-04). Independent parity audit (T10) confirmed no surviving symbol-reference to `resolveSurface` or `surfaceResolver` anywhere in `src/` or `tests/`.

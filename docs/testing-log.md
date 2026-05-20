@@ -8,6 +8,34 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-20 — Phase 16.1 M13 close-out (terminalRepl removal complete; Phase 16.1 closed)
+
+**Scope:** Session close-out commit for M13 — the final milestone of the Phase 16.1 foreground-surface rebuild arc. State snapshot + 4 ADRs + CLAUDE.md/AGENTS.md index updates + backlog sync. No code changes in this commit (T11 smoke and T10 audit fix already landed; this is the documentation close-out per T12 of the M13 plan).
+
+**Files touched:**
+- `docs/state/2026-05-20-m13.md` — new state snapshot (canonical current-state).
+- `DECISIONS.md` — appended 4 ADRs M13-01..04 (missing-binary = hard error; drop `ui.surface`; drop `--ui` + `SOV_UI` + `SOV_NO_DEPRECATION_WARNING`; delete `surfaceResolver.ts`).
+- `CLAUDE.md` — boot-block bullet 3 rewired to M13 snapshot; Current-state table gains M13 + M13-smoke rows at top; Forward-looking specs gains M11.5 / M12 / M13 spec links; backlog header notes Phase 16.1 closed.
+- `AGENTS.md` — byte-identical mirror of CLAUDE.md (verified via `diff`).
+- `docs/backlog/post-phase-13-4.md` — "Last sync" header refreshed with M13 close-out; predecessor chain preserved.
+- `docs/testing-log.md` — this entry.
+
+**Gate:** `bun run lint && bun run typecheck && bun run test`. Lint clean (the two `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` are pre-existing — file untouched). Typecheck clean. Suite **1949 pass / 14 skip / 0 fail** — identical to the T11 smoke-landing HEAD `14ae749`.
+
+**Smoke:** **4/4 PASS** at `docs/state/2026-05-20-m13-smoke/` (scripted during T11; this close-out commit doesn't re-run them — they're committed artifacts):
+- 01: bare `sov` → TUI splash visible.
+- 02: `sov-tui` binary moved aside → exit 1 + stderr "sov-tui binary not found" + install command (ADR M13-01).
+- 03: `sov --ui repl` → Commander's "unknown option" error, non-zero exit (ADR M13-03).
+- 04: `sov dispatch` 2-prompt round-trip → no boot-path collateral damage on headless mode.
+
+**ADRs landed:** 4 (M13-01..04). All four lock the spec §5 decisions.
+
+**Parity audit:** 4-Opus parallel per plan §10 — subagent 1 verified no surviving caller references a deleted symbol; subagent 2 verified no surviving test imports a deleted module; subagent 3 verified no doc claim contradicts the new boot flow; subagent 4 verified the schema strict-mode behavior matches ADR M13-02. All 4 reports clean. One LOW finding fixed inline via T10 (`593d915`): the literal "REPL" noun in 4 user-visible strings, now scrubbed.
+
+**Notable totals (M13 arc):** Net deletion ~3700 lines across T1-T11 (terminalRepl 2334 + 9 orphan modules ~700 + their tests ~400 + surfaceResolver 77 + its test 178 + replDeprecation helper + test + buildReadlineAsker bits — partially offset by ~100 lines of main.ts rewiring + comment-prose replacements). Suite delta: 2073 → 1949 (-124 active tests, matching the deleted test files; expected range per spec §7 was ~80–125).
+
+**Closes:** T12 of the Phase 16.1 M13 plan. **Phase 16.1 is now closed.** Open backlog after M13: #17 (P4 conditional eval-gated auto-promote) — only matters with `settings.review.autoPromote=true`. Next milestone TBD; possible directions per the M13 state snapshot's "What's open / what's next" section.
+
 ## 2026-05-20 — Phase 16.1 M13 T9: docs sweep of stale terminalRepl references
 
 **Scope:** Docs-only commit removing `--ui` / `SOV_UI` / `ui.surface` references from README and `docs/usage.md`, and cleaning code comments that pointed at `src/ui/terminalRepl.ts:NNN` (now deleted in M13).
