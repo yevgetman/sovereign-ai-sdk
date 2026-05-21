@@ -79,6 +79,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/specs/2026-05-19-phase-16-1-m11-5-inline-picker-card-design.md`](docs/specs/2026-05-19-phase-16-1-m11-5-inline-picker-card-design.md) | M11.5 inline picker card design spec |
 | [`docs/specs/2026-05-19-phase-16-1-m12-repl-deprecation-design.md`](docs/specs/2026-05-19-phase-16-1-m12-repl-deprecation-design.md) | M12 REPL deprecation design spec |
 | [`docs/specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md`](docs/specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md) | M13 terminalRepl removal design spec (just shipped — Phase 16.1 closed) |
+| [`docs/specs/2026-05-21-binary-distribution-design.md`](docs/specs/2026-05-21-binary-distribution-design.md) | Phase 21 binary distribution design — `bun build --compile` + Go cross-compile + public `sov-releases` repo + one-line installer script; M1 manual pipeline, M2 GitHub Actions automation |
 | [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-19-phase-16-1-m13-terminalrepl-removal.md` |
 
 ### Postmortems — required reading before similar work
