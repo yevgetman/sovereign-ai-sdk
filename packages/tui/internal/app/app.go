@@ -139,6 +139,36 @@ type Model struct {
 	spinnerLabel     string                     // M11.2: current spinner label ("thinking", "expanding /name", etc.)
 	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
 	deltaGen         int                        // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
+	userCancelledTurn bool                      // ux-fixes round 4: ESC triggered POST /cancel — suppress the subsequent turn_error warning since we already showed "(interrupted by user)"
+	// pastingBuffer accumulates content from consecutive paste-flagged
+	// KeyMsgs (bubbletea reports bracketed-paste content as a sequence
+	// of small KeyMsgs each carrying msg.Paste=true). When a non-paste
+	// KeyMsg arrives, the accumulated buffer is committed to the
+	// prompt — abstracted into a "[Pasted text #N +M lines]"
+	// placeholder if large enough, otherwise inserted verbatim.
+	// ux-fixes round 4 (claude-code-example.png).
+	pastingBuffer string
+}
+
+// cancelTurnCmd issues POST /sessions/:id/cancel off the Update
+// goroutine. Result is dropped — the server's turn_error / turn_complete
+// SSE event drives the actual UI state transition; this Cmd just trips
+// the abort. ux-fixes round 4.
+type cancelResultMsg struct{}
+
+func (m Model) cancelTurnCmd() tea.Cmd {
+	if m.baseURL == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		// Errors are swallowed deliberately. If the cancel HTTP call
+		// fails, the worst case is the user still sees the turn_error
+		// when the server finishes normally (or hits its own timeout).
+		// Nothing actionable to show — the dim "(interrupted by user)"
+		// line already informed the user.
+		_, _ = transport.PostCancel(m.ctx, m.baseURL, m.sessionID)
+		return cancelResultMsg{}
+	}
 }
 
 // spinnerTickMsg is dispatched by the spinner's recurring tea.Tick. The
@@ -457,6 +487,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		// ux-fixes round 4 — bracketed-paste handling. Bubbletea reports
+		// the contents of a paste as a sequence of KeyMsg events each
+		// flagged with msg.Paste=true (a paste chunk per terminal
+		// input read; multi-line pastes also include KeyEnter events
+		// flagged Paste=true between line fragments). We accumulate
+		// these into m.pastingBuffer until the next non-paste event
+		// arrives, then decide whether to abstract or inline-insert.
+		// The accumulator MUST be flushed before the new event is
+		// dispatched so the inserted placeholder lands before any
+		// downstream key handling consumes the focus.
+		if msg.Paste {
+			switch msg.Type {
+			case tea.KeyRunes:
+				m.pastingBuffer += string(msg.Runes)
+			case tea.KeyEnter:
+				m.pastingBuffer += "\n"
+			case tea.KeySpace:
+				m.pastingBuffer += " "
+			case tea.KeyTab:
+				m.pastingBuffer += "\t"
+			}
+			return m, nil
+		}
+		if m.pastingBuffer != "" {
+			content := m.pastingBuffer
+			m.pastingBuffer = ""
+			if !m.prompt.RegisterPaste(content) {
+				// Below the abstraction threshold — inject verbatim.
+				m.prompt.InsertString(content)
+			}
+			// Recompute layout in case the placeholder + any prior
+			// content bumped the textarea height past the previous
+			// row count.
+			m.recomputeLayout()
+			m.autocomplete.SetFilter(m.prompt.Value())
+			// Continue down the switch with the current (non-paste)
+			// keystroke — the user's still typing.
+		}
 		// M5 T9: when a permission modal is active, route ALL keys to it
 		// (including Esc and Enter — the modal treats both as "deny"). The
 		// modal sets done=true after the user's choice, after which it is
@@ -520,6 +588,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// ux-fixes round 4 — transcript scroll bindings. After round 3
+		// disabled mouse capture by default, wheel-scroll no longer
+		// reached the transcript viewport. Keyboard scroll keys keep
+		// the viewport reachable without re-enabling mouse capture.
+		// Chosen keys avoid every textarea KeyMap binding so the prompt
+		// editor still gets plain up/down/ctrl+u/ctrl+d for cursor +
+		// delete operations:
+		//   pgup / pgdown            — page scroll (viewport native)
+		//   shift+up / shift+down    — single-row scroll (translated
+		//                              to up/down so the viewport's
+		//                              default keymap fires)
+		switch msg.String() {
+		case "pgup", "pgdown":
+			var cmd tea.Cmd
+			m.transcript, cmd = m.transcript.Update(msg)
+			return m, cmd
+		case "shift+up":
+			var cmd tea.Cmd
+			m.transcript, cmd = m.transcript.Update(tea.KeyMsg{Type: tea.KeyUp})
+			return m, cmd
+		case "shift+down":
+			var cmd tea.Cmd
+			m.transcript, cmd = m.transcript.Update(tea.KeyMsg{Type: tea.KeyDown})
+			return m, cmd
+		}
 		// M9 T8 — autocomplete popup routing. When visible, Tab/Enter/Esc/Up/Down
 		// route here BEFORE the regular prompt input; other keys fall
 		// through to the prompt update which then re-filters via SetFilter.
@@ -567,16 +660,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// handler below so the filled command actually submits.
 			}
 		}
-		if key := msg.String(); key == "esc" || key == "ctrl+c" {
+		// ux-fixes round 4 — ESC behavior split. Ctrl+C still tears down
+		// the session. ESC during a streaming turn fires the per-turn
+		// cancel endpoint and stays alive so the user can pivot
+		// mid-flight (matches Claude Code). ESC while idle is a no-op
+		// — explicit quit goes through Ctrl+C or /quit.
+		if msg.String() == "ctrl+c" {
 			m.cancel()
 			return m, tea.Quit
+		}
+		if msg.Type == tea.KeyEsc {
+			// Streaming = turn in flight on the server. thinkingPending
+			// is set at submit time and may have already been cleared by
+			// the first text_delta — checking both gives the broadest
+			// "turn in flight" window so ESC works during both the
+			// pre-content thinking wait and active streaming.
+			if m.statusLine.Streaming || m.thinkingPending {
+				m.userCancelledTurn = true
+				m.transcript.AppendLine(
+					m.theme.DimStyle().Render("(interrupted by user)"),
+				)
+				m.clearThinkingIfPending()
+				return m, m.cancelTurnCmd()
+			}
+			return m, nil
 		}
 		// ux-fixes round 3 — Alt+Enter and Ctrl+J insert a real newline
 		// into the prompt textarea instead of submitting. They flow
 		// through to the textarea via the catch-all delegation at the
 		// bottom of this branch. Plain Enter remains the submit key.
 		if msg.Type == tea.KeyEnter && !msg.Alt {
-			text := strings.TrimSpace(m.prompt.Value())
+			// ux-fixes round 4 — expand any "[Pasted text #N +M lines]"
+			// placeholders back to the original pasted content before
+			// trimming and dispatch. The user composed against the
+			// abstracted view; the server / model see the real text.
+			text := strings.TrimSpace(m.prompt.ExpandPastes(m.prompt.Value()))
 			if text == "" {
 				return m, nil
 			}
@@ -1205,6 +1323,17 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			return nil
 		}
 		m.clearThinkingIfPending()
+		// ux-fixes round 4 — when the user triggered the abort via ESC
+		// (POST /cancel), the server's catch block emits a turn_error
+		// carrying the AbortError message. We already displayed
+		// "(interrupted by user)" inline before firing the cancel —
+		// stack a red "⚠ turn error: AbortError" on top would be
+		// misleading. Swallow this one turn_error and reset the flag so
+		// the next genuine error (next turn) renders normally.
+		if m.userCancelledTurn {
+			m.userCancelledTurn = false
+			return nil
+		}
 		errStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#f7768e")).
 			Bold(true)
@@ -1213,6 +1342,11 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			m.transcript.AppendLine(errStyle.Render("  (non-recoverable)"))
 		}
 	case "turn_complete":
+		// ux-fixes round 4 — clear any pending userCancelledTurn flag.
+		// If the user pressed ESC but the turn completed normally
+		// before the abort propagated, we don't want the next genuine
+		// error to be swallowed.
+		m.userCancelledTurn = false
 		tc, err := transport.DecodeTurnComplete(env.Raw)
 		if err != nil {
 			// Schema parse failed — still surface a separator so the

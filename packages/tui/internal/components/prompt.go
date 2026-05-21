@@ -23,6 +23,9 @@
 package components
 
 import (
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -37,6 +40,24 @@ import (
 // crushing the transcript above.
 const maxPromptHeight = 8
 
+// pasteAbstractMinLines is the threshold at which a pasted block gets
+// abstracted into a "[Pasted text #N +M lines]" placeholder instead of
+// being inserted verbatim. ux-fixes round 4 — matches the Claude Code
+// behavior the user referenced (claude-code-example.png).
+const pasteAbstractMinLines = 2
+
+// pasteAbstractMinChars is the secondary threshold — a single-line
+// paste shorter than this is inserted verbatim regardless of newline
+// count. Prevents 2 short lines (e.g., "yes\nno") from getting
+// awkwardly abstracted; keeps the abstraction reserved for genuine
+// "long block" pastes.
+const pasteAbstractMinChars = 200
+
+// pastePlaceholderPattern matches "[Pasted text #N +M lines]" with two
+// integer captures. Used by ExpandPastes to find and substitute each
+// placeholder back to the original content on submit.
+var pastePlaceholderPattern = regexp.MustCompile(`\[Pasted text #(\d+) \+(\d+) lines?\]`)
+
 type Prompt struct {
 	ta    textarea.Model
 	width int
@@ -44,12 +65,28 @@ type Prompt struct {
 	// border + padding (left + right). Used to derive the textarea's
 	// inner width from the prompt's outer width.
 	boxOverhead int
+	// pasteBuffers holds the original content of each abstracted
+	// paste, indexed by ID (placeholder "#1" → pasteBuffers[0]). On
+	// submit the prompt's Value() can be passed through ExpandPastes
+	// to reconstruct the full text. Cleared on Clear so a new
+	// composition session starts fresh. ux-fixes round 4.
+	pasteBuffers []string
 }
 
 func NewPrompt() Prompt {
 	ta := textarea.New()
 	ta.Placeholder = "type a message..."
-	ta.Prompt = "› "
+	// ux-fixes round 4 (ux1.png feedback): bubble textarea's Prompt
+	// field renders on EVERY visible row. We only want "› " on the
+	// first row of a multi-line input; subsequent rows indent with
+	// blank space to match the prompt column. SetPromptFunc lets us
+	// vary the rendered prompt per line index.
+	ta.SetPromptFunc(2, func(lineIdx int) string {
+		if lineIdx == 0 {
+			return "› "
+		}
+		return "  "
+	})
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0 // no limit
 	ta.MaxHeight = maxPromptHeight
@@ -110,10 +147,69 @@ func (p Prompt) Value() string {
 }
 
 // Clear empties the buffer and collapses the textarea back to a single
-// row. Called by app.go after a successful submit.
+// row. Called by app.go after a successful submit. Also drops any
+// accumulated paste buffers — those are scoped to the composition
+// session that just ended.
 func (p *Prompt) Clear() {
 	p.ta.Reset()
 	p.ta.SetHeight(1)
+	p.pasteBuffers = nil
+}
+
+// RegisterPaste ingests a pasted block and inserts an abstracted
+// placeholder into the textarea at the cursor position. Returns true
+// when the paste was abstracted; false when it was too small to
+// warrant abstraction (caller should insert verbatim instead). The
+// placeholder format mirrors Claude Code's "[Pasted text #N +M
+// lines]" so users moving between the two surfaces see a consistent
+// affordance. ux-fixes round 4.
+func (p *Prompt) RegisterPaste(content string) bool {
+	if content == "" {
+		return false
+	}
+	lineCount := strings.Count(content, "\n") + 1
+	if lineCount < pasteAbstractMinLines && len(content) < pasteAbstractMinChars {
+		return false
+	}
+	p.pasteBuffers = append(p.pasteBuffers, content)
+	id := len(p.pasteBuffers)
+	placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", id, lineCount)
+	p.ta.InsertString(placeholder)
+	p.ta.SetHeight(p.computeHeight())
+	return true
+}
+
+// InsertString writes raw text at the cursor position. Used for
+// short pastes (below the abstraction threshold) that RegisterPaste
+// declined to handle, and for any other in-cursor text injection
+// callers want to perform.
+func (p *Prompt) InsertString(s string) {
+	p.ta.InsertString(s)
+	p.ta.SetHeight(p.computeHeight())
+}
+
+// ExpandPastes walks `value` and replaces each "[Pasted text #N +M
+// lines]" marker with the original content registered under that id.
+// Markers that don't resolve (out-of-range id, no buffers, partial
+// edit) are left in place as literal text — the submit goes through
+// with the broken marker rather than dropping content. App.go's
+// submit handler passes m.prompt.Value() through this before POSTing
+// to /turns. ux-fixes round 4.
+func (p Prompt) ExpandPastes(value string) string {
+	if len(p.pasteBuffers) == 0 {
+		return value
+	}
+	return pastePlaceholderPattern.ReplaceAllStringFunc(value, func(match string) string {
+		subs := pastePlaceholderPattern.FindStringSubmatch(match)
+		if len(subs) < 3 {
+			return match
+		}
+		id, err := strconv.Atoi(subs[1])
+		if err != nil || id < 1 || id > len(p.pasteBuffers) {
+			return match
+		}
+		return p.pasteBuffers[id-1]
+	})
 }
 
 // SetValue replaces the buffer verbatim and parks the cursor at the

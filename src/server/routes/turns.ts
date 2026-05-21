@@ -246,6 +246,16 @@ async function runTurnInBackground(
   // sessionId for turn_error attribution (the value at the moment of throw —
   // pre-hop if compact() throws, post-hop if query() throws afterwards).
   let sessionId = sessionIdInitial;
+  // ux-fixes round 4 — per-turn AbortController. Registered on the bus
+  // so the POST /sessions/:id/cancel route can fire it. The signal
+  // passed to query() combines the bus-level signal (fires on SSE
+  // disconnect / server.stop) with this turn-level signal (fires on
+  // explicit user cancel) so either path stops the in-flight provider
+  // stream + tool loop. The controller is cleared in the finally
+  // block below so a fresh controller is allocated per turn.
+  const turnAbort = new AbortController();
+  bus.setCurrentTurnAbort(turnAbort);
+  const turnSignal = AbortSignal.any([bus.abortSignal, turnAbort.signal]);
   // M7 T3 — per-session trace writer. The context is fetched (and lazily
   // built) up-front and re-fetched after each compaction pivot below so
   // the post-pivot trace events land in the child's trace file. The
@@ -398,7 +408,7 @@ async function runTurnInBackground(
         threshold: runtime.proactiveCompactThreshold,
       })
     ) {
-      const result = await runtime.compact(messages, sessionId, bus.abortSignal);
+      const result = await runtime.compact(messages, sessionId, turnSignal);
       // Backlog #36: when the entire history fit within the tail budget,
       // compactSession returns a no-op (parentSessionId === newSessionId,
       // noOp: true) — there's no new child id to pivot onto and no SSE
@@ -496,7 +506,7 @@ async function runTurnInBackground(
         maxTokens: runtime.maxTokens,
         sessionId,
         cwd: runtime.cwd,
-        signal: bus.abortSignal,
+        signal: turnSignal,
         // Session-scoped canUseTool: the `ask` callback emits a
         // permission_request event on this session's bus and awaits the
         // matching POST /approvals/:requestId. Replaces the runtime-level
@@ -623,7 +633,7 @@ async function runTurnInBackground(
     // retry (not all per-turn compactions). The third test in
     // tests/server/turns.overflowRecovery.test.ts pins the two-event shape.
     if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
-      const compactResult = await runtime.compact(messages, sessionId, bus.abortSignal);
+      const compactResult = await runtime.compact(messages, sessionId, turnSignal);
       // Backlog #36: a no-op result here means compaction couldn't free up
       // any headroom (entire history already fit in the tail budget — the
       // overflow was driven by the system prompt or a single oversized
@@ -769,6 +779,11 @@ async function runTurnInBackground(
       error: err instanceof Error ? err.message : String(err),
       recoverable: false,
     });
+  } finally {
+    // ux-fixes round 4 — clear the per-turn abort registration so the
+    // next POST /turns allocates a fresh controller. Idempotent; safe
+    // even if cancelCurrentTurn never fired.
+    bus.clearCurrentTurnAbort();
   }
 }
 

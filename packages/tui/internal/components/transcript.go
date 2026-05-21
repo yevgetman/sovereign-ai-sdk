@@ -56,6 +56,12 @@ func NewTranscript(th theme.Theme) Transcript {
 func (t Transcript) Update(msg tea.Msg) (Transcript, tea.Cmd) {
 	var cmd tea.Cmd
 	t.vp, cmd = t.vp.Update(msg)
+	// ux-fixes round 4 — track whether the user has scrolled away
+	// from the bottom so subsequent AppendLine calls don't yank the
+	// viewport back. atBottom flips false on any scroll-up that
+	// leaves the YOffset above the content tail, and flips back to
+	// true when the user scrolls down to the bottom again.
+	t.atBottom = t.vp.AtBottom()
 	return t, cmd
 }
 

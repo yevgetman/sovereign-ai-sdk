@@ -8,7 +8,46 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
-## 2026-05-21 — ux-fixes round 3 (textbox auto-grow, copy/paste, splash polish, spinner alignment, markdown wrap)
+## 2026-05-21 — ux-fixes round 4 (scroll restore, paste abstraction, prompt prefix, ESC turn-cancel)
+
+**Scope:** Four follow-up UX bugs surfaced after the round-3 ship. Coordinated batch fix again.
+
+**Bugs fixed:**
+
+1. **Scroll lost after mouse-capture disable** (`packages/tui/internal/app/app.go` + `internal/components/transcript.go`) — round 3 disabled mouse capture by default so wheel-scroll no longer reached the transcript viewport. Added keyboard scroll bindings that route to the transcript before the prompt sees them: `pgup`/`pgdown` for page scroll (forwarded directly), `shift+up`/`shift+down` for single-row scroll (translated to plain up/down so the viewport's default keymap fires). Transcript's `atBottom` flag now also tracks `vp.AtBottom()` after every Update so auto-scroll-to-bottom on AppendLine doesn't yank the user back when they've scrolled up to read history.
+
+2. **Paste abstraction** (`packages/tui/internal/components/prompt.go` + `internal/app/app.go`) — added `Prompt.RegisterPaste(content)` which replaces large pasted blocks with `[Pasted text #N +M lines]` placeholders matching the Claude Code convention (claude-code-example.png). Thresholds: ≥ 2 lines OR ≥ 200 chars triggers abstraction; shorter pastes inline-insert verbatim. App.go's KeyMsg handler accumulates `msg.Paste=true` chunks across multiple bubbletea events into `m.pastingBuffer`, then flushes via RegisterPaste on the first non-paste event. `Prompt.ExpandPastes(value)` reconstitutes the real content on Enter so the server sees the full text. `Prompt.Clear` drops the buffers so the next composition session starts fresh. 6 new prompt_test.go cases pin abstraction thresholds, round-trip integrity, multi-paste IDs, broken-marker passthrough, and Clear-resets-buffers.
+
+3. **Prompt prefix repeats on every line** (`packages/tui/internal/components/prompt.go`) — bubble textarea's `Prompt` field renders on every visible row of multi-line input (ux1.png feedback). Replaced with `ta.SetPromptFunc(2, ...)` so line 0 emits "› " and subsequent lines emit "  " (2 spaces, matching the prompt column).
+
+4. **ESC = turn cancel instead of exit** (`src/server/eventBus.ts` + `src/server/routes/cancel.ts` + `src/server/routes/turns.ts` + `src/server/app.ts` + `packages/tui/internal/app/app.go` + `internal/transport/http.go`) — split ESC and Ctrl+C semantics to match Claude Code. Ctrl+C still tears down the session via `m.cancel() + tea.Quit`. ESC during a streaming turn POSTs `/sessions/:id/cancel` and stays alive; ESC while idle is a no-op (the prior path made both keys quit). Server side: `ServerEventBus` gained `setCurrentTurnAbort` / `clearCurrentTurnAbort` / `cancelCurrentTurn` methods. `runTurnInBackground` allocates a fresh `AbortController` per turn, registers it on the bus, and passes `AbortSignal.any([bus.abortSignal, turnAbort.signal])` to `query()` (and to both `runtime.compact` call sites). The finally block clears the registration so the next turn allocates fresh. New `POST /sessions/:id/cancel` route invokes `bus.cancelCurrentTurn()`; returns `{ cancelled: true|false }`. TUI's ESC handler dim-prints "(interrupted by user)" before firing the cancel Cmd and sets `m.userCancelledTurn=true` so the subsequent `turn_error` (carrying the AbortError) is suppressed — flag clears on `turn_complete` or after one suppression. Test suite updates: 13 ESC-quit tests in app_test.go + 2 in slashautocomplete_keys_test.go switched to Ctrl+C (legitimate ESC-as-dismiss tests in picker_dispatch_test.go untouched). New `tests/server/cancel.test.ts` with 3 cases pins no-active-turn, malformed-id, and active-turn-aborts contracts.
+
+**Files touched:**
+- `packages/tui/cmd/sov-tui/main.go` — (untouched, round 3 mouse defaults stay)
+- `packages/tui/internal/app/app.go` — paste accumulator + flush; scroll routing; ESC vs Ctrl+C split; `cancelTurnCmd`; turn_error suppression; turn_complete flag reset
+- `packages/tui/internal/components/prompt.go` — `SetPromptFunc` for first-line-only prefix; `RegisterPaste` + `ExpandPastes` + `InsertString`; pasteBuffers field cleared on `Clear`
+- `packages/tui/internal/components/prompt_test.go` — 6 new paste / placeholder tests
+- `packages/tui/internal/components/transcript.go` — `atBottom` now derived from `vp.AtBottom()` after Update
+- `packages/tui/internal/transport/http.go` — `PostCancel` + `CancelResponse`
+- `packages/tui/internal/app/app_test.go` — KeyEsc → KeyCtrlC for quit (multiple sites)
+- `packages/tui/internal/app/slashautocomplete_keys_test.go` — same swap
+- `src/server/eventBus.ts` — per-turn abort registration + cancel
+- `src/server/routes/cancel.ts` — new POST /sessions/:id/cancel route
+- `src/server/routes/turns.ts` — `turnSignal = AbortSignal.any(...)`, finally clears registration
+- `src/server/app.ts` — mounts cancelRoute
+- `tests/server/cancel.test.ts` — 3 new cases
+
+**Gate:** lint clean (same 2 pre-existing shellSemantics.ts warnings). Typecheck clean. TS suite **1955 pass / 14 skip / 0 fail** (+3 cancel tests from round-3 1952). Go suite all packages green; +6 new prompt tests.
+
+**Edge cases verified:**
+- Broken placeholder (`[Pasted text #1 +5 line` — user edited the marker) leaves text in place rather than expanding incorrectly.
+- Out-of-range placeholder id (e.g. `#9` when only 2 buffers exist) passes through verbatim.
+- Clear() drops buffers so stale `#1` from a prior turn doesn't expand against a new composition.
+- ESC race: if turn_complete arrives before the user's POST /cancel propagates, the `userCancelledTurn` flag clears on turn_complete so the next genuine error isn't accidentally swallowed.
+
+**No smoke:** TUI behaviors need a live terminal; will surface mid-use.
+
+
 
 **Scope:** Five user-reported UX bugs surfaced post-M13 close-out. Screenshots (problem1-3.png + ux1-4.png) on user's Desktop documented each. Fixes shipped in one batch.
 

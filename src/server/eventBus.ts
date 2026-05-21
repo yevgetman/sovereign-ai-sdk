@@ -33,6 +33,13 @@ export class ServerEventBus {
   private seq = 0;
   private closed = false;
   private readonly abortController = new AbortController();
+  // ux-fixes round 4 — per-turn abort. The bus-level abortController
+  // fires on close() (SSE disconnect / server.stop) and tears down
+  // EVERYTHING. The currentTurnAbort fires only on user cancel and
+  // stops the active turn without disposing the bus, so subsequent
+  // turns on the same session keep working. turns.ts registers it at
+  // turn start and clears it in the finally block.
+  private currentTurnAbort: AbortController | null = null;
 
   /**
    * Fires on `close()`. Wire this into long-running work that should
@@ -41,6 +48,33 @@ export class ServerEventBus {
    */
   get abortSignal(): AbortSignal {
     return this.abortController.signal;
+  }
+
+  /**
+   * Register the AbortController of the currently-running turn so the
+   * POST /sessions/:id/cancel route can fire it. Called at turn start
+   * by runTurnInBackground; cleared by the matching `finally` block.
+   * ux-fixes round 4.
+   */
+  setCurrentTurnAbort(c: AbortController): void {
+    this.currentTurnAbort = c;
+  }
+
+  /** Clear the current turn's abort controller. Idempotent. */
+  clearCurrentTurnAbort(): void {
+    this.currentTurnAbort = null;
+  }
+
+  /**
+   * Abort the current turn's controller if one is registered. Returns
+   * true when a turn was actually cancelled; false when no turn was
+   * active (the cancel endpoint then 200s with `{cancelled: false}`).
+   * ux-fixes round 4.
+   */
+  cancelCurrentTurn(): boolean {
+    if (this.currentTurnAbort === null) return false;
+    this.currentTurnAbort.abort();
+    return true;
   }
 
   nextSeq(): number {

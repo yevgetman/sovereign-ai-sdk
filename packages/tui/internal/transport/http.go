@@ -108,6 +108,41 @@ var compactClient = &http.Client{
 	Timeout: 60 * time.Second,
 }
 
+// CancelResponse mirrors the JSON shape POST /sessions/:id/cancel
+// returns. `Cancelled == true` means a turn was actively running and
+// its AbortController fired; `Cancelled == false` means no turn was
+// in flight (idempotent no-op). ux-fixes round 4.
+type CancelResponse struct {
+	Cancelled bool `json:"cancelled"`
+}
+
+// PostCancel issues POST <baseURL>/sessions/<sessionID>/cancel and
+// returns the decoded CancelResponse. The TUI calls this on ESC during
+// a streaming turn to stop the agent without exiting the session.
+// Errors on non-2xx response or transport failure. ux-fixes round 4.
+func PostCancel(ctx context.Context, baseURL, sessionID string) (*CancelResponse, error) {
+	url := fmt.Sprintf("%s/sessions/%s/cancel", baseURL, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := fetchClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("post cancel: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		body, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("post cancel: status %d: %s", res.StatusCode, string(body))
+	}
+	var payload CancelResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode cancel: %w", err)
+	}
+	return &payload, nil
+}
+
 // PostCompact issues POST <baseURL>/sessions/<sessionID>/compact and
 // returns the decoded CompactResponse. Returns an error on non-2xx
 // response or transport failure. The route is synchronous — the

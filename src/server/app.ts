@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import { approvalsRoute } from './routes/approvals.js';
+import { cancelRoute } from './routes/cancel.js';
 import { commandsRoute } from './routes/commands.js';
 import { compactRoute } from './routes/compact.js';
 import { eventsRoute } from './routes/events.js';
@@ -30,6 +31,8 @@ export function buildAppWithRuntime(runtime: Runtime): Hono {
   app.route('/', turnsRoute(runtime));
   app.route('/', approvalsRoute(runtime));
   app.route('/', compactRoute(runtime));
+  // ux-fixes round 4 — POST /sessions/:id/cancel, ESC = stop-agent.
+  app.route('/', cancelRoute(runtime));
   // M8 T4 — GET /sessions/:id/skills, JSON-only discovery for the TUI.
   app.route('/', skillsRoute(runtime));
   // M10.5 — POST /sessions/:id/commands, generic slash-command dispatcher.

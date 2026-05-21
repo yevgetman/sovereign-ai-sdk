@@ -45,7 +45,7 @@ func TestBareScaffold_rendersThreeRegions(t *testing.T) {
 	}, teatest.WithDuration(2*time.Second))
 
 	// ESC quits.
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -128,7 +128,7 @@ func TestApp_consumesMultipleEventsFromSingleConnection(t *testing.T) {
 		return contains(b, "────────")
 	}, teatest.WithDuration(3*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 
 	// Steady state after one turn: 1 initial + 1 post-turn_complete
@@ -229,7 +229,7 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 		t.Fatalf("expected body to contain typed text, got %q", string(gotBody))
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -360,7 +360,7 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 		return contains(b, "FileRead")
 	}, teatest.WithDuration(3*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -507,7 +507,7 @@ func TestApp_compactSlashRoutesToCompactEndpoint(t *testing.T) {
 		t.Fatalf("post-compact /turns body = %q, want to contain 'hi'", string(gotTurnBodies[0]))
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -622,7 +622,7 @@ func TestApp_compactionCompleteSSEPivotsSession(t *testing.T) {
 			gotTurnPaths[0], wantPath)
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -764,7 +764,7 @@ func TestApp_compactSlashHandlesNoOp(t *testing.T) {
 			gotTurnPaths[0], wantPath)
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -913,7 +913,7 @@ func TestApp_reconsumesSSEAfterTurnComplete(t *testing.T) {
 		t.Fatalf("expected 2 or 3 SSE connections, got %d (>3 = tight reconnect loop bug)", got)
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -956,7 +956,7 @@ func TestApp_hydratesTranscriptFromPriorMessages(t *testing.T) {
 			bytes.Contains(b, []byte("old asst msg"))
 	}, teatest.WithDuration(3*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -1309,7 +1309,7 @@ func TestApp_SlashSkillsReloadWithServerFetchesSkills(t *testing.T) {
 		return atomic.LoadInt32(&requestCount) >= 2
 	}, teatest.WithDuration(2*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 

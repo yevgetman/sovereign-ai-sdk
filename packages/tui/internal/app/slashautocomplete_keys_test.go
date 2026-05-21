@@ -74,7 +74,7 @@ func TestSlashAutocompleteEnterFillsAndSubmits(t *testing.T) {
 		t.Errorf("expected dispatched command name 'about', got body: %s", commandName)
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
@@ -130,7 +130,7 @@ func TestSlashAutocompleteEnterPreservesArgs(t *testing.T) {
 		t.Errorf("expected args 'extra' preserved, got body: %s", capturedBody)
 	}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
