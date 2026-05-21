@@ -107,7 +107,8 @@ const (
 
 type Model struct {
 	keys             keyMap
-	transcript       components.Transcript
+	transcript       components.Transcript // legacy — retained only for tests/code paths that still hold references during the round-5 migration; new code uses m.live + m.print
+	live             components.LiveRegion // ux-fixes round 5 — bottom-anchored live region above the prompt (streaming card + spinner + running-command indicator)
 	prompt           components.Prompt
 	statusLine       components.StatusLine
 	sessionID        string
@@ -140,14 +141,110 @@ type Model struct {
 	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
 	deltaGen         int                        // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
 	userCancelledTurn bool                      // ux-fixes round 4: ESC triggered POST /cancel — suppress the subsequent turn_error warning since we already showed "(interrupted by user)"
-	// pastingBuffer accumulates content from consecutive paste-flagged
-	// KeyMsgs (bubbletea reports bracketed-paste content as a sequence
-	// of small KeyMsgs each carrying msg.Paste=true). When a non-paste
-	// KeyMsg arrives, the accumulated buffer is committed to the
-	// prompt — abstracted into a "[Pasted text #N +M lines]"
-	// placeholder if large enough, otherwise inserted verbatim.
-	// ux-fixes round 4 (claude-code-example.png).
-	pastingBuffer string
+	// pendingPrintln queues content destined for the terminal's
+	// scrollback above the live view. drainPrintln consolidates the
+	// queue into a single tea.Println Cmd at the end of every Update
+	// branch — emitting via Println instead of rendering inside
+	// View() lets the terminal's NATIVE scrollback hold session
+	// history (and lets wheel scroll + text selection work without
+	// the TUI capturing mouse events). ux-fixes round 5.
+	pendingPrintln []string
+	// emittedPrintln retains every line drainPrintln has ever drained.
+	// Production code never reads it; test helpers walk this slice so
+	// assertions can inspect what was committed to terminal scrollback
+	// (tea.Println output isn't visible via m.View()). ux-fixes round 5.
+	emittedPrintln []string
+}
+
+// print queues a line for emission into the terminal scrollback at the
+// end of the current Update. Multiple calls accumulate and are emitted
+// in order via a single tea.Println at drain time. The string may
+// contain embedded newlines — they pass through to the terminal.
+// ux-fixes round 5.
+func (m *Model) print(line string) {
+	m.pendingPrintln = append(m.pendingPrintln, line)
+}
+
+// userMessageDisplayCap is the character ceiling on echoed user-submitted
+// text before it gets truncated with a "[+N chars omitted]" notice.
+// Long pastes still flow into the actual turn (the echo is purely a
+// visual receipt); 1500 chars is a few paragraphs and reads fine in
+// scrollback at typical widths. ux-fixes round 5.
+const userMessageDisplayCap = 1500
+
+// printUser is shorthand for printing a user-marker styled line —
+// matches the round-1 AppendUserLine convention ("» " in theme.Primary
+// followed by the body in terminal default). Used for echoing the
+// user's submission into scrollback.
+//
+// ux-fixes round 5 — wraps the body at the current terminal width so
+// long submissions render across multiple lines instead of overflowing
+// horizontally. Truncates above userMessageDisplayCap so a ten-thousand-
+// character paste doesn't dominate the scrollback; the actual turn still
+// ships the full content via the expanded prompt value.
+func (m *Model) printUser(text string) {
+	marker := lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("» ")
+	body := text
+	if len(body) > userMessageDisplayCap {
+		omitted := len(body) - userMessageDisplayCap
+		body = body[:userMessageDisplayCap] + lipgloss.NewStyle().
+			Foreground(m.theme.Dim).
+			Italic(true).
+			Render(fmt.Sprintf(" …[+%d chars]", omitted))
+	}
+	width := m.width
+	if width < 20 {
+		width = 80
+	}
+	// Wrap the body to (width - markerWidth) so each wrapped row stays
+	// inside the terminal and continuation lines hang under the marker
+	// column. lipgloss.Width handles word boundaries.
+	const markerWidth = 2 // "» "
+	wrap := width - markerWidth
+	if wrap < 10 {
+		wrap = width
+	}
+	wrapped := lipgloss.NewStyle().Width(wrap).Render(body)
+	// Prefix only the first line with the marker; subsequent wrapped
+	// rows align under the body column via two spaces of indent.
+	lines := strings.Split(wrapped, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			lines[i] = marker + line
+		} else {
+			lines[i] = "  " + line
+		}
+	}
+	m.print(strings.Join(lines, "\n"))
+}
+
+// drainPrintln consolidates the queued lines into a single tea.Println
+// Cmd (preserving order via newline-joining) and clears the queue.
+// Returns nil when the queue is empty. Drained lines are retained in
+// emittedPrintln for test inspection — production code does not read it.
+func (m *Model) drainPrintln() tea.Cmd {
+	if len(m.pendingPrintln) == 0 {
+		return nil
+	}
+	combined := strings.Join(m.pendingPrintln, "\n")
+	m.emittedPrintln = append(m.emittedPrintln, m.pendingPrintln...)
+	m.pendingPrintln = nil
+	return tea.Println(combined)
+}
+
+// respond batches the caller's cmd together with any queued Println
+// output. Every Update branch returns through this helper so scrollback
+// emission stays attached to the same Update tick the print queue was
+// filled in.
+func (m *Model) respond(cmd tea.Cmd) tea.Cmd {
+	drain := m.drainPrintln()
+	if drain == nil {
+		return cmd
+	}
+	if cmd == nil {
+		return drain
+	}
+	return tea.Batch(cmd, drain)
 }
 
 // cancelTurnCmd issues POST /sessions/:id/cancel off the Update
@@ -235,6 +332,7 @@ func New(sessionID, baseURL string) Model {
 	m := Model{
 		keys:             defaultKeys(),
 		transcript:       components.NewTranscript(defaultTheme),
+		live:             components.NewLiveRegion(defaultTheme),
 		prompt:           components.NewPrompt(),
 		statusLine:       st,
 		sessionID:        sessionID,
@@ -297,15 +395,19 @@ func (m Model) promptChromeH() int {
 // the prompt's height may have changed (e.g., after delegating a key
 // event to the textarea). Width is taken from m.width which was set in
 // the most recent WindowSizeMsg.
+//
+// ux-fixes round 5 — the transcript no longer has a height budget
+// (its content goes to the terminal's scrollback via tea.Println).
+// LiveRegion only needs width so the streaming card wraps correctly.
 func (m *Model) recomputeLayout() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	maxTranscriptH := m.height - statusH - m.promptChromeH() - hintH - spacerH
-	if maxTranscriptH < 1 {
-		maxTranscriptH = 1
-	}
-	m.transcript.SetSize(m.width, maxTranscriptH)
+	m.live.SetWidth(m.width)
+	// Retained for any legacy code path still using m.transcript during
+	// the round-5 migration. Will be removed once the transcript is
+	// fully replaced.
+	m.transcript.SetSize(m.width, m.height)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -436,31 +538,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prompt.SetWidth(msg.Width)
 		m.statusLine.SetWidth(msg.Width)
 		m.recomputeLayout()
-		// M9.5 T3 — surface the boot theme error (if any) once the
-		// transcript has a viewport; before WindowSizeMsg the bubbles
-		// viewport isn't sized and AppendLine would no-op the scroll.
+		// Surface the boot theme error (if any). ux-fixes round 5 —
+		// emitted into terminal scrollback via the print queue.
 		if m.pendingThemeErr != nil {
-			m.transcript.AppendLine(m.theme.DimStyle().Render(
+			m.print(m.theme.DimStyle().Render(
 				fmt.Sprintf("could not load theme %q: %v (falling back to %s)", m.pendingThemeName, m.pendingThemeErr, m.theme.Name),
 			))
 			m.pendingThemeErr = nil
 		}
-		// M11.1 — splash on the first WindowSizeMsg. Renders the SOV
-		// brand mark + tips line so the TUI default surface shows the
-		// same boot cue the REPL does. Splash precedes any backlog
-		// hydration content for resumed sessions (messagesFetchedMsg
-		// arrives after the first WindowSizeMsg in practice).
-		// Gated on baseURL — render-only tests pass "" and rely on
-		// specific Y coordinates for click handling; production always
-		// has a real server URL.
+		// Splash on the first WindowSizeMsg — printed once into terminal
+		// scrollback so wheel-scroll users still see the boot cue at
+		// the top of their history.
 		if !m.splashShown && m.baseURL != "" {
 			cwd, _ := os.Getwd()
 			home := os.Getenv("HOME")
-			// ux-fixes round 3: Provider + Model come from m.statusLine
-			// (seeded by main.go's WithSessionInfo from --model/--provider
-			// CLI flags the launcher passes). Auth stays hardcoded as
-			// "API Key" because we don't yet plumb auth-mode through the
-			// transport.
 			provider := m.statusLine.Provider
 			if provider == "" {
 				provider = "anthropic"
@@ -473,57 +564,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Cwd:      cwd,
 				Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
 			}
-			m.transcript.AppendLine(components.RenderSplash(info, m.theme, msg.Width))
-			// M11.6 — boot notices appended INTO the transcript (not
-			// rendered in View()) so they scroll away as the session
-			// builds output below them. Previously they sat anchored
-			// above the prompt for the entire session, which read as
-			// permanent chrome instead of one-time boot guidance.
+			m.print(components.RenderSplash(info, m.theme, msg.Width))
 			bundlePath := os.Getenv("HARNESS_BUNDLE")
 			for _, notice := range components.BootNotices(cwd, home, bundlePath) {
-				m.transcript.AppendLine(components.Notification(notice, m.theme, msg.Width))
+				m.print(components.Notification(notice, m.theme, msg.Width))
 			}
 			m.splashShown = true
 		}
-		return m, nil
+		return m, m.respond(nil)
 	case tea.KeyMsg:
-		// ux-fixes round 4 — bracketed-paste handling. Bubbletea reports
-		// the contents of a paste as a sequence of KeyMsg events each
-		// flagged with msg.Paste=true (a paste chunk per terminal
-		// input read; multi-line pastes also include KeyEnter events
-		// flagged Paste=true between line fragments). We accumulate
-		// these into m.pastingBuffer until the next non-paste event
-		// arrives, then decide whether to abstract or inline-insert.
-		// The accumulator MUST be flushed before the new event is
-		// dispatched so the inserted placeholder lands before any
-		// downstream key handling consumes the focus.
+		// ux-fixes round 5 — bracketed-paste handling. Bubbletea
+		// returns ONE KeyMsg per paste with Paste=true and Runes
+		// holding the entire pasted content (embedded newlines come
+		// through as '\n' runes inside Runes — see
+		// detectBracketedPaste in bubbletea/key_sequences.go). Flush
+		// to the prompt immediately so the placeholder / verbatim text
+		// is visible without waiting for the next keystroke (the round
+		// 4 accumulator pattern caused the "doesn't show until you
+		// type" symptom because the flush waited for a follow-up
+		// non-paste event).
 		if msg.Paste {
-			switch msg.Type {
-			case tea.KeyRunes:
-				m.pastingBuffer += string(msg.Runes)
-			case tea.KeyEnter:
-				m.pastingBuffer += "\n"
-			case tea.KeySpace:
-				m.pastingBuffer += " "
-			case tea.KeyTab:
-				m.pastingBuffer += "\t"
-			}
-			return m, nil
-		}
-		if m.pastingBuffer != "" {
-			content := m.pastingBuffer
-			m.pastingBuffer = ""
+			content := string(msg.Runes)
 			if !m.prompt.RegisterPaste(content) {
-				// Below the abstraction threshold — inject verbatim.
 				m.prompt.InsertString(content)
 			}
-			// Recompute layout in case the placeholder + any prior
-			// content bumped the textarea height past the previous
-			// row count.
 			m.recomputeLayout()
 			m.autocomplete.SetFilter(m.prompt.Value())
-			// Continue down the switch with the current (non-paste)
-			// keystroke — the user's still typing.
+			return m, m.respond(nil)
 		}
 		// M5 T9: when a permission modal is active, route ALL keys to it
 		// (including Esc and Enter — the modal treats both as "deny"). The
@@ -532,24 +599,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.permission != nil && !m.permission.Done() {
 			updated, cmd := m.permission.Update(msg)
 			m.permission = &updated
-			return m, cmd
+			return m, m.respond(cmd)
 		}
 		// M9 T5: diff view focus routing. Ctrl+] focuses the most-recent
 		// FileEdit/FileWrite diff; Esc defocuses. j/k navigate while focused.
 		if key := msg.String(); key == "ctrl+]" && m.mostRecentDiff != nil {
 			m.mostRecentDiff.SetFocused(true)
 			m.focus = focusDiffView
-			return m, nil
+			return m, m.respond(nil)
 		}
 		if m.focus == focusDiffView && m.mostRecentDiff != nil {
 			if msg.String() == "esc" {
 				m.mostRecentDiff.SetFocused(false)
 				m.focus = focusTranscript
-				return m, nil
+				return m, m.respond(nil)
 			}
 			updated := m.mostRecentDiff.Update(msg)
 			*m.mostRecentDiff = updated
-			return m, nil
+			return m, m.respond(nil)
 		}
 		// M11.5 — picker card routing. When active, the picker absorbs
 		// all keys: ↑/↓ navigate, Enter dispatches the chosen value,
@@ -560,10 +627,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "up":
 				m.picker.MoveUp()
-				return m, nil
+				return m, m.respond(nil)
 			case "down":
 				m.picker.MoveDown()
-				return m, nil
+				return m, m.respond(nil)
 			case "enter":
 				value, ok := m.picker.Selected()
 				if !ok {
@@ -571,48 +638,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// emit a payload with zero items, but if it does
 					// we close the card without dispatching.
 					m.picker = nil
-					return m, nil
+					return m, m.respond(nil)
 				}
 				cmdName := m.picker.Command()
 				m.picker = nil
 				if m.baseURL == "" {
-					m.transcript.AppendLine(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
-					return m, nil
+					m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, m.respond(nil)
 				}
-				m.transcript.AppendLine(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
-				return m, dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value)
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value))
 			case "esc":
 				m.picker = nil
-				m.transcript.AppendLine(m.theme.DimStyle().Render("(cancelled)"))
-				return m, nil
+				m.print(m.theme.DimStyle().Render("(cancelled)"))
+				return m, m.respond(nil)
 			}
-			return m, nil
+			return m, m.respond(nil)
 		}
-		// ux-fixes round 4 — transcript scroll bindings. After round 3
-		// disabled mouse capture by default, wheel-scroll no longer
-		// reached the transcript viewport. Keyboard scroll keys keep
-		// the viewport reachable without re-enabling mouse capture.
-		// Chosen keys avoid every textarea KeyMap binding so the prompt
-		// editor still gets plain up/down/ctrl+u/ctrl+d for cursor +
-		// delete operations:
-		//   pgup / pgdown            — page scroll (viewport native)
-		//   shift+up / shift+down    — single-row scroll (translated
-		//                              to up/down so the viewport's
-		//                              default keymap fires)
-		switch msg.String() {
-		case "pgup", "pgdown":
-			var cmd tea.Cmd
-			m.transcript, cmd = m.transcript.Update(msg)
-			return m, cmd
-		case "shift+up":
-			var cmd tea.Cmd
-			m.transcript, cmd = m.transcript.Update(tea.KeyMsg{Type: tea.KeyUp})
-			return m, cmd
-		case "shift+down":
-			var cmd tea.Cmd
-			m.transcript, cmd = m.transcript.Update(tea.KeyMsg{Type: tea.KeyDown})
-			return m, cmd
-		}
+		// ux-fixes round 5 — the round-4 PgUp/Shift+Arrow scroll
+		// bindings are gone. With the alt screen dropped, the terminal
+		// owns scrollback natively — wheel + trackpad just work.
 		// M9 T8 — autocomplete popup routing. When visible, Tab/Enter/Esc/Up/Down
 		// route here BEFORE the regular prompt input; other keys fall
 		// through to the prompt update which then re-filters via SetFilter.
@@ -630,16 +675,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.prompt.SetValue(completion + " ")
 					m.autocomplete.Dismiss()
 				}
-				return m, nil
+				return m, m.respond(nil)
 			case "up":
 				m.autocomplete.MoveUp()
-				return m, nil
+				return m, m.respond(nil)
 			case "down":
 				m.autocomplete.MoveDown()
-				return m, nil
+				return m, m.respond(nil)
 			case "esc":
 				m.autocomplete.Dismiss()
-				return m, nil
+				return m, m.respond(nil)
 			case "enter":
 				// Only replace the prompt with the highlighted
 				// completion when the user hasn't started typing args
@@ -677,13 +722,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// pre-content thinking wait and active streaming.
 			if m.statusLine.Streaming || m.thinkingPending {
 				m.userCancelledTurn = true
-				m.transcript.AppendLine(
+				m.print(
 					m.theme.DimStyle().Render("(interrupted by user)"),
 				)
 				m.clearThinkingIfPending()
 				return m, m.cancelTurnCmd()
 			}
-			return m, nil
+			return m, m.respond(nil)
 		}
 		// ux-fixes round 3 — Alt+Enter and Ctrl+J insert a real newline
 		// into the prompt textarea instead of submitting. They flow
@@ -696,7 +741,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// abstracted view; the server / model see the real text.
 			text := strings.TrimSpace(m.prompt.ExpandPastes(m.prompt.Value()))
 			if text == "" {
-				return m, nil
+				return m, m.respond(nil)
 			}
 			// M9 T8 — dismiss the autocomplete popup on any ENTER submission
 			// so the suggestion overlay doesn't linger above the prompt.
@@ -717,13 +762,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the compactCompleteMsg / compactErrorMsg branches replace
 			// it with the result marker.
 			if text == "/compact" {
-				m.transcript.AppendUserLine(text)
+				m.printUser(text)
 				m.prompt.Clear()
 				dimStyle := lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#6e7681")).
 					Italic(true)
-				m.transcript.AppendLine(dimStyle.Render("[compacting…]"))
-				return m, m.compactCmd()
+				// ux-fixes round 5 — "[compacting…]" lives in the live
+				// region until compactCompleteMsg / compactErrorMsg
+				// clears it (replacing it with the real result line).
+				m.live.SetRunningCommand(dimStyle.Render("[compacting…]"))
+				return m, m.respond(m.compactCmd())
 			}
 			// M8 T6 — /expand [N] interception. Re-renders the Nth-most-recent
 			// tool block from the local ring buffer with no truncation. Purely
@@ -733,7 +781,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// marker if N is out of range) below it. No "[thinking]" placeholder
 			// because there's no network round trip.
 			if n, ok := parseExpandCommand(text); ok {
-				m.transcript.AppendUserLine(text)
+				m.printUser(text)
 				m.prompt.Clear()
 				return m, m.expandToolBlock(n)
 			}
@@ -743,7 +791,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// existent) skill named "skills". ADR M9.6-03.
 			// M11.17 — verbs: install <path>, uninstall <name>, reload, list.
 			if text == "/skills" || strings.HasPrefix(text, "/skills ") {
-				m.transcript.AppendUserLine(text)
+				m.printUser(text)
 				m.prompt.Clear()
 				m.autocomplete.Dismiss()
 				parts := strings.SplitN(text, " ", 2)
@@ -761,50 +809,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch verb {
 				case "reload":
 					if m.baseURL == "" {
-						m.transcript.AppendLine(m.theme.DimStyle().Render("skills cache unavailable (no server)"))
-						return m, nil
+						m.print(m.theme.DimStyle().Render("skills cache unavailable (no server)"))
+						return m, m.respond(nil)
 					}
-					m.transcript.AppendLine(m.theme.DimStyle().Render("reloading skill cache…"))
+					m.print(m.theme.DimStyle().Render("reloading skill cache…"))
 					return m, m.fetchSkillsCmd()
 				case "install":
 					if m.baseURL == "" {
-						m.transcript.AppendLine(m.theme.ErrorStyle().Render("skills install requires a server connection"))
-						return m, nil
+						m.print(m.theme.ErrorStyle().Render("skills install requires a server connection"))
+						return m, m.respond(nil)
 					}
 					if verbArg == "" {
-						m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /skills install <path-to-SKILL.md-or-directory>"))
-						return m, nil
+						m.print(m.theme.DimStyle().Render("usage: /skills install <path-to-SKILL.md-or-directory>"))
+						return m, m.respond(nil)
 					}
-					m.transcript.AppendLine(m.theme.DimStyle().Render("installing skill from " + verbArg + "…"))
+					m.print(m.theme.DimStyle().Render("installing skill from " + verbArg + "…"))
 					return m, m.installSkillCmd(verbArg)
 				case "uninstall":
 					if m.baseURL == "" {
-						m.transcript.AppendLine(m.theme.ErrorStyle().Render("skills uninstall requires a server connection"))
-						return m, nil
+						m.print(m.theme.ErrorStyle().Render("skills uninstall requires a server connection"))
+						return m, m.respond(nil)
 					}
 					if verbArg == "" {
-						m.transcript.AppendLine(m.theme.DimStyle().Render("usage: /skills uninstall <name>"))
-						return m, nil
+						m.print(m.theme.DimStyle().Render("usage: /skills uninstall <name>"))
+						return m, m.respond(nil)
 					}
-					m.transcript.AppendLine(m.theme.DimStyle().Render("uninstalling skill " + verbArg + "…"))
+					m.print(m.theme.DimStyle().Render("uninstalling skill " + verbArg + "…"))
 					return m, m.uninstallSkillCmd(verbArg)
 				case "list", "":
 					// Render the cached skill list directly — no server round trip.
 					if len(m.skills) == 0 {
-						m.transcript.AppendLine(m.theme.DimStyle().Render("no skills loaded for this session"))
+						m.print(m.theme.DimStyle().Render("no skills loaded for this session"))
 					} else {
-						m.transcript.AppendLine(m.theme.DimStyle().Render(fmt.Sprintf("skills (%d):", len(m.skills))))
+						m.print(m.theme.DimStyle().Render(fmt.Sprintf("skills (%d):", len(m.skills))))
 						for _, sk := range m.skills {
-							m.transcript.AppendLine("  /" + sk.Name + "  " + m.theme.DimStyle().Render(sk.Description))
+							m.print("  /" + sk.Name + "  " + m.theme.DimStyle().Render(sk.Description))
 						}
 					}
-					m.transcript.AppendLine("")
-					m.transcript.AppendLine(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | uninstall <name> | reload"))
+					m.print("")
+					m.print(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | uninstall <name> | reload"))
 				default:
-					m.transcript.AppendLine(m.theme.ErrorStyle().Render("unknown /skills verb: " + verb))
-					m.transcript.AppendLine(m.theme.DimStyle().Render("verbs: list, install <path>, uninstall <name>, reload"))
+					m.print(m.theme.ErrorStyle().Render("unknown /skills verb: " + verb))
+					m.print(m.theme.DimStyle().Render("verbs: list, install <path>, uninstall <name>, reload"))
 				}
-				return m, nil
+				return m, m.respond(nil)
 			}
 			// M8 T6 — /skillname interception. When the slash matches a
 			// cached skill name (populated by fetchSkillsCmd on boot), POST
@@ -814,7 +862,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// — the user might be typing a future slash command or a
 			// literal /-prefixed string the model should see as-is.
 			if name, ok := matchSkillSlash(text, m.skills); ok {
-				m.transcript.AppendUserLine(text)
+				m.printUser(text)
 				m.prompt.Clear()
 				// M11.2 — branded spinner for skill expansion. Same gen
 				// counter as the main thinking spinner; clearThinkingIfPending
@@ -831,17 +879,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// fell through to the normal turn POST and the model saw them as
 			// plain text.
 			if cmdName, cmdArgs, ok := parseGenericSlashCommand(text); ok {
-				m.transcript.AppendUserLine(text)
+				m.printUser(text)
 				m.prompt.Clear()
 				m.autocomplete.Dismiss()
 				if m.baseURL == "" {
-					m.transcript.AppendLine(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
-					return m, nil
+					m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, m.respond(nil)
 				}
-				m.transcript.AppendLine(m.theme.DimStyle().Render("…running /" + cmdName))
-				return m, dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs)
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName))
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs))
 			}
-			m.transcript.AppendUserLine(text)
+			m.printUser(text)
 			m.prompt.Clear()
 			// M11.2 — branded thinking spinner replaces the static dim
 			// "…thinking" placeholder. The spinner advances every 80ms
@@ -849,7 +897,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// m.spinnerGen on the first response event.
 			m.thinkingPending = true
 			spinCmd := m.startSpinner("thinking")
-			return m, tea.Batch(m.submitTurn(text), spinCmd)
+			return m, m.respond(tea.Batch(m.submitTurn(text), spinCmd))
 		}
 		var cmd tea.Cmd
 		prevPromptH := m.prompt.Height()
@@ -865,21 +913,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// M9 T8 — after every prompt update, sync the autocomplete popup
 		// against the new prompt text.
 		m.autocomplete.SetFilter(m.prompt.Value())
-		return m, cmd
+		return m, m.respond(cmd)
 	case tea.MouseMsg:
-		// M9.6 T1: split click vs wheel/motion routing. Left-press events
-		// dispatch by Y-coordinate against the transcript / autocomplete
-		// popup regions; wheel + motion events forward to the transcript
-		// viewport (M9 T9 behavior preserved).
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			return m.handleMouseClick(msg)
-		}
-		var cmd tea.Cmd
-		m.transcript, cmd = m.transcript.Update(msg)
-		return m, cmd
+		// ux-fixes round 5 — mouse capture is off entirely. The terminal
+		// handles wheel + click natively (scroll + text selection). Any
+		// MouseMsg that does arrive (e.g. an unfiltered tmux session)
+		// is a no-op; the in-TUI toolcard click interaction was retired
+		// with the inline-mode refactor.
+		_ = msg
+		return m, m.respond(nil)
 	case sseMsg:
 		eventCmd := m.handleEvent(msg.env)
-		return m, tea.Batch(m.waitEvent, eventCmd)
+		// ux-fixes round 5 — drain any Println output the handler queued
+		// alongside the next-event waiter. tea.Batch preserves visibility;
+		// Println goes to the terminal's output stream and the waiter
+		// continues blocking on m.events.
+		return m, m.respond(tea.Batch(m.waitEvent, eventCmd))
 	case stallExpireMsg:
 		// M9.6 T2: clear the badge only if no NEWER stall has arrived.
 		// Stale ticks (older gen than current) are no-ops; the newer
@@ -887,7 +936,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen == m.stallGeneration {
 			m.stallBadge = nil
 		}
-		return m, nil
+		return m, m.respond(nil)
 	case spinnerTickMsg:
 		// M11.2: animate the thinking spinner. Drop stale ticks
 		// (gen mismatch means clearThinkingIfPending invalidated us
@@ -896,10 +945,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// next tick — recurring chain that stops naturally on the
 		// next clearThinkingIfPending.
 		if msg.gen != m.spinnerGen || m.spinnerLineIdx < 0 || !m.thinkingPending {
-			return m, nil
+			return m, m.respond(nil)
 		}
 		m.spinner = m.spinner.Tick()
-		m.transcript.UpdateLiveLine(m.spinnerLineIdx, m.spinner.View(m.spinnerLabel))
+		m.live.SetSpinner(m.spinner.View(m.spinnerLabel))
 		capturedGen := m.spinnerGen
 		return m, tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
 			return spinnerTickMsg{gen: capturedGen}
@@ -914,7 +963,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the branded spinner so the user sees the gap as "still
 		// thinking" instead of as a dead UI.
 		if msg.gen != m.deltaGen || m.thinkingPending {
-			return m, nil
+			return m, m.respond(nil)
 		}
 		m.thinkingPending = true
 		return m, m.startSpinner("thinking")
@@ -932,36 +981,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// was meaningful when the design was single-turn-per-launch; with
 		// reconnect it would be noise after every turn so we drop it.
 		if m.ctx.Err() != nil || m.baseURL == "" {
-			return m, nil
+			return m, m.respond(nil)
 		}
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", m.baseURL, m.sessionID)
 		m.events, m.errs = transport.Consume(m.ctx, streamURL)
 		return m, m.waitEvent
 	case turnSubmitErrMsg:
-		m.transcript.AppendLine(
+		m.print(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#e06c75")).
 				Render(fmt.Sprintf("submit error: %v", msg.err)),
 		)
-		return m, nil
+		return m, m.respond(nil)
 	case messagesFetchedMsg:
 		if msg.err != nil {
-			// Don't crash — surface a dim line and let the live SSE stream
-			// continue. Resume flows will look empty but the next user turn
-			// still works end-to-end.
-			m.transcript.AppendLine(
+			m.print(
 				lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#6e7681")).
 					Italic(true).
 					Render(fmt.Sprintf("could not load prior messages: %v", msg.err)),
 			)
-			return m, nil
+			return m, m.respond(nil)
 		}
-		// Render each prior message's text blocks in transcript order.
-		// User input gets the same "» " prefix as the live ENTER handler
-		// so prior and live turns look visually identical. tool_use /
-		// tool_result historical rendering is deferred to M7 when
-		// trajectory capture lands richer hydration.
+		// Hydrate prior messages into terminal scrollback so the resumed
+		// session reads identically to a fresh one — user lines first,
+		// assistant text after, in transcript order. tool_use / tool_result
+		// historical rendering is deferred to M7 when trajectory capture
+		// lands richer hydration.
 		for _, sm := range msg.messages {
 			for _, block := range sm.Content {
 				if block.Type != "text" || block.Text == "" {
@@ -969,13 +1015,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				switch sm.Role {
 				case "user":
-					m.transcript.AppendUserLine(block.Text)
+					m.printUser(block.Text)
 				case "assistant":
-					m.transcript.AppendLine(block.Text)
+					m.print(block.Text)
 				}
 			}
 		}
-		return m, nil
+		return m, m.respond(nil)
 	case components.PermissionSubmitMsg:
 		// M5 T9: user's choice has been captured; clear the modal and POST
 		// the decision back to the server. The runtime's serverAsk awaits
@@ -983,40 +1029,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.permission = nil
 		return m, m.postApproval(msg)
 	case compactCompleteMsg:
-		// M6 T6: pop the placeholder and pivot the session id. Subsequent
-		// POST /turns hit the new child session — the SSE stream stays on
-		// the parent (the bus is keyed on parent and continues to surface
-		// post-compaction events under the parent id; the Compactor's wire
-		// contract puts the child as `activeSessionId` rather than reseating
-		// the SSE subscription).
-		m.transcript.RemoveLastLine()
+		// ux-fixes round 5 — clear the "[compacting…]" live indicator.
+		// Pre-refactor this called transcript.RemoveLastLine to pop the
+		// placeholder; the placeholder now lives in the LiveRegion as a
+		// running-command indicator.
+		m.live.SetRunningCommand("")
 		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
-		// Backlog #36: when the server returns noOp=true the entire history
-		// fit within the tail budget — there was nothing to summarize. Skip
-		// the session-id pivot (activeSessionID === parent id anyway) and
-		// render a friendlier marker so the user understands the call
-		// succeeded but no compaction took place.
 		if msg.noOp {
-			m.transcript.AppendLine(dim.Render("─ nothing to compact (history already fits)"))
-			return m, nil
+			m.print(dim.Render("─ nothing to compact (history already fits)"))
+			return m, m.respond(nil)
 		}
 		m.sessionID = msg.activeSessionID
-		// Truncate the new id to 8 chars in the user marker — full uuid is
-		// noise; the prefix is enough to disambiguate. M9 owns the styled
-		// "compaction summary" card that will render the full id + summary.
-		m.transcript.AppendLine(dim.Render(fmt.Sprintf("─ compacted — new session %s", shortSessionID(msg.activeSessionID))))
-		return m, nil
+		m.print(dim.Render(fmt.Sprintf("─ compacted — new session %s", shortSessionID(msg.activeSessionID))))
+		return m, m.respond(nil)
 	case compactErrorMsg:
-		// M6 T6: pop the placeholder and surface the failure. The session
-		// id stays on the parent — the user can retry. Use the same red
-		// style as turnSubmitErrMsg for visual consistency.
-		m.transcript.RemoveLastLine()
-		m.transcript.AppendLine(
+		m.live.SetRunningCommand("")
+		m.print(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#e06c75")).
 				Render(fmt.Sprintf("compact failed: %v", msg.err)),
 		)
-		return m, nil
+		return m, m.respond(nil)
 	case skillsFetchedMsg:
 		// M8 T6: store the cached skill list. On failure we surface a dim
 		// line and continue — the slash intercept falls through to normal
@@ -1024,17 +1057,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// even if the /skills route is offline. No visible marker on
 		// success — the cache is silently warmed.
 		if msg.err != nil {
-			m.transcript.AppendLine(
+			m.print(
 				lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#6e7681")).
 					Italic(true).
 					Render(fmt.Sprintf("could not load skills: %v", msg.err)),
 			)
-			return m, nil
+			return m, m.respond(nil)
 		}
 		m.skills = msg.skills
 		m.autocomplete.SetSkills(msg.skills) // M9 T8 — surface skills in the popup
-		return m, nil
+		return m, m.respond(nil)
 	case commandsFetchedMsg:
 		// Backlog #45 — store the dynamic command list. Failure is
 		// non-fatal: the autocomplete falls back to its compile-time
@@ -1046,34 +1079,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.autocomplete.SetCommands(msg.commands)
 		}
-		return m, nil
+		return m, m.respond(nil)
 	case skillInstalledMsg:
 		// M11.17 — render install result and refresh the skill cache on
 		// success so the new skill becomes available immediately for
 		// /skillname dispatch + autocomplete suggestions.
 		if msg.err != nil {
-			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill install failed: " + msg.err.Error()))
-			return m, nil
+			m.print(m.theme.ErrorStyle().Render("skill install failed: " + msg.err.Error()))
+			return m, m.respond(nil)
 		}
 		if msg.result == nil {
-			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill install returned no result"))
-			return m, nil
+			m.print(m.theme.ErrorStyle().Render("skill install returned no result"))
+			return m, m.respond(nil)
 		}
-		m.transcript.AppendLine(m.theme.DimStyle().Render(
+		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("installed /%s → %s", msg.result.Name, msg.result.InstalledAt),
 		))
 		return m, m.fetchSkillsCmd()
 	case skillUninstalledMsg:
 		// M11.17 — render uninstall result and refresh the skill cache.
 		if msg.err != nil {
-			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill uninstall failed: " + msg.err.Error()))
-			return m, nil
+			m.print(m.theme.ErrorStyle().Render("skill uninstall failed: " + msg.err.Error()))
+			return m, m.respond(nil)
 		}
 		if msg.result == nil {
-			m.transcript.AppendLine(m.theme.ErrorStyle().Render("skill uninstall returned no result"))
-			return m, nil
+			m.print(m.theme.ErrorStyle().Render("skill uninstall returned no result"))
+			return m, m.respond(nil)
 		}
-		m.transcript.AppendLine(m.theme.DimStyle().Render(
+		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("uninstalled /%s (removed %s)", msg.result.Name, msg.result.RemovedFrom),
 		))
 		return m, m.fetchSkillsCmd()
@@ -1086,23 +1119,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//     handler throw). Surface in warning style.
 		// Successful output renders verbatim. SideEffects update m.model
 		// and (future) hop m.sessionID for /clear.
-		m.transcript.RemoveLastLine()
+		// ux-fixes round 5 — clear the "…running /name" live indicator.
+		m.live.SetRunningCommand("")
 		if msg.err != nil {
-			m.transcript.AppendLine(
+			m.print(
 				lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#e06c75")).
 					Render(fmt.Sprintf("/%s failed: %v", msg.name, msg.err)),
 			)
-			return m, nil
+			return m, m.respond(nil)
 		}
 		if msg.resp != nil && msg.resp.Error != "" {
-			m.transcript.AppendLine(
+			m.print(
 				lipgloss.NewStyle().
 					Foreground(m.theme.Warning).
 					Bold(true).
 					Render(msg.resp.Error),
 			)
-			return m, nil
+			return m, m.respond(nil)
 		}
 		// M11.5 — pickerOpen side-effect opens an inline card. Picker
 		// payloads typically come with empty output; if non-empty, we
@@ -1110,18 +1144,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.resp != nil && msg.resp.SideEffects != nil && msg.resp.SideEffects.PickerOpen != nil {
 			if msg.resp.Output != "" {
 				for _, line := range strings.Split(msg.resp.Output, "\n") {
-					m.transcript.AppendLine(line)
+					m.print(line)
 				}
 			}
 			picker := components.NewPickerCard(*msg.resp.SideEffects.PickerOpen, m.theme)
 			m.picker = &picker
-			return m, nil
+			return m, m.respond(nil)
 		}
 		if msg.resp != nil && msg.resp.Output != "" {
 			// Append each output line individually so transcript scroll
 			// math stays accurate (Transcript.AppendLine is single-line).
 			for _, line := range strings.Split(msg.resp.Output, "\n") {
-				m.transcript.AppendLine(line)
+				m.print(line)
 			}
 		}
 		// Apply sideEffects. SessionID pivot (newSessionId) and exit
@@ -1133,7 +1167,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			se := msg.resp.SideEffects
 			if se.NewSessionID != "" {
 				m.sessionID = se.NewSessionID
-				m.transcript.AppendLine(
+				m.print(
 					m.theme.DimStyle().Render(
 						fmt.Sprintf("─ session %s", shortSessionID(se.NewSessionID)),
 					),
@@ -1149,7 +1183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// log a dim marker.
 			if se.ThemeChanged != "" {
 				if err := m.applyThemeByName(se.ThemeChanged); err != nil {
-					m.transcript.AppendLine(
+					m.print(
 						m.theme.DimStyle().Render(
 							fmt.Sprintf("could not apply theme '%s' client-side: %v", se.ThemeChanged, err),
 						),
@@ -1160,11 +1194,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
-		return m, nil
+		return m, m.respond(nil)
 	}
-	var cmd tea.Cmd
-	m.transcript, cmd = m.transcript.Update(msg)
-	return m, cmd
+	// ux-fixes round 5 — no transcript forwarding for unhandled msgs.
+	// History lives in terminal scrollback; nothing reroutes here.
+	return m, m.respond(nil)
 }
 
 // handleEvent dispatches an SSE envelope into the model state. Returns
@@ -1191,7 +1225,7 @@ func (m *Model) applyThemeByName(name string) error {
 		return fmt.Errorf("unknown theme: %s", name)
 	}
 	m.theme = newTheme
-	m.transcript.SetTheme(m.theme)
+	m.live.SetTheme(m.theme)
 	m.autocomplete.SetTheme(m.theme)
 	m.statusLine.SetTheme(m.theme)
 	if m.picker != nil {
@@ -1211,7 +1245,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		// M9 T3 — stream the delta into the in-progress assistant card and
 		// re-render via render.Markdown. Non-text events finalize the card
 		// (see tool_use_start, tool_result, turn_complete below).
-		m.transcript.AppendAssistantDelta(td.Text)
+		m.live.AppendAssistantDelta(td.Text)
 		// ux-fixes — re-arm the spinner for the gap between this text
 		// block ending and the next block (tool_use_start, another text
 		// block, or turn_complete). If another delta or terminal event
@@ -1224,7 +1258,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			return nil
 		}
 		m.clearThinkingIfPending()
-		m.transcript.AppendLine(
+		m.print(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#6e7681")).
 				Italic(true).
@@ -1246,14 +1280,18 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		// line was redundant pre-M11.12 — same information as the
 		// card's header, but without the result content.
 		m.clearThinkingIfPending()
-		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
 	case "tool_result":
 		tr, err := transport.DecodeToolResult(env.Raw)
 		if err != nil {
 			return nil
 		}
 		m.clearThinkingIfPending()
-		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text before the tool card
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
 		hint := tr.RenderHint
 		if hint == "" {
 			hint = "text"
@@ -1280,9 +1318,13 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			Expanded:   diff != nil, // M9 T5 — auto-expand diffs so the user sees the hunks
 			Diff:       diff,
 		}
-		// M9.6 T1: AppendLineAsCard retains the card struct so a mouse
-		// click in the transcript can flip Expanded and re-render in place.
-		m.transcript.AppendLineAsCard(card)
+		// ux-fixes round 5 — tool cards print fully expanded directly
+		// into terminal scrollback. The click-to-expand interaction is
+		// retired with the inline-mode refactor (scrollback content is
+		// immutable; the terminal owns it). Users who want the raw
+		// payload can still call /expand N.
+		card.Expanded = true
+		m.print(card.View(m.width))
 		// M8 T6 — record the block onto the local ring for /expand [N]
 		// re-render. The wire `output` is json.RawMessage so we render
 		// it as a string verbatim; the expand path treats it as plain
@@ -1337,9 +1379,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		errStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#f7768e")).
 			Bold(true)
-		m.transcript.AppendLine(errStyle.Render("⚠ turn error: " + te.Error))
+		m.print(errStyle.Render("⚠ turn error: " + te.Error))
 		if !te.Recoverable {
-			m.transcript.AppendLine(errStyle.Render("  (non-recoverable)"))
+			m.print(errStyle.Render("  (non-recoverable)"))
 		}
 	case "turn_complete":
 		// ux-fixes round 4 — clear any pending userCancelledTurn flag.
@@ -1353,23 +1395,27 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			// user sees turn boundaries; failure mode degrades to the
 			// same visual as a normal end_turn.
 			m.clearThinkingIfPending()
-			m.transcript.EndAssistantCard() // M9 T3
-			m.transcript.AppendLine(turnSeparator(m.theme, m.width))
+			if rendered, ok := m.live.EndAssistantCard(); ok {
+				m.print(rendered)
+			}
+			m.print(turnSeparator(m.theme, m.width))
 			return nil
 		}
 		m.clearThinkingIfPending()
-		m.transcript.EndAssistantCard() // M9 T3 — finalize the streamed card before the separator
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
 		// M11.7 — pure separator line, no text. Previously rendered
 		// "─ turn complete" / "─ turn complete (max_tokens)" which read
 		// as system noise between conversational turns. Now: a single
 		// dim horizontal rule, with the finish reason surfaced ONLY
 		// when it's something the user should notice (non-end_turn).
 		if tc.FinishReason == "" || tc.FinishReason == "end_turn" {
-			m.transcript.AppendLine(turnSeparator(m.theme, m.width))
+			m.print(turnSeparator(m.theme, m.width))
 		} else {
 			dim := lipgloss.NewStyle().Foreground(m.theme.Dim).Italic(true)
-			m.transcript.AppendLine(turnSeparator(m.theme, m.width))
-			m.transcript.AppendLine(dim.Render("  ⚠ " + tc.FinishReason))
+			m.print(turnSeparator(m.theme, m.width))
+			m.print(dim.Render("  ⚠ " + tc.FinishReason))
 		}
 	case "compaction_complete":
 		// M6 T6: T3 (proactive) and T4 (overflow recovery) publish this
@@ -1383,9 +1429,11 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			return nil
 		}
 		m.clearThinkingIfPending()
-		m.transcript.EndAssistantCard() // M9 T3 — finalize any streaming text
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
 		m.sessionID = cc.ActiveSessionID
-		m.transcript.AppendLine(components.RenderCompactionCard(
+		m.print(components.RenderCompactionCard(
 			cc.EstimatedBeforeTokens,
 			cc.EstimatedAfterTokens,
 			shortSessionID(cc.ActiveSessionID),
@@ -1450,52 +1498,11 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 	return nil
 }
 
-// handleMouseClick dispatches a left-press click by screen-Y to one of
-// transcript (toolcard collapse-toggle), autocomplete popup (entry
-// select+complete), or no-op (prompt + status rows). M9.6 T1, ADR M9.6-01.
-//
-// Layout from top to bottom (current frame's vertical stack):
-//   transcript viewport (h = m.height - statusH - promptH - popupH)
-//   prompt (h = 2)
-//   autocomplete popup (h = 0 or N+2 when visible)  ← below prompt post-uxissue1
-//   status (h = 1)
-//
-// T2 inserts a stall-badge row above the prompt when present; the
-// transcriptH calculation is updated then.
-func (m Model) handleMouseClick(msg tea.MouseMsg) (Model, tea.Cmd) {
-	// ux-fixes round 3 — promptH is now dynamic so the click-Y math
-	// stays correct as the input box grows past one row.
-	promptH := m.promptChromeH()
-	popupH := m.autocomplete.PopupHeight()
-
-	transcriptH := m.height - statusH - promptH - popupH
-	if transcriptH < 0 {
-		transcriptH = 0
-	}
-
-	if msg.Y < transcriptH {
-		// Click in transcript region.
-		if cardIdx, ok := m.transcript.ClickAt(msg.Y); ok {
-			m.transcript.ToggleCardExpanded(cardIdx)
-		}
-		return m, nil
-	}
-	if popupH > 0 {
-		// Popup now sits BELOW the prompt (uxissue1).
-		popupStart := transcriptH + promptH
-		popupEnd := popupStart + popupH
-		if msg.Y >= popupStart && msg.Y < popupEnd {
-			// Click on autocomplete popup. Entry index is the row inside
-			// the popup minus 1 for the top border.
-			entryIdx := msg.Y - popupStart - 1
-			if completion, ok := m.autocomplete.SelectAt(entryIdx); ok {
-				m.prompt.SetValue(completion + " ")
-				m.autocomplete.Dismiss()
-			}
-			return m, nil
-		}
-	}
-	// Prompt + status rows + dead transcript area: no-op.
+// handleMouseClick is retained as a stub for any caller that still
+// references it. ux-fixes round 5 dropped mouse capture entirely so no
+// MouseMsg should arrive in practice; this kept-for-compile shim
+// ensures incidental references don't break the build.
+func (m Model) handleMouseClick(_ tea.MouseMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
@@ -1518,7 +1525,7 @@ func (m *Model) clearThinkingIfPending() {
 	if !m.thinkingPending {
 		return
 	}
-	m.transcript.RemoveLastLine()
+	m.live.ClearSpinner()
 	m.thinkingPending = false
 	m.spinnerLineIdx = -1
 	m.spinnerGen++
@@ -1550,7 +1557,8 @@ func (m *Model) startSpinner(label string) tea.Cmd {
 	m.spinnerGen++
 	m.spinner = components.NewSpinner()
 	m.spinnerLabel = label
-	m.spinnerLineIdx = m.transcript.AppendLiveLine(m.spinner.View(label))
+	m.live.SetSpinner(m.spinner.View(label))
+	m.spinnerLineIdx = 0 // legacy bookkeeping; LiveRegion holds the actual state now
 	capturedGen := m.spinnerGen
 	return tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
 		return spinnerTickMsg{gen: capturedGen}
@@ -1616,28 +1624,36 @@ func (m Model) View() string {
 	// away with the rest of the splash content.
 	hint := components.HintLine("? for shortcuts", m.theme)
 
-	// M9.6 T2 — stall badge renders between transcript and prompt area.
-	// M11.5 (boxed-prompt increment) — blank line spacers between
-	// transcript / prompt / status make the input box a clearly-
-	// separated focal point.
-	// M11.5 (picker card) — picker renders below the transcript and
-	// above the prompt when active (ADR M11.5-01).
-	// M11.5 (picker card, T8) — bumped the pre-prompt gap from one to
-	// two blank lines so the running-command indicator no longer
-	// crowds the input box (ux2.png feedback).
-	out := m.transcript.View() + "\n"
+	// ux-fixes round 5 — inline mode View. Committed transcript history
+	// flows into the terminal's native scrollback via tea.Println
+	// (m.print / m.drainPrintln) — no longer rendered inside View().
+	// The live region holds whatever is in-flight (streaming assistant
+	// card, "(running command)" indicator, thinking spinner). Stall
+	// badge and picker card stack above the prompt as before.
+	var b strings.Builder
+	if live := m.live.View(); live != "" {
+		b.WriteString(live)
+		if !strings.HasSuffix(live, "\n") {
+			b.WriteString("\n")
+		}
+	}
 	if m.stallBadge != nil {
-		out += m.stallBadge.View(m.width) + "\n"
+		b.WriteString(m.stallBadge.View(m.width))
+		b.WriteString("\n")
 	}
 	if m.picker != nil {
-		out += m.picker.View(m.width) + "\n"
+		b.WriteString(m.picker.View(m.width))
+		b.WriteString("\n")
 	}
-	out += "\n\n" + prompt + "\n"
+	b.WriteString("\n")
+	b.WriteString(prompt)
+	b.WriteString("\n")
 	if hint != "" {
-		out += hint + "\n"
+		b.WriteString(hint)
+		b.WriteString("\n")
 	}
-	out += m.statusLine.View()
-	return out
+	b.WriteString(m.statusLine.View())
+	return b.String()
 }
 
 // postApproval POSTs the user's permission decision to

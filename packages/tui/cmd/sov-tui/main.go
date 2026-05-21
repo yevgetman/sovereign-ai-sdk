@@ -31,13 +31,14 @@ func main() {
 		port      = flag.Int("port", 0, "server port on 127.0.0.1 (required)")
 		sessionID = flag.String("session-id", "", "session ID (required)")
 		version   = flag.Bool("version", false, "print version and exit")
-		mouse     = flag.Bool("mouse", false, "enable mouse capture for clicks + wheel-scroll (disables native terminal text selection)")
-		noMouse   = flag.Bool("no-mouse", false, "deprecated no-op: mouse is now off by default; use --mouse to opt in")
+		mouse     = flag.Bool("mouse", false, "deprecated no-op (terminal now owns scroll + selection natively); kept for back-compat with older launchers")
+		noMouse   = flag.Bool("no-mouse", false, "deprecated no-op (mouse capture is gone after round 5 inline-mode refactor)")
 		modelName = flag.String("model", "", "model name to display in the splash and status line")
 		provider  = flag.String("provider", "", "provider name to display in the splash and status line")
 	)
 	flag.Parse()
-	_ = noMouse // accepted for back-compat with older `sov` launchers
+	_ = mouse   // accepted for back-compat
+	_ = noMouse // accepted for back-compat
 
 	if *version {
 		fmt.Println(versionString())
@@ -50,15 +51,13 @@ func main() {
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
 	model := app.New(*sessionID, baseURL).WithSessionInfo(*modelName, *provider)
-	// Mouse capture is OFF by default so terminal-native text selection
-	// (click-drag to highlight, Cmd+C / Ctrl+Shift+C to copy) works
-	// everywhere out of the box. Users who want click + wheel-scroll
-	// inside the TUI opt in with --mouse. ux-fixes round 3.
-	opts := []tea.ProgramOption{tea.WithAltScreen()}
-	if *mouse || os.Getenv("SOV_MOUSE") == "1" {
-		opts = append(opts, tea.WithMouseCellMotion())
-	}
-	prog := tea.NewProgram(model, opts...)
+	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
+	// content flows into the terminal's native scrollback (wheel scroll
+	// + click-drag text selection just work). Drop mouse capture too —
+	// the TUI doesn't need to intercept clicks; the terminal handles
+	// scroll natively and the in-TUI tool-card click interaction was
+	// retired with the refactor.
+	prog := tea.NewProgram(model)
 	if _, err := prog.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "sov-tui: %v\n", err)
 		os.Exit(1)

@@ -8,6 +8,56 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-21 — ux-fixes round 5 (inline-mode refactor: native scroll + selection, paste flush, user-line wrap)
+
+**Scope:** Round 4 added keyboard scroll bindings but the user reported scroll still didn't work in their live session — and they explicitly rejected the "use Option+drag for selection" compromise from round 3. The fix is architectural: drop bubbletea's alt screen so the terminal owns scrollback (wheel + trackpad scroll) and text selection natively. Permanent session content is emitted via `tea.Println` (printed ABOVE the live View into terminal scrollback); the in-TUI View shrinks to a small live region at the bottom (streaming assistant card + spinner + "running command" indicator) plus the prompt + status footer.
+
+**Bugs fixed:**
+
+1. **Scroll doesn't work** — Removed `tea.WithAltScreen()` in `cmd/sov-tui/main.go` so the terminal handles wheel + trackpad scroll natively. With no alt screen, mouse capture also drops (no `--mouse` / `SOV_MOUSE`); text selection works exactly like in any other terminal app (click + drag highlight + Cmd+C). The round-4 PgUp/PgDn/Shift+arrow scroll bindings are deleted — they were a workaround for the architectural problem this refactor fixes properly.
+
+2. **Pasted content invisible until next keystroke** — Bubbletea reports each bracketed-paste as ONE KeyMsg with `Paste=true` and `Runes` containing the entire pasted content (including embedded `\n` as plain runes). Round 4 tried to accumulate across multiple KeyMsgs (a misread of the bubbletea API) and waited for a non-paste event to flush — which is why pastes only appeared after typing or hitting space. Round 5 flushes the single paste-flagged KeyMsg immediately to `Prompt.RegisterPaste` / `Prompt.InsertString` and triggers a layout recompute in the same Update tick.
+
+3. **Long user submissions overflow horizontally** — `printUser` now wraps via `lipgloss.NewStyle().Width(w).Render(body)` at the current terminal width minus the marker column. Continuation lines indent two spaces to align under the message body. Anything above `userMessageDisplayCap = 1500` characters is truncated with a dim italic " …[+N chars]" marker (the full text still ships in the actual turn via the prompt's ExpandPastes; the truncation is purely the visual echo).
+
+**Architecture changes (overview):**
+- `cmd/sov-tui/main.go` — drop `tea.WithAltScreen()`; demote `--mouse` / `--no-mouse` to no-op back-compat shims.
+- `internal/components/liveregion.go` (NEW, ~120 LoC) — bottom-of-screen live region holding the in-flight streaming assistant card (`AppendAssistantDelta` + `EndAssistantCard` returning the rendered card for tea.Println commit), the spinner frame (`SetSpinner` / `ClearSpinner`), and a "…running /name" indicator (`SetRunningCommand`).
+- `internal/components/liveregion_test.go` (NEW, 8 cases) — pins streaming accumulation, EndAssistantCard commit/clear, spinner set/clear, running-command indicator, ordering (streaming above spinner), theme swap.
+- `internal/app/app.go`:
+  - Added `pendingPrintln []string` + `emittedPrintln []string` fields. `m.print` / `m.printUser` queue lines; `m.drainPrintln()` consolidates into a single `tea.Println` Cmd (newline-joined to preserve order) and snapshots into `emittedPrintln` for test inspection. `m.respond(cmd)` batches the drain with the caller's Cmd so every Update return through `m.respond` emits scrollback in the same tick the print queue was filled.
+  - Added `m.live LiveRegion`; wired SetWidth in `recomputeLayout`, SetTheme in `applyThemeByName`.
+  - Migrated every `m.transcript.AppendLine` / `AppendUserLine` call site (~70 sites across app.go + expand.go) to `m.print` / `m.printUser`.
+  - Migrated `AppendAssistantDelta` → `m.live.AppendAssistantDelta`; every `EndAssistantCard` site → `if rendered, ok := m.live.EndAssistantCard(); ok { m.print(rendered) }`.
+  - Migrated spinner: `AppendLiveLine` → `m.live.SetSpinner`; `UpdateLiveLine` → `m.live.SetSpinner`; `RemoveLastLine` (in clearThinkingIfPending) → `m.live.ClearSpinner`.
+  - "[compacting…]" + "…running /name" placeholders → `m.live.SetRunningCommand`; matching `RemoveLastLine` in compactCompleteMsg / compactErrorMsg / commandDispatchedMsg → `m.live.SetRunningCommand("")`.
+  - Tool cards (`AppendLineAsCard`) now print fully expanded directly into scrollback (interactive collapse/expand dropped — scrollback is immutable). `/expand N` still surfaces the raw payload from the ring buffer.
+  - View() rewrites: drop `m.transcript.View()`; emit only `m.live.View()` + stall badge + picker + spacer + prompt + autocomplete popup + hint + status.
+  - Drop `MouseMsg` routing entirely (no more mouse capture; `handleMouseClick` shrinks to a kept-for-compile stub).
+  - Wrap every return in Update with `m.respond(...)` so the drain fires reliably.
+- `internal/app/expand.go` — 3 `AppendLine` swaps to `m.print`.
+- Tests: deleted round-4 PgUp scroll test; deleted `TestApp_ClickOnToolCardTogglesExpanded` / `TestApp_ClickOnPromptIsNoOp` / `TestApp_WheelEventStillScrolls` (features retired); migrated 6 direct-Update tests to read `scrollbackContent(m)` (joins `emittedPrintln`) instead of `m.View()`; added `TestPrintUser_WrapsLongMessage` + `TestPrintUser_TruncatesExtremelyLongMessage`. `TestPickerEscClearsWithoutDispatch` updated: cancel-marker now flows to scrollback so the original "Cmd should be nil" assertion is relaxed to "scrollback contains (cancelled)".
+
+**Round-3 / round-4 preservations verified (no regression):**
+- Round 3 textbox auto-grow (`bubbles/textarea` in `prompt.go`): untouched.
+- Round 3 splash polish (padding + body-text color + model in card): untouched.
+- Round 3 spinner alignment (bottom-weighted Braille): LiveRegion calls Spinner.View — frames unchanged.
+- Round 3 markdown rendering (list hang-indent + table-cell skip): untouched.
+- Round 4 paste abstraction (`Prompt.RegisterPaste` / `ExpandPastes`): re-tested and works correctly with the simplified single-KeyMsg paste handler.
+- Round 4 ESC cancel turn: untouched in app.go.
+- Round 3 prompt-prefix-first-line (`SetPromptFunc`): untouched.
+
+**Features dropped:**
+- Alt screen rendering mode.
+- All mouse capture (`tea.WithMouseCellMotion`).
+- Tool card collapse/expand interaction (cards print fully expanded).
+- Round-4 PgUp/PgDn/Shift+arrow scroll bindings (replaced by terminal-native scroll).
+- Round-3 `--mouse` opt-in flag (no use case left).
+
+**Gate:** lint clean (same 2 pre-existing shellSemantics warnings). Typecheck clean. TS suite **1955 pass / 14 skip / 0 fail** (unchanged from round 4). Go suite: all packages green; +8 LiveRegion tests, +2 printUser tests; round-4 PgUp test deleted (feature gone).
+
+**No smoke:** TUI behaviors need a live terminal. The user verifies wheel scroll + click-drag selection + paste-shows-immediately + long-message wrap once `sov upgrade` lands the new binary.
+
 ## 2026-05-21 — ux-fixes round 4 (scroll restore, paste abstraction, prompt prefix, ESC turn-cancel)
 
 **Scope:** Four follow-up UX bugs surfaced after the round-3 ship. Coordinated batch fix again.

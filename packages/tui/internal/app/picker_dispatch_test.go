@@ -14,6 +14,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -105,14 +106,19 @@ func TestPickerEscClearsWithoutDispatch(t *testing.T) {
 	updated, _ := m.Update(commandDispatchedMsg{name: "model", resp: resp})
 	app := updated.(Model)
 
-	updated, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	app = updated.(Model)
 
 	if app.picker != nil {
 		t.Errorf("picker should be nil after Esc; got %+v", *app.picker)
 	}
-	if cmd != nil {
-		t.Error("Esc should not return a tea.Cmd (no dispatch)")
+	// ux-fixes round 5 — Esc emits a "(cancelled)" line into scrollback
+	// via tea.Println (a non-nil Cmd carrying the print). The pre-round-5
+	// "no Cmd returned" assertion is too strong; the meaningful check is
+	// that ESC didn't dispatch a slash command. Verify by inspecting the
+	// scrollback snapshot for the cancellation marker.
+	if !strings.Contains(scrollbackContent(app), "cancelled") {
+		t.Errorf("expected '(cancelled)' line in scrollback after Esc; got %q", scrollbackContent(app))
 	}
 }
 

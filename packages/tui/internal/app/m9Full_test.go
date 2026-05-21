@@ -41,6 +41,8 @@ func TestM9_MarkdownRenderedInAssistantText(t *testing.T) {
 }
 
 func TestM9_ToolResultRendersWithCard(t *testing.T) {
+	// ux-fixes round 5 — tool cards print to scrollback (no longer rendered
+	// in View()). Inspect emittedPrintln via the test helper.
 	m := New("s-tool", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
@@ -48,9 +50,9 @@ func TestM9_ToolResultRendersWithCard(t *testing.T) {
 	env := newTestEnvelope("tool_result", "s-tool", 1, raw)
 	model, _ = m.Update(sseMsg{env: env})
 	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "FileRead") {
-		t.Errorf("tool card missing tool name: %q", view)
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "FileRead") {
+		t.Errorf("tool card missing tool name in scrollback: %q", out)
 	}
 }
 
@@ -72,6 +74,7 @@ func TestM9_GoodbyeCardRendersOnSessionSummary(t *testing.T) {
 }
 
 func TestM9_CompactionMarkerRendersOnCompactionComplete(t *testing.T) {
+	// ux-fixes round 5 — compaction marker now flows into scrollback.
 	m := New("s-cc", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	m = model.(Model)
@@ -79,12 +82,12 @@ func TestM9_CompactionMarkerRendersOnCompactionComplete(t *testing.T) {
 	env := newTestEnvelope("compaction_complete", "parent-session", 1, raw)
 	model, _ = m.Update(sseMsg{env: env})
 	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "compacted") {
-		t.Errorf("compaction marker missing 'compacted': %q", view)
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "compacted") {
+		t.Errorf("compaction marker missing 'compacted' in scrollback: %q", out)
 	}
-	if !strings.Contains(view, "1000") || !strings.Contains(view, "500") {
-		t.Errorf("compaction marker missing token deltas: %q", view)
+	if !strings.Contains(out, "1000") || !strings.Contains(out, "500") {
+		t.Errorf("compaction marker missing token deltas in scrollback: %q", out)
 	}
 }
 
@@ -218,22 +221,18 @@ func TestM9_6_StallBadgeRendersThenClearsOnMatchingGen(t *testing.T) {
 
 func TestM9_6_SkillsReloadParserAcceptsBothForms(t *testing.T) {
 	// M11.17 — both "/skills" and "/skills " forms render the list/verbs
-	// cheatsheet (not just "usage:" as in M9.6). Confirms the parser
-	// treats the empty-verb case as a list/help action regardless of
-	// trailing whitespace.
+	// cheatsheet. ux-fixes round 5 — verbs line now lives in scrollback.
 	m := New("s-sk2", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
-	// "/skills " (with trailing space) — verbs cheatsheet.
 	for _, r := range "/skills " {
 		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = model.(Model)
 	}
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "verbs:") {
-		t.Errorf("trailing-space form should show verbs cheatsheet: %q", view)
+	if !strings.Contains(scrollbackContent(m), "verbs:") {
+		t.Errorf("trailing-space form should show verbs cheatsheet in scrollback: %q", scrollbackContent(m))
 	}
 }
 

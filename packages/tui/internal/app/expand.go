@@ -105,7 +105,7 @@ func (m *Model) expandToolBlock(n int) tea.Cmd {
 	block, ok := m.lookupCompletedBlock(n)
 	if !ok {
 		total := len(m.completedBlocks)
-		m.transcript.AppendLine(dim.Render(
+		m.print(dim.Render(
 			"no tool block to expand (requested " + strconv.Itoa(n) +
 				", " + strconv.Itoa(total) + " available)",
 		))
@@ -114,7 +114,7 @@ func (m *Model) expandToolBlock(n int) tea.Cmd {
 	// Header line — names the tool + position in the ring. Dim so the
 	// expanded body itself remains the visual focus.
 	total := len(m.completedBlocks)
-	m.transcript.AppendLine(dim.Render(
+	m.print(dim.Render(
 		"(expanded) " + block.Tool + " · block " +
 			strconv.Itoa(n) + " of " + strconv.Itoa(total),
 	))
@@ -122,7 +122,7 @@ func (m *Model) expandToolBlock(n int) tea.Cmd {
 	// multi-line output splits cleanly on \n. lipgloss handles wrapping
 	// once the viewport's width is set.
 	for _, line := range strings.Split(block.Output, "\n") {
-		m.transcript.AppendLine(line)
+		m.print(line)
 	}
 	return nil
 }

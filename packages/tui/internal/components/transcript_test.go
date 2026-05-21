@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -21,6 +22,43 @@ func TestTranscriptAppendLineAddsContent(t *testing.T) {
 	if !strings.Contains(tr.View(), "hello world") {
 		t.Errorf("AppendLine: expected content in view: %q", tr.View())
 	}
+}
+
+func TestTranscriptPageUpScrollsView(t *testing.T) {
+	// ux-fixes round 4 regression test — PgUp must shift the viewport
+	// window so an earlier line becomes visible. Pre-fix the viewport
+	// either didn't receive the key or the sizing kept content
+	// fully visible (vp.Height == contentHeight), masking scroll.
+	tr := NewTranscript(theme.Dark())
+	tr.SetSize(80, 5) // 5-row viewport — small enough to force overflow.
+	for i := 0; i < 30; i++ {
+		tr.AppendLine("line-" + itoa(i))
+	}
+	// Initially scrolled to bottom — line-29 visible, line-0 not.
+	viewAtBottom := tr.View()
+	if !strings.Contains(viewAtBottom, "line-29") {
+		t.Fatalf("expected line-29 at bottom; got: %q", viewAtBottom)
+	}
+	// Page up via the viewport keymap (pgup is bound by default).
+	updated, _ := tr.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	viewAfterPgUp := updated.View()
+	if viewAfterPgUp == viewAtBottom {
+		t.Errorf("PgUp produced no scroll change; before=%q after=%q", viewAtBottom, viewAfterPgUp)
+	}
+}
+
+// itoa is a tiny strconv-free decimal helper so transcript tests stay
+// dependency-light.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
 }
 
 func TestTranscriptAppendAssistantDeltaRendersMarkdown(t *testing.T) {

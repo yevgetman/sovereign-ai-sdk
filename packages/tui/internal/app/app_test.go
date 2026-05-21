@@ -20,6 +20,82 @@ import (
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
 
+// ux-fixes round 5 — the round-4 PgUp / Shift+arrow scroll bindings
+// are gone. The terminal owns scrollback natively now that alt screen
+// is disabled. No client-side scroll wiring to test.
+
+// scrollbackContent is a test helper that joins every line ever
+// drained via tea.Println into a single string. Direct-Update tests
+// use this instead of View() because committed history (user msgs,
+// system msgs, finalized assistant cards, etc.) no longer appears in
+// View() — it flows into the terminal's scrollback via tea.Println.
+// Inspects emittedPrintln (the drained-snapshot slice on Model) so the
+// helper works even after Update has drained pendingPrintln.
+// ux-fixes round 5.
+func scrollbackContent(m Model) string {
+	return strings.Join(m.emittedPrintln, "\n")
+}
+
+// TestPrintUser_WrapsLongMessage covers the ux-fixes-round-5 contract
+// that user submissions render across multiple lines at the terminal
+// width, not as a single horizontally-overflowing line. Drives a long
+// message through Update via the slash-skill-fallthrough path.
+func TestPrintUser_WrapsLongMessage(t *testing.T) {
+	m := New("s-wrap", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	m = model.(Model)
+	// Submit a message ~200 chars long.
+	long := strings.Repeat("alpha beta ", 20) // 220 chars
+	for _, r := range long {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	out := scrollbackContent(m)
+	// The user-line should appear, wrapped across multiple rows. Pin
+	// the marker presence + that the rendered text spans more than one
+	// line (newlines in the queued user-line).
+	if !strings.Contains(out, "alpha") {
+		t.Fatalf("expected user message in scrollback; got %q", out)
+	}
+	lines := strings.Split(out, "\n")
+	userLineCount := 0
+	for _, ln := range lines {
+		if strings.Contains(ln, "alpha") {
+			userLineCount++
+		}
+	}
+	if userLineCount < 2 {
+		t.Errorf("expected user message wrapped to >= 2 lines at width 40; got %d lines:\n%s", userLineCount, out)
+	}
+}
+
+// TestPrintUser_TruncatesExtremelyLongMessage covers the 1500-char cap.
+// Anything past userMessageDisplayCap is replaced by a "[+N chars]"
+// marker so a giant paste doesn't dominate scrollback.
+func TestPrintUser_TruncatesExtremelyLongMessage(t *testing.T) {
+	m := New("s-trunc", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	// Directly call printUser with > userMessageDisplayCap chars.
+	huge := strings.Repeat("x", userMessageDisplayCap+500)
+	m.printUser(huge)
+	m.drainPrintln()
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "[+500 chars]") {
+		t.Errorf("expected truncation marker; got %q", out)
+	}
+	// Pre-truncation chars should still be present; post-truncation chars
+	// (anywhere past the cap) must NOT be in the rendered output beyond
+	// what fits in the kept-window + marker.
+	if strings.Count(out, "x") < userMessageDisplayCap-50 {
+		t.Errorf("kept window too small; got %d x chars", strings.Count(out, "x"))
+	}
+}
+
 // newTestEnvelope builds a transport.Envelope for direct Update-driven
 // tests. Used by the M9 T11 rewrites of the previously-skipped tests
 // (rendersTurnErrorVisibly / showsThinkingIndicatorOnEnter /
@@ -242,16 +318,24 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 // M9 T11: rewritten to drive Model.Update directly with a synthesized
 // turn_error envelope, avoiding teatest's WaitFor polling race.
 func TestApp_rendersTurnErrorVisibly(t *testing.T) {
+	// ux-fixes round 5 — turn_error output is no longer rendered into
+	// the live View(); it's queued via m.print and emitted via
+	// tea.Println into the terminal's scrollback. Drive handleEvent
+	// directly so pendingPrintln stays populated (Update's sseMsg
+	// branch drains it via m.respond; we want to inspect the queued
+	// content here).
 	m := New("s-err", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
+	// Clear the splash + boot notices queue so the assertion below
+	// inspects only the turn_error output.
+	m.pendingPrintln = nil
 	env := newTestEnvelope("turn_error", "s-err", 1,
 		`{"type":"turn_error","seq":1,"sessionId":"s-err","error":"boom","recoverable":true}`)
-	model, _ = m.Update(sseMsg{env: env})
-	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "turn error") || !strings.Contains(view, "boom") {
-		t.Errorf("turn_error not rendered visibly: %q", view)
+	_ = m.handleEvent(env)
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "turn error") || !strings.Contains(joined, "boom") {
+		t.Errorf("turn_error not queued for scrollback emission: %q", joined)
 	}
 }
 
@@ -1103,56 +1187,22 @@ func TestApp_ThemeChangedSideEffectUnknownNameSurfacesDimMarker(t *testing.T) {
 	if m.theme.Name != beforeName {
 		t.Errorf("theme should not change on unknown name; was=%s now=%s", beforeName, m.theme.Name)
 	}
-	// View output should contain the dim error marker.
-	view := m.View()
-	if !strings.Contains(view, "could not apply theme") {
-		t.Errorf("expected dim marker for unknown theme; view: %q", view)
+	// ux-fixes round 5 — the dim error marker now flows into terminal
+	// scrollback via tea.Println; inspect the drained snapshot.
+	if !strings.Contains(scrollbackContent(m), "could not apply theme") {
+		t.Errorf("expected dim marker for unknown theme in scrollback; got %q", scrollbackContent(m))
 	}
 }
 
 // M9.6 T1 — mouse click handling tests.
 
-func TestApp_ClickOnToolCardTogglesExpanded(t *testing.T) {
-	m := New("s-click", "")
-	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = model.(Model)
-	raw := `{"type":"tool_result","seq":1,"sessionId":"s-click","block":0,"tool":"Bash","input":{"command":"ls"},"output":"file-list-content","renderHint":"text"}`
-	env := newTestEnvelope("tool_result", "s-click", 1, raw)
-	model, _ = m.Update(sseMsg{env: env})
-	m = model.(Model)
-	beforeClick := m.View()
-	// Click at Y=0 (where the tool card was rendered).
-	model, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, Y: 0})
-	m = model.(Model)
-	afterClick := m.View()
-	// One of them should contain the output text — the other should not.
-	hadBefore := strings.Contains(beforeClick, "file-list-content")
-	hadAfter := strings.Contains(afterClick, "file-list-content")
-	if hadBefore == hadAfter {
-		t.Errorf("toolcard Expanded state should toggle on click — before:%v after:%v\nbefore:%q\nafter:%q", hadBefore, hadAfter, beforeClick, afterClick)
-	}
-}
-
-func TestApp_ClickOnPromptIsNoOp(t *testing.T) {
-	m := New("s-prompt", "")
-	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = model.(Model)
-	// Y near the prompt (height 24 - status 1 - prompt 2 = 21, so prompt rows are Y=21-22).
-	model, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, Y: 22})
-	_ = model.(Model)
-	// No panic; no model state change relevant.
-}
-
-func TestApp_WheelEventStillScrolls(t *testing.T) {
-	m := New("s-wheel", "")
-	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = model.(Model)
-	// Wheel events must still forward to the transcript (M9 T9 behavior).
-	model, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp, Y: 0})
-	_ = model.(Model)
-	// No panic. Scroll state is bubbles-internal; we only check we didn't
-	// route this through handleMouseClick.
-}
+// ux-fixes round 5 — mouse handling is gone (no alt screen, no mouse
+// capture; terminal owns scroll + selection natively). The previously
+// covered behaviors (toolcard click-to-expand, wheel-forwards-to-transcript)
+// were retired with the inline-mode refactor. Tool cards now print
+// fully expanded into terminal scrollback at tool_result time, so the
+// "toggle on click" contract no longer exists. Wheel events bypass the
+// TUI entirely, scrolling the terminal natively.
 
 // M9.6 T2 — stall badge tests.
 
@@ -1234,12 +1284,14 @@ func TestApp_SlashSkillsNoVerbShowsListAndVerbs(t *testing.T) {
 	}
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "verbs:") {
-		t.Errorf("expected verbs-cheatsheet line: %q", view)
+	// ux-fixes round 5 — feedback flows into scrollback via tea.Println;
+	// inspect the drained snapshot instead of View().
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "verbs:") {
+		t.Errorf("expected verbs-cheatsheet line in scrollback: %q", out)
 	}
-	if !strings.Contains(view, "install") || !strings.Contains(view, "uninstall") || !strings.Contains(view, "reload") {
-		t.Errorf("expected install/uninstall/reload in cheatsheet: %q", view)
+	if !strings.Contains(out, "install") || !strings.Contains(out, "uninstall") || !strings.Contains(out, "reload") {
+		t.Errorf("expected install/uninstall/reload in cheatsheet: %q", out)
 	}
 }
 
@@ -1253,9 +1305,9 @@ func TestApp_SlashSkillsUnknownVerbErrors(t *testing.T) {
 	}
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "unknown") || !strings.Contains(view, "bogus") {
-		t.Errorf("expected unknown-verb error: %q", view)
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "unknown") || !strings.Contains(out, "bogus") {
+		t.Errorf("expected unknown-verb error in scrollback: %q", out)
 	}
 }
 
@@ -1269,9 +1321,9 @@ func TestApp_SlashSkillsReloadNoServerNoOps(t *testing.T) {
 	}
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = model.(Model)
-	view := m.View()
-	if !strings.Contains(view, "unavailable") {
-		t.Errorf("expected 'unavailable' marker for /skills reload without server: %q", view)
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "unavailable") {
+		t.Errorf("expected 'unavailable' marker for /skills reload without server: %q", out)
 	}
 }
 
