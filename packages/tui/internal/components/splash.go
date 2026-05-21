@@ -71,10 +71,14 @@ func RenderSplash(info SplashInfo, t theme.Theme, width int) string {
 	cardContent := buildInfoCard(info, t)
 	var card []string
 	if len(cardContent) > 0 {
+		// ux-fixes round 3: Padding(1, 2) — 1 row top + bottom and 2
+		// cols left + right — gives the info card room to breathe.
+		// The pre-existing Padding(0, 1) was visually cramped against
+		// the rounded border (ux1.png feedback).
 		borderStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(t.Border).
-			Padding(0, 1)
+			Padding(1, 2)
 		boxed := borderStyle.Render(strings.Join(cardContent, "\n"))
 		card = strings.Split(boxed, "\n")
 	}
@@ -136,9 +140,15 @@ func RenderSplash(info SplashInfo, t theme.Theme, width int) string {
 func buildInfoCard(info SplashInfo, t theme.Theme) []string {
 	accent := lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
 	muted := lipgloss.NewStyle().Foreground(t.Dim)
-	fg := lipgloss.NewStyle().Foreground(t.Foreground)
+	// ux-fixes round 3: body text inherits terminal default foreground
+	// per the M11.10 rule (docs/conventions/tui-color-rendering.md). A
+	// hard `Foreground(t.Foreground)` rendered dark grey on terminals
+	// whose palette mapped the theme foreground to a low-contrast slot
+	// (ux1.png feedback). Bold-only is the "brightest reliable" path.
+	body := lipgloss.NewStyle().Bold(true)
+	plain := lipgloss.NewStyle()
 
-	title := accent.Render(">_") + " " + fg.Bold(true).Render("Sovereign AI")
+	title := accent.Render(">_") + " " + body.Render("Sovereign AI")
 	if info.Version != "" {
 		title += " " + muted.Render("("+info.Version+")")
 	}
@@ -151,11 +161,14 @@ func buildInfoCard(info SplashInfo, t theme.Theme) []string {
 		} else if info.Auth != "" {
 			line = info.Auth
 		}
-		rows = append(rows, fg.Render(line))
+		rows = append(rows, plain.Render(line))
 	}
 
-	if info.Model != "" {
-		rows = append(rows, fg.Render(info.Model)+" "+muted.Render("(/model to change)"))
+	// Model line. Skip when empty OR equal to the legacy "?" sentinel so
+	// a fresh boot before the model name is known doesn't render a
+	// confusing "? (/model to change)" line (ux1.png feedback).
+	if info.Model != "" && info.Model != "?" {
+		rows = append(rows, plain.Render(info.Model)+" "+muted.Render("(/model to change)"))
 	}
 
 	if info.Cwd != "" {

@@ -35,12 +35,17 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // NewStatusLine returns a status line with default placeholder values.
 // Theme is constructor-injected per ADR M9-01.
+//
+// ux-fixes round 3: Provider and Model default to empty strings (not "?")
+// so the splash card and any consumers that check truthiness behave
+// correctly before the launcher seeds the real values via WithSessionInfo.
+// Cwd retains "?" because app.go always overwrites it with os.Getwd().
 func NewStatusLine(t theme.Theme) StatusLine {
 	return StatusLine{
 		Cwd:      "?",
 		Profile:  "default",
-		Provider: "?",
-		Model:    "?",
+		Provider: "",
+		Model:    "",
 		Theme:    t,
 	}
 }

@@ -135,6 +135,14 @@ describe('runTuiLauncher — flag forwarding', () => {
         return {
           dispose: async () => {},
           resumeId: typeof opts.resumeId === 'string' ? opts.resumeId : undefined,
+          // ux-fixes round 3: tuiLauncher.spawn passes model + provider
+          // through to sov-tui as CLI args so the splash card renders
+          // them from frame 0. The mock supplies stub values; production
+          // builds set these in src/server/runtime.ts.
+          model: typeof opts.model === 'string' ? opts.model : 'claude-haiku-stub',
+          resolvedProvider: {
+            transport: { name: typeof opts.provider === 'string' ? opts.provider : 'anthropic' },
+          },
         };
       },
     }));

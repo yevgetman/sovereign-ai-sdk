@@ -73,6 +73,30 @@ func TestRenderSplash_OmitsEmptyFields(t *testing.T) {
 	}
 }
 
+func TestRenderSplash_TreatsQuestionMarkModelAsEmpty(t *testing.T) {
+	// ux-fixes round 3: the pre-WithSessionInfo statusline default was
+	// Model = "?", and on slow launches the splash would render
+	// "? (/model to change)" — confusing. The renderer now treats "?"
+	// as equivalent to empty so the line is skipped entirely.
+	out := RenderSplash(SplashInfo{
+		Version:  "0.0.1",
+		Provider: "anthropic",
+		Auth:     "API Key",
+		Model:    "?",
+		Cwd:      "/home/user/code",
+	}, theme.Dark(), 120)
+
+	if strings.Contains(out, "(/model to change)") {
+		t.Errorf("splash should treat Model='?' as empty; got:\n%s", out)
+	}
+	// "?" should not appear as a stand-alone model line (Cwd has "?" only
+	// in /home/user/code which is fine; assert the literal "? (/" combo
+	// from the legacy line doesn't surface).
+	if strings.Contains(out, "? (/model") {
+		t.Errorf("splash leaked the legacy '? (/model to change)' line; got:\n%s", out)
+	}
+}
+
 func TestRenderSplash_AppendsTipsLine(t *testing.T) {
 	out := RenderSplash(SplashInfo{
 		Version: "0.0.1",

@@ -31,13 +31,20 @@ import (
 )
 
 // thinkingSpinnerFrames is the Braille rotation used by the thinking
-// indicator. ux-fixes round 2: switched from the 6-dot light Braille
-// set (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) to the 8-dot fully-filled "heavy" set so the
-// glyph reads larger and weightier in the transcript — terminals
-// can't change font size, but a denser glyph occupies more pixels in
-// the same cell and gives the same "slightly bigger" effect.
+// indicator. ux-fixes round 3: switched from the round-2 "heavy"
+// full-cell Braille (⣾⣽⣻⢿⡿⣟⣯⣷) to a bottom-weighted rotation that
+// keeps every dot in the lower 2×2 quadrant of the cell (dots 3, 6,
+// 7, 8). The "heavy" set extended dots top-and-bottom of the cell so
+// the spinner visually overhung the text baseline of "Thinking" sitting
+// to its right — the user perceived a baseline mismatch (ux2.png
+// feedback). Bottom-weighted glyphs sit at the same vertical level as
+// text and read as cleanly aligned. The 8 frames rotate the "heavy"
+// position clockwise around the lower quad:
+//
+//	⢀ (BR) → ⣀ (BR+BL) → ⡀ (BL) → ⡄ (BL+ML)
+//	⠄ (ML) → ⠤ (ML+MR) → ⠠ (MR) → ⢠ (MR+BR) → wrap
 var thinkingSpinnerFrames = []string{
-	"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷",
+	"⢀", "⣀", "⡀", "⡄", "⠄", "⠤", "⠠", "⢠",
 }
 
 // thinkingSpinnerGradient cycles through the same 4-anchor palette the

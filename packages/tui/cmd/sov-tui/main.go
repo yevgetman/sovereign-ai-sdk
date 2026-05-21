@@ -31,9 +31,13 @@ func main() {
 		port      = flag.Int("port", 0, "server port on 127.0.0.1 (required)")
 		sessionID = flag.String("session-id", "", "session ID (required)")
 		version   = flag.Bool("version", false, "print version and exit")
-		noMouse   = flag.Bool("no-mouse", false, "disable mouse mode (for terminals that mishandle mouse escape codes)")
+		mouse     = flag.Bool("mouse", false, "enable mouse capture for clicks + wheel-scroll (disables native terminal text selection)")
+		noMouse   = flag.Bool("no-mouse", false, "deprecated no-op: mouse is now off by default; use --mouse to opt in")
+		modelName = flag.String("model", "", "model name to display in the splash and status line")
+		provider  = flag.String("provider", "", "provider name to display in the splash and status line")
 	)
 	flag.Parse()
+	_ = noMouse // accepted for back-compat with older `sov` launchers
 
 	if *version {
 		fmt.Println(versionString())
@@ -45,12 +49,13 @@ func main() {
 	}
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
-	model := app.New(*sessionID, baseURL)
-	// M9.6 T1: --no-mouse opts out of mouse-mode escape sequences for
-	// terminals that mishandle them. ADR M9.6-01: click v1 is limited to
-	// toolcard + autocomplete; wheel-scroll is M9's only mouse behavior.
+	model := app.New(*sessionID, baseURL).WithSessionInfo(*modelName, *provider)
+	// Mouse capture is OFF by default so terminal-native text selection
+	// (click-drag to highlight, Cmd+C / Ctrl+Shift+C to copy) works
+	// everywhere out of the box. Users who want click + wheel-scroll
+	// inside the TUI opt in with --mouse. ux-fixes round 3.
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
-	if !*noMouse {
+	if *mouse || os.Getenv("SOV_MOUSE") == "1" {
 		opts = append(opts, tea.WithMouseCellMotion())
 	}
 	prog := tea.NewProgram(model, opts...)

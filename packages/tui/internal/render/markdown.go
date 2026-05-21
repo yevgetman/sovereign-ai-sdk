@@ -177,12 +177,23 @@ func wrapFileRefsByLine(text string) string {
 				continue
 			}
 		}
+		// ux-fixes round 3 — skip ALL backtick wrapping on table rows.
+		// The pre-round-3 wrapFileRefsInTableRow + token-pass combo
+		// injected ANSI inline-code styling into table cells, which
+		// then interleaved with lipgloss's cell-width-aware Render
+		// in glamour's table layout. The result was reset-sequence
+		// fragments leaking across cell boundaries — visually the
+		// long-cell continuation row would render flush-left instead
+		// of inside its cell column (ux3.png/ux4.png feedback). With
+		// cells left un-backticked, lipgloss's table renderer keeps
+		// cell content clean and the wrap stays inside the column.
+		// File-ref styling on prose lines (including paragraphs that
+		// SIT NEXT TO a table) is unaffected.
 		if tableRowPattern.MatchString(line) {
-			line = wrapFileRefsInTableRow(line)
+			continue
 		}
 		// Token-level pass: catches single-token paths anywhere in
-		// prose, plus any space-free refs in table cells that the
-		// table pass left untouched.
+		// prose.
 		lines[i] = fileRefPattern.ReplaceAllStringFunc(line, func(match string) string {
 			subs := fileRefPattern.FindStringSubmatch(match)
 			if len(subs) < 2 {
@@ -275,6 +286,15 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	margin := uint(2)
 	listLevelIndent := uint(4)
 	indent := uint(1)
+	// ux-fixes round 3 — list items need a non-zero Indent so the
+	// wrap-continuation lines of long bullet text hang-indent under
+	// the bullet's content column instead of flushing to column 0
+	// (ux3.png/ux4.png feedback). The pre-round-3 List.StyleBlock
+	// omitted Indent entirely, which made glamour's BlockStack.Indent
+	// resolve to 0 and produced ragged continuation rows.
+	// bullet "• " = 2 visible columns; matching that here aligns the
+	// continuation under the text that begins after the bullet.
+	listIndent := uint(2)
 	indentToken := "│ "
 	bullet := "•"
 
@@ -307,6 +327,7 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 				StylePrimitive: ansi.StylePrimitive{
 					// No Color — inherit terminal default foreground.
 				},
+				Indent: &listIndent,
 			},
 			LevelIndent: listLevelIndent,
 		},

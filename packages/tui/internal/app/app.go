@@ -226,6 +226,58 @@ func New(sessionID, baseURL string) Model {
 	return m
 }
 
+// WithSessionInfo seeds the model + provider on the status line so the
+// splash card renders the real values from the first frame. The launcher
+// (src/cli/tuiLauncher.ts) passes both as CLI flags to sov-tui, which
+// invokes this on the freshly-constructed Model before tea.NewProgram.
+// Empty arguments are ignored so callers that only know one of the two
+// values can pass "" for the other. ux-fixes round 3.
+func (m Model) WithSessionInfo(model, provider string) Model {
+	if model != "" {
+		m.statusLine.Model = model
+	}
+	if provider != "" {
+		m.statusLine.Provider = provider
+	}
+	return m
+}
+
+// Layout chrome constants. The transcript fills the remaining vertical
+// space after the prompt + chrome are subtracted from the terminal
+// height. promptH is dynamic and tracked via m.prompt.Height() so the
+// transcript shrinks as the input box grows (ux-fixes round 3,
+// problem1/2/3.png feedback). Border math: a rounded-box prompt adds 2
+// rows of chrome (top + bottom) on top of the textarea's row count.
+const (
+	statusH      = 1
+	hintH        = 1 // "? for shortcuts" line between prompt and status
+	spacerH      = 1 // blank row above the prompt for visual separation
+	promptBorder = 2 // top + bottom rounded-border rows
+)
+
+// promptChromeH returns the total vertical chrome the prompt box
+// occupies — textarea rows + border. Mirrored by handleMouseClick for
+// the popup-position math.
+func (m Model) promptChromeH() int {
+	return m.prompt.Height() + promptBorder
+}
+
+// recomputeLayout sets the transcript's max height based on the current
+// prompt height + fixed chrome. Called from WindowSizeMsg and whenever
+// the prompt's height may have changed (e.g., after delegating a key
+// event to the textarea). Width is taken from m.width which was set in
+// the most recent WindowSizeMsg.
+func (m *Model) recomputeLayout() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	maxTranscriptH := m.height - statusH - m.promptChromeH() - hintH - spacerH
+	if maxTranscriptH < 1 {
+		maxTranscriptH = 1
+	}
+	m.transcript.SetSize(m.width, maxTranscriptH)
+}
+
 func (m Model) Init() tea.Cmd {
 	if m.baseURL == "" {
 		return nil
@@ -351,21 +403,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		const statusH = 1
-		const promptH = 3 // M11.5: rounded-border box adds top + bottom border to the input row
-		const hintH = 1   // M11.3: "? for shortcuts" hint between prompt and status
-		const spacerH = 1 // M11.5: blank line above the prompt for visual separation
-		// M11.6 — notices are now appended into the transcript (one-time
-		// boot content that scrolls away) rather than rendered above the
-		// prompt every frame, so they no longer reserve permanent chrome
-		// space.
-		maxTranscriptH := msg.Height - statusH - promptH - hintH - spacerH
-		if maxTranscriptH < 1 {
-			maxTranscriptH = 1
-		}
-		m.transcript.SetSize(msg.Width, maxTranscriptH)
 		m.prompt.SetWidth(msg.Width)
 		m.statusLine.SetWidth(msg.Width)
+		m.recomputeLayout()
 		// M9.5 T3 — surface the boot theme error (if any) once the
 		// transcript has a viewport; before WindowSizeMsg the bubbles
 		// viewport isn't sized and AppendLine would no-op the scroll.
@@ -386,9 +426,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.splashShown && m.baseURL != "" {
 			cwd, _ := os.Getwd()
 			home := os.Getenv("HOME")
+			// ux-fixes round 3: Provider + Model come from m.statusLine
+			// (seeded by main.go's WithSessionInfo from --model/--provider
+			// CLI flags the launcher passes). Auth stays hardcoded as
+			// "API Key" because we don't yet plumb auth-mode through the
+			// transport.
+			provider := m.statusLine.Provider
+			if provider == "" {
+				provider = "anthropic"
+			}
 			info := components.SplashInfo{
 				Version:  "0.1.0",
-				Provider: "anthropic",
+				Provider: provider,
 				Auth:     "API Key",
 				Model:    m.statusLine.Model,
 				Cwd:      cwd,
@@ -522,7 +571,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			return m, tea.Quit
 		}
-		if msg.Type == tea.KeyEnter {
+		// ux-fixes round 3 — Alt+Enter and Ctrl+J insert a real newline
+		// into the prompt textarea instead of submitting. They flow
+		// through to the textarea via the catch-all delegation at the
+		// bottom of this branch. Plain Enter remains the submit key.
+		if msg.Type == tea.KeyEnter && !msg.Alt {
 			text := strings.TrimSpace(m.prompt.Value())
 			if text == "" {
 				return m, nil
@@ -681,7 +734,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.submitTurn(text), spinCmd)
 		}
 		var cmd tea.Cmd
+		prevPromptH := m.prompt.Height()
 		m.prompt, cmd = m.prompt.Update(msg)
+		// ux-fixes round 3 — if the textarea's row count changed
+		// (content wrapped to a new visual line, or shrank), resize
+		// the transcript so total vertical chrome stays within the
+		// terminal. WindowSizeMsg already sized everything; this only
+		// fires mid-session as the user types.
+		if m.prompt.Height() != prevPromptH {
+			m.recomputeLayout()
+		}
 		// M9 T8 — after every prompt update, sync the autocomplete popup
 		// against the new prompt text.
 		m.autocomplete.SetFilter(m.prompt.Value())
@@ -1267,8 +1329,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 // T2 inserts a stall-badge row above the prompt when present; the
 // transcriptH calculation is updated then.
 func (m Model) handleMouseClick(msg tea.MouseMsg) (Model, tea.Cmd) {
-	const statusH = 1
-	const promptH = 2
+	// ux-fixes round 3 — promptH is now dynamic so the click-Y math
+	// stays correct as the input box grows past one row.
+	promptH := m.promptChromeH()
 	popupH := m.autocomplete.PopupHeight()
 
 	transcriptH := m.height - statusH - promptH - popupH

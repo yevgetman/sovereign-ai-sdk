@@ -8,6 +8,49 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-21 — ux-fixes round 3 (textbox auto-grow, copy/paste, splash polish, spinner alignment, markdown wrap)
+
+**Scope:** Five user-reported UX bugs surfaced post-M13 close-out. Screenshots (problem1-3.png + ux1-4.png) on user's Desktop documented each. Fixes shipped in one batch.
+
+**Bugs fixed:**
+
+1. **Textbox doesn't auto-grow / horizontal-scroll** (`packages/tui/internal/components/prompt.go`) — Replaced `bubbles/textinput` (single-line) with `bubbles/textarea`. Prompt now auto-grows vertically as content wraps (cap = 8 rows). `Prompt.Height()` exposes the current row count so `app.go`'s `recomputeLayout` can resize the transcript above the prompt as the box grows. Alt+Enter / Ctrl+J insert real newlines (textarea KeyMap rebind); plain Enter still submits via app.go's pre-delegation intercept. New `prompt_test.go` (7 cases) pins height growth, max clamp, shrink-after-clear, newline counting, and View border rendering.
+
+2. **Copy/paste blocked by mouse capture** (`packages/tui/cmd/sov-tui/main.go`) — Flipped the default: mouse capture is now OFF (terminal-native text selection works out of the box). Added `--mouse` flag and `SOV_MOUSE=1` env to opt in. Old `--no-mouse` flag preserved as a no-op for back-compat with any older launcher invocations.
+
+3. **Splash card cramped / dark-grey title / missing model** (`packages/tui/internal/components/splash.go` + `statusline.go` + `app.go` + `cmd/sov-tui/main.go` + `src/cli/tuiLauncher.ts`) — Border padding bumped from `Padding(0, 1)` → `Padding(1, 2)`. Title now `Bold(true)` only (no `Foreground(t.Foreground)` so it inherits terminal default per the M11.10 / `tui-color-rendering.md` rule). Splash skips the `(/model to change)` line when Model is empty OR equal to the legacy `"?"` placeholder. Statusline `Model` + `Provider` defaults changed from `"?"` → `""`. Plumbed model + provider end-to-end: `Model.WithSessionInfo(model, provider)` on the Go side, `--model` + `--provider` CLI flags on sov-tui, passed by `tuiLauncher.ts` from `runtime.model` + `runtime.resolvedProvider.transport.name`. Splash card now shows the real model name from frame 0. New `splash_test.go` case `TestRenderSplash_TreatsQuestionMarkModelAsEmpty`. Updated `tests/cli/tuiLauncher.test.ts` mock to supply the new runtime fields.
+
+4. **Thinking spinner glyph misaligned with label** (`packages/tui/internal/components/spinner.go`) — Switched from heavy 8-dot Braille (`⣾⣽⣻⢿⡿⣟⣯⣷`) which fills top + bottom of the cell to bottom-weighted Braille (`⢀⣀⡀⡄⠄⠤⠠⢠`) that keeps every dot in the lower 2×2 quadrant. Glyph now sits at the same vertical position as the "Thinking" text baseline.
+
+5. **Inconsistent markdown line wrap in streamed output** (`packages/tui/internal/render/markdown.go`) — Two root causes fixed:
+   - **Bullet list continuation lines flushed left.** `List.StyleBlock` previously omitted `Indent`; glamour resolved BlockStack.Indent to 0 and continuation rows started at column 0 instead of hanging under the bullet text. Added `Indent: &listIndent` (= 2 = "• " width). New regression test `TestMarkdown_LongBulletWrapsWithHangIndent` pins the hang-indent invariant.
+   - **Table cell content leaked styling across cell boundaries.** `wrapFileRefsByLine` skipped table rows entirely from backtick-wrapping (ux-fixes round 2 had wrapped them, which injected ANSI inline-code styling that interleaved with lipgloss's cell-width-aware `Render` and produced reset-sequence fragments leaking across cell separators). Updated 4 round-2 tests to pin the new round-3 behavior (table cells preserved verbatim).
+
+**Files touched:**
+- `packages/tui/cmd/sov-tui/main.go` — mouse default flip + `--model` / `--provider` flags
+- `packages/tui/internal/components/prompt.go` — full rewrite (textinput → textarea)
+- `packages/tui/internal/components/prompt_test.go` — new (7 cases)
+- `packages/tui/internal/components/splash.go` — padding + body-text color + "?" handling
+- `packages/tui/internal/components/splash_test.go` — added `TestRenderSplash_TreatsQuestionMarkModelAsEmpty`
+- `packages/tui/internal/components/spinner.go` — bottom-weighted Braille frame set
+- `packages/tui/internal/components/statusline.go` — Provider / Model defaults → `""`
+- `packages/tui/internal/app/app.go` — `WithSessionInfo` constructor method; dynamic `promptChromeH` + `recomputeLayout`; splash render reads `m.statusLine.Provider`; Alt+Enter passthrough; mouse-click promptH made dynamic
+- `packages/tui/internal/render/markdown.go` — `List.Indent` set; table-row skip in `wrapFileRefsByLine`
+- `packages/tui/internal/render/markdown_test.go` — updated 4 table tests + added `TestMarkdown_LongBulletWrapsWithHangIndent`
+- `src/cli/tuiLauncher.ts` — pass `--model` + `--provider` to sov-tui spawn
+- `tests/cli/tuiLauncher.test.ts` — mock buildRuntime returns model + resolvedProvider
+
+**Gate:** `bun run lint && bun run typecheck && bun run test`. Lint clean (same 2 pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` — file untouched). Typecheck clean. TS suite **1952 pass / 14 skip / 0 fail** (+3 from M13: 1 new splash test + 7 new prompt tests − 5 retired/updated wrapFileRefs tests offset by 1 new markdown test = net +3). Go suite all packages green; new tests: 7 prompt + 1 splash + 1 markdown wrap = +9 covered.
+
+**Methodology:** Parallel investigation — a general-purpose Opus subagent reproduced the markdown-wrap symptom via standalone Go test scaffolding while the main session implemented the other 4 fixes. Subagent identified bullet `List.Indent` omission (HIGH) and table-cell ANSI cruft (HIGH) with reproduced output. Both fixes landed; scaffolding test was thrown away (regression test landed inline in `markdown_test.go`).
+
+**No smoke:** TUI live smokes need a real terminal session; will surface mid-use over the next dev session. Suite + unit tests cover the behavioral contracts.
+
+**Follow-ups (deferred):**
+- The investigation subagent flagged a LOW-priority cosmetic issue (Document.Margin = 2 produces 78-col body width on an 80-col terminal). Not user-visible; leaving as-is.
+- Internal code still uses "REPL" in ~25 comment occurrences as informal synonym for "interactive session"; not user-visible; deferred per M13 close-out.
+- Orphan `userSettings.ui.{theme, footer, diffRender, contextMeter, toolOutput}` config fields (read only by the deleted terminalRepl); deferred per M13 close-out.
+
 ## 2026-05-20 — Phase 16.1 M13 close-out (terminalRepl removal complete; Phase 16.1 closed)
 
 **Scope:** Session close-out commit for M13 — the final milestone of the Phase 16.1 foreground-surface rebuild arc. State snapshot + 4 ADRs + CLAUDE.md/AGENTS.md index updates + backlog sync. No code changes in this commit (T11 smoke and T10 audit fix already landed; this is the documentation close-out per T12 of the M13 plan).

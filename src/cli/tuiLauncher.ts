@@ -265,12 +265,23 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     `sov: tui server listening on 127.0.0.1:${server.port} session=${sessionId}\n`,
   );
 
+  // ux-fixes round 3: forward model + provider so sov-tui's splash card
+  // and status line render the real values from the first frame instead
+  // of the "?" placeholder. The TUI has no /sessions/:id pre-fetch yet
+  // and the status_update event doesn't carry model/provider — passing
+  // them as boot-time CLI args sidesteps both gaps.
+  const tuiArgs = [
+    '--port',
+    String(server.port),
+    '--session-id',
+    sessionId,
+    '--model',
+    runtime.model,
+    '--provider',
+    runtime.resolvedProvider.transport.name,
+  ];
   const spawnOpts: SpawnOptions = { stdio: 'inherit' };
-  const child = spawn(
-    binary,
-    ['--port', String(server.port), '--session-id', sessionId],
-    spawnOpts,
-  );
+  const child = spawn(binary, tuiArgs, spawnOpts);
 
   return await new Promise<number>((resolve) => {
     let resolved = false;

@@ -220,23 +220,33 @@ func TestWrapFileRefs_MultipleBulletsInList(t *testing.T) {
 // to space-free tokens; bullet path handles "- foo bar.png" but not
 // `| 1.1M | Babyboard logo circulat.png |`.
 
-func TestWrapFileRefs_TableCellWithMultiWordFilename(t *testing.T) {
+func TestWrapFileRefs_TableCellMultiWordFilenameLeftAlone(t *testing.T) {
+	// ux-fixes round 3: table cells are no longer backtick-wrapped at
+	// all. Wrapping inline-code styling inside a table cell triggered
+	// ANSI-reset interleaving with lipgloss's cell-width-aware Render,
+	// which leaked reset sequences across cell boundaries and produced
+	// continuation rows that visually escaped their column (ux3.png /
+	// ux4.png). The table renderer keeps cell content clean when no
+	// per-cell styling is applied; we accept losing the inline-code
+	// styling on multi-word filenames inside tables as the cost.
 	in := "| 1.1M | Babyboard logo circulat.png |"
 	out := wrapFileRefs(in)
-	if !strings.Contains(out, "`Babyboard logo circulat.png`") {
-		t.Errorf("expected multi-word filename in table cell wrapped, got %q", out)
+	if strings.Contains(out, "`Babyboard logo circulat.png`") {
+		t.Errorf("table cell content should be left un-backticked post round 3, got %q", out)
 	}
-	// Non-filename cells (size, separator) should NOT be wrapped.
+	// Non-filename cells (size, separator) should also not be wrapped.
 	if strings.Contains(out, "`1.1M`") {
 		t.Errorf("size cell incorrectly wrapped: %q", out)
 	}
 }
 
-func TestWrapFileRefs_TableCellWithFilenameWithCommasAndUnderscores(t *testing.T) {
+func TestWrapFileRefs_TableCellWithFilenameWithCommasAndUnderscoresLeftAlone(t *testing.T) {
+	// Same reasoning as TestWrapFileRefs_TableCellMultiWordFilenameLeftAlone
+	// — ux-fixes round 3 disabled backtick-wrap on table rows entirely.
 	in := "| 495K | ChatGPT Image May 2, 2026, 04_54_57 PM.png |"
 	out := wrapFileRefs(in)
-	if !strings.Contains(out, "`ChatGPT Image May 2, 2026, 04_54_57 PM.png`") {
-		t.Errorf("expected commas+underscores filename wrapped, got %q", out)
+	if strings.Contains(out, "`ChatGPT Image May 2, 2026, 04_54_57 PM.png`") {
+		t.Errorf("table cell should be left un-backticked post round 3, got %q", out)
 	}
 }
 
@@ -258,19 +268,17 @@ func TestWrapFileRefs_TableSeparatorRowLeftAlone(t *testing.T) {
 	}
 }
 
-func TestWrapFileRefs_TableCellWithSinglePathRefStillWrapped(t *testing.T) {
-	// Single-token paths in a table cell should still get wrapped via
-	// the token-level pass (the table pass requires the whole trimmed
-	// cell content to end in an extension, which `/path/to/foo.go`
-	// does; but token-level would also catch it). Either way, the
-	// output should have one backtick-wrapped ref and no double-wrap.
+func TestWrapFileRefs_TableCellSinglePathRefLeftAlone(t *testing.T) {
+	// ux-fixes round 3: table rows are entirely skipped by the
+	// backtick-wrapping pass to avoid ANSI-reset interleaving inside
+	// cells. Single-token paths in table cells were previously wrapped
+	// via the token-level pass; that path now early-exits on table
+	// rows. The trade-off: file paths in tables lose inline-code
+	// styling but the table itself renders cleanly (ux3.png / ux4.png).
 	in := "| status | /path/to/foo.go |"
 	out := wrapFileRefs(in)
-	if !strings.Contains(out, "`/path/to/foo.go`") {
-		t.Errorf("expected single-path cell wrapped, got %q", out)
-	}
-	if strings.Contains(out, "``/path/to/foo.go``") {
-		t.Errorf("path was double-wrapped: %q", out)
+	if strings.Contains(out, "`/path/to/foo.go`") {
+		t.Errorf("table cell should be left un-backticked post round 3, got %q", out)
 	}
 }
 
@@ -286,7 +294,12 @@ func TestWrapFileRefs_TableCellAlreadyBacktickWrappedLeftAlone(t *testing.T) {
 	}
 }
 
-func TestWrapFileRefs_MultipleRowsOfTable(t *testing.T) {
+func TestWrapFileRefs_MultipleRowsOfTableAllCellsLeftAlone(t *testing.T) {
+	// ux-fixes round 3: every cell across the table stays un-backticked.
+	// Prose lines OUTSIDE the table still pick up file-ref styling via
+	// the token pass, but table content is preserved verbatim so
+	// lipgloss's cell-width Render doesn't have to manage ANSI escape
+	// boundaries.
 	in := strings.Join([]string{
 		"| Size | File Name |",
 		"|------|-----------|",
@@ -295,13 +308,52 @@ func TestWrapFileRefs_MultipleRowsOfTable(t *testing.T) {
 		"| 320K | uxc1.png |",
 	}, "\n")
 	out := wrapFileRefs(in)
-	for _, want := range []string{
+	for _, banned := range []string{
 		"`Babyboard logo circulat.png`",
 		"`Babyboard logo.png`",
 		"`uxc1.png`",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected %s in output, got %q", want, out)
+		if strings.Contains(out, banned) {
+			t.Errorf("table cell incorrectly backticked: %s\nfull output:\n%s", banned, out)
 		}
+	}
+	// Negative: input lines are preserved verbatim through the wrap
+	// pass (apart from the line-by-line split/join which adds no
+	// characters).
+	if out != in {
+		t.Errorf("expected table rows preserved verbatim; got:\n%s\nwant:\n%s", out, in)
+	}
+}
+
+func TestMarkdown_LongBulletWrapsWithHangIndent(t *testing.T) {
+	// ux-fixes round 3: long bullets must wrap with their continuation
+	// lines indented under the text-after-bullet column. Pre-round-3
+	// the List.StyleBlock omitted Indent, so glamour's BlockStack.Indent
+	// resolved to 0 and continuation rows flush-left'd against the
+	// document margin (ux3.png / ux4.png ragged-bullet feedback).
+	//
+	// Verifying the exact wrap column is brittle (glamour wraps at
+	// word boundaries and the precise width depends on margin + bullet
+	// glyph). Instead, assert the structural invariant: a long bullet
+	// renders across at least two non-empty lines AND the second line
+	// is indented (starts with whitespace) — both of which fail under
+	// the pre-round-3 behavior.
+	in := "- " + strings.Repeat("alpha beta gamma ", 10)
+	out := Markdown(in, theme.Dark(), 40)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	var contentLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			contentLines = append(contentLines, line)
+		}
+	}
+	if len(contentLines) < 2 {
+		t.Fatalf("expected long bullet to wrap to >= 2 lines, got %d:\n%s", len(contentLines), out)
+	}
+	// The second content line MUST start with at least 1 space — the
+	// hang-indent under the bullet's text column.
+	second := contentLines[1]
+	if !strings.HasPrefix(second, " ") {
+		t.Errorf("expected continuation line to start with leading whitespace (hang-indent); got %q\nfull output:\n%s", second, out)
 	}
 }
