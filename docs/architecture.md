@@ -6,17 +6,17 @@ The authoritative product and business context lives in `~/code/sovereign-ai-doc
 
 ## Request Flow
 
-The interactive path is:
+Two processes — a TypeScript runtime/server (on Bun) and a Go Bubble Tea TUI client (`sov-tui`) — talk over HTTP+SSE on localhost. The interactive path:
 
-1. `src/main.ts` parses CLI flags and starts `runRepl()` from `src/ui/terminalRepl.ts`.
-2. The REPL resolves the bundle path, provider, model, settings, session DB, tools, skills, slash commands, permissions, memory provider, and system prompt.
-3. User input is first checked for slash commands. Local commands return immediately; prompt commands become normal user turns with a narrowed tool scope.
-4. Normal user turns expand context references such as `@file:`, `@folder:`, `@diff`, `@staged`, and `@url:`.
+1. `src/main.ts` parses CLI flags and resolves the bundle, provider, model, settings, session DB, tools, skills, slash commands, permissions, memory provider, system prompt — then starts the Hono server (`src/server/index.ts`) on a dynamic port. `src/cli/tuiLauncher.ts` forks `sov-tui` as a subprocess, passing `--port`, `--session-id`, `--model`, `--provider` as CLI args.
+2. `sov-tui` connects to `GET /sessions/:id/events` (SSE) for the live event stream and `GET /sessions/:id/messages` for backlog hydration on resume.
+3. User input in the TUI is first checked for slash commands. Local commands route to dedicated endpoints (e.g. `POST /sessions/:id/compact`); other slashes dispatch through `POST /sessions/:id/commands`. Plain prose POSTs to `POST /sessions/:id/turns`.
+4. Normal user turns expand context references such as `@file:`, `@folder:`, `@diff`, `@staged`, and `@url:` server-side before the model call.
 5. `query()` in `src/core/query.ts` calls the selected `LLMProvider.stream()` with internal content-block messages and segmented system prompt.
 6. Provider adapters translate between internal messages and provider-specific wire formats under `src/providers/`.
-7. Assistant stream events are yielded back to the REPL as they arrive.
+7. Stream events (`text_delta`, `thinking_delta`, `tool_use_start`, `tool_result`, `status_update`, `turn_complete`, etc.) are published onto the per-session `ServerEventBus` and forwarded over SSE to the TUI as they arrive.
 8. If the assistant returns `tool_use` blocks, `runTools()` in `src/core/orchestrator.ts` executes them, yields a user `tool_result` message, appends it to history, and loops back to the provider.
-9. The loop terminates when the assistant returns no tool calls, `maxTurns` is reached, the user interrupts, or a provider/tool error occurs.
+9. The loop terminates when the assistant returns no tool calls, `maxTurns` is reached, the user interrupts (ESC → `POST /sessions/:id/cancel`, see "Per-Turn Cancellation" below), or a provider/tool error occurs.
 10. Session messages, token usage, compaction lineage, and costs are stored through `src/agent/sessionDb.ts`.
 
 ## Core Contracts
@@ -209,13 +209,13 @@ The eval suite is deliberately parallel to `tests/semantic/` (which uses an LLM 
 
 `src/router/classifier.ts` runs a deterministic rule set per turn: user override > hard frontier triggers (recent tool errors ≥ 3, schema failures ≥ 2, context overflow heuristic) > default-local. When the raw output is `local-with-escalation`, the configured `escalationMode` (`ask` | `auto` | `never`) decides whether to actually escalate. Today `ask` and `never` both stay on `defaultLane`; the interactive prompt UX is deferred. `src/router/auditLogger.ts` writes append-only JSONL to `<harness-home>/router/audit.jsonl` with the lane, resolved provider/model, reason, and a SHA-256 of the prompt — raw prompt text is never logged by default.
 
-The router's `stream()` yields a `route_decision` StreamEvent before delegating, so any consumer (REPL banner, evals viewer, etc.) can observe lane changes per turn. `src/ui/terminalRepl.ts` builds the synthetic ResolvedProvider when `--provider router` is supplied: child providers resolved via the normal pipeline, contextLength conservatively the smaller of the two so the ContextMeter stays accurate on either lane, audit logger created and closed at session boundaries.
+The router's `stream()` yields a `route_decision` StreamEvent before delegating, so any consumer (TUI banner, evals viewer, etc.) can observe lane changes per turn. `buildRuntime` in `src/server/runtime.ts` constructs the synthetic `ResolvedProvider` when `--provider router` is supplied: child providers resolved via the normal pipeline, contextLength conservatively the smaller of the two so the ContextMeter stays accurate on either lane, audit logger created and closed at session boundaries.
 
 ### Operational traces + loop detection (Phase 10.5 part 1)
 
-Each REPL invocation writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` covering session lifecycle (session_start, session_end), turn boundaries (turn_start), provider roundtrips (provider_request, provider_response with usage / latency / TTFT), tool dispatch (tool_start, tool_end, tool_error, permission_check), and stream-level signals (microcompact, interrupt, loop_detected). Records flow through the same allowlist redactor used by trajectories — Invariant #15.
+Each session writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` covering session lifecycle (session_start, session_end), turn boundaries (turn_start), provider roundtrips (provider_request, provider_response with usage / latency / TTFT), tool dispatch (tool_start, tool_end, tool_error, permission_check), and stream-level signals (microcompact, interrupt, loop_detected). Records flow through the same allowlist redactor used by trajectories — Invariant #15.
 
-`src/trace/types.ts` defines the discriminated `TraceEvent` union. `src/trace/writer.ts` is an append-only writer with a sequential write chain (concurrent `record()` calls land in order), best-effort error swallowing (Invariant #10), and a default path resolved through `getHarnessHome()`. The recorder is plumbed into `query()` via a `traceRecorder?: (event) => void` field on `QueryParams`; the orchestrator records permission and tool events, query records turn / provider / microcompact / interrupt events, and the REPL records session_start / session_end. `sov trace show <sessionId>` (in `src/cli/traceShow.ts`) reads the JSONL and renders a human-readable per-turn summary.
+`src/trace/types.ts` defines the discriminated `TraceEvent` union. `src/trace/writer.ts` is an append-only writer with a sequential write chain (concurrent `record()` calls land in order), best-effort error swallowing (Invariant #10), and a default path resolved through `getHarnessHome()`. The recorder is plumbed into `query()` via a `traceRecorder?: (event) => void` field on `QueryParams`; the orchestrator records permission and tool events, query records turn / provider / microcompact / interrupt events, and the server runtime records session_start / session_end. `sov trace show <sessionId>` (in `src/cli/traceShow.ts`) reads the JSONL and renders a human-readable per-turn summary.
 
 `src/loop/detector.ts` ships a multi-heuristic loop detector instantiated per `query()` call. Three detectors run in priority order: consecutive-identical (SHA-256 of `<name>:<JSON.stringify(input)>`, threshold 4), action-stagnation (same tool name regardless of args, threshold 7), and content-loop (chunked-text repeats inside a `ceil(threshold * 1.5)` window, threshold 8). Each detector clears its own history after firing so a fresh run is required to refire. The orchestrator emits a `loop_detected` StreamEvent + records a `loop_detected` trace event on every detection; on the first detection it injects a guidance user message and continues, on the second it terminates with `reason: error`.
 
@@ -230,52 +230,71 @@ Each REPL invocation writes a JSONL trace at `<harness-home>/traces/<sessionId>.
 
 `src/config/profileLock.ts` ships an atomic-mkdir-based PID lock with stale-process detection as a helper (`tryAcquireLock`, `readLockInfo`); REPL integration is deferred. `src/cli/profileCommands.ts` implements the `sov profile [list|create|use|show|import-default]` subcommand cluster — `import-default` copies the unscoped `config.json` + `credentials.json` into a target profile but leaves sessions/trajectories/memory empty (a profile is meant to scope history per project, not duplicate it).
 
-## REPL UX Layer
+## TUI Rendering (`sov-tui` Go client + `LiveRegion`)
 
-`src/ui/` contains the user-facing rendering for the streaming turn loop. The runtime stays UI-agnostic — REPL components consume `StreamEvent`s and `Message`s from `query()` without affecting tool/provider/permission semantics.
+The interactive UI is the Go Bubble Tea client at `packages/tui/`. It connects to the local Hono server via HTTP+SSE and renders the streaming turn loop. The runtime stays UI-agnostic — the TUI consumes `ServerEvent`s from the SSE bus without affecting tool/provider/permission semantics.
 
-### Core surfaces
+### Inline rendering mode (ux-fixes round 5)
 
-- `terminalRepl.ts` — input loop, slash-command dispatch, streaming-loop event handler, session-DB writes, goodbye/resume printing. Selects between the legacy readline path and the Wave-4 input editor based on `process.stdin.isTTY` and the `--legacy-input` flag.
-- `splash.ts` — startup banner (block-letter logo + boxed info card). Splash footer shows `(N allow rules loaded)` when persistent rules are configured.
-- `sessionSummary.ts` — boxed exit summary (interaction stats, performance, token totals).
-- `box.ts` — shared unicode-box helper with ANSI-aware width. Consumes the active theme's `border` token by default.
-- `markdownStream.ts` — line-buffered markdown renderer for streamed text deltas.
-- `thinking.ts` — braille spinner + live token counts during quiet periods. Suppresses itself while a modal is up.
-- `toolSlot.ts` — compact in-place tool-call display. Multi-line tool errors show the first line plus `· +N more lines`.
-- `transcript.ts` — redacted JSONL session transcript writer.
-- `terminalMessages.ts` — formatted warnings (max-tokens hit, partial mutation, etc.).
+The TUI runs **without** `tea.WithAltScreen()`. The terminal owns the scrollback buffer natively, which means:
 
-### Wave 1 — polish foundations (Phase 10.5b)
+- **Wheel + trackpad scroll** work like in any other terminal app — they page through the terminal's own scrollback, not a TUI viewport.
+- **Click-drag text selection + copy** work natively — no mouse capture interferes with the terminal's selection layer.
+- **No keyboard scroll bindings** in the TUI — keys not consumed by the prompt/autocomplete/picker pass through to the textarea unchanged.
 
-- `modal.ts` — `withModal({title, rows, choices, parse, question})` overlay primitive. Raises a module-level `modalActive` flag; decorators (`thinking.ts`, `toolSlot.ts`) consult `isModalActive()` and skip writes while a modal is up. The framed permission prompt routes through this.
-- `footer.ts` — `printPrePromptFooter()` renders a single dim status line above each input frame: `provider · model · ctx N% · $cost · perms · tools · bundle`. Honors `process.stdout.isTTY` and `ui.footer.enabled`.
-- `contextMeter.ts` — token-utilization tracker. Subscribes to `usage_delta` events and exposes `getZone()` returning `'ok' | 'warn' | 'danger'` based on configurable thresholds. Emits a one-shot pre-compaction warning when crossing 5% below the proactive threshold.
-- `diff.ts` — inline `+ / -` renderer for FileEdit / FileWrite. Reads the file synchronously at `tool_use` time (before the orchestrator dispatches the tool) so it can show full-line context with a 1-based line number, not just the matched substring. Multi-occurrence edits (`replace_all: true`) annotate the head with `(applied N× across M occurrences)` and render only the first hunk.
+Permanent content (user messages, finalized assistant cards, tool results, system messages, splash, boot notices, slash-command output, compaction markers, turn errors, `(interrupted by user)` markers) flows into the terminal's scrollback via `tea.Println`. The in-TUI `View()` shrinks to a small bottom region:
 
-### Wave 2 — pickers & commands (Phase 10.5c)
+```
+<terminal scrollback — owned by the terminal, contains all prior history>
+       ↑
+       │ (terminal handles wheel/trackpad scroll + selection through here)
+       ↓
+[m.live.View() — streaming assistant card + spinner + running-command]
+[stallBadge / picker (when active)]
+[prompt]
+[autocomplete popup (when /)]
+[hint line: "? for shortcuts"]
+[statusLine: cwd · profile · model · cost · cache]
+```
 
-- `picker.ts` — generic raw-mode picker. ↑/↓/PgUp/PgDn/Home/End/Enter/Esc. Returns `Promise<T | null>`. Restores raw mode + cursor + screen in `finally`. Used by `/resume`, `/model`, `/export`, `/theme`.
-- `configMenu.ts` — interactive picker for `sov config` (no verb) and `/settings` slash command. Pre-dates `picker.ts` but uses a similar pattern.
-- New slash-command modules (`src/commands/info.ts`, `pickers.ts`, `sessionOps.ts`) implement `/about`, `/tools`, `/skills`, `/stats`, `/permissions`, `/quit` (+ aliases), `/copy`, `/resume`, `/model`, `/theme`, `/export`, `/init`, `/settings`. `/help` rewritten as a categorized 2-column layout in `registry.ts` with ANSI-aware visible-width padding.
-- `agent/sessionDb.ts` gains `listSessions(limit)` and `updateSessionModel(id, model)` for `/resume` and persistent `/model` picks.
+### Print queue + drain pattern
 
-### Wave 3 — theme system (Phase 10.5d)
+The model holds a `pendingPrintln []string` queue. Handlers push via `m.print(line)` or `m.printUser(text)` (the latter applies the "» " marker + wraps to terminal width + truncates >1500 chars). At the end of every Update branch, `m.respond(cmd)` batches the caller's Cmd with `m.drainPrintln()`, which consolidates the queue into a single newline-joined `tea.Println` Cmd (ordered emission). The drained snapshot is also retained in `m.emittedPrintln` so tests can inspect scrollback content via the `scrollbackContent(m)` helper.
 
-- `theme.ts` — semantic token registry (`text`, `accent`, `status×4`, `diff×3`, `border×3`, `code×2`, `header×3`, etc.) with three built-in themes: `dark` (default — preserves the existing look), `light` (darker primaries via `chalk.rgb`), `no-color` (identity tokens). Singleton mutated by `setTheme(name)`; `theme.tokens` is a getter so swapping themes takes effect on the next renderer call without re-imports. `resolveThemeName({configured, env})` honors `NO_COLOR` overriding the configured value.
-- High-traffic renderers (`footer`, `diff`, `modal`, `thinking`, `toolSlot`, `box`, `splash`) consume `theme.tokens.<role>(...)` instead of literal `chalk.<color>(...)`. The migration is invisible under the dark theme — every existing test passes without assertion changes.
+### LiveRegion component
 
-### Wave 4 — input editor (Phase 10.5e)
+`packages/tui/internal/components/liveregion.go` owns the bottom-of-screen mutable region:
 
-- `keypress.ts` — raw-mode dispatcher. Parses ANSI escapes (CSI, SS3) + bracketed paste + control chars + Alt-letter into typed `Key` events. Reference-counted enable/disable. Modal-aware (suppresses dispatch while a modal is up). 50ms Esc-flush timer: lone ESC bytes that aren't followed by more data within the window emit a plain `escape` key; subsequent bytes within the window cancel the timer and route the ESC into a CSI/Alt sequence.
-- `textBuffer.ts` — multi-line buffer with row/col cursor. Standard editor ops (`insert`, `delete×4`, `move×8`). `wrapForDisplay(rendered, width)` is a pure helper that wraps each long logical line into multiple display chunks of ≤ width chars and maps the cursor from logical (row, col) to display (row, col).
-- `inputHistory.ts` — persistent history at `$HARNESS_HOME/input-history`. 1000-entry cap, dedup against previous entry, embedded newlines escaped as `\n`.
-- `autocomplete.ts` — pure completion. Slash commands and `@file` paths.
-- `inputEditor.ts` — drop-in replacement for `question(prompt) ⇒ Promise<string>`. Owns one TextBuffer + subscribes to keypress events. Handles Enter (with `\` line-continuation), Tab autocomplete (cycle on repeat), Up/Down history, full readline-style keybinds, Ctrl-R reverse-i-search (with Esc/Ctrl-G cancel). Re-renders the buffer area on every keystroke with ANSI cursor positioning. Paste bursts insert literally without keybind dispatch. Soft-wrap via `wrapForDisplay()` when the line exceeds terminal columns.
+- **Streaming assistant card** — `AppendAssistantDelta(text)` accumulates a buffer rendered as markdown in `View()`. `EndAssistantCard()` returns the final rendered string for the caller to `m.print` into scrollback and clears the buffer (called on `tool_use_start`, `turn_complete`, `compaction_complete`, `turn_error`, ESC).
+- **Spinner** — `SetSpinner(line)` installs the styled spinner frame (Braille glyph + Thinking… label); `ClearSpinner()` removes it. Replaces the round-3 `transcript.AppendLiveLine` / `UpdateLiveLine` pattern.
+- **Running-command indicator** — `SetRunningCommand(line)` shows a dim "…running /name args" or "[compacting…]" placeholder while a slash command or compact request is in flight. The matching `commandDispatchedMsg` / `compactCompleteMsg` / `compactErrorMsg` handler clears it and prints the real result.
 
-The editor is the default when `process.stdin.isTTY === true`. Piped stdin falls through to the legacy `readline` + `queuedQuestion` path automatically (so CI / scripted sessions keep working). The `--legacy-input` flag forces the legacy path regardless.
+### Per-turn cancellation (ESC → POST /sessions/:id/cancel)
 
-Status-line writes (`[tool: ...]`, `[cleared ...]`, `[debug] ...`, `[error] ...`) all flow through a single `writeStatusLine` helper that enforces leading + trailing newlines so they never collide with adjacent assistant text. The compact tool slot tracks line count via ANSI cursor manipulation; when a new tool fires it clears any inter-tool preamble text and the previous slot line in one operation.
+`ServerEventBus.setCurrentTurnAbort(c)` + `cancelCurrentTurn()` register a per-turn `AbortController` so the new `POST /sessions/:id/cancel` route can fire it without disposing the bus (the bus-level signal still kills everything on SSE disconnect). The runtime threads `AbortSignal.any([bus.signal, turnAbort.signal])` into the `query()` call + both `runtime.compact` call sites. The TUI's ESC handler emits `(interrupted by user)` to scrollback, fires the cancel Cmd, and suppresses the consequent `turn_error` once via `m.userCancelledTurn`. Ctrl+C still tears down the session.
+
+### Paste abstraction
+
+`Prompt.RegisterPaste(content)` replaces large pasted blocks (≥ 2 lines OR ≥ 200 chars) with `[Pasted text #N +M lines]` placeholders matching Claude Code's affordance. `Prompt.ExpandPastes(value)` reconstitutes the real content on Enter so the server sees the full text. `Prompt.Clear()` drops the paste buffers per composition session. Bubbletea's bracketed paste arrives as ONE KeyMsg with `Paste=true` and `Runes` holding the entire content (including newlines); the TUI flushes it immediately to `RegisterPaste` / `InsertString`.
+
+### Prompt textarea
+
+`Prompt` wraps `bubbles/textarea` (multi-line, auto-grow up to 8 rows). `SetPromptFunc(2, lineIdx => idx==0 ? "› " : "  ")` makes the bullet appear only on the first line; continuation rows indent two spaces. Alt+Enter / Ctrl+J insert real newlines; plain Enter submits (app.go's KeyMsg branch intercepts via `!msg.Alt`). `Prompt.Height()` is dynamic so the surrounding chrome resizes as the user types.
+
+### What's been retired
+
+- **Alt screen** — dropped in round 5.
+- **Mouse capture** — gone entirely; `--mouse` and `--no-mouse` are no-op back-compat shims.
+- **Tool card click-to-expand** — cards print fully expanded into scrollback (immutable). `/expand N` still re-renders the Nth-most-recent raw payload from a local ring buffer.
+- **In-TUI scroll keybindings** (round-4 PgUp/PgDn/Shift+arrows) — terminal owns scroll.
+- **`src/ui/terminalRepl.ts`** — deleted in M13.
+- **`tea.WithMouseCellMotion()`** — never returns.
+
+### Theme
+
+`packages/tui/internal/theme/` ships built-in themes (Dark / Light / Tokyo Night / Sovereign / Catppuccin Mocha / Latte) plus TOML user themes loaded from `<harness-home>/themes/<name>.toml`. The `/theme` slash command flows through the M11.5 picker → `themeChanged` side-effect → `applyThemeByName` updates `m.theme` + `m.live.SetTheme(t)` + every themed sub-component. Mid-session theme changes affect only the live region; content already printed to scrollback retains the styling it was emitted with (the terminal owns it).
+
+Pinned-hex accents survive: headings (`#bae6fd` Tailwind sky-200), inline code (`#7dd3fc` sky-300), file refs use the inline-code style via the `wrapFileRefs` pre-processor. Body text intentionally has NO Foreground so it inherits the terminal default — see `docs/conventions/tui-color-rendering.md` for the rationale + the M11.5 → M11.10 iteration narrative.
 
 ## Runtime Introspection — `HarnessInfo`
 

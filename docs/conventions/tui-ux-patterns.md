@@ -16,59 +16,58 @@ anything visual.
 
 ## Layout & flow
 
-### Transcript sizes to content, not to viewport
+### Inline mode: no alt screen, terminal owns scrollback (ux-fixes round 5)
 
-The transcript viewport sizes itself to `min(content_height, maxHeight)`
-on every append. On a fresh session with only the splash + a few
-lines, the prompt floats right below the splash content instead of
-being anchored at the bottom of the terminal. As content accumulates,
-the transcript grows; once it hits `maxHeight` it pins and starts
-scrolling.
+The TUI runs **without** `tea.WithAltScreen()`. Wheel + trackpad scroll
+and text selection / copy work natively through the terminal — there's
+no in-TUI scroll subsystem to wire. Permanent content (user messages,
+finalized assistant cards, tool results, system messages, splash,
+boot notices) emits via `tea.Println` into the terminal's natural
+scrollback ABOVE the live View. Mid-session content can be re-read
+by scrolling the terminal up.
 
-Mirrors the Qwen Code reference layout. The Bubble Tea convention is
-to fill the viewport — we explicitly don't do that.
-
-**Implementation:** `Transcript.SetSize(w, maxHeight)` treats height
-as a cap. `Transcript.rebuildHeight()` recomputes the actual height
-after every append/update/remove. **All transcript mutation paths
-must call `rebuildHeight()`** — `AppendLine`, `AppendAssistantDelta`,
-`AppendLiveLine`, `UpdateLiveLine`, `RemoveLastLine`, `SetTheme`,
-`ToggleCardExpanded`.
-
-The maxHeight calculation in `app.go`'s `WindowSizeMsg` handler is:
+`View()` shrinks to the bottom anchor:
 
 ```
-maxTranscriptH = msg.Height - statusH - promptH - hintH - spacerH
+[m.live.View()]       — streaming card + spinner + "…running" (any may be empty)
+[stallBadge / picker] — when active
+""                    — spacer
+[prompt]              — auto-grown rounded-border textarea
+[autocomplete popup]  — when prompt starts with /
+[hint line]           — "? for shortcuts"
+[statusLine]          — cwd · profile · model · cost · cache
 ```
 
-Where:
-- `statusH = 1` (status line)
-- `promptH = 3` (rounded-border box adds top + bottom)
-- `hintH = 1` ("? for shortcuts" line)
-- `spacerH = 1` (blank line above prompt)
+No `maxHeight` calculation, no `rebuildHeight`, no atBottom tracking,
+no scroll keybindings. The terminal handles all that natively.
 
-If you add another row of chrome (e.g., a permanent badge above the
-prompt), subtract its height here too.
+### Print queue + drain pattern
 
-### Splash + boot notices appear ONCE; they scroll away
+Use `m.print(line)` / `m.printUser(text)` to queue content for terminal
+scrollback. At the end of every Update branch, `m.respond(cmd)`
+batches the caller's Cmd with `m.drainPrintln()` — a single
+`tea.Println` consolidating the queue (newline-joined so order is
+preserved). `m.emittedPrintln` retains the drained snapshot for test
+inspection via the `scrollbackContent(m)` helper.
+
+`m.printUser` wraps the text via `lipgloss.NewStyle().Width(w-2).Render`
+so multi-line submissions hang-indent under the "» " marker.
+Submissions above `userMessageDisplayCap = 1500` chars are truncated
+in the echo with a dim italic ` …[+N chars]` marker (the full text
+still ships in the actual turn — the truncation is the visual receipt).
+
+### Splash + boot notices appear ONCE in terminal scrollback
 
 The SOV splash logo, info card, tips line, and boot notices ("running
-in $HOME", "no bundle detected") are **transcript content**, not
-rendered in `View()` every frame. They're appended on the first
-`WindowSizeMsg` and scroll up as new content arrives.
-
-**Why this matters:** Permanent chrome that sits above the prompt
-all session reads as "always-true UI state" — fine for the splash for
-the first 30 seconds, but quickly stale. Boot notices are one-time
-guidance ("hey, you're in $HOME"), not permanent flags. Making them
-transcript content lets them disappear naturally.
+in $HOME", "no bundle detected") emit via `m.print(...)` on the first
+`WindowSizeMsg`. They land in the terminal's natural scrollback above
+the live View and scroll up as new content arrives — no permanent
+chrome.
 
 **Guard:** Splash is gated on `!m.splashShown && m.baseURL != ""`.
-- `splashShown` prevents re-rendering on subsequent `WindowSizeMsg`
-  (terminal resize).
+- `splashShown` prevents re-rendering on subsequent `WindowSizeMsg`.
 - `baseURL != ""` skips splash in render-only unit tests that use
-  empty baseURL — those tests assert specific Y-coordinates for mouse
-  clicks and assume no splash content.
+  empty baseURL.
 
 ### Spacers, not absolute positioning
 
@@ -77,16 +76,18 @@ Use `"\n"` spacers between logical sections instead of trying to
 position elements absolutely. Current order:
 
 ```
-transcript.View() + "\n"
-[stallBadge.View() + "\n"]
-"\n" + prompt + "\n"
-[hint + "\n"]
-statusLine.View()
+m.live.View()         — streaming card + spinner + "…running"
+[stallBadge.View()]   — when active
+[picker.View()]       — when active
+"\n" + prompt + "\n"  — spacer, then auto-grown textarea
+[autocomplete.View()] — when prompt starts with /
+[hint + "\n"]         — "? for shortcuts"
+statusLine.View()     — cwd · profile · model · cost · cache
 ```
 
-Notices used to render between transcript and prompt; they were moved
-into the transcript in M11.6 because anchoring them above the prompt
-made them permanent.
+Boot notices used to render between transcript and prompt; they were
+moved into transcript content in M11.6 and now (round 5) emit via
+`m.print` into terminal scrollback so they scroll away naturally.
 
 ---
 
@@ -195,33 +196,44 @@ Location: `packages/tui/internal/app/app.go:turnSeparator` + the
 
 The `tool_use_start` event used to emit `"→ <Tool> starting..."`
 into the transcript. **Don't.** The subsequent `tool_result` event
-renders the full tool card (header + output), which is the only
-visible artifact the user needs. The "starting" line was redundant
-chrome — same information as the card's header, but without the
-result content.
+prints the full tool card (header + output) — the only visible
+artifact the user needs.
 
 `tool_use_start` should still:
 - Call `clearThinkingIfPending()` (kills the spinner)
-- Call `transcript.EndAssistantCard()` (finalizes any streaming text)
+- Commit any in-flight streaming card via
+  `if rendered, ok := m.live.EndAssistantCard(); ok { m.print(rendered) }`
 
-But emit nothing visible.
+But emit nothing visible itself.
 
-Location: `tool_use_start` case in `handleEvent` (around app.go:781).
+Location: `tool_use_start` case in `handleEvent`.
+
+### Tool cards print fully expanded (round 5)
+
+`tool_result` no longer creates an interactive ToolCard kept in a
+`toolCards` map for click-toggle. Cards print fully expanded via
+`m.print(card.View(m.width))` into terminal scrollback. The
+click-to-expand interaction was retired with the inline-mode refactor
+(scrollback is immutable; the terminal owns it).
+
+If a user wants the raw payload of a prior tool call (e.g., a long
+file dump that the card summarized), `/expand N` re-renders the
+Nth-most-recent tool's raw output below the prompt from the local
+ring buffer (`m.completedBlocks`).
 
 ### Thinking spinner: live, gen-tracked, self-stopping
 
-The thinking spinner is appended via `AppendLiveLine` (returns the
-line index), then advanced by recurring `spinnerTickMsg` ticks. The
-recurring chain stops when:
+The thinking spinner lives in `LiveRegion` (round 5). `startSpinner`
+sets the frame via `m.live.SetSpinner(...)` + schedules recurring
+`spinnerTickMsg` ticks. Each tick advances the spinner frame and
+calls `m.live.SetSpinner` again. The recurring chain stops when:
 
-- `spinnerLineIdx < 0` (line was removed), OR
-- `!thinkingPending` (response started arriving), OR
-- `gen != spinnerGen` (stale tick from a previous spinner)
+- `gen != spinnerGen` (stale tick — invalidated by a newer spinner or by `clearThinkingIfPending`)
+- `!thinkingPending` (response started arriving)
 
-`clearThinkingIfPending()` bumps `spinnerGen` and clears
-`thinkingPending`, which invalidates any in-flight tick. New
-spinners (e.g., skill expansion right after a thinking spinner)
-also bump `spinnerGen`, so old ticks drop.
+`clearThinkingIfPending()` calls `m.live.ClearSpinner()`, clears
+`thinkingPending`, bumps `spinnerGen`. New spinners (skill expansion
+after the initial spinner) also bump `spinnerGen` so old ticks drop.
 
 This pattern is **load-bearing** — without the gen check, multiple
 overlapping spinners would race and one would never stop.
@@ -377,18 +389,19 @@ When the server emits a `pickerOpen` side-effect on a slash-command
 response (`/model`, `/resume`, `/export` no-args), the TUI renders
 an inline card matching the Claude Code reference UX (`~/Desktop/goodux.png`).
 
-**Layout integration in `View()`:**
+**Layout integration in `View()`** (round 5):
 
 ```go
-out := m.transcript.View() + "\n"
+b.WriteString(m.live.View())          // streaming card + spinner
 if m.stallBadge != nil { ... }
 if m.picker != nil {
-    out += m.picker.View(m.width) + "\n"  // between transcript and prompt
+    b.WriteString(m.picker.View(m.width))  // above the prompt
+    b.WriteString("\n")
 }
-out += "\n\n" + prompt + "\n"
+b.WriteString("\n" + prompt + "\n")
 ```
 
-The card renders **between** the transcript and the prompt (above
+The card renders **between** the live region and the prompt (above
 the input box). Unlike the autocomplete popup, the picker is a
 modal-like affordance that owns the user's attention until they pick
 or cancel.
@@ -503,8 +516,12 @@ almost certainly "remove the Color field entirely."
   rendering, gradient definition.
 - `packages/tui/internal/components/spinner.go` — thinking spinner +
   gen-tracked tick chain.
-- `packages/tui/internal/components/transcript.go` — append/update
-  primitives, size-to-content logic.
+- `packages/tui/internal/components/liveregion.go` (round 5) — bottom
+  live region: streaming assistant card + spinner + "…running"
+  indicator. Replaces the viewport-based transcript for in-View content.
+- `packages/tui/internal/components/transcript.go` — DEAD production
+  code retained for tests during the round-5 migration; the viewport
+  is unused. Slated for retirement in backlog item #47.
 - `packages/tui/internal/components/prompt.go` — rounded-border input
   box.
 - `packages/tui/internal/components/statusline.go` — bottom metadata

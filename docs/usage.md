@@ -321,18 +321,25 @@ Pattern (a) is preferred — single assignment, unambiguous scope, works correct
 
 ## Session UX
 
+The TUI runs in **inline mode** (no alt screen) — your terminal owns the scrollback buffer, so wheel scroll, trackpad scroll, click-drag text selection, and copy/paste all work exactly like in any other terminal app. There are no in-TUI scroll keybindings; just scroll your terminal up to see prior conversation.
+
 Visual surfaces you'll see in a normal session:
 
-- **Splash** at startup — block-letter "SOV" logo (cyan→blue gradient) next to a boxed info card with version, provider/auth, model, and bundle path. The dim footer line collapses operational details (perms mode + count of loaded allow-rules, tools, cache, session id).
-- **Pre-prompt footer** — a single dim status line above each input frame: `provider · model · ctx N% · $cost · perms:mode · tools:N · bundle:label`. The `ctx` segment turns yellow above 60% utilization and red above 80%. Disable with `sov config set ui.footer.enabled false`.
-- **Modal permission prompts** — when a tool needs approval, a yellow-bordered box appears: title, tool name, input, optional reason, and `[y] allow   [N] deny   [a] always` choices. The thinking spinner suppresses itself while the modal is up so the prompt can't be visually buried.
-- **Thinking indicator** — `⠋ Thinking 12s ↑ 1234 ↓ 56` (cyan spinner + dim status) appears during silent waits (provider work, slow local model prompt processing, tool execution). 500ms grace, so it never flashes during normal fast streaming.
-- **Compact tool slot** — sequential tool calls share a single line that updates in place (`→ FileRead path=...` while running, `✓ N lines, M chars` after). With `--verbose`, the full 40-line preview block is shown instead.
-- **Inline diffs** — successful FileEdit and FileWrite calls render below the slot summary as `- ` (red) / `+ ` (green) lines with the file path and 1-based line number. FileEdit shows the full surrounding line, not just the matched substring. Long diffs truncate to head + `… N more lines …` + tail in non-verbose mode. Disable with `sov config set ui.diffRender.enabled false`.
-- **Multi-line tool errors** — failures surface the first line of the error followed by `· +N more lines` when the underlying tool produced a multi-line trace.
-- **Pre-compaction warning** — when context utilization crosses 5% below the proactive-compaction threshold, the TUI prints a one-shot `[compact] approaching threshold (ctx N% / trigger M%)` so you know auto-compaction may fire on the next turn.
-- **Markdown rendering** of streamed text — headings, bold, italic, inline code, list bullets, blockquotes, fenced code blocks, horizontal rules.
-- **Goodbye box** at session end — Interaction Summary (session ID, tool calls ✓/✗, success rate), Performance (wall time, agent active, API time, tool time), Tokens (total, cache, est. cost). Followed by the resume command.
+- **Splash** at startup — block-letter "SOV" logo (cyan→blue/purple/pink gradient) next to a boxed info card showing version, provider/auth, model, and cwd. Printed once into terminal scrollback so it sits at the top of your history.
+- **Status line** at the bottom — `<cwd>  <profile>  <model>` on the left; `$<cost>  cache <pct>%` on the right, with a cyan spinner glyph when streaming. Dim foreground (ambient metadata, not primary content).
+- **Hint line** above the status — `? for shortcuts` (dim italic). Press `?` for the shortcut overlay.
+- **Prompt** above the hint — rounded-border box with `›` on the first line. Auto-grows up to 8 rows as you type or paste. Alt+Enter / Ctrl+J insert a newline; plain Enter submits.
+- **Modal permission prompts** — when a tool needs approval, a yellow-bordered box overlays the screen: title, tool name, input, optional reason, and `[y] allow   [n] deny   [a] always` choices. The thinking spinner suppresses itself while the modal is up.
+- **Thinking spinner** — bottom-weighted Braille glyph (`⢀⣀⡀⡄⠄⠤⠠⢠`) + animated "Thinking…" label, appears immediately above the prompt during silent waits (provider work, tool execution, post-content idle gaps).
+- **User message echo** — your submission appears in scrollback as `» <text>`, wrapped to terminal width with hanging-indent continuation rows. Submissions above 1500 chars are truncated in the echo with a dim ` …[+N chars]` marker (the full text still ships to the model).
+- **Paste abstraction** — pastes ≥ 2 lines OR ≥ 200 chars are replaced in the prompt with `[Pasted text #N +M lines]`; the real content ships on Enter. Short pastes insert verbatim.
+- **Tool cards** — each `tool_result` prints a fully-expanded card into scrollback with the tool name, summary, and output. Diff renders inline for FileEdit/FileWrite. Use `/expand N` to re-render the Nth-most-recent tool's raw payload below the prompt.
+- **Pre-compaction warning** — when context utilization crosses 5% below the proactive-compaction threshold, the TUI prints a one-shot `[compact] approaching threshold (ctx N% / trigger M%)`.
+- **Markdown rendering** of streamed text — headings, bold, italic, inline code (light-blue file-refs auto-styled), list bullets with hang-indent continuation, blockquotes, fenced code blocks, horizontal rules. Tables print verbatim per round-3 fix (no inline-code styling inside cells — avoids ANSI cruft).
+- **ESC** during a streaming turn — cancels the turn (POST `/sessions/:id/cancel`), shows `(interrupted by user)` in scrollback, returns to idle prompt. Ctrl+C still tears down the session.
+- **Compaction marker** — when proactive or explicit `/compact` runs, the session pivots to a child id; a dim `─ compacted — new session <id>` line lands in scrollback.
+- **Turn separator** — a dim horizontal rule between completed turns; when the model finishes with a non-`end_turn` reason, the reason follows on the next line (`⚠ max_tokens`).
+- **Goodbye card** at session end — Interaction Summary (session ID, tool calls ✓/✗, success rate), Performance (wall time, agent active, API time, tool time), Tokens (total, cache, est. cost), followed by the resume command. Replaces the View instead of being in scrollback (it's the last frame the user sees).
 
 ## Themes
 
