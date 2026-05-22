@@ -252,6 +252,15 @@ export const CommandResponseSchema = z.object({
   output: z.string(),
   error: z.string().optional(),
   sideEffects: CommandSideEffectsSchema.optional(),
+  /** For prompt-type slash commands (e.g., /init, /commit, /security-audit,
+   *  every skill-sourced command): the expanded prompt body, ready to
+   *  POST as a turn. Callers that have an active session — the TUI, the
+   *  drive subcommand — auto-send it. Headless slash-only callers
+   *  (dispatch) ignore it. Added 2026-05-22 PM alongside the sov drive
+   *  subcommand; before that, the server folded prompt content into the
+   *  output string, which interpolated the ContentBlock[] array as
+   *  "[object Object]". */
+  promptToSend: z.string().optional(),
 });
 
 export type CommandResponse = z.infer<typeof CommandResponseSchema>;

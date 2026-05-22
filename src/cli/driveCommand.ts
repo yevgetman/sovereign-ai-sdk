@@ -192,7 +192,7 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
       }
 
       if (line.startsWith('/')) {
-        await runSlashCommand({ baseURL, sessionId: activeSessionId, line });
+        await runSlashCommand({ baseURL, sessionId: activeSessionId, line, renderer });
       } else {
         // POST a turn, then await the renderer's per-turn promise that
         // resolves on turn_complete OR turn_error.
@@ -413,6 +413,7 @@ async function runSlashCommand(opts: {
   baseURL: string;
   sessionId: string;
   line: string;
+  renderer: EventRenderer;
 }): Promise<void> {
   // Parse `/name args...` — split on first whitespace.
   const trimmed = opts.line.startsWith('/') ? opts.line.slice(1) : opts.line;
@@ -431,13 +432,37 @@ async function runSlashCommand(opts: {
       process.stdout.write(`${ERROR_MARKER}\nPOST /commands ${res.status}: ${body}\n`);
       return;
     }
-    const body = (await res.json()) as { output?: string; error?: string };
+    const body = (await res.json()) as {
+      output?: string;
+      error?: string;
+      promptToSend?: string;
+    };
     if (body.error) {
       process.stdout.write(`${ERROR_MARKER}\n${body.error}\n`);
       return;
     }
     if (body.output) {
       process.stdout.write(`${body.output}\n`);
+    }
+    // Prompt-type slash commands (/init, /commit, every skill-sourced
+    // command, etc.) come back with a `promptToSend` field — the
+    // expanded prompt body, ready to POST as a turn. Auto-send it so
+    // semantic tests (and any other automation) get the agent's
+    // response. The TUI client adopts the same field separately; here
+    // we keep the contract simple: command returns immediately after
+    // the prompt-send + SSE-drain. 2026-05-22 PM.
+    if (body.promptToSend !== undefined && body.promptToSend !== '') {
+      const turnDone = opts.renderer.awaitTurnTerminal();
+      const ok = await postTurn({
+        baseURL: opts.baseURL,
+        sessionId: opts.sessionId,
+        text: body.promptToSend,
+      });
+      if (!ok) {
+        opts.renderer.cancelAwait();
+      } else {
+        await turnDone;
+      }
     }
   } catch (err) {
     process.stdout.write(

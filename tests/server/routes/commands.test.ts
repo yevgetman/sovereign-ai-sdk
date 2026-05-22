@@ -228,6 +228,45 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     expect(json.sideEffects).toBeUndefined();
   });
 
+  // 2026-05-22 PM — prompt-type slash commands (/init, /commit, every
+  // skill-sourced command) now return a structured `promptToSend` field
+  // so session-bearing callers (TUI, sov drive) can auto-POST it as a
+  // turn. Before this, the route folded the ContentBlock[] into the
+  // output string, which interpolated as "[object Object]" and silently
+  // broke /init + /commit when the suites first ran against sov drive.
+  describe('prompt-type commands surface promptToSend field', () => {
+    test('/init returns promptToSend with the expanded prompt body', async () => {
+      const sessionId = await newSession();
+      const { status, json } = await postCommand(sessionId, { name: 'init' });
+      expect(status).toBe(200);
+      expect(typeof json.promptToSend).toBe('string');
+      const prompt = json.promptToSend as string;
+      // /init's expanded prompt mentions CONTEXT.md scan + read +
+      // package.json. Any of those substrings proves the flatten
+      // happened correctly (not "[object Object]").
+      expect(prompt).toContain('CONTEXT.md');
+      // The legacy bug interpolated the array as "[object Object]";
+      // the new path emits flattened text — make sure no [object
+      // Object] leaked into either field.
+      expect(prompt).not.toContain('[object Object]');
+      expect(json.output as string).not.toContain('[object Object]');
+    });
+
+    test('/commit returns promptToSend with the expanded prompt body', async () => {
+      const sessionId = await newSession();
+      const { status, json } = await postCommand(sessionId, { name: 'commit' });
+      expect(status).toBe(200);
+      expect(typeof json.promptToSend).toBe('string');
+      expect(json.promptToSend as string).not.toContain('[object Object]');
+    });
+
+    test('local commands do NOT set promptToSend', async () => {
+      const sessionId = await newSession();
+      const { json } = await postCommand(sessionId, { name: 'help' });
+      expect(json.promptToSend).toBeUndefined();
+    });
+  });
+
   // Backlog #45 (closed 2026-05-19) — GET discovery endpoint.
   describe('GET /sessions/:id/commands (backlog #45)', () => {
     test('happy path — returns a non-empty list of commands with name + description', async () => {

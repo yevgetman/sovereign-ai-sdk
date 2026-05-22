@@ -120,6 +120,7 @@ export function commandsRoute(runtime: Runtime): Hono {
       const result = await dispatchSlashCommand(rawInput, ctx);
       let output: string;
       let error: string | undefined;
+      let promptToSend: string | undefined;
 
       switch (result.kind) {
         case 'local':
@@ -133,11 +134,22 @@ export function commandsRoute(runtime: Runtime): Hono {
           error = result.output;
           break;
         case 'prompt':
-          // Prompt-type commands (e.g., /commit) generate a prompt template
-          // that REPL would auto-send as the next turn. Server-mode v1
-          // surfaces the template so the user can copy/paste it. Auto-send
-          // wiring is M11+ polish.
-          output = `Prompt-type slash command. To execute, paste the following as a regular message:\n\n${result.content}`;
+          // Prompt-type commands (/init, /commit, every skill-sourced
+          // command, etc.) expand into a content-block array meant to be
+          // submitted as the next agent turn. The route surfaces both
+          // the flattened text (for callers without a session, like
+          // `sov dispatch`, or any UI that wants to show the prompt) AND
+          // the structured `promptToSend` field that session-bearing
+          // callers (the TUI, `sov drive`) auto-send as a turn. 2026-05-22
+          // PM — replaced the prior code path that interpolated
+          // ContentBlock[] into the output string directly, which
+          // produced "[object Object]" and silently broke /init, /commit,
+          // and skill-driven commands.
+          promptToSend = flattenContentBlocks(result.content);
+          output =
+            promptToSend !== ''
+              ? `Prompt-type slash command. Sending the expanded prompt as a turn:\n\n${promptToSend}`
+              : 'Prompt-type slash command returned empty content.';
           break;
         default:
           // Exhaustive guard — every CommandDispatchResult kind handled.
@@ -148,6 +160,7 @@ export function commandsRoute(runtime: Runtime): Hono {
       const response: CommandResponse = {
         output,
         ...(error !== undefined ? { error } : {}),
+        ...(promptToSend !== undefined ? { promptToSend } : {}),
         ...(hasSideEffects(sideEffects) ? { sideEffects: pickSideEffects(sideEffects) } : {}),
       };
       return c.json(response);
@@ -173,6 +186,32 @@ type SideEffectsBag = {
   pickerOpen?: import('../../commands/types.js').PickerOpenConfig;
   themeChanged?: string;
 };
+
+/** Flatten a prompt command's ContentBlock[] into plain text. The
+ *  expansion path in src/commands/registry.ts produces
+ *  `Promise<ContentBlock[]>` where each block is `{type:'text', text}`
+ *  (current usage) or potentially other Anthropic content-block kinds
+ *  (image, tool_use, etc., though none are emitted by the bundled
+ *  command authors today). Text blocks join on newlines; non-text
+ *  blocks are silently dropped — they have no plain-text fallback,
+ *  and the prompt-command authors who care about non-text blocks
+ *  haven't shipped yet. 2026-05-22 PM. */
+function flattenContentBlocks(content: ReadonlyArray<unknown>): string {
+  const parts: string[] = [];
+  for (const block of content) {
+    if (
+      block !== null &&
+      typeof block === 'object' &&
+      'type' in block &&
+      (block as { type: unknown }).type === 'text' &&
+      'text' in block &&
+      typeof (block as { text: unknown }).text === 'string'
+    ) {
+      parts.push((block as { text: string }).text);
+    }
+  }
+  return parts.join('\n');
+}
 
 function hasSideEffects(s: SideEffectsBag): boolean {
   return (
