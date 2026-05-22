@@ -183,7 +183,10 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     { flag: '--transcript', opt: 'transcript', milestone: 'M7' },
     { flag: '--agent', opt: 'agent', milestone: 'M7' },
     { flag: '--state-dir', opt: 'stateDir', milestone: 'M7' },
-    { flag: '--verbose', opt: 'verbose', milestone: 'M9' },
+    // ux-fixes 2026-05-22: --verbose is now wired through as
+    // --verbose-raw to sov-tui (orthogonal raw escape hatch alongside
+    // ui.toolOutput.mode). Removed from the deferred-warnings list.
+    // Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
   ];
   for (const { flag, opt, milestone } of deferredFlagWarnings) {
     const value = opts[opt];
@@ -302,6 +305,21 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // a hardcoded literal. The Go TUI can't read package.json or the
   // VERSION export, so the launcher is the sole bridge.
   const { VERSION } = await import('../version.js');
+
+  // ux-fixes 2026-05-22 — forward the tool-output rendering mode +
+  // truncation cap from user-settings so sov-tui's tool_result handler
+  // picks the right mode at boot. Default 'compact' (one-liner per
+  // tool call); 'detailed' opts into the bordered ToolCard with output
+  // capped to inlineLines. The -v / --verbose flag is orthogonal —
+  // forwarded as --verbose-raw so the Go side can print raw
+  // untruncated output below either mode's rendering.
+  // Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+  const { readConfig } = await import('../config/store.js');
+  const userSettings = readConfig();
+  const toolOutputMode = userSettings.ui?.toolOutput?.mode ?? 'compact';
+  const toolOutputInlineLines = userSettings.ui?.toolOutput?.inlineLines ?? 10;
+  const verboseRaw = pickBoolean(opts.verbose) === true;
+
   const tuiArgs = [
     '--port',
     String(server.port),
@@ -313,7 +331,14 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     runtime.resolvedProvider.transport.name,
     '--harness-version',
     VERSION,
+    '--tool-output-mode',
+    toolOutputMode,
+    '--tool-output-inline-lines',
+    String(toolOutputInlineLines),
   ];
+  if (verboseRaw) {
+    tuiArgs.push('--verbose-raw');
+  }
   const spawnOpts: SpawnOptions = { stdio: 'inherit' };
   const child = spawn(binary, tuiArgs, spawnOpts);
 

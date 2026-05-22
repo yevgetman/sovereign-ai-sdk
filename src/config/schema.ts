@@ -88,14 +88,27 @@ const UiSchema = z
       })
       .strict()
       .optional(),
-    /** Compact tool slot — how the REPL renders each tool call's
-     *  inline output below the call header. Default 10 lines; the
-     *  surplus is summarized in the footer ("· +N more lines"). Set
-     *  inlineLines: 0 to revert to the pre-polish behavior of header
-     *  + footer only with no inline content. --verbose flag bypasses
-     *  this entirely and renders the full result. */
+    /** How the TUI renders each tool_result event.
+     *
+     *  - `mode: 'compact'` (default) — one line per tool call in the
+     *    style of the Claude mobile app:
+     *      Edited app.go +11 -7  ›
+     *      Read README.md         ›
+     *      ⚠ Edit blocked.go      ›
+     *      ✗ Bash $ build.sh      ›
+     *    The trailing chevron is a visual hint that detail is available
+     *    via `/expand N` (N is positional from most-recent).
+     *  - `mode: 'detailed'` — the bordered ToolCard rendering with the
+     *    output truncated to `inlineLines`. Reverts to the pre-2026-05-22
+     *    behavior for users who want the inline preview.
+     *  - `-v / --verbose` flag remains orthogonal — when set, the raw
+     *    untruncated output prints below either mode's rendering.
+     *
+     *  `inlineLines` (default 10) caps the output in detailed mode.
+     *  Set to 0 to collapse detailed mode to header-only. Range 0..200. */
     toolOutput: z
       .object({
+        mode: z.enum(['compact', 'detailed']).optional(),
         inlineLines: z.number().int().min(0).max(200).optional(),
       })
       .strict()

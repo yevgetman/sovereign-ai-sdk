@@ -173,6 +173,45 @@ describe('SettingsSchema — wave-1 ui.* keys round-trip', () => {
     };
     expect(SettingsSchema.parse(input)).toEqual(input);
   });
+
+  // ux-fixes 2026-05-22: extend ui.toolOutput with a `mode` enum that
+  // controls compact (default, one-liner per tool call) vs detailed
+  // (bordered card with output capped to inlineLines). Spec:
+  // docs/specs/2026-05-22-tui-tool-call-abstraction-design.md
+  test('ui.toolOutput.mode accepts compact', () => {
+    const parsed = SettingsSchema.parse({ ui: { toolOutput: { mode: 'compact' } } });
+    expect(parsed.ui?.toolOutput?.mode).toBe('compact');
+  });
+
+  test('ui.toolOutput.mode accepts detailed', () => {
+    const parsed = SettingsSchema.parse({ ui: { toolOutput: { mode: 'detailed' } } });
+    expect(parsed.ui?.toolOutput?.mode).toBe('detailed');
+  });
+
+  test('ui.toolOutput.mode rejects unknown values', () => {
+    expect(() =>
+      SettingsSchema.parse({ ui: { toolOutput: { mode: 'fancy' } } }),
+    ).toThrow();
+  });
+
+  test('ui.toolOutput.mode + inlineLines coexist', () => {
+    const input = {
+      ui: { toolOutput: { mode: 'detailed' as const, inlineLines: 25 } },
+    };
+    expect(SettingsSchema.parse(input)).toEqual(input);
+  });
+
+  test('ui.toolOutput.inlineLines still validates 0..200', () => {
+    expect(() =>
+      SettingsSchema.parse({ ui: { toolOutput: { inlineLines: -1 } } }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({ ui: { toolOutput: { inlineLines: 201 } } }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({ ui: { toolOutput: { inlineLines: 200 } } }),
+    ).not.toThrow();
+  });
 });
 
 describe('SettingsSchema — providers config shape', () => {

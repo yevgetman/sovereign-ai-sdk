@@ -176,10 +176,14 @@ afterAll(() => {
 
 describe('runTuiLauncher — flag forwarding', () => {
   let recordedBuildOpts: Record<string, unknown> | null = null;
+  // ux-fixes 2026-05-22: also capture the spawn args so tests can
+  // assert how sov-tui is invoked (tool-output-mode flags, verbose-raw).
+  let recordedSpawnArgs: string[] | null = null;
   let prevSovTuiBin: string | undefined;
 
   beforeEach(() => {
     recordedBuildOpts = null;
+    recordedSpawnArgs = null;
     prevSovTuiBin = process.env.SOV_TUI_BIN;
     // /bin/true exists on macOS + Linux; satisfies findTuiBinary().
     process.env.SOV_TUI_BIN = '/bin/true';
@@ -193,8 +197,10 @@ describe('runTuiLauncher — flag forwarding', () => {
 
     // spawn: emit 'exit' code 0 on next tick so the launcher's promise
     // resolves quickly. setImmediate runs after on() listeners are attached.
+    // ux-fixes 2026-05-22: capture args for flag-forwarding assertions.
     mock.module('node:child_process', () => ({
-      spawn: (): EventEmitter => {
+      spawn: (_bin: string, args: string[]): EventEmitter => {
+        recordedSpawnArgs = args;
         const child = new EventEmitter();
         setImmediate(() => child.emit('exit', 0));
         return child;
@@ -327,6 +333,76 @@ describe('runTuiLauncher — flag forwarding', () => {
     expect(exitCode).toBe(0);
     expect((recordedBuildOpts as { resumeId?: string }).resumeId).toBe('resumed-id');
     expect(postSessionsCalled).toBe(false);
+  });
+
+  // ux-fixes 2026-05-22: tool-output rendering mode is forwarded to
+  // sov-tui via --tool-output-mode + --tool-output-inline-lines. Default
+  // 'compact' (one-liner per tool call) + inlineLines 10. -v / --verbose
+  // is forwarded as --verbose-raw (orthogonal raw escape hatch).
+  // Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+  test('forwards default --tool-output-mode=compact and --tool-output-inline-lines=10', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    const exitCode = await runTuiLauncher({});
+    expect(exitCode).toBe(0);
+    expect(recordedSpawnArgs).not.toBeNull();
+    // biome-ignore lint/style/noNonNullAssertion: previous expect guards null
+    const args = recordedSpawnArgs!;
+    const modeIdx = args.indexOf('--tool-output-mode');
+    expect(modeIdx).toBeGreaterThanOrEqual(0);
+    expect(args[modeIdx + 1]).toBe('compact');
+    const linesIdx = args.indexOf('--tool-output-inline-lines');
+    expect(linesIdx).toBeGreaterThanOrEqual(0);
+    expect(args[linesIdx + 1]).toBe('10');
+  });
+
+  test('does NOT forward --verbose-raw when --verbose is absent', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({});
+    expect(recordedSpawnArgs).not.toBeNull();
+    // biome-ignore lint/style/noNonNullAssertion: previous expect guards null
+    const args = recordedSpawnArgs!;
+    expect(args).not.toContain('--verbose-raw');
+  });
+
+  test('forwards --verbose-raw when --verbose is passed', async () => {
+    const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+    await runTuiLauncher({ verbose: true });
+    expect(recordedSpawnArgs).not.toBeNull();
+    // biome-ignore lint/style/noNonNullAssertion: previous expect guards null
+    const args = recordedSpawnArgs!;
+    expect(args).toContain('--verbose-raw');
+  });
+
+  test('forwards ui.toolOutput.{mode,inlineLines} when set in config', async () => {
+    // Point HARNESS_HOME at a temp dir with a config.json that opts into
+    // detailed mode + a non-default inlineLines cap. The launcher's
+    // readConfig() should pick this up and forward the values verbatim.
+    const tmpHome = mkdtempSync(join(tmpdir(), 'sov-toolOutput-cfg-'));
+    const prevHome = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = tmpHome;
+    try {
+      writeFileSync(
+        join(tmpHome, 'config.json'),
+        JSON.stringify({ ui: { toolOutput: { mode: 'detailed', inlineLines: 25 } } }),
+      );
+      const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+      await runTuiLauncher({});
+      expect(recordedSpawnArgs).not.toBeNull();
+      // biome-ignore lint/style/noNonNullAssertion: previous expect guards null
+      const args = recordedSpawnArgs!;
+      const modeIdx = args.indexOf('--tool-output-mode');
+      expect(args[modeIdx + 1]).toBe('detailed');
+      const linesIdx = args.indexOf('--tool-output-inline-lines');
+      expect(args[linesIdx + 1]).toBe('25');
+    } finally {
+      if (prevHome === undefined) {
+        // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+        delete process.env.HARNESS_HOME;
+      } else {
+        process.env.HARNESS_HOME = prevHome;
+      }
+      rmSync(tmpHome, { recursive: true });
+    }
   });
 
   test('does NOT emit the "sov: tui server listening" boot line to stderr (ux-fixes 2026-05-22)', async () => {
@@ -465,10 +541,13 @@ describe('runTuiLauncher — deferred-flag warnings', () => {
     expect(stderrBuf).toMatch(/M7/);
   });
 
-  test('warns on --verbose with M9', async () => {
+  // ux-fixes 2026-05-22: --verbose is no longer deferred-warned —
+  // it's wired through as --verbose-raw to sov-tui. The regression
+  // guard here asserts the warning is NOT emitted. Forwarding is
+  // tested in the flag-forwarding describe block below.
+  test('does NOT warn on --verbose (wired as --verbose-raw 2026-05-22)', async () => {
     const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
     await runTuiLauncher({ verbose: true });
-    expect(stderrBuf).toContain('--verbose');
-    expect(stderrBuf).toMatch(/M9/);
+    expect(stderrBuf).not.toMatch(/--verbose is not yet supported/);
   });
 });
