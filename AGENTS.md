@@ -28,6 +28,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 |---|---|
 | [`docs/conventions/lint-and-commit.md`](docs/conventions/lint-and-commit.md) | Before any commit — `lint`, `typecheck`, `test` all required; atomic commits; push autonomously |
 | [`docs/conventions/sov-upgrade.md`](docs/conventions/sov-upgrade.md) | After any `src/` or `bundle-default/` or `packages/tui/` change — keep global binary current |
+| [`docs/conventions/cutting-releases.md`](docs/conventions/cutting-releases.md) | After any `src/` / `bundle-default/` / `packages/tui/` change — cut the next binary release in the same session so `~/.sov/bin/sov` picks it up |
 | [`docs/conventions/testing-log.md`](docs/conventions/testing-log.md) | Before testing — append-only log obligation |
 | [`docs/conventions/semantic-tests.md`](docs/conventions/semantic-tests.md) | When triaging whether to run `bun run test:semantic` |
 | [`docs/conventions/subagent-policy.md`](docs/conventions/subagent-policy.md) | Before dispatching any subagent — HARD RULE on Opus / Sonnet / never-Haiku |
