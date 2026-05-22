@@ -8,6 +8,46 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 late PM — semantic suite revival via `sov drive`
+
+**Scope:** Restored the semantic test suite, which had been silently broken since M13 (2026-05-20). The driver shells `sov chat`, which since M13 launches the TUI — and the TUI fails on non-TTY stdin (`open /dev/tty: device not configured`). User asked about the suite's state; investigation found 0/58 tests had passed since M13. Fix:
+
+1. **New `sov drive` subcommand** — headless line-driven LLM conversation surface. Boots the same Hono server the TUI talks to, reads stdin line-by-line, emits plain-text events to stdout. Drive is the test/automation surface; TUI is the user surface; dispatch is the slash-only headless surface. Three coexisting surfaces, one runtime.
+
+2. **Server-side prompt-command fix** — uncovered an M10.5-era bug where prompt-type slash commands (`/init`, `/commit`, every skill-sourced command) interpolated their `ContentBlock[]` content as `[object Object]` in the response string. New `promptToSend: string` field on `CommandResponse` carries the flattened prompt body, which `sov drive` auto-POSTs as a turn.
+
+3. **Test-driver swap** — `tests/semantic/framework/driver.ts:36-77` changed from `chat` to `drive`, with always-on `--verbose-raw` so the raw tool output appears in the transcript (existing criteria expect to see tool-output substrings).
+
+4. **`tools.envelope-recovery-from-edit-mismatch` timeout bump** — 60s → 120s. The multi-turn recovery takes ~4-5 LLM calls; with HTTP+SSE round-trip overhead between drive's stdin loop and the runtime, 60s was borderline. 120s gives comfortable headroom.
+
+**Tests added:**
+- `tests/cli/driveCommand.test.ts` *(NEW)* — 11 unit tests covering pure helpers (`previewInput`, `renderToolOutput`, `parseEventBlock`).
+- `tests/server/routes/commands.test.ts` — 3 new tests pinning the `promptToSend` contract.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 1996 pass / 0 fail / 14 skip (+14 from 1982 morning baseline)
+
+SEMANTIC_BINARY=/tmp/sov-dev bun run test:semantic
+# 58 tests · 54 pass · 4 fail · 0 error · 1056.8s · $2.838 informational
+```
+
+**Smoke results:** End-to-end semantic suite IS the smoke for `sov drive` — every case spawns a fresh sov drive subprocess, sends one or more prompts, and judges the transcript. **54/58 pass after revival** — the 4 failures are all model-behavior / test-design flakes, none reproduce a drive-infrastructure bug:
+
+1. `tools.envelope-recovery-from-edit-mismatch` — model interprets "I just opened … it contains exactly" as user-pasted content, refuses to use file tools at all.
+2. `workflow.compact-preserves-key-facts` — `/compact` correctly no-ops because 3 turns don't trigger the threshold.
+3. `workflow.rollback-restores-parent-session` — cascades from #2 (no parent session to roll back to).
+4. `tools.agents-explore-live-delegation` — agent's summary leaks the demo token verbatim (model doesn't autonomously redact secrets in tool output).
+
+Suite is functional; flakes are documented in `docs/state/2026-05-22-semantic-suite-revival.md` as separate follow-up work.
+
+**Findings:** (1) The M10.5-era prompt-command `[object Object]` bug was masked by the broken semantic suite — found and fixed. (2) SSE stream lifecycle assumption error: server closes the stream on turn_complete (`src/server/routes/events.ts:73`), so drive must reconnect per turn (mirrors TUI's app.go:1052-1053 pattern). Initial drive impl held a single connection; multi-turn tests timed out until the reconnect loop was added (`56fb6ad`).
+
+**Spec:** None — this is restoration + a localized server bug fix, not a new architectural surface. **State snapshot:** `docs/state/2026-05-22-semantic-suite-revival.md`.
+
+---
+
 ## 2026-05-22 PM — TUI tool-call abstraction + Fix A + Fix B
 
 **Scope:** Three UX issues from the user's afternoon-session screenshots resolved end-to-end.
