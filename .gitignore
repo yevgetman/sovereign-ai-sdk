@@ -29,3 +29,6 @@ bundle-default/state/*
 
 # Built TUI binary (built by scripts/build-tui.ts on postinstall)
 bin/sov-tui
+
+# Phase 21 — release artifacts produced by scripts/release.ts
+/build/

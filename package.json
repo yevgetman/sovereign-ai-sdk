@@ -1,6 +1,6 @@
 {
   "name": "@yevgetman/sov",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sovereign AI agent runtime — Claude-Code-style harness with Hermes-pattern learning layer.",
   "private": true,
   "type": "module",
@@ -19,6 +19,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "chat": "bun src/main.ts",
+    "release": "bun run scripts/release.ts",
     "eval:website": "bun src/evals/websiteBuildEval.ts",
     "test": "bun test",
     "test:semantic": "bun tests/semantic/run.ts",
