@@ -2,6 +2,22 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## ADR P21-A — Binary-install asset discovery via `process.execPath`, source-mode walk as fallback
+
+Decision: `shippedBundlePath()` in `src/bundle/defaultBundle.ts` tries a binary-install resolver FIRST (resolves `process.execPath` via `realpathSync`, looks for `<dirname(dirname(execPath))>/bundle-default/index.yaml`) and falls through to the source-mode `import.meta.url` walk only when the binary branch misses. The function takes optional `{ execPath, metaUrl }` test seams; production passes nothing. The same pattern is mirrored in `findTuiBinary()` in `src/cli/tuiLauncher.ts` for resolving the `sov-tui` sibling binary, and `src/version.ts` switched to a build-time JSON import (`import pkg from '../package.json' with { type: 'json' }`) so the version number embeds into the compiled binary at build time.
+
+Rationale: In Bun `--compile` binaries, `import.meta.url` resolves to a virtual path inside the embedded filesystem (`/$bunfs/...`) — the existing source-mode walks produce paths that don't exist on disk. `process.execPath` always resolves to the actual on-disk executable in both modes. Trying binary FIRST means source-mode invocations (`bun src/main.ts`, `bun install -g`) hit the binary check, find no sibling artifacts next to the Bun runtime, fall through to the source walk, and behave exactly as before. The package.json runtime read was an additional gap surfaced by the first compiled-binary smoke (the binary errored with ENOENT on `/$bunfs/package.json` at module load); switching to a build-time JSON import freezes the version into the embedded bundle.
+
+Status: implemented (Phase 21 M1 — Tasks 1 + 6 commits). Plan: `docs/plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `docs/specs/2026-05-21-binary-distribution-design.md` (ADR P21-02).
+
+## ADR P21-B — `sov upgrade` install-mode auto-detection by `~/.sov/bin/` prefix
+
+Decision: `detectInstallMode({ execPath, homedir })` in `src/cli/upgrade.ts` returns `'binary'` iff `execPath.startsWith(\`\${homedir}/.sov/bin/\`)`, else `'source'`. `buildUpgradeCommands()` consults this (overridable via `opts.mode`) and produces a single `['bash', '-c', 'curl ... | bash']` for binary mode or the existing `[uninstall, install]` pair for source mode. `BINARY_INSTALLER_URL` is a constant: `https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh`. Cache purge (`shouldPurgeCache`) short-circuits to `false` in binary mode (Bun's cache is irrelevant when we're not invoking Bun). Dry-run in binary mode suppresses the source-mode cache-purge messaging.
+
+Rationale: Prefix-string check on `process.execPath` is sufficient because the binary install layout is fully under our control (we placed the binary there in install.sh). No realpath needed — execPath is already canonical from Bun's standpoint. The escape hatch is `opts.mode` — pass `'source'` to force the legacy bun-install flow even on binary installs, or `'binary'` to force the public-installer flow. The constant URL is the contract with the `sov-releases` public repo; if the public repo is ever renamed, this constant moves with it (and the user-facing install command in README.md also moves).
+
+Status: implemented (Phase 21 M1 — Task 2 commit). Plan: `docs/plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `docs/specs/2026-05-21-binary-distribution-design.md` (ADR P21-05).
+
 ## ADR M8-01 — Router-mode construction lives in `buildRuntime`, not `resolveProvider`
 
 Decision: When `opts.provider === 'router'` (or `userSettings.defaultProvider === 'router'`), `buildRuntime` constructs the `RouterProvider` explicitly — wrapping the configured local + frontier providers — rather than routing through `resolveProvider()`. The router resolved-provider envelope advertises `transport.name === 'router'`, `metadata.provider === 'router'`, and `metadata.localProvider` / `metadata.frontierProvider` carry the underlying provider names. The `routerAuditLogger` is constructed alongside and closed before `mcpClientPool.shutdown()` inside `runtime.dispose()`.
