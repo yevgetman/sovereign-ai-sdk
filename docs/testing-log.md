@@ -48,6 +48,14 @@ Both fixes verified by re-running the dry-run + executing the host binary: `./bu
 
 **Result:** M1 shipped; v0.2.0 live at github.com/yevgetman/sov-releases/releases/tag/v0.2.0; macOS + Linux smokes green; darwin-x64 deferred to field-report.
 
+**Post-release polish (v0.2.1, same day):** The Phase 21 M1 doc sweep surfaced two stale `0.1.0` literals that v0.2.0 shipped with:
+- TUI splash card hardcoded `Version: "0.1.0"` (user-visible — beta users running v0.2.0 saw `(0.1.0)` in the splash).
+- `src/mcp/client.ts` Client constructor hardcoded `version: '0.1.0'` for the MCP client identifier sent to MCP servers.
+
+Fix: added `--harness-version` flag to `cmd/sov-tui/main.go`, threaded through `WithSessionInfo` into a new `m.harnessVersion` field, surfaced in the splash render; `src/cli/tuiLauncher.ts` now passes `VERSION` (from `src/version.ts`) as the third boot-time flag alongside `--model` + `--provider`. MCP client switched to the imported `VERSION` constant. Cut `v0.2.1` via the same release pipeline.
+
+**End-to-end upgrade smoke (`sov upgrade` 0.2.0 → 0.2.1):** PASS. The v0.2.0 binary correctly auto-detected binary mode, shelled out to `bash -c "curl -fsSL https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh | bash"`, installer fetched v0.2.1, backed up old install to `~/.sov.bak.<timestamp>/`, installed v0.2.1 at `~/.sov/`, preserved the existing `~/.zshrc` PATH line (idempotent). Post-upgrade `~/.sov/bin/sov --version` prints `0.2.1`. Full upgrade pipeline validated end-to-end in production.
+
 **Follow-ups:** Phase 21 M2 (GitHub Actions release automation + optional Apple Developer signing). Scheduled separately when manual-release friction warrants. Logged as backlog item #48.
 
 ---
