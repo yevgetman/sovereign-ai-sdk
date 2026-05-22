@@ -298,6 +298,11 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // of the "?" placeholder. The TUI has no /sessions/:id pre-fetch yet
   // and the status_update event doesn't carry model/provider — passing
   // them as boot-time CLI args sidesteps both gaps.
+  // Phase 21: also forward the harness version (from src/version.ts)
+  // so the splash card renders the runtime's actual version instead of
+  // a hardcoded literal. The Go TUI can't read package.json or the
+  // VERSION export, so the launcher is the sole bridge.
+  const { VERSION } = await import('../version.js');
   const tuiArgs = [
     '--port',
     String(server.port),
@@ -307,6 +312,8 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     runtime.model,
     '--provider',
     runtime.resolvedProvider.transport.name,
+    '--harness-version',
+    VERSION,
   ];
   const spawnOpts: SpawnOptions = { stdio: 'inherit' };
   const child = spawn(binary, tuiArgs, spawnOpts);

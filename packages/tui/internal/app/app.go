@@ -141,6 +141,7 @@ type Model struct {
 	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
 	deltaGen         int                        // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
 	userCancelledTurn bool                      // ux-fixes round 4: ESC triggered POST /cancel — suppress the subsequent turn_error warning since we already showed "(interrupted by user)"
+	harnessVersion    string                     // Phase 21: harness runtime version (from src/version.ts) injected via WithSessionInfo; rendered in the splash card
 	// pendingPrintln queues content destined for the terminal's
 	// scrollback above the live view. drainPrintln consolidates the
 	// queue into a single tea.Println Cmd at the end of every Update
@@ -354,18 +355,22 @@ func New(sessionID, baseURL string) Model {
 	return m
 }
 
-// WithSessionInfo seeds the model + provider on the status line so the
-// splash card renders the real values from the first frame. The launcher
-// (src/cli/tuiLauncher.ts) passes both as CLI flags to sov-tui, which
-// invokes this on the freshly-constructed Model before tea.NewProgram.
-// Empty arguments are ignored so callers that only know one of the two
-// values can pass "" for the other. ux-fixes round 3.
-func (m Model) WithSessionInfo(model, provider string) Model {
+// WithSessionInfo seeds the model + provider + harness version on the
+// status line so the splash card renders the real values from the first
+// frame. The launcher (src/cli/tuiLauncher.ts) passes all three as CLI
+// flags to sov-tui, which invokes this on the freshly-constructed Model
+// before tea.NewProgram. Empty arguments are ignored so callers that
+// only know some of the values can pass "" for the others. ux-fixes
+// round 3 (model + provider); Phase 21 (harnessVersion).
+func (m Model) WithSessionInfo(model, provider, harnessVersion string) Model {
 	if model != "" {
 		m.statusLine.Model = model
 	}
 	if provider != "" {
 		m.statusLine.Provider = provider
+	}
+	if harnessVersion != "" {
+		m.harnessVersion = harnessVersion
 	}
 	return m
 }
@@ -556,8 +561,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if provider == "" {
 				provider = "anthropic"
 			}
+			version := m.harnessVersion
+			if version == "" {
+				version = "dev"
+			}
 			info := components.SplashInfo{
-				Version:  "0.1.0",
+				Version:  version,
 				Provider: provider,
 				Auth:     "API Key",
 				Model:    m.statusLine.Model,

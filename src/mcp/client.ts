@@ -10,6 +10,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { VERSION } from '../version.js';
 import type {
   McpCallResult,
   McpClientPool,
@@ -114,7 +115,7 @@ async function connectOne(
     ...(cfg.cwd ? { cwd: cfg.cwd } : {}),
   });
 
-  const client = new Client({ name: 'sovereign-ai-harness', version: '0.1.0' });
+  const client = new Client({ name: 'sovereign-ai-harness', version: VERSION });
 
   // Connect with a hard timeout — a hung subprocess must not block startup.
   await Promise.race([

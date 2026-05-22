@@ -33,8 +33,9 @@ func main() {
 		version   = flag.Bool("version", false, "print version and exit")
 		mouse     = flag.Bool("mouse", false, "deprecated no-op (terminal now owns scroll + selection natively); kept for back-compat with older launchers")
 		noMouse   = flag.Bool("no-mouse", false, "deprecated no-op (mouse capture is gone after round 5 inline-mode refactor)")
-		modelName = flag.String("model", "", "model name to display in the splash and status line")
-		provider  = flag.String("provider", "", "provider name to display in the splash and status line")
+		modelName      = flag.String("model", "", "model name to display in the splash and status line")
+		provider       = flag.String("provider", "", "provider name to display in the splash and status line")
+		harnessVersion = flag.String("harness-version", "", "harness runtime version (from src/version.ts) to display in the splash; empty falls back to a sentinel")
 	)
 	flag.Parse()
 	_ = mouse   // accepted for back-compat
@@ -50,7 +51,7 @@ func main() {
 	}
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
-	model := app.New(*sessionID, baseURL).WithSessionInfo(*modelName, *provider)
+	model := app.New(*sessionID, baseURL).WithSessionInfo(*modelName, *provider, *harnessVersion)
 	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
 	// content flows into the terminal's native scrollback (wheel scroll
 	// + click-drag text selection just work). Drop mouse capture too —
