@@ -208,18 +208,67 @@ But emit nothing visible itself.
 
 Location: `tool_use_start` case in `handleEvent`.
 
-### Tool cards print fully expanded (round 5)
+### Tool cards: compact by default, detailed by opt-in (2026-05-22)
 
-`tool_result` no longer creates an interactive ToolCard kept in a
-`toolCards` map for click-toggle. Cards print fully expanded via
-`m.print(card.View(m.width))` into terminal scrollback. The
-click-to-expand interaction was retired with the inline-mode refactor
-(scrollback is immutable; the terminal owns it).
+The `tool_result` handler in `app.go` branches on
+`m.toolOutputMode` (set at boot from
+`userSettings.ui.toolOutput.mode`, forwarded via the
+`--tool-output-mode` launcher flag). Two modes:
 
-If a user wants the raw payload of a prior tool call (e.g., a long
-file dump that the card summarized), `/expand N` re-renders the
-Nth-most-recent tool's raw output below the prompt from the local
-ring buffer (`m.completedBlocks`).
+**`compact` (default)** — emits a single line per `tool_result` via
+`components.FormatCompactToolLine(tool, input, output, theme, width)`.
+Mirrors the Claude mobile app:
+
+```
+Read README.md                       ›
+Edited app.go +11 -7                 ›
+Ran $ bun run test                   ›
+⚠ Edit blocked.go                    ›   ← permission denied / cancelled
+✗ Bash $ git push                    ›   ← runtime error envelope
+```
+
+The trailing `›` chevron (theme.Dim) is a pure visual cue — there's
+no interactive expand affordance (scrollback is immutable). Users
+re-render the full raw payload via `/expand N` (positional from
+most-recent), unchanged from the round-5 ring-buffer model.
+
+Verb mapping owned in
+`packages/tui/internal/components/compactline.go`. Adding a new
+wire-tool name to the table is a 3-line patch — add a switch case
+in `verbAndTarget` plus a test in `compactline_test.go`. MCP tools
+auto-handle via the `mcp__<server>__<tool>` naming convention.
+
+Status glyphs:
+- `⚠` (`theme.Warning`, yellow, bold) — permission denied / cancelled.
+  Detection: Output decodes to bare-text starting with "permission
+  denied" (the `src/core/orchestrator.ts` deny branch emits this
+  shape).
+- `✗` (`theme.Error`, red, bold) — runtime tool error.
+  Detection: Output parses as `{status:'error', ...}` envelope.
+
+**`detailed` (opt-in)** — preserves the bordered `ToolCard` from
+the round-5 design, but the output is ALWAYS truncated to
+`ui.toolOutput.inlineLines` (default 10) with a dim italic
+`…[+N more lines]` footer. Set `inlineLines: 0` to collapse the
+card to header-only. The `DiffView` path is unaffected — diffs
+already render compactly.
+
+**`-v / --verbose` flag** — orthogonal escape hatch, NOT a third
+mode. When set, the launcher forwards `--verbose-raw` and the Go
+handler appends the raw untruncated Output below either mode's
+rendering, styled dim italic.
+
+If the input shape of the wire `ToolResult` event ever needs to
+distinguish `permission_denied` more explicitly (the bare-text
+detection is brittle if a tool author writes a deny-shaped error
+message), the future-proofing path documented in
+`docs/specs/2026-05-22-tui-tool-call-abstraction-design.md`'s
+"Out of scope" section is to add explicit `isError bool` /
+`isDenied bool` fields to the SSE envelope. Punted until/unless
+the heuristic proves wrong.
+
+Spec:
+`docs/specs/2026-05-22-tui-tool-call-abstraction-design.md`.
 
 ### Thinking spinner: live, gen-tracked, self-stopping
 
@@ -498,7 +547,9 @@ almost certainly "remove the Color field entirely."
 | Make text "brighter" | Stop setting `Color`; let terminal default render. |
 | Use a dark background to highlight an inline element | Don't. Use bold + accent color instead. Dark-hex backgrounds invert on some terminals. |
 | Add a permanent banner above the prompt | Don't. Append it into the transcript as boot content so it scrolls away. |
-| Indicate a tool ran | Let `tool_result` render the card. Don't emit a "starting..." line. |
+| Indicate a tool ran | Let `tool_result` render. The default compact-mode handler emits `Verb target ›`; detailed mode emits the bordered ToolCard. Don't emit a "starting..." line on `tool_use_start`. |
+| Add a new wire tool name to compact-mode formatting | Add a switch case in `compactline.go:verbAndTarget` (verb mapping + target extractor) plus a happy-path test in `compactline_test.go`. |
+| Mark a tool result as an error or denied | Compact mode auto-detects: `{status:'error'}` envelope → `✗` (theme.Error); bare-text "permission denied: …" → `⚠` (theme.Warning). Detection lives in `compactline.go:DetectToolStatus`. |
 | Mark a turn boundary | Full-width `─` rule via `theme.Border`. No text. |
 | Style a file path | Wrap it in backticks; `Code` style picks it up. Or trust `wrapFileRefs` to detect it. |
 | Add a new file extension to auto-styling | Add to BOTH `fileRefPattern` and `fileExtensionTailPattern` in markdown.go. |
@@ -533,6 +584,13 @@ almost certainly "remove the Color field entirely."
   `staticEntries`).
 - `packages/tui/internal/components/pickercard.go` — inline picker card
   rendered from `pickerOpen` side-effects.
+- `packages/tui/internal/components/compactline.go` (2026-05-22) —
+  `FormatCompactToolLine` for the default compact tool-call rendering.
+  Verb table + per-tool input/output extractors + status detection
+  (`DetectToolStatus`).
+- `packages/tui/internal/components/toolcard.go` — bordered card
+  (detailed mode). Now respects an optional `InlineLines` truncation
+  cap with a dim `…[+N more lines]` footer.
 - `packages/tui/internal/render/markdown.go` — glamour StyleConfig +
   `wrapFileRefs` pre-processor.
 - `packages/tui/internal/app/app.go` — turn separator, tool event

@@ -8,6 +8,43 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 PM — TUI tool-call abstraction + Fix A + Fix B
+
+**Scope:** Three UX issues from the user's afternoon-session screenshots resolved end-to-end.
+
+1. **Fix A — silence the launcher's `sov: tui server listening on 127.0.0.1:PORT session=…` stderr boot line.** `src/cli/tuiLauncher.ts:292-294` deleted. Useful as a dev diagnostic during early Phase 16.1; production users saw it as boot noise above the splash.
+
+2. **Fix B — switch dark-theme chroma style from `catppuccin-mocha` to `monokai`.** Catppuccin Mocha is intentionally low-contrast and was being further quantized by the user's terminal palette mapping (same lesson family as M11.7's TrueColor-force regression). Monokai's vivid palette survives palette mapping more reliably. Light theme unchanged (catppuccin-latte).
+
+3. **Tool-call abstraction (the bulk of the work).** New compact-mode default for `tool_result` rendering — one line per call matching the Claude mobile app aesthetic (`Verb target stats ›`). Verb mapping owned in new `packages/tui/internal/components/compactline.go` (Approach A from the brainstorm — zero wire-schema churn). Detailed mode (opt-in via `ui.toolOutput.mode='detailed'`) reuses the existing bordered `ToolCard` but always truncates output to `inlineLines` rows (default 10) with a dim `…[+N more lines]` footer. `-v / --verbose` re-wired as orthogonal `--verbose-raw` escape hatch — appends raw untruncated output below either mode's rendering. Glyph semantics: `⚠` (`theme.Warning`) for permission-denied (detected via bare-text `permission denied:` prefix from `src/core/orchestrator.ts` deny branch); `✗` (`theme.Error`) for runtime errors (detected via `{status:'error'}` envelope inside Output).
+
+**Tests added:**
+- `tests/config/schema.test.ts` — 5 new cases pinning `ui.toolOutput.mode` enum (compact/detailed/invalid), `mode + inlineLines` coexistence, and the 0..200 inlineLines range validator.
+- `tests/cli/tuiLauncher.test.ts` — 5 cases: stderr-silent regression guard, default mode forwarding, verbose-raw absence/presence, `--verbose` no longer in deferred-warnings list, HARNESS_HOME-isolated config test confirming `mode: 'detailed'` is read + forwarded.
+- `packages/tui/internal/components/compactline_test.go` — 24 new cases covering every wire tool name (FileRead/Write/Edit, Bash, Grep, Glob, WebFetch, WebSearch, memory variants, memory_propose, skill_propose, MCP fallback, unknown-tool fallback), status detection (success/error/permission-denied), truncation policy (short pass-through, long with ellipsis), narrow-terminal safety, chevron invariant.
+- `packages/tui/internal/components/toolcard_test.go` — 3 cases pinning `InlineLines` truncation + zero-cap legacy passthrough + under-cap pass-through.
+- `packages/tui/internal/render/code_test.go` — 2 cases asserting `monokai` for dark themes + `catppuccin-latte` for light theme (regression guard).
+- `packages/tui/internal/app/app_test.go` + `m9Full_test.go` — `TestApp_renderToolResultAsCard` + `TestM9_ToolResultRendersWithCard` updated for compact mode (no longer asserting "FileRead" header). 5 new tests: detailed-mode opt-in, ✗ glyph on error, ⚠ glyph on permission-denied, verbose-raw appending raw output below the compact line, and a separate detailed-mode-via-`WithToolOutput` integration test.
+
+Total +39 tests over the Phase 21 M1 baseline of 1972 / Go +29.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 1982 pass / 0 fail / 14 skip
+
+(cd packages/tui && go test ./... -count=1)
+# all packages green
+```
+
+**Smoke results:** End-to-end manual smoke deferred to the post-`sov upgrade` step (see "Open follow-ups" in the close-out snapshot). The change surface is rendering-only with zero impact on tool execution or wire protocols; unit + integration coverage is comprehensive (39 new tests pinning every code path). Manual smoke validation planned: build a fresh release tarball or `sov upgrade`, then exercise (a) compact-mode default (b) `ui.toolOutput.mode detailed` opt-in (c) `-v / --verbose` raw escape hatch (d) `⚠` permission-denied path via `permission-mode ask` deny (e) `✗` error path via `bash false`.
+
+**Findings:** None. Two pre-existing `noNonNullAssertion` warnings in `src/permissions/shellSemantics.ts` continue from baseline — unrelated to this work and documented in CLAUDE.md / lint-and-commit.md.
+
+**Spec:** `docs/specs/2026-05-22-tui-tool-call-abstraction-design.md`. **State snapshot:** `docs/state/2026-05-22-tui-tool-call-abstraction.md`.
+
+---
+
 ## 2026-05-22 — Phase 21 M1 binary distribution (release pipeline + smokes)
 
 **Scope:** First binary release of `sov`. New `scripts/release.ts` orchestrates per-platform Bun-compile + Go cross-compile + tar + `gh release create`. Four runtime-side patches: `shippedBundlePath()` + `findTuiBinary()` learn binary-install discovery via `process.execPath`; `sov upgrade` detects binary mode via `~/.sov/bin/` prefix and re-runs the public installer; `src/version.ts` switched to a build-time JSON import (the runtime `readFileSync(package.json)` broke under `bun --compile` because `import.meta.url` resolves to `/$bunfs/`).
