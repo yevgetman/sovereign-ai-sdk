@@ -189,9 +189,7 @@ describe('SettingsSchema — wave-1 ui.* keys round-trip', () => {
   });
 
   test('ui.toolOutput.mode rejects unknown values', () => {
-    expect(() =>
-      SettingsSchema.parse({ ui: { toolOutput: { mode: 'fancy' } } }),
-    ).toThrow();
+    expect(() => SettingsSchema.parse({ ui: { toolOutput: { mode: 'fancy' } } })).toThrow();
   });
 
   test('ui.toolOutput.mode + inlineLines coexist', () => {
@@ -202,15 +200,9 @@ describe('SettingsSchema — wave-1 ui.* keys round-trip', () => {
   });
 
   test('ui.toolOutput.inlineLines still validates 0..200', () => {
-    expect(() =>
-      SettingsSchema.parse({ ui: { toolOutput: { inlineLines: -1 } } }),
-    ).toThrow();
-    expect(() =>
-      SettingsSchema.parse({ ui: { toolOutput: { inlineLines: 201 } } }),
-    ).toThrow();
-    expect(() =>
-      SettingsSchema.parse({ ui: { toolOutput: { inlineLines: 200 } } }),
-    ).not.toThrow();
+    expect(() => SettingsSchema.parse({ ui: { toolOutput: { inlineLines: -1 } } })).toThrow();
+    expect(() => SettingsSchema.parse({ ui: { toolOutput: { inlineLines: 201 } } })).toThrow();
+    expect(() => SettingsSchema.parse({ ui: { toolOutput: { inlineLines: 200 } } })).not.toThrow();
   });
 });
 
