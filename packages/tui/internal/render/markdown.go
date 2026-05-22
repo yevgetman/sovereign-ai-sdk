@@ -56,7 +56,134 @@ func Markdown(text string, t theme.Theme, width int) string {
 	if err != nil {
 		return Plain(text, t, width)
 	}
+	out = splitSmashedTableHeader(out)
 	return foldOrphanLines(out)
+}
+
+// splitSmashedTableHeader undoes a glamour v1.0.0 bug where a markdown
+// table's header row and separator row are emitted on the SAME line:
+//
+//   " Tool      │ What it did ─────────┼─────────"
+//
+// instead of the correct two-line form:
+//
+//   " Tool      │ What it did       "
+//   "───────────┼───────────────────"
+//
+// Detection: a line that contains BOTH `│` (column separator) AND `┼`
+// (cross intersection) is smashed. The `┼` is the marker that a
+// separator row got concatenated onto the header. Reconstruction:
+//
+//   - Find the position of the first `│` in the line — that's the
+//     column-separator column.
+//   - Find the start of the `─` run after the header's column-2 text
+//     (everything from there is the separator row's content).
+//   - Truncate the smashed line at the `─`-run start → that's the
+//     header row.
+//   - Build a clean separator row: `─` × header_width, with `┼` at the
+//     column-separator position. Inserted as a new line right after
+//     the header.
+//
+// Multi-column tables (3+ columns) work the same way: any `┼` on the
+// line is a separator-row intersection; we rebuild with `┼` at every
+// `│` position from the header.
+//
+// ux-fixes 2026-05-22 (ux1.png-v2): glamour bug repro at width 60:
+//
+//   "| Tool | What it did |\n|------|-------------|\n| bash | ran |\n"
+//
+// rendered as a single 101-char header line concatenated with 28 dashes
+// + `┼` + 28 dashes — visually broken at every terminal width. This
+// post-processor splits it into the two-line form glamour should have
+// produced.
+func splitSmashedTableHeader(rendered string) string {
+	lines := strings.Split(rendered, "\n")
+	out := make([]string, 0, len(lines)+4)
+	for _, line := range lines {
+		if !looksLikeSmashedTableHeader(line) {
+			out = append(out, line)
+			continue
+		}
+		header, sep, ok := splitSmashedLine(line)
+		if !ok {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, header, sep)
+	}
+	return strings.Join(out, "\n")
+}
+
+// looksLikeSmashedTableHeader returns true when a line has both `│`
+// and `┼` — the signature of a header row concatenated with a
+// separator row.
+func looksLikeSmashedTableHeader(line string) bool {
+	return strings.ContainsRune(line, '│') && strings.ContainsRune(line, '┼')
+}
+
+// splitSmashedLine pulls the header row and the separator row out of
+// a smashed glamour table line. Returns (header, separator, true) on
+// success or ("", "", false) if the line doesn't match the expected
+// pattern (defensive — we'd rather pass through a weird shape than
+// mangle it).
+func splitSmashedLine(line string) (header, separator string, ok bool) {
+	runes := []rune(line)
+	// Find the column-separator columns (positions of `│`).
+	var colPositions []int
+	for i, r := range runes {
+		if r == '│' {
+			colPositions = append(colPositions, i)
+		}
+	}
+	if len(colPositions) == 0 {
+		return "", "", false
+	}
+	// Find the start of the contiguous `─` run that precedes the first
+	// `┼`. Everything from there onward is the smashed separator row.
+	firstCross := -1
+	for i, r := range runes {
+		if r == '┼' {
+			firstCross = i
+			break
+		}
+	}
+	if firstCross < 0 {
+		return "", "", false
+	}
+	dashStart := firstCross
+	for dashStart > 0 && (runes[dashStart-1] == '─' || runes[dashStart-1] == ' ') {
+		dashStart--
+		if runes[dashStart] == ' ' {
+			// We've left the dash run; back up one to point at the
+			// first dash.
+			dashStart++
+			break
+		}
+	}
+	// Walk forward to find the first dash (skip the trailing-space
+	// region between header text and the dash run).
+	for dashStart < firstCross && runes[dashStart] != '─' {
+		dashStart++
+	}
+	if dashStart >= firstCross {
+		return "", "", false
+	}
+	// Header row: everything before the dash run.
+	header = strings.TrimRight(string(runes[:dashStart]), " \t")
+	// Separator row: a clean `─` × header-width with `┼` at every
+	// column-separator position from the header.
+	headerRunes := []rune(header)
+	sepRunes := make([]rune, len(headerRunes))
+	for i := range sepRunes {
+		sepRunes[i] = '─'
+	}
+	for _, p := range colPositions {
+		if p < len(sepRunes) {
+			sepRunes[p] = '┼'
+		}
+	}
+	separator = string(sepRunes)
+	return header, separator, true
 }
 
 // foldOrphanLines folds single-word lines back into the preceding line.
@@ -169,11 +296,20 @@ func stripAnsiForFold(s string) string {
 }
 
 // isStructuralLine reports whether a line is markdown chrome (list
-// bullet, blockquote, heading, code fence, table row) that the orphan-
-// fold pass should leave alone. The check runs against the trimmed,
-// ANSI-stripped line content.
+// bullet, blockquote, heading, code fence, table row/separator) that
+// the orphan-fold pass should leave alone. The check runs against the
+// trimmed, ANSI-stripped line content.
 func isStructuralLine(s string) bool {
 	if s == "" {
+		return true
+	}
+	// Table separator row — all box-drawing chars (─, ┼, ┌, ┐, └, ┘,
+	// ├, ┤, ┬, ┴, │). This catches both glamour-emitted separators and
+	// the splitSmashedTableHeader-reconstructed ones. Without this
+	// check, foldOrphanLines would treat a dash-only line as a
+	// single-word orphan and merge it back into the header it was
+	// just split from.
+	if isBoxDrawingOnly(s) {
 		return true
 	}
 	// List bullets: "- ", "* ", "+ ", numbered "1. " etc.
@@ -200,6 +336,24 @@ func isStructuralLine(s string) bool {
 		return true
 	}
 	return false
+}
+
+// isBoxDrawingOnly reports whether every rune in s is a box-drawing
+// character (the U+2500..U+257F range) or whitespace. Used to recognise
+// table separator rows so the orphan-fold pass doesn't mistakenly
+// merge them.
+func isBoxDrawingOnly(s string) bool {
+	hasContent := false
+	for _, r := range s {
+		if r == ' ' || r == '\t' {
+			continue
+		}
+		hasContent = true
+		if r < 0x2500 || r > 0x257F {
+			return false
+		}
+	}
+	return hasContent
 }
 
 // fileRefPattern matches file-reference tokens that should be styled

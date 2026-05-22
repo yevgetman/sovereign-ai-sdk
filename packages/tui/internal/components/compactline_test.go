@@ -131,6 +131,86 @@ func TestFormatCompactToolLine_Bash(t *testing.T) {
 	}
 }
 
+// ux-fixes 2026-05-22 ux1.png-v2: "$" sigil for Bash now lives in its
+// own segment so the renderer can color it distinctly from the verb.
+// verbTargetDetails returns ("Ran", "$", "<cmd>", "") for Bash; other
+// tools leave the sigil slot empty.
+func TestVerbTargetDetails_BashSplitsSigil(t *testing.T) {
+	v, sig, tgt, det := verbTargetDetails(
+		"Bash",
+		mkJSON(t, map[string]any{"command": "echo hi"}),
+		mkJSON(t, map[string]any{"status": "success"}),
+	)
+	if v != "Ran" {
+		t.Errorf("verb = %q, want 'Ran'", v)
+	}
+	if sig != "$" {
+		t.Errorf("sigil = %q, want '$'", sig)
+	}
+	if tgt != "echo hi" {
+		t.Errorf("target = %q, want 'echo hi'", tgt)
+	}
+	if det != "" {
+		t.Errorf("details = %q, want empty", det)
+	}
+}
+
+func TestVerbTargetDetails_NonBashHasEmptySigil(t *testing.T) {
+	tests := []struct {
+		tool  string
+		input map[string]any
+	}{
+		{"FileRead", map[string]any{"path": "x.go"}},
+		{"FileEdit", map[string]any{"path": "x.go"}},
+		{"Grep", map[string]any{"pattern": "foo"}},
+		{"WebFetch", map[string]any{"url": "https://x"}},
+	}
+	for _, tc := range tests {
+		_, sig, _, _ := verbTargetDetails(
+			tc.tool,
+			mkJSON(t, tc.input),
+			mkJSON(t, map[string]any{"status": "success"}),
+		)
+		if sig != "" {
+			t.Errorf("%s: sigil = %q, want empty", tc.tool, sig)
+		}
+	}
+}
+
+func TestVerbTargetDetails_GrepHasDetailsForPath(t *testing.T) {
+	v, sig, tgt, det := verbTargetDetails(
+		"Grep",
+		mkJSON(t, map[string]any{"pattern": "foo", "path": "src/"}),
+		mkJSON(t, map[string]any{"status": "success"}),
+	)
+	if v != "Grep" {
+		t.Errorf("verb = %q", v)
+	}
+	if sig != "" {
+		t.Errorf("sigil = %q, want empty for Grep", sig)
+	}
+	if tgt != "'foo'" {
+		t.Errorf("target = %q, want \"'foo'\"", tgt)
+	}
+	if det != "in src/" {
+		t.Errorf("details = %q, want 'in src/'", det)
+	}
+}
+
+func TestVerbTargetDetails_FileEditWithDiffPutsStatsInDetails(t *testing.T) {
+	_, _, tgt, det := verbTargetDetails(
+		"FileEdit",
+		mkJSON(t, map[string]any{"path": "src/foo.go"}),
+		mkJSON(t, "--- a\n+++ b\n@@ -1,1 +1,1 @@\n+added\n"),
+	)
+	if tgt != "src/foo.go" {
+		t.Errorf("target = %q, want 'src/foo.go' (no stats mixed in)", tgt)
+	}
+	if det != "+1 -0" {
+		t.Errorf("details = %q, want '+1 -0'", det)
+	}
+}
+
 func TestFormatCompactToolLine_BashFlattensMultiline(t *testing.T) {
 	out := FormatCompactToolLine(
 		"Bash",
