@@ -400,10 +400,14 @@ func (m Model) WithSessionInfo(model, provider, harnessVersion string) Model {
 // and --tool-output-inline-lines flags to sov-tui, which invokes this
 // on the freshly-constructed Model before tea.NewProgram.
 //
-// Empty / zero arguments fall back to the Model's defaults set in New
-// ("compact" / 10). The mode value is validated — anything other than
-// "compact" or "detailed" silently coerces to "compact" so a malformed
-// flag can't break tool rendering. ux-fixes 2026-05-22.
+// Empty mode falls back to the Model's default ("compact"). The mode
+// value is validated — anything other than "compact" or "detailed"
+// silently coerces to "compact" so a malformed flag can't break tool
+// rendering.
+//
+// inlineLines is accepted verbatim when non-negative (including 0,
+// which is the schema-documented "header-only" mode). Negative values
+// keep the Model's default. ux-fixes 2026-05-22.
 func (m Model) WithToolOutput(mode string, inlineLines int) Model {
 	switch mode {
 	case "compact", "detailed":
@@ -413,7 +417,7 @@ func (m Model) WithToolOutput(mode string, inlineLines int) Model {
 	default:
 		m.toolOutputMode = "compact"
 	}
-	if inlineLines > 0 {
+	if inlineLines >= 0 {
 		m.toolOutputInlineLines = inlineLines
 	}
 	return m

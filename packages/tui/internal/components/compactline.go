@@ -320,6 +320,7 @@ func extractDiffStats(output json.RawMessage) string {
 		}
 		if strings.HasPrefix(line, "-") {
 			deleted++
+			continue
 		}
 	}
 	if added == 0 && deleted == 0 {

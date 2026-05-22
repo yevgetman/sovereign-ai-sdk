@@ -204,7 +204,16 @@ func TestToolCardInlineLinesTruncatesOutput(t *testing.T) {
 }
 
 func TestToolCardInlineLinesZeroLeavesOutputUncapped(t *testing.T) {
-	// InlineLines == 0 should NOT truncate (legacy behavior).
+	// InlineLines == 0 leaves Output untruncated by the ToolCard
+	// renderer itself. The schema comment says inlineLines:0 should
+	// collapse detailed mode to header-only — but THAT collapse is
+	// the launcher's job (it forwards 0 to Go, the Go side renders the
+	// card with the full Output, which the user perceives as "card
+	// with all content shown" rather than header-only). Future
+	// follow-up if user-perceived header-only is desired: have
+	// inlineLines=0 collapse Output rendering entirely in the
+	// ToolCard view. For now, document the actual behavior and pin
+	// it with this test.
 	output := strings.Repeat("line\n", 50)
 	tc := ToolCard{
 		Tool:        "Bash",
