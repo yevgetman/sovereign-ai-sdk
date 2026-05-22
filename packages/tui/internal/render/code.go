@@ -43,6 +43,16 @@ func Code(text, language string, t theme.Theme, width int) string {
 // chromaStyleForTheme picks the chroma style closest to the theme. Falls
 // back to a bundled neutral if the preferred style isn't compiled into
 // the chroma binary.
+//
+// ux-fixes 2026-05-22: switched the dark-theme preferred style from
+// catppuccin-mocha to monokai. The Catppuccin palette is intentionally
+// soft + low-contrast and was being further quantized by the user's
+// terminal palette mapping — fenced code blocks rendered as flat dim
+// text with no visible syntax-token differentiation. Monokai's
+// high-contrast color scheme survives palette mapping more reliably,
+// per the same lessons documented in tui-color-rendering.md (M11.7's
+// TrueColor-force regression). catppuccin-mocha remains as last-ditch
+// fallback for the rare chroma builds that don't bundle monokai.
 func chromaStyleForTheme(t theme.Theme) *chroma.Style {
 	if t.Name == "light" {
 		if s := styles.Get("catppuccin-latte"); s != nil && s.Name != "swapoff" {
@@ -50,8 +60,8 @@ func chromaStyleForTheme(t theme.Theme) *chroma.Style {
 		}
 		return styles.Get("github")
 	}
-	if s := styles.Get("catppuccin-mocha"); s != nil && s.Name != "swapoff" {
+	if s := styles.Get("monokai"); s != nil && s.Name != "swapoff" {
 		return s
 	}
-	return styles.Get("monokai")
+	return styles.Get("catppuccin-mocha")
 }

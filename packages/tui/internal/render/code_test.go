@@ -46,3 +46,30 @@ func TestCodeLightThemeRenders(t *testing.T) {
 		t.Errorf("Code(light): dropped content: %q", out)
 	}
 }
+
+// ux-fixes 2026-05-22: dark themes now prefer monokai over catppuccin-mocha
+// for code-block syntax highlighting. The Catppuccin palette was rendering
+// flat-dim on the user's terminal due to palette quantization (see
+// docs/conventions/tui-color-rendering.md for the broader story). Monokai's
+// high-contrast colors survive palette mapping more reliably.
+func TestChromaStyleForDarkThemeIsMonokai(t *testing.T) {
+	style := chromaStyleForTheme(theme.Dark())
+	if style == nil {
+		t.Fatal("chromaStyleForTheme(Dark): expected non-nil style")
+	}
+	if style.Name != "monokai" {
+		t.Errorf("chromaStyleForTheme(Dark): expected monokai, got %q", style.Name)
+	}
+}
+
+func TestChromaStyleForLightThemeIsCatppuccinLatte(t *testing.T) {
+	// Regression guard: the dark-theme switch must not break the light
+	// theme path. Light theme continues to prefer catppuccin-latte.
+	style := chromaStyleForTheme(theme.Light())
+	if style == nil {
+		t.Fatal("chromaStyleForTheme(Light): expected non-nil style")
+	}
+	if style.Name != "catppuccin-latte" {
+		t.Errorf("chromaStyleForTheme(Light): expected catppuccin-latte, got %q", style.Name)
+	}
+}
