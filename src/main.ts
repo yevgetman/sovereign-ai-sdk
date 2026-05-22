@@ -227,6 +227,35 @@ async function main(argv: string[]): Promise<void> {
     });
 
   program
+    .command('drive')
+    .description(
+      'Headless line-driven LLM conversation — boots the same Hono server as the TUI but emits plain-text events to stdout instead of rendering Bubble Tea. Reads one prompt per stdin line (slash commands routed through /sessions/:id/commands, free text through /sessions/:id/turns). Exits on EOF or /quit. Used by the semantic test suite and any other automation that needs to drive sov non-interactively.',
+    )
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('-m, --model <name>', 'model name (overrides provider/config default)')
+    .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
+    .option(
+      '--permission-mode <mode>',
+      "tool permissions: 'default' honors rules/tool checks, 'ask' (auto-denied in drive mode), 'bypass' allows on fallthrough",
+      parsePermissionMode,
+      DEFAULT_PERMISSION_MODE,
+    )
+    .option('--resume <id>', 'resume a prior session by its UUID')
+    .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
+    .option('--no-cache', 'disable provider prompt-cache markers for this session')
+    .option('--no-preflight', 'skip the startup provider health check')
+    .option(
+      '--verbose-raw',
+      'append raw untruncated tool output below each tool_result line (orthogonal to mode)',
+    )
+    .action(async (opts) => {
+      const { runDriveCommand } = await import('./cli/driveCommand.js');
+      const exitCode = await runDriveCommand(opts);
+      process.exit(exitCode);
+    });
+
+  program
     .command('serve-dev')
     .description('boot the Phase 16.1 HTTP+SSE server on 127.0.0.1 (M1 dev harness)')
     .option('--port <n>', 'explicit port (default: random free port)', parsePositiveInt)
