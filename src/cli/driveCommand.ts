@@ -154,7 +154,7 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
   // to per-turn promises so the stdin loop can `await` turn completion.
   let activeSessionId = sessionId;
   const sseController = new AbortController();
-  const renderer = new EventRenderer(verboseRaw);
+  const renderer = new EventRenderer(verboseRaw, baseURL);
   const sseDone = drainSseStream({
     baseURL,
     sessionIdRef: {
@@ -228,11 +228,13 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
 
 class EventRenderer {
   private verboseRaw: boolean;
+  private baseURL: string;
   private turnTerminalResolver: (() => void) | null = null;
   private pendingTurnPromise: Promise<void> | null = null;
 
-  constructor(verboseRaw: boolean) {
+  constructor(verboseRaw: boolean, baseURL: string) {
     this.verboseRaw = verboseRaw;
+    this.baseURL = baseURL;
   }
 
   /** Returns a promise that resolves the next time a turn-terminal event
@@ -309,15 +311,18 @@ class EventRenderer {
         return;
       case 'permission_request':
         // Headless mode has no human to approve — auto-deny so the
-        // turn proceeds with a permission-denied tool result. The
-        // semantic-test runs with --permission-mode bypass by default;
-        // this path matters only for the permission cases that
-        // exercise --permission-mode default.
+        // turn proceeds with a permission-denied tool result instead
+        // of blocking forever on the approval queue. The semantic-test
+        // suite runs with --permission-mode bypass for happy-path tests
+        // and --permission-mode default for permission tests; default-
+        // mode tests rely on layered deny rules firing BEFORE the
+        // approval queue ever fires permission_request. This auto-deny
+        // is the safety net for the residual case where a tool's
+        // self-check returns 'ask' under default mode (or future tests
+        // that opt into 'ask' mode explicitly).
         process.stdout.write(`\n[permission_request ${ev.tool}] auto-denying (headless)\n`);
-        // The actual POST happens async; we don't need to await it
-        // here — the rejection emits a tool_result the agent observes.
         autoDenyPermission({
-          baseURL: 'http://127.0.0.1', // unused (filled per-call below)
+          baseURL: this.baseURL,
           requestId: ev.requestId,
           sessionId: ev.sessionId,
         }).catch(() => {});
@@ -476,19 +481,20 @@ async function autoDenyPermission(opts: {
   requestId: string;
   sessionId: string;
 }): Promise<void> {
-  // Caller passes a stub baseURL because we don't actually know it here
-  // (the renderer doesn't have a baseURL reference). Look up from the
-  // SSE stream's URL is awkward; for now the no-op approval path is
-  // enough — auto-denying means we POST `{approved:false}`. The
-  // semantic-test driver runs with --permission-mode bypass by default,
-  // so this rarely fires. Permission tests use --permission-mode default
-  // and rely on layered deny rules firing BEFORE the approval queue.
-  // Approval flow only kicks in under --permission-mode ask which the
-  // semantic suite doesn't currently use.
-  //
-  // If/when a test needs --permission-mode ask, plumb a real baseURL
-  // and POST /sessions/:id/approvals/:requestId here.
-  void opts;
+  // POST `{approved: false}` to /approvals so the runtime stops
+  // waiting on the queue and surfaces a permission-denied tool result
+  // to the agent. Errors are swallowed — if the route is gone or the
+  // session has been torn down, there's nothing useful we can do here
+  // (the runtime would have failed the turn anyway).
+  try {
+    await fetch(`${opts.baseURL}/sessions/${opts.sessionId}/approvals/${opts.requestId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: false }),
+    });
+  } catch {
+    // ignore
+  }
 }
 
 // --- SSE stream consumer ---------------------------------------------------

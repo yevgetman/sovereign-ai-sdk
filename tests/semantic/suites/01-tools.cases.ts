@@ -163,7 +163,15 @@ export const tests: SemanticTest[] = [
         'The agent left the file with the literal text "SETTING_NAME=beta" — that introduces a key that did not exist in the source.',
       ],
     },
-    timeoutMs: 60_000,
+    // 2026-05-22 PM: bumped from 60s to 120s after sov drive replaced
+    // the deleted in-process readline REPL. Multi-turn recovery (try
+    // edit → envelope error → re-read → corrected edit → confirm) takes
+    // ~4-5 LLM calls; with HTTP+SSE round-trip overhead between the
+    // stdin loop and the runtime, 60s was borderline. 120s gives the
+    // model + provider latency comfortable headroom while still
+    // catching a real wedge (e.g., the agent retrying blindly in a
+    // tight loop).
+    timeoutMs: 120_000,
   },
   {
     id: 'edit-missing-string-no-fabrication',
