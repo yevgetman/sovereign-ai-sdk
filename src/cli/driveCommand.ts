@@ -149,33 +149,53 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
 
   const baseURL = `http://127.0.0.1:${server.port}`;
 
-  // Open SSE stream as a long-lived consumer; events for every turn flow
-  // through the same connection. The renderer below dispatches events
-  // to per-turn promises so the stdin loop can `await` turn completion.
+  // SSE connection lifecycle: the server closes the per-session stream
+  // after every turn_complete / turn_error (src/server/routes/events.ts
+  // drops the subscriber + disposes the bus). The TUI reconnects on
+  // each sseDoneMsg (packages/tui/internal/app/app.go:1052-1053); we do
+  // the same here via a loop that re-calls drainSseStream after every
+  // natural close. Between connections we briefly pause so the new
+  // connection finishes opening before the next POST /turns fires
+  // (events that arrive during the gap are buffered on the per-session
+  // bus and delivered when the new consumer subscribes).
   let activeSessionId = sessionId;
   const sseController = new AbortController();
   const renderer = new EventRenderer(verboseRaw, baseURL);
-  const sseDone = drainSseStream({
-    baseURL,
-    sessionIdRef: {
-      get current() {
-        return activeSessionId;
-      },
+  const sessionIdRef = {
+    get current(): string {
+      return activeSessionId;
     },
-    signal: sseController.signal,
-    onEvent: (ev) => {
-      renderer.handle(ev);
-      // Track session pivots from compaction so future POSTs route to
-      // the child session id, mirroring how the Go TUI's app.go hops.
-      if (ev.type === 'compaction_complete' && ev.activeSessionId) {
-        activeSessionId = ev.activeSessionId;
+  };
+  const onEvent = (ev: ServerEvent): void => {
+    renderer.handle(ev);
+    if (ev.type === 'compaction_complete' && ev.activeSessionId) {
+      activeSessionId = ev.activeSessionId;
+    }
+  };
+  const sseDone = (async () => {
+    while (!sseController.signal.aborted) {
+      try {
+        await drainSseStream({
+          baseURL,
+          sessionIdRef,
+          signal: sseController.signal,
+          onEvent,
+        });
+      } catch {
+        // ignore — drainSseStream throws when the signal aborts; the
+        // loop's outer while-guard catches that. Other errors are also
+        // recoverable (next POST /turns will trigger a reconnect).
       }
-    },
-  });
+      if (sseController.signal.aborted) break;
+      // Yield the event loop briefly so the next iteration's fetch()
+      // doesn't race the just-closed connection's cleanup.
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  })();
 
   process.stdout.write(`${READY_MARKER}\n`);
 
-  const rl = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+  const rl = createInterface({ input: process.stdin });
   let exitRequested = false;
 
   try {
@@ -199,10 +219,6 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
         const turnDone = renderer.awaitTurnTerminal();
         const ok = await postTurn({ baseURL, sessionId: activeSessionId, text: line });
         if (!ok) {
-          // Server rejected the turn — the renderer doesn't fire a
-          // terminal event, so skip the await and surface the error
-          // immediately. (Network/route failures are rare; the in-
-          // process server normally accepts.)
           renderer.cancelAwait();
         } else {
           await turnDone;

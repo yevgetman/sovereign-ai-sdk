@@ -37,15 +37,23 @@ export const tests: SemanticTest[] = [
     binaryArgs: ['--provider', 'router'],
     judgeCriteria: {
       mustSatisfy: [
-        'The agent successfully started a session in router mode (the splash card or status footer shows "router").',
         'The agent answered the question with the number 4 (or "four").',
-        'The transcript includes a per-turn router banner of the form "[router … local …]" that names the chosen lane and the resolved provider/model (Phase 10.6 part 2 surface).',
+        'The session ran without surfacing any router configuration error to the user.',
       ],
       shouldNot: [
         'The agent reported a configuration error like "router config missing", "unknown provider", or "router requires".',
         'The session aborted before producing any response.',
       ],
     },
+    // 2026-05-22 late PM — dropped two former mustSatisfy criteria that
+    // asserted on TUI-rendered surfaces (splash card showing "router",
+    // per-turn router banner). The semantic suite now drives `sov
+    // drive`, which is a plain-text headless renderer — it does NOT
+    // emit the TUI's chrome. The banner was speculative ("Phase 10.6
+    // part 2 surface") and never actually shipped in any surface. What
+    // matters for the user-visible contract is that the agent answers
+    // correctly under `--provider router` without surfacing a
+    // configuration error — that's what the remaining criteria pin.
     timeoutMs: 60_000,
   },
 ];
