@@ -17,12 +17,25 @@ For day-to-day operation see [`docs/usage.md`](docs/usage.md). For developing th
 
 ## Install on a new machine
 
-The repo is **private** — access is controlled by GitHub SSH permissions. There is no public package registry entry. Two paths:
+Three paths:
 
-- **(A) Direct git+SSH install** — fastest, no clone needed. Recommended for users who just want to run `sov`.
+- **(0) Binary install (recommended for non-developers)** — one-line `curl | bash` from the public `sov-releases` repo. No Bun, no Node, no SSH access required. Phase 21 M1.
+- **(A) Direct git+SSH install** — fastest for developers with private-repo SSH access. Source-mode global install.
 - **(B) Source clone + `bun link`** — for contributing or tracking `master` between version bumps.
 
-Both paths register the binary at `~/.bun/bin/sov`. Run only one of them; the latest install wins.
+The binary install lands at `~/.sov/bin/sov`; (A) and (B) land at `~/.bun/bin/sov`. Pick one.
+
+### Path 0 — binary install (Phase 21)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh | bash
+```
+
+This installs a compiled `sov` + `sov-tui` + `bundle-default/` under `~/.sov/` and appends `~/.sov/bin` to your shell's `PATH`. Supported platforms: `darwin-arm64`, `darwin-x64`, `linux-x64`. Re-run anytime to upgrade. Public repo: [yevgetman/sov-releases](https://github.com/yevgetman/sov-releases).
+
+`sov upgrade` auto-detects this install layout and re-runs the installer; in source-mode installs it preserves the existing `bun install -g` flow. Single binary at `~/.sov/bin/sov`, no Bun runtime required on the host.
+
+For developers who want to modify the runtime, use Path A or Path B below.
 
 ### Prerequisites
 
