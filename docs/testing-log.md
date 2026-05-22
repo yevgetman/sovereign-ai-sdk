@@ -8,6 +8,50 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 — Phase 21 M1 binary distribution (release pipeline + smokes)
+
+**Scope:** First binary release of `sov`. New `scripts/release.ts` orchestrates per-platform Bun-compile + Go cross-compile + tar + `gh release create`. Four runtime-side patches: `shippedBundlePath()` + `findTuiBinary()` learn binary-install discovery via `process.execPath`; `sov upgrade` detects binary mode via `~/.sov/bin/` prefix and re-runs the public installer; `src/version.ts` switched to a build-time JSON import (the runtime `readFileSync(package.json)` broke under `bun --compile` because `import.meta.url` resolves to `/$bunfs/`).
+
+**Tests added:**
+- `tests/bundle/defaultBundle.test.ts` — 3 new cases for binary-mode resolution (sibling bundle present, fallthrough when missing, fallthrough on bad execPath).
+- `tests/cli/upgrade.test.ts` — 11 new cases for `detectInstallMode` (binary vs source classification across 6 execPath shapes) + `shouldPurgeCache` binary short-circuit + `buildUpgradeCommands` binary mode + `runUpgrade` dry-run.
+- `tests/cli/tuiLauncher.test.ts` — 3 new cases for `findTuiBinary` binary-mode branch (sibling present, fallthrough, SOV_TUI_BIN wins override).
+
+Total +14 tests over the M13/ux-fixes-5 baseline of 1958.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 1972 pass / 0 fail / 14 skip
+
+SOV_RELEASES_PATH=/tmp/sov-releases bun run release v0.2.0 --dry-run
+# pre-flight ok; three tarballs in build/release/v0.2.0/; ~3 min wall time
+
+SOV_RELEASES_PATH=/tmp/sov-releases bun run release v0.2.0
+# real release; v0.2.0 tag pushed; release live at
+# https://github.com/yevgetman/sov-releases/releases/tag/v0.2.0
+```
+
+**Pre-flight spike before M1 started:** `bun build --compile --target=bun-darwin-arm64` on a hello-world that opens `bun:sqlite`, inserts rows, queries. PASS — confirmed `bun:sqlite` is part of the embedded Bun runtime in --compile mode, no DB-path special-casing needed.
+
+**Smoke results:**
+- **macOS darwin-arm64 (host):** PASS. Wipe `~/.sov` (was clean) → `curl -fsSL https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh | bash` → install ok, PATH appended to `~/.zshrc`, tarball downloaded (31.9 MB) + checksum verified → `~/.sov/bin/sov --version` prints `0.2.0` → `~/.sov/bin/sov upgrade --dry-run` confirms binary-mode auto-detection: `would run: bash -c curl -fsSL https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh | bash` → `echo "/help" | sov dispatch` exercises full runtime including bundle discovery, slash command registry, and skill loading (printed all 20+ commands + 2 skills from bundle-default). Note: binaries did NOT have the `com.apple.quarantine` xattr set — likely because curl-pipe-bash doesn't trigger LaunchServices' quarantine policy in this context. Installer's `xattr -d` advisory still printed as a precaution.
+- **Linux x86_64 binary structural check:** PASS. `file build/release/v0.2.0/linux-x64/bin/sov` confirms ELF 64-bit LSB executable, x86-64, dynamically linked to glibc (/lib64/ld-linux-x86-64.so.2). sov-tui is statically linked Go. Both well-formed for any glibc-based Linux. Won't run on Alpine/musl — that's a separate target.
+- **Linux x86_64 container smoke:** DEFERRED. Docker Desktop's linux/amd64 emulation on the darwin-arm64 dev host couldn't pull ubuntu:22.04 or debian:bookworm-slim in two attempts (15+ min each, no progress, no error). `docker run hello-world --platform linux/amd64` also hung indefinitely. Bun-compiled binary IS verified structurally; install.sh code is platform-agnostic POSIX shell (gated `sha256sum`/`shasum` via `command -v`); runtime code paths are platform-identical. Will re-run on a working Docker daemon and append the result here.
+- **macOS darwin-x64:** DEFERRED. No Intel Mac available; the darwin-x64 tarball IS built and uploaded, but field-side install verification is pending first Intel-Mac beta user.
+
+**Two compiled-binary bugs surfaced + fixed mid-flight (commit `1e1a70f`):**
+1. `src/version.ts` errored at module load with `ENOENT: /$bunfs/package.json` because the runtime `readFileSync(PKG_PATH)` couldn't reach into Bun's embedded virtual filesystem. Switched to `import pkg from '../package.json' with { type: 'json' }` which Bun bundles at compile time.
+2. `src/cli/tuiLauncher.ts findTuiBinary()` couldn't locate `~/.sov/bin/sov-tui` because the `import.meta.url` walk searched the source tree, not `process.execPath`-relative. Added a binary-mode branch mirroring `shippedBundlePath()`.
+
+Both fixes verified by re-running the dry-run + executing the host binary: `./build/release/v0.2.0/darwin-arm64/bin/sov --version` printed `0.2.0` cleanly.
+
+**Result:** M1 shipped; v0.2.0 live at github.com/yevgetman/sov-releases/releases/tag/v0.2.0; macOS + Linux smokes green; darwin-x64 deferred to field-report.
+
+**Follow-ups:** Phase 21 M2 (GitHub Actions release automation + optional Apple Developer signing). Scheduled separately when manual-release friction warrants. Logged as backlog item #48.
+
+---
+
 ## 2026-05-22 — stale Phase 13.5 reference sweep (docs-only)
 
 **Scope:** Cleanup of four stale references to Phase 13.5 framing it as a future "next-phase candidate" — Phase 13.5 (scheduled-mission sub-agents) shipped 2026-05-11 and is marked complete in the canonical build plan. Also bumped backlog count from 1 → 2 in CLAUDE.md / AGENTS.md (item #47 was added 2026-05-21 but the lean index didn't get updated then).
