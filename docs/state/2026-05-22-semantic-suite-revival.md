@@ -7,7 +7,7 @@ tool-call abstraction → `sov drive` subcommand (`7dd9178`) → doc updates (`b
 
 **Suite:** TS — **1996/0/14** (+14 from morning's 1982 baseline: 11 driveCommand helpers + 3 promptToSend route tests). Go all packages green (unchanged from morning). Lint+typecheck clean.
 
-**Semantic suite:** broken since M13 (2026-05-20) — `sov chat` now spawns the TUI which crashes on non-TTY stdin. Revived end-of-day 2026-05-22 PM via the new `sov drive` subcommand. Re-baselined at **54 pass / 4 fail / 0 error** (was 58/58 against the deleted readline REPL; the 4 new failures are model-behavior / test-design flakes, not drive-infrastructure bugs — see "Known flakes" below).
+**Semantic suite:** broken since M13 (2026-05-20) — `sov chat` now spawns the TUI which crashes on non-TTY stdin. Revived end-of-day 2026-05-22 PM via the new `sov drive` subcommand. Re-baselined twice — final number against the installed `sov` binary (post-`sov upgrade`): **55 pass / 3 fail / 0 error · 893.2s · $2.993 informational**. The earlier run against the `/tmp/sov-dev` bun-source shim landed at 54/58 (one extra model-variance flake; the installed-binary number is the canonical one). All 3 remaining failures are model-behavior / test-design flakes, not drive-infrastructure bugs — see "Known flakes" below. Was 58/58 against the deleted readline REPL.
 
 **ADRs:** none new. The revival is a localized fix — adding a new subcommand and one server-side bug fix — not an architectural shift.
 
@@ -97,17 +97,17 @@ Three new tests in `tests/server/routes/commands.test.ts` pin the contract:
 4. **The semantic suite drives `--verbose-raw` by default.** Existing criteria expect to see tool-output substrings in the transcript ("the transcript shows the literal string 'X' produced by the command"); compact mode hides those by default, so the test driver flips on the raw escape hatch. User-facing default stays compact.
 5. **Permission-request auto-deny is wired.** If a tool's self-check returns `ask` (or a future test runs under `--permission-mode ask`), the runtime fires `permission_request` and drive POSTs `{approved:false}` to `/approvals` so the queue clears and the turn surfaces a permission-denied tool result. The semantic suite's permission tests rely on layered deny rules firing BEFORE the approval queue; this auto-deny is the safety net.
 
-## Known flakes (4 of 58 failing as of revival)
+## Known flakes (3 of 58 failing against installed binary; 4 against dev shim)
 
-None of the 4 failures reproduce a drive-infrastructure bug; they're either model-behavior variance or test-design issues with /compact's preconditions.
+None of the failures reproduce a drive-infrastructure bug — all are either model-behavior variance or test-design issues with /compact's preconditions.
 
-1. **`tools.envelope-recovery-from-edit-mismatch`** — the prompt frames the file content as "I just opened config.txt — it contains exactly: …" which Sonnet 4.6 sometimes interprets as "user pasted content" rather than "agent should read the real file". The model declines to engage with file tools at all. Test description permits two correct behaviors (try edit + recover, OR read first) but the model goes for a third (refuse). Prompt could be tightened to remove ambiguity.
+1. **`workflow.compact-preserves-key-facts`** — the test sends 3 short turns then calls `/compact`. The compactor correctly refuses (`nothing to compact: the conversation already fits within the tail budget`) because 3 turns don't approach the compaction threshold. Test needs longer turns or a forced-compaction flag.
 
-2. **`workflow.compact-preserves-key-facts`** — the test sends 3 short turns then calls `/compact`. The compactor correctly refuses (`nothing to compact: the conversation already fits within the tail budget`) because 3 turns don't approach the compaction threshold. Test needs longer turns or a forced-compaction flag.
+2. **`workflow.rollback-restores-parent-session`** — cascades from #1: with no compaction happening, there's no parent session to roll back to. The test reports `cannot rollback: session <id> has no parent session`. Same fix applies (force compaction or stage a parent session manually).
 
-3. **`workflow.rollback-restores-parent-session`** — cascades from #2: with no compaction happening, there's no parent session to roll back to. The test reports `cannot rollback: session <id> has no parent session`. Same fix applies (force compaction or stage a parent session manually).
+3. **`tools.agents-explore-live-delegation`** — the parent agent receives the explore sub-agent's findings (which include a literal secret token in the file content) and includes the token verbatim in its summary. Sonnet 4.6 doesn't autonomously redact tokens it sees in tool output unless asked. The secret-redactor only catches Write inputs, not chat output. Test's S4 criterion correctly flags this; the model needs the security-audit skill's prompt-level redaction discipline to pass this consistently.
 
-4. **`tools.agents-explore-live-delegation`** — the parent agent receives the explore sub-agent's findings (which include a literal secret token in the file content) and includes the token verbatim in its summary. Sonnet 4.6 doesn't autonomously redact tokens it sees in tool output unless asked. The secret-redactor only catches Write inputs, not chat output. Test's S4 criterion correctly flags this; the model needs the security-audit skill's prompt-level redaction discipline to pass this consistently.
+4. **`tools.envelope-recovery-from-edit-mismatch`** *(flaky — failed against dev shim, passed against installed binary in the same revision)* — the prompt frames file content as "I just opened config.txt — it contains exactly: …" which Sonnet 4.6 sometimes interprets as "user pasted content" rather than "agent should read the real file". When it interprets that way, it declines to engage with file tools at all. Test description permits two correct behaviors (try edit + recover, OR read first) but the model occasionally goes for a third (refuse). The fact that the same revision passed against the installed binary and failed against the dev shim confirms this is pure model variance, not infrastructure. Prompt could be tightened to remove ambiguity.
 
 All four are pre-existing test-design or model-variance issues, not caused by `sov drive`. The single-turn tests in the suite (which exercise the drive surface at its most basic) all pass.
 

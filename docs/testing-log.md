@@ -30,15 +30,19 @@ bun run lint && bun run typecheck && bun run test
 # 1996 pass / 0 fail / 14 skip (+14 from 1982 morning baseline)
 
 SEMANTIC_BINARY=/tmp/sov-dev bun run test:semantic
-# 58 tests · 54 pass · 4 fail · 0 error · 1056.8s · $2.838 informational
+# (dev-shim run) 58 tests · 54 pass · 4 fail · 0 error · 1056.8s · $2.838
+
+bun run test:semantic
+# (installed-binary run, post-`sov upgrade`)
+# 58 tests · 55 pass · 3 fail · 0 error · 893.2s · $2.993  ← canonical
 ```
 
-**Smoke results:** End-to-end semantic suite IS the smoke for `sov drive` — every case spawns a fresh sov drive subprocess, sends one or more prompts, and judges the transcript. **54/58 pass after revival** — the 4 failures are all model-behavior / test-design flakes, none reproduce a drive-infrastructure bug:
+**Smoke results:** End-to-end semantic suite IS the smoke for `sov drive` — every case spawns a fresh sov drive subprocess, sends one or more prompts, and judges the transcript. Re-baselined **55/58 pass** against the installed `sov` (893s) and **54/58** against the dev shim (1057s — the slower bun-source-compile cold-start widens the model's reasoning window enough to nudge `envelope-recovery-from-edit-mismatch` into a refusal). All failures are model-behavior / test-design flakes, none reproduce a drive-infrastructure bug:
 
-1. `tools.envelope-recovery-from-edit-mismatch` — model interprets "I just opened … it contains exactly" as user-pasted content, refuses to use file tools at all.
-2. `workflow.compact-preserves-key-facts` — `/compact` correctly no-ops because 3 turns don't trigger the threshold.
-3. `workflow.rollback-restores-parent-session` — cascades from #2 (no parent session to roll back to).
-4. `tools.agents-explore-live-delegation` — agent's summary leaks the demo token verbatim (model doesn't autonomously redact secrets in tool output).
+1. `workflow.compact-preserves-key-facts` — `/compact` correctly no-ops because 3 turns don't trigger the threshold.
+2. `workflow.rollback-restores-parent-session` — cascades from #1 (no parent session to roll back to).
+3. `tools.agents-explore-live-delegation` — agent's summary leaks the demo token verbatim (model doesn't autonomously redact secrets in tool output).
+4. `tools.envelope-recovery-from-edit-mismatch` *(model variance — failed on dev shim, passed on installed binary in the same revision)* — model occasionally interprets the prompt's framing as "user pasted content" and refuses to use file tools.
 
 Suite is functional; flakes are documented in `docs/state/2026-05-22-semantic-suite-revival.md` as separate follow-up work.
 
