@@ -630,6 +630,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Cwd:      cwd,
 				Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
 			}
+			// ux-fixes 2026-05-22 (ux1.png): blank line before the splash so
+			// the SOV logo doesn't sit flush against the user's shell prompt
+			// (e.g. `julie ~ % sov` immediately followed by the ASCII art).
+			// One row of vertical padding gives the boot a more polished feel.
+			m.print("")
 			m.print(components.RenderSplash(info, m.theme, msg.Width))
 			bundlePath := os.Getenv("HARNESS_BUNDLE")
 			for _, notice := range components.BootNotices(cwd, home, bundlePath) {
@@ -1255,6 +1260,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						),
 					)
 				}
+			}
+			// ux-fixes 2026-05-22 (ux3.png): /model side-effect updates
+			// the server's resolvedProvider.model but the bottom status
+			// line was still showing the boot-time model name. Mirror
+			// the change into m.statusLine.Model so the next render
+			// reflects the new model. (The server's command response
+			// already wrote the user-visible "model set to <name>"
+			// line into scrollback; this just refreshes the chrome.)
+			if se.ModelChanged != "" {
+				m.statusLine.Model = se.ModelChanged
 			}
 			if se.ExitRequested {
 				return m, tea.Quit

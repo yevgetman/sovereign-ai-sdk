@@ -56,7 +56,150 @@ func Markdown(text string, t theme.Theme, width int) string {
 	if err != nil {
 		return Plain(text, t, width)
 	}
-	return out
+	return foldOrphanLines(out)
+}
+
+// foldOrphanLines folds single-word lines back into the preceding line.
+// ux-fixes 2026-05-22 (ux4.png): glamour v1.0.0's WithWordWrap
+// occasionally produces orphan single-word lines at specific widths
+// (e.g., at width 115 the input "...what the spec asked for..."
+// rendered as "...the spec asked for,\nand\nhere's why..."). The
+// orphan is a single short word that could have fit on the previous
+// or next line; glamour's wrap math gets it wrong at edge cases. This
+// helper detects those single-word lines and merges them into the
+// previous line.
+//
+// Heuristic for "single-word line":
+//   - The trimmed line content (after stripping trailing spaces and
+//     ANSI codes) contains exactly one whitespace-separated token.
+//   - The line is NOT a list bullet, blockquote marker, heading,
+//     code-fence delimiter, or table row.
+//   - There IS a preceding non-empty content line to fold into (no
+//     paragraph break / blank line between them).
+//
+// Conservative: skips lines containing structural markdown chrome.
+// Worst case it leaves an orphan in place — no false-positive
+// merges.
+func foldOrphanLines(rendered string) string {
+	lines := strings.Split(rendered, "\n")
+	if len(lines) < 2 {
+		return rendered
+	}
+	// Two-pass: first pass marks orphans, second pass merges. Going
+	// top-down so each orphan folds into the most-recent non-orphan
+	// content line above it.
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		// Strip ANSI for content analysis but keep the original line
+		// intact for re-emission (merging preserves whatever ANSI runs
+		// the orphan carried).
+		plainTrim := strings.TrimRight(stripAnsiForFold(line), " \t")
+		plainTrim = strings.TrimLeft(plainTrim, " \t")
+		if plainTrim == "" {
+			continue
+		}
+		if isStructuralLine(plainTrim) {
+			continue
+		}
+		// Single-word test: split on whitespace and count non-empty.
+		fields := strings.Fields(plainTrim)
+		if len(fields) != 1 {
+			continue
+		}
+		// Find the previous non-empty content line to merge into.
+		j := i - 1
+		for j >= 0 {
+			prev := strings.TrimRight(stripAnsiForFold(lines[j]), " \t")
+			prev = strings.TrimLeft(prev, " \t")
+			if prev == "" {
+				break // blank line — paragraph break, don't cross
+			}
+			if isStructuralLine(prev) {
+				break
+			}
+			// Found a content line; merge.
+			break
+		}
+		if j < 0 {
+			continue
+		}
+		prev := lines[j]
+		prevTrim := strings.TrimRight(stripAnsiForFold(prev), " \t")
+		prevTrim = strings.TrimLeft(prevTrim, " \t")
+		if prevTrim == "" || isStructuralLine(prevTrim) {
+			continue
+		}
+		// Merge: append " " + orphan-word onto the previous line.
+		// Preserve the previous line's trailing ANSI reset (if any) by
+		// adding the orphan content before any padding.
+		orphanWord := strings.TrimSpace(line)
+		prevRightTrimmed := strings.TrimRight(prev, " \t")
+		lines[j] = prevRightTrimmed + " " + strings.TrimSpace(orphanWord)
+		// Remove the orphan line.
+		lines = append(lines[:i], lines[i+1:]...)
+		i-- // re-check this index in case the new line is now orphaned
+	}
+	return strings.Join(lines, "\n")
+}
+
+// stripAnsiForFold removes ANSI CSI/OSC escape sequences for the
+// purpose of orphan detection. Not exported because compactline.go has
+// its own stripANSI helper for a different use case (tests strip
+// rendered output); keeping the implementations local lets each one
+// evolve independently.
+func stripAnsiForFold(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) {
+				c := s[j]
+				if c >= '@' && c <= '~' {
+					j++
+					break
+				}
+				j++
+			}
+			i = j - 1
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// isStructuralLine reports whether a line is markdown chrome (list
+// bullet, blockquote, heading, code fence, table row) that the orphan-
+// fold pass should leave alone. The check runs against the trimmed,
+// ANSI-stripped line content.
+func isStructuralLine(s string) bool {
+	if s == "" {
+		return true
+	}
+	// List bullets: "- ", "* ", "+ ", numbered "1. " etc.
+	if len(s) >= 2 && (s[0] == '-' || s[0] == '*' || s[0] == '+') && s[1] == ' ' {
+		return true
+	}
+	if strings.HasPrefix(s, "• ") {
+		return true
+	}
+	// Headings.
+	if s[0] == '#' {
+		return true
+	}
+	// Blockquote.
+	if s[0] == '>' || strings.HasPrefix(s, "│") {
+		return true
+	}
+	// Code fence.
+	if strings.HasPrefix(s, "```") || strings.HasPrefix(s, "~~~") {
+		return true
+	}
+	// Table row.
+	if strings.HasPrefix(s, "|") {
+		return true
+	}
+	return false
 }
 
 // fileRefPattern matches file-reference tokens that should be styled
@@ -283,7 +426,15 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	// shade survives palette mapping across terminals and themes.
 	headingColor := "#bae6fd"
 
-	margin := uint(2)
+	// ux-fixes 2026-05-22 (ux4.png): drop the Document margin to 0.
+	// Glamour v1.0.0's WithWordWrap value doesn't reliably account for
+	// non-zero Document margins — at certain widths it produces orphan
+	// single-word lines (e.g., at terminal width 115 the input
+	// "...what the spec asked for..." rendered as "...the\nspec\nasked
+	// for..."). With margin = 0 the wrap matches the available content
+	// width exactly. The TUI doesn't need glamour's visual left-pad;
+	// our scrollback flows from column 0 like every other line.
+	margin := uint(0)
 	listLevelIndent := uint(4)
 	indent := uint(1)
 	// ux-fixes round 3 — list items need a non-zero Indent so the

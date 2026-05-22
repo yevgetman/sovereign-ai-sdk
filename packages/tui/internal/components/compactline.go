@@ -54,6 +54,15 @@ const CompactLineDeniedGlyph = "⚠"
 // within this minus a small margin.
 //
 // Status detection happens internally via DetectToolStatus.
+// CompactLineVerbColor is the brand-purple hex used to color the
+// verb segment of a compact tool line ("Read", "Edited", "Ran", …).
+// Pinned to the SOV gradient's "soft purple" anchor — same anchor as
+// ToolCardHeaderColor — so the verb reads as on-brand purple/pink
+// across every theme. See docs/conventions/tui-color-rendering.md for
+// the "accents that must read as a specific shade family get a fixed
+// hex, not a theme token" rule.
+const CompactLineVerbColor = "#a78bfa"
+
 func FormatCompactToolLine(
 	tool string,
 	input json.RawMessage,
@@ -61,18 +70,26 @@ func FormatCompactToolLine(
 	t theme.Theme,
 	width int,
 ) string {
-	verb, target := verbAndTarget(tool, input, output)
+	verb, target, details := verbTargetDetails(tool, input, output)
 	isError, isDenied := DetectToolStatus(output)
 
-	// Compose the rendered line as: [glyph ]<verb> <target>  ›
+	// Compose the rendered line as:
+	//   [glyph ]<verb> <target>[ <details>]  ›
 	// Width budget: total ≤ width - 2 (small right margin). Truncation
-	// drops the target first via middle-truncation so verb stays
+	// drops the target first via tail-truncation so the verb + glyph stay
 	// readable.
-	var (
-		prefix   string
-		body     = verb
-		bodyStyle = lipgloss.NewStyle()
-	)
+	//
+	// Colors (ux-fixes 2026-05-22 ux2.png):
+	//   - verb: fixed brand purple (CompactLineVerbColor) — distinguishes
+	//     the action from the target so users can skim a column of
+	//     tool calls and pick out "Edited / Ran / Grep" at a glance.
+	//   - target: terminal-default foreground — files/commands/patterns
+	//     read as the primary content of the line.
+	//   - details: theme.Dim — supplementary stats ("+11 -7", "in src/")
+	//     are recessive so they don't compete with the target.
+	//   - status glyph: theme.Warning for ⚠ (denied), theme.Error for ✗.
+	//   - chevron: theme.Dim (unchanged).
+	prefix := ""
 	if isDenied {
 		prefix = lipgloss.NewStyle().
 			Foreground(t.Warning).
@@ -84,29 +101,56 @@ func FormatCompactToolLine(
 			Bold(true).
 			Render(CompactLineErrorGlyph) + " "
 	}
-	if target != "" {
-		body = body + " " + target
-	}
-	chevronStyled := lipgloss.NewStyle().Foreground(t.Dim).Render(" " + CompactLineChevron)
 
-	// Plain-string width math (the styled prefix/chevron use ANSI escapes
-	// that don't contribute to visible width). Reserve room for the
-	// chevron's leading space + the chevron itself (2 cols) and the
-	// status-prefix glyph + space (2 cols) when present.
+	// Width budget: account for the chevron ( + space + glyph) and the
+	// status prefix when present. Truncate the target first; verb +
+	// details stay readable.
 	reserved := 2 // chevron " ›"
 	if prefix != "" {
 		reserved += 2 // glyph + space
 	}
+	plainBody := verb
+	if target != "" {
+		plainBody += " " + target
+	}
+	if details != "" {
+		plainBody += " " + details
+	}
 	maxBody := width - reserved
-	if maxBody < 8 {
-		// Pathological narrow terminal — render the body verbatim and
-		// let lipgloss/terminal handle clipping.
-		return prefix + bodyStyle.Render(body) + chevronStyled
+	if maxBody >= 8 && visibleLen(plainBody) > maxBody {
+		// Truncate the target so the verb + details stay intact. Compute
+		// how much we can keep of the target.
+		// Layout: "<verb> <target>[ <details>]".
+		fixed := visibleLen(verb)
+		if details != "" {
+			fixed += 1 + visibleLen(details)
+		}
+		if target != "" {
+			fixed += 1 // leading space before target
+		}
+		availForTarget := maxBody - fixed
+		if availForTarget < 4 {
+			// Not enough room — fall back to whole-line tail truncation.
+			plainBody = truncateTail(plainBody, maxBody)
+			return prefix + lipgloss.NewStyle().Foreground(lipgloss.Color(CompactLineVerbColor)).Render(plainBody) + lipgloss.NewStyle().Foreground(t.Dim).Render(" "+CompactLineChevron)
+		}
+		target = truncateTail(target, availForTarget)
 	}
-	if visibleLen(body) > maxBody {
-		body = truncateTail(body, maxBody)
+
+	verbStyled := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(CompactLineVerbColor)).
+		Render(verb)
+	body := verbStyled
+	if target != "" {
+		// Terminal default foreground — no Color set. Per the color
+		// convention this is the brightest, most-readable on any palette.
+		body += " " + target
 	}
-	return prefix + bodyStyle.Render(body) + chevronStyled
+	if details != "" {
+		body += " " + lipgloss.NewStyle().Foreground(t.Dim).Render(details)
+	}
+	chevronStyled := lipgloss.NewStyle().Foreground(t.Dim).Render(" " + CompactLineChevron)
+	return prefix + body + chevronStyled
 }
 
 // DetectToolStatus inspects an Output blob and reports whether the
@@ -142,93 +186,90 @@ func DetectToolStatus(output json.RawMessage) (isError, isDenied bool) {
 	return false, false
 }
 
-// verbAndTarget produces (verb, target) for the compact line. verb is
-// the past-tense action ("Read", "Edited", "Ran", ...). target is the
-// primary argument (file path, command, pattern, URL, ...) plus any
-// stats appended ("+11 -7", " in src/", " — 42 matches").
+// verbTargetDetails produces a 3-tuple for compact-line rendering:
 //
-// Unknown tools fall back to the wire name + a short input preview.
-func verbAndTarget(
+//   - verb: the past-tense action ("Read", "Edited", "Ran $", ...).
+//     Rendered in the brand-purple verb color.
+//   - target: the primary argument (file path, command, pattern, URL,
+//     name). Rendered in the terminal-default foreground — this is what
+//     the user is most interested in scanning.
+//   - details: supplementary context — diff stats ("+11 -7"), search
+//     scope ("in src/"), match counts. Rendered in theme.Dim so it
+//     recedes visually.
+//
+// Empty strings are allowed; only non-empty pieces appear in the output.
+// Unknown tools fall back to the wire tool name + a short input preview.
+func verbTargetDetails(
 	tool string,
 	input json.RawMessage,
 	output json.RawMessage,
-) (verb, target string) {
+) (verb, target, details string) {
 	switch tool {
 	case "FileRead":
-		return "Read", extractStringField(input, "path")
+		return "Read", extractStringField(input, "path"), ""
 	case "FileWrite":
-		return "Wrote", extractStringField(input, "path")
+		return "Wrote", extractStringField(input, "path"), ""
 	case "FileEdit":
-		path := extractStringField(input, "path")
-		stats := extractDiffStats(output)
-		if stats != "" {
-			return "Edited", path + " " + stats
-		}
-		return "Edited", path
+		return "Edited", extractStringField(input, "path"), extractDiffStats(output)
 	case "Bash":
-		cmd := extractStringField(input, "command")
-		return "Ran $", flattenWhitespace(cmd)
+		return "Ran $", flattenWhitespace(extractStringField(input, "command")), ""
 	case "Grep":
 		pat := extractStringField(input, "pattern")
 		path := extractStringField(input, "path")
 		t := "'" + pat + "'"
+		d := ""
 		if path != "" {
-			t = t + " in " + path
+			d = "in " + path
 		}
-		return "Grep", t
+		return "Grep", t, d
 	case "Glob":
 		pat := extractStringField(input, "pattern")
 		path := extractStringField(input, "path")
 		t := "'" + pat + "'"
+		d := ""
 		if path != "" {
-			t = t + " in " + path
+			d = "in " + path
 		}
-		return "Glob", t
+		return "Glob", t, d
 	case "WebFetch":
-		return "Fetched", truncateURL(extractStringField(input, "url"))
+		return "Fetched", truncateURL(extractStringField(input, "url")), ""
 	case "WebSearch":
-		return "Web search", "'" + extractStringField(input, "query") + "'"
+		return "Web search", "'" + extractStringField(input, "query") + "'", ""
 	case "memory":
 		// Memory tool with action sub-field: view vs replace.
 		action := extractStringField(input, "action")
 		file := extractStringField(input, "file")
 		switch action {
 		case "view":
-			if file != "" {
-				return "Read memory", file
-			}
-			return "Read memory", ""
+			return "Read memory", file, ""
 		case "replace":
-			if file != "" {
-				return "Wrote memory", file
-			}
-			return "Wrote memory", ""
+			return "Wrote memory", file, ""
 		default:
-			return "Memory", strings.TrimSpace(action + " " + file)
+			return "Memory", strings.TrimSpace(action + " " + file), ""
 		}
 	case "memory_propose":
-		// Memory proposal — input has `name` or `slug`.
 		name := extractStringField(input, "name")
 		if name == "" {
 			name = extractStringField(input, "slug")
 		}
-		return "Proposed memory", "'" + name + "'"
+		return "Proposed memory", "'" + name + "'", ""
 	case "skill_propose":
 		name := extractStringField(input, "name")
 		if name == "" {
 			name = extractStringField(input, "slug")
 		}
-		return "Proposed skill", "'" + name + "'"
+		return "Proposed skill", "'" + name + "'", ""
 	}
 
 	// MCP tools: name is `mcp__<server>__<tool>`.
 	if strings.HasPrefix(tool, "mcp__") {
-		return formatMCPVerbAndTarget(tool, input)
+		v, t := formatMCPVerbAndTarget(tool, input)
+		return v, t, ""
 	}
 
 	// Unknown tool fallback — verb is the tool name verbatim; target
 	// is a flattened preview of the input.
-	return tool, truncatePreview(string(input), 40)
+	return tool, truncatePreview(string(input), 40), ""
 }
 
 // formatMCPVerbAndTarget renders MCP tool calls as
