@@ -329,6 +329,34 @@ describe('runTuiLauncher — flag forwarding', () => {
     expect(postSessionsCalled).toBe(false);
   });
 
+  test('does NOT emit the "sov: tui server listening" boot line to stderr (ux-fixes 2026-05-22)', async () => {
+    // Regression guard for Fix A — the launcher used to emit
+    //   sov: tui server listening on 127.0.0.1:PORT session=...
+    // above the splash. The line was visible to the production user as
+    // boot noise. The successful launch path must now be silent on
+    // stderr — only error branches (PreflightError, SessionNotFoundError,
+    // mutex pre-checks, deferred-flag warnings) should produce stderr.
+    const stderr: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      stderr.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const { runTuiLauncher } = await import('../../src/cli/tuiLauncher.js');
+      const exitCode = await runTuiLauncher({});
+      expect(exitCode).toBe(0);
+      const buf = stderr.join('');
+      expect(buf).not.toContain('tui server listening');
+      // The successful path is fully silent on stderr — assert nothing
+      // at all was emitted so any future regression that adds noise
+      // here fires immediately.
+      expect(buf).toBe('');
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
   test('surfaces PreflightError as a stderr message and returns non-zero', async () => {
     // Override buildRuntime to throw PreflightError. The real errors.js
     // module is left untouched so the launcher's instanceof check matches.

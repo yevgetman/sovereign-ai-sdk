@@ -284,15 +284,14 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
     }
   }
 
-  // One-line log so the manual smoke can curl the server while it's
-  // running. The TUI also has access via app's ENTER handler in M3.7.
-  // Use process.stderr.write directly — this isn't an error, just an
-  // informational line we want kept off stdout (TUI may follow shortly
-  // on the same fd if `stdio: 'inherit'` mixes them).
-  process.stderr.write(
-    `sov: tui server listening on 127.0.0.1:${server.port} session=${sessionId}\n`,
-  );
-
+  // ux-fixes 2026-05-22: removed the "sov: tui server listening on
+  // 127.0.0.1:PORT session=..." stderr line that printed above the
+  // splash. It was useful as a launch diagnostic during early Phase
+  // 16.1, but the production user sees it as boot noise. The TUI no
+  // longer needs the user to know the port to attach (it boots its
+  // own server side-process). If diagnostic debugging is needed, add
+  // an opt-in --debug or SOV_DEBUG=1 surface later.
+  //
   // ux-fixes round 3: forward model + provider so sov-tui's splash card
   // and status line render the real values from the first frame instead
   // of the "?" placeholder. The TUI has no /sessions/:id pre-fetch yet
