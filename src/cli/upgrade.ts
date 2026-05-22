@@ -38,6 +38,30 @@ export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign
  *  forks override the install URL but keep the package name. */
 export const PACKAGE_NAME = '@yevgetman/sov';
 
+/** Phase 21 — public installer URL for binary-mode upgrade. Constant —
+ *  the URL is the contract with the sov-releases public repo. If we
+ *  ever rename the public repo, this constant moves with it (and so
+ *  does the user-facing install command in README.md). */
+export const BINARY_INSTALLER_URL =
+  'https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh';
+
+/** Install-mode discriminator. 'binary' = installed under ~/.sov/bin/
+ *  via the public installer; 'source' = anything else (Bun global
+ *  install, `bun src/main.ts` dev loop, project-local bun, etc.). */
+export type InstallMode = 'binary' | 'source';
+
+/** Pure predicate for which upgrade strategy to use. Both inputs are
+ *  arguments so tests can drive without touching real env / fs.
+ *  Binary mode = execPath starts with `${homedir}/.sov/bin/`. Anything
+ *  else returns 'source'. */
+export function detectInstallMode(input: { execPath: string; homedir: string }): InstallMode {
+  const binaryRoot = `${join(input.homedir, '.sov', 'bin')}/`;
+  // Prefix-string check is sufficient because the binary install
+  // layout is fully under our control (we placed the binary there in
+  // install.sh). No realpath needed — execPath is already canonical.
+  return input.execPath.startsWith(binaryRoot) ? 'binary' : 'source';
+}
+
 export type UpgradeOpts = {
   /** Branch, tag, or commit hash to install. Default: whatever the
    *  remote's default branch resolves to. */
@@ -65,11 +89,21 @@ export type UpgradeOpts = {
   installUrl?: string;
   /** Test seam — overrides ~/.bun/install/cache for the purge step. */
   cacheDir?: string;
+  /** Phase 21 — override install-mode detection. Default: auto-detect
+   *  from process.execPath via detectInstallMode(). Pass 'source' to
+   *  force the legacy bun-install flow even on binary installs (escape
+   *  hatch); pass 'binary' to force the public-installer flow even on
+   *  source installs (useful for testing). */
+  mode?: InstallMode;
 };
 
 /** Resolve the effective cache-purge decision from the opt flags.
- *  Default: purge. Explicit purgeCache:false OR keepCache:true wins. */
+ *  Binary mode: never purge (Bun's cache is irrelevant when we're not
+ *  invoking Bun). Source mode default: purge; explicit purgeCache:false
+ *  OR keepCache:true wins. */
 export function shouldPurgeCache(opts: UpgradeOpts): boolean {
+  const mode = opts.mode ?? detectInstallMode({ execPath: process.execPath, homedir: homedir() });
+  if (mode === 'binary') return false;
   if (opts.keepCache === true) return false;
   if (opts.purgeCache === false) return false;
   return true;
@@ -82,13 +116,23 @@ export type UpgradeResult = {
   commands: string[][];
 };
 
-/** Pure helper: produce the argv list(s) we'd spawn. The first command
- *  is the optional uninstall; the second is the install. With
- *  `skipUninstall: true`, only the install command is returned. */
+/** Pure helper: produce the argv list(s) we'd spawn.
+ *
+ *  Binary mode: single command, `bash -c "curl -fsSL <URL> | bash"`.
+ *  Source mode: [uninstall, install] (or just [install] if skipUninstall).
+ *
+ *  Mode is taken from opts.mode if set, else auto-detected from
+ *  process.execPath + homedir at call time. */
 export function buildUpgradeCommands(
   opts: UpgradeOpts = {},
   env: NodeJS.ProcessEnv = process.env,
 ): string[][] {
+  const mode = opts.mode ?? detectInstallMode({ execPath: process.execPath, homedir: homedir() });
+
+  if (mode === 'binary') {
+    return [['bash', '-c', `curl -fsSL ${BINARY_INSTALLER_URL} | bash`]];
+  }
+
   const base = opts.installUrl ?? env.SOV_UPGRADE_URL ?? DEFAULT_INSTALL_URL;
   const url = opts.ref ? `${base}#${opts.ref}` : base;
   const install = ['bun', 'install', '-g', url];
@@ -100,14 +144,28 @@ export function buildUpgradeCommands(
  *  output verbatim. Returns the install's exit code; the caller
  *  propagates it via process.exit so shell scripts can tell whether the
  *  upgrade succeeded. The pre-uninstall is best-effort (its exit code is
- *  ignored — we expect failures when sov isn't yet installed). */
+ *  ignored — we expect failures when sov isn't yet installed).
+ *
+ *  Binary mode: single `bash -c curl|bash` invocation; no cache
+ *  management; no source-mode messaging. */
 export function runUpgrade(
   opts: UpgradeOpts = {},
   out: NodeJS.WritableStream = process.stdout,
   err: NodeJS.WritableStream = process.stderr,
 ): UpgradeResult {
-  const commands = buildUpgradeCommands(opts);
-  const willPurge = shouldPurgeCache(opts);
+  const mode = opts.mode ?? detectInstallMode({ execPath: process.execPath, homedir: homedir() });
+  const commands = buildUpgradeCommands({ ...opts, mode });
+
+  if (mode === 'binary') {
+    if (opts.dryRun === true) {
+      for (const cmd of commands) out.write(`would run: ${cmd.join(' ')}\n`);
+      return { exitCode: 0, commands };
+    }
+    return runInstall(commands[0], commands, out, err);
+  }
+
+  // ---- source mode (legacy path) ----
+  const willPurge = shouldPurgeCache({ ...opts, mode });
   if (opts.dryRun === true) {
     if (willPurge) {
       out.write(`would purge: ${cacheDirFor(opts)}\n`);

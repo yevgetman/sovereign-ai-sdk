@@ -3,9 +3,11 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+  BINARY_INSTALLER_URL,
   DEFAULT_INSTALL_URL,
   PACKAGE_NAME,
   buildUpgradeCommands,
+  detectInstallMode,
   runUpgrade,
 } from '../../src/cli/upgrade.js';
 
@@ -202,5 +204,120 @@ describe('shouldPurgeCache', () => {
   test('keepCache: true wins over purgeCache: true', async () => {
     const { shouldPurgeCache } = await import('../../src/cli/upgrade.js');
     expect(shouldPurgeCache({ keepCache: true, purgeCache: true })).toBe(false);
+  });
+
+  test('binary mode short-circuits to false (Bun cache irrelevant)', async () => {
+    const { shouldPurgeCache } = await import('../../src/cli/upgrade.js');
+    expect(shouldPurgeCache({ mode: 'binary' })).toBe(false);
+    // Even with explicit purgeCache: true, binary mode wins.
+    expect(shouldPurgeCache({ mode: 'binary', purgeCache: true })).toBe(false);
+  });
+});
+
+describe('detectInstallMode', () => {
+  test('returns "binary" when execPath is under ~/.sov/bin/', () => {
+    expect(
+      detectInstallMode({ execPath: '/home/alice/.sov/bin/sov', homedir: '/home/alice' }),
+    ).toBe('binary');
+  });
+
+  test('returns "binary" for the macOS-style ~/.sov/bin path', () => {
+    expect(
+      detectInstallMode({ execPath: '/Users/julie/.sov/bin/sov', homedir: '/Users/julie' }),
+    ).toBe('binary');
+  });
+
+  test('returns "source" when execPath is the Bun runtime', () => {
+    expect(
+      detectInstallMode({ execPath: '/Users/julie/.bun/bin/bun', homedir: '/Users/julie' }),
+    ).toBe('source');
+  });
+
+  test('returns "source" when execPath is a project-local node_modules entry', () => {
+    expect(
+      detectInstallMode({
+        execPath: '/Users/julie/code/sov/node_modules/.bin/bun',
+        homedir: '/Users/julie',
+      }),
+    ).toBe('source');
+  });
+
+  test('returns "source" when execPath is unrelated', () => {
+    expect(detectInstallMode({ execPath: '/usr/local/bin/bun', homedir: '/Users/julie' })).toBe(
+      'source',
+    );
+  });
+
+  test('does not match a similar-but-different prefix (e.g. ~/.sovereign-other)', () => {
+    expect(
+      detectInstallMode({
+        execPath: '/Users/julie/.sovereign-other/bin/sov',
+        homedir: '/Users/julie',
+      }),
+    ).toBe('source');
+  });
+});
+
+describe('buildUpgradeCommands — binary mode', () => {
+  test('returns single bash -c curl|bash command', () => {
+    const cmds = buildUpgradeCommands({ mode: 'binary' }, {});
+    expect(cmds.length).toBe(1);
+    expect(cmds[0]?.[0]).toBe('bash');
+    expect(cmds[0]?.[1]).toBe('-c');
+    expect(cmds[0]?.[2]).toContain('curl');
+    expect(cmds[0]?.[2]).toContain(BINARY_INSTALLER_URL);
+    expect(cmds[0]?.[2]).toContain('| bash');
+  });
+
+  test('binary mode ignores skipUninstall / installUrl / ref', () => {
+    const cmds = buildUpgradeCommands(
+      {
+        mode: 'binary',
+        skipUninstall: true,
+        installUrl: 'git+ssh://git@example.com/fork.git',
+        ref: 'v0.3.0',
+      },
+      {},
+    );
+    expect(cmds.length).toBe(1);
+    expect(cmds[0]?.[2]).toContain(BINARY_INSTALLER_URL);
+    expect(cmds[0]?.[2]).not.toContain('fork.git');
+    expect(cmds[0]?.[2]).not.toContain('v0.3.0');
+  });
+
+  test('explicit mode "source" preserves the existing two-command behavior', () => {
+    const cmds = buildUpgradeCommands({ mode: 'source' }, {});
+    expect(cmds.length).toBe(2);
+    expect(cmds[0]).toEqual(['bun', 'uninstall', '-g', PACKAGE_NAME]);
+    expect(cmds[1]).toEqual(['bun', 'install', '-g', DEFAULT_INSTALL_URL]);
+  });
+});
+
+describe('runUpgrade — binary mode', () => {
+  test('dry-run prints the curl|bash command without source-mode cache messaging', () => {
+    const chunks: string[] = [];
+    const errChunks: string[] = [];
+    const out = {
+      write: (c: string) => {
+        chunks.push(c);
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const err = {
+      write: (c: string) => {
+        errChunks.push(c);
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const result = runUpgrade({ mode: 'binary', dryRun: true }, out, err);
+    expect(result.exitCode).toBe(0);
+    const stdout = chunks.join('');
+    expect(stdout).toContain('would run: bash -c');
+    expect(stdout).toContain(BINARY_INSTALLER_URL);
+    // Binary mode doesn't touch Bun's cache; neither "would purge:"
+    // nor "would skip cache purge (--keep-cache)" should appear — both
+    // are source-mode wording.
+    expect(stdout).not.toContain('would purge');
+    expect(stdout).not.toContain('would skip cache purge');
   });
 });
