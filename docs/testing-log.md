@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 — stale Phase 13.5 reference sweep (docs-only)
+
+**Scope:** Cleanup of four stale references to Phase 13.5 framing it as a future "next-phase candidate" — Phase 13.5 (scheduled-mission sub-agents) shipped 2026-05-11 and is marked complete in the canonical build plan. Also bumped backlog count from 1 → 2 in CLAUDE.md / AGENTS.md (item #47 was added 2026-05-21 but the lean index didn't get updated then).
+
+**Files touched:**
+- `docs/state/2026-05-21-ux-fixes-r5.md` — replaced the "Phase 13.5 (scheduled-mission sub-agents) — the original next-phase candidate pre-Phase-16.1" bullet with Phase 21 as the freshest concretely-specced direction; appended a note that Phase 13.5 already shipped.
+- `docs/backlog/post-phase-13-4.md` — corrected the opening paragraph ("The build plan's next phase is Phase 13.5") to point at Phase 21 instead and flagged Phase 13.5 as complete.
+- `CLAUDE.md` + `AGENTS.md` — bumped backlog count from "1 item" to "2 items" and added #47 transcript.go cleanup to the inline summary. Re-verified byte-identical post-edit.
+
+**Untouched (correct historical attribution, not stale):**
+- `docs/usage.md:66, 108, 109` — "(Phase 13.5.)" attribution on the `--state-dir` flag and `mission init/run` subcommands documents which phase shipped the feature; keep.
+- `docs/specs/2026-05-21-binary-distribution-design.md:312` — "Orthogonal to Phase 13.5 and any later phase" describes Phase 21's dependency-freeness; keep.
+- `docs/specs/2026-05-13-production-harness-roadmap-design.md:741` — historical roadmap context; keep.
+- `docs/state/2026-05-20-m13.md:84` — historical snapshot using past tense; snapshots are frozen records, do not edit.
+
+**Commands:**
+```
+bun run lint       # clean, 2 pre-existing noNonNullAssertion warnings in shellSemantics.ts (carried from before)
+bun run typecheck  # clean
+bun run test       # 1955 pass / 0 fail / 14 skip — same as state snapshot baseline
+diff CLAUDE.md AGENTS.md  # identical
+```
+
+**Result:** docs-only edit; no code changed; full suite green at parity with snapshot baseline. No regressions surfaced.
+
+**Follow-ups:** none. Next session can proceed to Phase 21 (binary distribution) per user direction.
+
+---
+
 ## 2026-05-21 — ux-fixes round 5 (inline-mode refactor: native scroll + selection, paste flush, user-line wrap)
 
 **Scope:** Round 4 added keyboard scroll bindings but the user reported scroll still didn't work in their live session — and they explicitly rejected the "use Option+drag for selection" compromise from round 3. The fix is architectural: drop bubbletea's alt screen so the terminal owns scrollback (wheel + trackpad scroll) and text selection natively. Permanent session content is emitted via `tea.Println` (printed ABOVE the live View into terminal scrollback); the in-TUI View shrinks to a small live region at the bottom (streaming assistant card + spinner + "running command" indicator) plus the prompt + status footer.
