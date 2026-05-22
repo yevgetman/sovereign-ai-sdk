@@ -4,6 +4,8 @@ LLM-judged behavior tests that drive the real `sov` binary as a subprocess and v
 
 This is the canonical reference for what semantic testing is, what's covered, and how the categories of tests map to bug classes the harness has to defend against. For developer-facing details (architecture, isolation, layout, how to add a test, how to add a judge backend, porting guide), see [`tests/semantic/README.md`](../tests/semantic/README.md).
 
+**Binary surface (as of 2026-05-22 PM):** the suite drives `sov drive` — the headless line-driven LLM conversation surface introduced when the semantic suite broke after M13 (terminalRepl removal). The TUI cannot be driven via piped stdin since it requires a TTY; `sov drive` boots the same Hono server the TUI talks to and emits plain-text events to stdout. The driver passes `--verbose-raw` so the raw tool Output appears in the transcript (matching the legacy assertions that look for tool-output substrings).
+
 ## Why this category exists
 
 Unit tests catch logic bugs in isolated functions. They cannot catch:
@@ -305,7 +307,7 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/context/userMessage.ts` (`@`-references) | `--filter at-file` |
 | `src/compact/` | `--filter compact` |
 | `src/agent/sessionDb.ts` | `--filter compact` and `--filter rollback` |
-| `src/ui/terminalRepl.ts:rollbackNow` | `--filter rollback` |
+| `src/cli/driveCommand.ts` (the headless binary surface) | **Full suite** — drives every case |
 | `src/hooks/` | `--filter hooks` (covers PreToolUse deny + PostToolUse additionalContext) |
 | `src/mcp/` | `--filter mcp` (covers MCP discovery + invocation + permission-rule blocking) |
 | `src/router/` | `--filter router` (covers `--provider router` end-to-end including model-swap) |
@@ -321,7 +323,7 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `bundle-default/agents/*.md` | `--filter agents` |
 | `bundle-default/agents/scheduled-mission.md` | `--filter agents` (discoverability — `agents-bundle-default-discoverable` mustSatisfy includes it) |
 | `src/mission/state.ts`, `src/mission/fsm.ts`, `src/mission/segments.ts`, `src/mission/paths.ts` | Unit coverage only — no semantic test yet; the wake lifecycle requires `--state-dir` setup that the current driver doesn't handle |
-| `src/ui/terminalRepl.ts` (`--agent` / `--state-dir` paths) | Unit coverage only — manual smoke test in Task 8; semantic driver support for pre-run dir setup would be needed for end-to-end coverage |
+| `--agent` / `--state-dir` paths in `sov` (scheduled-mission mode) | Unit coverage only — manual smoke test; semantic driver support for pre-run dir setup would be needed for end-to-end coverage |
 | `src/cli/missionInit.ts` | Unit coverage only — `sov mission init` is a non-interactive CLI subcommand; no semantic test needed |
 | `src/tools/TaskCreateTool.ts`, `src/tools/TaskListTool.ts`, `src/tools/TaskGetTool.ts`, `src/tools/TaskOutputTool.ts`, `src/tools/TaskStopTool.ts` | `--filter tasks` |
 | `src/tasks/manager.ts`, `src/tasks/store.ts`, `src/tasks/types.ts` | `--filter tasks` |
@@ -342,7 +344,8 @@ Use this when picking a `--filter` for a Tier 2 (filtered) run. If the change sp
 | `src/commands/info.ts` (`/context-budget`) | `--filter context-budget` |
 | `src/core/query.ts` (turn loop) | **Full suite** — too core for filtering |
 | `src/providers/` | **Full suite** — affects all model interactions |
-| `src/ui/*` (rendering only) | Skip the semantic suite; the hardpass shell at `tests/_smoke/wave1-3-hardpass.sh` covers visual surfaces |
+| `packages/tui/` (rendering only) | Skip the semantic suite. The Go unit tests under `packages/tui/internal/components/` cover rendering; manual smokes cover end-to-end visual fidelity |
+| `src/cli/driveCommand.ts` (the headless renderer + protocol contract) | Unit tests at `tests/cli/driveCommand.test.ts` cover the pure helpers; the full semantic suite exercises the protocol end-to-end |
 
 ### Extension policy — when to add a new test
 

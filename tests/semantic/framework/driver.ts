@@ -1,7 +1,17 @@
 // Process driver — spawns the binary under test, pipes a single prompt
 // followed by /quit, captures stdout/stderr, and returns an ANSI-stripped
-// transcript. Never imports anything from src/. The only thing it knows
-// about the harness is that it's a stdin-driven REPL.
+// transcript. Never imports anything from src/.
+//
+// Drives `sov drive` (the headless line-driven LLM conversation surface
+// introduced 2026-05-22) — not the TUI. The TUI requires a TTY and
+// can't be driven by piped stdin since M13 collapsed the readline REPL.
+// `sov drive` boots the same Hono server the TUI talks to and emits
+// plain-text events to stdout instead of rendering Bubble Tea.
+//
+// Test driver always passes --verbose-raw so the raw tool output is
+// included in the transcript; criteria written against the old REPL
+// rendering ("the transcript shows the literal string X produced by
+// the command") still match.
 
 import type { Sandbox } from './sandbox.js';
 import type { DriverOutcome } from './types.js';
@@ -10,8 +20,8 @@ const DEFAULT_AGENT_MODEL = 'claude-sonnet-4-6';
 
 const ESC = String.fromCharCode(27);
 // Strip CSI sequences (color, cursor, mode) and OSC title sequences. The
-// non-TTY code path in `sov` does not emit raw-mode picker escapes since
-// stdin is piped, so a broad CSI strip is sufficient for transcripts.
+// drive surface emits only plain text, so this is a defense-in-depth
+// pass against any future escape codes that might leak through.
 const CSI_RE = new RegExp(`${ESC}\\[[0-9;?]*[a-zA-Z]`, 'g');
 const OSC_RE = new RegExp(`${ESC}\\][^\\x07]*\\x07`, 'g');
 
@@ -25,9 +35,9 @@ export interface DriverOptions {
   extraArgs?: string[];
   sandbox: Sandbox;
   /** Single prompt (one turn) or array of prompts (one turn per element).
-   *  In piped-stdin mode, sov reads line-by-line — each newline-terminated
-   *  prompt drives one turn, then the next is consumed when the previous
-   *  turn completes. */
+   *  In piped-stdin mode, sov drive reads line-by-line — each newline-
+   *  terminated prompt drives one turn, then the next is consumed when
+   *  the previous turn completes. */
   prompt: string | string[];
   /** Hard timeout in ms. The process is SIGKILLed on timeout. */
   timeoutMs: number;
@@ -38,9 +48,15 @@ export async function runHarnessSession(opts: DriverOptions): Promise<DriverOutc
   const hasExplicitModel = extraArgs.includes('--model');
   const hasExplicitPermMode = extraArgs.includes('--permission-mode');
   const args = [
-    'chat',
+    'drive',
     '--no-preflight',
     '--no-cache',
+    // Append raw tool output below each tool_result line. Criteria like
+    // "the transcript shows the literal string 'X' produced by the
+    // command" require the tool's stdout to be visible in the transcript;
+    // compact-mode rendering hides it by default, so --verbose-raw
+    // restores the legacy visibility for semantic tests.
+    '--verbose-raw',
     // Default the agent to bypass mode for happy-path tests. Permission tests
     // override via binaryArgs (e.g., ['--permission-mode', 'default']) so the
     // deny/allow rules from a sandbox `.harness/settings.local.json` apply.

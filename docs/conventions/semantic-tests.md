@@ -2,6 +2,8 @@
 
 `bun run test:semantic` is opt-in (~5 min wall, ~$0.87 informational on subscription). The full framework reference lives in [`../semantic-testing.md`](../semantic-testing.md); this file is the **triage policy** — when to run, when to skip.
 
+**Binary surface (2026-05-22 PM):** the suite drives `sov drive`, the headless line-driven LLM conversation surface introduced when the semantic suite broke after M13 (terminalRepl removal). The TUI cannot be driven via piped stdin (it needs a TTY); `sov drive` boots the same Hono server the TUI talks to and emits plain-text events to stdout. Run the suite against the locally-built binary (a `bun src/main.ts` shim works fine) when iterating on driveCommand itself, or via `sov upgrade` + the installed binary for full validation.
+
 ## When to run
 
 Apply this triage:

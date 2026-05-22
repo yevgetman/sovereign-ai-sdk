@@ -245,8 +245,10 @@ alongside an external judge for cross-validation.
 
 The framework only assumes:
 
-1. The binary is a stdin-driven REPL that exits on `/quit\n` (or whatever
-   sentinel you configure — adjust `driver.ts`).
+1. The binary is a stdin-driven line consumer that exits on `/quit\n` (or
+   whatever sentinel you configure — adjust `driver.ts`). For the
+   `sov` repo specifically, this is the `sov drive` subcommand; for
+   other harnesses, replace the subcommand or remove it as needed.
 2. A judge backend is reachable (claude CLI or Anthropic API by default;
    add others as above).
 
@@ -254,8 +256,10 @@ To port:
 
 1. Copy `tests/semantic/` to the target repo.
 2. Set `SEMANTIC_BINARY=<your-binary>` or pass `--binary`.
-3. Adjust `driver.ts` if your binary takes different default args (`sov`
-   uses `chat --no-preflight --no-cache --permission-mode bypass --db <path>`).
+3. Adjust `driver.ts` if your binary takes different default args. The
+   `sov` driver uses `drive --no-preflight --no-cache --verbose-raw
+   --permission-mode bypass --db <path>` — the `drive` keyword is the
+   headless surface this codebase ships.
 4. Replace `suites/*.cases.ts` with cases relevant to your binary.
 5. Add `bun tests/semantic/run.ts` as a script in `package.json`.
 
