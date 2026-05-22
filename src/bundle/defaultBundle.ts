@@ -3,11 +3,14 @@
 //   1. <harness-home>/default-bundle/  — user override location
 //   2. <runtime-repo>/bundle-default/  — shipped default
 //
-// The shipped path is resolved via `realpathSync` of the entry script,
-// the same trick `loadPackageEnv()` uses in `src/main.ts`. This means
-// the bundle is found whether `sov` is run from a clone, a `bun link`
-// install, or a `bun install -g` install — the resolver always lands
-// on the bundle that lives next to the running source.
+// Phase 21 — binary-install mode resolves the shipped bundle via
+// process.execPath FIRST (the Bun-compiled binary lives at
+// e.g. ~/.sov/bin/sov; the bundle ships as a sibling
+// ~/.sov/bundle-default/). When that check misses, falls through to the
+// source-mode resolver (import.meta.url walk to the repo root). Source-
+// mode behavior is preserved bit-for-bit because the binary-mode check
+// fails by design for every source-mode invocation (process.execPath is
+// the bun runtime itself, with no bundle-default sibling).
 //
 // Phase 13.3 (B2) — adds isDefaultBundlePath() predicate for routing
 // trajectory writes away from the stock bundle's tree.
@@ -37,13 +40,39 @@ export function userOverridePath(): string {
   return join(resolveHarnessHome(), 'default-bundle');
 }
 
-/** `<runtime-repo>/bundle-default/`. Returns null when import.meta.url
- *  isn't a file URL (rare; would mean running outside Bun's module
- *  loader). */
-export function shippedBundlePath(): string | null {
+/** `<runtime-repo>/bundle-default/` (source mode) OR
+ *  `<dirname(execPath)/../bundle-default/` (binary install mode).
+ *
+ *  Binary mode is tried first. The check is content-based (existsSync
+ *  on index.yaml) so it works for any install layout, not just ~/.sov/.
+ *
+ *  Returns null only when BOTH resolvers fail (rare; would mean a
+ *  broken install with no bundle-default anywhere reachable).
+ *
+ *  The optional overrides are test seams: production passes nothing. */
+export function shippedBundlePath(
+  opts: { execPath?: string; metaUrl?: string } = {},
+): string | null {
+  // Binary install mode: process.execPath points to the on-disk
+  // compiled binary (e.g. ~/.sov/bin/sov). Look for a sibling
+  // bundle-default/ at <dirname(dirname(execPath))>/bundle-default.
   try {
-    const realMain = realpathSync(fileURLToPath(import.meta.url));
-    // src/bundle/defaultBundle.ts → walk up two levels to the repo root
+    const execPath = opts.execPath ?? process.execPath;
+    const execDir = dirname(realpathSync(execPath));
+    const candidate = join(dirname(execDir), 'bundle-default');
+    if (existsSync(join(candidate, 'index.yaml'))) return candidate;
+  } catch {
+    // realpath threw (missing file, permission, etc.) — fall through.
+  }
+
+  // Source mode: walk up from this file's URL.
+  // For `bun src/main.ts` or `bun install -g` installs, the binary
+  // branch above misses by design (process.execPath is the bun
+  // executable itself, with no bundle-default sibling) so we land here.
+  try {
+    const metaUrl = opts.metaUrl ?? import.meta.url;
+    const realMain = realpathSync(fileURLToPath(metaUrl));
+    // src/bundle/defaultBundle.ts → walk up three levels to the repo root
     return join(dirname(dirname(dirname(realMain))), 'bundle-default');
   } catch {
     return null;

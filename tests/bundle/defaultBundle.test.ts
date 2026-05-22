@@ -3,7 +3,15 @@
 // Phase 13.3 (B2) — adds isDefaultBundlePath() tests.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -71,6 +79,54 @@ describe('getDefaultBundlePath', () => {
     expect(path).toContain('bundle-default');
     // Should NOT pick the empty override.
     expect(path).not.toBe(join(home, 'default-bundle'));
+  });
+});
+
+describe('shippedBundlePath — binary install mode', () => {
+  test('returns sibling bundle-default/ when execPath has one', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-binary-install-'));
+    try {
+      const binDir = join(root, 'bin');
+      const bundleDir = join(root, 'bundle-default');
+      mkdirSync(binDir, { recursive: true });
+      mkdirSync(bundleDir, { recursive: true });
+      writeFileSync(join(bundleDir, 'index.yaml'), 'repo: binary-bundle\n');
+      const fakeExec = join(binDir, 'sov');
+      writeFileSync(fakeExec, '');
+      const path = shippedBundlePath({ execPath: fakeExec });
+      // Resolve realpath on the expected dir too — on macOS, $TMPDIR is
+      // /var/folders/... which is a symlink to /private/var/folders/...,
+      // and the production resolver runs realpathSync on execPath.
+      expect(path).toBe(join(realpathSync(root), 'bundle-default'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('falls through to source-mode resolver when no sibling bundle exists', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-no-binary-bundle-'));
+    try {
+      const binDir = join(root, 'bin');
+      mkdirSync(binDir, { recursive: true });
+      const fakeExec = join(binDir, 'sov');
+      writeFileSync(fakeExec, '');
+      // No bundle-default at root → binary branch misses → falls through to
+      // import.meta.url walk → returns the real shipped bundle path.
+      const path = shippedBundlePath({ execPath: fakeExec });
+      expect(path).not.toBeNull();
+      expect(path).toContain('bundle-default');
+      // The real shipped bundle has an index.yaml.
+      expect(existsSync(join(path ?? '', 'index.yaml'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('falls through when execPath is unreadable / does not exist', () => {
+    const path = shippedBundlePath({ execPath: '/does/not/exist/sov' });
+    // The realpathSync on a missing path throws → caught → falls through.
+    expect(path).not.toBeNull();
+    expect(path).toContain('bundle-default');
   });
 });
 
