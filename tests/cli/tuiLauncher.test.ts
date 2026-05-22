@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findTuiBinary, findTuiBinaryFrom } from '../../src/cli/tuiLauncher.js';
@@ -42,6 +42,78 @@ describe('findTuiBinary', () => {
     // test isolates the null-branch by handing the walker a known-clean
     // starting point.
     expect(findTuiBinaryFrom('/tmp')).toBeNull();
+  });
+});
+
+describe('findTuiBinary — binary install mode', () => {
+  test('returns sibling sov-tui when execPath has one', () => {
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TUI_BIN;
+    const root = mkdtempSync(join(tmpdir(), 'sov-tui-binary-'));
+    try {
+      const binDir = join(root, 'bin');
+      mkdirSync(binDir, { recursive: true });
+      const fakeExec = join(binDir, 'sov');
+      const fakeTui = join(binDir, 'sov-tui');
+      writeFileSync(fakeExec, '');
+      writeFileSync(fakeTui, '');
+      const found = findTuiBinary({ execPath: fakeExec });
+      // realpath through $TMPDIR symlink on macOS, so compare paths
+      // after passing both through the same resolver.
+      expect(found).toBeTruthy();
+      // sibling at <binDir>/sov-tui regardless of /var vs /private/var.
+      expect(found?.endsWith('/sov-tui')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  });
+
+  test('falls through to source-mode walk when no sibling sov-tui exists', () => {
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TUI_BIN;
+    const root = mkdtempSync(join(tmpdir(), 'sov-tui-no-sibling-'));
+    try {
+      const binDir = join(root, 'bin');
+      mkdirSync(binDir, { recursive: true });
+      const fakeExec = join(binDir, 'sov');
+      writeFileSync(fakeExec, '');
+      // No sov-tui sibling → binary branch misses → falls through to
+      // source-mode walk (which may or may not find anything depending
+      // on the repo state; we only assert the binary branch didn't
+      // mistakenly return a non-existent path).
+      const found = findTuiBinary({ execPath: fakeExec });
+      if (found !== null) {
+        // Whatever was found via fallback must actually exist.
+        expect(existsSync(found)).toBe(true);
+        // And must NOT be the fake sov-tui we didn't create.
+        expect(found).not.toBe(join(binDir, 'sov-tui'));
+      }
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  });
+
+  test('SOV_TUI_BIN still wins over binary-mode sibling', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-tui-env-wins-'));
+    try {
+      const binDir = join(root, 'bin');
+      mkdirSync(binDir, { recursive: true });
+      const fakeExec = join(binDir, 'sov');
+      const fakeTui = join(binDir, 'sov-tui');
+      const overrideTui = join(root, 'override-tui');
+      writeFileSync(fakeExec, '');
+      writeFileSync(fakeTui, '');
+      writeFileSync(overrideTui, '');
+      process.env.SOV_TUI_BIN = overrideTui;
+      try {
+        expect(findTuiBinary({ execPath: fakeExec })).toBe(overrideTui);
+      } finally {
+        // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+        delete process.env.SOV_TUI_BIN;
+      }
+    } finally {
+      rmSync(root, { recursive: true });
+    }
   });
 });
 

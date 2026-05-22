@@ -51,7 +51,35 @@ export function findTuiBinaryFrom(startDir: string): string | null {
   return null;
 }
 
-export function findTuiBinary(): string | null {
+/**
+ * Resolve the sov-tui binary. Tried in order:
+ *   1. SOV_TUI_BIN env var (test seam + power-user override).
+ *   2. Phase 21 — binary install mode: sov-tui as sibling of sov in
+ *      <dirname(execPath)>/. Discovered via process.execPath which
+ *      resolves to the on-disk executable in both bun (source) and
+ *      bun --compile (binary) modes — but the sibling only exists
+ *      under ~/.sov/bin/ in binary mode.
+ *   3. Source mode: walk up from this module's URL looking for a
+ *      bin/sov-tui sibling (the postinstall artifact path).
+ *
+ * The optional opts arg is a test seam: production passes nothing.
+ */
+export function findTuiBinary(opts: { execPath?: string } = {}): string | null {
+  if (process.env.SOV_TUI_BIN && existsSync(process.env.SOV_TUI_BIN)) {
+    return process.env.SOV_TUI_BIN;
+  }
+
+  // Binary install mode.
+  try {
+    const execPath = opts.execPath ?? process.execPath;
+    const execDir = dirname(realpathSync(execPath));
+    const sibling = join(execDir, 'sov-tui');
+    if (existsSync(sibling)) return sibling;
+  } catch {
+    // fall through
+  }
+
+  // Source mode.
   try {
     return findTuiBinaryFrom(dirname(realpathSync(fileURLToPath(import.meta.url))));
   } catch {
