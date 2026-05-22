@@ -397,7 +397,13 @@ func TestApp_thinkingClearedByFirstResponseEvent(t *testing.T) {
 }
 
 // TestApp_renderToolResultAsCard guards M3.6: a tool_result event should
-// produce a ToolCard with the tool name visible in the rendered transcript.
+// render visibly in the rendered transcript.
+//
+// ux-fixes 2026-05-22: default tool-output mode flipped to 'compact'
+// (one-liner per tool_result via components.FormatCompactToolLine).
+// The FileRead tool now renders as "Read <path> ›" — verb-first, not
+// tool-name-first. Test assertion updated accordingly; the detailed
+// mode is exercised by TestApp_renderToolResultInDetailedMode below.
 func TestApp_renderToolResultAsCard(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// M4: route /messages backlog fetch separately from the SSE stream.
@@ -426,7 +432,7 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 		payload := strings.Join([]string{
 			`event: tool_result`,
 			`id: 1`,
-			`data: {"type":"tool_result","seq":1,"sessionId":"s","block":0,"tool":"FileRead","input":{},"output":"","renderHint":"code"}`,
+			`data: {"type":"tool_result","seq":1,"sessionId":"s","block":0,"tool":"FileRead","input":{"path":"foo.go"},"output":"","renderHint":"code"}`,
 			``,
 			``,
 		}, "\n")
@@ -441,6 +447,58 @@ func TestApp_renderToolResultAsCard(t *testing.T) {
 	tm := teatest.NewTestModel(t, New("s", srv.URL), teatest.WithInitialTermSize(80, 24))
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		// Compact mode default — assert verb + target appear on a
+		// single line. The "Read" verb is FormatCompactToolLine's
+		// mapping for FileRead.
+		return contains(b, "Read") && contains(b, "foo.go")
+	}, teatest.WithDuration(3*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestApp_renderToolResultInDetailedMode guards the opt-in detailed
+// mode: when ui.toolOutput.mode is set to 'detailed' via WithToolOutput,
+// tool_result events render as the existing bordered ToolCard with the
+// tool name in the header. Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+func TestApp_renderToolResultInDetailedMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		payload := strings.Join([]string{
+			`event: tool_result`,
+			`id: 1`,
+			`data: {"type":"tool_result","seq":1,"sessionId":"s","block":0,"tool":"FileRead","input":{"path":"foo.go"},"output":"line 1\nline 2","renderHint":"code"}`,
+			``,
+			``,
+		}, "\n")
+		fmt.Fprint(w, payload)
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	m := New("s", srv.URL).WithToolOutput("detailed", 10)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		// Detailed mode — bordered card with tool name header.
 		return contains(b, "FileRead")
 	}, teatest.WithDuration(3*time.Second))
 

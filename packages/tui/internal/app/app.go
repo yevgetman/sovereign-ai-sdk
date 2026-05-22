@@ -142,6 +142,17 @@ type Model struct {
 	deltaGen         int                        // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
 	userCancelledTurn bool                      // ux-fixes round 4: ESC triggered POST /cancel — suppress the subsequent turn_error warning since we already showed "(interrupted by user)"
 	harnessVersion    string                     // Phase 21: harness runtime version (from src/version.ts) injected via WithSessionInfo; rendered in the splash card
+	// ux-fixes 2026-05-22: tool-call rendering mode + truncation cap.
+	// "compact" (default) emits a single-line per tool_result using
+	// components.FormatCompactToolLine. "detailed" emits the existing
+	// bordered ToolCard with Output capped to toolOutputInlineLines
+	// rows. -v / --verbose forwards from the launcher as verboseRaw
+	// (orthogonal escape hatch — appends raw untruncated output below
+	// either mode's rendering). Spec:
+	// docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+	toolOutputMode        string
+	toolOutputInlineLines int
+	verboseRaw            bool
 	// pendingPrintln queues content destined for the terminal's
 	// scrollback above the live view. drainPrintln consolidates the
 	// queue into a single tea.Println Cmd at the end of every Update
@@ -347,6 +358,14 @@ func New(sessionID, baseURL string) Model {
 		pendingThemeName: themeName,
 		spinner:          components.NewSpinner(),
 		spinnerLineIdx:   -1,
+		// ux-fixes 2026-05-22 — defaults for the tool-output rendering
+		// mode. The launcher overrides via WithToolOutput / WithVerboseRaw
+		// based on user-settings + the -v flag; these defaults apply when
+		// the launcher passes nothing (e.g., direct tests, future
+		// alternative front-ends).
+		toolOutputMode:        "compact",
+		toolOutputInlineLines: 10,
+		verboseRaw:            false,
 	}
 	if baseURL != "" {
 		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
@@ -372,6 +391,40 @@ func (m Model) WithSessionInfo(model, provider, harnessVersion string) Model {
 	if harnessVersion != "" {
 		m.harnessVersion = harnessVersion
 	}
+	return m
+}
+
+// WithToolOutput seeds the tool_result rendering mode + truncation cap
+// on the Model. The launcher (src/cli/tuiLauncher.ts) forwards
+// userSettings.ui.toolOutput.{mode,inlineLines} as --tool-output-mode
+// and --tool-output-inline-lines flags to sov-tui, which invokes this
+// on the freshly-constructed Model before tea.NewProgram.
+//
+// Empty / zero arguments fall back to the Model's defaults set in New
+// ("compact" / 10). The mode value is validated — anything other than
+// "compact" or "detailed" silently coerces to "compact" so a malformed
+// flag can't break tool rendering. ux-fixes 2026-05-22.
+func (m Model) WithToolOutput(mode string, inlineLines int) Model {
+	switch mode {
+	case "compact", "detailed":
+		m.toolOutputMode = mode
+	case "":
+		// keep default
+	default:
+		m.toolOutputMode = "compact"
+	}
+	if inlineLines > 0 {
+		m.toolOutputInlineLines = inlineLines
+	}
+	return m
+}
+
+// WithVerboseRaw enables the orthogonal "print raw untruncated tool
+// output below the compact/detailed rendering" escape hatch. The
+// launcher forwards -v / --verbose as --verbose-raw to sov-tui.
+// ux-fixes 2026-05-22.
+func (m Model) WithVerboseRaw(v bool) Model {
+	m.verboseRaw = v
 	return m
 }
 
@@ -1306,8 +1359,10 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			hint = "text"
 		}
 		// M9 T5 — detect FileEdit / FileWrite and parse the output as a
-		// unified diff. If hunks are present, construct a DiffView, expand
-		// the card by default, and track the pointer for Ctrl+] focus.
+		// unified diff. If hunks are present, the DiffView is kept on
+		// hand for detailed-mode rendering and for Ctrl+] focus routing.
+		// (Compact mode uses its own diff-stat extractor in
+		// components.FormatCompactToolLine.)
 		var diff *components.DiffView
 		if tr.Tool == "FileEdit" || tr.Tool == "FileWrite" {
 			dv := components.NewDiffView(string(tr.Output), m.theme)
@@ -1316,30 +1371,50 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 				m.mostRecentDiff = diff
 			}
 		}
-		card := components.ToolCard{
-			Tool:       tr.Tool,
-			RenderHint: hint,
-			Summary:    fmt.Sprintf("rendered as %s", hint),
-			Input:      string(tr.Input),  // M9 T6 — collapsed-card preview source
-			Output:     string(tr.Output),
-			Language:   tr.Language,
-			Theme:      m.theme, // M9 T4 — pass theme so the body renders via render.Code
-			Expanded:   diff != nil, // M9 T5 — auto-expand diffs so the user sees the hunks
-			Diff:       diff,
+
+		// ux-fixes 2026-05-22 — branch on the tool-output mode. compact
+		// mode (default) emits a single line per tool_result; detailed
+		// mode emits the existing bordered ToolCard. The -v / --verbose
+		// flag (m.verboseRaw) is orthogonal — when set, the raw
+		// untruncated output prints below either rendering. Spec:
+		// docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+		switch m.toolOutputMode {
+		case "detailed":
+			card := components.ToolCard{
+				Tool:        tr.Tool,
+				RenderHint:  hint,
+				Summary:     fmt.Sprintf("rendered as %s", hint),
+				Input:       string(tr.Input),
+				Output:      string(tr.Output),
+				Language:    tr.Language,
+				Theme:       m.theme,
+				Expanded:    true,
+				Diff:        diff,
+				InlineLines: m.toolOutputInlineLines,
+			}
+			m.print(card.View(m.width))
+		default: // "compact"
+			m.print(components.FormatCompactToolLine(
+				tr.Tool, tr.Input, tr.Output, m.theme, m.width,
+			))
 		}
-		// ux-fixes round 5 — tool cards print fully expanded directly
-		// into terminal scrollback. The click-to-expand interaction is
-		// retired with the inline-mode refactor (scrollback content is
-		// immutable; the terminal owns it). Users who want the raw
-		// payload can still call /expand N.
-		card.Expanded = true
-		m.print(card.View(m.width))
+
+		// Orthogonal raw escape hatch — print full untruncated output
+		// below either mode's rendering. Dim/italic so the eye reads it
+		// as appended debug rather than primary content.
+		if m.verboseRaw && len(tr.Output) > 0 {
+			raw := lipgloss.NewStyle().
+				Foreground(m.theme.Dim).
+				Italic(true).
+				Render(string(tr.Output))
+			m.print(raw)
+		}
+
 		// M8 T6 — record the block onto the local ring for /expand [N]
 		// re-render. The wire `output` is json.RawMessage so we render
 		// it as a string verbatim; the expand path treats it as plain
 		// text (multi-line splits on \n) which matches how the user
-		// would read raw tool output in a debug log. The card view above
-		// is a one-line summary; the ring keeps the full payload.
+		// would read raw tool output in a debug log.
 		m.appendCompletedBlock(CompletedBlock{
 			Seq:    env.Seq,
 			Tool:   tr.Tool,

@@ -36,6 +36,12 @@ func main() {
 		modelName      = flag.String("model", "", "model name to display in the splash and status line")
 		provider       = flag.String("provider", "", "provider name to display in the splash and status line")
 		harnessVersion = flag.String("harness-version", "", "harness runtime version (from src/version.ts) to display in the splash; empty falls back to a sentinel")
+		// ux-fixes 2026-05-22 — tool-output rendering controls forwarded
+		// from the launcher (which reads them from userSettings.ui.toolOutput).
+		// Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+		toolOutputMode        = flag.String("tool-output-mode", "compact", "compact (default, one-line per tool call) or detailed (bordered card capped to --tool-output-inline-lines)")
+		toolOutputInlineLines = flag.Int("tool-output-inline-lines", 10, "in detailed mode, cap each tool's inline output to this many rows + '…[+N more lines]' footer")
+		verboseRaw            = flag.Bool("verbose-raw", false, "orthogonal escape hatch — print full untruncated raw tool output below the compact/detailed rendering")
 	)
 	flag.Parse()
 	_ = mouse   // accepted for back-compat
@@ -51,7 +57,10 @@ func main() {
 	}
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
-	model := app.New(*sessionID, baseURL).WithSessionInfo(*modelName, *provider, *harnessVersion)
+	model := app.New(*sessionID, baseURL).
+		WithSessionInfo(*modelName, *provider, *harnessVersion).
+		WithToolOutput(*toolOutputMode, *toolOutputInlineLines).
+		WithVerboseRaw(*verboseRaw)
 	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
 	// content flows into the terminal's native scrollback (wheel scroll
 	// + click-drag text selection just work). Drop mouse capture too —

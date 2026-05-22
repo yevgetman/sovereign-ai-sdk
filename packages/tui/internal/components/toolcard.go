@@ -41,6 +41,11 @@ type ToolCard struct {
 	Theme      theme.Theme // M9 T4 — palette for header, border, body
 	Expanded   bool        // M9 T6 — collapsed by default; auto-expanded for diffs
 	Diff       *DiffView   // M9 T5 — when set + Expanded, body renders the diff
+	// InlineLines caps the rendered Output to this many rows; the surplus
+	// is summarized with a dim "…[+N more lines]" footer. 0 = uncapped
+	// (legacy behavior). Diff path is unaffected — DiffView produces its
+	// own compact rendering and is left intact. ux-fixes 2026-05-22.
+	InlineLines int
 }
 
 func (tc ToolCard) View(width int) string {
@@ -73,10 +78,31 @@ func (tc ToolCard) View(width int) string {
 		// retains a reference to the same DiffView to route j/k focus events.
 		body = tc.Diff.View(width - 4)
 	case tc.Expanded && tc.Output != "":
+		// ux-fixes 2026-05-22 — detailed-mode truncation. When
+		// InlineLines > 0, cap the rendered Output to N rows + dim
+		// "…[+M more lines]" footer. The truncation runs BEFORE the
+		// chroma/plain rendering so the syntax highlighter doesn't
+		// waste work on dropped lines.
+		out := tc.Output
+		var truncFooter string
+		if tc.InlineLines > 0 {
+			lines := strings.Split(out, "\n")
+			if len(lines) > tc.InlineLines {
+				remaining := len(lines) - tc.InlineLines
+				out = strings.Join(lines[:tc.InlineLines], "\n")
+				truncFooter = lipgloss.NewStyle().
+					Foreground(tc.Theme.Dim).
+					Italic(true).
+					Render(fmt.Sprintf("…[+%d more lines]", remaining))
+			}
+		}
 		if tc.Language != "" || tc.RenderHint == "code" {
-			body = render.Code(tc.Output, tc.Language, tc.Theme, width-4)
+			body = render.Code(out, tc.Language, tc.Theme, width-4)
 		} else {
-			body = render.Plain(tc.Output, tc.Theme, width-4)
+			body = render.Plain(out, tc.Theme, width-4)
+		}
+		if truncFooter != "" {
+			body = body + "\n" + truncFooter
 		}
 	default:
 		body = lipgloss.NewStyle().Foreground(tc.Theme.Info).Render(tc.Summary)

@@ -43,6 +43,11 @@ func TestM9_MarkdownRenderedInAssistantText(t *testing.T) {
 func TestM9_ToolResultRendersWithCard(t *testing.T) {
 	// ux-fixes round 5 — tool cards print to scrollback (no longer rendered
 	// in View()). Inspect emittedPrintln via the test helper.
+	//
+	// ux-fixes 2026-05-22 — default tool-output mode is 'compact' which
+	// emits a one-liner ("Read a.go ›") rather than the bordered card.
+	// Assert against the compact-mode rendering; the detailed-mode path
+	// is covered by TestM9_ToolResultRendersWithDetailedCard.
 	m := New("s-tool", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
@@ -51,8 +56,82 @@ func TestM9_ToolResultRendersWithCard(t *testing.T) {
 	model, _ = m.Update(sseMsg{env: env})
 	m = model.(Model)
 	out := scrollbackContent(m)
+	if !strings.Contains(out, "Read") {
+		t.Errorf("compact tool line missing verb 'Read' in scrollback: %q", out)
+	}
+	if !strings.Contains(out, "a.go") {
+		t.Errorf("compact tool line missing target 'a.go' in scrollback: %q", out)
+	}
+}
+
+func TestM9_ToolResultRendersWithDetailedCard(t *testing.T) {
+	// Detailed mode opt-in — bordered card with tool name in header.
+	// Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+	m := New("s-tool-d", "").WithToolOutput("detailed", 10)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"tool_result","seq":1,"sessionId":"s-tool-d","block":0,"tool":"FileRead","input":{"path":"a.go"},"output":"package main","renderHint":"text","language":"go"}`
+	env := newTestEnvelope("tool_result", "s-tool-d", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	out := scrollbackContent(m)
 	if !strings.Contains(out, "FileRead") {
-		t.Errorf("tool card missing tool name in scrollback: %q", out)
+		t.Errorf("detailed mode missing tool name 'FileRead' in scrollback: %q", out)
+	}
+}
+
+func TestM9_ToolResultCompactModeMarksError(t *testing.T) {
+	// Compact mode prefixes runtime errors with ✗ glyph (theme.Error
+	// color). Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+	m := New("s-err", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"tool_result","seq":1,"sessionId":"s-err","block":0,"tool":"Bash","input":{"command":"false"},"output":{"status":"error","summary":"exited 1"},"renderHint":"text"}`
+	env := newTestEnvelope("tool_result", "s-err", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "✗") {
+		t.Errorf("compact error line missing ✗ glyph: %q", out)
+	}
+}
+
+func TestM9_ToolResultCompactModeMarksPermissionDenied(t *testing.T) {
+	// Compact mode prefixes permission-denied results with ⚠ glyph
+	// (theme.Warning). The orchestrator deny path emits Output as a
+	// JSON-quoted "permission denied: ..." string.
+	m := New("s-denied", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	raw := `{"type":"tool_result","seq":1,"sessionId":"s-denied","block":0,"tool":"Bash","input":{"command":"rm -rf /"},"output":"permission denied: rule deny matched","renderHint":"text"}`
+	env := newTestEnvelope("tool_result", "s-denied", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "⚠") {
+		t.Errorf("compact denied line missing ⚠ glyph: %q", out)
+	}
+}
+
+func TestM9_ToolResultVerboseRawAppendsRawOutput(t *testing.T) {
+	// -v / --verbose flag forwarded as --verbose-raw; the Model field
+	// flips on and the handler appends raw untruncated output below
+	// the compact line.
+	m := New("s-raw", "").WithVerboseRaw(true)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = model.(Model)
+	raw := `{"type":"tool_result","seq":1,"sessionId":"s-raw","block":0,"tool":"FileRead","input":{"path":"a.go"},"output":"package main\n\nfunc main() {}","renderHint":"text"}`
+	env := newTestEnvelope("tool_result", "s-raw", 1, raw)
+	model, _ = m.Update(sseMsg{env: env})
+	m = model.(Model)
+	out := scrollbackContent(m)
+	// Compact line still appears.
+	if !strings.Contains(out, "Read") {
+		t.Errorf("verbose-raw missing compact line: %q", out)
+	}
+	// Plus the raw output (decoded from the JSON string).
+	if !strings.Contains(out, "package main") {
+		t.Errorf("verbose-raw missing raw output: %q", out)
 	}
 }
 

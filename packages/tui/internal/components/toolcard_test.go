@@ -168,3 +168,74 @@ func TestTruncatePreviewZeroMaxReturnsEmpty(t *testing.T) {
 		t.Errorf("max=0: expected empty, got %q", got)
 	}
 }
+
+// ux-fixes 2026-05-22 — ToolCard.InlineLines truncation in detailed
+// mode caps the rendered Output to N rows and appends a dim italic
+// "…[+M more lines]" footer. Spec:
+// docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
+func TestToolCardInlineLinesTruncatesOutput(t *testing.T) {
+	// Build an output with 25 lines.
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = "line " + string(rune('A'+i%26))
+	}
+	output := strings.Join(lines, "\n")
+	tc := ToolCard{
+		Tool:        "Bash",
+		Output:      output,
+		Theme:       theme.Dark(),
+		Expanded:    true,
+		InlineLines: 5,
+	}
+	view := tc.View(120)
+	// Footer indicates 20 surplus lines (25 - 5).
+	if !strings.Contains(view, "+20 more lines") {
+		t.Errorf("expected '+20 more lines' footer, got: %q", view)
+	}
+	// Only first 5 lines retained. Line 6 onwards should be absent.
+	// Use the 6th line's char as a probe.
+	if strings.Contains(view, "line F") {
+		t.Errorf("did not expect 6th line in truncated card, got: %q", view)
+	}
+	// First line still present.
+	if !strings.Contains(view, "line A") {
+		t.Errorf("expected first line 'line A' in card, got: %q", view)
+	}
+}
+
+func TestToolCardInlineLinesZeroLeavesOutputUncapped(t *testing.T) {
+	// InlineLines == 0 should NOT truncate (legacy behavior).
+	output := strings.Repeat("line\n", 50)
+	tc := ToolCard{
+		Tool:        "Bash",
+		Output:      output,
+		Theme:       theme.Dark(),
+		Expanded:    true,
+		InlineLines: 0,
+	}
+	view := tc.View(120)
+	if strings.Contains(view, "more lines") {
+		t.Errorf("InlineLines=0 should not truncate, got footer: %q", view)
+	}
+}
+
+func TestToolCardInlineLinesUnderCapLeavesOutputUntouched(t *testing.T) {
+	// Output shorter than cap → no truncation footer.
+	output := "line1\nline2\nline3"
+	tc := ToolCard{
+		Tool:        "Bash",
+		Output:      output,
+		Theme:       theme.Dark(),
+		Expanded:    true,
+		InlineLines: 10,
+	}
+	view := tc.View(120)
+	if strings.Contains(view, "more lines") {
+		t.Errorf("output under cap shouldn't have truncation footer, got: %q", view)
+	}
+	for _, want := range []string{"line1", "line2", "line3"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("expected %q in untruncated card, got: %q", want, view)
+		}
+	}
+}
