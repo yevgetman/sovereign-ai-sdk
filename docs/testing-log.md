@@ -8,6 +8,33 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 evening — Phase 17 T9 (spec `Check` scenario smoke pass — T1-T9 green)
+
+**Scope:** Phase 17 (cron / scheduled jobs) milestones T1-T8 already shipped today; T9 pins the spec's `Check` scenario from the build plan with an end-to-end smoke test. New `tests/cron/smoke.test.ts` drives the full path: CLI helper (`runCronAdd`) writes the job to `<harnessHome>/cron/jobs.json`, `CronRunner.runDueJobs()` with a fake-clock `now()` filters and dispatches, the stubbed executor runs, and the assistant text lands in `<harnessHome>/cron/outbox/<jobId>/`. Three scenarios: (1) spec `Check` — `every 1m` → tick → outbox file with stubbed `hello (assistant)` body; (2) `[SILENT]` negative — output recorded but no outbox delivery (lastResult.ok=true regardless); (3) paused-job negative — disabled job is skipped at the CLI layer end-to-end. The fake-clock approach (`now: () => Date.now() + 60_000 + 1000`) bypasses the 60-second `setInterval` and tests dispatch directly — the pattern established by T5's CronRunner tests.
+
+**Real-LLM round-trip not exercised here** — that path is already covered by `tests/cron/wiring.test.ts` (mock provider through `buildRuntime` + `createProductionCronRunner`) and the project's separate semantic test suite (real Anthropic via `sov drive`). The stubbed agent is the right level for a smoke test.
+
+Created:
+- `tests/cron/smoke.test.ts` (3 tests, 11 expect calls) — spec `Check` + [SILENT] negative + paused-job negative.
+
+**Commands:**
+
+```
+bun test tests/cron/smoke.test.ts
+# 3 pass — spec `Check` scenario plus [SILENT] + paused-job negatives
+
+bun run lint && bun run typecheck && bun run test
+# lint: 2 warnings (pre-existing in src/permissions/shellSemantics.ts; unrelated)
+# typecheck: clean
+# tests: 2053 pass / 0 fail / 14 skip — +3 from T8 close at 2050, +57 from morning baseline of 1996
+```
+
+**Result:** PASS. End-to-end: addJob via CLI → CronRunner.runDueJobs (fake-clock) → outbox file lands. No new ADRs (smoke test, no production surface change).
+
+**Follow-ups:** T10 (state snapshot + docs update), T11 (cut v0.3.0 release).
+
+---
+
 ## 2026-05-22 night — Phase 17 T7 (wire CronRunner into buildRuntime lifecycle)
 
 **Scope:** Wired the Phase 17 T5 `CronRunner` + T6 `buildCronJobExecutor` into `buildRuntime`'s lifecycle. New `src/cron/wiring.ts` owns the three production deps for the executor: `runAgent` (mints a fresh `metadata.kind='cron'` session, builds `AgentRunner` against `runtime.toolPool` minus `SUBAGENT_EXCLUDED_TOOLS`, drains the generator, returns final assistant text); `expandSkills` (looks each name up in `runtime.skills.byName`, joins via expandSkillPrompt + `\n\n---\n\n`); `runScript` (`spawnSync` with timeout + interpreter inference + 16 KiB stdout cap). canUseTool is `mode: 'default'` with an auto-deny `ask` (matches `sov drive` headless policy). New `cronEnabled?: boolean` option (default `true`); new `cronRunner?: CronRunner` field on `Runtime`; `dispose()` stops the runner FIRST (before sessionDb / MCP / approval queue teardown). Also added `.unref()` to `CronRunner.start()`'s `setInterval` so the timer doesn't keep tests/processes alive.
