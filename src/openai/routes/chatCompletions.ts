@@ -1,12 +1,17 @@
-// Phase 18 T2 — POST /v1/chat/completions (non-streaming branch only).
+// Phase 18 T2 + T5 — POST /v1/chat/completions.
 //
 // Validates the OpenAI ChatRequest against the Zod schema, resolves the
 // requested model against the runtime, builds an ephemeral session, maps
 // the request messages → internal Message[], appends any per-request
 // system text to the runtime's bootstrapped systemPrompt, and drives the
-// query() async generator to terminal. On completion, the last assistant
-// message is projected back through blocksToOpenAI() and returned as an
-// OpenAI chat.completion envelope.
+// query() async generator to terminal.
+//
+// Two response shapes:
+//   - `stream === true` (T5): Hono's streamSSE wraps the generator and
+//     the T4 translator emits OpenAI-shaped SSE chunks via stream.write.
+//   - otherwise (T2): drain the generator, project the last assistant
+//     message through blocksToOpenAI(), return a chat.completion JSON
+//     envelope.
 //
 // Permissions / tool gating mirrors cron's headless policy (D11 + D12):
 //   - canUseTool: layered rule layers honored; `ask` callback auto-denies.
@@ -16,11 +21,9 @@
 // (metadata.kind = 'openai-api') so traces and per-session subsystems
 // land in the harness state tree; no prior history is hydrated from the
 // DB. The full conversation history comes from the request body.
-//
-// Streaming (`req.stream === true`) is not handled in T2 — that branch is
-// rejected with a 501 until T5 wires SSE.
 
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import { ZodError } from 'zod';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../../agents/exclusions.js';
 import { loadPermissionSettings } from '../../config/settings.js';
@@ -42,6 +45,8 @@ import { blocksToOpenAI } from '../mapping/blocksToOpenAI.js';
 import { requestToMessages } from '../mapping/requestToMessages.js';
 import { ChatRequestSchema } from '../mapping/schema.js';
 import { InvalidModelError, resolveModelForRequest } from '../modelResolution.js';
+import { DONE_MARKER, buildFinalChunk } from '../streaming/chunks.js';
+import { translateStream } from '../streaming/sseTranslator.js';
 
 /** OpenAI-shaped error envelope. The route returns 400/401/501 with this
  *  shape so SDK clients (Python/JS openai) surface the right exception
@@ -89,15 +94,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       return c.json(errorBody(`invalid request: ${msg}`, 'invalid_request_error'), 400);
     }
 
-    // 2) T2 only handles the non-streaming branch. Streaming lands in T5.
-    if (parsed.stream === true) {
-      return c.json(
-        errorBody('streaming responses not yet implemented (T5)', 'not_implemented'),
-        501,
-      );
-    }
-
-    // 3) Resolve the requested model. T2: harness-default only; unknown
+    // 2) Resolve the requested model. T2: harness-default only; unknown
     // names throw InvalidModelError → 400 with the supported list per OQ2.
     let resolved: ReturnType<typeof resolveModelForRequest>;
     try {
@@ -109,7 +106,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       throw err;
     }
 
-    // 4) Map the OpenAI messages[] onto internal Message[] + lift any
+    // 3) Map the OpenAI messages[] onto internal Message[] + lift any
     // per-request system content. Invalid tool_call argument JSON throws
     // here (mapped to 400 via the try/catch).
     let mapped: ReturnType<typeof requestToMessages>;
@@ -129,7 +126,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       ...extraSystemSegments.map((text) => ({ text, cacheable: false })),
     ];
 
-    // 5) Mint an ephemeral session row tagged metadata.kind='openai-api'.
+    // 4) Mint an ephemeral session row tagged metadata.kind='openai-api'.
     // The full session row keeps the trajectory + cost wiring in place
     // even though the wire surface is stateless. The session id flows
     // onto the chatcmpl-* response id and into the per-session ToolContext
@@ -142,41 +139,38 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       metadata: { kind: 'openai-api' },
     });
 
-    try {
-      // 6) Build a request-scoped canUseTool. Same shape as cron's
-      // headless policy: layered rules honored, `ask` callback auto-denies
-      // (no interactive prompt surface). Wrapped with redactSecretsTransformer
-      // for defense-in-depth (matches the M3 runtime canUseTool composition).
-      const permissionSettings = loadPermissionSettings({
-        cwd: runtime.cwd,
-        harnessHome: runtime.harnessHome,
-      });
-      const ask = async (): Promise<AskResponse> => 'deny';
-      const baseCanUseTool = buildCanUseTool({
-        mode: 'default',
-        ask,
-        alwaysAllow: new Set<string>(),
-        ruleLayers: permissionSettings.layers,
-      });
-      const sessionCanUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [
-        redactSecretsTransformer,
-      ]);
+    // 5) Build a request-scoped canUseTool. Same shape as cron's
+    // headless policy: layered rules honored, `ask` callback auto-denies
+    // (no interactive prompt surface). Wrapped with redactSecretsTransformer
+    // for defense-in-depth (matches the M3 runtime canUseTool composition).
+    const permissionSettings = loadPermissionSettings({
+      cwd: runtime.cwd,
+      harnessHome: runtime.harnessHome,
+    });
+    const ask = async (): Promise<AskResponse> => 'deny';
+    const baseCanUseTool = buildCanUseTool({
+      mode: 'default',
+      ask,
+      alwaysAllow: new Set<string>(),
+      ruleLayers: permissionSettings.layers,
+    });
+    const sessionCanUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [
+      redactSecretsTransformer,
+    ]);
 
-      // 7) Tool pool — filter the parent runtime pool against the
-      // subagent exclusion set (D12). Matches cron's policy and ensures
-      // recursive AgentTool / cron CRUD / task_stop never appear on the
-      // request's tool surface.
-      const requestToolPool = runtime.toolPool.filter(
-        (tool) => !SUBAGENT_EXCLUDED_TOOLS.has(tool.name),
-      );
+    // 6) Tool pool — filter the parent runtime pool against the
+    // subagent exclusion set (D12). Matches cron's policy and ensures
+    // recursive AgentTool / cron CRUD / task_stop never appear on the
+    // request's tool surface.
+    const requestToolPool = runtime.toolPool.filter(
+      (tool) => !SUBAGENT_EXCLUDED_TOOLS.has(tool.name),
+    );
 
-      // 8) Drive the query() generator to terminal. We capture:
-      //   - the final assistant message (last assistant_message event)
-      //   - the final usage_delta (provider's last token-count update)
-      //   - the Terminal value (generator return)
-      // No SSE wiring — we just drain to terminal and project.
-      const toolContext = buildSessionToolContext(runtime, sessionId, sessionCanUseTool);
-      const gen = query({
+    // 7) Construct the query() invocation. The same params drive both
+    // branches; the difference is who drains the generator.
+    const toolContext = buildSessionToolContext(runtime, sessionId, sessionCanUseTool);
+    const buildQuery = (): ReturnType<typeof query> =>
+      query({
         provider: resolved.transport,
         model: resolved.model,
         messages,
@@ -191,6 +185,61 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         hookRunner: runtime.hookRunner,
         microcompactConfig: runtime.microcompactConfig,
       });
+
+    const responseId = `chatcmpl-${sessionId}`;
+    const created = Math.floor(Date.now() / 1000);
+
+    // 8a) Streaming branch (T5). Hono's streamSSE owns the wire; the T4
+    // translator owns the chunk shape. We pass `stream.write` directly
+    // as the WriteFn — the translator already produces `data: …\n\n`
+    // lines and the DONE terminator, so no extra wrapping is needed.
+    //
+    // Error handling: if query() throws mid-stream (provider error,
+    // tool error not caught by query(), etc.), we catch inside the
+    // streamSSE callback and emit a final-stop chunk + [DONE] so the
+    // client sees a well-formed (if truncated) wire instead of a
+    // half-finished stream. `runtime.disposeSession` always runs.
+    if (parsed.stream === true) {
+      return streamSSE(c, async (stream) => {
+        try {
+          const gen = buildQuery();
+          await translateStream(
+            gen,
+            { id: responseId, model: parsed.model, created },
+            async (line) => {
+              await stream.write(line);
+            },
+          );
+        } catch (err) {
+          // Best-effort: emit a final-stop chunk + DONE so the client
+          // doesn't hang waiting for a terminator. We don't have a
+          // structured way to surface the error inside the OpenAI
+          // chunk shape (no `error` field on chat.completion.chunk),
+          // so we close clean and log server-side.
+          console.error('[openai] streaming /v1/chat/completions error:', err);
+          try {
+            const finalChunk = buildFinalChunk('stop', {
+              id: responseId,
+              model: parsed.model,
+              created,
+            });
+            await stream.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+            await stream.write(`data: ${DONE_MARKER}\n\n`);
+          } catch {
+            // The stream may already be closed (client disconnect, abort).
+            // Nothing more to do.
+          }
+        } finally {
+          await runtime.disposeSession(sessionId);
+        }
+      });
+    }
+
+    // 8b) Non-streaming branch (T2). Drain query() to terminal and
+    // capture the final assistant message + usage. Project both back
+    // through blocksToOpenAI() into a chat.completion envelope.
+    try {
+      const gen = buildQuery();
 
       let finalAssistant: AssistantMessage | undefined;
       let latestUsage: TokenUsage | undefined;
@@ -214,7 +263,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         }
       }
 
-      // 9) Project the final assistant message back to OpenAI shape. If
+      // Project the final assistant message back to OpenAI shape. If
       // the run terminated without an assistant message (e.g. error
       // before the first model call), surface an empty content string so
       // the wire shape is still valid.
@@ -228,11 +277,8 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       const promptTokens = latestUsage?.inputTokens ?? 0;
       const completionTokens = latestUsage?.outputTokens ?? 0;
 
-      const id = `chatcmpl-${sessionId}`;
-      const created = Math.floor(Date.now() / 1000);
-
       return c.json({
-        id,
+        id: responseId,
         object: 'chat.completion',
         created,
         // Echo the requested model name verbatim (not the resolved one).

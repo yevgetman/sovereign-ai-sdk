@@ -8,6 +8,50 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T5 (wire SSE streaming into `POST /v1/chat/completions`)
+
+**Scope:** T5 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Replaces the T2 `501 Not Implemented` stub with a streaming branch: when `req.stream === true` the route returns `streamSSE(c, …)` and drives `query()`'s `AsyncGenerator` through the T4 translator. The non-streaming branch is unchanged. Closes the streaming half of Phase 18's `Check`.
+
+**Wire format (verified by the new integration test):**
+
+```
+data: {"id":"chatcmpl-…","object":"chat.completion.chunk","created":…,"model":"harness-default","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{"content":" world."},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n
+data: [DONE]\n\n
+```
+
+The role chunk is emitted lazily (only on the first `text_delta` event); a tool-only or empty turn skips it. The terminator follows OpenAI's spec literally.
+
+**Implementation notes:**
+- `streamSSE` from `hono/streaming` writes `Content-Type: text/event-stream` + `Cache-Control: no-cache` + `Connection: keep-alive` headers and owns the writable stream lifecycle.
+- The translator already emits `data: …\n\n` lines and the `[DONE]` terminator, so the route just passes `stream.write` through as the `WriteFn` — no extra wrapping.
+- Shared setup (model resolution, message mapping, session creation, canUseTool, tool pool, `buildQuery()` closure) is hoisted out of the previous branch so both paths reach it identically. The non-streaming branch is byte-equivalent in behavior.
+- Mid-stream error handling: a `try/catch` inside the `streamSSE` callback catches anything `query()` throws after the wire has opened. On catch it logs to stderr, then best-effort emits a final-stop chunk + `[DONE]` so the client sees a well-formed (if truncated) wire instead of a half-finished stream. Wrapped in an inner `try/catch` because the stream may already be closed on client disconnect.
+- `runtime.disposeSession(sessionId)` runs in `finally` for both branches — trace flush + trajectory write always happen.
+
+**API discrepancy vs. plan sketch:** The plan called for `stream.writeRaw(line)`. Hono's `SSEStreamingApi` (extends `StreamingApi`) does not expose `writeRaw` — the actual method is `stream.write(input: Uint8Array | string)`. Used `stream.write` instead. The translator already produces wire-ready strings, so this is a one-line difference.
+
+**Files modified:**
+- `src/openai/routes/chatCompletions.ts` — added imports (`streamSSE`, `translateStream`, `buildFinalChunk`, `DONE_MARKER`); replaced the 501 stub with the streaming branch; refactored shared setup out of the per-branch `try`.
+
+**Files created:**
+- `tests/openai/chatCompletions.streaming.test.ts` — 4 integration tests against `buildOpenAIApp` + mock provider: (1) streaming returns SSE with role + content deltas + final stop + DONE (asserts chunk count, role chunk shape, concatenated content equals `Hello world.`, exactly one final-stop chunk, last line is `data: [DONE]`); (2) `stream:false` still returns JSON; (3) omitted stream field defaults to non-streaming JSON; (4) 401 fires before the streaming switch when auth is missing.
+
+**Test count:** TS **2135 pass / 0 fail / 14 skip** (+4 from T4's 2131 baseline). Lint clean. Typecheck clean.
+
+**Commands:**
+
+```
+bun test tests/openai/chatCompletions.streaming.test.ts    # → 4 pass / 0 fail
+bun run lint                                               # → clean
+bun run typecheck                                          # → clean
+bun run test                                               # → 2135 pass / 0 fail / 14 skip
+```
+
+**Follow-ups for the run:** T6 (surface `delta.tool_calls` on the streaming path — currently `tool_use_delta` events are dropped per T4's design; the translator gets a tool-call branch) + T7-T11 per the plan. v0.4.0 binary release lands at T12.
+
 ## 2026-05-23 — Phase 18 T3 (`sov serve` CLI subcommand)
 
 **Scope:** T3 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Adds `program.command('serve')` to `src/main.ts` that boots a runtime + OpenAI HTTP API server, registers SIGINT/SIGTERM handlers for graceful shutdown, and parks via `await new Promise<never>(() => {})`. Closes the **non-streaming half of the spec's `Check`** — `curl http://localhost:8765/v1/chat/completions ...` now returns an OpenAI-shaped response when `sov serve` is running.
