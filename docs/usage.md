@@ -117,6 +117,8 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `learning status [--project <id>]` | (Phase 13.4.) Show per-project instinct counts + confidence histogram for the current (or specified) project. |
 | `learning prune [--project <id>] [--dry-run]` | (Phase 13.4.) Drop sub-threshold instincts that have exceeded their aging window. `--dry-run` lists candidates without deleting. |
 | `learning export <project-id> [--output <dir>]` | (Phase 13.4.) Emit each instinct as a `.md` file into `<dir>` (defaults to `./instincts-export`). Useful for external review or archiving. |
+| `cron <add\|list\|show\|pause\|resume\|delete\|run\|tick>` | (Phase 17.) Schedule fresh-session agent runs (cron / relative / interval / ISO timestamps). Per-job optional pre-agent script + chained skills + delivery target. The 60-second tick loop runs as long as a `sov` process (TUI / drive / dispatch / `sov serve`) is alive. See `docs/state/2026-05-22-phase-17-cron.md` for the design lock + `cron add --help` for flag detail. |
+| `serve [--port <n>] [--host <addr>] [--provider <name>] [--model <name>] [--max-tokens <n>] [--permission-mode <mode>] [--no-cron] [--no-preflight] [-b/--bundle <path>]` | (Phase 18.) Run the OpenAI-compatible HTTP API server. Long-lived; SIGINT/SIGTERM trigger graceful shutdown. Any tool speaking OpenAI's HTTP API (Open WebUI, LibreChat, AnythingLLM, official `openai` Python/JS SDKs with a custom `base_url`) can drive the harness without code changes. API key required at boot (`SOV_OPENAI_API_KEY` env > `openaiServer.apiKey` config). See [OpenAI-compatible HTTP API (`sov serve`)](#openai-compatible-http-api-sov-serve) below for the full surface. |
 
 ## Eval Suite
 
@@ -340,6 +342,150 @@ Visual surfaces you'll see in a normal session:
 - **Compaction marker** — when proactive or explicit `/compact` runs, the session pivots to a child id; a dim `─ compacted — new session <id>` line lands in scrollback.
 - **Turn separator** — a dim horizontal rule between completed turns; when the model finishes with a non-`end_turn` reason, the reason follows on the next line (`⚠ max_tokens`).
 - **Goodbye card** at session end — Interaction Summary (session ID, tool calls ✓/✗, success rate), Performance (wall time, agent active, API time, tool time), Tokens (total, cache, est. cost), followed by the resume command. Replaces the View instead of being in scrollback (it's the last frame the user sees).
+
+## OpenAI-compatible HTTP API (`sov serve`)
+
+Run the harness as a **drop-in OpenAI backend** on a stable port. Any tool that speaks OpenAI's HTTP API (Open WebUI, LibreChat, AnythingLLM, the official `openai` Python/JS SDKs with a custom `base_url`) can drive the harness without code changes. Phase 18 (shipped 2026-05-23).
+
+### Quick start
+
+1. Set the API key (one-shot per machine):
+
+```bash
+export SOV_OPENAI_API_KEY=$(openssl rand -hex 32)
+# OR persist via config: sov config set openaiServer.apiKey <key>
+```
+
+2. Start the server:
+
+```bash
+sov serve
+# listening on http://127.0.0.1:8765
+#   provider=anthropic  model=claude-haiku-4-5-20251001
+#   cron=on  harnessHome=/Users/you/.harness
+```
+
+3. Drive it with anything OpenAI-shaped. Bash + curl:
+
+```bash
+curl -s -H "Authorization: Bearer $SOV_OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -X POST http://localhost:8765/v1/chat/completions \
+  -d '{
+    "model": "harness-default",
+    "messages": [{"role": "user", "content": "what files are in src/?"}]
+  }'
+```
+
+Python `openai` SDK:
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8765/v1",
+    api_key=os.environ["SOV_OPENAI_API_KEY"],
+)
+resp = client.chat.completions.create(
+    model="harness-default",
+    messages=[{"role": "user", "content": "what files are in src/?"}],
+    stream=True,
+)
+for chunk in resp:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+Open WebUI quickstart: Settings → Connections → OpenAI API → add `http://localhost:8765/v1` as the base URL and the value of `SOV_OPENAI_API_KEY` as the key. The model picker auto-populates from `GET /v1/models`.
+
+### CLI flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port <n>` | `8765` | Listening port. Env: `SOV_OPENAI_PORT`. Config: `openaiServer.port`. |
+| `--host <addr>` | `127.0.0.1` | Bind host. Env: `SOV_OPENAI_HOST`. Config: `openaiServer.host`. |
+| `--provider <name>` | runtime default | Provider override for the runtime: `anthropic`, `openai`, `ollama`, `openrouter`, or `router`. |
+| `-m, --model <name>` | runtime default | Model override (the runtime's bootstrap model). Per-request `req.model` can override on a call-by-call basis (T9). |
+| `--max-tokens <n>` | runtime default | Per-request max_tokens cap fed into `query()`. Clients may also send `max_tokens` on each request. |
+| `--permission-mode <mode>` | `default` | `default` / `ask` / `bypass`. `ask` fall-throughs always auto-deny on this surface (D11). |
+| `--no-cron` | (cron on) | Disable the cron tick loop. By default cron is on — long-lived `sov serve` is the natural cron host. |
+| `-b, --bundle <path>` | bundled | Harness bundle root. Single bundle per server in v0 (D6/OQ3); fork multiple `sov serve` processes on different ports for multi-bundle. |
+| `--no-preflight` | preflight on | Skip the provider health-check on boot. |
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | none | Liveness probe. Returns `{ ok: true, version }`. Exempt from auth so container orchestrators can ping it. |
+| GET | `/v1/models` | Bearer | List routable models in OpenAI's standard `{ object: 'list', data: [...] }` shape. Catalog sourced from `SUPPORTED_MODELS` in `src/openai/modelResolution.ts`. |
+| POST | `/v1/chat/completions` | Bearer | Chat completion. Supports both non-streaming (`stream: false` or absent) and streaming (`stream: true` → SSE) shapes. |
+
+### Model selection (`req.model`)
+
+- **`harness-default`** (or empty) — uses the runtime's bootstrapped provider + model. Cheap and fast (no extra resolver call).
+- **Explicit name** (e.g., `claude-haiku-4-5-20251001`, `gpt-4o`, `gpt-4o-mini`) — calls `resolveProvider(family, model, { harnessHome })` per request. Each call yields fresh credentials and rate-guard state. Routing logic: `claude-*` → `anthropic` family; `gpt-*` → `openai` family.
+- **Unknown name** — returns 400 with `error.type: 'invalid_request_error'` and the full supported model list in the message. No silent aliasing (D6/OQ2).
+
+The full catalog: `harness-default`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`, `gpt-4o`, `gpt-4o-mini`. `GET /v1/models` surfaces this catalog directly.
+
+### Session continuity
+
+The OpenAI surface is **fully stateless** (D10). Each request carries its own `messages[]`; the harness does NOT re-hydrate prior history from its SessionDb. The client owns conversation continuity (which matches the OpenAI API contract — clients always send the full history on every turn).
+
+For observability, every request creates a SessionDb row tagged `metadata.kind='openai-api'`. Send `X-Session-Id: <your-id>` to control the trace's id (otherwise a UUID is minted server-side). Server-side the row is namespaced `openai:<id>` to prevent cross-surface pollution (clients cannot inject into TUI / cron / drive session keyspace by sending an existing UUID). The response's `chatcmpl-<id>` field echoes the client-supplied id unprefixed; the `openai:` namespace is a server-side detail.
+
+Repeat invocations against the same `X-Session-Id` APPEND new messages to the existing row (a fresh row is NOT created), but the model still sees only what the current request body carries — the row is observability, not state.
+
+### Tools
+
+The harness owns tool execution end-to-end. Tool invocations happen **inside** the single `/v1/chat/completions` request — the client never re-enters to satisfy a `tool_calls` callback. Clients see `tool_calls` in the assistant chunks for observability, but the response always terminates with `finish_reason: "stop"` (D9 — never `"tool_calls"`).
+
+Tool-execution side-channel: when a tool runs mid-request, the SSE stream emits
+
+```
+event: hermes.tool.progress
+data: {"tool_use_id":"<id>","output":"<text>","is_error":false}
+
+```
+
+alongside the standard OpenAI `data: {...}` chunks. Standard OpenAI clients ignore unknown event types per SSE spec — the side-channel is harness-aware UIs' progressive-disclosure hook without breaking SDK compatibility. The payload omits `output` when undefined and `is_error` when false (absence signals success).
+
+Permission policy mirrors `sov drive` / cron headless: `mode: 'default'` with auto-deny `ask` fall-through. The runtime's layered allow/deny rules fire normally; only when a tool's self-check returns `ask` does the auto-deny kick in. The tool pool is filtered against `SUBAGENT_EXCLUDED_TOOLS` so `AgentTool` / cron CRUD / `task_stop` / `send_message` never appear on the OpenAI surface. Configure explicit allow rules in `<harnessHome>/settings.local.json` for tools you want the OpenAI surface to invoke.
+
+### Abort on client disconnect
+
+The route bridges the Web Fetch `Request.signal` (Hono's `c.req.raw.signal` on Bun.serve) to a request-scoped `AbortController`, then threads `abortController.signal` into `query()`. When the client closes its fetch context (Ctrl-C, browser tab close, `openai-python`'s `with ... as response:` exiting on exception), the controller fires; `query()` sees the signal and returns `{ reason: 'interrupted' }`; the route disposes the session in `finally`. No wasted provider tokens after the client gives up. Fast-fail path: if `c.req.raw.signal.aborted === true` at handler entry, the request short-circuits before any provider call.
+
+### Error handling
+
+Errors surface as OpenAI-shaped envelopes so SDK clients raise the right exception classes:
+
+- 401 + `invalid_api_key` — bearer auth failure (missing/wrong key); `CredentialUnavailableError` from `resolveProvider`; `ProviderHttpError` 401/403; credential-related message heuristic. SDK clients raise `AuthenticationError`.
+- 400 + `invalid_request_error` — malformed JSON, Zod schema validation failure, unknown model (`code: 'model_not_found'`). SDK clients raise `BadRequestError`.
+- Mirror upstream HTTP status + `upstream_error` — `ProviderHttpError` / SDK-shaped errors with a `.status` field. A real provider 429 stays 429 (not 500).
+- 500 + `api_error` — generic fallback for unclassified provider errors.
+
+**Streaming caveat:** errors thrown AFTER the SSE wire has opened surface as a best-effort final-stop chunk + `data: [DONE]\n\n` rather than a JSON envelope (the wire shape doesn't allow mid-stream status changes), but the `finally` block always disposes the session.
+
+### Configuration
+
+Persistent config block in `~/.harness/config.json`:
+
+```json
+{
+  "openaiServer": {
+    "apiKey": "<your-key>",
+    "port": 8765,
+    "host": "127.0.0.1"
+  }
+}
+```
+
+Env vars: `SOV_OPENAI_API_KEY`, `SOV_OPENAI_PORT`, `SOV_OPENAI_HOST`. Precedence: env > flag > config > default (for port/host; the API key has no default — refuses to boot without one).
+
+### Deployment
+
+v0 expectation: keep `sov serve` running in a long-lived terminal pane, a launchd plist, or a systemd service. If the process exits, both the OpenAI surface and any cron jobs go silent. Localhost-only by default (`127.0.0.1`); set `--host 0.0.0.0` to expose on a LAN — but put a reverse proxy with TLS in front since the API key travels in cleartext on the wire.
 
 ## Themes
 

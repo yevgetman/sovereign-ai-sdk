@@ -372,6 +372,41 @@ Settings shape:
 }
 ```
 
+## OpenAI HTTP Server
+
+`src/openai/` carries an OpenAI-compatible HTTP API surface (Phase 18). It sits parallel to the TUI / drive / dispatch / cron surfaces — all five share the same `buildRuntime()` factory, but each owns its own entry point. The OpenAI server boots via `sov serve`, runs on its own `Bun.serve` binding (default port 8765, configurable via `--port` / `SOV_OPENAI_PORT` / `openaiServer.port`), and is fully stateless per request: `query()` drives directly (NOT `AgentRunner`) because the wire shape carries full message history natively. Bearer auth gates `/v1/*` (the API key is required at boot — no anonymous mode); `/health` is auth-exempt for container liveness probes.
+
+```
+sov serve  →  src/main.ts:282 (command('serve'))
+           →  buildRuntime({ cwd, cronEnabled, ...overrides })
+           →  createOpenAIServer({ runtime, apiKey, port, host })
+           →  Bun.serve({ port, hostname, fetch: app.fetch, idleTimeout: 0 })
+                ↓
+              buildOpenAIApp({ runtime, apiKey })  ─┬─  /health         (no auth)
+                                                    ├─  bearerAuth('/v1/*')
+                                                    ├─  /v1/models      (auth)
+                                                    └─  /v1/chat/completions  (auth)
+                                                          ↓
+                                              POST handler in chatCompletions.ts
+                                                          ↓
+                                              query() with messages[], abort signal
+                                                          ↓
+                                              (stream:true  → streamSSE + translator)
+                                              (stream:false → drain → JSON envelope)
+```
+
+Per-request flow: parse + Zod-validate the body; resolve the model (`harness-default` → runtime bootstrap, explicit name → `resolveProvider(family, model, { harnessHome })`); map OpenAI messages → internal `Message[]` (lifting `system` → `extraSystemSegments`); mint/reuse a SessionDb row tagged `metadata.kind='openai-api'` with PK namespaced `openai:<id>` (client-supplied `X-Session-Id` namespaced to prevent cross-surface pollution); build a request-scoped `canUseTool` (`mode: 'default'` + auto-deny `ask` — matches cron headless policy); filter the tool pool against `SUBAGENT_EXCLUDED_TOOLS`; bridge the client's Web Fetch `Request.signal` to a request-scoped `AbortController`; drive `query()`. Streaming branch wraps the generator in Hono's `streamSSE`; the T4 translator emits OpenAI-shaped chunks (`buildRoleChunk` / `buildDeltaChunk` / `buildToolCallsChunk` / `buildFinalChunk`) and the T6 `hermes.tool.progress` SSE side-channel events for tool observability. Non-streaming branch drains the generator and projects the final assistant `ContentBlock[]` through `blocksToOpenAI()` into a `chat.completion` JSON envelope. Both branches share the same shutdown path: `runtime.disposeSession(sessionId)` in `finally`.
+
+**Tool execution invariant (D9).** The harness runs tools internally inside a single `/v1/chat/completions` call. Clients see `tool_calls` chunks for observability, but `finish_reason` is always `'stop'` or `'length'`, never `'tool_calls'`. Standard OpenAI SDK clients (openai-python, openai-js, Open WebUI, LibreChat) never re-enter to satisfy a tool callback — the harness drives the tool loop end-to-end and returns the final assistant text. Tool invocations also emit `event: hermes.tool.progress\ndata: {tool_use_id, output?, is_error?}\n\n` on the SSE side-channel; standard clients ignore unknown event types per SSE spec, so harness-aware UIs get progressive disclosure without breaking SDK compatibility.
+
+**Statelessness invariant (D10).** The route never hydrates prior history from the SessionDb. Each `/v1/chat/completions` call uses ONLY the request body's `messages[]`. The SessionDb row exists purely for trace + learning observability (trajectory + cost wiring + per-session subsystems all key off the row, but the conversation history is client-managed — every request is the full history).
+
+**Abort propagation.** `c.req.raw.signal` (the Web Fetch `Request.signal` Hono exposes on Bun.serve) → request-scoped `AbortController` → `query()`'s `signal` param → `provider.stream({ signal })`. When the client closes its fetch context, every link in the chain flips to `aborted === true`; `query()` returns `{ reason: 'interrupted' }`; the route disposes the session. The explicit bridge insulates the inner pipeline from runtime-specific differences in when source signals dispatch their abort events (Bun, Node, Workers have diverged historically on TCP RST vs. graceful FIN).
+
+**Session observability.** Every request mints a SessionDb row via `runtime.sessionDb.upsertSession({ sessionId: 'openai:<id>', metadata: { kind: 'openai-api', clientSessionId? } })`. The `openai:` prefix structurally disjoints this surface's keyspace from TUI / cron / drive (post-H1 audit fix) — a client cannot pollute another surface's transcript by sending `X-Session-Id` matching an existing UUID. The wire (`chatcmpl-<id>`) echoes the CLIENT's unprefixed view so the public contract is unchanged. Latest user message + final assistant message persist for observability; the model never sees the row.
+
+**Cron co-deployment.** The cron tick loop runs INSIDE the runtime's lifecycle (Phase 17). When `sov serve` boots, `buildRuntime({ cronEnabled: opts.cron !== false })` attaches a `CronRunner` to the runtime by default; `--no-cron` opts out. Long-lived `sov serve` is the natural cron host: the operator runs ONE process that serves both the OpenAI API AND scheduled jobs.
+
 ## Sudo Guardrail And Inline Shell
 
 `BashTool` refuses `sudo`, `pkexec`, `doas`, and `su` upfront with a structured error (exit code 126). These commands need a TTY for password / TouchID prompts which a piped subprocess can't supply — without the guardrail the spawn would hang for two minutes until BashTool's timeout fires, leaving the agent stuck. The refusal envelope's `next_actions` tell the model to ask the user to run the command themselves.

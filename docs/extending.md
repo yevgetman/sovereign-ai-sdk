@@ -190,6 +190,50 @@ The wrapper translates an MCP `CallToolResult` into a `ToolResult<T>` with the P
 
 Permission rules participate via two prefix shapes: `mcp__<server>` matches every tool from one server; `mcp__<server>__<tool>` matches one specific tool. The matching is in `ruleMatchesTool()` (`src/config/rules.ts`) and uses `tool.isMcp` + `tool.mcpInfo.serverName` rather than name-string parsing.
 
+## Add An OpenAI Route
+
+`src/openai/` carries the OpenAI-compatible HTTP API server (Phase 18 — drop-in OpenAI backend for Open WebUI / LibreChat / `openai` SDK clients with a custom `base_url`). The surface is mounted by `buildOpenAIApp()` in `src/openai/app.ts` and bound via `createOpenAIServer()` in `src/openai/server.ts`; `sov serve` is the CLI entry point. Adding a new OpenAI route follows a small fixed shape.
+
+1. **Define a route module under `src/openai/routes/<route>.ts`** returning a `Hono` instance:
+
+```typescript
+// src/openai/routes/embeddings.ts (hypothetical)
+import { Hono } from 'hono';
+import type { Runtime } from '../../server/runtime.js';
+
+export function embeddingsRoute(runtime: Runtime): Hono {
+  const r = new Hono();
+  r.post('/v1/embeddings', async (c) => {
+    // ... validate body, call runtime, return JSON
+    return c.json({ object: 'list', data: [...] });
+  });
+  return r;
+}
+```
+
+2. **Mount it in `src/openai/app.ts`'s `/v1` auth group** by adding a `r.route('/', ...)` call after `bearerAuth('/v1/*', ...)`:
+
+```typescript
+app.use('/v1/*', bearerAuth(opts.apiKey));
+app.route('/', chatCompletionsRoute(opts.runtime));
+app.route('/', modelsRoute(opts.runtime));
+app.route('/', embeddingsRoute(opts.runtime));  // new
+```
+
+3. **Write Zod schemas in `src/openai/mapping/`** for any new request/response shapes. Reuse the pattern from `src/openai/mapping/schema.ts` — `.passthrough()` on the request envelope so SDK-specific fields don't reject (clients sometimes send extra params like `user`, `metadata`).
+
+4. **Test in two layers:**
+   - **Pure unit tests** for the schema mapping (parse / serialize / edge cases) under `tests/openai/mapping/<route>.test.ts`.
+   - **Integration tests** against `buildOpenAIApp({ runtime, apiKey }).request('/v1/<path>', ...)` under `tests/openai/<route>.test.ts`. Use Hono's in-memory `app.request()` for fast tests; reach for `createOpenAIServer` + a real `fetch()` only when you need the actual socket (e.g., testing `c.req.raw.signal` propagation for client-disconnect).
+
+Reference implementations: `src/openai/routes/health.ts` (no auth, trivial JSON), `src/openai/routes/models.ts` (auth-gated, projects a catalog), `src/openai/routes/chatCompletions.ts` (the streaming + tool-execution + abort-bridge anchor — the most representative shape for any route that drives `query()`).
+
+**Tool execution invariant.** Routes that drive `query()` MUST honor D9: tools run INSIDE the request, `finish_reason` is always `'stop'` / `'length'`, never `'tool_calls'`. If a route needs client-side tool callbacks, it's a different surface — don't bend the existing OpenAI route.
+
+**Auth scope.** Anything under `/v1/*` auto-inherits `bearerAuth(opts.apiKey)`. Routes that need to be auth-exempt (liveness / readiness probes) mount outside the `/v1/` namespace — see `routes/health.ts` as the reference.
+
+**SessionDb conventions.** When a route persists trace state, tag the row `metadata.kind='<surface>-api'` and namespace the PK to prevent cross-surface pollution (post-H1 fix pattern from `chatCompletions.ts`: prefix client-supplied ids with `<surface>:` before passing to `upsertSession`). The wire response should echo the CLIENT's view of the id unprefixed.
+
 ## Add A Trajectory Redaction Pattern
 
 `src/trajectory/redact.ts` ships a `PATTERNS` array — every match is replaced with `[REDACTED]` (or `[REDACTED:<name>]` when `tagged: true`) before the trajectory record is written to disk. Adding a new secret-shape:
