@@ -9,10 +9,21 @@ describe('SUBAGENT_EXCLUDED_TOOLS', () => {
     expect(SUBAGENT_EXCLUDED_TOOLS.has('AgentTool')).toBe(true);
   });
 
-  test('blocks session-scoped cron tools from child contexts', () => {
-    expect(SUBAGENT_EXCLUDED_TOOLS.has('cron_create')).toBe(true);
-    expect(SUBAGENT_EXCLUDED_TOOLS.has('cron_list')).toBe(true);
-    expect(SUBAGENT_EXCLUDED_TOOLS.has('cron_delete')).toBe(true);
+  test('blocks session-scoped cron CRUD tools from child contexts', () => {
+    for (const name of [
+      'cron_add',
+      'cron_list',
+      'cron_show',
+      'cron_pause',
+      'cron_resume',
+      'cron_delete',
+    ]) {
+      expect(SUBAGENT_EXCLUDED_TOOLS.has(name)).toBe(true);
+    }
+  });
+
+  test('does not contain the renamed cron_create placeholder', () => {
+    expect(SUBAGENT_EXCLUDED_TOOLS.has('cron_create')).toBe(false);
   });
 
   test('blocks parent-side control-plane tools', () => {

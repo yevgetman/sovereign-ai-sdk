@@ -18,9 +18,14 @@
 export const SUBAGENT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set<string>([
   // No recursive sub-agent spawning — children can't fork further children.
   'AgentTool',
-  // Session-scoped scheduling stays parent-side.
-  'cron_create',
+  // Session-scoped cron CRUD stays parent-side. `run` and `tick` are
+  // operational (manual fire / debug tick), not CRUD, so they are not
+  // listed here — a child's tool surface wouldn't carry them anyway.
+  'cron_add',
   'cron_list',
+  'cron_show',
+  'cron_pause',
+  'cron_resume',
   'cron_delete',
   // Parent-side control plane.
   'task_stop',
