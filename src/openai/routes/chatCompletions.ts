@@ -505,18 +505,35 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
 }
 
 /** Map the internal Terminal.reason → OpenAI's `finish_reason` string.
- *  D9: never `tool_calls` because the harness runs tools internally
- *  within the same request — the client never re-enters. */
-function mapTerminalToFinishReason(terminal: Terminal): 'stop' | 'length' | 'error' {
-  switch (terminal.reason) {
-    case 'completed':
-      return 'stop';
-    case 'max_tokens':
-    case 'max_turns':
-      return 'length';
-    default:
-      return terminal.reason === 'error' ? 'error' : 'stop';
+ *
+ *  H3: OpenAI's spec only defines `'stop' | 'length' | 'content_filter'
+ *  | 'tool_calls' | 'function_call'` for finish_reason. Previously this
+ *  function returned `'error'` when terminal.reason was 'error',
+ *  'interrupted', or 'checkin' — none of which are valid. SDK clients
+ *  validation-error on a non-spec finish_reason and surface unhelpful
+ *  parse failures instead of the model output.
+ *
+ *  D9: never `'tool_calls'` either — the harness runs tools internally
+ *  within the same request, so the client never re-enters and would
+ *  never observe a tool_calls terminal from us.
+ *
+ *  Result domain narrowed to `'stop' | 'length'` to make the wire
+ *  contract enforceable at the type level. The streaming branch's
+ *  `deriveFinishReason` already had this contract; H3 brings the
+ *  non-streaming branch into parity.
+ *
+ *  Note: `terminal.reason === 'error'` is short-circuited upstream by
+ *  H2's structured error envelope — but this function stays defensive
+ *  so any future path that bypasses the H2 check still produces a
+ *  spec-valid value.
+ *
+ *  Exported for unit testing — the pure function is easier to verify
+ *  than driving non-standard terminals through the full route. */
+export function mapTerminalToFinishReason(terminal: Terminal): 'stop' | 'length' {
+  if (terminal.reason === 'max_tokens' || terminal.reason === 'max_turns') {
+    return 'length';
   }
+  return 'stop';
 }
 
 /** T8 — scan the request's messages[] for the most recent user-role
