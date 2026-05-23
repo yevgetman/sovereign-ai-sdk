@@ -6,7 +6,7 @@
 // `<harnessHome>/cron/outbox/<cronJobId>/` instead of the free-form local
 // outbox.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
 import type { DeliveryResult } from './types.js';
@@ -39,7 +39,15 @@ export async function send(
       ? join(harnessHome, 'cron', 'outbox', options.cronJobId)
       : join(harnessHome, 'outbox', 'local');
     mkdirSync(outboxDir, { recursive: true });
-    writeFileSync(join(outboxDir, `${Date.now()}.txt`), content, 'utf8');
+    // Atomic temp+rename: writeFileSync followed by renameSync. If the
+    // process crashes mid-write, a half-written .tmp file is left behind
+    // but the final .txt path stays clean. Outbox files are
+    // human-consumption artifacts — partial writes would corrupt them.
+    // Matches the pattern in src/cron/jobs.ts's saveJobs.
+    const finalPath = join(outboxDir, `${Date.now()}.txt`);
+    const tmpPath = `${finalPath}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmpPath, content, 'utf8');
+    renameSync(tmpPath, finalPath);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

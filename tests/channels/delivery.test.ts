@@ -78,4 +78,18 @@ describe('send', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('unknown delivery target');
   });
+
+  test('outbox writes leave no .tmp residue on success', async () => {
+    // Atomic temp+rename pattern: writes go to <path>.<pid>.<ts>.tmp then
+    // renameSync to the final .txt path. After a successful write only the
+    // .txt should exist — no .tmp sibling.
+    const home = tmpHome();
+    await send('local', 'hello', home);
+    const files = readdirSync(join(home, 'outbox', 'local'));
+    expect(files.length).toBe(1);
+    const firstFile = files[0];
+    if (firstFile === undefined) throw new Error('expected one file in outbox');
+    expect(firstFile.endsWith('.txt')).toBe(true);
+    expect(files.some((f) => f.endsWith('.tmp'))).toBe(false);
+  });
 });
