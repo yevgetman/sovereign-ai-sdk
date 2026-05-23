@@ -1,11 +1,14 @@
-// Phase 18 T1 — OpenAI-compatible HTTP app constructor.
+// Phase 18 — OpenAI-compatible HTTP app constructor.
 //
 // buildOpenAIApp constructs the OpenAI-compatible HTTP API surface.
-// /health is mounted unauthenticated (probe-friendly). All /v1/* routes
-// will be added in later tasks behind bearerAuth(apiKey).
+// /health is mounted unauthenticated (probe-friendly). /v1/* routes are
+// gated behind bearerAuth(opts.apiKey). T2 adds /v1/chat/completions
+// (non-streaming branch). T5 will add streaming; T7 adds /v1/models.
 
 import { Hono } from 'hono';
 import type { Runtime } from '../server/runtime.js';
+import { bearerAuth } from './auth.js';
+import { chatCompletionsRoute } from './routes/chatCompletions.js';
 import { healthRoute } from './routes/health.js';
 
 export type OpenAIAppOpts = {
@@ -15,12 +18,12 @@ export type OpenAIAppOpts = {
 
 export function buildOpenAIApp(opts: OpenAIAppOpts): Hono {
   const app = new Hono();
+  // /health — unauthenticated, probe-friendly.
   app.route('/', healthRoute);
-  // /v1/* — gated by bearerAuth(opts.apiKey) — added in T2+. The
-  // runtime + apiKey will be consumed by /v1/* routes; this is the
-  // skeleton commit. Tests verify /health works without auth.
-  // `void opts` silences strict-mode noUnusedParameters until T2 wires
-  // the real routes.
-  void opts;
+  // /v1/* — gated by bearerAuth(opts.apiKey). All OpenAI-compatible
+  // routes mount here. Hono's `app.use('/v1/*', ...)` applies the
+  // middleware to every sub-route registered after this line.
+  app.use('/v1/*', bearerAuth(opts.apiKey));
+  app.route('/', chatCompletionsRoute(opts.runtime));
   return app;
 }

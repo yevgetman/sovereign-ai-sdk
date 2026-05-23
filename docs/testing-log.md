@@ -8,6 +8,48 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T2 (OpenAI API server: non-streaming chat completions)
+
+**Scope:** T2 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). First `/v1/chat/completions` route, non-streaming branch only (`stream === false` or absent). Maps OpenAI ChatRequest → internal Message[], drives `query()` directly per D7 (NOT `AgentRunner.run(prompt)` — the request carries full multi-message history natively), maps result back to OpenAI response shape. Uses mock provider for tests.
+
+**Agent entry point answer (the single biggest T2 unknown):** Used `query()` from `src/core/query.ts` directly — it accepts `messages: Message[]` natively (signature is `query(params: QueryParams)` where `QueryParams.messages` is the full seed). The plan author's D7 was correct; no workaround required. `AgentRunner.run(prompt: string)` is the wrong entry point for this use case (it builds a synthetic single-user-message seed from a string prompt). Cron uses `AgentRunner` because it has a single string prompt; the OpenAI surface has full message history so it pipes straight to `query()` like the TUI's turns route does.
+
+**Files created:**
+- `src/openai/mapping/schema.ts` — Zod schemas (`ChatRequestSchema`, `ChatMessageSchema`, `ToolCallSchema`); discriminated union on `role`; `.passthrough()` on the request so SDK-specific fields don't reject.
+- `src/openai/mapping/requestToMessages.ts` — pure mapping: system → `extraSystemSegments`; user/assistant/tool → Anthropic-style ContentBlock[]. tool role becomes a USER-role message with `tool_result` block (Anthropic convention; tool_result is only valid on user side).
+- `src/openai/mapping/blocksToOpenAI.ts` — pure mapping: ContentBlock[] → `{content: string | null, tool_calls?}`. `content` is null when only tool_use blocks present (OpenAI's strict-typed assistant-only-tools shape); empty string when no blocks at all.
+- `src/openai/modelResolution.ts` — `resolveModelForRequest(runtime, modelName)`. v0: `harness-default` (or empty) → runtime defaults. Unknown → `InvalidModelError`. Explicit `gpt-*`/`claude-*` deferred to T9.
+- `src/openai/routes/chatCompletions.ts` — Hono route. Permissions mirror cron's headless policy (D11): layered rules honored, ask auto-denies. Tool pool filtered against `SUBAGENT_EXCLUDED_TOOLS` (D12). Streaming `req.stream === true` returns 501 (T5 lands SSE).
+
+**Files modified:**
+- `src/openai/app.ts` — mount `chatCompletionsRoute(runtime)` behind `bearerAuth(opts.apiKey)` via `app.use('/v1/*', bearerAuth(opts.apiKey))`.
+
+**Tests added (+25):**
+- `tests/openai/mapping/requestToMessages.test.ts` — 8 tests (simple user, system lift, multiple systems, assistant w/ tool_calls, null content, tool role, multi-turn, invalid JSON throws).
+- `tests/openai/mapping/blocksToOpenAI.test.ts` — 6 tests (text-only, single text, mixed text+tool, all-tool null content, empty blocks, thinking-skipped).
+- `tests/openai/modelResolution.test.ts` — 5 tests (harness-default, empty string, unknown throws, error carries list, list shape).
+- `tests/openai/chatCompletions.nonstreaming.test.ts` — 6 integration tests (200 with full envelope, omitted stream defaults to false, 400 unknown model, 401 no auth, 400 malformed JSON, 400 missing messages).
+
+**Final suite numbers:** TS **2106 pass / 0 fail / 14 skip** (+25 from T1's 2081 baseline). Lint clean (auto-fix applied formatter + organize-imports). Typecheck clean.
+
+**Commands:**
+
+```
+bun run lint     # → clean (after biome auto-fix)
+bun run typecheck # → clean
+bun run test     # → 2106 pass / 0 fail / 14 skip
+bun test tests/openai/  # → 31 pass (T1's 8 + T2's 23)
+```
+
+**Architectural notes:**
+- `query()` is the right entry point for any caller that owns a full message history. `AgentRunner` is for single-string-prompt callers (cron, sub-agents). Both surfaces have legitimate use cases.
+- The systemPrompt extension pattern (append non-cacheable `extraSystemSegments` to `runtime.systemSegments`) preserves the runtime's cache-marker placement.
+- The route reuses `buildSessionToolContext` from `src/server/routes/turns.ts` — same per-session subsystems (memory, review, learning, trajectory metadata) wire onto the openai-api request's tools so trajectory capture, cost recording, and trace writers all work without duplication.
+
+**Follow-ups for the run:** T3 (`sov serve` CLI subcommand), then T4-T11 per the plan. v0.4.0 binary release lands at T12.
+
+---
+
 ## 2026-05-22 evening — Phase 17 cron / scheduled jobs close-out
 
 **Scope:** Phase 17 closed. New `src/cron/` subsystem + `sov cron` CLI surface + delivery hook + recursion guard rename. T10 docs work: created `docs/state/2026-05-22-phase-17-cron.md`, updated `CLAUDE.md` + `AGENTS.md` (byte-identical mirror) to point at the new snapshot, committed previously-untracked plan file `docs/plans/2026-05-22-phase-17-cron-scheduled-jobs.md`.
