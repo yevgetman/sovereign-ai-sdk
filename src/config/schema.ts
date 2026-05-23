@@ -278,6 +278,20 @@ export const SettingsSchema = z
      *  built-ins (`dark`, `light`, `tokyo-night`, `sovereign`) plus
      *  user-defined TOML themes under `~/.harness/themes/<name>.toml`. */
     theme: z.string().optional(),
+    /** Phase 18 — OpenAI-compatible HTTP API server. When `sov serve`
+     *  boots, it reads this block to resolve the API key (header bearer
+     *  token), the bind port, and the bind host. All fields optional;
+     *  defaults documented at the call site (host defaults to 127.0.0.1).
+     *  The API key MUST be present at startup or `sov serve` errors out
+     *  before binding the socket. */
+    openaiServer: z
+      .object({
+        apiKey: z.string().min(1).optional(),
+        port: z.number().int().min(1).max(65535).optional(),
+        host: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
