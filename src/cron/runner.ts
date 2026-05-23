@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { listJobs, recordJobRun } from './jobs.js';
+import { getJob, listJobs, recordJobRun } from './jobs.js';
 import type { Job } from './types.js';
 
 export type CronRunResult = {
@@ -83,6 +83,40 @@ export class CronRunner {
         durationMs: result.durationMs,
       });
     }
+  }
+
+  // Strict single-job-fire: runs the named job exactly once regardless of
+  // its nextRunAt or enabled flag. Used by `sov cron run <id>` so the
+  // operator gets the "run THIS job now" semantics they expect. Records
+  // the run via recordJobRun the same way runDueJobs does — the schedule
+  // is recomputed from `ranAt` on the next save.
+  async forceRunJob(jobId: string): Promise<CronRunResult> {
+    const job = getJob(this.opts.harnessHome, jobId);
+    if (!job) {
+      return {
+        ok: false,
+        error: `job not found: ${jobId}`,
+        durationMs: 0,
+      };
+    }
+    const ranAt = this.opts.now();
+    let result: CronRunResult;
+    try {
+      result = await this.opts.runJob(job);
+    } catch (err) {
+      result = {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        durationMs: this.opts.now() - ranAt,
+      };
+    }
+    recordJobRun(this.opts.harnessHome, job.id, ranAt, {
+      ok: result.ok,
+      ...(result.deliveryOk !== undefined ? { deliveryOk: result.deliveryOk } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {}),
+      durationMs: result.durationMs,
+    });
+    return result;
   }
 
   tryAcquireTickLock(): boolean {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addJob } from '../../src/cron/jobs.js';
+import { addJob, pauseJob } from '../../src/cron/jobs.js';
 import { CronRunner } from '../../src/cron/runner.js';
 
 let home: string;
@@ -94,6 +94,88 @@ describe('CronRunner.runDueJobs', () => {
     const after = getJob(home, j.id);
     expect(after?.lastRunAt).toBe(fixedNow);
     expect(after?.nextRunAt).toBe(fixedNow + 60_000);
+  });
+});
+
+describe('CronRunner.forceRunJob', () => {
+  test('fires the named job even if not due', async () => {
+    const job = addJob(home, {
+      prompt: 'echo',
+      schedule: { kind: 'relative', offsetMs: 60 * 60_000 }, // 1 hour from now — not due
+      deliver: 'local',
+      skills: [],
+    });
+    const runs: string[] = [];
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => Date.now(),
+      runJob: async (j) => {
+        runs.push(j.id);
+        return { ok: true, durationMs: 1 };
+      },
+    });
+    const result = await runner.forceRunJob(job.id);
+    expect(result.ok).toBe(true);
+    expect(runs).toEqual([job.id]);
+  });
+
+  test('fires the named job even when paused', async () => {
+    const job = addJob(home, {
+      prompt: 'echo',
+      schedule: { kind: 'relative', offsetMs: 0 },
+      deliver: 'local',
+      skills: [],
+    });
+    pauseJob(home, job.id);
+    const runs: string[] = [];
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => Date.now(),
+      runJob: async (j) => {
+        runs.push(j.id);
+        return { ok: true, durationMs: 1 };
+      },
+    });
+    await runner.forceRunJob(job.id);
+    expect(runs).toEqual([job.id]);
+  });
+
+  test('does not run other due jobs', async () => {
+    const target = addJob(home, {
+      prompt: 'target',
+      schedule: { kind: 'relative', offsetMs: 0 },
+      deliver: 'local',
+      skills: [],
+    });
+    const other = addJob(home, {
+      prompt: 'other',
+      schedule: { kind: 'relative', offsetMs: 0 },
+      deliver: 'local',
+      skills: [],
+    });
+    const runs: string[] = [];
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => Date.now() + 60_000 + 1000, // both due
+      runJob: async (j) => {
+        runs.push(j.id);
+        return { ok: true, durationMs: 1 };
+      },
+    });
+    await runner.forceRunJob(target.id);
+    expect(runs).toEqual([target.id]); // only the named one
+    expect(runs).not.toContain(other.id);
+  });
+
+  test('returns ok:false when id does not exist', async () => {
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => Date.now(),
+      runJob: async () => ({ ok: true, durationMs: 1 }),
+    });
+    const result = await runner.forceRunJob('nonexistent-id');
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('not found');
   });
 });
 

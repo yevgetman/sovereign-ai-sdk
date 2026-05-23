@@ -673,29 +673,25 @@ async function main(argv: string[]): Promise<void> {
 
   cronCmd
     .command('run <id>')
-    .description('Manually fire any currently-due cron jobs once (debugging)')
+    .description('Manually fire this specific cron job once (bypasses schedule + enabled checks)')
     .action(async (id: string) => {
-      // v0 wires `run <id>` and `tick` to the same `runDueJobs()` entry — this
-      // fires every job whose nextRunAt has elapsed, not just <id>. The id
-      // arg is validated up front (so the caller learns about typos) but
-      // strict single-fire semantics (forceRunOne(job)) is a follow-up; the
-      // semantic-test surface only needs the loop tickable on demand for now.
+      // Strict single-fire: forceRunJob runs ONLY the named job, regardless
+      // of its nextRunAt or enabled flag. The id arg is validated by
+      // forceRunJob itself (returns ok:false on missing id).
       const { resolveHarnessHome } = await import('./config/paths.js');
-      const { getJob } = await import('./cron/jobs.js');
       const home = resolveHarnessHome();
-      const target = getJob(home, id);
-      if (!target) {
-        process.stderr.write(`no job ${id}\n`);
-        process.exit(1);
-      }
       const { buildRuntime } = await import('./server/runtime.js');
       const { createProductionCronRunner } = await import('./cron/wiring.js');
       const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
       try {
         const runner = createProductionCronRunner(runtime, home);
-        await runner.runDueJobs();
+        const result = await runner.forceRunJob(id);
+        if (!result.ok) {
+          process.stderr.write(`run failed: ${result.error ?? 'unknown error'}\n`);
+          process.exit(1);
+        }
         process.stdout.write(
-          `fired tick; check 'sov cron show ${id.slice(0, 8)}' for the result\n`,
+          `fired job ${id.slice(0, 8)}; check 'sov cron show ${id.slice(0, 8)}' for the result\n`,
         );
       } finally {
         await runtime.dispose();
