@@ -22,6 +22,7 @@ export type InboundMessage = {
 export type DeliveryResult = {
   ok: boolean;
   error?: string;
+  silent?: boolean;
 };
 
 export type SecretTarget = {

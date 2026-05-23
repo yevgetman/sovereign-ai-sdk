@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { send } from '../../src/channels/delivery.js';
@@ -31,6 +31,46 @@ describe('send', () => {
     if (firstFile === undefined) throw new Error('expected one file in outbox');
     const content = readFileSync(join(home, 'outbox', 'local', firstFile), 'utf8');
     expect(content).toBe('hello world');
+  });
+
+  test('writes to outbox/local for free-form local delivery', async () => {
+    const home = tmpHome();
+    const res = await send('local', 'hello', home);
+    expect(res.ok).toBe(true);
+    const files = readdirSync(join(home, 'outbox', 'local'));
+    expect(files.length).toBe(1);
+    const firstFile = files[0];
+    if (firstFile === undefined) throw new Error('expected one file in outbox');
+    expect(readFileSync(join(home, 'outbox', 'local', firstFile), 'utf8')).toBe('hello');
+  });
+
+  test('writes to cron-outbox when cronJobId provided', async () => {
+    const home = tmpHome();
+    const res = await send('local', 'hello', home, { cronJobId: 'job-abc' });
+    expect(res.ok).toBe(true);
+    const files = readdirSync(join(home, 'cron', 'outbox', 'job-abc'));
+    expect(files.length).toBe(1);
+  });
+
+  test('returns silent:true and skips write when [SILENT] prefix present', async () => {
+    const home = tmpHome();
+    const res = await send('local', '[SILENT] hello', home);
+    expect(res.ok).toBe(true);
+    expect(res.silent).toBe(true);
+    // No file written.
+    expect(existsSync(join(home, 'outbox', 'local'))).toBe(false);
+  });
+
+  test('case-insensitive prefix match', async () => {
+    const home = tmpHome();
+    const res = await send('local', '[silent] hello', home);
+    expect(res.silent).toBe(true);
+  });
+
+  test('trims leading whitespace before checking', async () => {
+    const home = tmpHome();
+    const res = await send('local', '  [SILENT] hello', home);
+    expect(res.silent).toBe(true);
   });
 
   test('unknown target returns error result', async () => {
