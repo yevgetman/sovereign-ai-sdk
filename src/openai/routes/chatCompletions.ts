@@ -31,6 +31,7 @@ import { query } from '../../core/query.js';
 import type {
   AssistantMessage,
   ContentBlock,
+  Message,
   SystemSegment,
   Terminal,
   TokenUsage,
@@ -126,12 +127,31 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       ...extraSystemSegments.map((text) => ({ text, cacheable: false })),
     ];
 
-    // 4) Mint an ephemeral session row tagged metadata.kind='openai-api'.
+    // 4) Mint (or reuse) the session row tagged metadata.kind='openai-api'.
     // The full session row keeps the trajectory + cost wiring in place
     // even though the wire surface is stateless. The session id flows
     // onto the chatcmpl-* response id and into the per-session ToolContext
-    // / traceRecorder (T8 expands this to honor an X-Session-Id header).
-    const sessionId = runtime.sessionDb.createSession({
+    // / traceRecorder.
+    //
+    // T8: honor X-Session-Id. If the client supplies the header, that
+    // value becomes the row's primary key AND drives the chatcmpl-<id>
+    // wire id. Repeat invocations against the same id append messages to
+    // the existing row (upsertSession is a no-op if the row exists).
+    // Without the header, mint a fresh UUID per request (T2 behavior).
+    //
+    // D10 invariant: history is NOT hydrated from the row. The query()
+    // call below sees only the request's messages[]; the DB row exists
+    // purely for trace + learning observability.
+    //
+    // Truncate to a defensive cap (256 chars) — the schema accepts any
+    // TEXT but pathological client ids could break downstream tooling.
+    const headerSessionId = c.req.header('x-session-id');
+    const clientSessionId =
+      headerSessionId !== undefined && headerSessionId.length > 0
+        ? headerSessionId.slice(0, 256)
+        : undefined;
+    const sessionId = runtime.sessionDb.upsertSession({
+      ...(clientSessionId !== undefined ? { sessionId: clientSessionId } : {}),
       provider: runtime.resolvedProvider.transport.name,
       model: resolved.model,
       title: 'openai-api',
@@ -186,6 +206,24 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         microcompactConfig: runtime.microcompactConfig,
       });
 
+    // 7.5) T8 — persist the latest user-role message from the request
+    // (the prompt that drove this turn) BEFORE the model runs. Earlier
+    // user messages in the request are treated as client-supplied
+    // history — we don't re-persist them on every turn or the DB would
+    // grow quadratically with conversation length. Only the most recent
+    // user turn is observability-relevant.
+    //
+    // Defensive: if the request carries no user message at all (e.g.,
+    // assistant-only continuation, exotic test fixtures), skip — the
+    // assistant message persistence below still fires.
+    const lastUserMessage = findLastUserMessage(messages);
+    if (lastUserMessage !== undefined) {
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: lastUserMessage.content,
+      });
+    }
+
     const responseId = `chatcmpl-${sessionId}`;
     const created = Math.floor(Date.now() / 1000);
 
@@ -201,10 +239,36 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // half-finished stream. `runtime.disposeSession` always runs.
     if (parsed.stream === true) {
       return streamSSE(c, async (stream) => {
+        // T8 — capture the final assistant_message as it passes through
+        // the stream so we can persist after the wire flush. We wrap
+        // the query() generator in a tee'ing async generator that
+        // observes every yield without modifying it. The translator
+        // sees the same shape; we just intercept assistant_message
+        // events.
+        let capturedAssistant: AssistantMessage | undefined;
+        const tee = async function* (
+          inner: ReturnType<typeof query>,
+        ): AsyncGenerator<unknown, unknown, void> {
+          for (;;) {
+            const step = await inner.next();
+            if (step.done) return step.value;
+            const ev = step.value;
+            if (
+              ev !== null &&
+              typeof ev === 'object' &&
+              (ev as { type?: unknown }).type === 'assistant_message'
+            ) {
+              const maybe = (ev as { message?: AssistantMessage }).message;
+              if (maybe !== undefined) capturedAssistant = maybe;
+            }
+            yield ev;
+          }
+        };
+
         try {
           const gen = buildQuery();
           await translateStream(
-            gen,
+            tee(gen),
             { id: responseId, model: parsed.model, created },
             async (line) => {
               await stream.write(line);
@@ -230,6 +294,19 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             // Nothing more to do.
           }
         } finally {
+          // T8 — persist the final assistant message AFTER the wire
+          // has flushed. Best-effort: a persistence failure should not
+          // affect the response the client already received.
+          if (capturedAssistant !== undefined) {
+            try {
+              runtime.sessionDb.saveMessage(sessionId, {
+                role: 'assistant',
+                content: capturedAssistant.content,
+              });
+            } catch (err) {
+              console.error('[openai] streaming assistant persistence failed:', err);
+            }
+          }
           await runtime.disposeSession(sessionId);
         }
       });
@@ -260,6 +337,22 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           } else if (ev.type === 'usage_delta') {
             latestUsage = ev.usage;
           }
+        }
+      }
+
+      // T8 — persist the final assistant message before we project to
+      // OpenAI shape. The DB row carries the canonical ContentBlock[]
+      // (text + tool_use), not the OpenAI wire shape. Best-effort: a
+      // persistence failure here should still let the client receive
+      // the response.
+      if (finalAssistant !== undefined) {
+        try {
+          runtime.sessionDb.saveMessage(sessionId, {
+            role: 'assistant',
+            content: finalAssistant.content,
+          });
+        } catch (err) {
+          console.error('[openai] non-streaming assistant persistence failed:', err);
         }
       }
 
@@ -327,4 +420,19 @@ function mapTerminalToFinishReason(terminal: Terminal): 'stop' | 'length' | 'err
     default:
       return terminal.reason === 'error' ? 'error' : 'stop';
   }
+}
+
+/** T8 — scan the request's messages[] for the most recent user-role
+ *  message. Used to persist only the latest user prompt against the
+ *  session row (earlier user messages in the request are client-supplied
+ *  history). User-role messages may carry text OR tool_result blocks;
+ *  the persistence layer doesn't care — it stores the ContentBlock[]
+ *  verbatim. Returns undefined when the request has no user message
+ *  (rare: assistant-only continuation, exotic test fixtures). */
+function findLastUserMessage(msgs: Message[]): Extract<Message, { role: 'user' }> | undefined {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m && m.role === 'user') return m;
+  }
+  return undefined;
 }

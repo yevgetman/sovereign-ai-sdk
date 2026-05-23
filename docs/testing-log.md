@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T8 (`X-Session-Id` header + DB persistence)
+
+**Scope:** T8 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Each `/v1/chat/completions` request now mints a `SessionDb` row tagged `metadata.kind='openai-api'` (T2 already did this part), honors a client-supplied `X-Session-Id` header for that row's primary key, and persists the latest user prompt + the final assistant message to the row. History is **not** hydrated from the row — the request's `messages[]` remains the source of truth (D10).
+
+- **`SessionDb.createSession`** — extended `CreateSessionInput` with optional `sessionId?: string`. When omitted, falls back to `randomUUID()` (unchanged behavior for all existing callers).
+- **`SessionDb.upsertSession`** — new helper that calls `getSession(input.sessionId)` first and returns the existing id if found; otherwise delegates to `createSession`. Used by the OpenAI route so a client reusing the same `X-Session-Id` lands on the existing row rather than crashing on duplicate-PK insert.
+- **`chatCompletions.ts`** — reads `X-Session-Id` (lowercased per Hono convention), truncates to 256 chars defensively, passes to `upsertSession`. Persists the last user-role message (after `requestToMessages` mapping) before the agent loop, and the final assistant message after the loop completes. Streaming branch uses a tee'ing async generator to capture the `assistant_message` event as it passes through the translator. Both persistence calls are wrapped in try/catch — a persistence failure must never affect the wire response.
+
+**TDD:** Wrote 5 failing tests first (RED, 4 fails / 1 pass — the kind=openai-api tagging was already in place from T2). Implementation made all 5 green. Tests cover: UUID minting without header, custom id with header, message persistence (user + assistant), idempotent reuse of the same `X-Session-Id` (append, not duplicate-row), and streaming branch persistence.
+
+**TS suite:** **2171 pass / 0 fail / 14 skip** (+5 from prior baseline of 2166). Lint + typecheck clean.
+
+**SessionDb API names confirmed:** `createSession(input: CreateSessionInput): string`, `saveMessage(sessionId, msg)`, `loadMessages(sessionId): StoredMessage[]`, `getSession(sessionId): Session | null`. Custom-id support added as an optional field on `CreateSessionInput` plus a new `upsertSession` helper for reuse semantics.
+
+**No binary release cut** — T12 owns the Phase 18 release; harness stays on v0.3.4 until then.
+
 ## 2026-05-23 — Phase 18 T7 (`GET /v1/models`)
 
 **Scope:** T7 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Adds the OpenAI-standard `/v1/models` list endpoint so OpenAI-SDK clients (Open WebUI, LibreChat, the `openai` Python/JS SDKs) can populate their model pickers.

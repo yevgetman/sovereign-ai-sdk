@@ -168,6 +168,13 @@ export type CreateSessionInput = {
   title?: string;
   systemPrompt?: SystemSegment[];
   metadata?: Record<string, unknown>;
+  /** Phase 18 T8 — optional pre-supplied session id. When omitted, a
+   *  UUID is generated. When supplied (e.g. via X-Session-Id header on
+   *  the OpenAI-compatible surface), it becomes the row's primary key
+   *  so client-side conversation ids can drive both the wire response
+   *  id and the DB row. Callers must use {@link upsertSession} to
+   *  idempotently land a row when reuse is expected. */
+  sessionId?: string;
 };
 
 /** Message payload persisted into the session transcript. */
@@ -370,7 +377,7 @@ export class SessionDb {
   }
 
   createSession(input: CreateSessionInput): string {
-    const sessionId = randomUUID();
+    const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;
     const systemPromptJson =
       input.systemPrompt !== undefined ? JSON.stringify(input.systemPrompt) : null;
@@ -398,6 +405,26 @@ export class SessionDb {
       );
     });
     return sessionId;
+  }
+
+  /** Phase 18 T8 — idempotent session creation. Returns the row's
+   *  session_id; if `input.sessionId` is supplied and already present in
+   *  the DB, this is a no-op and the existing id is returned. Otherwise
+   *  the row is created (with the supplied id, or a fresh UUID).
+   *
+   *  Used by the OpenAI-compatible /v1/chat/completions surface to honor
+   *  client-supplied X-Session-Id without crashing on the second use of
+   *  the same id. The metadata + system prompt from the FIRST call are
+   *  preserved on subsequent calls — we don't overwrite the row's
+   *  configuration once it's been seeded. */
+  upsertSession(input: CreateSessionInput): string {
+    if (input.sessionId !== undefined) {
+      const existing = this.getSession(input.sessionId);
+      if (existing !== null) {
+        return existing.sessionId;
+      }
+    }
+    return this.createSession(input);
   }
 
   saveMessage(sessionId: string, msg: SaveMessageInput): number {
