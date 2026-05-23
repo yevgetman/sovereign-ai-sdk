@@ -216,7 +216,7 @@ export function splitShellSegments(command: string): string[] {
   let escaped = false;
 
   for (let i = 0; i < command.length; i++) {
-    const ch = command[i]!;
+    const ch = command.charAt(i);
 
     if (escaped) {
       current += ch;
@@ -340,7 +340,8 @@ function extractCommand(tokens: string[]): { command: string | null; args: strin
   if (cmd && TRANSPARENT_PREFIXES.has(cmd)) {
     while (cursor + 1 < tokens.length) {
       cursor++;
-      const next = tokens[cursor]!;
+      const next = tokens[cursor];
+      if (next === undefined) break;
       if (next.startsWith('-')) continue;
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(next)) continue;
       if (TRANSPARENT_PREFIXES.has(next)) continue;
