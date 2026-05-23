@@ -574,6 +574,151 @@ async function main(argv: string[]): Promise<void> {
       }
     });
 
+  const cronCmd = program.command('cron').description('Manage scheduled jobs (Phase 17)');
+
+  cronCmd
+    .command('add')
+    .description('Add a new cron job')
+    .requiredOption(
+      '--schedule <spec>',
+      'schedule (relative "5m", interval "every 10m", cron "*/15 * * * *", or ISO "2026-05-23T10:00:00Z")',
+    )
+    .requiredOption('--prompt <text>', 'operator prompt to send when the job fires')
+    .option('--deliver <target>', 'delivery target', 'local')
+    .option('--skills <names...>', 'skills to chain in order (space-separated)')
+    .option('--script <path>', 'pre-agent script (relative to <harness-home>/cron/scripts/)')
+    .action(async (opts) => {
+      const { runCronAdd, formatJobLine } = await import('./cli/cronCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const job = runCronAdd(resolveHarnessHome(), {
+        schedule: opts.schedule,
+        prompt: opts.prompt,
+        deliver: opts.deliver,
+        skills: Array.isArray(opts.skills) ? opts.skills : [],
+        ...(opts.script !== undefined ? { script: opts.script } : {}),
+      });
+      process.stdout.write(`added job ${job.id}\n`);
+      process.stdout.write(`${formatJobLine(job)}\n`);
+    });
+
+  cronCmd
+    .command('list')
+    .description('List all cron jobs')
+    .action(async () => {
+      const { runCronList, formatJobLine } = await import('./cli/cronCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const jobs = runCronList(resolveHarnessHome());
+      if (jobs.length === 0) {
+        process.stdout.write('no cron jobs\n');
+        return;
+      }
+      for (const job of jobs) process.stdout.write(`${formatJobLine(job)}\n`);
+    });
+
+  cronCmd
+    .command('show <id>')
+    .description('Show full detail for a cron job')
+    .action(async (id: string) => {
+      const { runCronShow } = await import('./cli/cronCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const job = runCronShow(resolveHarnessHome(), id);
+      if (!job) {
+        process.stderr.write(`no job with id ${id}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`${JSON.stringify(job, null, 2)}\n`);
+    });
+
+  cronCmd
+    .command('pause <id>')
+    .description('Pause a cron job (job stays in the registry; tick skips it)')
+    .action(async (id: string) => {
+      const { runCronPause } = await import('./cli/cronCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const job = runCronPause(resolveHarnessHome(), id);
+      if (!job) {
+        process.stderr.write(`no job ${id}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`paused ${job.id}\n`);
+    });
+
+  cronCmd
+    .command('resume <id>')
+    .description('Resume a paused cron job')
+    .action(async (id: string) => {
+      const { runCronResume } = await import('./cli/cronCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const job = runCronResume(resolveHarnessHome(), id);
+      if (!job) {
+        process.stderr.write(`no job ${id}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`resumed ${job.id}\n`);
+    });
+
+  cronCmd
+    .command('delete <id>')
+    .description('Delete a cron job')
+    .action(async (id: string) => {
+      const { runCronDelete } = await import('./cli/cronCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const ok = runCronDelete(resolveHarnessHome(), id);
+      if (!ok) {
+        process.stderr.write(`no job ${id}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`deleted ${id}\n`);
+    });
+
+  cronCmd
+    .command('run <id>')
+    .description('Manually fire any currently-due cron jobs once (debugging)')
+    .action(async (id: string) => {
+      // v0 wires `run <id>` and `tick` to the same `runDueJobs()` entry — this
+      // fires every job whose nextRunAt has elapsed, not just <id>. The id
+      // arg is validated up front (so the caller learns about typos) but
+      // strict single-fire semantics (forceRunOne(job)) is a follow-up; the
+      // semantic-test surface only needs the loop tickable on demand for now.
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { getJob } = await import('./cron/jobs.js');
+      const home = resolveHarnessHome();
+      const target = getJob(home, id);
+      if (!target) {
+        process.stderr.write(`no job ${id}\n`);
+        process.exit(1);
+      }
+      const { buildRuntime } = await import('./server/runtime.js');
+      const { createProductionCronRunner } = await import('./cron/wiring.js');
+      const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
+      try {
+        const runner = createProductionCronRunner(runtime, home);
+        await runner.runDueJobs();
+        process.stdout.write(
+          `fired tick; check 'sov cron show ${id.slice(0, 8)}' for the result\n`,
+        );
+      } finally {
+        await runtime.dispose();
+      }
+    });
+
+  cronCmd
+    .command('tick')
+    .description('Manually run one tick cycle against every due job (debugging)')
+    .action(async () => {
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { buildRuntime } = await import('./server/runtime.js');
+      const { createProductionCronRunner } = await import('./cron/wiring.js');
+      const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
+      try {
+        const runner = createProductionCronRunner(runtime, resolveHarnessHome());
+        await runner.runDueJobs();
+        process.stdout.write('tick complete\n');
+      } finally {
+        await runtime.dispose();
+      }
+    });
+
   program
     .command('daemon')
     .description('Start the harness daemon for the active profile.')
