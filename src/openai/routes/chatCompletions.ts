@@ -22,8 +22,9 @@
 // land in the harness state tree; no prior history is hydrated from the
 // DB. The full conversation history comes from the request body.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { ZodError } from 'zod';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../../agents/exclusions.js';
 import { loadPermissionSettings } from '../../config/settings.js';
@@ -40,6 +41,7 @@ import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { AskResponse } from '../../permissions/types.js';
+import { isCredentialUnavailable } from '../../providers/errors.js';
 import { buildSessionToolContext } from '../../server/routes/turns.js';
 import type { Runtime } from '../../server/runtime.js';
 import { blocksToOpenAI } from '../mapping/blocksToOpenAI.js';
@@ -373,6 +375,29 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // 8b) Non-streaming branch (T2). Drain query() to terminal and
     // capture the final assistant message + usage. Project both back
     // through blocksToOpenAI() into a chat.completion envelope.
+    //
+    // H2 — surface provider failures as a structured OpenAI error
+    // envelope rather than a 200 OK with empty content. Two paths to
+    // cover:
+    //
+    //  (a) Errors caught by query() itself — the orchestrator wraps
+    //      provider.stream() in try/catch and returns
+    //      `Terminal{reason: 'error', error}` rather than propagating.
+    //      Without this fix the route would happily return 200 with an
+    //      empty assistant message and `finish_reason: 'error'` (also
+    //      non-spec; H3 fixes that too).
+    //
+    //  (b) Errors that escape query() — defense-in-depth. Without the
+    //      try/catch, an exception would bubble to Hono's default 500
+    //      with no body, leaving SDK clients with a generic APIError.
+    //
+    // Both paths funnel into the same classifier (`buildProviderErrorResponse`)
+    // so SDK clients see consistent envelopes regardless of where the
+    // failure surfaced.
+    //
+    // disposeSession runs in the `finally` block exactly once so we
+    // never double-dispose. The session row stays in the DB so traces
+    // and cost records are preserved.
     try {
       const gen = buildQuery();
 
@@ -396,6 +421,14 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             latestUsage = ev.usage;
           }
         }
+      }
+
+      // H2(a) — terminal-level error path. query() caught a provider
+      // exception and surfaced a Terminal with reason='error'. Return
+      // the structured envelope instead of 200 with an empty assistant
+      // and `finish_reason: 'error'`.
+      if (terminal.reason === 'error') {
+        return buildProviderErrorResponse(c, terminal.error);
       }
 
       // T8 — persist the final assistant message before we project to
@@ -454,6 +487,12 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           total_tokens: promptTokens + completionTokens,
         },
       });
+    } catch (err) {
+      // H2(b) — defense-in-depth: catch anything that escapes query().
+      // Same classifier as the terminal-level branch so the wire shape
+      // is consistent regardless of where the failure surfaced.
+      console.error('[openai] non-streaming /v1/chat/completions error:', err);
+      return buildProviderErrorResponse(c, err);
     } finally {
       // Always tear down per-session subsystems (trace writer flush,
       // trajectory write) — even on error. The session row stays in the
@@ -493,4 +532,84 @@ function findLastUserMessage(msgs: Message[]): Extract<Message, { role: 'user' }
     if (m && m.role === 'user') return m;
   }
   return undefined;
+}
+
+/** H2 — extract an upstream HTTP status from an error of unknown shape.
+ *
+ *  Different SDKs and our own ProviderHttpError use different field
+ *  names — Anthropic SDK errors expose `.status`, some other libraries
+ *  use `.statusCode`. We probe both. Returns undefined when the error
+ *  is not an HTTP error (e.g. network failure, parse error).
+ *
+ *  Defensive against the `unknown` shape — we only treat the value as
+ *  a status code when it's a positive integer in 100..599. */
+function extractUpstreamStatus(err: unknown): number | undefined {
+  if (err === null || typeof err !== 'object') return undefined;
+  const candidate =
+    (err as { status?: unknown; statusCode?: unknown }).status ??
+    (err as { statusCode?: unknown }).statusCode;
+  if (typeof candidate !== 'number') return undefined;
+  if (!Number.isInteger(candidate)) return undefined;
+  if (candidate < 100 || candidate >= 600) return undefined;
+  return candidate;
+}
+
+/** H2 — classify a provider error into one of three OpenAI-shaped
+ *  envelopes and return the matching Hono response:
+ *
+ *   - 401 + `invalid_api_key` → credential / auth-related errors.
+ *     The OpenAI Python/JS SDKs map this to AuthenticationError.
+ *   - mirror upstream HTTP status + `upstream_error` → ProviderHttpError
+ *     or SDK-shaped errors with a `.status` field. Surfaces as APIError
+ *     with the right code (e.g. a real 429 stays 429, not 500).
+ *   - 500 + `api_error` → generic fallback. Surfaces as APIError
+ *     without further classification.
+ *
+ *  Used by both the terminal-error path (query() caught the failure and
+ *  returned `Terminal{reason: 'error'}`) and the defense-in-depth catch
+ *  (exception escaped query()) so the wire shape is identical regardless
+ *  of where the failure originated.
+ *
+ *  `err` is typed `unknown` because both call sites observe it from a
+ *  `catch` or a `Terminal.error?: Error` — we narrow defensively. */
+function buildProviderErrorResponse(c: Context, err: unknown): Response {
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (
+    isCredentialUnavailable(err) ||
+    /credential|api[\s_-]?key|unauthorized|forbidden/i.test(message)
+  ) {
+    return c.json(
+      {
+        error: {
+          message,
+          type: 'invalid_api_key',
+        },
+      },
+      401,
+    );
+  }
+
+  const upstreamStatus = extractUpstreamStatus(err);
+  if (upstreamStatus !== undefined && upstreamStatus >= 400 && upstreamStatus < 600) {
+    return c.json(
+      {
+        error: {
+          message,
+          type: 'upstream_error',
+        },
+      },
+      upstreamStatus as ContentfulStatusCode,
+    );
+  }
+
+  return c.json(
+    {
+      error: {
+        message,
+        type: 'api_error',
+      },
+    },
+    500,
+  );
 }

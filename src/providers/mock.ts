@@ -102,6 +102,15 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
   static slowMode = false;
   static slowModeDelayMs = 0;
 
+  /** Phase 18 H2 — when set, the next `stream()` invocation throws this
+   *  error on first .next() so the calling drain loop sees a provider
+   *  failure mid-turn. Used by the non-streaming error-envelope test to
+   *  deterministically exercise the catch path without a real network
+   *  call. Auto-resets to undefined after one throw so a single test can
+   *  configure it and the next mock invocation behaves normally. Reset
+   *  in test finally as defense-in-depth. */
+  static throwOnNext: Error | undefined = undefined;
+
   toProviderMessages(messages: Message[], _system?: SystemSegment[]): Message[] {
     return messages;
   }
@@ -150,6 +159,15 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
       // stream() call site itself — exactly the contract preflightProvider
       // expects.
       throw new Error('mock preflight failure');
+    }
+    if (MockProvider.throwOnNext !== undefined) {
+      // H2 — surface a configurable error on this exact invocation so the
+      // OpenAI non-streaming error-envelope test can assert the 5xx
+      // path. Auto-reset so the next stream() call returns to default
+      // behavior; tests still reset in `finally` for safety.
+      const err = MockProvider.throwOnNext;
+      MockProvider.throwOnNext = undefined;
+      throw err;
     }
     if (MockProvider.stallMode) {
       return yield* this.streamStall(req);

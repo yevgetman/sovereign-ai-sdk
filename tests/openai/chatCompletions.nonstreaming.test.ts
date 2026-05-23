@@ -10,6 +10,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildOpenAIApp } from '../../src/openai/app.js';
+import { ProviderHttpError } from '../../src/providers/errors.js';
+import { MockProvider } from '../../src/providers/mock.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 describe('POST /v1/chat/completions (non-streaming)', () => {
@@ -153,5 +155,83 @@ describe('POST /v1/chat/completions (non-streaming)', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: { type?: string } };
     expect(body.error?.type).toBe('invalid_request_error');
+  });
+
+  test('returns 500 with OpenAI error envelope when provider throws (generic error)', async () => {
+    // H2 — configure the mock to throw a generic Error on next stream().
+    // The non-streaming drain catches and returns a 500 with a structured
+    // OpenAI error envelope (`type: 'api_error'`). Without this fix the
+    // exception would propagate to Hono's default 500 with no body.
+    MockProvider.throwOnNext = new Error('simulated provider failure');
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error?: { message?: string; type?: string } };
+      expect(body.error?.type).toBe('api_error');
+      expect(body.error?.message).toContain('simulated provider failure');
+    } finally {
+      // Defense-in-depth — the mock auto-resets after one throw, but a
+      // failed test could leave the field set otherwise.
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
+  test('returns 401 + invalid_api_key when provider throws a credential error', async () => {
+    // H2 — message heuristic: errors mentioning 'api key' / 'credential'
+    // / 'unauthorized' map to 401 + invalid_api_key so SDK clients
+    // surface AuthenticationError.
+    MockProvider.throwOnNext = new Error('Invalid API key provided');
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error?: { message?: string; type?: string } };
+      expect(body.error?.type).toBe('invalid_api_key');
+      expect(body.error?.message).toContain('Invalid API key');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
+  test('mirrors upstream HTTP status when provider throws ProviderHttpError', async () => {
+    // H2 — ProviderHttpError carries a `.status` field. The route mirrors
+    // it (so a real upstream 429 surfaces as 429, not 500) with
+    // `type: 'upstream_error'`.
+    MockProvider.throwOnNext = new ProviderHttpError('mock', 429, 'rate limited');
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(429);
+      const body = (await res.json()) as { error?: { message?: string; type?: string } };
+      expect(body.error?.type).toBe('upstream_error');
+      expect(body.error?.message).toContain('rate limited');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
   });
 });
