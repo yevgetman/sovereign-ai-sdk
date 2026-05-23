@@ -139,10 +139,21 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // / traceRecorder.
     //
     // T8: honor X-Session-Id. If the client supplies the header, that
-    // value becomes the row's primary key AND drives the chatcmpl-<id>
+    // value seeds the row's primary key AND drives the chatcmpl-<id>
     // wire id. Repeat invocations against the same id append messages to
     // the existing row (upsertSession is a no-op if the row exists).
     // Without the header, mint a fresh UUID per request (T2 behavior).
+    //
+    // H1 — namespace client-supplied ids with an `openai:` prefix before
+    // using as the DB row's primary key. `upsertSession` returns the
+    // existing row's session_id if the id is already present in the DB —
+    // regardless of metadata.kind. Without a namespace, a client could
+    // supply X-Session-Id matching an existing TUI/cron/drive session
+    // UUID and have its messages appended to that session's transcript.
+    // Prefixing on the server makes the openai-api session keyspace
+    // structurally disjoint from any other surface's keyspace. The wire
+    // response (chatcmpl-<id>) echoes the CLIENT's unprefixed id so the
+    // public contract is unchanged.
     //
     // D10 invariant: history is NOT hydrated from the row. The query()
     // call below sees only the request's messages[]; the DB row exists
@@ -150,18 +161,26 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     //
     // Truncate to a defensive cap (256 chars) — the schema accepts any
     // TEXT but pathological client ids could break downstream tooling.
+    const OPENAI_SESSION_PREFIX = 'openai:';
     const headerSessionId = c.req.header('x-session-id');
     const clientSessionId =
       headerSessionId !== undefined && headerSessionId.length > 0
         ? headerSessionId.slice(0, 256)
         : undefined;
+    const internalSessionId =
+      clientSessionId !== undefined
+        ? `${OPENAI_SESSION_PREFIX}${clientSessionId}`
+        : `${OPENAI_SESSION_PREFIX}${crypto.randomUUID()}`;
     const sessionId = runtime.sessionDb.upsertSession({
-      ...(clientSessionId !== undefined ? { sessionId: clientSessionId } : {}),
+      sessionId: internalSessionId,
       provider: runtime.resolvedProvider.transport.name,
       model: resolved.model,
       title: 'openai-api',
       systemPrompt,
-      metadata: { kind: 'openai-api' },
+      metadata: {
+        kind: 'openai-api',
+        ...(clientSessionId !== undefined ? { clientSessionId } : {}),
+      },
     });
 
     // 5) Build a request-scoped canUseTool. Same shape as cron's
@@ -253,7 +272,17 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       });
     }
 
-    const responseId = `chatcmpl-${sessionId}`;
+    // H1 — strip the `openai:` namespace prefix before exposing the id on
+    // the wire. The internal sessionId is the prefixed form (matching the
+    // DB row's PK); the wire id (chatcmpl-<id>) echoes the CLIENT's view
+    // — either their supplied X-Session-Id verbatim or the unprefixed
+    // UUID the server minted on their behalf. Clients never see the
+    // `openai:` namespace marker; it's a server-side detail.
+    const wireSessionId =
+      clientSessionId !== undefined
+        ? clientSessionId
+        : sessionId.slice(OPENAI_SESSION_PREFIX.length);
+    const responseId = `chatcmpl-${wireSessionId}`;
     const created = Math.floor(Date.now() / 1000);
 
     // 8a) Streaming branch (T5). Hono's streamSSE owns the wire; the T4
