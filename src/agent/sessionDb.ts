@@ -331,6 +331,44 @@ export class SessionDb {
     return result.changes ?? 0;
   }
 
+  /** Phase 17 follow-up — sweep cron-job sessions older than maxAgeMs.
+   *  Each cron run creates a fresh session row (see src/cron/wiring.ts:98);
+   *  a job firing every minute adds ~43k rows/month. The 30-day default
+   *  keeps the last month of runs available for debugging while preventing
+   *  unbounded growth.
+   *
+   *  Uses json_extract on metadata.kind — strict (no false positives from
+   *  titles that happen to contain "cron"). messages and session_compactions
+   *  reference sessions without ON DELETE CASCADE (PRAGMA foreign_keys = ON
+   *  is enabled), so dependent rows must be removed first. tasks already
+   *  CASCADE / SET NULL via migration 3→4.
+   *
+   *  Returns the number of session rows deleted. Called during runtime boot. */
+  cleanupOldCronSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
+    const cutoffSec = (Date.now() - maxAgeMs) / 1000;
+    return this.writeWithRetry(() => {
+      const ids = this.db
+        .query<{ session_id: string }, [number]>(
+          `SELECT session_id FROM sessions
+           WHERE json_extract(metadata, '$.kind') = 'cron'
+             AND created_at < ?`,
+        )
+        .all(cutoffSec)
+        .map((row) => row.session_id);
+      if (ids.length === 0) return 0;
+      const placeholders = ids.map(() => '?').join(',');
+      this.db.run(`DELETE FROM messages WHERE session_id IN (${placeholders})`, ids);
+      this.db.run(
+        `DELETE FROM session_compactions
+         WHERE parent_session_id IN (${placeholders})
+            OR child_session_id IN (${placeholders})`,
+        [...ids, ...ids],
+      );
+      const result = this.db.run(`DELETE FROM sessions WHERE session_id IN (${placeholders})`, ids);
+      return result.changes ?? 0;
+    });
+  }
+
   createSession(input: CreateSessionInput): string {
     const sessionId = randomUUID();
     const now = Date.now() / 1000;

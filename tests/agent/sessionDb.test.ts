@@ -431,3 +431,124 @@ describe('SessionDb.cleanupPhantomReviews', () => {
     db.close();
   });
 });
+
+// Phase 17 follow-up — cleanupOldCronSessions
+describe('SessionDb.cleanupOldCronSessions', () => {
+  test('deletes cron sessions older than maxAgeMs', () => {
+    const db = openMem();
+    const oldId = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'cron:job-1',
+      metadata: { kind: 'cron', cronJobId: 'job-1' },
+    });
+    const recentId = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'cron:job-2',
+      metadata: { kind: 'cron', cronJobId: 'job-2' },
+    });
+    // Backdate `oldId` by 31 days — past the 30-day default.
+    const oldSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?').run(oldSec, oldId);
+
+    const cleaned = db.cleanupOldCronSessions();
+    expect(cleaned).toBe(1);
+    expect(db.getSession(oldId)).toBeNull();
+    expect(db.getSession(recentId)).not.toBeNull();
+    db.close();
+  });
+
+  test('cascades to messages so FK constraint does not block deletion', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'cron:job-with-messages',
+      metadata: { kind: 'cron', cronJobId: 'job-3' },
+    });
+    db.saveMessage(id, { role: 'user', content: [{ type: 'text', text: 'hi' }] });
+    db.saveMessage(id, { role: 'assistant', content: [{ type: 'text', text: 'hello' }] });
+    const oldSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?').run(oldSec, id);
+
+    const cleaned = db.cleanupOldCronSessions();
+    expect(cleaned).toBe(1);
+    expect(db.getSession(id)).toBeNull();
+    // Messages must have been deleted (FK is not CASCADE).
+    expect(
+      db.handle.prepare('SELECT count(*) AS n FROM messages WHERE session_id = ?').get(id),
+    ).toEqual({ n: 0 });
+    db.close();
+  });
+
+  test('does NOT delete non-cron sessions even when old', () => {
+    const db = openMem();
+    const subagent = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'subagent:explore',
+      metadata: { kind: 'subagent' },
+    });
+    const untagged = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'regular chat',
+    });
+    // Backdate both well past the 30-day cutoff.
+    const oldSec = (Date.now() - 60 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET created_at = ?').run(oldSec);
+
+    const cleaned = db.cleanupOldCronSessions();
+    expect(cleaned).toBe(0);
+    expect(db.getSession(subagent)).not.toBeNull();
+    expect(db.getSession(untagged)).not.toBeNull();
+    db.close();
+  });
+
+  test('preserves recent cron sessions (within 30-day window)', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'cron:recent',
+      metadata: { kind: 'cron', cronJobId: 'job-4' },
+    });
+    // Default 30-day threshold — fresh session should not be touched.
+    const cleaned = db.cleanupOldCronSessions();
+    expect(cleaned).toBe(0);
+    expect(db.getSession(id)).not.toBeNull();
+    db.close();
+  });
+
+  test('returns 0 when there are no cron sessions at all', () => {
+    const db = openMem();
+    const cleaned = db.cleanupOldCronSessions();
+    expect(cleaned).toBe(0);
+    db.close();
+  });
+
+  test('honors custom maxAgeMs', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'cron:short-window',
+      metadata: { kind: 'cron', cronJobId: 'job-5' },
+    });
+    // Backdate by 2 hours.
+    const twoHoursAgoSec = (Date.now() - 2 * 3_600_000) / 1000;
+    db.handle
+      .prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?')
+      .run(twoHoursAgoSec, id);
+
+    // Default 30-day threshold — should not delete.
+    expect(db.cleanupOldCronSessions()).toBe(0);
+
+    // Custom 1-hour threshold — 2-hour-old row should be cleaned.
+    const cleaned = db.cleanupOldCronSessions(3_600_000);
+    expect(cleaned).toBe(1);
+    expect(db.getSession(id)).toBeNull();
+    db.close();
+  });
+});

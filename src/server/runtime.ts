@@ -737,6 +737,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   if (phantomsCleaned > 0) {
     process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
   }
+  const cronSessionsCleaned = sessionDb.cleanupOldCronSessions();
+  if (cronSessionsCleaned > 0) {
+    process.stderr.write(`[cron] cleaned up ${cronSessionsCleaned} old cron session row(s)\n`);
+  }
 
   if (opts.resumeId !== undefined) {
     const existing = sessionDb.getSession(opts.resumeId);
