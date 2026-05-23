@@ -85,6 +85,23 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  message, defeating the persistence work). Reset in test finally. */
   static lastMessages: Message[] | undefined = undefined;
 
+  /** Phase 18 T10 — snapshot of the AbortSignal that reached the most
+   *  recent `stream()` call. The OpenAI route's abort-bridge test reads
+   *  this AFTER triggering an AbortController.abort() on the client
+   *  fetch and asserts `lastSignal.aborted === true` to pin that the
+   *  client disconnect propagated through Hono → query() → provider.
+   *  Reset in test setup/teardown. */
+  static lastSignal: AbortSignal | undefined = undefined;
+
+  /** Phase 18 T10 — when true, the `streamHelloWorld` path sleeps for
+   *  `slowModeDelayMs` between each yielded event so the SSE stream
+   *  stays open long enough for the abort test to fire mid-flight.
+   *  Without this the default mock races to completion in a single
+   *  microtask tick and the abort lands AFTER the response was already
+   *  flushed. Reset in test teardown. */
+  static slowMode = false;
+  static slowModeDelayMs = 0;
+
   toProviderMessages(messages: Message[], _system?: SystemSegment[]): Message[] {
     return messages;
   }
@@ -121,6 +138,10 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     // Snapshot the messages array so resume-history regression tests can
     // assert the model saw prior turns.
     MockProvider.lastMessages = req.messages;
+    // Phase 18 T10 — snapshot the AbortSignal so abort-propagation tests
+    // can assert `lastSignal.aborted === true` after the route bridges
+    // a client disconnect through query() into provider.stream().
+    MockProvider.lastSignal = req.signal;
     if (MockProvider.preflightShouldFail) {
       // Throw on consumption so preflightProvider's for-await loop sees
       // the failure and classifyProviderPreflightError returns
@@ -136,7 +157,7 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     if (MockProvider.toolUseMode) {
       return yield* this.streamToolUse(req);
     }
-    return yield* this.streamHelloWorld();
+    return yield* this.streamHelloWorld(req.signal);
   }
 
   /** M8 T7 — emit a Bash tool_use repeatedly until the history carries
@@ -191,11 +212,24 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
 
   /** Default behavior — emit "Hello world." in two text deltas then stop.
    *  Preserved verbatim so every existing test that doesn't opt in to
-   *  tool-use mode behaves exactly as before. */
-  private async *streamHelloWorld(): AsyncGenerator<StreamEvent, AssistantMessage> {
+   *  tool-use mode behaves exactly as before.
+   *
+   *  Phase 18 T10: when `MockProvider.slowMode` is set, each yield is
+   *  preceded by an awaited delay so the SSE stream stays open long
+   *  enough for client-disconnect tests to abort mid-flight. The delay
+   *  respects the AbortSignal — if it fires while we're sleeping we
+   *  throw immediately to mimic how a real provider would surface a
+   *  cancelled request. */
+  private async *streamHelloWorld(
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamEvent, AssistantMessage> {
+    await this.maybeDelay(signal);
     yield { type: 'message_start' };
+    await this.maybeDelay(signal);
     yield { type: 'text_delta', text: 'Hello' };
+    await this.maybeDelay(signal);
     yield { type: 'text_delta', text: ' world.' };
+    await this.maybeDelay(signal);
     yield {
       type: 'usage_delta',
       usage: { inputTokens: 0, outputTokens: 2 },
@@ -205,6 +239,31 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     const assistant: AssistantMessage = { role: 'assistant', content };
     yield { type: 'assistant_message', message: assistant };
     return assistant;
+  }
+
+  /** Phase 18 T10 — sleep for `slowModeDelayMs` when slowMode is on,
+   *  observing the AbortSignal so a fired abort interrupts the wait
+   *  immediately. No-op when slowMode is off — every other test path
+   *  runs synchronously as before. */
+  private async maybeDelay(signal?: AbortSignal): Promise<void> {
+    if (!MockProvider.slowMode) return;
+    if (MockProvider.slowModeDelayMs <= 0) return;
+    if (signal?.aborted) {
+      throw new DOMException('mock aborted', 'AbortError');
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, MockProvider.slowModeDelayMs);
+      if (signal) {
+        signal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            reject(new DOMException('mock aborted', 'AbortError'));
+          },
+          { once: true },
+        );
+      }
+    });
   }
 
   /** Tool-use mode — two-call sequence:

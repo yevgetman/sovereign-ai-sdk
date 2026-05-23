@@ -193,6 +193,29 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
 
     // 7) Construct the query() invocation. The same params drive both
     // branches; the difference is who drains the generator.
+    //
+    // T10 — client-disconnect propagation. `c.req.raw.signal` is the
+    // Web Fetch AbortSignal that fires when the OpenAI client closes
+    // its fetch() context (Ctrl-C, browser tab close, openai-python's
+    // `with ... as response:` exiting on exception, etc.). We bridge
+    // it to a request-scoped AbortController whose signal flows into
+    // query(): the bridge insulates the inner pipeline from quirks in
+    // Bun's Request.signal lifecycle (different runtime sources have
+    // historically dispatched 'abort' at slightly different points;
+    // owning our own controller makes the contract local and testable).
+    //
+    // `{ once: true }` ensures the listener is gc'd after firing. We
+    // don't add a removeEventListener — the request-scoped signal goes
+    // out of scope when the handler returns, taking the listener with
+    // it. Fast-fail when the client already aborted before we got here
+    // so we don't waste a turn on a definitely-cancelled request.
+    const clientSignal: AbortSignal | undefined = c.req.raw.signal;
+    const abortController = new AbortController();
+    if (clientSignal?.aborted === true) {
+      abortController.abort();
+    } else {
+      clientSignal?.addEventListener('abort', () => abortController.abort(), { once: true });
+    }
     const toolContext = buildSessionToolContext(runtime, sessionId, sessionCanUseTool);
     const buildQuery = (): ReturnType<typeof query> =>
       query({
@@ -205,6 +228,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         canUseTool: sessionCanUseTool,
         maxTokens: parsed.max_tokens ?? runtime.maxTokens,
         ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
+        signal: abortController.signal,
         sessionId,
         cwd: runtime.cwd,
         hookRunner: runtime.hookRunner,

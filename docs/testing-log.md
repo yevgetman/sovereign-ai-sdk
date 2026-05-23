@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T10 (abort on client disconnect)
+
+**Scope:** T10 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). When the OpenAI client disconnects mid-request (closes its fetch context), the in-flight `query()` must abort via `AbortSignal` so the harness stops wasting provider tokens — matches the OpenAI SDK / `openai-python` documented behavior (aborting the `fetch()` context interrupts the backend).
+
+- **`src/openai/routes/chatCompletions.ts`** — the route now reads `c.req.raw.signal` (the Web Fetch `Request.signal` exposed by Hono on Bun.serve), bridges it to a request-scoped `AbortController`, and threads `abortController.signal` into the `query()` invocation. The bridge uses `{ once: true }` so the listener is gc'd after firing; no `removeEventListener` is needed because the signal goes out of scope when the handler returns. Fast-fail path: if `clientSignal.aborted === true` at handler entry, we trip the controller immediately so the request never reaches `query()`. Both streaming and non-streaming branches inherit the bridge transparently — they share the same `buildQuery()` closure.
+- **`src/providers/mock.ts`** — added two test-observation fields mirroring the existing `lastMessages` / `lastMaxTokens` pattern: `lastSignal: AbortSignal | undefined` (snapshots `req.signal` on every `stream()` call so the abort-bridge test can assert `lastSignal.aborted === true` after triggering a client-side abort) and `slowMode` + `slowModeDelayMs` (gates per-yield sleeps in `streamHelloWorld` so the SSE stream stays open long enough for the abort test to fire mid-flight). `maybeDelay()` respects the signal during sleeps so the mock throws `AbortError` on cancellation, mimicking real provider behavior.
+
+**Signal-bridge rationale:** Passing `c.req.raw.signal` directly into `query()` is technically possible — Bun's `Request.signal` is a standard `AbortSignal` and `query()` accepts any `AbortSignal`. We chose the explicit `AbortController` bridge anyway for two reasons: (1) it insulates the inner pipeline from runtime-specific differences in *when* the source signal dispatches its abort event (Bun, Node, Workers have historically diverged on a few edge cases — TCP RST mid-stream vs. graceful TCP FIN), and (2) it keeps the contract local and testable: anything downstream sees a controller we own, not an opaque Web Fetch signal.
+
+**TDD:** Wrote 2 failing tests first (RED — `MockProvider.lastSignal` was `undefined` because the route never passed a signal to `query()`). The implementation made both green. Tests boot a real `Bun.serve` via `createOpenAIServer` (not Hono's in-memory `app.request`) because only a real socket exposes `c.req.raw.signal` as something the test can trigger by cancelling its `fetch()` call. Streaming test asserts `lastSignal.aborted === true` 150 ms after client-side abort on a `stream: true` request; non-streaming test does the same on a `stream: false` request.
+
+**TS suite:** **2180 pass / 0 fail / 14 skip** (+2 from T9 baseline of 2178). Lint + typecheck clean.
+
+**Mock observation point:** added `MockProvider.lastSignal` as a static field — same pattern as `lastMaxTokens` / `lastMessages` already in the file. Reset in test setup/teardown. The signal flows: `c.req.raw.signal` → `abortController.abort()` → `abortController.signal` → `query()`'s `params.signal` → `provider.stream({ signal })` → `MockProvider.lastSignal`. When the test calls `controller.abort()` on its client-side AbortController, every link in that chain flips to `aborted === true`.
+
+**Streaming branch error path:** when the abort fires mid-stream, `query()`'s existing abort-detection logic (`if (signal?.aborted) { return { reason: 'interrupted' } }`) returns the terminal. The T5 mid-stream error handling in `streamSSE` catches any thrown propagation, emits a final-stop chunk + DONE, and the `finally` block disposes the session. No hang; the route returns cleanly even though the wire was severed at the client side.
+
+**No binary release cut** — T12 owns the Phase 18 release; harness stays on v0.3.4 until then.
+
 ## 2026-05-23 — Phase 18 T9 (per-request provider routing)
 
 **Scope:** T9 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Until now, `resolveModelForRequest` recognized only `harness-default` (and empty string) and threw `InvalidModelError` for every other name — including the explicit catalog entries (`claude-haiku-4-5-20251001`, `gpt-4o`, etc.) that `GET /v1/models` had been advertising. T9 wires the explicit-name branch: known SUPPORTED_MODELS entries now call `resolveProvider(family, model, { harnessHome })` to build a per-request transport. The result is used for **this request only**; runtime state is untouched.
