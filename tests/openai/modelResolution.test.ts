@@ -34,30 +34,38 @@ function makeMinimalRuntime(): Runtime {
   } as unknown as Runtime;
 }
 
+// Sentinel harnessHome; the harness-default and unknown-name branches both
+// short-circuit before any disk access, so these tests don't need a real
+// directory. T9 tests in modelResolution.real.test.ts use a real temp dir
+// because the explicit-name branch calls resolveProvider().
+const HOME = '/tmp/openai-modelresolution-unused';
+
 describe('resolveModelForRequest', () => {
   test('harness-default returns runtime bootstrap transport + model', () => {
     const runtime = makeMinimalRuntime();
-    const result = resolveModelForRequest(runtime, 'harness-default');
+    const result = resolveModelForRequest(runtime, 'harness-default', HOME);
     expect(result.transport).toBe(runtime.resolvedProvider.transport);
     expect(result.model).toBe(runtime.model);
   });
 
   test('empty string is treated as harness-default', () => {
     const runtime = makeMinimalRuntime();
-    const result = resolveModelForRequest(runtime, '');
+    const result = resolveModelForRequest(runtime, '', HOME);
     expect(result.transport).toBe(runtime.resolvedProvider.transport);
     expect(result.model).toBe(runtime.model);
   });
 
   test('unknown model throws InvalidModelError', () => {
     const runtime = makeMinimalRuntime();
-    expect(() => resolveModelForRequest(runtime, 'gpt-99-nonexistent')).toThrow(InvalidModelError);
+    expect(() => resolveModelForRequest(runtime, 'gpt-99-nonexistent', HOME)).toThrow(
+      InvalidModelError,
+    );
   });
 
   test('InvalidModelError carries the supported model list in the message', () => {
     const runtime = makeMinimalRuntime();
     try {
-      resolveModelForRequest(runtime, 'gpt-99-nonexistent');
+      resolveModelForRequest(runtime, 'gpt-99-nonexistent', HOME);
       throw new Error('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidModelError);

@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T9 (per-request provider routing)
+
+**Scope:** T9 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Until now, `resolveModelForRequest` recognized only `harness-default` (and empty string) and threw `InvalidModelError` for every other name — including the explicit catalog entries (`claude-haiku-4-5-20251001`, `gpt-4o`, etc.) that `GET /v1/models` had been advertising. T9 wires the explicit-name branch: known SUPPORTED_MODELS entries now call `resolveProvider(family, model, { harnessHome })` to build a per-request transport. The result is used for **this request only**; runtime state is untouched.
+
+- **`src/openai/modelResolution.ts`** — added a `modelFamily()` helper (`claude-*` → `'anthropic'`, `gpt-*` → `'openai'`), expanded the `harness-default`/empty-string short-circuit to also gate on a positive SUPPORTED_MODELS membership check before throwing, and threaded a new `harnessHome: string` parameter through `resolveModelForRequest`. The explicit-name branch calls `resolveProvider(family, requestedModel, { harnessHome })`, then returns `{ transport: resolved.transport, model: requestedModel }`. Family inference is defensive — a SUPPORTED_MODELS entry that doesn't match a known prefix throws `InvalidModelError` rather than silently falling through.
+- **`src/openai/routes/chatCompletions.ts`** — handler now passes `runtime.harnessHome` as the third arg. The route's existing 400/`model_not_found` envelope still handles `InvalidModelError`; resolver-thrown `CredentialUnavailableError` etc. surface through the route's outer error path.
+
+**Per-request resolution rationale:** Each call to `resolveProvider` is cheap (credential pool + rate guard files are lazily opened) and yields fresh rate-guard state — the safer v0 default. An LRU layer is out of scope; if profiling shows a hot path, T-something-later adds it.
+
+**TDD:** Wrote 7 new tests in `tests/openai/modelResolution.real.test.ts` covering: harness-default + empty string still hit the cheap path (no resolver call); `claude-haiku-4-5-20251001` and `gpt-4o-mini` take the explicit-name branch (asserted by either a non-mock transport returning OR a `CredentialUnavailableError` throwing — both prove the branch ran); runtime state is not mutated across an explicit-name call; unknown names throw `InvalidModelError` with the full SUPPORTED_MODELS catalog in the message. Updated the existing 5 T2 tests in `modelResolution.test.ts` to pass the new `harnessHome` arg through a sentinel constant (those tests short-circuit before any disk access).
+
+**TS suite:** **2178 pass / 0 fail / 14 skip** (+7 from the T8 baseline of 2171). Lint + typecheck clean.
+
+**resolveProvider signature confirmed:** `resolveProvider(name?: string, model?: string, opts: ResolveProviderOpts = {}): ResolvedProvider`. `opts.harnessHome` is required to land credential pool state at `<harnessHome>/credentials.json` and rate-guard state under `<harnessHome>/rate_limits/`. The provider name normalizer accepts `'anthropic'`/`'claude'`/`'openai'`/`'openrouter'`/`'ollama'`/`'mock'`. Family inference inside `modelResolution.ts` deliberately routes `claude-*` → `'anthropic'` (the normalized name) rather than `'claude'`.
+
+**Test ergonomics under no-credentials:** the explicit-name tests don't `test.skip` under no-key conditions — they assert that EITHER a non-mock transport comes back (key present) OR `CredentialUnavailableError` throws (key absent). Either outcome proves the branch ran; the silent fall-through (returning the mock transport when an explicit name was requested) is what the test guards against. This avoids env-dependent skip logic while still meaningfully exercising the new code path in CI.
+
+**No binary release cut** — T12 owns the Phase 18 release; harness stays on v0.3.4 until then.
+
 ## 2026-05-23 — Phase 18 T8 (`X-Session-Id` header + DB persistence)
 
 **Scope:** T8 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Each `/v1/chat/completions` request now mints a `SessionDb` row tagged `metadata.kind='openai-api'` (T2 already did this part), honors a client-supplied `X-Session-Id` header for that row's primary key, and persists the latest user prompt + the final assistant message to the row. History is **not** hydrated from the row — the request's `messages[]` remains the source of truth (D10).

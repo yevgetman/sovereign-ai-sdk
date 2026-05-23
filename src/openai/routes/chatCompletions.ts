@@ -95,11 +95,16 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       return c.json(errorBody(`invalid request: ${msg}`, 'invalid_request_error'), 400);
     }
 
-    // 2) Resolve the requested model. T2: harness-default only; unknown
-    // names throw InvalidModelError → 400 with the supported list per OQ2.
+    // 2) Resolve the requested model. T2 covers `harness-default` (runtime's
+    // bootstrap transport) and unknown names (→ 400 with the supported list
+    // per OQ2). T9 expands the explicit-name branch to call resolveProvider
+    // for per-request provider/model overrides — the route hands the
+    // resolver the runtime's harnessHome so it can locate credentials +
+    // rate-guard state on disk. The result is used for THIS request only;
+    // runtime state is untouched.
     let resolved: ReturnType<typeof resolveModelForRequest>;
     try {
-      resolved = resolveModelForRequest(runtime, parsed.model);
+      resolved = resolveModelForRequest(runtime, parsed.model, runtime.harnessHome);
     } catch (err) {
       if (err instanceof InvalidModelError) {
         return c.json(errorBody(err.message, 'invalid_request_error', 'model_not_found'), 400);
