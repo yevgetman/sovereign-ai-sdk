@@ -1195,6 +1195,178 @@ func TestApp_BootUnknownThemeFallsBackToDarkWithError(t *testing.T) {
 // has been deleted. The equivalent TS-side behavior is covered by
 // tests/commands/pickers.test.ts and config/store.ts's setAt tests.
 
+// TestApp_PromptToSendAutoFiresTurn pins the prompt-type slash-command
+// contract: when /commands returns a non-empty `promptToSend`, the TUI
+// must auto-POST that body as a turn — the server has already done the
+// expansion. Without this, /init / /commit / every skill-sourced command
+// renders only the summary line and the user has to manually re-type
+// the prompt.
+//
+// Mirrors what sov drive does at src/cli/driveCommand.ts:475.
+func TestApp_PromptToSendAutoFiresTurn(t *testing.T) {
+	const sessionID = "test-session"
+	const promptBody = "Expanded prompt body to send as turn."
+
+	var (
+		mu             sync.Mutex
+		commandPosts   int
+		turnPostsBody  [][]byte
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// /commands POST — return a prompt-type response.
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/"+sessionID+"/commands" {
+			mu.Lock()
+			commandPosts++
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(transport.CommandResponse{
+				Output:       "Prompt-type slash command. Sending …",
+				PromptToSend: promptBody,
+			})
+			return
+		}
+		// /turns POST — capture the body to assert promptToSend was sent.
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/"+sessionID+"/turns" {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			turnPostsBody = append(turnPostsBody, body)
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(sessionID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "›")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/init")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Wait for both POSTs to land.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		gotCmd := commandPosts
+		gotTurn := len(turnPostsBody)
+		mu.Unlock()
+		if gotCmd > 0 && gotTurn > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	gotCmd := commandPosts
+	gotTurnBodies := append([][]byte(nil), turnPostsBody...)
+	mu.Unlock()
+
+	if gotCmd != 1 {
+		t.Fatalf("expected 1 POST to /commands, got %d", gotCmd)
+	}
+	if len(gotTurnBodies) != 1 {
+		t.Fatalf("expected 1 POST to /turns (the auto-fire), got %d", len(gotTurnBodies))
+	}
+	if !bytes.Contains(gotTurnBodies[0], []byte(promptBody)) {
+		t.Fatalf("auto-fired /turns body = %q, want to contain promptToSend body %q",
+			string(gotTurnBodies[0]), promptBody)
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
+// TestApp_NoPromptToSendDoesNotFireTurn guards the negative case: local
+// slash commands (/help, /cost, etc.) come back with no promptToSend and
+// MUST NOT trigger a turn POST.
+func TestApp_NoPromptToSendDoesNotFireTurn(t *testing.T) {
+	const sessionID = "test-session"
+
+	var (
+		mu            sync.Mutex
+		turnPostCount int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/"+sessionID+"/commands" {
+			_ = json.NewEncoder(w).Encode(transport.CommandResponse{
+				Output: "help text content",
+				// PromptToSend deliberately unset.
+			})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/sessions/"+sessionID+"/turns" {
+			mu.Lock()
+			turnPostCount++
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/skills") {
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/commands") && r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(sessionID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return contains(b, "›")
+	}, teatest.WithDuration(2*time.Second))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/help")})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Give the TUI a moment to (incorrectly) fire a turn if it would.
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	got := turnPostCount
+	mu.Unlock()
+	if got != 0 {
+		t.Fatalf("expected 0 POSTs to /turns for local command, got %d", got)
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 func TestApp_ThemeChangedSideEffectAppliesTheme(t *testing.T) {
 	// Backlog #46 — when the server's commandDispatchedMsg carries
 	// sideEffects.themeChanged, the TUI applies the theme client-side

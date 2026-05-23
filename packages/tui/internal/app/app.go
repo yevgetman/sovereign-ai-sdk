@@ -1270,6 +1270,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
+		// Prompt-type slash commands (/init, /commit, every skill-sourced
+		// command) carry the expanded prompt body in PromptToSend. Auto-
+		// fire it as a turn so the user doesn't have to re-type it.
+		// Mirrors sov drive at src/cli/driveCommand.ts:475. The output
+		// field has already rendered the body so no extra echo is needed.
+		if msg.resp != nil && msg.resp.PromptToSend != "" && m.baseURL != "" {
+			m.thinkingPending = true
+			spinCmd := m.startSpinner("thinking")
+			return m, m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd))
+		}
 		return m, m.respond(nil)
 	}
 	// ux-fixes round 5 — no transcript forwarding for unhandled msgs.

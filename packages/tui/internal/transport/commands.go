@@ -73,9 +73,16 @@ type CommandSideEffects struct {
 
 // CommandResponse is the JSON envelope returned by /commands.
 type CommandResponse struct {
-	Output      string              `json:"output"`
-	Error       string              `json:"error,omitempty"`
-	SideEffects *CommandSideEffects `json:"sideEffects,omitempty"`
+	Output string `json:"output"`
+	Error  string `json:"error,omitempty"`
+	// PromptToSend carries the flattened body of a prompt-type slash
+	// command (/init, /commit, every skill-sourced command). When
+	// non-empty, the client should POST it as a turn — the server has
+	// already done the expansion. Mirrors src/server/schema.ts's
+	// optional `promptToSend` field. Empty/unset for local commands
+	// (/help, /cost, etc.).
+	PromptToSend string              `json:"promptToSend,omitempty"`
+	SideEffects  *CommandSideEffects `json:"sideEffects,omitempty"`
 }
 
 // commandsClient — separate from the SSE consumer's long-poll client

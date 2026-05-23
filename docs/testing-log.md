@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 evening — TUI client adopts `promptToSend` (open follow-up from semantic-suite-revival)
+
+**Scope:** Open follow-up from the 2026-05-22 late-PM semantic-suite-revival close-out. Until this commit, the TUI dispatched `/init` / `/commit` / every skill-sourced command, received back the expanded prompt body in `promptToSend`, rendered the output text ("Prompt-type slash command. Sending …") but did NOT actually fire the turn — the user had to manually copy/paste the body to send it. Mirrors what `sov drive` already does (`src/cli/driveCommand.ts:475`).
+
+Wired:
+- **`packages/tui/internal/transport/commands.go`** — added `PromptToSend string` field to `CommandResponse` (`json:"promptToSend,omitempty"`), mirroring the optional field server-side (`src/server/schema.ts:263`).
+- **`packages/tui/internal/app/app.go`** — in the `commandDispatchedMsg` handler, after rendering output + applying sideEffects, if `msg.resp.PromptToSend != ""` start the thinking spinner and fire `submitTurn(msg.resp.PromptToSend)`. Output rendering is unchanged because the server's output field already contains the body (the user sees it once via output; auto-fire just kicks off the assistant turn).
+
+**Tests added:**
+- `packages/tui/internal/transport/commands_test.go` — `TestDispatchCommand_PromptToSend` pins the JSON wire field name + decoded value.
+- `packages/tui/internal/app/app_test.go` — `TestApp_PromptToSendAutoFiresTurn` (teatest, `/init` triggers both POST `/commands` and POST `/turns` with the body) + `TestApp_NoPromptToSendDoesNotFireTurn` (`/help` does NOT trigger a turn POST).
+
+**Commands:**
+```
+cd /Users/julie/code/sovereign-ai-harness/packages/tui && go test -count=1 ./...
+# All packages green
+
+cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+# lint: 2 warnings (pre-existing in src/permissions/shellSemantics.ts; unrelated)
+# typecheck: clean
+# tests: 1996 pass / 0 fail / 14 skip (unchanged from morning baseline — TS untouched)
+```
+
+**Result:** PASS. No new ADRs (the wire mirrors the existing TS-side surface).
+
+**Follow-ups:** None — the semantic-suite-revival open follow-up is now closed.
+
+---
+
 ## 2026-05-22 evening — backlog #47 cleanup (dead `transcript.go` removed)
 
 **Scope:** Retired the dead `Transcript` component from the Go TUI. The ux-fixes round 5 inline-mode refactor (2026-05-21) routes all permanent content through `tea.Println` and all live content through `LiveRegion`. The legacy `Transcript` struct + its viewport / `lines[]` / `toolCards` map had been unreachable production code, only kept alive because `recomputeLayout`'s residual `SetSize` call and `New()`'s initializer still referenced them.

@@ -108,6 +108,32 @@ func TestDispatchCommand_SideEffects(t *testing.T) {
 	}
 }
 
+func TestDispatchCommand_PromptToSend(t *testing.T) {
+	// Backlog: prompt-type slash commands (/init, /commit, every
+	// skill-sourced command) return a structured `promptToSend` field
+	// alongside `output`. The TUI must decode this so it can auto-fire
+	// the expanded prompt as a turn — mirroring what `sov drive`
+	// already does (src/cli/driveCommand.ts:475).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Hand-rolled JSON pins the wire field name (`promptToSend`,
+		// not `prompt_to_send` or any other casing).
+		_, _ = w.Write([]byte(
+			`{"output":"Prompt-type slash command. Sending …",` +
+				`"promptToSend":"The body of the expanded prompt."}`,
+		))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(context.Background(), srv.URL, "abc-123", "init", "")
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.PromptToSend != "The body of the expanded prompt." {
+		t.Errorf("PromptToSend = %q, want %q",
+			resp.PromptToSend, "The body of the expanded prompt.")
+	}
+}
+
 func TestDispatchCommand_Non2xxReturnsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
