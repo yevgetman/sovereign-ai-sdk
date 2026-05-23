@@ -8,6 +8,55 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T3 (`sov serve` CLI subcommand)
+
+**Scope:** T3 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Adds `program.command('serve')` to `src/main.ts` that boots a runtime + OpenAI HTTP API server, registers SIGINT/SIGTERM handlers for graceful shutdown, and parks via `await new Promise<never>(() => {})`. Closes the **non-streaming half of the spec's `Check`** — `curl http://localhost:8765/v1/chat/completions ...` now returns an OpenAI-shaped response when `sov serve` is running.
+
+**CLI flags:**
+- `--port <n>` (env `SOV_OPENAI_PORT`, config `openaiServer.port`, default 8765)
+- `--host <addr>` (env `SOV_OPENAI_HOST`, config `openaiServer.host`, default 127.0.0.1)
+- `--provider <name>` / `-m, --model <name>` / `--max-tokens <n>` (runtime overrides)
+- `--permission-mode <mode>` (uses existing `parsePermissionMode` helper)
+- `--no-cron` / `--no-preflight` (Commander boolean negation)
+- `-b, --bundle <path>` (mapped to `RuntimeOptions.bundleRoot`)
+
+**API key resolution:** `process.env.SOV_OPENAI_API_KEY ?? config.openaiServer?.apiKey`. Missing/empty → stderr message with exact `sov config set openaiServer.apiKey <key>` remediation + `process.exit(1)` before any side effects.
+
+**Boot banner:** three stdout lines — `listening on http://${host}:${port}` then `provider=... model=...` then `cron=on|off harnessHome=...`. Tests grep for the port number.
+
+**Shutdown:** `shutdown(signal)` is idempotent (`shuttingDown` flag prevents double-fire on rapid Ctrl-C-Ctrl-C). Calls `server.stop()` then `runtime.dispose()`, each guarded so a failure in one doesn't mask the other; logs to stdout/stderr. Exits 0.
+
+**Files modified:**
+- `src/main.ts` — added the `serve` command block immediately after `serve-dev` (around line 281).
+
+**Files created:**
+- `tests/openai/serve.cli.test.ts` — 2 integration tests using `Bun.spawn` to fork `bun src/main.ts serve` with the mock provider, then exercise `/health` + `POST /v1/chat/completions` + `SIGTERM`. Second test exercises the missing-API-key refusal path.
+
+**Field-name discrepancies fixed vs. plan sketch:**
+- Plan calls `loadEffectiveConfig` — actual is `readConfig` (`src/config/store.ts`). Used `readConfig`.
+- Plan calls `skipPreflight: true` — actual field is `preflight: false` (`RuntimeOptions`). Used the boolean negation.
+- `bundleRoot` IS the correct `RuntimeOptions` field; verified by reading `src/server/runtime.ts:132`.
+- `runtime.resolvedProvider.transport.name` IS the correct path; verified at `runtime.ts:983`.
+
+**Subprocess-test stability gotcha:**
+- First implementation used `spawn` from `node:child_process`. Tests passed in isolation but failed inside the full `bun test` suite: the subprocess exited cleanly with code 0 at exactly 5 seconds, before ever printing the boot banner. Root cause was the node-bindings spawn interacting badly with bun's test worker pool (likely worker-process lifecycle killing the detached subprocess at the per-test bun-default timeout of 5s).
+- Fixed by switching to `Bun.spawn` (native API). Same arguments, no shell quoting needed; `proc.exited` is a Promise<number>; `proc.stdout`/`proc.stderr` are `ReadableStream<Uint8Array>` when `stdout: 'pipe'` / `stderr: 'pipe'` are set. Stable on both isolation and full-suite runs (verified across two back-to-back full-suite runs).
+
+**Final suite numbers:** TS **2108 pass / 0 fail / 14 skip** (+2 from T2's 2106 baseline). Lint clean (biome auto-fix applied formatter for `src/main.ts` and the new test file). Typecheck clean.
+
+**Commands:**
+
+```
+bun run lint      # → clean
+bun run typecheck # → clean
+bun run test      # → 2108 pass / 0 fail / 14 skip
+bun test tests/openai/  # → 35 pass (T1's 8 + T2's 25 + T3's 2)
+```
+
+**Follow-ups for the run:** T4 (text-delta SSE translator) + T5 (wire streaming branch into `POST /v1/chat/completions`) — closes the streaming half of the Phase 18 `Check`.
+
+---
+
 ## 2026-05-23 — Phase 18 T2 (OpenAI API server: non-streaming chat completions)
 
 **Scope:** T2 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). First `/v1/chat/completions` route, non-streaming branch only (`stream === false` or absent). Maps OpenAI ChatRequest → internal Message[], drives `query()` directly per D7 (NOT `AgentRunner.run(prompt)` — the request carries full multi-message history natively), maps result back to OpenAI response shape. Uses mock provider for tests.

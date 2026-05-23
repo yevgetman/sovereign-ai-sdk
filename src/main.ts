@@ -278,6 +278,102 @@ async function main(argv: string[]): Promise<void> {
       });
     });
 
+  program
+    .command('serve')
+    .description(
+      'Run the OpenAI-compatible HTTP API server (Phase 18). Long-lived; SIGINT/SIGTERM trigger graceful shutdown.',
+    )
+    .option('--port <n>', 'port (default 8765, env SOV_OPENAI_PORT)', parsePositiveInt)
+    .option('--host <addr>', 'host (default 127.0.0.1, env SOV_OPENAI_HOST)')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or router')
+    .option('-m, --model <name>', 'model name (overrides provider/config default)')
+    .option('--max-tokens <n>', 'max tokens per provider call', parsePositiveInt)
+    .option(
+      '--permission-mode <mode>',
+      "tool permissions: 'default', 'ask', or 'bypass'",
+      parsePermissionMode,
+    )
+    .option('--no-cron', 'disable the cron tick loop')
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .option('--no-preflight', 'skip the startup provider health check')
+    .action(async (opts) => {
+      const { readConfig } = await import('./config/store.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { buildRuntime } = await import('./server/runtime.js');
+      const { createOpenAIServer } = await import('./openai/server.js');
+
+      const harnessHome = resolveHarnessHome();
+      const config = readConfig();
+      const apiKey = process.env.SOV_OPENAI_API_KEY ?? config.openaiServer?.apiKey ?? undefined;
+      if (apiKey === undefined || apiKey.length === 0) {
+        process.stderr.write(
+          'sov serve: API key required.\n' +
+            'Set SOV_OPENAI_API_KEY=<key> or run: sov config set openaiServer.apiKey <key>\n',
+        );
+        process.exit(1);
+      }
+
+      const envPortRaw = process.env.SOV_OPENAI_PORT;
+      const envPort =
+        envPortRaw !== undefined && envPortRaw.length > 0
+          ? Number.parseInt(envPortRaw, 10)
+          : undefined;
+      const port =
+        opts.port ??
+        (envPort !== undefined && Number.isFinite(envPort) ? envPort : undefined) ??
+        config.openaiServer?.port ??
+        8765;
+      const host =
+        opts.host ?? process.env.SOV_OPENAI_HOST ?? config.openaiServer?.host ?? '127.0.0.1';
+
+      const runtime = await buildRuntime({
+        cwd: process.cwd(),
+        cronEnabled: opts.cron !== false,
+        ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
+        ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
+        ...(opts.bundle !== undefined ? { bundleRoot: opts.bundle } : {}),
+        ...(opts.preflight === false ? { preflight: false } : {}),
+      });
+
+      const server = createOpenAIServer({ runtime, apiKey, port, host });
+
+      process.stdout.write(`sov serve: listening on http://${server.host}:${server.port}\n`);
+      process.stdout.write(
+        `  provider=${runtime.resolvedProvider.transport.name}  model=${runtime.model}\n`,
+      );
+      process.stdout.write(
+        `  cron=${opts.cron !== false ? 'on' : 'off'}  harnessHome=${harnessHome}\n`,
+      );
+
+      let shuttingDown = false;
+      const shutdown = async (signal: string): Promise<void> => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        process.stdout.write(`sov serve: ${signal} received, shutting down...\n`);
+        try {
+          await server.stop();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(`server.stop() failed: ${msg}\n`);
+        }
+        try {
+          await runtime.dispose();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(`runtime.dispose() failed: ${msg}\n`);
+        }
+        process.exit(0);
+      };
+      process.on('SIGINT', () => void shutdown('SIGINT'));
+      process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+      // Park forever — the SIGINT/SIGTERM handlers above are the only
+      // legal exit paths.
+      await new Promise<never>(() => {});
+    });
+
   const configCmd = program
     .command('config')
     .description('Read or write user-level config (no args opens an interactive picker)')
