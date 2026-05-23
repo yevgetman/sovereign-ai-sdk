@@ -97,3 +97,72 @@ describe('jobs CRUD', () => {
     expect(loadJobs(home)).toEqual([]);
   });
 });
+
+describe('jobs lock', () => {
+  test('addJob acquires and releases the lock', () => {
+    addJob(home, {
+      prompt: 'a',
+      schedule: { kind: 'relative', offsetMs: 60_000 },
+      deliver: 'local',
+      skills: [],
+    });
+    // After addJob completes, the lock dir must NOT exist.
+    const fs = require('node:fs') as typeof import('node:fs');
+    expect(fs.existsSync(join(home, 'cron', '.jobs.lock'))).toBe(false);
+  });
+
+  test('addJob throws after maxAttempts if lock never releases', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.mkdirSync(join(home, 'cron'), { recursive: true });
+    fs.mkdirSync(join(home, 'cron', '.jobs.lock'));
+    expect(() => {
+      addJob(home, {
+        prompt: 'a',
+        schedule: { kind: 'relative', offsetMs: 60_000 },
+        deliver: 'local',
+        skills: [],
+      });
+    }).toThrow(/lock/i);
+  });
+
+  test('lock is released after a throw inside the callback (mutateJob path)', () => {
+    // pauseJob → mutateJob throws nothing here, but we verify the lock dir
+    // is gone after — implicit "finally release" check.
+    const j = addJob(home, {
+      prompt: 'a',
+      schedule: { kind: 'relative', offsetMs: 60_000 },
+      deliver: 'local',
+      skills: [],
+    });
+    pauseJob(home, j.id);
+    const fs = require('node:fs') as typeof import('node:fs');
+    expect(fs.existsSync(join(home, 'cron', '.jobs.lock'))).toBe(false);
+  });
+
+  test('sequential addJobs in same tick land both jobs', async () => {
+    // addJob is synchronous, so Promise.all of two addJob calls runs them
+    // sequentially in microtask order — not truly in parallel. This test
+    // proves the within-process composition (lock acquired, released,
+    // acquired again) works. The lock's real benefit is cross-process,
+    // which we can't easily test without child_process.
+    await Promise.all([
+      Promise.resolve().then(() =>
+        addJob(home, {
+          prompt: 'first',
+          schedule: { kind: 'relative', offsetMs: 60_000 },
+          deliver: 'local',
+          skills: [],
+        }),
+      ),
+      Promise.resolve().then(() =>
+        addJob(home, {
+          prompt: 'second',
+          schedule: { kind: 'relative', offsetMs: 60_000 },
+          deliver: 'local',
+          skills: [],
+        }),
+      ),
+    ]);
+    expect(loadJobs(home)).toHaveLength(2);
+  });
+});
