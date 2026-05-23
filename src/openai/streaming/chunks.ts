@@ -1,4 +1,4 @@
-// Phase 18 T4 — Pure helpers for building OpenAI SSE chunk payloads.
+// Phase 18 T4 + T6 — Pure helpers for building OpenAI SSE chunk payloads.
 // These are called per text delta, which can be hundreds of times per
 // request; the builders allocate one object literal each and do no I/O.
 //
@@ -9,8 +9,14 @@
 // terminates with the literal `data: [DONE]\n\n` line — that string
 // lives in `DONE_MARKER` so it can be referenced symbolically.
 //
-// T6 will add `delta.tool_calls` chunks alongside content chunks; the
-// builders here only cover the text path.
+// T6 adds:
+//   - `buildToolCallsChunk` — emits `delta.tool_calls[]` carrying the
+//     whole, already-known arguments JSON in a single chunk (D8: no
+//     partial argument streaming).
+//   - `buildProgressPayload` — JSON-encodes a hermes.tool.progress
+//     side-channel event. The event line (`event: hermes.tool.progress`)
+//     is emitted by the translator alongside; this builder owns only the
+//     payload portion so the translator stays in charge of wire framing.
 
 export type ChunkCtx = {
   /** chatcmpl-<sessionId>; same id appears on every chunk in the stream. */
@@ -89,3 +95,105 @@ export function buildFinalChunk(reason: 'stop' | 'length', ctx: ChunkCtx): Final
 /** Literal `[DONE]` string. The SSE wire form is `data: [DONE]\n\n`;
  *  this constant carries just the payload portion. */
 export const DONE_MARKER = '[DONE]';
+
+/** One element of `delta.tool_calls[]` in an OpenAI chat-completion
+ *  chunk. The `index` is the position within the assistant message's
+ *  tool_calls array — OpenAI's streaming protocol allows successive
+ *  chunks to grow `arguments` per index; the harness emits each call
+ *  whole in a single chunk because `query()` has already resolved the
+ *  full input by the time the terminal assistant_message arrives. */
+export type ToolCallDelta = {
+  index: number;
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+
+/** Chunk variant carrying one or more `tool_calls` deltas. The `delta`
+ *  object has no `content` — content and tool_calls are emitted in
+ *  separate chunks. `finish_reason` is null because the tool_calls
+ *  chunk is not terminal — the harness runs the tools internally and
+ *  continues the run (D9: client never sees `finish_reason: 'tool_calls'`). */
+export type ToolCallsChunk = {
+  id: string;
+  object: 'chat.completion.chunk';
+  created: number;
+  model: string;
+  choices: Array<{
+    index: 0;
+    delta: { tool_calls: ToolCallDelta[] };
+    finish_reason: null;
+  }>;
+};
+
+/** Build a single chunk carrying one or more tool_calls. OpenAI's
+ *  streaming protocol allows partial argument streaming via successive
+ *  chunks (each appending to the same `index`), but D8 emits the whole
+ *  arguments JSON in one chunk because the harness already has the full
+ *  input by the time we see the tool_use block at the terminal
+ *  assistant_message. Indices are 0-based and sequential — they pin the
+ *  tool_call position within the assistant message for the client. */
+export function buildToolCallsChunk(
+  toolCalls: ReadonlyArray<{ id: string; name: string; input: unknown }>,
+  ctx: ChunkCtx,
+): ToolCallsChunk {
+  return {
+    id: ctx.id,
+    object: 'chat.completion.chunk',
+    created: ctx.created,
+    model: ctx.model,
+    choices: [
+      {
+        index: 0,
+        delta: {
+          tool_calls: toolCalls.map((tc, i) => ({
+            index: i,
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.input ?? {}),
+            },
+          })),
+        },
+        finish_reason: null,
+      },
+    ],
+  };
+}
+
+/** Payload of a `hermes.tool.progress` SSE side-channel event. The
+ *  event line itself (`event: hermes.tool.progress\n`) is emitted by
+ *  the translator alongside this payload — keeping framing out of the
+ *  builder lets us swap the framing later (named event, JSON-Lines,
+ *  WebSocket) without touching the schema.
+ *
+ *  Field semantics:
+ *   - `tool_use_id`: the Anthropic-style id minted by the model. Lets a
+ *     downstream observability surface correlate the progress event with
+ *     the preceding `tool_calls` chunk that announced the call.
+ *   - `output`: the textual result (or error message) the tool produced.
+ *     Omitted when there's nothing useful to attach (e.g., a streaming
+ *     "started" event in a future expansion).
+ *   - `is_error`: true iff the tool returned an error envelope. Omitted
+ *     when false — clients should treat absence as "success". */
+export type ProgressEvent = {
+  tool_use_id: string;
+  output?: string;
+  is_error?: boolean;
+};
+
+/** Build the SSE payload (JSON-encoded) for a hermes.tool.progress
+ *  event. Drops `is_error` when false so the wire stays minimal — the
+ *  presence of the field signals failure, its absence signals success. */
+export function buildProgressPayload(progress: ProgressEvent): string {
+  const payload: ProgressEvent = {
+    tool_use_id: progress.tool_use_id,
+    ...(progress.output !== undefined ? { output: progress.output } : {}),
+    ...(progress.is_error === true ? { is_error: true } : {}),
+  };
+  return JSON.stringify(payload);
+}

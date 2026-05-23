@@ -8,6 +8,50 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T6 (tool-use chunks + `hermes.tool.progress` events)
+
+**Scope:** T6 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Extends the streaming translator and chunk builders to surface tool execution on the OpenAI wire:
+- `delta.tool_calls[]` chunks projected from `tool_use` blocks visible in the terminal `assistant_message` StreamEvent (D8 — whole arguments JSON in one chunk; no partial streaming).
+- `event: hermes.tool.progress` SSE side-channel events projected from `tool_result` blocks carried in bare user-role Messages yielded by `runTools()`.
+- Single-request multi-turn unchanged — the translator handles a single mid-stream tool roundtrip seamlessly, with `finish_reason: 'stop'` at the end (D9 — never `'tool_calls'` because the harness runs tools internally).
+
+**Event-shape contract (canonical sources):**
+- `tool_use` blocks: visible (with resolved `input`) only on `{type: 'assistant_message', message: {role: 'assistant', content: [..., {type: 'tool_use', id, name, input}]}}` — the intermediate `tool_use_delta` events carry only partial JSON and stay dropped by the translator. Verified via `src/providers/mock.ts:244-249` (mock's terminal-yield shape) and `src/core/query.ts:145-146` (where assistant_message is captured then yielded).
+- `tool_result` blocks: arrive in bare user-role Messages (`{role: 'user', content: [{type: 'tool_result', tool_use_id, content, is_error?}, ...]}`), yielded directly by `runTools()` via `src/core/orchestrator.ts:115` then forwarded by `src/core/query.ts:347`. Distinguished from typed StreamEvents by carrying `role` instead of `type`.
+
+**Wire format (verified by the integration test):**
+
+```
+data: {"…","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{"content":"Let me "},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{"content":"check."},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"…","type":"function","function":{"name":"Bash","arguments":"{\"command\":\"echo hello-from-mock\"}"}}]},"finish_reason":null}]}\n\n
+event: hermes.tool.progress\ndata: {"tool_use_id":"…","output":"hello-from-mock\n"}\n\n
+data: {"…","choices":[{"index":0,"delta":{"content":"done."},"finish_reason":null}]}\n\n
+data: {"…","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n
+data: [DONE]\n\n
+```
+
+**Implementation notes:**
+- `buildToolCallsChunk(toolCalls, ctx)` allocates one chunk per assistant_message containing tool_use blocks; arguments are `JSON.stringify`'d (handles `null`/`undefined` via `?? {}`).
+- `buildProgressPayload({tool_use_id, output?, is_error?})` JSON-encodes the side-channel payload; omits `output` when undefined and `is_error` when false (absence signals success — minimizes wire bytes).
+- Translator adds two type guards: `isAssistantMessageEvent` (checks `type === 'assistant_message'` + array `message.content`) and `isUserMessage` (checks `role === 'user'` + array `content`). Both keep narrowing under `unknown` so the translator's input type doesn't have to commit to the union.
+- Role chunk emission lifted into a `ensureRoleEmitted()` closure so both the text-delta path and the tool_use path can guarantee the role assertion lands before their first chunk. Tool-only turns (no text_delta) still get the role chunk before the tool_calls chunk.
+- `normalizeToolResultContent` defensively coerces a future structured-content drift (text+image arrays) into a string so the wire stays well-formed regardless.
+
+**Files modified:**
+- `src/openai/streaming/chunks.ts` — added `ToolCallDelta`, `ToolCallsChunk`, `ProgressEvent` types; `buildToolCallsChunk` and `buildProgressPayload` functions.
+- `src/openai/streaming/sseTranslator.ts` — added `isAssistantMessageEvent` / `isUserMessage` guards, `emitToolCallsFromAssistantMessage` / `emitToolProgressFromUserMessage` helpers, `normalizeToolResultContent` shim; lifted role emission into `ensureRoleEmitted` closure.
+- `tests/openai/streaming/chunks.test.ts` — appended 9 tests for `buildToolCallsChunk` + `buildProgressPayload` (shape, indices, finish_reason null, ctx echo, output/is_error omission rules).
+
+**Files created:**
+- `tests/openai/streaming/toolUse.test.ts` — 12 translator-level unit tests against synthetic generators: tool_calls chunk emission, R2 text suppression, tool-only turns (no preceding text_delta), multi-call same-message, no-spurious-chunks on text-only assistant_message, hermes.tool.progress event for tool_result with output/is_error/multi-result/loop-guidance handling, and a full multi-turn single-request flow (preamble + tool_use + tool_result + continuation).
+- `tests/openai/chatCompletions.tools.test.ts` — 5 integration tests against `buildOpenAIApp` + `MockProvider.toolUseMode = true`: (1) streaming response contains tool_calls + hermes.tool.progress + preamble + continuation text + exactly one final-stop + DONE; (2) wire ordering preamble → tool_calls → progress → continuation → stop → DONE; (3) tool_calls chunk carries resolved Bash arguments JSON with finish_reason null; (4) progress payload carries tool_use_id + output containing `hello-from-mock` + no is_error on success; (5) non-streaming response returns `content: 'done.'` with NO tool_calls (D9 — the earlier Bash call was internal to the harness and consumed by the second model call's continuation; finish_reason is `'stop'`).
+
+**Verification:** `bun run lint && bun run typecheck && bun run test` — 2161 pass / 0 fail / 14 skip (baseline 2135 → +26 net new tests). Streaming + integration tests run on the real Hono `app.request()` surface so the wire shape is end-to-end.
+
+**No binary release cut** — T12 owns the release. Still on v0.3.4.
+
 ## 2026-05-23 — Phase 18 T5 (wire SSE streaming into `POST /v1/chat/completions`)
 
 **Scope:** T5 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Replaces the T2 `501 Not Implemented` stub with a streaming branch: when `req.stream === true` the route returns `streamSSE(c, …)` and drives `query()`'s `AsyncGenerator` through the T4 translator. The non-streaming branch is unchanged. Closes the streaming half of Phase 18's `Check`.
