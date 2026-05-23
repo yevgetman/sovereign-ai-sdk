@@ -8,6 +8,30 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 evening — backlog #47 cleanup (dead `transcript.go` removed)
+
+**Scope:** Retired the dead `Transcript` component from the Go TUI. The ux-fixes round 5 inline-mode refactor (2026-05-21) routes all permanent content through `tea.Println` and all live content through `LiveRegion`. The legacy `Transcript` struct + its viewport / `lines[]` / `toolCards` map had been unreachable production code, only kept alive because `recomputeLayout`'s residual `SetSize` call and `New()`'s initializer still referenced them.
+
+Cleanup:
+- Deleted `packages/tui/internal/components/transcript.go` (306 LoC) + `transcript_test.go` (205 LoC) — 511 LoC total.
+- Dropped the `transcript` field from `Model` (`packages/tui/internal/app/app.go`).
+- Dropped `components.NewTranscript(defaultTheme)` from `New()`.
+- Dropped `m.transcript.SetSize(...)` from `recomputeLayout()`.
+
+The `focusTranscript` iota constant in `app.go:103` stays — it's a focus-state name, not a Transcript struct reference. All comments referencing "the transcript" stay since they describe the *concept* of scrollback content, not the deleted struct.
+
+**Commands:**
+```
+cd /Users/julie/code/sovereign-ai-harness/packages/tui && go test -count=1 ./...
+# All packages green: app 1.9s, components 0.4s, render 0.7s, theme 0.8s, transport 0.5s
+```
+
+**Result:** PASS. Backlog drops from 3 → 2 (#17 + #48 remain). No new ADRs (cosmetic cleanup of unreachable code).
+
+**Follow-ups:** None.
+
+---
+
 ## 2026-05-22 late PM — semantic suite revival via `sov drive`
 
 **Scope:** Restored the semantic test suite, which had been silently broken since M13 (2026-05-20). The driver shells `sov chat`, which since M13 launches the TUI — and the TUI fails on non-TTY stdin (`open /dev/tty: device not configured`). User asked about the suite's state; investigation found 0/58 tests had passed since M13. Fix:

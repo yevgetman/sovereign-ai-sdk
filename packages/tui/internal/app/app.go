@@ -107,7 +107,6 @@ const (
 
 type Model struct {
 	keys             keyMap
-	transcript       components.Transcript // legacy — retained only for tests/code paths that still hold references during the round-5 migration; new code uses m.live + m.print
 	live             components.LiveRegion // ux-fixes round 5 — bottom-anchored live region above the prompt (streaming card + spinner + running-command indicator)
 	prompt           components.Prompt
 	statusLine       components.StatusLine
@@ -343,7 +342,6 @@ func New(sessionID, baseURL string) Model {
 	st.Cwd = cwd
 	m := Model{
 		keys:             defaultKeys(),
-		transcript:       components.NewTranscript(defaultTheme),
 		live:             components.NewLiveRegion(defaultTheme),
 		prompt:           components.NewPrompt(),
 		statusLine:       st,
@@ -452,24 +450,21 @@ func (m Model) promptChromeH() int {
 	return m.prompt.Height() + promptBorder
 }
 
-// recomputeLayout sets the transcript's max height based on the current
-// prompt height + fixed chrome. Called from WindowSizeMsg and whenever
-// the prompt's height may have changed (e.g., after delegating a key
-// event to the textarea). Width is taken from m.width which was set in
-// the most recent WindowSizeMsg.
+// recomputeLayout updates layout-sensitive components after window or
+// prompt-height changes. Called from WindowSizeMsg and whenever the
+// prompt's height may have changed (e.g., after delegating a key event
+// to the textarea). Width is taken from m.width which was set in the
+// most recent WindowSizeMsg.
 //
-// ux-fixes round 5 — the transcript no longer has a height budget
-// (its content goes to the terminal's scrollback via tea.Println).
-// LiveRegion only needs width so the streaming card wraps correctly.
+// ux-fixes round 5 — committed history goes to the terminal's
+// scrollback via tea.Println, so there's no transcript height budget to
+// reconcile. LiveRegion only needs width so the streaming card wraps
+// correctly.
 func (m *Model) recomputeLayout() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
 	m.live.SetWidth(m.width)
-	// Retained for any legacy code path still using m.transcript during
-	// the round-5 migration. Will be removed once the transcript is
-	// fully replaced.
-	m.transcript.SetSize(m.width, m.height)
 }
 
 func (m Model) Init() tea.Cmd {
