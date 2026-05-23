@@ -8,6 +8,34 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 night — Phase 17 T7 (wire CronRunner into buildRuntime lifecycle)
+
+**Scope:** Wired the Phase 17 T5 `CronRunner` + T6 `buildCronJobExecutor` into `buildRuntime`'s lifecycle. New `src/cron/wiring.ts` owns the three production deps for the executor: `runAgent` (mints a fresh `metadata.kind='cron'` session, builds `AgentRunner` against `runtime.toolPool` minus `SUBAGENT_EXCLUDED_TOOLS`, drains the generator, returns final assistant text); `expandSkills` (looks each name up in `runtime.skills.byName`, joins via expandSkillPrompt + `\n\n---\n\n`); `runScript` (`spawnSync` with timeout + interpreter inference + 16 KiB stdout cap). canUseTool is `mode: 'default'` with an auto-deny `ask` (matches `sov drive` headless policy). New `cronEnabled?: boolean` option (default `true`); new `cronRunner?: CronRunner` field on `Runtime`; `dispose()` stops the runner FIRST (before sessionDb / MCP / approval queue teardown). Also added `.unref()` to `CronRunner.start()`'s `setInterval` so the timer doesn't keep tests/processes alive.
+
+Created:
+- `src/cron/wiring.ts` (~190 LoC) — production glue.
+- `tests/cron/wiring.test.ts` (11 tests) — pure helpers (`resolveScriptPath`, `inferInterpreter`), buildRuntime lifecycle (cronEnabled: false skips runner; default-on attaches and disposes cleanly), full end-to-end (addJob → runDueJobs → assistant text lands in `<harnessHome>/cron/outbox/<jobId>/`).
+
+Modified:
+- `src/server/runtime.ts` — new `cronEnabled` option + `cronRunner` field + post-literal construction + dispose-order amendment.
+- `src/cron/runner.ts` — `setInterval(...).unref?.()` so default-on cron doesn't block test process exit.
+
+**AgentRunner strategy:** the `AgentRunner.run(prompt)` API returns an `AsyncGenerator<StreamEvent | Message, AgentRunnerResult>` (Strategy A — single high-level entry point per the task spec). The wiring drains the generator via `for(;;) await gen.next()` (matching `scheduler.ts:drainRunner`), reads `result.terminal.reason` + `result.finalAssistant`, and extracts the final text by filtering content blocks on `type === 'text'` (mirroring `scheduler.ts:extractSummary`). Tool filtering uses the parent runtime's `toolPool` minus `SUBAGENT_EXCLUDED_TOOLS` (already contains the cron CRUD names from T3 — `cron_add` / `cron_list` / `cron_show` / `cron_pause` / `cron_resume` / `cron_delete` plus `AgentTool` / `task_stop` / `send_message`).
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# lint: 2 warnings (pre-existing in src/permissions/shellSemantics.ts; unrelated)
+# typecheck: clean
+# tests: 2043 pass / 0 fail / 14 skip (was 1996/0/14 — +47, of which 11 from wiring.test.ts; remaining +36 from T5+T6 cron tests already shipped earlier in the day)
+```
+
+**Result:** PASS. No new ADRs (the wiring follows the existing buildRuntime → dispose closure pattern).
+
+**Follow-ups:** Phase 17 T8 (CLI surface: `sov cron add | list | show | pause | resume | delete | run | tick`). T7's runner is wired but operator-invisible until T8 lands.
+
+---
+
 ## 2026-05-22 evening — TUI client adopts `promptToSend` (open follow-up from semantic-suite-revival)
 
 **Scope:** Open follow-up from the 2026-05-22 late-PM semantic-suite-revival close-out. Until this commit, the TUI dispatched `/init` / `/commit` / every skill-sourced command, received back the expanded prompt body in `promptToSend`, rendered the output text ("Prompt-type slash command. Sending …") but did NOT actually fire the turn — the user had to manually copy/paste the body to send it. Mirrors what `sov drive` already does (`src/cli/driveCommand.ts:475`).

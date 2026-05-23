@@ -29,6 +29,8 @@ import { readConfig } from '../config/store.js';
 import { auditContextBudget } from '../context/budget.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
+import type { CronRunner } from '../cron/runner.js';
+import { createProductionCronRunner } from '../cron/wiring.js';
 import { DaemonEventBus } from '../daemon/eventBus.js';
 import {
   type CaptureSink,
@@ -189,6 +191,14 @@ export type RuntimeOptions = {
    *  exclusive with captureFixturePath. Surfaces the Phase 10.5 part 2
    *  --replay-fixture flag. */
   replayFixturePath?: string;
+  /** Phase 17 — when true (default), buildRuntime constructs a
+   *  `CronRunner` and arms its 60s tick interval. Production callers
+   *  (tuiLauncher, driveCommand) inherit the default; tests that don't
+   *  exercise cron should pass `cronEnabled: false` to skip the runner
+   *  entirely. The interval timer uses `unref()` so a hung test won't
+   *  block process exit, but explicit opt-out is still safer for tests
+   *  that drive their own clock or wait on side effects. */
+  cronEnabled?: boolean;
 };
 
 export type Runtime = {
@@ -329,6 +339,12 @@ export type Runtime = {
    *  SSE consumer remains at process teardown, so the summary is logged
    *  to stderr instead. */
   disposeSession: (sessionId: string, opts?: { bus?: ServerEventBus }) => Promise<void>;
+  /** Phase 17 — armed when `opts.cronEnabled !== false`. The 60s tick
+   *  interval scans `<harnessHome>/cron/jobs.json` for due jobs and
+   *  dispatches each via a fresh-session AgentRunner. Disposed at the
+   *  front of `dispose()` so an in-flight tick can't write to a closed
+   *  session DB. */
+  cronRunner?: CronRunner;
   dispose: () => Promise<void>;
 };
 
@@ -981,14 +997,17 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     getSessionContext,
     disposeSession,
     dispose: async () => {
-      // M7-08 disposal order: per-session subsystems → router audit logger
-      // → MCP pool → approval queue → sessionDb. The per-session walk
-      // closes each trace writer first so the JSONL files are flushed
-      // before the surrounding state (DB connection, MCP transports) goes
-      // away. T1 handled MCP + approval + sessionDb only; T3 hooked the
-      // per-session sweep at the front; M8 T1 inserts the router audit
-      // logger's close() before MCP shutdown so its sequential write
-      // chain drains while everything else is still up.
+      // M7-08 disposal order: cron runner → per-session subsystems →
+      // router audit logger → MCP pool → approval queue → sessionDb.
+      // Phase 17 — stop the cron tick FIRST so an in-flight tick can't
+      // race the sessionDb close below. CronRunner.stop() is synchronous
+      // (clears the setInterval handle and releases the file lock) but
+      // any tick that already entered runDueJobs runs to completion;
+      // that's fine, because each cron job builds its own session id
+      // and writes through `runtime.sessionDb` while it's still open.
+      // The runner is undefined when buildRuntime was called with
+      // `cronEnabled: false` (test path).
+      runtime.cronRunner?.stop();
       const liveSessionIds = Array.from(sessionContexts.keys());
       for (const liveId of liveSessionIds) {
         await disposeSession(liveId);
@@ -1017,5 +1036,21 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       sessionDb.close();
     },
   };
+
+  // Phase 17 — arm the cron runner AFTER the runtime literal is complete.
+  // createProductionCronRunner closes over `runtime` (its `runAgent`
+  // callback mints sessions, looks up skills, and dispatches an
+  // AgentRunner against `runtime.toolPool`), so the construction must
+  // happen after the literal binds. The runner is attached to the
+  // runtime so `dispose()` can stop it; tests can read it back to drive
+  // ticks manually. Default-on: production callers (tuiLauncher,
+  // driveCommand) inherit cron; tests that don't need a live tick should
+  // pass `cronEnabled: false`.
+  if (opts.cronEnabled !== false) {
+    const cronRunner = createProductionCronRunner(runtime, harnessHome);
+    cronRunner.start();
+    runtime.cronRunner = cronRunner;
+  }
+
   return runtime;
 }

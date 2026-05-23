@@ -30,9 +30,14 @@ export class CronRunner {
   start(): void {
     if (this.timer) return;
     const interval = this.opts.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
-    this.timer = setInterval(() => {
+    const timer = setInterval(() => {
       void this.tick();
     }, interval);
+    // Don't hold the process open just for the cron tick — the production
+    // process always has another active handle (HTTP server, stdin) and
+    // tests want a clean exit. Bun's Timeout exposes `unref()` like Node's.
+    timer.unref?.();
+    this.timer = timer;
   }
 
   stop(): void {
