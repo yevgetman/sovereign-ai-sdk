@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-22 evening — Phase 17 cron / scheduled jobs close-out
+
+**Scope:** Phase 17 closed. New `src/cron/` subsystem + `sov cron` CLI surface + delivery hook + recursion guard rename. T10 docs work: created `docs/state/2026-05-22-phase-17-cron.md`, updated `CLAUDE.md` + `AGENTS.md` (byte-identical mirror) to point at the new snapshot, committed previously-untracked plan file `docs/plans/2026-05-22-phase-17-cron-scheduled-jobs.md`.
+
+**Final suite numbers:** TS 2053 pass / 0 fail / 14 skip (+57 from morning baseline of 1996; +10 from afternoon's 2043). Go untouched. Lint+typecheck clean (the 2 pre-existing warnings in `src/permissions/shellSemantics.ts` are unrelated to Phase 17).
+
+**Architecture summary:** Hermes-style tick loop embedded in `buildRuntime` (60s `setInterval`, `.unref?.()`'d so tests don't hang). Per-job fresh session via `AgentRunner` with auto-deny on permission asks (matches `sov drive` headless mode). Six CRUD tool names blocked in `SUBAGENT_EXCLUDED_TOOLS` so cron-spawned sub-agents can't manipulate cron state. Local delivery to `<harnessHome>/cron/outbox/<jobId>/<ts>.txt`; `[SILENT]` first-line prefix (case-insensitive, post-trim) short-circuits delivery. Skills inject into the user message (matches harness convention from M8); pre-agent scripts via `spawnSync` with interpreter inference + 120s default timeout + 16 KiB stdout cap.
+
+**ADRs:** none new. Phase 17 is purely additive — no architectural decisions warrant ADR-level capture; all decisions captured inline in the plan.
+
+**Open follow-ups recorded in state file:** strict-fire `sov cron run <id>` (currently fires any due jobs; partial-id matching too); standalone cron daemon; per-job model override; per-job allowedTools scoping; retry-on-failure with backoff; webhook-triggered jobs; cleanup sweep for old `metadata.kind='cron'` sessions; TUI surface for cron management; `[SILENT]` semantics could extend.
+
+**Follow-ups for the run:** T11 (cut v0.3.0 binary release per `docs/conventions/cutting-releases.md`).
+
+---
+
 ## 2026-05-22 evening — Phase 17 T9 (spec `Check` scenario smoke pass — T1-T9 green)
 
 **Scope:** Phase 17 (cron / scheduled jobs) milestones T1-T8 already shipped today; T9 pins the spec's `Check` scenario from the build plan with an end-to-end smoke test. New `tests/cron/smoke.test.ts` drives the full path: CLI helper (`runCronAdd`) writes the job to `<harnessHome>/cron/jobs.json`, `CronRunner.runDueJobs()` with a fake-clock `now()` filters and dispatches, the stubbed executor runs, and the assistant text lands in `<harnessHome>/cron/outbox/<jobId>/`. Three scenarios: (1) spec `Check` — `every 1m` → tick → outbox file with stubbed `hello (assistant)` body; (2) `[SILENT]` negative — output recorded but no outbox delivery (lastResult.ok=true regardless); (3) paused-job negative — disabled job is skipped at the CLI layer end-to-end. The fake-clock approach (`now: () => Date.now() + 60_000 + 1000`) bypasses the 60-second `setInterval` and tests dispatch directly — the pattern established by T5's CronRunner tests.
