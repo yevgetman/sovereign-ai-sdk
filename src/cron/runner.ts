@@ -1,6 +1,7 @@
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getJob, listJobs, recordJobRun } from './jobs.js';
+import { releaseLock, tryAcquireOnce } from './lockUtil.js';
 import type { Job } from './types.js';
 
 export type CronRunResult = {
@@ -123,17 +124,17 @@ export class CronRunner {
     const lockDir = join(this.opts.harnessHome, 'cron', '.tick.lock');
     mkdirSync(join(this.opts.harnessHome, 'cron'), { recursive: true });
     try {
-      mkdirSync(lockDir);
-      this.lockHeld = true;
-      return true;
-    } catch (err) {
-      // Lock already held → contention; surface other failures (EACCES,
-      // ENOSPC, etc.) on stderr so they don't silently cause the loop
-      // to no-op forever.
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST') {
-        process.stderr.write(`[cron] tick lock acquire failed: ${code ?? err}\n`);
+      if (tryAcquireOnce(lockDir)) {
+        this.lockHeld = true;
+        return true;
       }
+      return false;
+    } catch (err) {
+      // tryAcquireOnce bubbles up non-EEXIST errors (EACCES, ENOSPC,
+      // etc.); surface them on stderr so a misconfigured permission
+      // doesn't silently cause the tick loop to no-op forever.
+      const code = (err as NodeJS.ErrnoException).code;
+      process.stderr.write(`[cron] tick lock acquire failed: ${code ?? err}\n`);
       return false;
     }
   }
@@ -141,11 +142,7 @@ export class CronRunner {
   releaseTickLock(): void {
     if (!this.lockHeld) return;
     const lockDir = join(this.opts.harnessHome, 'cron', '.tick.lock');
-    try {
-      rmSync(lockDir, { recursive: true, force: true });
-    } catch {
-      /* swallow — releasing a lock must never throw */
-    }
+    releaseLock(lockDir);
     this.lockHeld = false;
   }
 }

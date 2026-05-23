@@ -115,6 +115,62 @@ describe('jobs lock', () => {
     const fs = require('node:fs') as typeof import('node:fs');
     fs.mkdirSync(join(home, 'cron'), { recursive: true });
     fs.mkdirSync(join(home, 'cron', '.jobs.lock'));
+    // Write a live PID so stale-lock recovery doesn't reclaim the lock —
+    // we want to exercise the "real contention with a live holder" path.
+    fs.writeFileSync(join(home, 'cron', '.jobs.lock', 'pid'), String(process.pid), 'utf8');
+    expect(() => {
+      addJob(home, {
+        prompt: 'a',
+        schedule: { kind: 'relative', offsetMs: 60_000 },
+        deliver: 'local',
+        skills: [],
+      });
+    }).toThrow(/lock/i);
+  });
+
+  test('withJobsLock takes over a stale jobs lock (PID dead)', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.mkdirSync(join(home, 'cron'), { recursive: true });
+    fs.mkdirSync(join(home, 'cron', '.jobs.lock'));
+    fs.writeFileSync(join(home, 'cron', '.jobs.lock', 'pid'), '999999', 'utf8');
+    // addJob should NOT throw — stale lock detected, taken over, mutation
+    // completes.
+    const job = addJob(home, {
+      prompt: 'a',
+      schedule: { kind: 'relative', offsetMs: 60_000 },
+      deliver: 'local',
+      skills: [],
+    });
+    expect(job.id).toBeTruthy();
+    expect(loadJobs(home)).toHaveLength(1);
+  });
+
+  test('withJobsLock takes over a jobs lock with missing PID file', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.mkdirSync(join(home, 'cron'), { recursive: true });
+    fs.mkdirSync(join(home, 'cron', '.jobs.lock'));
+    // No PID file — treat as stale.
+    const job = addJob(home, {
+      prompt: 'a',
+      schedule: { kind: 'relative', offsetMs: 60_000 },
+      deliver: 'local',
+      skills: [],
+    });
+    expect(job.id).toBeTruthy();
+  });
+
+  test('withJobsLock waits when the lock is held by this very process', () => {
+    // The lock holder is the current process, so it appears live and
+    // stale-lock recovery does not kick in — withJobsLock exhausts its
+    // retry budget and throws. Semantically distinct from the
+    // "throws after maxAttempts" test above: that one asserts the
+    // retry-budget exhaustion path generally; this one asserts that a
+    // live owner — specifically THIS process — is not misclassified as
+    // stale.
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.mkdirSync(join(home, 'cron'), { recursive: true });
+    fs.mkdirSync(join(home, 'cron', '.jobs.lock'));
+    fs.writeFileSync(join(home, 'cron', '.jobs.lock', 'pid'), String(process.pid), 'utf8');
     expect(() => {
       addJob(home, {
         prompt: 'a',

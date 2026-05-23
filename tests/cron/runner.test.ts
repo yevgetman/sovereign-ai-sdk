@@ -197,4 +197,54 @@ describe('CronRunner file-lock', () => {
     expect(r2.tryAcquireTickLock()).toBe(true);
     r2.releaseTickLock();
   });
+
+  test('tryAcquireTickLock takes over a stale lock (PID dead)', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const cronDir = join(home, 'cron');
+    const lockDir = join(cronDir, '.tick.lock');
+    fs.mkdirSync(cronDir, { recursive: true });
+    fs.mkdirSync(lockDir);
+    // Write a PID that doesn't exist. PID 1 is init/launchd (always alive)
+    // so we want a likely-dead PID. Pick something extremely high — PIDs
+    // typically don't exceed 99999 on macOS/Linux defaults.
+    fs.writeFileSync(join(lockDir, 'pid'), '999999', 'utf8');
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => 0,
+      runJob: async () => ({ ok: true, durationMs: 1 }),
+    });
+    expect(runner.tryAcquireTickLock()).toBe(true);
+    runner.releaseTickLock();
+  });
+
+  test('tryAcquireTickLock returns false when the holder is THIS process', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const cronDir = join(home, 'cron');
+    const lockDir = join(cronDir, '.tick.lock');
+    fs.mkdirSync(cronDir, { recursive: true });
+    fs.mkdirSync(lockDir);
+    // Write our own PID — guaranteed alive.
+    fs.writeFileSync(join(lockDir, 'pid'), String(process.pid), 'utf8');
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => 0,
+      runJob: async () => ({ ok: true, durationMs: 1 }),
+    });
+    expect(runner.tryAcquireTickLock()).toBe(false);
+  });
+
+  test('tryAcquireTickLock takes over a lock with missing PID file', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const cronDir = join(home, 'cron');
+    const lockDir = join(cronDir, '.tick.lock');
+    fs.mkdirSync(cronDir, { recursive: true });
+    fs.mkdirSync(lockDir); // No PID file inside — treat as stale.
+    const runner = new CronRunner({
+      harnessHome: home,
+      now: () => 0,
+      runJob: async () => ({ ok: true, durationMs: 1 }),
+    });
+    expect(runner.tryAcquireTickLock()).toBe(true);
+    runner.releaseTickLock();
+  });
 });

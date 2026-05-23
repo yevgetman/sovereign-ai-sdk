@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { releaseLock, tryAcquireOnce } from './lockUtil.js';
 import { computeNextRun } from './schedule.js';
 import type { Job, JobsFile, ScheduleKind } from './types.js';
 
@@ -40,19 +41,16 @@ function withJobsLock<T>(home: string, fn: () => T): T {
   mkdirSync(cronDir, { recursive: true });
   const lockDir = join(cronDir, JOBS_LOCK_DIR);
   let acquired = false;
+  // tryAcquireOnce already detects + reclaims stale locks (dead holder PID
+  // or missing PID file). The outer retry loop here exists to wait out a
+  // *live* holder; each iteration sleeps JOBS_LOCK_RETRY_MS between
+  // attempts, totalling ~1s worst case at the default 100 × 10ms.
   for (let attempt = 0; attempt < JOBS_LOCK_MAX_ATTEMPTS; attempt++) {
-    try {
-      mkdirSync(lockDir);
+    if (tryAcquireOnce(lockDir)) {
       acquired = true;
       break;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'EEXIST') {
-        sleepBlocking(JOBS_LOCK_RETRY_MS);
-        continue;
-      }
-      throw err;
     }
+    sleepBlocking(JOBS_LOCK_RETRY_MS);
   }
   if (!acquired) {
     throw new Error(
@@ -62,11 +60,7 @@ function withJobsLock<T>(home: string, fn: () => T): T {
   try {
     return fn();
   } finally {
-    try {
-      rmSync(lockDir, { recursive: true, force: true });
-    } catch {
-      /* swallow — releasing a lock must never throw */
-    }
+    releaseLock(lockDir);
   }
 }
 
