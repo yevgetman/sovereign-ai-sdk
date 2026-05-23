@@ -8,6 +8,21 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 18 T7 (`GET /v1/models`)
+
+**Scope:** T7 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Adds the OpenAI-standard `/v1/models` list endpoint so OpenAI-SDK clients (Open WebUI, LibreChat, the `openai` Python/JS SDKs) can populate their model pickers.
+
+- New `src/openai/routes/models.ts` projects `SUPPORTED_MODELS` (already defined in T2's `modelResolution.ts`) into the OpenAI shape `{ object: 'list', data: [{ id, object: 'model', created, owned_by }, ...] }`.
+- Catalog: `harness-default`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`, `gpt-4o`, `gpt-4o-mini`. (Only `harness-default` is actually routable today — T9 expands the explicit-name branch on `POST /v1/chat/completions`. The catalog already surfaces the intended surface so the model picker is correct ahead of the wiring.)
+- Per-entry fields: `id` (string), `object: 'model'` (literal), `created: 0` (fixed — harness doesn't track per-model release dates), `owned_by: 'sovereign-ai'`.
+- Mounted under `/v1/*` in `src/openai/app.ts` so `bearerAuth(opts.apiKey)` gates it like the rest of `/v1/*`.
+
+**TDD:** Wrote 5 failing tests first (RED), then implemented the route (GREEN). Tests cover: 200 + list shape, `harness-default` presence, presence of all three canonical claude names, per-entry shape, and 401 on missing auth.
+
+**TS suite:** **2166 pass / 0 fail / 14 skip** (+5 from prior baseline of 2161). Lint + typecheck clean.
+
+**No binary release cut** — T12 owns the Phase 18 release; harness stays on v0.3.4 until then.
+
 ## 2026-05-23 — Phase 18 T6 (tool-use chunks + `hermes.tool.progress` events)
 
 **Scope:** T6 of the Phase 18 plan (`docs/plans/2026-05-23-phase-18-openai-api-server.md`). Extends the streaming translator and chunk builders to surface tool execution on the OpenAI wire:
