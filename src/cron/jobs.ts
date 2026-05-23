@@ -12,8 +12,17 @@ export function loadJobs(home: string): Job[] {
   const path = jobsPath(home);
   if (!existsSync(path)) return [];
   const raw = readFileSync(path, 'utf8');
-  const parsed = JSON.parse(raw) as JobsFile;
-  return parsed.jobs ?? [];
+  try {
+    const parsed = JSON.parse(raw) as JobsFile;
+    return parsed.jobs ?? [];
+  } catch (err) {
+    // Corrupt jobs.json — surface once on stderr and skip this tick rather
+    // than crashing the runtime in a loop. The ticker default-on means
+    // a parse error would otherwise produce noisy stderr every 60s.
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[cron] jobs.json corrupt at ${path}: ${msg}\n`);
+    return [];
+  }
 }
 
 function saveJobs(home: string, jobs: Job[]): void {

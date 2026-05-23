@@ -92,7 +92,14 @@ export class CronRunner {
       mkdirSync(lockDir);
       this.lockHeld = true;
       return true;
-    } catch {
+    } catch (err) {
+      // Lock already held → contention; surface other failures (EACCES,
+      // ENOSPC, etc.) on stderr so they don't silently cause the loop
+      // to no-op forever.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST') {
+        process.stderr.write(`[cron] tick lock acquire failed: ${code ?? err}\n`);
+      }
       return false;
     }
   }

@@ -90,4 +90,10 @@ describe('jobs CRUD', () => {
     expect(files).toContain('jobs.json');
     expect(files.some((f: string) => f.endsWith('.tmp'))).toBe(false);
   });
+  test('loadJobs returns [] when jobs.json is corrupt', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    fs.mkdirSync(join(home, 'cron'), { recursive: true });
+    fs.writeFileSync(join(home, 'cron', 'jobs.json'), '{not valid json', 'utf8');
+    expect(loadJobs(home)).toEqual([]);
+  });
 });
