@@ -9,6 +9,7 @@
 // Scope: a single in-process runtime owns one provider + one session at a
 // time. The session id is created on demand by POST /sessions.
 
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadAgents } from '../agents/loader.js';
@@ -55,6 +56,8 @@ import { preflightProvider, preflightToolCalling } from '../providers/preflight.
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider, Transport } from '../providers/types.js';
 import { RouterAuditLogger } from '../router/auditLogger.js';
+import { type LaneRegistry, buildLaneRegistry } from '../router/laneRegistry.js';
+import { runLanePreflight } from '../router/preflight.js';
 import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
@@ -256,6 +259,15 @@ export type Runtime = {
    *  caps from `userSettings.router.maxConcurrent{Local,Frontier}`.
    *  Undefined values leave the affected lane unbounded. */
   laneSemaphores: LaneSemaphores;
+  /** Phase 1 — assembled task-routing lane registry. Always present,
+   *  regardless of `taskRouting.enabled`: the registry powers role-based
+   *  sub-agent dispatch (B-via-D bridge baseline) even when the
+   *  delegator-first turn flow is off. The scheduler consults
+   *  `laneRegistry.lookup(role)` before falling through to the Phase 13.2
+   *  capability table. When `taskRouting.enabled === true` the runtime
+   *  additionally runs `runLanePreflight` at boot and threads the
+   *  `prompts/smart-router.md` body into the parent system prompt. */
+  laneRegistry: LaneRegistry;
   /** Single-writer lock for write-capable children. Prevents two child
    *  agents from racing on the same path. v0 is a single in-memory
    *  Semaphore(1); finer-grained per-path locking lands later. */
@@ -551,22 +563,56 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   let toolPool = assembleToolPool(toolCtx, { mcpTools, harnessInfoSnapshot });
   finalToolPoolRef = toolPool;
 
-  const systemSegments = buildSystemSegments({
-    ...(bundle ? { bundle } : {}),
-    cwd: opts.cwd,
-    homeDir: harnessHome,
-    cacheEnabled: opts.cacheEnabled !== false,
-    tools: toolPool,
-  });
-  systemSegmentsRef = systemSegments;
-
   // Determine provider mode BEFORE permission cascade reads userSettings —
   // the router branch needs the same userSettings, so load it now and reuse
   // below. M8 T1: when the user configures provider:router (either via
   // opts.provider or settings.defaultProvider), resolveProvider can't be the
   // single source of truth — the router wraps TWO providers. Construct it
   // explicitly here.
+  // Phase 1 — pulled BEFORE the buildSystemSegments call so the
+  // smart-router prompt body can flow into the parent system prompt when
+  // `userSettings.taskRouting?.enabled === true`.
   const userSettings = readConfig();
+
+  // Phase 1 — assemble the lane registry from `userSettings.taskRouting`
+  // unconditionally. The registry resolves the four well-known roles
+  // (cheap-task, moderate-task, frontier-task, delegator) against the
+  // operator's overrides + lane defaults. When `taskRouting.enabled` is
+  // false (or omitted), the registry still exists so cost-lane sub-agents
+  // remain reachable via /agent — the B-via-D bridge baseline. The
+  // scheduler's `resolveLane` callback closes over this instance.
+  const laneRegistry = buildLaneRegistry(userSettings.taskRouting);
+
+  // Phase 1 — smart-router segment. Loaded only when `taskRouting.enabled
+  // === true` AND a bundle is present (the prompt ships under
+  // `<bundle-root>/prompts/smart-router.md`). When the file is missing
+  // (e.g. T11 hasn't shipped yet, or a custom bundle omits it), log to
+  // stderr and skip the segment — the runtime still boots cleanly.
+  let smartRouterPrompt: string | undefined;
+  if (userSettings.taskRouting?.enabled === true && bundle !== null) {
+    const promptPath = join(bundle.root, 'prompts', 'smart-router.md');
+    try {
+      smartRouterPrompt = await readFile(promptPath, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        process.stderr.write(
+          `[taskRouting] smart-router prompt not found at ${promptPath}; segment skipped\n`,
+        );
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  const systemSegments = buildSystemSegments({
+    ...(bundle ? { bundle } : {}),
+    cwd: opts.cwd,
+    homeDir: harnessHome,
+    cacheEnabled: opts.cacheEnabled !== false,
+    tools: toolPool,
+    ...(smartRouterPrompt !== undefined ? { smartRouterPrompt } : {}),
+  });
+  systemSegmentsRef = systemSegments;
   const useRouter =
     opts.provider === 'router' ||
     (opts.provider === undefined && userSettings.defaultProvider === 'router');
@@ -712,6 +758,37 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         throw new PreflightError(toolResult.kind, toolResult.message);
       }
     }
+  }
+
+  // Phase 1 — lane preflight. Runs ONLY when `taskRouting.enabled === true`
+  // AND the caller hasn't opted out of preflight. Iterates every configured
+  // cost lane (skipping `delegator` — its model rides the parent's
+  // preflight when providers align) and aggregates failures into a single
+  // `LanePreflightError` so the user can fix all lanes in one pass.
+  // Resolves the lane's provider via the same `resolveProvider` the
+  // scheduler uses, and adapts `preflightProvider`'s ok/err result into
+  // the throw-on-failure contract `runLanePreflight` expects.
+  if (
+    opts.preflight !== false &&
+    opts.replayFixturePath === undefined &&
+    userSettings.taskRouting?.enabled === true
+  ) {
+    await runLanePreflight({
+      registry: laneRegistry,
+      harnessHome,
+      resolveProvider: async (laneProvider, laneModel, ropts) =>
+        resolveProvider(laneProvider, laneModel, { harnessHome: ropts.harnessHome }),
+      preflight: async (popts) => {
+        const probeResult = await preflightProvider({
+          provider: popts.provider as LLMProvider,
+          providerName: popts.providerName,
+          model: popts.model,
+        });
+        if (!probeResult.ok) {
+          throw new PreflightError(probeResult.kind, probeResult.message);
+        }
+      },
+    });
   }
 
   // M8 T2 — capture / replay tool-pool wrapping. Done AFTER preflight so
@@ -883,6 +960,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // <harnessHome>/traces/<childSessionId>.jsonl alongside the
     // consolidated parent trace.
     harnessHome,
+    // Phase 1 — lane-aware role resolution. Consulted by the scheduler
+    // BEFORE the Phase 13.2 capability table so configured roles
+    // (cheap-task / moderate-task / frontier-task / delegator) route
+    // through operator-pinned (provider, model) pairs. Returns
+    // `undefined` for unknown roles → falls through to the existing
+    // capability profile path.
+    resolveLane: (role) => laneRegistry.lookup(role),
   });
 
   // M5 T7 — task manager. Wraps the SubagentScheduler with lifecycle
@@ -988,6 +1072,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     hookRunner,
     approvalQueue,
     laneSemaphores,
+    laneRegistry,
     writeLock,
     subagentScheduler,
     taskManager,

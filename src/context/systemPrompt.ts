@@ -24,6 +24,13 @@ export type BuildSystemSegmentsOptions = {
    *  default routing is. Optional — when absent, the segment uses the
    *  harness-mode wording (no project context). */
   projectScope?: ProjectScope;
+  /** Phase 1 — when `taskRouting.enabled === true`, the runtime loads
+   *  `<bundle-root>/prompts/smart-router.md` and threads its body through
+   *  this option. The segment is inserted after bundle context (so the
+   *  delegator instructions sit alongside the rest of the bundle priors)
+   *  but before the dynamic system + user context. Absent / empty means
+   *  the segment is omitted entirely. */
+  smartRouterPrompt?: string;
 };
 
 const BASE_INSTRUCTIONS = `\
@@ -163,6 +170,13 @@ export function buildSystemSegments(
 
   if (options.bundle) {
     segments.push(...formatBundleSegments(options.bundle, cacheEnabled));
+  }
+
+  // Phase 1 — smart-router segment. Inserted after bundle context (so the
+  // delegator instructions read alongside the project priors) and before
+  // dynamic system/user context (which must stay non-cacheable at the tail).
+  if (options.smartRouterPrompt !== undefined && options.smartRouterPrompt.length > 0) {
+    segments.push({ text: options.smartRouterPrompt, cacheable: cacheEnabled });
   }
 
   const systemContext = getSystemContext({
