@@ -376,6 +376,63 @@ export class SessionDb {
     });
   }
 
+  /**
+   * Returns the routing-atom session rows belonging to the smart-router
+   * delegation that originated from `parentSessionId`. Walks: root → its
+   * `routing-delegator` child → atoms whose `parentDelegatorSessionId`
+   * matches that delegator.
+   *
+   * Returns rows in created_at ascending order (atom dispatch order).
+   *
+   * Phase 2 T8 for `/routing-stats`.
+   */
+  listRoutingAtomsByParent(parentSessionId: string): Session[] {
+    const rows = this.db
+      .query<SessionRow, [string]>(
+        `SELECT session_id, parent_session_id, model, provider, platform,
+                created_at, last_updated, title, system_prompt,
+                schema_version, metadata,
+                input_tokens, output_tokens, cache_creation_input_tokens,
+                cache_read_input_tokens, estimated_cost_usd,
+                compaction_input_tokens, compaction_output_tokens,
+                estimated_compaction_cost_usd
+         FROM sessions
+         WHERE json_extract(metadata, '$.kind') = 'routing-atom'
+           AND json_extract(metadata, '$.parentDelegatorSessionId') IN (
+             SELECT session_id FROM sessions
+             WHERE parent_session_id = ?
+               AND json_extract(metadata, '$.kind') = 'routing-delegator'
+           )
+         ORDER BY created_at ASC`,
+      )
+      .all(parentSessionId);
+    return rows.map((r) => rowToSession(r));
+  }
+
+  /**
+   * Returns ALL routing-atom rows across the database in created_at ascending
+   * order. Used by `/routing-stats --all`.
+   *
+   * Phase 2 T8 for `/routing-stats`.
+   */
+  listRoutingAtomsAll(): Session[] {
+    const rows = this.db
+      .query<SessionRow, []>(
+        `SELECT session_id, parent_session_id, model, provider, platform,
+                created_at, last_updated, title, system_prompt,
+                schema_version, metadata,
+                input_tokens, output_tokens, cache_creation_input_tokens,
+                cache_read_input_tokens, estimated_cost_usd,
+                compaction_input_tokens, compaction_output_tokens,
+                estimated_compaction_cost_usd
+         FROM sessions
+         WHERE json_extract(metadata, '$.kind') = 'routing-atom'
+         ORDER BY created_at ASC`,
+      )
+      .all();
+    return rows.map((r) => rowToSession(r));
+  }
+
   createSession(input: CreateSessionInput): string {
     const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;
