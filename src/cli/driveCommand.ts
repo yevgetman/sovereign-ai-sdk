@@ -242,15 +242,23 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
 
 // --- Event rendering ------------------------------------------------------
 
-class EventRenderer {
+export class EventRenderer {
   private verboseRaw: boolean;
   private baseURL: string;
+  private write: (s: string) => void;
   private turnTerminalResolver: (() => void) | null = null;
   private pendingTurnPromise: Promise<void> | null = null;
 
-  constructor(verboseRaw: boolean, baseURL: string) {
+  constructor(
+    verboseRaw: boolean,
+    baseURL: string,
+    write: (s: string) => void = (s) => {
+      process.stdout.write(s);
+    },
+  ) {
     this.verboseRaw = verboseRaw;
     this.baseURL = baseURL;
+    this.write = write;
   }
 
   /** Returns a promise that resolves the next time a turn-terminal event
@@ -277,14 +285,14 @@ class EventRenderer {
   handle(ev: ServerEvent): void {
     switch (ev.type) {
       case 'text_delta':
-        process.stdout.write(ev.text);
+        this.write(ev.text);
         return;
       case 'thinking_delta':
         // Thinking text is dim/italic in the TUI; here we surface it on
         // a dedicated line so the judge can tell agent thinking from
         // agent text. Kept in transcript for tests that look for
         // reasoning traces.
-        process.stdout.write(`\n[thinking] ${ev.text}\n`);
+        this.write(`\n[thinking] ${ev.text}\n`);
         return;
       case 'tool_use_start': {
         // tool_use_start carries the tool name only; the inputPartial
@@ -292,7 +300,7 @@ class EventRenderer {
         // tool_use_input_delta events, and the final input appears on
         // tool_result.input). Print the tool name now and let
         // tool_result print the full input + output.
-        process.stdout.write(`\n[tool ${ev.tool}]\n`);
+        this.write(`\n[tool ${ev.tool}]\n`);
         return;
       }
       case 'tool_result': {
@@ -303,26 +311,26 @@ class EventRenderer {
         // shows the literal string '<token>'") can match.
         const inputPreview = previewInput(ev.input);
         if (inputPreview !== '') {
-          process.stdout.write(`[input ${ev.tool}] ${inputPreview}\n`);
+          this.write(`[input ${ev.tool}] ${inputPreview}\n`);
         }
         const out = renderToolOutput(ev.output);
         const summary = out.summary !== '' ? out.summary : '(no summary)';
-        process.stdout.write(`[result ${ev.tool}] ${summary}\n`);
+        this.write(`[result ${ev.tool}] ${summary}\n`);
         if (this.verboseRaw && out.raw !== '') {
-          process.stdout.write(`${out.raw}\n`);
+          this.write(`${out.raw}\n`);
         }
         return;
       }
       case 'turn_complete':
-        process.stdout.write(`\n[turn_complete ${ev.finishReason}]\n`);
+        this.write(`\n[turn_complete ${ev.finishReason}]\n`);
         this.resolveTurn();
         return;
       case 'turn_error':
-        process.stdout.write(`\n[turn_error ${ev.error}]\n`);
+        this.write(`\n[turn_error ${ev.error}]\n`);
         this.resolveTurn();
         return;
       case 'session_summary':
-        process.stdout.write('\n[session_summary]\n');
+        this.write('\n[session_summary]\n');
         this.resolveTurn();
         return;
       case 'permission_request':
@@ -336,13 +344,40 @@ class EventRenderer {
         // is the safety net for the residual case where a tool's
         // self-check returns 'ask' under default mode (or future tests
         // that opt into 'ask' mode explicitly).
-        process.stdout.write(`\n[permission_request ${ev.tool}] auto-denying (headless)\n`);
+        this.write(`\n[permission_request ${ev.tool}] auto-denying (headless)\n`);
         autoDenyPermission({
           baseURL: this.baseURL,
           requestId: ev.requestId,
           sessionId: ev.sessionId,
         }).catch(() => {});
         return;
+      case 'delegator_plan': {
+        const count =
+          ev.scheduledAtomCount !== undefined ? ` ${ev.scheduledAtomCount} atom(s)` : '';
+        this.write(`[delegator_plan] dispatching${count}\n`);
+        return;
+      }
+      case 'delegator_atom_started': {
+        this.write(
+          `[delegator_atom ${ev.atomIndex}] starting on ${ev.laneName}: ${ev.promptPreview}\n`,
+        );
+        return;
+      }
+      case 'delegator_atom_complete': {
+        const result = ev.success ? 'ok' : 'failed';
+        this.write(
+          `[delegator_atom ${ev.atomIndex}] complete on ${ev.laneName} (${ev.durationMs}ms) ${result}\n`,
+        );
+        return;
+      }
+      case 'delegator_complete': {
+        const dist = Object.entries(ev.laneDistribution)
+          .sort(([, a], [, b]) => b - a)
+          .map(([lane, count]) => `${lane}=${count}`)
+          .join(', ');
+        this.write(`[delegator_complete] ${ev.totalAtomCount} atoms${dist ? `: ${dist}` : ''}\n`);
+        return;
+      }
       case 'status_update':
       case 'session_resumed':
       case 'compaction_complete':
