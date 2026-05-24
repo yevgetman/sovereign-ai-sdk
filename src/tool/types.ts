@@ -105,6 +105,12 @@ export type ToolContext = {
   traceRecorder?: (event: import('../trace/types.js').TraceEvent) => void;
   activeToolNames?: string[];
   activeToolsets?: string[];
+  /** Phase 1 T8 — name of the agent whose session this ToolContext belongs
+   *  to, when this is a sub-agent's context. Set by the scheduler when it
+   *  constructs the child's ToolContext. Undefined for top-level harness
+   *  calls (no parent agent). Read by `AgentTool` to enforce the parent's
+   *  `allowedSubagents` recursion guard. */
+  parentAgentName?: string;
 };
 
 /** Structured tool output plus optional transcript messages injected after the result. */

@@ -202,9 +202,15 @@ export class SubagentScheduler {
             ? AbortSignal.any([input.parentSignal, timeoutSignal])
             : timeoutSignal;
 
+        // Phase 1 T8 — stamp the child's ToolContext with the name of the
+        // agent running in that child session. AgentTool reads this when the
+        // child itself tries to delegate, and enforces the child's
+        // `allowedSubagents` policy as a recursion guard. Top-level harness
+        // calls leave parentAgentName undefined (no scheduler hop).
         const childToolContext: ToolContext = {
           ...input.parentToolContext,
           sessionId: childSessionId,
+          parentAgentName: agent.name,
         };
 
         const systemPrompt: SystemSegment[] = [{ text: agent.systemPrompt, cacheable: true }];

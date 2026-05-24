@@ -66,6 +66,21 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         `AgentTool: unknown subagent_type '${input.subagent_type}'. Available: ${available}`,
       );
     }
+    // Phase 1 T8 — recursion guard via parent's allowedSubagents. When the
+    // calling agent (identified by ctx.parentAgentName) declares a non-empty
+    // allowedSubagents list, restrict subagent_type to that list. Empty list
+    // or absent parentAgentName = unrestricted (top-level harness + parents
+    // without policy).
+    if (ctx.parentAgentName !== undefined) {
+      const parentAgent = agents.byName.get(ctx.parentAgentName);
+      if (parentAgent !== undefined && parentAgent.allowedSubagents.length > 0) {
+        if (!parentAgent.allowedSubagents.includes(input.subagent_type)) {
+          throw new Error(
+            `AgentTool: parent agent '${ctx.parentAgentName}' is not allowed to invoke subagent_type '${input.subagent_type}'. Allowed: ${parentAgent.allowedSubagents.join(', ')}`,
+          );
+        }
+      }
+    }
     const parentToolPool = ctx.parentToolPool ?? [];
     const result = await scheduler.delegate({
       agentName: input.subagent_type,
