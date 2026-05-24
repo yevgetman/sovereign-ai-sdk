@@ -263,6 +263,78 @@ func (m *Model) respond(cmd tea.Cmd) tea.Cmd {
 	return tea.Batch(cmd, drain)
 }
 
+// emitSplash queues the splash card + boot notices into pendingPrintln
+// so they land in terminal scrollback above the current frame. Called
+// once at boot (from the WindowSizeMsg handler) and again after
+// /clear's scrollback-wipe so the cleared session looks like a fresh
+// boot. The shared helper guards against drift between the two paths.
+// 2026-05-24 patch.
+func (m *Model) emitSplash(width int) {
+	cwd, _ := os.Getwd()
+	home := os.Getenv("HOME")
+	provider := m.statusLine.Provider
+	if provider == "" {
+		provider = "anthropic"
+	}
+	version := m.harnessVersion
+	if version == "" {
+		version = "dev"
+	}
+	info := components.SplashInfo{
+		Version:  version,
+		Provider: provider,
+		Auth:     "API Key",
+		Model:    m.statusLine.Model,
+		Cwd:      cwd,
+		Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
+	}
+	// ux-fixes 2026-05-22 (ux1.png): blank line before the splash so
+	// the SOV logo doesn't sit flush against the user's shell prompt.
+	m.print("")
+	m.print(components.RenderSplash(info, m.theme, width))
+	bundlePath := os.Getenv("HARNESS_BUNDLE")
+	for _, notice := range components.BootNotices(cwd, home, bundlePath) {
+		m.print(components.Notification(notice, m.theme, width))
+	}
+}
+
+// wrapClearScrollback prepends the terminal-clear escape Cmd to the
+// supplied Cmd via tea.Sequence so the clear runs first and any
+// subsequent tea.Println output (queued via m.print → drainPrintln)
+// lands in the now-empty scrollback. When `pending` is false the
+// supplied Cmd is returned unchanged. 2026-05-24 patch.
+func (m *Model) wrapClearScrollback(pending bool, cmd tea.Cmd) tea.Cmd {
+	if !pending {
+		return cmd
+	}
+	if cmd == nil {
+		return clearTerminalScrollbackCmd
+	}
+	return tea.Sequence(clearTerminalScrollbackCmd, cmd)
+}
+
+// clearTerminalScrollbackCmd returns a tea.Cmd that writes the escape
+// sequence to wipe the terminal's visible screen + scrollback buffer.
+// Used by /clear (via the ClearScrollback side-effect) so the new
+// child session starts visually fresh — without this, the user's old
+// transcript stays in scrollback even after the server has hopped to
+// a context-empty child session.
+//
+// Sequence:
+//
+//	ESC[2J — clear entire visible screen
+//	ESC[3J — clear scrollback (xterm extension; supported by iTerm2,
+//	         Terminal.app, Alacritty, Kitty, Wezterm, gnome-terminal)
+//	ESC[H  — move cursor to top-left
+//
+// Bubble Tea will re-paint its frame at the bottom on the next tick;
+// any tea.Println output queued for this tick lands in the now-empty
+// scrollback above. 2026-05-24 patch.
+func clearTerminalScrollbackCmd() tea.Msg {
+	_, _ = os.Stdout.WriteString("\033[2J\033[3J\033[H")
+	return nil
+}
+
 // splitConfigBackCommand splits an OnBack command string into the
 // slash-command name + args. The dispatcher expects them separately;
 // OnBack strings come as `"config"` or `"config <group-id>"`, so we
@@ -672,34 +744,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// scrollback so wheel-scroll users still see the boot cue at
 		// the top of their history.
 		if !m.splashShown && m.baseURL != "" {
-			cwd, _ := os.Getwd()
-			home := os.Getenv("HOME")
-			provider := m.statusLine.Provider
-			if provider == "" {
-				provider = "anthropic"
-			}
-			version := m.harnessVersion
-			if version == "" {
-				version = "dev"
-			}
-			info := components.SplashInfo{
-				Version:  version,
-				Provider: provider,
-				Auth:     "API Key",
-				Model:    m.statusLine.Model,
-				Cwd:      cwd,
-				Tips:     "Tips: type / for slash commands · @file:path to inline files · /quit to exit",
-			}
-			// ux-fixes 2026-05-22 (ux1.png): blank line before the splash so
-			// the SOV logo doesn't sit flush against the user's shell prompt
-			// (e.g. `julie ~ % sov` immediately followed by the ASCII art).
-			// One row of vertical padding gives the boot a more polished feel.
-			m.print("")
-			m.print(components.RenderSplash(info, m.theme, msg.Width))
-			bundlePath := os.Getenv("HARNESS_BUNDLE")
-			for _, notice := range components.BootNotices(cwd, home, bundlePath) {
-				m.print(components.Notification(notice, m.theme, msg.Width))
-			}
+			m.emitSplash(msg.Width)
 			m.splashShown = true
 		}
 		// 2026-05-24 (config UX rebuild) — once the splash has rendered
@@ -1412,8 +1457,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// dynamically render the model (M2 fixed-field design); the
 		// model change is visible via the command's output text — no
 		// statusline mutation needed in M10.5.
+		var clearScrollbackPending bool
 		if msg.resp != nil && msg.resp.SideEffects != nil {
 			se := msg.resp.SideEffects
+			// 2026-05-24 patch — /clear scrollback wipe. We need to
+			// process this BEFORE NewSessionID's print so the splash
+			// re-emission below lands AFTER the clear (everything
+			// queued via m.print after this drains via tea.Println
+			// once the clear Cmd has run). Splash + the session
+			// marker land in the now-empty terminal scrollback.
+			if se.ClearScrollback != nil && *se.ClearScrollback {
+				clearScrollbackPending = true
+				m.splashShown = false
+				m.emitSplash(m.width)
+			}
 			if se.NewSessionID != "" {
 				m.sessionID = se.NewSessionID
 				m.print(
@@ -1471,9 +1528,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.resp != nil && msg.resp.PromptToSend != "" && m.baseURL != "" {
 			m.thinkingPending = true
 			spinCmd := m.startSpinner("thinking")
-			return m, m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd))
+			return m, m.wrapClearScrollback(
+				clearScrollbackPending,
+				m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd)),
+			)
 		}
-		return m, m.respond(nil)
+		return m, m.wrapClearScrollback(clearScrollbackPending, m.respond(nil))
 	}
 	// ux-fixes round 5 — no transcript forwarding for unhandled msgs.
 	// History lives in terminal scrollback; nothing reroutes here.

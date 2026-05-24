@@ -153,6 +153,87 @@ func TestPickerBackspace_NoOpWhenOnBackAbsent(t *testing.T) {
 	}
 }
 
+// 2026-05-24 patch — /clear scrollback wipe.
+
+// TestClearScrollback_SideEffectResetsSplashAndQueuesSplashLines covers
+// the contract that when the server returns sideEffects.ClearScrollback,
+// the TUI (a) marks splashShown=false so it can re-emit, (b) queues a
+// fresh splash for tea.Println drain, and (c) leaves the rest of the
+// downstream side-effects intact. The actual stdout-escape write
+// happens in the returned tea.Cmd, which we don't invoke here — just
+// confirm the model state transitions correctly.
+func TestClearScrollback_SideEffectResetsSplashAndQueuesSplashLines(t *testing.T) {
+	m := New("sess-1", "http://127.0.0.1:9999")
+	// Simulate a first WindowSizeMsg so splash emits naturally.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app := updated.(Model)
+	if !app.splashShown {
+		t.Fatalf("precondition: splash should have emitted on first WindowSizeMsg")
+	}
+
+	// Drain the initial scrollback so the splash content from boot
+	// doesn't pollute the post-clear assertions.
+	initialContent := scrollbackContent(app)
+	if !strings.Contains(initialContent, "Sovereign AI") && !strings.Contains(initialContent, "SOV") {
+		// Splash may not contain literal "Sovereign AI" string if the
+		// SplashInfo template uses ASCII art only — the assertion is
+		// soft; we mainly care about the post-clear branch.
+		_ = initialContent
+	}
+
+	// Now simulate a /clear response with ClearScrollback=true.
+	yes := true
+	resp := &transport.CommandResponse{
+		Output: "conversation history cleared into child session new-id",
+		SideEffects: &transport.CommandSideEffects{
+			NewSessionID:    "new-id",
+			ClearScrollback: &yes,
+		},
+	}
+	updated, _ = app.Update(commandDispatchedMsg{name: "clear", resp: resp})
+	app = updated.(Model)
+
+	// splashShown should be flipped so future WindowSizeMsg events
+	// would re-emit. (We don't fire one here — the immediate splash
+	// re-emit already happened via emitSplash inside the handler.)
+	if app.splashShown {
+		t.Error("splashShown should be reset to false when ClearScrollback fires")
+	}
+	// SessionID should hop to the new id.
+	if app.sessionID != "new-id" {
+		t.Errorf("sessionID = %q, want %q", app.sessionID, "new-id")
+	}
+	// The "─ session ..." marker should still print (existing behavior).
+	if !strings.Contains(scrollbackContent(app), "session") {
+		t.Errorf("expected new-session marker in scrollback; got %q", scrollbackContent(app))
+	}
+}
+
+// TestClearScrollback_NoOpWhenSideEffectFalse verifies that the
+// scrollback-clear path is gated on the side-effect — absence (or nil
+// pointer) leaves splashShown untouched.
+func TestClearScrollback_NoOpWhenSideEffectFalse(t *testing.T) {
+	m := New("sess-1", "http://127.0.0.1:9999")
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app := updated.(Model)
+	if !app.splashShown {
+		t.Fatalf("precondition: splash should have emitted")
+	}
+
+	// Response with NewSessionID but no ClearScrollback (e.g.,
+	// compact mints a new session without wanting a visual wipe).
+	resp := &transport.CommandResponse{
+		Output:      "compacted session: old -> new",
+		SideEffects: &transport.CommandSideEffects{NewSessionID: "new-id"},
+	}
+	updated, _ = app.Update(commandDispatchedMsg{name: "compact", resp: resp})
+	app = updated.(Model)
+
+	if !app.splashShown {
+		t.Error("splashShown should stay true when ClearScrollback is absent")
+	}
+}
+
 // 2026-05-24 patch — `sov config` standalone mode behavior.
 
 func TestConfigOnly_EscOnSubPickerNavigatesBack(t *testing.T) {

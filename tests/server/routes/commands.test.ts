@@ -94,10 +94,14 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     expect((json.output as string).toLowerCase()).toContain('cleared into child session');
     expect(json.output as string).toContain('parent session preserved');
 
-    const se = json.sideEffects as { newSessionId?: string };
+    const se = json.sideEffects as { newSessionId?: string; clearScrollback?: boolean };
     const newSessionId = se?.newSessionId;
     expect(newSessionId).toBeDefined();
     expect(newSessionId).not.toBe(sessionId);
+
+    // 2026-05-24 patch — /clear also signals the TUI to wipe the
+    // terminal scrollback so the new session looks visually fresh.
+    expect(se?.clearScrollback).toBe(true);
 
     // The new id should be a real session — subsequent /cost on it works.
     if (newSessionId === undefined) throw new Error('newSessionId missing');

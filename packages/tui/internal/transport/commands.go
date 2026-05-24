@@ -80,6 +80,13 @@ type CommandSideEffects struct {
 	// Pointer so the absence (nil) is distinct from `false`.
 	// 2026-05-24 (config UX rebuild).
 	VerboseChanged *bool `json:"verboseChanged,omitempty"`
+	// ClearScrollback is set by `/clear` so the TUI wipes the
+	// terminal's visible screen + scrollback buffer before the next
+	// render. Combined with the NewSessionID hop, the user sees a
+	// visually fresh session — no stale transcript bleeding through.
+	// Pointer so absence is distinct from explicit `false`.
+	// 2026-05-24 patch.
+	ClearScrollback *bool `json:"clearScrollback,omitempty"`
 }
 
 // CommandResponse is the JSON envelope returned by /commands.

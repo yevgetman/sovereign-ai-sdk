@@ -65,6 +65,12 @@ export type CommandSideEffects = {
    *  records the new value so the TUI flips its toolcard renderer
    *  (compact one-liner vs. full bordered output). */
   verboseChanged?: boolean;
+  /** 2026-05-24 patch — `/clear` signals the TUI to wipe the terminal
+   *  scrollback so the new (cleared) session starts visually fresh.
+   *  Without this, the old transcript stays in the terminal even
+   *  though the server has hopped to a child session with no model
+   *  context. Bool so absence is the no-op default. */
+  clearScrollback?: boolean;
 };
 
 export type BuildServerCommandContextResult = {
@@ -144,6 +150,11 @@ export function buildServerCommandContext(
         },
       });
       sideEffects.newSessionId = result.newSessionId;
+      // 2026-05-24 patch — signal the TUI to wipe terminal scrollback
+      // so the new session starts visually fresh. Without this, the
+      // user's old transcript stays visible even though the server has
+      // hopped to the child session with no model-side context.
+      sideEffects.clearScrollback = true;
       return [
         `conversation history cleared into child session ${result.newSessionId}`,
         `parent session preserved: ${result.parentSessionId}`,
