@@ -11,10 +11,21 @@ package transport
 
 // PickerItem is a single selectable entry shown in the picker card.
 // `Hint` is rendered dim next to the label when present.
+//
+// 2026-05-24 — config UX rebuild. `ValueColumn` and `Badge` extend the
+// shape so the same component can render config submenu rows. When
+// neither is set the row layout matches the M11.5 baseline (label +
+// optional hint), so /model, /resume, /export, /theme stay byte-
+// identical visually.
+//
+// Badge values are `"live"` (✓ live, success-green) or `"reload"`
+// (⟳ next session, dim-orange). Other values render no badge.
 type PickerItem struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
-	Hint  string `json:"hint,omitempty"`
+	Label       string `json:"label"`
+	Value       string `json:"value"`
+	Hint        string `json:"hint,omitempty"`
+	ValueColumn string `json:"valueColumn,omitempty"`
+	Badge       string `json:"badge,omitempty"`
 }
 
 // PickerOpenPayload is the decoded `pickerOpen` side-effect from the

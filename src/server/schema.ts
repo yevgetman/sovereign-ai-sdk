@@ -223,10 +223,18 @@ export type CommandRequest = z.infer<typeof CommandRequestSchema>;
 // in lieu of running an in-process raw-mode pick(). The TUI renders an
 // inline card; selection re-dispatches `/<onSelect.command> <value>`.
 // ADR M11.5-01, ADR M11.5-03.
+//
+// 2026-05-24 (config UX rebuild) — `valueColumn` and `badge` added so
+// the same PickerCard component can render the config submenu rows
+// (current value right-aligned, ✓ live / ⟳ next session badge after).
+// Both are optional; existing picker callers (/model, /resume, /export,
+// /theme) keep working unchanged.
 export const PickerOpenItemSchema = z.object({
   label: z.string(),
   value: z.string(),
   hint: z.string().optional(),
+  valueColumn: z.string().optional(),
+  badge: z.enum(['live', 'reload']).optional(),
 });
 
 export const PickerOpenConfigSchema = z.object({
@@ -238,6 +246,21 @@ export const PickerOpenConfigSchema = z.object({
 });
 
 export type PickerOpenConfigWire = z.infer<typeof PickerOpenConfigSchema>;
+
+// 2026-05-24 — Config UX rebuild. Parallel to PickerOpenConfigSchema
+// but for free-text edits (string, number, secret). The TUI renders an
+// InputCard; on Enter it re-dispatches `/<onSubmit.command> <typed>`.
+// `masked: true` displays bullets while typing (API keys, secrets).
+export const InputOpenConfigSchema = z.object({
+  title: z.string(),
+  subtitle: z.string().optional(),
+  initial: z.string().optional(),
+  placeholder: z.string().optional(),
+  masked: z.boolean().optional(),
+  onSubmit: z.object({ command: z.string() }),
+});
+
+export type InputOpenConfigWire = z.infer<typeof InputOpenConfigSchema>;
 
 export const CommandSideEffectsSchema = z.object({
   // Set by /clear when it mints a new child session. The TUI hops
@@ -256,6 +279,14 @@ export const CommandSideEffectsSchema = z.object({
   // theme to its in-process state — the TS-side singleton update
   // from applyAndPersistTheme has no effect on the Go renderer.
   themeChanged: z.string().optional(),
+  // Set by /config edit on free-text fields (2026-05-24). The TUI
+  // renders an InputCard from this payload; on Enter it re-dispatches
+  // `/<onSubmit.command> <typed-value>`.
+  inputOpen: InputOpenConfigSchema.optional(),
+  // Set by /config set verbose <bool> (2026-05-24). Tells the TUI to
+  // toggle its verbose-mode flag (controls toolcard render: one-liner
+  // compact vs. full bordered output).
+  verboseChanged: z.boolean().optional(),
 });
 
 export type CommandSideEffects = z.infer<typeof CommandSideEffectsSchema>;

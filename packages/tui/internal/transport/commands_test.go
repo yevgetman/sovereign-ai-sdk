@@ -108,6 +108,74 @@ func TestDispatchCommand_SideEffects(t *testing.T) {
 	}
 }
 
+// TestDispatchCommand_InputOpenSideEffect verifies that the new
+// inputOpen side-effect (2026-05-24 config UX rebuild) decodes
+// correctly. This is the wire branch /config edit takes for
+// string/number/secret editor kinds.
+func TestDispatchCommand_InputOpenSideEffect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"output": "",
+			"sideEffects": {
+				"inputOpen": {
+					"title": "providers.anthropic.apiKey",
+					"subtitle": "Stored at ~/.harness/config.json",
+					"initial": "",
+					"placeholder": "sk-ant-...",
+					"masked": true,
+					"onSubmit": {"command": "config set providers.anthropic.apiKey"}
+				}
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(
+		context.Background(), srv.URL, "abc-123", "config", "edit providers.anthropic.apiKey",
+	)
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.SideEffects == nil || resp.SideEffects.InputOpen == nil {
+		t.Fatalf("expected sideEffects.inputOpen, got %+v", resp.SideEffects)
+	}
+	got := resp.SideEffects.InputOpen
+	if got.Title != "providers.anthropic.apiKey" {
+		t.Errorf("Title = %q", got.Title)
+	}
+	if !got.Masked {
+		t.Errorf("Masked = false, want true (secret field)")
+	}
+	if got.OnSubmit.Command != "config set providers.anthropic.apiKey" {
+		t.Errorf("OnSubmit.Command = %q", got.OnSubmit.Command)
+	}
+}
+
+// TestDispatchCommand_VerboseChangedSideEffect verifies the new
+// verboseChanged side-effect decodes. Pointer type lets nil be
+// distinct from `false` (the absence vs. an explicit set-false).
+func TestDispatchCommand_VerboseChangedSideEffect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(
+			`{"output":"saved","sideEffects":{"verboseChanged":true}}`,
+		))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(
+		context.Background(), srv.URL, "abc-123", "config", "set verbose true",
+	)
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.SideEffects == nil || resp.SideEffects.VerboseChanged == nil {
+		t.Fatalf("expected sideEffects.verboseChanged, got %+v", resp.SideEffects)
+	}
+	if !*resp.SideEffects.VerboseChanged {
+		t.Errorf("VerboseChanged = false, want true")
+	}
+}
+
 func TestDispatchCommand_PromptToSend(t *testing.T) {
 	// Backlog: prompt-type slash commands (/init, /commit, every
 	// skill-sourced command) return a structured `promptToSend` field

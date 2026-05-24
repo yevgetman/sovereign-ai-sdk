@@ -69,6 +69,17 @@ type CommandSideEffects struct {
 	// boundary; the TUI applies it to m.theme + all components.
 	// Backlog #46.
 	ThemeChanged string `json:"themeChanged,omitempty"`
+	// InputOpen is set by `/config edit <dotpath>` on free-text catalog
+	// items (string / number / secret). The TUI renders an InputCard
+	// from this payload; on Enter the typed value is dispatched as
+	// `/<command> <value>`. 2026-05-24 (config UX rebuild).
+	InputOpen *InputOpenPayload `json:"inputOpen,omitempty"`
+	// VerboseChanged is set by `/config set verbose <bool>`. The TUI
+	// updates its verbose-mode flag so the toolcard renderer flips
+	// between the compact one-liner and the full bordered output.
+	// Pointer so the absence (nil) is distinct from `false`.
+	// 2026-05-24 (config UX rebuild).
+	VerboseChanged *bool `json:"verboseChanged,omitempty"`
 }
 
 // CommandResponse is the JSON envelope returned by /commands.
