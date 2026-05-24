@@ -27,6 +27,20 @@ export type AgentDefinition = {
   maxTurns: number;
   readOnly: boolean;
   supportsMissionState: boolean;
+  /**
+   * Phase 1 T5 — when true, the scheduler hands the child its parent's tool
+   * pool (minus the global exclusion set) instead of the strict `allowedTools`
+   * allowlist. Default false preserves Phase 13's strict-allowlist behavior.
+   */
+  inheritParentTools: boolean;
+  /**
+   * Phase 1 T5 — names of subagent types this child is permitted to dispatch
+   * via `AgentTool`. When non-empty, `AgentTool` is removed from the child's
+   * exclusion set (see `buildSubagentExclusions`) and AgentTool calls are
+   * restricted to listed names (enforcement in T8). Default `[]` keeps the
+   * Phase 13.5 no-recursive-spawn ceiling.
+   */
+  allowedSubagents: string[];
   path: string;
   realpath: string;
   dir: string;

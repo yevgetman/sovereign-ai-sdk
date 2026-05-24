@@ -30,6 +30,8 @@ function fakeAgentRegistry(): AgentRegistry {
     maxTurns: 1,
     readOnly: true,
     supportsMissionState: false,
+    inheritParentTools: false,
+    allowedSubagents: [],
     path: '/dev/null/fake-agent.md',
     realpath: '/dev/null/fake-agent.md',
     dir: '/dev/null',

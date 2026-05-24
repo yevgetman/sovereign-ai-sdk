@@ -33,6 +33,8 @@ const FrontmatterSchema = z
     maxTurns: z.number().int().positive().default(DEFAULT_MAX_TURNS),
     readOnly: z.boolean().default(false),
     supportsMissionState: z.boolean().default(false),
+    inheritParentTools: z.boolean().default(false),
+    allowedSubagents: z.array(z.string()).default([]),
   })
   .passthrough();
 
@@ -137,6 +139,8 @@ async function loadAgentFile(
       maxTurns: frontmatter.maxTurns,
       readOnly: frontmatter.readOnly,
       supportsMissionState: frontmatter.supportsMissionState,
+      inheritParentTools: frontmatter.inheritParentTools,
+      allowedSubagents: frontmatter.allowedSubagents,
       path,
       realpath: rp,
       dir: dirname(path),

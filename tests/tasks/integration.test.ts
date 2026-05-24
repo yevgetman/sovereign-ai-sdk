@@ -30,6 +30,8 @@ function makeAgent(): AgentDefinition {
     maxTurns: 5,
     readOnly: true,
     supportsMissionState: false,
+    inheritParentTools: false,
+    allowedSubagents: [],
     path: '/tmp/explore.md',
     realpath: '/tmp/explore.md',
     dir: '/tmp',

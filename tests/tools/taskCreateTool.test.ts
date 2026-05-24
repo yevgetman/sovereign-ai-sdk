@@ -17,6 +17,8 @@ function makeAgent(name: string): AgentDefinition {
     maxTurns: 5,
     readOnly: true,
     supportsMissionState: false,
+    inheritParentTools: false,
+    allowedSubagents: [],
     path: `/tmp/${name}.md`,
     realpath: `/tmp/${name}.md`,
     dir: '/tmp',

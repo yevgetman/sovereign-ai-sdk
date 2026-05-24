@@ -15,6 +15,8 @@
 // Source of pattern: Qwen Code's session-scoped tool exclusions for
 // nested agent contexts (qwen-code-analysis.md §3.6).
 
+import type { AgentDefinition } from './types.js';
+
 export const SUBAGENT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set<string>([
   // No recursive sub-agent spawning — children can't fork further children.
   'AgentTool',
@@ -31,3 +33,25 @@ export const SUBAGENT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set<string>([
   'task_stop',
   'send_message',
 ]);
+
+/**
+ * Phase 1 T5 — build the per-child exclusion set, honoring the agent's
+ * `allowedSubagents` declaration. When `allowedSubagents` is non-empty,
+ * `AgentTool` is removed from the exclusion set so the child can dispatch
+ * the listed subagent types (enforcement of the allowlist itself lives in
+ * T8 at the AgentTool boundary). When empty, the Phase 13.5 no-recursive-
+ * spawn ceiling stays in place — the global constant is returned as-is.
+ *
+ * The function is non-mutating: it returns a fresh `Set` only when reducing,
+ * otherwise it returns the shared `SUBAGENT_EXCLUDED_TOOLS` reference.
+ */
+export function buildSubagentExclusions(
+  agent: Pick<AgentDefinition, 'allowedSubagents'>,
+): ReadonlySet<string> {
+  if (!agent.allowedSubagents || agent.allowedSubagents.length === 0) {
+    return SUBAGENT_EXCLUDED_TOOLS;
+  }
+  const reduced = new Set(SUBAGENT_EXCLUDED_TOOLS);
+  reduced.delete('AgentTool');
+  return reduced;
+}
