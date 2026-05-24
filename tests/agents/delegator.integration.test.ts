@@ -14,7 +14,17 @@
 // The script naturally walks parent → child → grandchild as their stream
 // calls fire in sequence.
 //
-// Plan: docs/plans/2026-05-23-phase-1-task-routing.md (T13)
+// Phase 2 T10 augmentation: each test now also walks the parsed SSE event
+// stream and asserts the four delegator_* events synthesized by T4 land in
+// the canonical sequence (plan → atom_started* → atom_complete* → complete),
+// with shape assertions on the final `delegator_complete.totalAtomCount` and
+// `laneDistribution`. The augmentation is additive — every original assertion
+// still runs unchanged; the new assertions slot in alongside the existing
+// SSE-body checks. Mirrors the canonical pattern established in
+// tests/router/synthesisIntegration.test.ts (T4).
+//
+// Plan: docs/plans/2026-05-23-phase-1-task-routing.md (T13);
+// docs/plans/2026-05-23-phase-2-task-routing.md (T10)
 // Spec: docs/specs/2026-05-23-multi-provider-task-routing-design.md
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -24,6 +34,36 @@ import { join } from 'node:path';
 import { MockProvider } from '../../src/providers/mock.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
+
+/** Parse an SSE response body into an array of event objects. The events
+ *  route writes `event: <type>\ndata: <json>\n\n` blocks; we walk the body
+ *  and accumulate parsed-JSON objects per block. Mirrors the helper in
+ *  tests/router/synthesisIntegration.test.ts (T4) — kept inline here so the
+ *  Phase 1 integration tests stay self-contained. */
+function parseSseEvents(body: string): Array<{ event: string; data: unknown }> {
+  const blocks = body.split('\n\n').filter((b) => b.trim() !== '');
+  const events: Array<{ event: string; data: unknown }> = [];
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    let eventType: string | null = null;
+    let dataLine: string | null = null;
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        eventType = line.slice('event: '.length);
+      } else if (line.startsWith('data: ')) {
+        dataLine = line.slice('data: '.length);
+      }
+    }
+    if (eventType !== null && dataLine !== null) {
+      try {
+        events.push({ event: eventType, data: JSON.parse(dataLine) });
+      } catch {
+        // Skip lines that aren't valid JSON — comments, heartbeats, etc.
+      }
+    }
+  }
+  return events;
+}
 
 describe('delegator integration — trivial turn', () => {
   let home: string;
@@ -222,6 +262,40 @@ describe('delegator integration — trivial turn', () => {
       // would mean the parent looped, or the scheduler re-dispatched —
       // either way a regression marker.
       expect(MockProvider.streamCalls).toBe(5);
+
+      // (f) Phase 2 T10 — assert the four delegator_* events synthesized
+      // by T4 (`src/router/progressEvents.ts`) land in the canonical
+      // sequence on the SSE wire. The trivial-turn shape has one atom
+      // (cheap-task), so expect:
+      //   plan → atom_started(×1) → atom_complete(×1) → complete
+      // with `totalAtomCount: 1` and `laneDistribution: {'cheap-task': 1}`.
+      const events = parseSseEvents(body);
+      const delegatorEvents = events.filter((e) => e.event.startsWith('delegator_'));
+      const types = delegatorEvents.map((e) => e.event);
+      expect(types).toContain('delegator_plan');
+      expect(types).toContain('delegator_atom_started');
+      expect(types).toContain('delegator_atom_complete');
+      expect(types).toContain('delegator_complete');
+      // Strict ordering — plan precedes atom_started, atom_complete precedes
+      // the final delegator_complete. The synthesizer is stateful and the
+      // bus is single-subscriber FIFO, so any reordering is a regression.
+      expect(types.indexOf('delegator_plan')).toBeLessThan(types.indexOf('delegator_atom_started'));
+      expect(types.indexOf('delegator_atom_complete')).toBeLessThan(
+        types.indexOf('delegator_complete'),
+      );
+      // Exactly one atom for the trivial-turn shape.
+      expect(types.filter((t) => t === 'delegator_atom_started').length).toBe(1);
+      expect(types.filter((t) => t === 'delegator_atom_complete').length).toBe(1);
+      // The terminal `delegator_complete` reports totalAtomCount=1 and the
+      // lane distribution shows the cheap-task atom we dispatched.
+      const finalEvent = delegatorEvents.find((e) => e.event === 'delegator_complete');
+      expect(finalEvent).toBeDefined();
+      const finalData = finalEvent?.data as {
+        totalAtomCount: number;
+        laneDistribution: Record<string, number>;
+      };
+      expect(finalData.totalAtomCount).toBe(1);
+      expect(finalData.laneDistribution).toEqual({ 'cheap-task': 1 });
     } finally {
       await runtime.dispose();
     }
@@ -445,6 +519,47 @@ describe('delegator integration — compound turn', () => {
       // Three atoms — cheap-task, moderate-task, frontier-task — all
       // pointing at the delegator session as parent.
       expect(atomRows.length).toBe(3);
+
+      // (g) Phase 2 T10 — assert the four delegator_* events synthesized
+      // by T4 land in the canonical sequence for the compound-turn shape.
+      // Three atoms (cheap-task + moderate-task + frontier-task synthesis)
+      // → three `delegator_atom_started` + three `delegator_atom_complete`,
+      // bracketed by one `delegator_plan` + one `delegator_complete`.
+      // The final event reports `totalAtomCount: 3` and the lane
+      // distribution shows one dispatch per cost lane.
+      const events = parseSseEvents(body);
+      const delegatorEvents = events.filter((e) => e.event.startsWith('delegator_'));
+      const types = delegatorEvents.map((e) => e.event);
+      expect(types).toContain('delegator_plan');
+      expect(types).toContain('delegator_atom_started');
+      expect(types).toContain('delegator_atom_complete');
+      expect(types).toContain('delegator_complete');
+      // plan precedes the first atom_started; the last atom_complete
+      // precedes the terminal delegator_complete. Use first/last-index
+      // checks so we don't accidentally compare a started-at-index-N
+      // against a complete-at-index-N (they interleave naturally as each
+      // atom finishes before the next is dispatched in this script).
+      expect(types.indexOf('delegator_plan')).toBeLessThan(types.indexOf('delegator_atom_started'));
+      expect(types.lastIndexOf('delegator_atom_complete')).toBeLessThan(
+        types.indexOf('delegator_complete'),
+      );
+      // Three atoms dispatched + three atoms completed.
+      expect(types.filter((t) => t === 'delegator_atom_started').length).toBe(3);
+      expect(types.filter((t) => t === 'delegator_atom_complete').length).toBe(3);
+      // The terminal `delegator_complete` reports totalAtomCount=3 and the
+      // lane distribution maps each cost lane to a single dispatch.
+      const finalEvent = delegatorEvents.find((e) => e.event === 'delegator_complete');
+      expect(finalEvent).toBeDefined();
+      const finalData = finalEvent?.data as {
+        totalAtomCount: number;
+        laneDistribution: Record<string, number>;
+      };
+      expect(finalData.totalAtomCount).toBe(3);
+      expect(finalData.laneDistribution).toEqual({
+        'cheap-task': 1,
+        'moderate-task': 1,
+        'frontier-task': 1,
+      });
     } finally {
       await runtime.dispose();
     }
