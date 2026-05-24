@@ -19,6 +19,7 @@ import { visibleWidth } from '../ui/box.js';
 import { INFO_COMMANDS } from './info.js';
 import { PICKER_COMMANDS } from './pickers.js';
 import { REVIEW_OPS_COMMANDS } from './reviewOps.js';
+import { routingStatsCommand } from './routingStats.js';
 import { SESSION_OPS_COMMANDS } from './sessionOps.js';
 import { TASK_OPS_COMMANDS } from './taskOps.js';
 import type { CommandContext, CommandDispatchResult, SlashCommand } from './types.js';
@@ -33,6 +34,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   rollback: 'session',
   resume: 'session',
   stats: 'session',
+  'routing-stats': 'session',
   quit: 'session',
   // info
   about: 'info',
@@ -130,6 +132,7 @@ export const COMMANDS: SlashCommand[] = [
   ...SESSION_OPS_COMMANDS,
   ...TASK_OPS_COMMANDS,
   ...REVIEW_OPS_COMMANDS,
+  routingStatsCommand,
   {
     type: 'local',
     name: 'config',

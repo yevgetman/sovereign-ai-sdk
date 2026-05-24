@@ -6,6 +6,7 @@ import type { CompactResult } from '../compact/compactor.js';
 import type { PermissionRuleLayer } from '../config/rules.js';
 import type { BudgetReport } from '../context/budget.js';
 import type { ContentBlock, Message } from '../core/types.js';
+import type { RoutingStatsSnapshot } from '../router/stats.js';
 import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 import type { SessionMetrics } from '../ui/sessionSummary.js';
@@ -111,6 +112,12 @@ export type CommandContext = {
    *  (REPL surface), the side-effect isn't emitted; the singleton update +
    *  config persist drive everything the REPL renderer needs. */
   recordThemeChange?: (name: string) => void;
+  /** Phase 2 T9 — per-session (default) or cross-session (--all) routing-atom
+   *  breakdown for `/routing-stats`. Returns the aggregated snapshot from
+   *  `computeRoutingStats(rows)`. Optional so surfaces without a sessionDb
+   *  (current dispatch headless mode) can omit it; the command surfaces a
+   *  friendly fallback when undefined. */
+  getRoutingStats?: (opts?: { all?: boolean }) => RoutingStatsSnapshot;
 };
 
 /** Slash command that runs locally and returns display text. */

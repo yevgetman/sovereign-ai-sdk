@@ -186,6 +186,13 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
         activeToolNames: toolPool.map((t) => t.name),
       }),
     expandToolBlock: () => ({ ok: false, total: 0 }),
+    // Phase 2 T9 — `getRoutingStats` is intentionally omitted in
+    // dispatch mode: the routing-atoms surface lives on sessionDb,
+    // and dispatch does NOT boot a session DB (see file-level
+    // comment). The `/routing-stats` command checks for undefined
+    // and surfaces a fallback ("routing-stats is not wired in this
+    // surface"), matching how /compact and /rollback already behave
+    // when their dependencies are unavailable here.
   };
 
   process.stdout.write(`${READY_MARKER}\n`);

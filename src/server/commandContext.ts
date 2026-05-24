@@ -28,6 +28,7 @@ import type { CommandContext, PickerOpenConfig } from '../commands/types.js';
 import { loadPermissionSettings } from '../config/settings.js';
 import { auditContextBudget } from '../context/budget.js';
 import type { Message, SystemSegment } from '../core/types.js';
+import { computeRoutingStats } from '../router/stats.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import type { Runtime } from './runtime.js';
@@ -250,6 +251,17 @@ export function buildServerCommandContext(
     // ok:false here means /expand via dispatcher reports out-of-range
     // honestly rather than pretending to work.
     expandToolBlock: (_n: number) => ({ ok: false, total: 0 }),
+    // Phase 2 T9 — server-mode wiring for `/routing-stats`. Reads atom
+    // rows directly from sessionDb (per-session by walking the
+    // delegator child of the current session; cross-session via the
+    // unconstrained --all query) and aggregates via computeRoutingStats.
+    getRoutingStats: (opts) => {
+      const all = opts?.all === true;
+      const rows = all
+        ? runtime.sessionDb.listRoutingAtomsAll()
+        : runtime.sessionDb.listRoutingAtomsByParent(sessionId);
+      return computeRoutingStats(rows, all ? 'all' : 'session');
+    },
     // resumeCheckin is REPL-specific (paused-turn resumption). Left
     // undefined; /continue surfaces 'no pending checkin' as it does
     // in REPL when nothing is paused.
