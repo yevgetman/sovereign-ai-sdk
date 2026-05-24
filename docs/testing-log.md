@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 2 T7 `sov serve` SSE side-channel for delegator progress
+
+**Scope:** Phase 2 T7 from `docs/plans/2026-05-23-phase-2-task-routing.md`. The chat completions streaming branch (`POST /v1/chat/completions` with `stream: true`) now subscribes to the per-session event bus before driving `translateStream` and emits each delegator_* event as a `event: hermes.delegator.progress\ndata: <json>\n\n` SSE side-channel frame interleaved with the OpenAI-shaped main stream. `unsubscribe()` runs in the route's `finally` block so a closed stream never receives writes from a late publish. Purely additive — the existing `translateStream` consumer is untouched.
+
+**Files:**
+- `src/openai/streaming/chunks.ts` — new `buildDelegatorProgressPayload(event)` thin JSON helper, colocated with `buildProgressPayload`. Verbatim serialization of the four delegator wire-event shapes from `src/router/progressEvents.ts`.
+- `src/openai/routes/chatCompletions.ts` — streaming branch subscribes via `getOrCreateBus(sessionId).subscribe(...)`, filters by event type (set of four delegator_* names), writes side-channel frames via the same `stream.write` closure `translateStream` uses. Unsubscribe in `finally` before `disposeSession`.
+- `tests/openai/streaming/delegatorProgress.test.ts` — 6 new tests: 4 unit tests on `buildDelegatorProgressPayload` (one per event variant), 2 e2e tests pre-seeding the bus with synthetic events and asserting the side-channel frames appear in the SSE body (positive path + non-delegator filter).
+
+**Suite numbers:** **2287 pass / 0 fail / 14 skip** (+6 from baseline of 2281/0/14). All existing OpenAI streaming tests pass unchanged (123 tests across 18 files).
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2287 pass / 0 fail / 14 skip / 6171 expect() calls / 293 files
+```
+
+**Bus API surprises:** none. `ServerEventBus.subscribe(fn)` returns the unsubscribe closure directly (as documented). The bus drains its buffer immediately on subscribe, so the e2e tests can pre-publish events and have them flow through when the streaming branch attaches its subscriber. The OpenAI route namespaces session ids with `openai:<client-id>` — the bus is keyed by the internal namespaced id, not the wire id.
+
 ## 2026-05-23 — Phase 2 T4 runtime-synthesized delegator SSE events
 
 **Scope:** Phase 2 T4 from `docs/plans/2026-05-23-phase-2-task-routing.md`. The runtime now observes the scheduler's delegation lifecycle and publishes four new SSE event types on the per-session bus (`delegator_plan`, `delegator_atom_started`, `delegator_atom_complete`, `delegator_complete`). The scheduler fires an optional `delegationLifecycleRecorder` callback at delegation start + every return path (success + interrupted); the runtime's `synthesizeDelegationEvents(...)` closure maps the lifecycle events onto the four SSE events when the call graph belongs to the active delegator. Non-router agent dispatches (e.g., `explore` directly from the parent) are dropped. Purely additive — every existing scheduler/AgentTool/turn-route test passes unchanged.

@@ -17,6 +17,22 @@
 //     side-channel event. The event line (`event: hermes.tool.progress`)
 //     is emitted by the translator alongside; this builder owns only the
 //     payload portion so the translator stays in charge of wire framing.
+//
+// Phase 2 T7 adds:
+//   - `buildDelegatorProgressPayload` — JSON-encodes a
+//     `hermes.delegator.progress` side-channel event. The chat completions
+//     streaming branch subscribes to the per-session event bus and writes
+//     these events alongside the OpenAI-shaped main stream so external
+//     observers can render router progress without parsing the synthetic
+//     wire shape. Mirrors `buildProgressPayload`'s framing-free contract:
+//     the route owns `event:` / `data:` framing.
+
+import type {
+  DelegatorAtomCompleteEvent,
+  DelegatorAtomStartedEvent,
+  DelegatorCompleteEvent,
+  DelegatorPlanEvent,
+} from '../../router/progressEvents.js';
 
 export type ChunkCtx = {
   /** chatcmpl-<sessionId>; same id appears on every chunk in the stream. */
@@ -196,4 +212,28 @@ export function buildProgressPayload(progress: ProgressEvent): string {
     ...(progress.is_error === true ? { is_error: true } : {}),
   };
   return JSON.stringify(payload);
+}
+
+/** Phase 2 T7 — Payload of a `hermes.delegator.progress` SSE side-channel
+ *  event. The event line itself (`event: hermes.delegator.progress\n`) is
+ *  emitted by the chat completions streaming branch's bus subscriber; this
+ *  builder owns only the payload portion so the wire framing stays in the
+ *  route handler.
+ *
+ *  The four delegator wire-event shapes live in
+ *  `src/router/progressEvents.ts` as Zod-derived types — the TUI, `sov
+ *  drive`, and this side-channel all re-parse the same JSON envelope.
+ *  This builder serializes the event verbatim (no field reshaping) so the
+ *  downstream consumers see the same shape they would on the GET /events
+ *  SSE wire. */
+export type DelegatorProgressEvent =
+  | DelegatorPlanEvent
+  | DelegatorAtomStartedEvent
+  | DelegatorAtomCompleteEvent
+  | DelegatorCompleteEvent;
+
+/** Build the SSE payload (JSON-encoded) for a hermes.delegator.progress
+ *  event. Verbatim serialization — the event is already the wire shape. */
+export function buildDelegatorProgressPayload(event: DelegatorProgressEvent): string {
+  return JSON.stringify(event);
 }

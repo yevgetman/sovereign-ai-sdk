@@ -42,13 +42,18 @@ import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransform
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { AskResponse } from '../../permissions/types.js';
 import { isCredentialUnavailable } from '../../providers/errors.js';
+import { getOrCreateBus } from '../../server/eventBus.js';
 import { buildSessionToolContext } from '../../server/routes/turns.js';
 import type { Runtime } from '../../server/runtime.js';
 import { blocksToOpenAI } from '../mapping/blocksToOpenAI.js';
 import { requestToMessages } from '../mapping/requestToMessages.js';
 import { ChatRequestSchema } from '../mapping/schema.js';
 import { InvalidModelError, resolveModelForRequest } from '../modelResolution.js';
-import { DONE_MARKER, buildFinalChunk } from '../streaming/chunks.js';
+import {
+  DONE_MARKER,
+  buildDelegatorProgressPayload,
+  buildFinalChunk,
+} from '../streaming/chunks.js';
 import { translateStream } from '../streaming/sseTranslator.js';
 
 /** OpenAI-shaped error envelope. The route returns 400/401/501 with this
@@ -325,6 +330,38 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           }
         };
 
+        // Phase 2 T7 — subscribe a side-channel writer to the per-session
+        // event bus that emits the four delegator_* events as
+        // `event: hermes.delegator.progress\ndata: <json>\n\n` SSE frames
+        // interleaved with the OpenAI-shaped main stream. The synthesis
+        // closure (router/progressEvents.ts) publishes onto the bus when
+        // the scheduler dispatches a delegator + its atoms; this subscriber
+        // is purely additive and forwards them to the wire.
+        //
+        // The bus drains its buffer immediately on subscribe, so any
+        // delegator events published before this point (e.g., from a
+        // recompaction hop's lifecycle) still flow out. Errors from
+        // `stream.write` (closed client connection) are swallowed — the
+        // main stream's error path owns recovery; the side-channel is
+        // best-effort.
+        const bus = getOrCreateBus(sessionId);
+        const DELEGATOR_EVENT_TYPES = new Set<string>([
+          'delegator_plan',
+          'delegator_atom_started',
+          'delegator_atom_complete',
+          'delegator_complete',
+        ]);
+        const unsubscribe = bus.subscribe((event) => {
+          if (!DELEGATOR_EVENT_TYPES.has(event.type)) return;
+          const payload = buildDelegatorProgressPayload(
+            event as Parameters<typeof buildDelegatorProgressPayload>[0],
+          );
+          // Fire-and-forget — stream.write returns Promise<void>; we void
+          // it so the bus subscriber callback stays synchronous (publish
+          // is synchronous on the bus side).
+          void stream.write(`event: hermes.delegator.progress\ndata: ${payload}\n\n`);
+        });
+
         try {
           const gen = buildQuery();
           await translateStream(
@@ -354,6 +391,13 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             // Nothing more to do.
           }
         } finally {
+          // T7 — drop the bus subscriber FIRST so any delegator events
+          // published during disposeSession (or a late publish from a
+          // background hop) don't try to write to a closed stream. The
+          // bus itself stays alive — disposeBus is called by the events
+          // route's own finally on the parent session; the OpenAI route
+          // doesn't own that lifecycle.
+          unsubscribe();
           // T8 — persist the final assistant message AFTER the wire
           // has flushed. Best-effort: a persistence failure should not
           // affect the response the client already received.
