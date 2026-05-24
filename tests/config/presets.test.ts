@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   BUILTIN_PRESETS,
   applyPresetToSettings,
+  detectActivePreset,
   findBuiltinPreset,
   readSavedPresets,
   snapshotCurrentAsPreset,
@@ -147,6 +148,91 @@ describe('readSavedPresets', () => {
     const saved = readSavedPresets(settings);
     expect(saved['my-setup']).toBeDefined();
     expect(saved['my-setup']?.delegator.model).toBe('claude-sonnet-4-6');
+  });
+});
+
+describe('detectActivePreset', () => {
+  // 2026-05-24 patch — status-line surface that maps current
+  // taskRouting config to a preset id.
+
+  test('returns undefined when task routing is disabled', () => {
+    const settings = {
+      taskRouting: { enabled: false },
+    } as unknown as Settings;
+    expect(detectActivePreset(settings)).toBeUndefined();
+  });
+
+  test('returns undefined when taskRouting block is absent', () => {
+    const settings = {} as Settings;
+    expect(detectActivePreset(settings)).toBeUndefined();
+  });
+
+  test('returns built-in preset id when current shape matches', () => {
+    const full = BUILTIN_PRESETS.find((p) => p.id === 'full-anthropic');
+    if (!full) throw new Error('full-anthropic missing');
+    const settings = {
+      taskRouting: {
+        enabled: true,
+        delegator: full.shape.delegator,
+        lanes: full.shape.lanes,
+      },
+    } as unknown as Settings;
+    expect(detectActivePreset(settings)).toBe('full-anthropic');
+  });
+
+  test('returns saved preset id when current shape matches', () => {
+    const customShape = {
+      delegator: { model: 'claude-opus-4-7' },
+      lanes: {
+        'cheap-task': { provider: 'ollama', model: 'llama3.1:8b' },
+        'moderate-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+        'frontier-task': { provider: 'anthropic', model: 'claude-opus-4-7' },
+      },
+    };
+    const settings = {
+      taskRouting: {
+        enabled: true,
+        delegator: customShape.delegator,
+        lanes: customShape.lanes,
+        savedPresets: {
+          'my-mix': customShape,
+        },
+      },
+    } as unknown as Settings;
+    expect(detectActivePreset(settings)).toBe('my-mix');
+  });
+
+  test("returns 'custom' when shape matches no known preset", () => {
+    const settings = {
+      taskRouting: {
+        enabled: true,
+        delegator: { model: 'totally-unknown-model' },
+        lanes: {
+          'cheap-task': { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+          'moderate-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+          'frontier-task': { provider: 'anthropic', model: 'claude-opus-4-7' },
+        },
+      },
+    } as unknown as Settings;
+    expect(detectActivePreset(settings)).toBe('custom');
+  });
+
+  test('built-in match takes precedence when both would match', () => {
+    // Saved preset with the SAME shape as full-anthropic — built-in
+    // wins because BUILTIN_PRESETS is iterated first.
+    const full = BUILTIN_PRESETS.find((p) => p.id === 'full-anthropic');
+    if (!full) throw new Error('full-anthropic missing');
+    const settings = {
+      taskRouting: {
+        enabled: true,
+        delegator: full.shape.delegator,
+        lanes: full.shape.lanes,
+        savedPresets: {
+          'my-copy': full.shape,
+        },
+      },
+    } as unknown as Settings;
+    expect(detectActivePreset(settings)).toBe('full-anthropic');
   });
 });
 

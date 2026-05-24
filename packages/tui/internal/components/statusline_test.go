@@ -86,6 +86,44 @@ func TestStatusLineAdvanceSpinnerWraps(t *testing.T) {
 	}
 }
 
+// 2026-05-24 patch — task-routing status surfaces in the profile column.
+
+func TestStatusLine_TaskRouterReplacesProfileColumn(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(80)
+	s.TaskRouter = "frugal-anthropic"
+	out := s.View()
+	if !strings.Contains(out, "Task Router Active (frugal-anthropic)") {
+		t.Errorf("expected 'Task Router Active (frugal-anthropic)' in view, got %q", out)
+	}
+	if strings.Contains(out, "default") {
+		t.Errorf("profile column should be replaced when TaskRouter is set; got %q", out)
+	}
+}
+
+func TestStatusLine_TaskRouterEmptyFallsBackToProfile(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(80)
+	s.TaskRouter = ""
+	out := s.View()
+	if !strings.Contains(out, "default") {
+		t.Errorf("empty TaskRouter should keep default profile; got %q", out)
+	}
+	if strings.Contains(out, "Task Router Active") {
+		t.Errorf("empty TaskRouter should NOT show router label; got %q", out)
+	}
+}
+
+func TestStatusLine_TaskRouterCustomLabel(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(80)
+	s.TaskRouter = "custom"
+	out := s.View()
+	if !strings.Contains(out, "Task Router Active (custom)") {
+		t.Errorf("expected 'Task Router Active (custom)' for custom routing; got %q", out)
+	}
+}
+
 func TestStatusLineSetThemeSwapsRender(t *testing.T) {
 	s := NewStatusLine(theme.Dark())
 	s.SetWidth(80)

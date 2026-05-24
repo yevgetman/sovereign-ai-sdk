@@ -39,19 +39,27 @@ type DelegatorAtomStartedEvent struct {
 	AtomIndex     int    `json:"atomIndex"`
 	LaneName      string `json:"laneName"`
 	PromptPreview string `json:"promptPreview"`
+	// 2026-05-24 patch — resolved provider/model for the lane.
+	// Surfaced in debug-mode rendering as "<lane> · <provider>/<model>"
+	// so users see exactly which model handled a given atom. Optional
+	// for backwards-compat with old recorded sessions.
+	LaneProvider string `json:"laneProvider,omitempty"`
+	LaneModel    string `json:"laneModel,omitempty"`
 }
 
 // DelegatorAtomCompleteEvent marks an atom finishing — either successfully
 // or with failure (interrupted, timed-out, etc.). `DurationMs` is the
 // wall-time the atom took, measured by the scheduler.
 type DelegatorAtomCompleteEvent struct {
-	Type       string `json:"type"`
-	Seq        int64  `json:"seq"`
-	SessionID  string `json:"sessionId"`
-	AtomIndex  int    `json:"atomIndex"`
-	LaneName   string `json:"laneName"`
-	Success    bool   `json:"success"`
-	DurationMs int    `json:"durationMs"`
+	Type         string `json:"type"`
+	Seq          int64  `json:"seq"`
+	SessionID    string `json:"sessionId"`
+	AtomIndex    int    `json:"atomIndex"`
+	LaneName     string `json:"laneName"`
+	Success      bool   `json:"success"`
+	DurationMs   int    `json:"durationMs"`
+	LaneProvider string `json:"laneProvider,omitempty"`
+	LaneModel    string `json:"laneModel,omitempty"`
 }
 
 // DelegatorCompleteEvent marks the delegator turn finishing. `TotalAtomCount`

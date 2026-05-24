@@ -182,6 +182,52 @@ export function readSavedPresets(settings: Settings): Record<string, PresetShape
 }
 
 /**
+ * Compare two preset shapes for value-equality across every field
+ * (delegator.model + all three lanes' provider/model). Used by
+ * `detectActivePreset` to map a current taskRouting configuration
+ * back to a named preset. 2026-05-24 patch.
+ */
+function presetShapesMatch(a: PresetShape, b: PresetShape): boolean {
+  return (
+    a.delegator.model === b.delegator.model &&
+    a.lanes['cheap-task'].provider === b.lanes['cheap-task'].provider &&
+    a.lanes['cheap-task'].model === b.lanes['cheap-task'].model &&
+    a.lanes['moderate-task'].provider === b.lanes['moderate-task'].provider &&
+    a.lanes['moderate-task'].model === b.lanes['moderate-task'].model &&
+    a.lanes['frontier-task'].provider === b.lanes['frontier-task'].provider &&
+    a.lanes['frontier-task'].model === b.lanes['frontier-task'].model
+  );
+}
+
+/**
+ * Identify which preset (built-in or user-saved) the current
+ * taskRouting configuration matches. Used by the status-line display
+ * so the user sees both that task routing is ON and which named
+ * preset is in effect.
+ *
+ *  - Returns the preset id (e.g., 'frugal-anthropic', 'my-setup')
+ *    when the current lane shape matches a known preset.
+ *  - Returns `'custom'` when task routing is enabled but the shape
+ *    matches no known preset.
+ *  - Returns `undefined` when task routing is disabled (the caller
+ *    should fall back to displaying the default profile name).
+ *
+ * 2026-05-24 patch.
+ */
+export function detectActivePreset(settings: import('./schema.js').Settings): string | undefined {
+  if (settings.taskRouting?.enabled !== true) return undefined;
+  const currentShape = snapshotCurrentAsPreset(settings);
+  for (const p of BUILTIN_PRESETS) {
+    if (presetShapesMatch(currentShape, p.shape)) return p.id;
+  }
+  const saved = readSavedPresets(settings);
+  for (const [name, shape] of Object.entries(saved)) {
+    if (presetShapesMatch(currentShape, shape)) return name;
+  }
+  return 'custom';
+}
+
+/**
  * Validate a preset name. Kebab-case-ish: lowercase letters, digits,
  * hyphens, and underscores. Must not collide with a built-in id (the
  * apply path would route to the built-in first; collision would be

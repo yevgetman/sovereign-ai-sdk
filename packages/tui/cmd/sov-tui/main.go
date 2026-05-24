@@ -52,6 +52,18 @@ func main() {
 		// editor process for an active agent session, and exits
 		// cleanly when no modal (picker / input card) is open.
 		configOnly = flag.Bool("config-only", false, "config-editor mode: hide prompt + status, exit when no modal is open (used by `sov config`)")
+		// 2026-05-24 patch — task-routing status. When non-empty,
+		// the status-line profile column is replaced with "Task
+		// Router Active (<preset>)" so users see at a glance that
+		// routing is on. Value is the preset id (built-in or
+		// user-saved) OR the literal string "custom" when no preset
+		// matches the current lane configuration.
+		taskRouter = flag.String("task-router", "", "task-routing status string (preset id or 'custom'); empty means routing is off")
+		// 2026-05-24 patch — debug mode flag. When set, delegator
+		// atom lines surface the resolved provider/model in brackets
+		// after the lane name, so users see exactly which model
+		// handled a given response.
+		debugMode = flag.Bool("debug-mode", false, "render granular routing detail in delegator lines (lane provider/model)")
 	)
 	flag.Parse()
 	_ = mouse   // accepted for back-compat
@@ -72,7 +84,9 @@ func main() {
 		WithToolOutput(*toolOutputMode, *toolOutputInlineLines).
 		WithVerboseRaw(*verboseRaw).
 		WithInitialCommand(*initialCommand).
-		WithConfigOnly(*configOnly)
+		WithConfigOnly(*configOnly).
+		WithTaskRouter(*taskRouter).
+		WithDebugMode(*debugMode)
 	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
 	// content flows into the terminal's native scrollback (wheel scroll
 	// + click-drag text selection just work). Drop mouse capture too —

@@ -26,6 +26,14 @@ type StatusLine struct {
 	TokensOut int
 	Theme     theme.Theme
 
+	// TaskRouter — when non-empty, the profile column renders
+	// "Task Router Active (<value>)" instead of the profile name.
+	// Value is the preset id ('frugal-anthropic', 'my-setup', etc.)
+	// or the literal string 'custom' when no preset matches. Empty
+	// means task routing is off; profile column falls back to the
+	// standard `s.Profile` display. 2026-05-24 patch.
+	TaskRouter string
+
 	// M9 T10 — spinner frame index, advanced by Tick events from app.go.
 	spinner int
 }
@@ -80,9 +88,19 @@ func (s StatusLine) View() string {
 	// profile / model read as ambient metadata, not primary content.
 	dimFg := lipgloss.NewStyle().Foreground(s.Theme.Dim)
 
+	// 2026-05-24 patch — when task routing is active, replace the
+	// profile column with "Task Router Active (<preset>)" so users
+	// see at a glance that routing is on AND which preset's in
+	// effect. Empty TaskRouter falls back to the standard profile
+	// display.
+	profileColumn := s.Profile
+	if s.TaskRouter != "" {
+		profileColumn = fmt.Sprintf("Task Router Active (%s)", s.TaskRouter)
+	}
+
 	left := dimFg.Render(fmt.Sprintf("%s  %s  %s",
 		s.Cwd,
-		s.Profile,
+		profileColumn,
 		s.Model,
 	))
 

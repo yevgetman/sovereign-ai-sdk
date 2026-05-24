@@ -46,6 +46,13 @@ export type DelegationLifecycleEvent =
       parentSessionId: string;
       agentName: string;
       laneName: string | null;
+      /** 2026-05-24 patch — lane's resolved provider, when the lane
+       *  was non-null. Forwarded onto the wire delegator_atom_started
+       *  event so the TUI can surface "anthropic/claude-haiku-4-5"
+       *  in debug mode. */
+      laneProvider: string | null;
+      /** Lane's resolved model — same purpose as `laneProvider`. */
+      laneModel: string | null;
       promptPreview: string;
     }
   | {
@@ -54,6 +61,11 @@ export type DelegationLifecycleEvent =
       parentSessionId: string;
       agentName: string;
       laneName: string | null;
+      /** Mirrors the started event so the completion line can surface
+       *  the same provider/model — saves the renderer from having to
+       *  cross-reference the started event. */
+      laneProvider: string | null;
+      laneModel: string | null;
       success: boolean;
       durationMs: number;
     };
@@ -74,6 +86,11 @@ export const DelegatorAtomStartedEventSchema = z.object({
   atomIndex: z.number().int(),
   laneName: z.string(),
   promptPreview: z.string(),
+  /** 2026-05-24 patch — resolved provider/model for the lane. The TUI
+   *  surfaces these in debug-mode rendering. Optional so old
+   *  recorded sessions (replayed from JSONL) still parse. */
+  laneProvider: z.string().optional(),
+  laneModel: z.string().optional(),
 });
 
 export const DelegatorAtomCompleteEventSchema = z.object({
@@ -84,6 +101,8 @@ export const DelegatorAtomCompleteEventSchema = z.object({
   laneName: z.string(),
   success: z.boolean(),
   durationMs: z.number().int(),
+  laneProvider: z.string().optional(),
+  laneModel: z.string().optional(),
 });
 
 export const DelegatorCompleteEventSchema = z.object({
@@ -194,6 +213,8 @@ export function synthesizeDelegationEvents(
           atomIndex,
           laneName: event.laneName,
           promptPreview: previewPrompt(event.promptPreview),
+          ...(event.laneProvider !== null ? { laneProvider: event.laneProvider } : {}),
+          ...(event.laneModel !== null ? { laneModel: event.laneModel } : {}),
         });
         return;
       }
@@ -213,6 +234,8 @@ export function synthesizeDelegationEvents(
         laneName: event.laneName,
         success: event.success,
         durationMs: event.durationMs,
+        ...(event.laneProvider !== null ? { laneProvider: event.laneProvider } : {}),
+        ...(event.laneModel !== null ? { laneModel: event.laneModel } : {}),
       });
       atomIndexByChildSessionId.delete(event.childSessionId);
       return;

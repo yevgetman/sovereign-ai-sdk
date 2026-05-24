@@ -58,7 +58,7 @@ func TestFormatDelegatorAtomStartedLine_includesIdxLaneAndPreview(t *testing.T) 
 		LaneName:      "cheap-task",
 		PromptPreview: "Summarize this file",
 	}
-	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80)
+	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
 	if !strings.Contains(plain, DelegatorAtomStartGlyph) {
 		t.Errorf("expected start glyph %q, got %q", DelegatorAtomStartGlyph, plain)
@@ -83,7 +83,7 @@ func TestFormatDelegatorAtomStartedLine_omitsPreviewWhenEmpty(t *testing.T) {
 		LaneName:      "reasoning",
 		PromptPreview: "",
 	}
-	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80)
+	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
 	if !strings.Contains(plain, "atom 2 on reasoning") {
 		t.Errorf("expected 'atom 2 on reasoning', got %q", plain)
@@ -103,7 +103,7 @@ func TestFormatDelegatorAtomCompleteLine_success(t *testing.T) {
 		Success:    true,
 		DurationMs: 1234,
 	}
-	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80)
+	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
 	if !strings.Contains(plain, DelegatorAtomSuccessGlyph) {
 		t.Errorf("expected success glyph %q, got %q", DelegatorAtomSuccessGlyph, plain)
@@ -129,7 +129,7 @@ func TestFormatDelegatorAtomCompleteLine_failure(t *testing.T) {
 		Success:    false,
 		DurationMs: 42,
 	}
-	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80)
+	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
 	if !strings.Contains(plain, DelegatorAtomFailureGlyph) {
 		t.Errorf("expected failure glyph %q, got %q", DelegatorAtomFailureGlyph, plain)
@@ -204,6 +204,81 @@ func TestFormatDelegatorCompleteLine_sortOrder(t *testing.T) {
 				frag, expectedOrder, plain)
 		}
 		last = idx
+	}
+}
+
+// 2026-05-24 patch — debug-mode renders [provider/model] suffix.
+
+func TestFormatDelegatorAtomStartedLine_debugModeIncludesProviderModel(t *testing.T) {
+	ev := transport.DelegatorAtomStartedEvent{
+		Type:          "delegator_atom_started",
+		Seq:           1,
+		SessionID:     "s",
+		AtomIndex:     0,
+		LaneName:      "cheap-task",
+		PromptPreview: "preview",
+		LaneProvider:  "anthropic",
+		LaneModel:     "claude-haiku-4-5-20251001",
+	}
+	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80, true)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "[anthropic/claude-haiku-4-5-20251001]") {
+		t.Errorf("debug-mode start line should include [provider/model], got %q", plain)
+	}
+}
+
+func TestFormatDelegatorAtomStartedLine_debugModeOffOmitsProviderModel(t *testing.T) {
+	ev := transport.DelegatorAtomStartedEvent{
+		Type:          "delegator_atom_started",
+		Seq:           1,
+		SessionID:     "s",
+		AtomIndex:     0,
+		LaneName:      "cheap-task",
+		PromptPreview: "preview",
+		LaneProvider:  "anthropic",
+		LaneModel:     "claude-haiku-4-5-20251001",
+	}
+	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80, false)
+	plain := stripANSI(out)
+	if strings.Contains(plain, "anthropic") || strings.Contains(plain, "claude-haiku-4-5") {
+		t.Errorf("debug-mode-off start line should NOT include provider/model, got %q", plain)
+	}
+}
+
+func TestFormatDelegatorAtomCompleteLine_debugModeIncludesProviderModel(t *testing.T) {
+	ev := transport.DelegatorAtomCompleteEvent{
+		Type:         "delegator_atom_complete",
+		Seq:          2,
+		SessionID:    "s",
+		AtomIndex:    0,
+		LaneName:     "cheap-task",
+		Success:      true,
+		DurationMs:   1234,
+		LaneProvider: "anthropic",
+		LaneModel:    "claude-haiku-4-5-20251001",
+	}
+	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80, true)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "[anthropic/claude-haiku-4-5-20251001]") {
+		t.Errorf("debug-mode complete line should include [provider/model], got %q", plain)
+	}
+}
+
+func TestFormatDelegatorAtomStartedLine_debugModeEmptyProviderOmitsSuffix(t *testing.T) {
+	// Old recorded events may lack provider/model. Debug mode still
+	// works but emits no bracket suffix.
+	ev := transport.DelegatorAtomStartedEvent{
+		Type:          "delegator_atom_started",
+		Seq:           1,
+		SessionID:     "s",
+		AtomIndex:     0,
+		LaneName:      "cheap-task",
+		PromptPreview: "preview",
+	}
+	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80, true)
+	plain := stripANSI(out)
+	if strings.Contains(plain, "[") {
+		t.Errorf("missing provider/model should result in no suffix even with debug on, got %q", plain)
 	}
 }
 

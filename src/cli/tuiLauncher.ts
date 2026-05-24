@@ -320,6 +320,14 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   const toolOutputInlineLines = userSettings.ui?.toolOutput?.inlineLines ?? 10;
   const verboseRaw = pickBoolean(opts.verbose) === true;
 
+  // 2026-05-24 patch — surface task-routing status + active preset in
+  // the bottom status line so the user knows it's on (and which named
+  // preset is in effect, when detectable). detectActivePreset returns
+  // undefined when routing is off; the TUI then falls back to the
+  // default profile-name display.
+  const { detectActivePreset } = await import('../config/presets.js');
+  const activePreset = detectActivePreset(userSettings);
+
   const tuiArgs = [
     '--port',
     String(server.port),
@@ -338,6 +346,19 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   ];
   if (verboseRaw) {
     tuiArgs.push('--verbose-raw');
+  }
+  if (activePreset !== undefined) {
+    tuiArgs.push('--task-router', activePreset);
+  }
+  // 2026-05-24 patch — debug mode. When enabled (umbrella switch or
+  // any child capability), delegator atom lines surface lane
+  // provider/model in brackets so users see exactly which model
+  // handled a given atom. Tied to userSettings.debugMode.enabled or
+  // the transcript switch (both imply the user wants visibility).
+  const debugModeOn =
+    userSettings.debugMode?.enabled === true || userSettings.debugMode?.transcript === true;
+  if (debugModeOn) {
+    tuiArgs.push('--debug-mode');
   }
   const spawnOpts: SpawnOptions = { stdio: 'inherit' };
   const child = spawn(binary, tuiArgs, spawnOpts);

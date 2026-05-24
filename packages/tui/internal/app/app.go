@@ -138,6 +138,7 @@ type Model struct {
 	initialFired     bool                       // 2026-05-24 config UX rebuild: guards the initial-command auto-fire so it runs exactly once
 	configOnly       bool                       // 2026-05-24 patch: `sov config` standalone mode — hide prompt/status, exit when no modal is open
 	configOnlyExit   bool                       // 2026-05-24 patch: latch set when the configOnly run is ready to quit (next tick returns tea.Quit)
+	debugMode        bool                       // 2026-05-24 patch: when true, delegator lines surface lane provider/model via the [provider/model] suffix
 	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
 	spinner          components.Spinner         // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
@@ -564,6 +565,27 @@ func (m Model) WithInitialCommand(cmd string) Model {
 // hierarchy without accidentally exiting. 2026-05-24 patch.
 func (m Model) WithConfigOnly(on bool) Model {
 	m.configOnly = on
+	return m
+}
+
+// WithTaskRouter sets the task-routing preset label that the status
+// line surfaces in place of the profile column. When non-empty,
+// StatusLine renders "Task Router Active (<preset>)" so users see at
+// a glance that routing is on AND which named preset is in effect.
+// Empty value (default) means routing is off — the status line falls
+// back to the standard profile display. 2026-05-24 patch.
+func (m Model) WithTaskRouter(preset string) Model {
+	m.statusLine.TaskRouter = strings.TrimSpace(preset)
+	return m
+}
+
+// WithDebugMode enables granular surfaces tied to `debugMode.enabled`
+// in config. Today: delegator_atom_started and delegator_atom_complete
+// lines render the resolved provider/model in brackets after the lane
+// name, so users see exactly which model handled a given response.
+// 2026-05-24 patch.
+func (m Model) WithDebugMode(on bool) Model {
+	m.debugMode = on
 	return m
 }
 
@@ -1918,7 +1940,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if rendered, ok := m.live.EndAssistantCard(); ok {
 			m.print(rendered)
 		}
-		m.print(components.FormatDelegatorAtomStartedLine(ev, m.theme, m.width))
+		m.print(components.FormatDelegatorAtomStartedLine(ev, m.theme, m.width, m.debugMode))
 	case "delegator_atom_complete":
 		// Phase 2 T5 — atom finished, success or failure. Renders the
 		// "✓/✗ atom N on <lane> (<ms>ms)" terminal line.
@@ -1930,7 +1952,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if rendered, ok := m.live.EndAssistantCard(); ok {
 			m.print(rendered)
 		}
-		m.print(components.FormatDelegatorAtomCompleteLine(ev, m.theme, m.width))
+		m.print(components.FormatDelegatorAtomCompleteLine(ev, m.theme, m.width, m.debugMode))
 	case "delegator_complete":
 		// Phase 2 T5 — delegator turn finished. Prints the summary footer
 		// with total atom count and the sorted per-lane distribution.

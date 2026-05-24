@@ -158,6 +158,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'do task',
     });
     expect(events).toHaveLength(1);
@@ -180,6 +182,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'task',
     });
     // 2. Atom dispatch by delegator.
@@ -189,6 +193,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg-child',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'list files',
     });
     // 3. Atom completion.
@@ -198,6 +204,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg-child',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       success: true,
       durationMs: 50,
     });
@@ -208,6 +216,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       success: true,
       durationMs: 100,
     });
@@ -238,6 +248,100 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
     expect(delegatorCompleted.laneDistribution['cheap-task']).toBe(1);
   });
 
+  // 2026-05-24 patch — laneProvider/laneModel flow through to the wire.
+  test('laneProvider and laneModel propagate from recorder to wire events', () => {
+    const { bus, events } = makeStubBus();
+    const recorder = synthesizeDelegationEvents({
+      bus,
+      rootSessionId: 'root',
+      agentRegistry: EMPTY_REGISTRY,
+    });
+    recorder({
+      kind: 'delegation_started',
+      childSessionId: 'deleg-child',
+      parentSessionId: 'root',
+      agentName: 'delegator',
+      laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
+      promptPreview: 'do task',
+    });
+    recorder({
+      kind: 'delegation_started',
+      childSessionId: 'atom-1',
+      parentSessionId: 'deleg-child',
+      agentName: 'cheap-task',
+      laneName: 'cheap-task',
+      laneProvider: 'anthropic',
+      laneModel: 'claude-haiku-4-5-20251001',
+      promptPreview: 'tiny task',
+    });
+    recorder({
+      kind: 'delegation_completed',
+      childSessionId: 'atom-1',
+      parentSessionId: 'deleg-child',
+      agentName: 'cheap-task',
+      laneName: 'cheap-task',
+      laneProvider: 'anthropic',
+      laneModel: 'claude-haiku-4-5-20251001',
+      success: true,
+      durationMs: 42,
+    });
+
+    // events[0] = plan; events[1] = atom_started; events[2] = atom_complete.
+    const atomStarted = events[1] as {
+      type: string;
+      laneName: string;
+      laneProvider?: string;
+      laneModel?: string;
+    };
+    const atomComplete = events[2] as {
+      type: string;
+      laneName: string;
+      laneProvider?: string;
+      laneModel?: string;
+    };
+    expect(atomStarted.laneProvider).toBe('anthropic');
+    expect(atomStarted.laneModel).toBe('claude-haiku-4-5-20251001');
+    expect(atomComplete.laneProvider).toBe('anthropic');
+    expect(atomComplete.laneModel).toBe('claude-haiku-4-5-20251001');
+  });
+
+  test('null laneProvider / laneModel are omitted from the wire event', () => {
+    // When the scheduler couldn't resolve the lane (laneProvider/Model
+    // are null), the wire event simply omits those fields. Consumers
+    // that didn't opt into debug mode never see them anyway.
+    const { bus, events } = makeStubBus();
+    const recorder = synthesizeDelegationEvents({
+      bus,
+      rootSessionId: 'root',
+      agentRegistry: EMPTY_REGISTRY,
+    });
+    recorder({
+      kind: 'delegation_started',
+      childSessionId: 'deleg-child',
+      parentSessionId: 'root',
+      agentName: 'delegator',
+      laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
+      promptPreview: 'do task',
+    });
+    recorder({
+      kind: 'delegation_started',
+      childSessionId: 'atom-1',
+      parentSessionId: 'deleg-child',
+      agentName: 'cheap-task',
+      laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
+      promptPreview: 'tiny task',
+    });
+    const atomStarted = events[1] as Record<string, unknown>;
+    expect(atomStarted.laneProvider).toBeUndefined();
+    expect(atomStarted.laneModel).toBeUndefined();
+  });
+
   test('assigns increasing atomIndex values across multiple atom dispatches', () => {
     const { bus, events } = makeStubBus();
     const recorder = synthesizeDelegationEvents({
@@ -251,6 +355,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'multi',
     });
     recorder({
@@ -259,6 +365,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'a',
     });
     recorder({
@@ -267,6 +375,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'moderate-task',
       laneName: 'moderate-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'b',
     });
     recorder({
@@ -275,6 +385,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'frontier-task',
       laneName: 'frontier-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'c',
     });
     // delegator_plan + three atom_started = 4 events.
@@ -300,6 +412,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     recorder({
@@ -308,6 +422,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p1',
     });
     recorder({
@@ -316,6 +432,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'moderate-task',
       laneName: 'moderate-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p2',
     });
     // Complete out of dispatch order — completion still uses dispatch index.
@@ -325,6 +443,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'moderate-task',
       laneName: 'moderate-task',
+      laneProvider: null,
+      laneModel: null,
       success: true,
       durationMs: 200,
     });
@@ -334,6 +454,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       success: true,
       durationMs: 50,
     });
@@ -360,6 +482,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     recorder({
@@ -368,6 +492,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'a',
     });
     recorder({
@@ -376,6 +502,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'moderate-task',
       laneName: 'moderate-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'b',
     });
     recorder({
@@ -384,6 +512,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'moderate-task',
       laneName: 'moderate-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'c',
     });
     recorder({
@@ -392,6 +522,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       success: true,
       durationMs: 500,
     });
@@ -427,6 +559,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'explore',
       laneName: null,
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'find files',
     });
     recorder({
@@ -435,6 +569,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'explore',
       laneName: null,
+      laneProvider: null,
+      laneModel: null,
       success: true,
       durationMs: 30,
     });
@@ -456,6 +592,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     // This dispatch has parentSessionId !== deleg (the active delegator) so
@@ -466,6 +604,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'some-other-parent',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'x',
     });
     // Only the delegator_plan event should have been published.
@@ -485,6 +625,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     // No laneName — closure must not emit an atom_started event.
@@ -494,6 +636,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'explore',
       laneName: null,
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'x',
     });
     expect(events).toHaveLength(1); // only the delegator_plan
@@ -512,6 +656,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     const longPrompt = 'a'.repeat(200);
@@ -521,6 +667,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: longPrompt,
     });
     const atomEvent = events[1] as { promptPreview: string };
@@ -541,6 +689,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     recorder({
@@ -549,6 +699,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'short prompt',
     });
     const atomEvent = events[1] as { promptPreview: string };
@@ -568,6 +720,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'root',
       agentName: 'delegator',
       laneName: 'delegator',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p',
     });
     recorder({
@@ -576,6 +730,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       promptPreview: 'p1',
     });
     recorder({
@@ -584,6 +740,8 @@ describe('synthesizeDelegationEvents closure — state machine', () => {
       parentSessionId: 'deleg',
       agentName: 'cheap-task',
       laneName: 'cheap-task',
+      laneProvider: null,
+      laneModel: null,
       success: false,
       durationMs: 999,
     });

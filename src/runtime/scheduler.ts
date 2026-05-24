@@ -241,6 +241,13 @@ export class SubagentScheduler {
         parentSessionId: input.parentSessionId,
         agentName: agent.name,
         laneName: lane !== null ? lane.name : null,
+        // 2026-05-24 patch — surface the resolved provider/model on
+        // the lifecycle event so the synthesizer can include them in
+        // the delegator_atom_started wire event. Debug-mode renderer
+        // surfaces "<lane> · <provider>/<model>" so users see exactly
+        // which model handled which atom.
+        laneProvider: lane !== null ? lane.provider : null,
+        laneModel: lane !== null ? lane.model : null,
         promptPreview: input.prompt,
       });
 
@@ -343,6 +350,8 @@ export class SubagentScheduler {
             parentSessionId: input.parentSessionId,
             agentName: agent.name,
             laneName: lane !== null ? lane.name : null,
+            laneProvider: lane !== null ? lane.provider : null,
+            laneModel: lane !== null ? lane.model : null,
             success: false,
             durationMs: Date.now() - delegationStartedAt,
           });
@@ -458,6 +467,8 @@ export class SubagentScheduler {
           parentSessionId: input.parentSessionId,
           agentName: agent.name,
           laneName: lane !== null ? lane.name : null,
+          laneProvider: lane !== null ? lane.provider : null,
+          laneModel: lane !== null ? lane.model : null,
           success: result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns',
           durationMs: Date.now() - delegationStartedAt,
         });

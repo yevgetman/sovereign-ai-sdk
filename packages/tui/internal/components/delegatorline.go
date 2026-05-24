@@ -68,7 +68,20 @@ func FormatDelegatorPlanLine(ev transport.DelegatorPlanEvent, t theme.Theme, wid
 // FormatDelegatorAtomStartedLine renders an in-flight atom dispatch:
 //
 //	→ atom <idx> on <lane>: <preview>
-func FormatDelegatorAtomStartedLine(ev transport.DelegatorAtomStartedEvent, t theme.Theme, width int) string {
+//
+// When `debugMode` is true AND the event carries LaneProvider/LaneModel
+// (Phase 2.5 patch), the lane segment is suffixed with the resolved
+// provider/model in brackets:
+//
+//	→ atom <idx> on <lane> [provider/model]: <preview>
+//
+// Surfaces granular routing detail without changing the default look.
+func FormatDelegatorAtomStartedLine(
+	ev transport.DelegatorAtomStartedEvent,
+	t theme.Theme,
+	width int,
+	debugMode bool,
+) string {
 	glyph := lipgloss.NewStyle().Foreground(t.Info).Render(DelegatorAtomStartGlyph)
 	verb := lipgloss.NewStyle().
 		Foreground(t.Info).
@@ -76,19 +89,50 @@ func FormatDelegatorAtomStartedLine(ev transport.DelegatorAtomStartedEvent, t th
 	lane := lipgloss.NewStyle().
 		Foreground(t.Primary).
 		Render(ev.LaneName)
+	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
 	preview := ""
 	if ev.PromptPreview != "" {
 		preview = lipgloss.NewStyle().
 			Foreground(t.Dim).
 			Render(": " + ev.PromptPreview)
 	}
-	return glyph + verb + lane + preview
+	return glyph + verb + lane + debug + preview
+}
+
+// formatLaneDebugSuffix renders the bracketed `[provider/model]` tail
+// shown after the lane name when debug mode is on. Returns "" when
+// debug mode is off OR the event lacked provider/model info (e.g., a
+// replayed JSONL transcript from before the laneProvider/laneModel
+// fields were added).
+func formatLaneDebugSuffix(debugMode bool, provider, model string, t theme.Theme) string {
+	if !debugMode {
+		return ""
+	}
+	if provider == "" && model == "" {
+		return ""
+	}
+	body := provider
+	if provider != "" && model != "" {
+		body = provider + "/" + model
+	} else if model != "" {
+		body = model
+	}
+	return lipgloss.NewStyle().Foreground(t.Dim).Render(" [" + body + "]")
 }
 
 // FormatDelegatorAtomCompleteLine renders the terminal line for an atom —
 // success or failure. The lane name pops in t.Primary so a quick scan of
 // the column reads as "where did the work go?". Duration is dim trailing.
-func FormatDelegatorAtomCompleteLine(ev transport.DelegatorAtomCompleteEvent, t theme.Theme, width int) string {
+//
+// When `debugMode` is true AND the event carries LaneProvider/LaneModel,
+// the lane segment is suffixed with `[provider/model]` for symmetry
+// with the started-line rendering.
+func FormatDelegatorAtomCompleteLine(
+	ev transport.DelegatorAtomCompleteEvent,
+	t theme.Theme,
+	width int,
+	debugMode bool,
+) string {
 	var (
 		glyphChar  string
 		glyphColor lipgloss.Color
@@ -108,6 +152,7 @@ func FormatDelegatorAtomCompleteLine(ev transport.DelegatorAtomCompleteEvent, t 
 	lane := lipgloss.NewStyle().
 		Foreground(t.Primary).
 		Render(ev.LaneName)
+	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
 	if ev.Success {
 		tail = lipgloss.NewStyle().
 			Foreground(t.Dim).
@@ -117,7 +162,7 @@ func FormatDelegatorAtomCompleteLine(ev transport.DelegatorAtomCompleteEvent, t 
 			Foreground(t.Dim).
 			Render(fmt.Sprintf(" failed (%dms)", ev.DurationMs))
 	}
-	return glyph + verb + lane + tail
+	return glyph + verb + lane + debug + tail
 }
 
 // FormatDelegatorCompleteLine renders the closing summary:
