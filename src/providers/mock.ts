@@ -34,6 +34,19 @@ import type { ApiMode, ProviderRequest, ToolSchema, Transport } from './types.js
  *  the orchestrator) carries the same id back into the assistant turn. */
 const MOCK_TOOL_USE_ID = 'mock-tool-use-0';
 
+/** T12 — one step of a scripted tool-use sequence. The `MockProvider`
+ *  walks the script across successive `stream()` calls (one entry per
+ *  call). `tool_use` entries emit a single tool_use_delta + assistant
+ *  message with a tool_use block (stop_reason='tool_use'). `text`
+ *  entries emit a text_delta + assistant message with a text block
+ *  (stop_reason='end_turn'). Past the end of the script the mock falls
+ *  through to the default Hello-world behavior so a runaway test never
+ *  hangs. T13/T14 use this to encode multi-call sequences (delegator →
+ *  atom-1 → atom-2 → synthesis → final) without a real provider. */
+export type ToolCallScript =
+  | { kind: 'tool_use'; name: string; input: unknown; id?: string }
+  | { kind: 'text'; text: string };
+
 export class MockProvider implements Transport<Message, ToolSchema, unknown, never> {
   readonly name = 'mock';
   readonly apiMode: ApiMode = 'anthropic';
@@ -43,6 +56,29 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  false; }` block so the default (single-call, text-only) is restored
    *  for every other test in the suite. */
   static toolUseMode = false;
+
+  /** T12 — when set, `stream()` walks this script one entry per call,
+   *  emitting the matching tool_use or text events. Takes precedence over
+   *  `toolUseMode` and the default Hello-world path. When the cursor
+   *  passes the end of the script, the mock falls back to the default
+   *  Hello-world behavior so a misconfigured test never hangs the loop.
+   *  Tests MUST reset to `undefined` and call `resetScriptCursor()` in
+   *  `afterEach` to avoid cursor leak between tests. T13/T14 use this for
+   *  multi-call sequences (delegator → atom-1 → atom-2 → synthesis →
+   *  final). */
+  static toolUseScript: ToolCallScript[] | undefined = undefined;
+
+  /** Cursor into `toolUseScript`. Bumped on every consumed entry.
+   *  Private static so the only sanctioned way to rewind is
+   *  `resetScriptCursor()`. */
+  private static scriptCursor = 0;
+
+  /** Rewinds the script cursor to zero. Tests MUST call this in
+   *  `afterEach` so a leftover cursor from a prior test never bleeds
+   *  into the next one. */
+  static resetScriptCursor(): void {
+    MockProvider.scriptCursor = 0;
+  }
 
   /** M8 T7 — when true, `stream()` emits a Bash tool_use on every call
    *  until the history contains `stallTargetIterations` tool_result blocks.
@@ -168,6 +204,15 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
       const err = MockProvider.throwOnNext;
       MockProvider.throwOnNext = undefined;
       throw err;
+    }
+    if (MockProvider.toolUseScript !== undefined) {
+      const entry = MockProvider.toolUseScript[MockProvider.scriptCursor];
+      if (entry !== undefined) {
+        MockProvider.scriptCursor += 1;
+        return yield* this.streamScriptedEntry(entry);
+      }
+      // Past end of script — fall through to default Hello-world so a
+      // misconfigured (too-short) script can't hang the turn loop.
     }
     if (MockProvider.stallMode) {
       return yield* this.streamStall(req);
@@ -322,6 +367,45 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
       { type: 'text', text: 'Let me check.' },
       { type: 'tool_use', id: MOCK_TOOL_USE_ID, name: 'Bash', input: toolUseInput },
     ];
+    const assistant: AssistantMessage = { role: 'assistant', content };
+    yield { type: 'assistant_message', message: assistant };
+    return assistant;
+  }
+
+  /** T12 — emit a single scripted entry: either a tool_use call (one
+   *  tool_use_delta + assistant message carrying the tool_use block,
+   *  stop_reason='tool_use') or a text response (one text_delta +
+   *  assistant message carrying a text block, stop_reason='end_turn').
+   *  The shapes mirror the existing `toolUseMode` / `streamHelloWorld`
+   *  paths exactly so downstream (`query()` + the orchestrator + the
+   *  SSE bridge) consumes them without special-casing. */
+  private async *streamScriptedEntry(
+    entry: ToolCallScript,
+  ): AsyncGenerator<StreamEvent, AssistantMessage> {
+    yield { type: 'message_start' };
+    if (entry.kind === 'tool_use') {
+      const toolId = entry.id ?? `mock-script-${MockProvider.scriptCursor - 1}`;
+      yield { type: 'tool_use_delta', id: toolId, partial: entry.input };
+      yield {
+        type: 'usage_delta',
+        usage: { inputTokens: 0, outputTokens: 1 },
+      };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      const content: ContentBlock[] = [
+        { type: 'tool_use', id: toolId, name: entry.name, input: entry.input },
+      ];
+      const assistant: AssistantMessage = { role: 'assistant', content };
+      yield { type: 'assistant_message', message: assistant };
+      return assistant;
+    }
+    // entry.kind === 'text'
+    yield { type: 'text_delta', text: entry.text };
+    yield {
+      type: 'usage_delta',
+      usage: { inputTokens: 0, outputTokens: 1 },
+    };
+    yield { type: 'message_stop', stop_reason: 'end_turn' };
+    const content: ContentBlock[] = [{ type: 'text', text: entry.text }];
     const assistant: AssistantMessage = { role: 'assistant', content };
     yield { type: 'assistant_message', message: assistant };
     return assistant;
