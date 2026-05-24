@@ -8,6 +8,18 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 1 T13 (integration test: trivial-turn smart routing)
+
+**Scope:** End-to-end integration test that drives a full call graph (parent → delegator → cheap-task → relay chain) through the runtime using `MockProvider.toolUseScript` (T12). New `tests/agents/delegator.integration.test.ts` — 1 test / 18 expect calls. Boots `buildRuntime` with `provider: 'mock'`, `taskRouting.enabled: true`, mounts `buildAppWithRuntime`, drives `POST /sessions/:id/turns`, drains the SSE stream until the parent's `turn_complete`. Asserts: (a) parent dispatched to delegator via AgentTool, (b) tool_result carried a `<subagent_result>` envelope with `lane="mock/mock-haiku"` + `terminal="completed"`, (c) the final assistant text relayed through every layer, (d) exactly one `turn_complete` on the parent's wire, (e) `MockProvider.streamCalls === 5` (one per script entry — confirms the call graph fired without looping).
+
+**Two test-only workarounds applied:**
+- Replaced `runtime.laneRegistry.lookup` after boot to route every lane (`delegator`, `cheap-task`, `moderate-task`, `frontier-task`) to `provider: 'mock'`. The default `DELEGATOR_DEFAULTS` hardcodes `provider: 'anthropic'` (only the model is configurable via `taskRouting.delegator.model`), so without this override the scheduler would call the real Anthropic provider and ignore the mock's script.
+- Patched the loaded `delegator` agent definition to `readOnly: true`. The bundled `readOnly: false` triggers a real scheduler deadlock: `scheduler.delegate(delegator)` acquires the `Semaphore(1)` writeLock (because delegator is not readOnly), the delegator then dispatches AgentTool(cheap-task) which calls `scheduler.delegate(cheap-task)` which tries to acquire the SAME writeLock — held by the outer delegate() that's awaiting the inner delegate(). This is a real production issue with the Phase 1 smart-router design that surfaces on any real-LLM run with the current delegator definition; the architecturally-correct fix is `readOnly: true` on the delegator since its only tool (`AgentTool`) is itself a dispatcher rather than a writer. The integration test exposes this; a follow-up should adjust the bundled definition.
+
+**Pre-commit gate:** `bun run lint && bun run typecheck && bun run test` — all green. Full suite **2241 / 0 / 14** (+1 from prior 2240 baseline at `7dbeb7e`).
+
+**No binary release.** Phase 1 binary cut is owned by T19 per the plan.
+
 ## 2026-05-23 — Phase 1 T7 (scheduler: resolveLane hook + tool-pool inheritance)
 
 **Scope:** TDD on the two surgical scheduler changes per `docs/plans/2026-05-23-phase-1-task-routing.md` T7. `src/runtime/scheduler.ts`: (1) added `resolveLane?: (role: string) => LaneConfig | undefined` to `SubagentSchedulerOpts`; `resolveProviderModel()` now consults the callback BEFORE the Phase 13.2 capability profile when `agent.role !== undefined`, returning `(lane.provider, lane.model)` when the callback returns a config. (2) renamed `filterToolsForChild(parentPool, allowedTools)` to `buildChildToolPool(parentPool, agent)`; new `inheritParentTools: true` branch returns `parentPool` minus `buildSubagentExclusions(agent)`; the `false` branch preserves the strict-allowlist semantics intact. `agent.model` precedence over both paths preserved.
