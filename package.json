@@ -21,7 +21,7 @@
     "chat": "bun src/main.ts",
     "release": "bun run scripts/release.ts",
     "eval:website": "bun src/evals/websiteBuildEval.ts",
-    "test": "bun test",
+    "test": "bun test --timeout 20000",
     "test:semantic": "bun tests/semantic/run.ts",
     "lint": "biome check src tests",
     "format": "biome format --write src tests",

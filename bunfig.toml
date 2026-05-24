@@ -4,6 +4,10 @@
 [test]
 root = "."
 coverage = false
+# Note: bun's `timeout` flag isn't read from bunfig.toml — see the
+# `--timeout 20000` arg on `bun test` in package.json. Bumping from
+# the 5s default gives buildRuntime beforeEach hooks breathing room
+# under heavy parallel test-runner load.
 
 [install]
 # Prefer exact versions; re-run `bun install` after changing deps.
