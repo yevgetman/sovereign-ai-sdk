@@ -55,9 +55,11 @@ describe('/config slash command', () => {
     if (result.kind === 'local') expect(result.output).toContain('config error');
   });
 
-  test('bare /config returns show output', async () => {
+  // 2026-05-24 — bare `/config` now opens the catalog picker rather than
+  // dumping JSON. The legacy JSON-dump path is preserved as `/config show`.
+  test('show explicitly returns persisted JSON', async () => {
     await dispatchSlashCommand('/config set defaultProvider ollama', makeCtx());
-    const result = await dispatchSlashCommand('/config', makeCtx());
+    const result = await dispatchSlashCommand('/config show', makeCtx());
     if (result.kind === 'local') expect(result.output).toContain('ollama');
   });
 

@@ -109,7 +109,9 @@ export function commandsRoute(runtime: Runtime): Hono {
     // session id reuse the same instance (review manager, learning
     // observer, etc. accumulate state across commands).
     const sessionCtx = runtime.getSessionContext(sessionId);
-    const { ctx, sideEffects } = buildServerCommandContext(runtime, sessionCtx, sessionId);
+    const { ctx, sideEffects } = buildServerCommandContext(runtime, sessionCtx, sessionId, {
+      ...(runtime.configStandalone === true ? { configStandalone: true } : {}),
+    });
 
     // Build raw input the registry's parser recognizes: /name plus
     // space-separated args. Empty args produces "/name" (no trailing
@@ -185,6 +187,9 @@ type SideEffectsBag = {
   modelChanged?: string;
   pickerOpen?: import('../../commands/types.js').PickerOpenConfig;
   themeChanged?: string;
+  // 2026-05-24 — Config UX rebuild surfaces these in addition to pickerOpen.
+  inputOpen?: import('../../commands/types.js').InputOpenConfig;
+  verboseChanged?: boolean;
 };
 
 /** Flatten a prompt command's ContentBlock[] into plain text. The
@@ -219,7 +224,9 @@ function hasSideEffects(s: SideEffectsBag): boolean {
     s.exitRequested !== undefined ||
     s.modelChanged !== undefined ||
     s.pickerOpen !== undefined ||
-    s.themeChanged !== undefined
+    s.themeChanged !== undefined ||
+    s.inputOpen !== undefined ||
+    s.verboseChanged !== undefined
   );
 }
 
@@ -230,5 +237,7 @@ function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
   if (s.modelChanged !== undefined) out.modelChanged = s.modelChanged;
   if (s.pickerOpen !== undefined) out.pickerOpen = s.pickerOpen;
   if (s.themeChanged !== undefined) out.themeChanged = s.themeChanged;
+  if (s.inputOpen !== undefined) out.inputOpen = s.inputOpen;
+  if (s.verboseChanged !== undefined) out.verboseChanged = s.verboseChanged;
   return out;
 }

@@ -11,11 +11,20 @@ import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 import type { SessionMetrics } from '../ui/sessionSummary.js';
 
-/** One option in a server-emitted picker. M11.5. */
+/** One option in a server-emitted picker. M11.5. The optional
+ *  `valueColumn` and `badge` are populated by the 2026-05-24 config UX
+ *  rebuild — the same PickerCard component renders config-submenu rows
+ *  (current value right-aligned, ✓ live / ⟳ next session badge after the
+ *  value). Both stay optional so existing `/model`, `/resume`, `/export`,
+ *  `/theme` callers keep working unchanged. */
 export type PickerOpenItem = {
   label: string;
   value: string;
   hint?: string;
+  /** Right-aligned current-value column (config picker rows). */
+  valueColumn?: string;
+  /** Reload semantics badge (`live` = ✓ green; `reload` = ⟳ dim). */
+  badge?: 'live' | 'reload';
 };
 
 /** Payload that a server-mode picker command emits in lieu of running an
@@ -29,6 +38,20 @@ export type PickerOpenConfig = {
   initial?: number;
   /** Command to dispatch with the selected value as args. */
   onSelect: { command: string };
+};
+
+/** 2026-05-24 — Config UX rebuild. Parallel to `PickerOpenConfig` but for
+ *  free-text edits (string, number, secret). The TUI renders an InputCard;
+ *  on Enter it re-dispatches `/<onSubmit.command> <typed>` as a fresh slash
+ *  command. `masked: true` displays bullets (API keys, secrets). */
+export type InputOpenConfig = {
+  title: string;
+  subtitle?: string;
+  initial?: string;
+  placeholder?: string;
+  masked?: boolean;
+  /** Slash command to re-dispatch with the typed value as args. */
+  onSubmit: { command: string };
 };
 
 /** Runtime services exposed to slash command handlers. */
@@ -112,6 +135,23 @@ export type CommandContext = {
    *  (REPL surface), the side-effect isn't emitted; the singleton update +
    *  config persist drive everything the REPL renderer needs. */
   recordThemeChange?: (name: string) => void;
+  /** 2026-05-24 — Config UX rebuild. Server-mode free-text editor open
+   *  request. The TUI renders an InputCard from this payload; on Enter
+   *  it re-dispatches `/<onSubmit.command> <typed>`. Undefined on REPL
+   *  surfaces (no inline editor). Mirrors `requestPicker`. */
+  requestInput?: (config: InputOpenConfig) => void;
+  /** 2026-05-24 — Config UX rebuild. Server-mode verbose-mode toggle
+   *  notification. `/config set verbose <bool>` records the new value
+   *  so the TUI can flip its toolcard renderer (compact one-liner vs.
+   *  full bordered output). Undefined on REPL surfaces — the legacy
+   *  REPL has its own raw-output gate driven by CLI flags. */
+  recordVerboseChange?: (value: boolean) => void;
+  /** 2026-05-24 — Config UX rebuild. True when the dispatcher runs inside
+   *  `sov config` standalone mode (no active runtime / agent loop).
+   *  Live-apply hooks treat this as "no session to apply to" and return
+   *  'persisted-only'; the toast collapses to plain "saved". Undefined or
+   *  false on every in-session surface (REPL, server, dispatch). */
+  isConfigStandalone?: boolean;
   /** Phase 2 T9 — per-session (default) or cross-session (--all) routing-atom
    *  breakdown for `/routing-stats`. Returns the aggregated snapshot from
    *  `computeRoutingStats(rows)`. Optional so surfaces without a sessionDb

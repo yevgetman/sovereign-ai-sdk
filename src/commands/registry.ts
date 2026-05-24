@@ -3,19 +3,9 @@
 // rather than re-declaring command lists.
 
 import chalk from 'chalk';
-import {
-  formatValue,
-  getAt,
-  parseValueLiteral,
-  readConfig,
-  redactSecrets,
-  resolveConfigPath,
-  setAt,
-  unsetAt,
-  writeConfig,
-} from '../config/store.js';
 import { formatUsd } from '../providers/pricing.js';
 import { visibleWidth } from '../ui/box.js';
+import { dispatchConfigCommand } from './configOps.js';
 import { INFO_COMMANDS } from './info.js';
 import { PICKER_COMMANDS } from './pickers.js';
 import { REVIEW_OPS_COMMANDS } from './reviewOps.js';
@@ -137,8 +127,9 @@ export const COMMANDS: SlashCommand[] = [
     type: 'local',
     name: 'config',
     description: 'View or change durable user-level config (~/.harness/config.json).',
-    usage: '/config [show|path|get <dotpath>|set <dotpath> <value>|unset <dotpath>]',
-    call: async (args, _ctx) => handleConfigCommand(args),
+    usage:
+      '/config [<group-id>|edit <dotpath>|set <dotpath> <value>|unset <dotpath>|show|path|get <dotpath>]',
+    call: async (args, ctx) => dispatchConfigCommand(args, ctx),
   },
   {
     type: 'prompt',
@@ -268,44 +259,6 @@ function categoryFor(command: SlashCommand): Category {
 function aliasSuffix(command: SlashCommand): string {
   if (!command.aliases || command.aliases.length === 0) return '';
   return chalk.dim(` (${command.aliases.map((a) => `/${a}`).join(' ')})`);
-}
-
-function handleConfigCommand(rawArgs: string): string {
-  const trimmed = rawArgs.trim();
-  if (!trimmed || trimmed === 'show') {
-    const settings = readConfig();
-    return JSON.stringify(redactSecrets(settings), null, 2);
-  }
-  const firstSpace = trimmed.search(/\s/);
-  const verb = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace);
-  const rest = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim();
-  try {
-    if (verb === 'path') return resolveConfigPath();
-    if (verb === 'get') {
-      if (!rest) return 'usage: /config get <dotpath>';
-      const settings = readConfig();
-      return formatValue(getAt(redactSecrets(settings), rest));
-    }
-    if (verb === 'set') {
-      const split = rest.search(/\s/);
-      if (split === -1) return 'usage: /config set <dotpath> <value>';
-      const dotpath = rest.slice(0, split);
-      const value = parseValueLiteral(rest.slice(split + 1).trim());
-      const next = setAt(readConfig(), dotpath, value);
-      writeConfig(next);
-      return `set ${dotpath}`;
-    }
-    if (verb === 'unset') {
-      if (!rest) return 'usage: /config unset <dotpath>';
-      const next = unsetAt(readConfig(), rest);
-      writeConfig(next);
-      return `unset ${rest}`;
-    }
-    return `unknown /config verb: ${verb}\nusage: /config [show|path|get <dotpath>|set <dotpath> <value>|unset <dotpath>]`;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `config error: ${msg}`;
-  }
 }
 
 function formatCost(ctx: CommandContext): string {

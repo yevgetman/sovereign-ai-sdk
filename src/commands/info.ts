@@ -8,8 +8,8 @@ import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { formatBudgetReport } from '../context/budget.js';
 import { boxify } from '../ui/box.js';
-import { runConfigMenu } from '../ui/configMenu.js';
 import { renderSessionSummary } from '../ui/sessionSummary.js';
+import { dispatchConfigCommand } from './configOps.js';
 import type { CommandContext, LocalCommand } from './types.js';
 
 const PKG_VERSION = '0.0.1';
@@ -100,8 +100,11 @@ export const copyCommand: LocalCommand = {
 export const settingsCommand: LocalCommand = {
   type: 'local',
   name: 'settings',
-  description: 'Open the interactive settings editor (raw-mode TTY only).',
-  call: async (_args, _ctx) => runSettingsEditor(),
+  description: 'Open the interactive settings editor (alias for /config).',
+  // /settings is an alias for /config — both open the catalog-driven
+  // picker through the unified dispatcher. The old raw-mode editor at
+  // src/ui/configMenu.ts was removed 2026-05-24 (config UX rebuild).
+  call: async (_args, ctx) => dispatchConfigCommand('', ctx),
 };
 
 export const contextBudgetCommand: LocalCommand = {
@@ -251,22 +254,6 @@ export function copyLastAssistant(ctx: CommandContext): string {
   const result = writeClipboard(text);
   if (result.ok) return `copied ${text.length} chars via ${result.tool}.`;
   return `clipboard tool not available (tried: ${result.attempted.join(', ')}). assistant text:\n\n${text}`;
-}
-
-async function runSettingsEditor(): Promise<string> {
-  if (!process.stdin.isTTY) {
-    return [
-      'settings editor requires a TTY.',
-      'use `sov config show|get|set|unset` from the shell, or run sov interactively.',
-    ].join('\n');
-  }
-  try {
-    await runConfigMenu();
-    return 'settings closed.';
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `settings editor error: ${msg}`;
-  }
 }
 
 type ClipboardResult = { ok: true; tool: string } | { ok: false; attempted: string[] };

@@ -376,6 +376,12 @@ export type Runtime = {
    *  front of `dispose()` so an in-flight tick can't write to a closed
    *  session DB. */
   cronRunner?: CronRunner;
+  /** 2026-05-24 — Config UX rebuild. When true, the runtime was minted
+   *  by `runConfigOnlyMode` (sov config standalone). The commands route
+   *  forwards this flag to `buildServerCommandContext` so `/config`'s
+   *  toast collapses to plain "saved" instead of "applied to current
+   *  session" — there is no active session to apply to. */
+  configStandalone?: boolean;
   dispose: () => Promise<void>;
 };
 

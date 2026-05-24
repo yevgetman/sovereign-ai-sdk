@@ -24,7 +24,7 @@
 
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { COMMANDS, buildCommandRegistry } from '../commands/registry.js';
-import type { CommandContext, PickerOpenConfig } from '../commands/types.js';
+import type { CommandContext, InputOpenConfig, PickerOpenConfig } from '../commands/types.js';
 import { loadPermissionSettings } from '../config/settings.js';
 import { auditContextBudget } from '../context/budget.js';
 import type { Message, SystemSegment } from '../core/types.js';
@@ -56,6 +56,15 @@ export type CommandSideEffects = {
    *  Go renderer (which is a separate process from the TS theme
    *  singleton). */
   themeChanged?: string;
+  /** 2026-05-24 — Config UX rebuild. `/config edit <dotpath>` emits an
+   *  InputCard request for free-text fields (string / number / secret).
+   *  The TUI renders the card; on Enter it dispatches
+   *  `/<onSubmit.command> <typed>`. */
+  inputOpen?: InputOpenConfig;
+  /** 2026-05-24 — Config UX rebuild. `/config set verbose <bool>`
+   *  records the new value so the TUI flips its toolcard renderer
+   *  (compact one-liner vs. full bordered output). */
+  verboseChanged?: boolean;
 };
 
 export type BuildServerCommandContextResult = {
@@ -70,11 +79,16 @@ export type BuildServerCommandContextResult = {
  *
  *  This factory is non-destructive: it does NOT mutate runtime/session
  *  state by itself; the mutations happen inside the command handlers
- *  via the closures it provides. */
+ *  via the closures it provides.
+ *
+ *  `opts.configStandalone` lets `sov config` standalone mode signal to
+ *  `/config` that there's no active session to live-apply against — the
+ *  toast collapses to plain "saved" per spec. Default false. */
 export function buildServerCommandContext(
   runtime: Runtime,
   sessionCtx: SessionContext,
   sessionId: string,
+  opts: { configStandalone?: boolean } = {},
 ): BuildServerCommandContextResult {
   const sideEffects: CommandSideEffects = {};
   const systemSegmentsRef: SystemSegment[] = runtime.systemSegments;
@@ -235,6 +249,15 @@ export function buildServerCommandContext(
     recordThemeChange: (name: string): void => {
       sideEffects.themeChanged = name;
     },
+    requestInput: (config: InputOpenConfig): void => {
+      // Parallel to requestPicker. /config edit on a string/number/secret
+      // field emits exactly one InputCard request per dispatch.
+      sideEffects.inputOpen = config;
+    },
+    recordVerboseChange: (value: boolean): void => {
+      sideEffects.verboseChanged = value;
+    },
+    ...(opts.configStandalone === true ? { isConfigStandalone: true } : {}),
     taskManager: runtime.taskManager,
     ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
     harnessHome: runtime.harnessHome,
