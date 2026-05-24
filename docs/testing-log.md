@@ -8,6 +8,18 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 1 T7 (scheduler: resolveLane hook + tool-pool inheritance)
+
+**Scope:** TDD on the two surgical scheduler changes per `docs/plans/2026-05-23-phase-1-task-routing.md` T7. `src/runtime/scheduler.ts`: (1) added `resolveLane?: (role: string) => LaneConfig | undefined` to `SubagentSchedulerOpts`; `resolveProviderModel()` now consults the callback BEFORE the Phase 13.2 capability profile when `agent.role !== undefined`, returning `(lane.provider, lane.model)` when the callback returns a config. (2) renamed `filterToolsForChild(parentPool, allowedTools)` to `buildChildToolPool(parentPool, agent)`; new `inheritParentTools: true` branch returns `parentPool` minus `buildSubagentExclusions(agent)`; the `false` branch preserves the strict-allowlist semantics intact. `agent.model` precedence over both paths preserved.
+
+**Tests added:** `tests/router/schedulerLaneResolve.test.ts` — 7 tests / 17 expect calls. Two suites: resolveLane (uses callback, falls back when callback returns undefined, falls back when callback not provided, explicit agent.model wins over both) and buildChildToolPool (inherit=true gets parent pool minus exclusions with AgentTool still blocked when allowedSubagents=[], inherit=true + allowedSubagents non-empty lets AgentTool through, inherit=false preserves strict allowlist). Pattern mirrors the existing `tests/runtime/scheduler.test.ts` end-to-end style — drives the scheduler through `delegate()` and reads back via SessionRecord (provider/model) and a recording provider (tool names).
+
+**Regression check:** `bun test tests/runtime/scheduler*.test.ts` — 28/0 across 5 files. All pre-existing scheduler tests pass without modification, confirming the additive contract.
+
+**Pre-commit gate:** `bun run lint && bun run typecheck && bun run test` — all green. Full suite **2225 / 0 / 14** (+7 from prior 2218 baseline at `fcb51c2`).
+
+**No binary release.** Phase 1 binary cut is owned by T19 per the plan.
+
 ## 2026-05-23 — Phase 1 T3 (router: laneRegistry)
 
 **Scope:** TDD on the lane registry per `docs/plans/2026-05-23-phase-1-task-routing.md`. New `src/router/laneRegistry.ts` exposes `buildLaneRegistry(cfg)` returning `{ lookup, entries }` — pre-resolves all four known lane names (`cheap-task`, `moderate-task`, `frontier-task`, `delegator`) through `resolveLane()` at construction time, caches them in a Map, and serves `lookup(role)` for the scheduler. Unknown roles return `undefined` (the scheduler will distinguish a router-lane role from a sub-agent role this way).

@@ -20,8 +20,9 @@
 //     mutex (Semaphore(1)) — the v0 path-lock primitive. Per-path
 //     locking can land later when there's a real consumer.
 
-import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
+import { buildSubagentExclusions } from '../agents/exclusions.js';
 import type { AgentDefinition, AgentRegistry } from '../agents/types.js';
+import type { LaneConfig } from '../config/schema.js';
 import type { AssistantMessage, SystemSegment, Terminal } from '../core/types.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
@@ -90,6 +91,16 @@ export type SubagentSchedulerOpts = {
    *  that don't want disk side-effects — the parent recorder still
    *  receives every tagged event. */
   harnessHome?: string;
+  /** Phase 1 T7 — lane-aware role resolution hook. When provided, the
+   *  scheduler consults this callback BEFORE falling through to the
+   *  Phase 13.2 capability profile in `resolveProviderModel`. The runtime
+   *  passes a closure backed by the assembled lane registry so configured
+   *  roles (`cheap-task`, `moderate-task`, `frontier-task`, `delegator`)
+   *  resolve to the operator's (provider, model) pin. Returning
+   *  `undefined` falls through to the existing capability table —
+   *  keeping the path purely additive for unknown roles. `agent.model`
+   *  still wins over both paths when explicitly pinned. */
+  resolveLane?: (role: string) => LaneConfig | undefined;
 };
 
 export type DelegateInput = {
@@ -156,7 +167,7 @@ export class SubagentScheduler {
         writeLockRelease = await this.opts.writeLock.acquire(input.parentSignal);
       }
 
-      const tools = filterToolsForChild(input.parentToolPool, agent.allowedTools);
+      const tools = buildChildToolPool(input.parentToolPool, agent);
       const childSessionId = this.opts.createChildSession({
         parentSessionId: input.parentSessionId,
         agentName: agent.name,
@@ -386,6 +397,19 @@ export class SubagentScheduler {
       return { providerName: this.opts.defaultProvider, modelName: agent.model };
     }
     if (agent.role !== undefined) {
+      // Phase 1 T7 — consult the lane-aware resolver first. The runtime
+      // wires this to the assembled lane registry so configured roles
+      // (`cheap-task`, `moderate-task`, `frontier-task`, `delegator`)
+      // route through operator-pinned (provider, model) pairs instead of
+      // the capability table. Unknown roles return `undefined` and fall
+      // through to the existing capability profile path — keeping this
+      // change purely additive.
+      if (this.opts.resolveLane !== undefined) {
+        const lane = this.opts.resolveLane(agent.role);
+        if (lane !== undefined) {
+          return { providerName: lane.provider, modelName: lane.model };
+        }
+      }
       const available = this.opts.availableProviders ?? [
         'anthropic',
         'openai',
@@ -421,24 +445,40 @@ function laneFor(providerName: string): 'local' | 'frontier' {
   return 'local';
 }
 
-/** v0 tool filter: keep parent tools whose canonical name appears in
- *  agent.allowedTools (extracting the prefix before any `(...)` pattern),
- *  minus the global subagent exclusion set. Pattern enforcement inside
- *  matched tool calls (e.g. `Bash(git log *)`) is left to the parent's
- *  canUseTool — see the file header. */
-function filterToolsForChild(
+/** Phase 1 T7 — build the tool pool a child sub-agent will see.
+ *
+ *  Two modes, selected by `agent.inheritParentTools`:
+ *
+ *    - `false` (default, Phase 13.5 strict-allowlist semantics): keep parent
+ *      tools whose canonical name appears in `agent.allowedTools` (extracting
+ *      the prefix before any `(...)` pattern), minus the per-child exclusion
+ *      set. Pattern enforcement inside matched tool calls (e.g.
+ *      `Bash(git log *)`) is left to the parent's canUseTool — see the file
+ *      header.
+ *
+ *    - `true` (Phase 1 cost-lane sub-agents): hand the child the entire
+ *      parent pool, minus the per-child exclusion set. `AgentTool` stays
+ *      excluded unless `allowedSubagents` is non-empty (see
+ *      `buildSubagentExclusions`).
+ *
+ *  The function is purely additive over the prior `filterToolsForChild`: any
+ *  agent with `inheritParentTools: false` (the registry default) takes the
+ *  exact same branch as before. */
+function buildChildToolPool(
   parentPool: readonly Tool<unknown, unknown>[],
-  allowedTools: readonly string[],
+  agent: Pick<AgentDefinition, 'inheritParentTools' | 'allowedSubagents' | 'allowedTools'>,
 ): Tool<unknown, unknown>[] {
+  const exclusions = buildSubagentExclusions(agent);
+  if (agent.inheritParentTools) {
+    return parentPool.filter((tool) => !exclusions.has(tool.name));
+  }
   const allowed = new Set<string>();
-  for (const entry of allowedTools) {
+  for (const entry of agent.allowedTools) {
     const parenIdx = entry.indexOf('(');
     const name = parenIdx > 0 ? entry.slice(0, parenIdx) : entry;
     allowed.add(name.trim());
   }
-  return parentPool.filter(
-    (tool) => allowed.has(tool.name) && !SUBAGENT_EXCLUDED_TOOLS.has(tool.name),
-  );
+  return parentPool.filter((tool) => allowed.has(tool.name) && !exclusions.has(tool.name));
 }
 
 function extractSummary(assistant: AssistantMessage | undefined): string {
