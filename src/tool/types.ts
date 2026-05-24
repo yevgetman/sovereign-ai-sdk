@@ -118,6 +118,17 @@ export type ToolContext = {
    *  build a lane registry stay valid; AgentTool falls through to the
    *  scheduler's existing fallback chain when this field is absent. */
   laneRegistry?: import('../router/laneRegistry.js').LaneRegistry;
+  /** Phase 2 T4 — delegation lifecycle recorder. AgentTool threads this
+   *  into `scheduler.delegate()` so the scheduler fires lifecycle events
+   *  at start + completion of every child delegation. The runtime
+   *  constructs a closure per turn that synthesizes the four delegator_*
+   *  SSE events from these lifecycle calls (see
+   *  `src/router/progressEvents.ts`). Optional so non-server callers
+   *  (CLI utilities, isolated tests) that don't need progress events
+   *  stay valid; absent recorder == no lifecycle events emitted. */
+  delegationLifecycleRecorder?: (
+    event: import('../router/progressEvents.js').DelegationLifecycleEvent,
+  ) => void;
 };
 
 /** Structured tool output plus optional transcript messages injected after the result. */

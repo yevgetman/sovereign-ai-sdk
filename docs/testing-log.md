@@ -8,6 +8,28 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 2 T4 runtime-synthesized delegator SSE events
+
+**Scope:** Phase 2 T4 from `docs/plans/2026-05-23-phase-2-task-routing.md`. The runtime now observes the scheduler's delegation lifecycle and publishes four new SSE event types on the per-session bus (`delegator_plan`, `delegator_atom_started`, `delegator_atom_complete`, `delegator_complete`). The scheduler fires an optional `delegationLifecycleRecorder` callback at delegation start + every return path (success + interrupted); the runtime's `synthesizeDelegationEvents(...)` closure maps the lifecycle events onto the four SSE events when the call graph belongs to the active delegator. Non-router agent dispatches (e.g., `explore` directly from the parent) are dropped. Purely additive — every existing scheduler/AgentTool/turn-route test passes unchanged.
+
+**Files:**
+- `src/router/progressEvents.ts` — new file: `DelegationLifecycleEvent` discriminated union, four Zod event schemas, `synthesizeDelegationEvents({ bus, rootSessionId, agentRegistry })` factory.
+- `src/runtime/scheduler.ts` — new optional `delegationLifecycleRecorder` on `DelegateInput`; fires `delegation_started` after `createChildSession` and `delegation_completed` at success + interrupted return paths.
+- `src/tool/types.ts` — new optional `delegationLifecycleRecorder` field on `ToolContext` (lazy import).
+- `src/tools/AgentTool.ts` — threads `ctx.delegationLifecycleRecorder` into `scheduler.delegate()`.
+- `src/server/routes/turns.ts` — constructs `delegationLifecycleRecorder` per turn via `synthesizeDelegationEvents`, threads it through `buildSessionToolContext` (which now accepts an optional `{ delegationLifecycleRecorder }` opts argument).
+- `src/server/schema.ts` — extends `ServerEventSchema` discriminated union with the four new event types.
+- `tests/router/progressEvents.test.ts` — 19 new tests (Zod parsing + closure state machine + edge cases: ignore-non-delegator-children, ignore-null-lane, atomIndex monotonicity, out-of-order completion, promptPreview truncation, failed-atom shape).
+- `tests/router/synthesisIntegration.test.ts` — 2 new end-to-end tests (delegator-mediated turn produces all four events; explore-agent turn produces none).
+
+**Suite numbers:** **2276 pass / 0 fail / 14 skip** (+21 from baseline of 2255/0/14: +19 unit + 2 integration). All existing tests pass unchanged.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2276 pass / 0 fail / 14 skip / 6133 expect() calls / 291 files
+```
+
 ## 2026-05-23 — Phase 2 T3 lane timeoutMs enforcement (R-D plumbing)
 
 **Scope:** Phase 2 T3 from `docs/plans/2026-05-23-phase-2-task-routing.md`. Wired the per-call lane timeout override path through the scheduler. `SubagentScheduler.DelegateInput` now accepts an optional `perChildTimeoutMsOverride` consumed ahead of the existing `opts.perChildTimeoutMs ?? agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS` fallback. `ToolContext` carries an optional `laneRegistry` so `AgentTool.call` can resolve `agent.role → lane.timeoutMs` at dispatch time and thread it onto `scheduler.delegate()`. The Phase 1 deferred `atomTimeout.test.ts` is now unskipped and verifies a 50ms `cheap-task` lane timeout cancels a slowMode-throttled mock stream.

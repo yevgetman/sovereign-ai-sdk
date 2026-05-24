@@ -29,6 +29,7 @@ import type { CanUseTool } from '../permissions/types.js';
 import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import { findCapableModel } from '../router/capabilities.js';
+import type { DelegationLifecycleEvent } from '../router/progressEvents.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { TraceWriter } from '../trace/writer.js';
@@ -136,6 +137,13 @@ export type DelegateInput = {
    *  means "fall through to the construction-time defaults", preserving
    *  every existing call site that never sets this field. */
   perChildTimeoutMsOverride?: number;
+  /** Phase 2 T4 — delegation lifecycle recorder. Fires at start + at every
+   *  return path of `delegate()` (success, interrupted). The runtime
+   *  constructs a closure per turn that synthesizes the four delegator_*
+   *  SSE events from these lifecycle calls; see
+   *  `src/router/progressEvents.ts`. Purely additive — when absent, the
+   *  scheduler behaves identically to its pre-T4 surface. */
+  delegationLifecycleRecorder?: (event: DelegationLifecycleEvent) => void;
 };
 
 export type DelegateResult = {
@@ -218,6 +226,23 @@ export class SubagentScheduler {
       });
 
       this.childCounts.set(input.parentSessionId, current + 1);
+
+      // Phase 2 T4 — fire the delegation lifecycle "started" event.
+      // Captured here so the matching "completed" event below can compute
+      // durationMs against the same anchor. We fire AFTER createChildSession
+      // so the recorder receives a valid childSessionId (createChildSession
+      // itself doesn't carry an external start hook; any throw above bubbles
+      // through both outer finally blocks normally without firing the
+      // lifecycle pair).
+      const delegationStartedAt = Date.now();
+      input.delegationLifecycleRecorder?.({
+        kind: 'delegation_started',
+        childSessionId,
+        parentSessionId: input.parentSessionId,
+        agentName: agent.name,
+        laneName: lane !== null ? lane.name : null,
+        promptPreview: input.prompt,
+      });
 
       // Backlog Item 8 — per-child trace file lives alongside the
       // consolidated parent trace. We construct it once per delegation
@@ -308,6 +333,19 @@ export class SubagentScheduler {
           // Timeout aborts manifest as a thrown error from query.next();
           // surface as an interrupted terminal.
           const message = err instanceof Error ? err.message : String(err);
+          // Phase 2 T4 — fire the matching delegation_completed lifecycle
+          // event before returning. The synthesis closure routes this onto
+          // `delegator_atom_complete` (or `delegator_complete` for the
+          // delegator session itself) with success=false.
+          input.delegationLifecycleRecorder?.({
+            kind: 'delegation_completed',
+            childSessionId,
+            parentSessionId: input.parentSessionId,
+            agentName: agent.name,
+            laneName: lane !== null ? lane.name : null,
+            success: false,
+            durationMs: Date.now() - delegationStartedAt,
+          });
           return {
             childSessionId,
             agentName: agent.name,
@@ -408,6 +446,21 @@ export class SubagentScheduler {
             } as unknown as TraceEvent);
           }
         }
+        // Phase 2 T4 — fire the matching delegation_completed lifecycle
+        // event. `completed` and `max_turns` count as success (matching
+        // the on_delegation memory-hook semantics above); everything else
+        // is a failure path. The synthesis closure routes this onto
+        // `delegator_atom_complete` (for an atom) or `delegator_complete`
+        // (for the delegator session itself).
+        input.delegationLifecycleRecorder?.({
+          kind: 'delegation_completed',
+          childSessionId,
+          parentSessionId: input.parentSessionId,
+          agentName: agent.name,
+          laneName: lane !== null ? lane.name : null,
+          success: result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns',
+          durationMs: Date.now() - delegationStartedAt,
+        });
         return {
           childSessionId,
           agentName: agent.name,

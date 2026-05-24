@@ -39,6 +39,10 @@ import { redactSecretsTransformer } from '../../permissions/redactSecretsTransfo
 import type { CanUseTool } from '../../permissions/types.js';
 import { isContextOverflowError } from '../../providers/errors.js';
 import { estimateCostUsd } from '../../providers/pricing.js';
+import {
+  type DelegationLifecycleEvent,
+  synthesizeDelegationEvents,
+} from '../../router/progressEvents.js';
 import { expandSkillPrompt } from '../../skills/loader.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
@@ -170,6 +174,14 @@ export function buildSessionToolContext(
   runtime: Runtime,
   sessionId: string,
   sessionCanUseTool: CanUseTool,
+  opts: {
+    /** Phase 2 T4 — per-turn delegation lifecycle recorder. The runtime's
+     *  /turns route builds this via `synthesizeDelegationEvents(...)` and
+     *  threads it down to AgentTool so the scheduler fires lifecycle
+     *  events that the closure maps onto the four delegator_* SSE events.
+     *  Cron + OpenAI callers pass undefined (no SSE bus to publish to). */
+    delegationLifecycleRecorder?: (event: DelegationLifecycleEvent) => void;
+  } = {},
 ): ToolContext {
   // M7 T5/T6 — pull the per-session subsystems off the SessionContext so
   // the orchestrator can call `ctx.learningObserver?.observe(...)` after
@@ -236,6 +248,12 @@ export function buildSessionToolContext(
     // project (bundle or git repo).
     memoryManager: sessionCtx.memoryManager,
     projectScope: sessionCtx.projectScope,
+    // Phase 2 T4 — optional spread keeps the field absent when no recorder
+    // was supplied (matches `exactOptionalPropertyTypes` discipline for
+    // every other optional field on ToolContext).
+    ...(opts.delegationLifecycleRecorder !== undefined
+      ? { delegationLifecycleRecorder: opts.delegationLifecycleRecorder }
+      : {}),
   };
 }
 
@@ -476,6 +494,20 @@ async function runTurnInBackground(
       redactSecretsTransformer,
     ]);
 
+    // Phase 2 T4 — per-turn delegation lifecycle recorder. Bound to the
+    // initial sessionId so all four delegator_* SSE events publish under
+    // the root session id the SSE subscriber connected against. The
+    // closure tracks the delegator's call graph internally; a turn with
+    // no delegator dispatch simply never fires any events. Recompaction
+    // hops within a turn keep the same recorder — the root session id
+    // doesn't change on the wire (the bus is per-root-session and the
+    // TUI subscribes against the original id).
+    const delegationLifecycleRecorder = synthesizeDelegationEvents({
+      bus,
+      rootSessionId: sessionIdInitial,
+      agentRegistry: runtime.agents,
+    });
+
     // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the
     // iteration once; if the resulting Terminal carries a
     // context-overflow error, run runtime.compact(), publish
@@ -508,7 +540,9 @@ async function runTurnInBackground(
         messages: currentMessages,
         systemPrompt: runtime.systemSegments,
         tools: runtime.toolPool,
-        toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool),
+        toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool, {
+          delegationLifecycleRecorder,
+        }),
         maxTokens: runtime.maxTokens,
         sessionId,
         cwd: runtime.cwd,

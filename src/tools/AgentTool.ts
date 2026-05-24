@@ -104,6 +104,14 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
       ...(ctx.memoryManager !== undefined ? { memoryManager: ctx.memoryManager } : {}),
       ...(ctx.traceRecorder !== undefined ? { traceRecorder: ctx.traceRecorder } : {}),
       ...(laneTimeoutMs !== undefined ? { perChildTimeoutMsOverride: laneTimeoutMs } : {}),
+      // Phase 2 T4 — pass the runtime's per-turn delegation lifecycle
+      // recorder so the scheduler fires lifecycle events at start +
+      // completion of this delegation. The runtime's closure routes them
+      // onto the four delegator_* SSE events when the call belongs to the
+      // active delegator's call graph.
+      ...(ctx.delegationLifecycleRecorder !== undefined
+        ? { delegationLifecycleRecorder: ctx.delegationLifecycleRecorder }
+        : {}),
     });
     return {
       data: {

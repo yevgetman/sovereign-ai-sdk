@@ -3,6 +3,12 @@
 // The Go TUI mirrors these shapes in packages/tui/internal/transport/types.go.
 
 import { z } from 'zod';
+import {
+  DelegatorAtomCompleteEventSchema,
+  DelegatorAtomStartedEventSchema,
+  DelegatorCompleteEventSchema,
+  DelegatorPlanEventSchema,
+} from '../router/progressEvents.js';
 
 const BaseEvent = z.object({
   seq: z.number().int().nonnegative(),
@@ -173,6 +179,12 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   CompactionCompleteEvent,
   SessionSummaryEvent,
   StallDetectedEvent,
+  // Phase 2 T4 — router synthesizes these from the scheduler's delegation
+  // lifecycle. See src/router/progressEvents.ts.
+  DelegatorPlanEventSchema,
+  DelegatorAtomStartedEventSchema,
+  DelegatorAtomCompleteEventSchema,
+  DelegatorCompleteEventSchema,
 ]);
 
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
