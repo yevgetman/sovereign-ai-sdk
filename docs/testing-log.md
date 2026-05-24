@@ -8,6 +8,65 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 1 multi-provider task routing close-out
+
+**Scope:** Phase 1 of the multi-provider task routing feature (per the spec at `docs/specs/2026-05-23-multi-provider-task-routing-design.md`) shipped across 17 tasks. Default state ships a B-via-D bridge baseline (cost-lane sub-agents available regardless of flag, parent system prompt mentions them). When `taskRouting.enabled: true`, a `delegator` sub-agent (Sonnet-grade, single-tier in Phase 1) becomes the parent's first action on every turn; it decomposes (or single-shots) and dispatches atoms via `AgentTool` to cost-lane sub-agents (`cheap-task`, `moderate-task`, `frontier-task`).
+
+**What shipped:**
+- New `taskRouting` config block in `src/config/schema.ts` (disabled by default; per-lane provider/model/timeout overrides).
+- `src/router/lanes.ts` + `laneRegistry.ts` + `preflight.ts` — pure-function lane resolution + boot-time preflight aggregating failures.
+- `AgentDefinition` extended with `inheritParentTools: boolean` + `allowedSubagents: string[]` fields.
+- `src/runtime/scheduler.ts` — `resolveLane?: (role) => LaneConfig | undefined` callback (consulted before capability table); `buildChildToolPool` replacing strict `filterToolsForChild` (inherit-parent mode when flag is on).
+- `src/tools/AgentTool.ts` — recursion guard via `allowedSubagents`.
+- `src/server/runtime.ts` — wires lane registry + preflight + smart-router segment injection into `buildRuntime`.
+- `src/context/systemPrompt.ts` — `smartRouterPrompt?: string` option, segment inserted between bundle context and dynamic system/user context.
+- 4 new agent definitions in `bundle-default/agents/`: `delegator` (role: delegator, allowedSubagents=cheap/mod/frontier, readOnly: true to avoid Semaphore writeLock deadlock), `cheap-task` / `moderate-task` / `frontier-task` (each role-resolved, inheritParentTools: true).
+- `bundle-default/prompts/smart-router.md` — new prompt segment file.
+- `bundle-default/business/system-prompt.md` — B-via-D bridge mention.
+- `src/providers/mock.ts` — `MockProvider.toolUseScript` for scripted multi-call sequences, with `'throw'` script kind for failure simulation.
+
+**Tests added:**
+- `tests/config/schema.test.ts` — 4 taskRouting schema tests (T1).
+- `tests/router/lanes.test.ts` — 6 lane resolution tests (T2).
+- `tests/router/laneRegistry.test.ts` — 5 registry tests (T3).
+- `tests/router/preflight.test.ts` — 5 preflight aggregation tests (T4).
+- `tests/agents/inheritParentTools.test.ts` — 6 frontmatter + exclusion tests (T5+T6).
+- `tests/router/schedulerLaneResolve.test.ts` — 7 scheduler hook + tool pool tests (T7).
+- `tests/tools/AgentTool.allowedSubagents.test.ts` — 5 recursion guard tests (T8).
+- `tests/server/runtime.taskRouting.test.ts` — 3 runtime wiring tests (T9).
+- `tests/agents/delegator.definition.test.ts` — 1 frontmatter assertion (T10).
+- `tests/providers/mock.toolUseScript.test.ts` — 6 mock script tests (T12).
+- `tests/agents/delegator.integration.test.ts` — 2 integration tests, trivial-turn + compound-turn (T13+T14).
+- `tests/router/atomFailure.test.ts` — 1 integration test (T15).
+- `tests/router/atomTimeout.test.ts` — 1 skipped test, lane timeoutMs enforcement deferred to Phase 2 (T15).
+- `tests/semantic/suites/22-task-routing.cases.ts` — 5 semantic test cases for `bun run test:semantic` (T16).
+
+**Suite numbers:** **2243 pass / 0 fail / 15 skip** (+51 from morning Phase 18's baseline of 2192). The +1 skip is the atomTimeout deferred case.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2243 pass / 0 fail / 15 skip / 5999 expect() calls / 286 files
+```
+
+**Manual smoke:** deferred to T19 (cut binary v0.4.1, then exercise the smart router via real Anthropic).
+
+**Regressions or follow-ups recorded for Phase 2:**
+- Lane `timeoutMs` enforcement: requires scheduler `perChildTimeoutMsOverride` plumbing (R-D in the plan); deferred to Phase 2.
+- C-level UX (atom-progress events): planned for Phase 2.
+- Quality-escalation beyond transport-error retry: planned for Phase 2 conditional on soak data.
+- Parent-model auto-downgrade option: Phase 2 candidate.
+- Profile presets (anthropic+local, frugal, frontier-only): Phase 2 ergonomics.
+- `SOV_TASK_ROUTING_ENABLED` env override: documented in spec, not yet implemented (small follow-up).
+- Spend management: Phase 3, gated until Phase 1+2 soak validates the routing model.
+
+**Architectural fix surfaced during T13:** the bundled `delegator` agent originally shipped with `readOnly: false`. Nested delegation (`delegator → cheap-task`) deadlocks on the per-session Semaphore writeLock — the outer `delegate(delegator)` holds the lock while awaiting `delegate(cheap-task)` which tries to acquire the same lock. Fixed by flipping to `readOnly: true` in the bundled definition. The delegator's only tool is `AgentTool` (a dispatcher); actual writes happen inside the dispatched child which acquires the writeLock on its own behalf.
+
+**Phase 1 commits since predecessor `11991e2` (Phase 18 docs commit):**
+- T1-T16 shipped as 16 atomic commits.
+- 3 bug-fix commits: smart-router test substring assertion narrowed; delegator readOnly fix; bundle delegator readOnly application.
+- T17 docs close-out commit.
+
 ## 2026-05-23 — Phase 1 T15 (integration tests: atom failure + atom timeout)
 
 **Scope:** Two new integration tests at `tests/router/atomFailure.test.ts` (1 active test / 16 expect calls) and `tests/router/atomTimeout.test.ts` (1 skipped test, documented). The failure test scripts a 7-call graph (parent → delegator → cheap-task throws → delegator continuation → frontier-task synthesis → delegator relay → parent relay), drives a turn, and asserts: (a) parent dispatched to delegator, (b) delegator's tool_result envelope landed with `terminal="completed"` on the parent bus (the delegator continued past the failed atom), (c) the synthesis text reached the parent bus, (d) exactly one `turn_complete` on the parent wire, (e) `MockProvider.streamCalls === 7`, (f) the session tree records 4 rows (parent + delegator + 2 atom grandchildren — failed cheap-task + successful frontier-task).
