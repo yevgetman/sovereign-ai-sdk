@@ -131,19 +131,10 @@ describe('delegator integration — trivial turn', () => {
       maxTokens: null,
       timeoutMs: 60_000,
     });
-    // Patch the loaded `delegator` agent to `readOnly: true` to break the
-    // global writeLock deadlock: with the bundled `readOnly: false`, the
-    // delegator's scheduler.delegate() call acquires the Semaphore(1)
-    // writeLock, then dispatches AgentTool(cheap-task) which tries to
-    // acquire the SAME writeLock — held by the outer delegate() call,
-    // which is itself awaiting the inner delegate(). The integration
-    // test exposes this real scheduler issue (filed as a Phase 1 follow-
-    // up); for the test we patch the in-memory registry so the delegator
-    // doesn't hold the writeLock during its own dispatch. This is the
-    // architecturally-correct posture — AgentTool itself is the only
-    // tool the delegator can call, and AgentTool is a dispatcher rather
-    // than a writer (the WRITES happen inside the dispatched child,
-    // which acquires the writeLock on its own behalf).
+    // The bundled delegator ships with `readOnly: true` to avoid a
+    // Semaphore(1) writeLock deadlock during nested delegation. We also
+    // re-stamp it here so the test stays robust if the bundled file is
+    // edited later without this fact being load-bearing on the test path.
     const loaded = runtime.agents.byName.get('delegator');
     if (loaded !== undefined) {
       runtime.agents.byName.set('delegator', { ...loaded, readOnly: true });
