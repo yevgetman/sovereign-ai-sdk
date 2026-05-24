@@ -267,3 +267,47 @@ describe('SettingsSchema — behavior block', () => {
     expect(() => SettingsSchema.parse({ behavior: { unknownField: true } })).toThrow();
   });
 });
+
+// Phase 1 T1 — taskRouting schema.
+// The taskRouting block configures the smart-router delegator + cost-lane
+// sub-agents (cheap-task / moderate-task / frontier-task). Pure config
+// schema; no behavior change at this layer.
+// Plan: docs/plans/2026-05-23-phase-1-task-routing.md
+describe('taskRouting schema', () => {
+  test('accepts a full override', () => {
+    const parsed = SettingsSchema.parse({
+      taskRouting: {
+        enabled: true,
+        delegator: { model: 'claude-sonnet-4-6' },
+        lanes: {
+          'cheap-task': { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+          'moderate-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+          'frontier-task': { provider: 'anthropic', model: 'claude-opus-4-7' },
+        },
+      },
+    });
+    expect(parsed.taskRouting?.enabled).toBe(true);
+    expect(parsed.taskRouting?.lanes?.['cheap-task']?.provider).toBe('anthropic');
+  });
+
+  test('empty taskRouting applies defaults', () => {
+    const parsed = SettingsSchema.parse({ taskRouting: {} });
+    expect(parsed.taskRouting?.enabled).toBe(false);
+    expect(parsed.taskRouting?.delegator?.model).toBe('claude-sonnet-4-6');
+  });
+
+  test('rejects negative timeoutMs', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        taskRouting: {
+          lanes: { 'cheap-task': { provider: 'anthropic', model: 'haiku', timeoutMs: -1 } },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('omitting taskRouting entirely is fine', () => {
+    const parsed = SettingsSchema.parse({});
+    expect(parsed.taskRouting).toBeUndefined();
+  });
+});

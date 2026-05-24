@@ -149,6 +149,48 @@ const BehaviorSchema = z
   })
   .strict();
 
+/** Phase 1 — multi-provider task-routing config. The smart-router
+ *  delegator + cost-lane sub-agents (`cheap-task`, `moderate-task`,
+ *  `frontier-task`) read this block to resolve provider/model per lane.
+ *  Each lane carries an optional `allowedTools` (null = inherit parent
+ *  pool), `maxTokens` (null = provider default), and a positive
+ *  `timeoutMs` (default 120 000). Spec:
+ *  docs/specs/2026-05-23-multi-provider-task-routing-design.md */
+export const LaneConfigSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  allowedTools: z.array(z.string()).nullable().default(null),
+  maxTokens: z.number().int().positive().nullable().default(null),
+  timeoutMs: z.number().int().positive().default(120_000),
+});
+
+export type LaneConfig = z.infer<typeof LaneConfigSchema>;
+
+/** Phase 1 — `taskRouting` block. `enabled: true` activates the
+ *  delegator-first turn flow; defaults provide a B-via-D bridge baseline
+ *  (cost-lane sub-agents available via /agent even when the router is
+ *  disabled). The delegator role resolves to `delegator.model`
+ *  (default `claude-sonnet-4-6`). Per-lane overrides are partial:
+ *  any field omitted inherits the LANE_DEFAULTS in
+ *  `src/router/lanes.ts`. */
+export const TaskRoutingSchema = z.object({
+  enabled: z.boolean().default(false),
+  delegator: z
+    .object({
+      model: z.string().default('claude-sonnet-4-6'),
+    })
+    .default({}),
+  lanes: z
+    .object({
+      'cheap-task': LaneConfigSchema.partial().optional(),
+      'moderate-task': LaneConfigSchema.partial().optional(),
+      'frontier-task': LaneConfigSchema.partial().optional(),
+    })
+    .default({}),
+});
+
+export type TaskRoutingConfig = z.infer<typeof TaskRoutingSchema>;
+
 export const SettingsSchema = z
   .object({
     defaultProvider: z.string().optional(),
@@ -208,6 +250,11 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Phase 1 — multi-provider task routing. `enabled: true` activates
+     *  the delegator-first turn flow; defaults provide a B-via-D bridge
+     *  baseline (cost-lane sub-agents available via /agent even when the
+     *  router is disabled). See `TaskRoutingSchema` for shape. */
+    taskRouting: TaskRoutingSchema.optional(),
     microcompaction: MicrocompactionSchema.optional(),
     compaction: CompactionSchema.optional(),
     debugMode: DebugModeSchema.optional(),
