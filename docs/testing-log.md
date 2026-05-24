@@ -8,6 +8,16 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 1 T3 (router: laneRegistry)
+
+**Scope:** TDD on the lane registry per `docs/plans/2026-05-23-phase-1-task-routing.md`. New `src/router/laneRegistry.ts` exposes `buildLaneRegistry(cfg)` returning `{ lookup, entries }` — pre-resolves all four known lane names (`cheap-task`, `moderate-task`, `frontier-task`, `delegator`) through `resolveLane()` at construction time, caches them in a Map, and serves `lookup(role)` for the scheduler. Unknown roles return `undefined` (the scheduler will distinguish a router-lane role from a sub-agent role this way).
+
+**Test pass:** `bun test tests/router/laneRegistry.test.ts` — initial RED (module missing) → GREEN after implementation, 5/5 pass / 11 expect calls.
+
+**Pre-commit gate:** `bun run lint && bun run typecheck && bun run test` — all green. Full suite **2207 / 0 / 14** (+5 from prior 2202 baseline at `350e5e1`).
+
+**No binary release.** Phase 1 binary cut is owned by T19 per the plan.
+
 ## 2026-05-23 — Phase 18 close-out (T11: docs deep-crawl + state snapshot)
 
 **Scope:** Phase 18 (OpenAI-compatible HTTP API server) closed. T11 is the docs close-out for the phase: created `docs/state/2026-05-23-phase-18-openai-api-server.md` (full close-out snapshot mirroring the Phase 17 structure), updated `CLAUDE.md` + `AGENTS.md` (byte-identical mirror — `diff` confirmed `IDENTICAL`) so the Session-boot pointer + Current-state table row both reference the new snapshot at the top, added a complete `## OpenAI-compatible HTTP API (`sov serve`)` section to `docs/usage.md` (quickstart with curl + Python SDK + Open WebUI; CLI flags table; endpoints table; session continuity semantics; tools + side-channel doc; abort propagation; error envelope semantics; configuration; deployment), added an `## OpenAI HTTP Server` section to `docs/architecture.md` (sits parallel to TUI / drive / dispatch / cron; ASCII boot diagram; per-request flow; tool execution invariant D9; statelessness invariant D10; abort propagation chain; session observability; cron co-deployment), added an `## Add An OpenAI Route` recipe to `docs/extending.md` (4-step pattern: route module → mount in `/v1` auth group → Zod schemas → two-layer testing; tool execution invariant + auth scope + SessionDb conventions).
