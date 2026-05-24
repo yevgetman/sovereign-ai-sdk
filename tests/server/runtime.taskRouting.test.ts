@@ -78,8 +78,12 @@ describe('buildRuntime — taskRouting wiring', () => {
     });
     try {
       const joined = runtime.systemSegments.map((s) => s.text ?? '').join('\n');
+      // The XML-style tag uniquely marks the smart-router segment. The bare
+      // substring "smart-router" can appear in recent git commit messages
+      // (e.g. "feat(bundle): smart-router system-prompt segment") which the
+      // runtime context block includes — so we don't assert on the bare
+      // substring.
       expect(joined).not.toContain('<smart-router>');
-      expect(joined).not.toContain('smart-router');
     } finally {
       await runtime.dispose();
     }
@@ -113,8 +117,9 @@ describe('buildRuntime — taskRouting wiring', () => {
       // hasn't shipped yet) the runtime still boots cleanly.
       const promptPath = join(process.cwd(), 'bundle-default', 'prompts', 'smart-router.md');
       if (existsSync(promptPath)) {
-        // The file is shipped — at minimum the segment carries some content.
-        expect(joined).toContain('smart-router');
+        // The file is shipped — the XML-tag-wrapped segment lands in
+        // systemSegments.
+        expect(joined).toContain('<smart-router>');
       } else {
         // The file is not shipped yet — the wiring is in place but the
         // injection is a no-op. Assert the runtime booted cleanly without
