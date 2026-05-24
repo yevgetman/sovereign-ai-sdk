@@ -135,9 +135,51 @@ func (p *PickerCard) OnBack() string {
 	return p.payload.OnBack.Command
 }
 
+// OnSave returns the dispatcher command to invoke on the `S` key
+// (commit & exit for /config draft pickers). Empty string when the
+// picker doesn't wire this affordance. 2026-05-24 patch.
+func (p *PickerCard) OnSave() string {
+	if p.payload.OnSave == nil {
+		return ""
+	}
+	return p.payload.OnSave.Command
+}
+
+// OnCancel returns the dispatcher command to invoke on `Esc` for
+// pickers that want explicit cancel-and-exit semantics (the /config
+// draft pickers, which discard pending changes). Empty string when
+// absent — Esc falls back to the existing back-nav-or-close path.
+// 2026-05-24 patch.
+func (p *PickerCard) OnCancel() string {
+	if p.payload.OnCancel == nil {
+		return ""
+	}
+	return p.payload.OnCancel.Command
+}
+
 // SetTheme swaps the theme used by subsequent View() calls.
 func (p *PickerCard) SetTheme(t theme.Theme) {
 	p.theme = t
+}
+
+// pickerFooterText composes the footer hint line based on which
+// optional key affordances the payload wires. Mix-and-match: a /config
+// root picker has S/onCancel but no OnBack; a /config sub-picker has
+// all three; /model has none. 2026-05-24 patch.
+func pickerFooterText(hasBack, hasSave, hasCancel bool) string {
+	parts := []string{"↑/↓ navigate", "enter confirm"}
+	if hasBack {
+		parts = append(parts, "backspace back")
+	}
+	if hasSave {
+		parts = append(parts, "S save & exit")
+	}
+	if hasCancel {
+		parts = append(parts, "esc cancel & exit")
+	} else {
+		parts = append(parts, "esc cancel")
+	}
+	return strings.Join(parts, " · ")
 }
 
 // hasExtraColumns reports whether ANY item in the payload sets
@@ -268,15 +310,13 @@ func (p PickerCard) View(width int) string {
 	// Footer — recessive grey-blue italic, separated by a blank line
 	// from the items (M11.16 spacing convention).
 	//
-	// 2026-05-24 patch — surface the backspace hint when the payload
-	// has an OnBack so users discover the back-navigation. Pickers
-	// without a parent (root menu, /model, /resume, /export, /theme)
-	// keep the M11.5 footer.
+	// 2026-05-24 patch — surface keys conditionally:
+	//   - backspace hint when OnBack is present
+	//   - S / cancel-exit hints when OnSave / OnCancel are present
+	//     (used by the /config draft-edit pickers)
+	// Pickers without these keep the M11.5 baseline footer.
 	footerStyle := lipgloss.NewStyle().Foreground(pickerFooterColor).Italic(true)
-	footerText := "↑/↓ navigate · enter confirm · esc cancel"
-	if p.payload.OnBack != nil {
-		footerText = "↑/↓ navigate · enter confirm · backspace back · esc cancel"
-	}
+	footerText := pickerFooterText(p.payload.OnBack != nil, p.payload.OnSave != nil, p.payload.OnCancel != nil)
 	footer := footerStyle.Render(footerText)
 	body := strings.Join(lines, "\n") + "\n\n" + footer
 

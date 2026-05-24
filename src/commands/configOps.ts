@@ -39,6 +39,12 @@ import {
   listRootMenuGroups,
   listUnmanagedKeys,
 } from '../config/catalog.js';
+import {
+  commitDraft,
+  ensureDraft,
+  recordModification,
+  takeBaselineForDiscard,
+} from '../config/draftManager.js';
 import type { LiveApplySideEffect } from '../config/liveApply.js';
 import {
   BUILTIN_PRESETS,
@@ -87,6 +93,21 @@ const PRESET_ACTION_SAVE_SENTINEL = '__sov_preset_save__';
 // ──────────────────────────────────────────────────────────────────────
 
 /**
+ * Standard key-binding pair that every /config picker carries so the
+ * Go TUI wires the S key to `/config commit` and Esc to `/config
+ * discard`. Footer text renders accordingly. 2026-05-24 patch.
+ */
+function configPickerBindings(): {
+  onSave: { command: string };
+  onCancel: { command: string };
+} {
+  return {
+    onSave: { command: 'config commit' },
+    onCancel: { command: 'config discard' },
+  };
+}
+
+/**
  * Resolve the `onBack` command for a picker shown at `groupId`.
  *
  * - Top-level groups (any catalog group not nested under a drill-in
@@ -126,19 +147,27 @@ function parentCommandForGroup(groupId: string): string | undefined {
 export async function dispatchConfigCommand(args: string, ctx: CommandContext): Promise<string> {
   const trimmed = args.trim();
 
-  // No verb: root menu picker.
-  if (trimmed === '') {
-    return openRootMenu(ctx);
-  }
-
   // Legacy `show` shortcut — preserved as a JSON-dump escape hatch.
   if (trimmed === 'show') {
     return showJson();
   }
 
+  // 2026-05-24 patch — open a draft for the current session on every
+  // non-read-only /config dispatch. The draft snapshots config so /config
+  // discard can roll back. Read-only verbs (path / get / show) don't
+  // need a draft. commit / discard themselves manage draft state.
   const firstSpace = trimmed.search(/\s/);
   const verb = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace);
   const rest = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim();
+  const readOnlyVerbs = new Set(['path', 'get', 'show', 'commit', 'discard']);
+  if (!readOnlyVerbs.has(verb)) {
+    ensureDraft(ctx.sessionId, readConfig());
+  }
+
+  // No verb: root menu picker.
+  if (trimmed === '') {
+    return openRootMenu(ctx);
+  }
 
   try {
     if (verb === 'path') return resolveConfigPath();
@@ -151,6 +180,9 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
     if (verb === 'apply-preset') return await runApplyPreset(rest, ctx);
     if (verb === 'save-preset') return runSavePreset(rest, ctx);
     if (verb === 'delete-preset') return runDeletePreset(rest, ctx);
+    // 2026-05-24 patch — draft commit/discard.
+    if (verb === 'commit') return runCommit(ctx);
+    if (verb === 'discard') return await runDiscard(ctx);
 
     // Maybe the verb is a group id — drill into that group.
     if (findGroup(verb) !== undefined || verb === 'advanced') {
@@ -159,7 +191,7 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
 
     return [
       `unknown /config verb: ${verb}`,
-      'usage: /config [<group-id>|edit <dotpath>|set <dotpath> <value>|unset <dotpath>|preset|apply-preset <name>|save-preset <name>|delete-preset <name>|show|path|get <dotpath>]',
+      'usage: /config [<group-id>|edit <dotpath>|set <dotpath> <value>|unset <dotpath>|preset|apply-preset <name>|save-preset <name>|delete-preset <name>|commit|discard|show|path|get <dotpath>]',
     ].join('\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -197,6 +229,7 @@ function openRootMenu(ctx: CommandContext): string {
     })),
     initial: 0,
     onSelect: { command: 'config' },
+    ...configPickerBindings(),
   };
 
   if (unmanaged.length > 0) {
@@ -243,6 +276,7 @@ function openGroup(groupId: string, ctx: CommandContext): string {
       initial: 0,
       onSelect: { command: 'config' },
       ...(parentCmd !== undefined ? { onBack: { command: parentCmd } } : {}),
+      ...configPickerBindings(),
     });
     return '';
   }
@@ -291,6 +325,7 @@ function openGroup(groupId: string, ctx: CommandContext): string {
     initial: 0,
     onSelect: { command: 'config edit' },
     ...(parentCmd !== undefined ? { onBack: { command: parentCmd } } : {}),
+    ...configPickerBindings(),
   });
   return '';
 }
@@ -329,6 +364,7 @@ function openAdvancedGroup(ctx: CommandContext): string {
     // unmanaged keys is v0-out-of-scope.
     onSelect: { command: 'config get' },
     onBack: { command: 'config' },
+    ...configPickerBindings(),
   });
   return '';
 }
@@ -444,6 +480,7 @@ function openBooleanPicker(item: ConfigItem, currentRaw: unknown, ctx: CommandCo
     initial,
     onSelect: { command: `config set ${item.path}` },
     ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
+    ...configPickerBindings(),
   });
   return '';
 }
@@ -518,6 +555,7 @@ function openEnumPicker(
     initial,
     onSelect: { command: `config set ${item.path}` },
     ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
+    ...configPickerBindings(),
   });
   return '';
 }
@@ -614,6 +652,9 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
     return reopenEditorWithError(item, path, rawValue, message, ctx);
   }
   writeConfig(next);
+  // 2026-05-24 patch — track this path in the active draft so
+  // /config discard knows what to roll back.
+  recordModification(ctx.sessionId, path);
 
   // Fire live-apply hook, if any.
   const standalone = ctx.isConfigStandalone === true;
@@ -656,6 +697,7 @@ async function runUnset(rest: string, ctx: CommandContext): Promise<string> {
   const before = readConfig();
   const next = unsetAt(before, path);
   writeConfig(next);
+  recordModification(ctx.sessionId, path);
 
   const standalone = ctx.isConfigStandalone === true;
   const sideEffect: LiveApplySideEffect = {};
@@ -781,6 +823,7 @@ function reopenEditorWithError(
       initial: rawValue === 'true' ? 0 : 1,
       onSelect: { command: `config set ${path}` },
       ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
+      ...configPickerBindings(),
     });
     return error;
   }
@@ -797,6 +840,7 @@ function reopenEditorWithError(
       initial: 0,
       onSelect: { command: `config set ${path}` },
       ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
+      ...configPickerBindings(),
     });
     return error;
   }
@@ -893,6 +937,7 @@ function openPresetPicker(ctx: CommandContext): string {
     initial: 0,
     onSelect: { command: 'config apply-preset' },
     onBack: { command: 'config task-routing' },
+    ...configPickerBindings(),
   });
   return '';
 }
@@ -915,6 +960,14 @@ async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string
   }
   const next = applyPresetToSettings(settings, shape);
   writeConfig(next);
+  // 2026-05-24 patch — record every path the preset writes so /config
+  // discard rolls them back. Preset touches delegator.model + each
+  // lane's provider + model.
+  recordModification(ctx.sessionId, 'taskRouting.delegator.model');
+  for (const lane of ['cheap-task', 'moderate-task', 'frontier-task'] as const) {
+    recordModification(ctx.sessionId, `taskRouting.lanes.${lane}.provider`);
+    recordModification(ctx.sessionId, `taskRouting.lanes.${lane}.model`);
+  }
   // The lane registry rebuilds on next session boot; for the current
   // session, /routing-stats and the lane preflight refer to the
   // boot-time registry. Surface that honestly in the toast.
@@ -959,6 +1012,7 @@ function runSavePreset(rest: string, ctx: CommandContext): string {
   // helpers in store.ts handle the nested path.
   const next = setAt(settings, `taskRouting.savedPresets.${trimmed}`, shape);
   writeConfig(next);
+  recordModification(ctx.sessionId, `taskRouting.savedPresets.${trimmed}`);
   // Re-emit the task-routing submenu so the user can immediately
   // verify the snapshot landed.
   if (ctx.requestPicker !== undefined) {
@@ -984,10 +1038,80 @@ function runDeletePreset(rest: string, ctx: CommandContext): string {
   }
   const next = unsetAt(settings, `taskRouting.savedPresets.${name}`);
   writeConfig(next);
+  recordModification(ctx.sessionId, `taskRouting.savedPresets.${name}`);
   if (ctx.requestPicker !== undefined) {
     openGroup('task-routing', ctx);
   }
   return `deleted saved preset '${name}'`;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Draft commit / discard (2026-05-24 patch)
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * `/config commit` — finalize the draft session. The on-disk config is
+ * already the latest (each /config set wrote through immediately); we
+ * just drop the draft state and surface a "saved N changes" toast.
+ *
+ * Sent by the Go TUI on the `S` key (every /config picker carries an
+ * `onSave: { command: 'config commit' }` binding).
+ */
+function runCommit(ctx: CommandContext): string {
+  const count = commitDraft(ctx.sessionId);
+  if (count === 0) return 'no changes to save';
+  return `saved ${count} change${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * `/config discard` — restore the snapshot taken when the draft
+ * opened, re-fire live-apply hooks for each modified path with the
+ * baseline value so runtime state reverts in lock-step, and drop the
+ * draft. When no draft is active (e.g., the user discarded twice or
+ * dispatched /config discard directly without a prior /config), the
+ * verb is a no-op with a friendly message.
+ *
+ * Sent by the Go TUI on `Esc` (every /config picker carries an
+ * `onCancel: { command: 'config discard' }` binding).
+ */
+async function runDiscard(ctx: CommandContext): Promise<string> {
+  const taken = takeBaselineForDiscard(ctx.sessionId);
+  if (taken === undefined) return 'no draft to discard';
+  if (taken.modifiedPaths.length === 0) {
+    // Empty draft — no on-disk changes happened; nothing to roll back.
+    return 'no changes to discard';
+  }
+  // Restore the baseline to disk in one write. The pre-modification
+  // settings overwrite whatever's there.
+  writeConfig(taken.baseline);
+  // Re-fire live-apply hooks for each modified path with the value
+  // from the baseline, so runtime state reverts to its pre-draft
+  // shape. Hook side-effects (themeChanged / verboseChanged) flow
+  // back through ctx so the TUI sees them.
+  const sideEffect: LiveApplySideEffect = {};
+  let recordedSideEffect = false;
+  for (const path of taken.modifiedPaths) {
+    const hook = getLiveApplyHook(path);
+    if (hook === undefined) continue;
+    const baselineValue = getAt(taken.baseline as Record<string, unknown>, path);
+    await hook(baselineValue, {
+      commandCtx: ctx,
+      recordSideEffect: (effect) => {
+        recordedSideEffect = true;
+        Object.assign(sideEffect, effect);
+      },
+    });
+  }
+  if (recordedSideEffect) {
+    if (sideEffect.themeChanged !== undefined && ctx.recordThemeChange !== undefined) {
+      ctx.recordThemeChange(sideEffect.themeChanged);
+    }
+    if (sideEffect.verboseChanged !== undefined && ctx.recordVerboseChange !== undefined) {
+      ctx.recordVerboseChange(sideEffect.verboseChanged);
+    }
+  }
+  const n = taken.modifiedPaths.length;
+  return `discarded ${n} change${n === 1 ? '' : 's'} — restored previous values`;
 }
 
 // ──────────────────────────────────────────────────────────────────────

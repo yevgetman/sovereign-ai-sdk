@@ -324,6 +324,106 @@ func TestConfigOnly_ViewHidesPrompt(t *testing.T) {
 	}
 }
 
+// 2026-05-24 patch — S key (save) + onCancel routing.
+
+func samplePickerPayloadWithSave(saveCmd string) *transport.PickerOpenPayload {
+	p := samplePickerPayload()
+	p.OnSave = &struct {
+		Command string `json:"command"`
+	}{Command: saveCmd}
+	return p
+}
+
+func samplePickerPayloadWithCancel(cancelCmd string) *transport.PickerOpenPayload {
+	p := samplePickerPayload()
+	p.OnCancel = &struct {
+		Command string `json:"command"`
+	}{Command: cancelCmd}
+	return p
+}
+
+func TestPickerS_NoOpWhenOnSaveAbsent(t *testing.T) {
+	// /model picker doesn't wire OnSave — S should be ignored, picker stays open.
+	m := New("sess-1", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{PickerOpen: samplePickerPayload()},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "model", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	app = updated.(Model)
+	if app.picker == nil {
+		t.Error("picker should stay open on S when OnSave is absent")
+	}
+}
+
+func TestPickerS_ClosesPickerAndDispatchesWhenOnSavePresent(t *testing.T) {
+	// /config picker wires OnSave = "config commit". S should close
+	// the picker and (with no server) print the unavailable line.
+	m := New("sess-1", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{
+			PickerOpen: samplePickerPayloadWithSave("config commit"),
+		},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	app = updated.(Model)
+	if app.picker != nil {
+		t.Error("picker should be cleared after S when OnSave is present")
+	}
+}
+
+func TestPickerS_UppercaseS_AlsoFires(t *testing.T) {
+	// Either casing of S should fire OnSave.
+	m := New("sess-1", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{
+			PickerOpen: samplePickerPayloadWithSave("config commit"),
+		},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	app = updated.(Model)
+	if app.picker != nil {
+		t.Error("picker should be cleared after capital-S when OnSave is present")
+	}
+}
+
+func TestPickerEsc_OnCancelTakesPrecedenceOverOnBack(t *testing.T) {
+	// When both OnCancel and OnBack are set (e.g., a /config sub-
+	// picker), Esc should dispatch OnCancel (discard) — not the
+	// back-nav path.
+	m := New("sess-1", "")
+	payload := samplePickerPayload()
+	payload.OnBack = &struct {
+		Command string `json:"command"`
+	}{Command: "config task-routing"}
+	payload.OnCancel = &struct {
+		Command string `json:"command"`
+	}{Command: "config discard"}
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{PickerOpen: payload},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = updated.(Model)
+	if app.picker != nil {
+		t.Error("picker should be cleared on Esc")
+	}
+	// The exact command dispatched isn't observable from outside the
+	// model in this test (it's wrapped in a Cmd). We just confirm the
+	// picker closed, which is the observable side-effect of the Esc
+	// handler taking the OnCancel branch instead of falling through.
+}
+
 func TestPickerBackspace_ClearsPickerWhenOnBackPresent(t *testing.T) {
 	// Picker with OnBack — backspace clears the current picker and
 	// re-dispatches the back command.

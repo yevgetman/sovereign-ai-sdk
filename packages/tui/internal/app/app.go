@@ -838,6 +838,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
 				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value))
 			case "esc":
+				// 2026-05-24 patch (v2) — explicit cancel-and-exit via
+				// OnCancel. /config pickers wire this to dispatch
+				// `/config discard` which rolls back the draft session
+				// before closing. Consistent across root + sub-pickers
+				// inside /config.
+				cancel := m.picker.OnCancel()
+				if cancel != "" {
+					m.picker = nil
+					if m.baseURL == "" {
+						m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+						return m, m.respond(nil)
+					}
+					m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cancel))
+					name, args := splitConfigBackCommand(cancel)
+					return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
+				}
 				// 2026-05-24 patch — in configOnly mode, Esc on a
 				// sub-picker (one with OnBack) behaves like backspace
 				// so the user climbs back instead of being dumped at
@@ -860,6 +876,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.print(m.theme.DimStyle().Render("(cancelled)"))
 				}
 				return m, m.maybeQuitAfterModalClose(m.respond(nil))
+			case "s", "S":
+				// 2026-05-24 patch (v2) — explicit save-and-exit via
+				// OnSave. /config pickers wire this to dispatch
+				// `/config commit` which finalizes the draft session.
+				// When OnSave is absent (non-/config pickers), S is
+				// ignored.
+				save := m.picker.OnSave()
+				if save == "" {
+					return m, m.respond(nil)
+				}
+				m.picker = nil
+				if m.baseURL == "" {
+					m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, m.respond(nil)
+				}
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + save))
+				name, args := splitConfigBackCommand(save)
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
 			case "backspace":
 				// 2026-05-24 patch — back-navigation. The payload's
 				// optional OnBack carries the parent menu's command;

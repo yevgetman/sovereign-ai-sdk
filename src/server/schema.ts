@@ -249,6 +249,18 @@ export const PickerOpenConfigSchema = z.object({
   // no parent (root menu / standalone picker), so backspace is a
   // no-op. Esc still cancels the picker outright.
   onBack: z.object({ command: z.string() }).optional(),
+  // 2026-05-24 patch — when present, the TUI dispatches this command
+  // on the `S` key (commit & exit). Used by /config pickers to wire
+  // the "Save and Exit" affordance. Absent on pickers that don't
+  // need this (/model, /resume, /export, /theme — they're atomic
+  // single-shot edits).
+  onSave: z.object({ command: z.string() }).optional(),
+  // 2026-05-24 patch — when present, the TUI dispatches this command
+  // on `Esc`. Used by /config pickers to wire the "Cancel and Exit"
+  // affordance (which rolls back the draft session). When absent,
+  // Esc falls back to the existing behavior (back-nav in configOnly
+  // mode when OnBack is set, "(cancelled)" close otherwise).
+  onCancel: z.object({ command: z.string() }).optional(),
 });
 
 export type PickerOpenConfigWire = z.infer<typeof PickerOpenConfigSchema>;

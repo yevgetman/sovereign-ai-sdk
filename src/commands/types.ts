@@ -44,6 +44,15 @@ export type PickerOpenConfig = {
    *  Absence means there's no parent (root menu, or non-hierarchical
    *  picker like /model / /resume / /export / /theme). */
   onBack?: { command: string };
+  /** 2026-05-24 patch — save & exit. When present, the TUI dispatches
+   *  this command on the `S` key. Used by /config pickers to wire the
+   *  commit & exit affordance for the draft-edit session. */
+  onSave?: { command: string };
+  /** 2026-05-24 patch — cancel & exit. When present, the TUI dispatches
+   *  this command on `Esc`. Used by /config pickers to wire the
+   *  discard & exit affordance. When absent, Esc falls back to the
+   *  existing back-nav-or-close behavior. */
+  onCancel?: { command: string };
 };
 
 /** 2026-05-24 — Config UX rebuild. Parallel to `PickerOpenConfig` but for

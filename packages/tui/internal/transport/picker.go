@@ -49,4 +49,18 @@ type PickerOpenPayload struct {
 	OnBack *struct {
 		Command string `json:"command"`
 	} `json:"onBack,omitempty"`
+	// 2026-05-24 patch — save & exit. Dispatched on the `S` key when
+	// present (used by /config draft-edit pickers). Absent on pickers
+	// that don't need an explicit save (/model, /resume, /export,
+	// /theme — already atomic).
+	OnSave *struct {
+		Command string `json:"command"`
+	} `json:"onSave,omitempty"`
+	// 2026-05-24 patch — cancel & exit. Dispatched on `Esc` when
+	// present (used by /config draft-edit pickers to discard the
+	// draft). When absent, Esc falls back to the back-nav-or-close
+	// path.
+	OnCancel *struct {
+		Command string `json:"command"`
+	} `json:"onCancel,omitempty"`
 }

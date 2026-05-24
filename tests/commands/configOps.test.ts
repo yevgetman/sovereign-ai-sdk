@@ -13,6 +13,7 @@ import type {
   InputOpenConfig,
   PickerOpenConfig,
 } from '../../src/commands/types.js';
+import { __resetAllDrafts } from '../../src/config/draftManager.js';
 import { makeCtx } from './_makeCtx.js';
 
 type Capture = {
@@ -59,12 +60,17 @@ describe('/config dispatcher', () => {
     dir = mkdtempSync(join(tmpdir(), 'harness-cfg-ops-'));
     cfgPath = join(dir, 'config.json');
     process.env.HARNESS_CONFIG = cfgPath;
+    // 2026-05-24 patch — drafts persist across dispatches per sessionId.
+    // Reset between tests so they don't bleed (makeCtx uses a fixed
+    // sessionId of 'session-1').
+    __resetAllDrafts();
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
     if (prevEnv === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
     else process.env.HARNESS_CONFIG = prevEnv;
+    __resetAllDrafts();
   });
 
   describe('no args → root menu', () => {
@@ -680,6 +686,134 @@ describe('/config dispatcher', () => {
       const { ctx } = captureCtx();
       const result = await dispatchConfigCommand('delete-preset never-saved', ctx);
       expect(result).toContain('no saved preset');
+    });
+  });
+
+  // 2026-05-24 patch — draft commit / discard.
+  describe('draft commit / discard', () => {
+    test('/config (root open) wires onSave + onCancel on the picker', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('', ctx);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onSave?.command).toBe('config commit');
+      expect(picker.onCancel?.command).toBe('config discard');
+    });
+
+    test('sub-pickers also carry onSave + onCancel', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('general', ctx);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onSave?.command).toBe('config commit');
+      expect(picker.onCancel?.command).toBe('config discard');
+    });
+
+    test('/config commit with no draft returns "no changes to save"', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('commit', ctx);
+      expect(result).toBe('no changes to save');
+    });
+
+    test('/config commit after a set reports the change count', async () => {
+      const { ctx } = captureCtx();
+      // Open draft via root, then make a change.
+      await dispatchConfigCommand('', ctx);
+      await dispatchConfigCommand('set defaultProvider ollama', ctx);
+      const result = await dispatchConfigCommand('commit', ctx);
+      expect(result).toContain('saved 1 change');
+    });
+
+    test('/config commit reports plural correctly', async () => {
+      const { ctx } = captureCtx();
+      await dispatchConfigCommand('', ctx);
+      await dispatchConfigCommand('set defaultProvider ollama', ctx);
+      await dispatchConfigCommand('set maxTurns 50', ctx);
+      const result = await dispatchConfigCommand('commit', ctx);
+      expect(result).toContain('saved 2 changes');
+    });
+
+    test('/config discard with no draft returns "no draft to discard"', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('discard', ctx);
+      expect(result).toBe('no draft to discard');
+    });
+
+    test('/config discard with empty draft returns "no changes to discard"', async () => {
+      const { ctx } = captureCtx();
+      // Open draft (root) but make no changes.
+      await dispatchConfigCommand('', ctx);
+      const result = await dispatchConfigCommand('discard', ctx);
+      expect(result).toBe('no changes to discard');
+    });
+
+    test('/config discard restores the baseline + reports the change count', async () => {
+      // Seed config with a value first.
+      writeFileSync(cfgPath, JSON.stringify({ defaultProvider: 'anthropic' }));
+      const { ctx } = captureCtx();
+      // Open draft (snapshots {defaultProvider: 'anthropic'}).
+      await dispatchConfigCommand('', ctx);
+      // Mutate it.
+      await dispatchConfigCommand('set defaultProvider ollama', ctx);
+      // Verify the on-disk value changed.
+      const midState = await dispatchConfigCommand('get defaultProvider', makeCtx());
+      expect(midState).toContain('ollama');
+      // Discard.
+      const result = await dispatchConfigCommand('discard', ctx);
+      expect(result).toContain('discarded 1 change');
+      // Verify the on-disk value is back to the baseline.
+      const finalState = await dispatchConfigCommand('get defaultProvider', makeCtx());
+      expect(finalState).toContain('anthropic');
+      expect(finalState).not.toContain('ollama');
+    });
+
+    test('/config discard re-fires live-apply hooks with the baseline value', async () => {
+      // Seed config with theme = dark.
+      writeFileSync(cfgPath, JSON.stringify({ theme: 'dark' }));
+      const { ctx, cap } = captureCtx();
+      // Open draft (baseline: theme=dark).
+      await dispatchConfigCommand('', ctx);
+      // Switch to light — hook records themeChanged: 'light'.
+      await dispatchConfigCommand('set theme light', ctx);
+      expect(cap.themeChanges).toEqual(['light']);
+      // Discard — hook should re-fire with baseline ('dark').
+      await dispatchConfigCommand('discard', ctx);
+      expect(cap.themeChanges).toEqual(['light', 'dark']);
+    });
+
+    test('commit drops the draft so a subsequent open snapshots fresh', async () => {
+      writeFileSync(cfgPath, JSON.stringify({ defaultProvider: 'anthropic' }));
+      const { ctx } = captureCtx();
+      await dispatchConfigCommand('', ctx);
+      await dispatchConfigCommand('set defaultProvider ollama', ctx);
+      await dispatchConfigCommand('commit', ctx);
+      // Now open again — discard should snapshot the NEW state.
+      await dispatchConfigCommand('', ctx);
+      await dispatchConfigCommand('set defaultProvider openai', ctx);
+      await dispatchConfigCommand('discard', ctx);
+      const finalState = await dispatchConfigCommand('get defaultProvider', makeCtx());
+      // Should be ollama (committed in step 1), not anthropic (the
+      // pre-step-1 baseline that's now forgotten).
+      expect(finalState).toContain('ollama');
+    });
+
+    test('apply-preset records modifications for all touched paths', async () => {
+      const { ctx } = captureCtx();
+      await dispatchConfigCommand('', ctx);
+      await dispatchConfigCommand('apply-preset full-anthropic', ctx);
+      const commitResult = await dispatchConfigCommand('commit', ctx);
+      // delegator.model + 3 lanes × (provider + model) = 7 changes.
+      expect(commitResult).toContain('saved 7 changes');
+    });
+
+    test('read-only verbs do NOT open a draft', async () => {
+      const { ctx } = captureCtx();
+      // path / get / show should not open a draft. Subsequent discard
+      // should report "no draft".
+      await dispatchConfigCommand('path', ctx);
+      await dispatchConfigCommand('show', ctx);
+      const result = await dispatchConfigCommand('discard', ctx);
+      expect(result).toBe('no draft to discard');
     });
   });
 
