@@ -942,15 +942,38 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     laneSemaphores,
     writeLock,
     resolveProvider: (name, model) => resolveProvider(name, model, { harnessHome }),
-    createChildSession: (input) =>
-      sessionDb.createSession({
+    createChildSession: (input) => {
+      // Phase 2 T1 — pick the metadata shape based on the routing attribution
+      // hints the scheduler computes for us.
+      //
+      //   isDelegator   → `{ kind: 'routing-delegator', parentSessionId }`
+      //   lane !== null → `{ kind: 'routing-atom', laneName, laneProvider,
+      //                       laneModel, parentDelegatorSessionId }`
+      //   otherwise     → legacy `{ agentName, kind: 'subagent' }`
+      //
+      // Downstream consumers (audit logger, /sessions list, trajectory
+      // exports) can group on `kind` to triage router-routed work
+      // separately from domain sub-agents.
+      const metadata: Record<string, unknown> = input.isDelegator
+        ? { kind: 'routing-delegator', parentSessionId: input.parentSessionId }
+        : input.lane !== null
+          ? {
+              kind: 'routing-atom',
+              laneName: input.lane.name,
+              laneProvider: input.lane.provider,
+              laneModel: input.lane.model,
+              parentDelegatorSessionId: input.parentSessionId,
+            }
+          : { agentName: input.agentName, kind: 'subagent' };
+      return sessionDb.createSession({
         provider: input.provider,
         model: input.model,
         parentSessionId: input.parentSessionId,
         title: `subagent:${input.agentName}`,
         systemPrompt: input.systemPrompt,
-        metadata: { agentName: input.agentName, kind: 'subagent' },
-      }),
+        metadata,
+      });
+    },
     availableProviders: resolveSubagentAvailableProviders(resolved),
     defaultProvider: subagentDefaultProvider,
     defaultModel: subagentDefaultModel,

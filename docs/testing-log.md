@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 2 T1 per-atom lane metadata in SessionDb
+
+**Scope:** Phase 2 T1 from `docs/plans/2026-05-23-phase-2-task-routing.md`. The runtime's `createChildSession` closure now writes richer metadata for router-routed children. The scheduler threads two new attribution fields through the callback (`lane: { name, provider, model } | null` and `isDelegator: boolean`), computed from the same `resolveLane` hit Phase 1 T7 introduced. The closure picks the metadata shape: `{ kind: 'routing-delegator', parentSessionId }` for delegator sessions, `{ kind: 'routing-atom', laneName, laneProvider, laneModel, parentDelegatorSessionId }` for cost-lane atoms, and the legacy `{ agentName, kind: 'subagent' }` for everything else.
+
+**Files:**
+- `src/runtime/scheduler.ts` — extended `createChildSession` callback signature with `lane` and `isDelegator`; computed both in `delegate()` from `agent.role` + `resolveLane`.
+- `src/server/runtime.ts` — runtime closure now branches on the new fields to pick the metadata shape; legacy shape preserved for non-router agents.
+- `tests/router/laneAttribution.test.ts` — 2 new integration tests, one driving the full parent → delegator → cheap-task chain to verify both new shapes, one driving parent → explore to verify the legacy shape stays intact.
+
+**Suite numbers:** **2245 pass / 0 fail / 15 skip** (+2 from Phase 1 close-out baseline of 2243). Existing scheduler + integration tests passed without modification (callback fixtures destructure only the fields they use, so additive signature changes are non-breaking).
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2245 pass / 0 fail / 15 skip / 6024 expect() calls / 287 files
+```
+
+---
+
 ## 2026-05-23 — Phase 1 multi-provider task routing close-out
 
 **Scope:** Phase 1 of the multi-provider task routing feature (per the spec at `docs/specs/2026-05-23-multi-provider-task-routing-design.md`) shipped across 17 tasks. Default state ships a B-via-D bridge baseline (cost-lane sub-agents available regardless of flag, parent system prompt mentions them). When `taskRouting.enabled: true`, a `delegator` sub-agent (Sonnet-grade, single-tier in Phase 1) becomes the parent's first action on every turn; it decomposes (or single-shots) and dispatches atoms via `AgentTool` to cost-lane sub-agents (`cheap-task`, `moderate-task`, `frontier-task`).

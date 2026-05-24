@@ -53,13 +53,28 @@ export type SubagentSchedulerOpts = {
   resolveProvider: (providerName: string, model: string | undefined) => ResolvedProvider;
   /** Caller-supplied child session creation. Returns the new sessionId.
    *  The caller is responsible for writing the parent_session_id link
-   *  to the session DB. */
+   *  to the session DB.
+   *
+   *  Phase 2 T1 — the scheduler now also threads two attribution hints so
+   *  the runtime closure can stamp router-routed children with richer
+   *  metadata shapes:
+   *
+   *  - `lane`: non-null when the agent's role resolved through the lane
+   *    registry (one of the four router roles). Carries the lane name +
+   *    resolved provider/model so downstream telemetry can group on it.
+   *  - `isDelegator`: true when the child is the delegator session itself
+   *    (agent.role === 'delegator'). Drives the `routing-delegator` shape.
+   *
+   *  Both fields default to `null`/`false` for non-router children so the
+   *  legacy `{ agentName, kind: 'subagent' }` metadata stays in place. */
   createChildSession: (input: {
     parentSessionId: string;
     agentName: string;
     provider: string;
     model: string;
     systemPrompt: SystemSegment[];
+    lane: { name: string; provider: string; model: string } | null;
+    isDelegator: boolean;
   }) => string;
   /** Providers the harness has credentials for. Used by capability-
    *  profile role resolution. Defaults to the four registered providers. */
@@ -168,12 +183,30 @@ export class SubagentScheduler {
       }
 
       const tools = buildChildToolPool(input.parentToolPool, agent);
+
+      // Phase 2 T1 — compute the lane attribution hints for the runtime's
+      // createChildSession closure. The lane hit is recomputed here (vs.
+      // threaded through from resolveProviderModel) because the call shape
+      // is purely additive — recomputing keeps the data flow obvious and
+      // the resolveLane callback is cheap (a Map lookup over four entries).
+      const laneHit =
+        agent.role !== undefined && this.opts.resolveLane !== undefined
+          ? this.opts.resolveLane(agent.role)
+          : undefined;
+      const lane =
+        laneHit !== undefined && agent.role !== undefined
+          ? { name: agent.role, provider: laneHit.provider, model: laneHit.model }
+          : null;
+      const isDelegator = agent.role === 'delegator';
+
       const childSessionId = this.opts.createChildSession({
         parentSessionId: input.parentSessionId,
         agentName: agent.name,
         provider: providerName,
         model: modelName,
         systemPrompt: [{ text: agent.systemPrompt, cacheable: true }],
+        lane,
+        isDelegator,
       });
 
       this.childCounts.set(input.parentSessionId, current + 1);
