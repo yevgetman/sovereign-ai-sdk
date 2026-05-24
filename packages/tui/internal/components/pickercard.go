@@ -122,6 +122,19 @@ func (p *PickerCard) Command() string {
 	return p.payload.OnSelect.Command
 }
 
+// OnBack returns the dispatcher command to re-invoke on backspace
+// (back-navigation). Empty string means no parent — the picker is
+// at the root or is a non-hierarchical surface (/model, /resume,
+// /export, /theme), and backspace should be a no-op.
+//
+// 2026-05-24 patch.
+func (p *PickerCard) OnBack() string {
+	if p.payload.OnBack == nil {
+		return ""
+	}
+	return p.payload.OnBack.Command
+}
+
 // SetTheme swaps the theme used by subsequent View() calls.
 func (p *PickerCard) SetTheme(t theme.Theme) {
 	p.theme = t
@@ -254,8 +267,17 @@ func (p PickerCard) View(width int) string {
 
 	// Footer — recessive grey-blue italic, separated by a blank line
 	// from the items (M11.16 spacing convention).
+	//
+	// 2026-05-24 patch — surface the backspace hint when the payload
+	// has an OnBack so users discover the back-navigation. Pickers
+	// without a parent (root menu, /model, /resume, /export, /theme)
+	// keep the M11.5 footer.
 	footerStyle := lipgloss.NewStyle().Foreground(pickerFooterColor).Italic(true)
-	footer := footerStyle.Render("↑/↓ navigate · enter confirm · esc cancel")
+	footerText := "↑/↓ navigate · enter confirm · esc cancel"
+	if p.payload.OnBack != nil {
+		footerText = "↑/↓ navigate · enter confirm · backspace back · esc cancel"
+	}
+	footer := footerStyle.Render(footerText)
 	body := strings.Join(lines, "\n") + "\n\n" + footer
 
 	if width < 6 {

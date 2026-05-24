@@ -243,6 +243,12 @@ export const PickerOpenConfigSchema = z.object({
   items: z.array(PickerOpenItemSchema),
   initial: z.number().int().nonnegative().optional(),
   onSelect: z.object({ command: z.string() }),
+  // 2026-05-24 patch — when present, the TUI re-dispatches this
+  // command on `backspace` so the user can navigate back to the
+  // previous menu without re-running /config. Absence means there's
+  // no parent (root menu / standalone picker), so backspace is a
+  // no-op. Esc still cancels the picker outright.
+  onBack: z.object({ command: z.string() }).optional(),
 });
 
 export type PickerOpenConfigWire = z.infer<typeof PickerOpenConfigSchema>;

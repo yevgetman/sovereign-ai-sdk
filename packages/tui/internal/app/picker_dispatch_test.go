@@ -122,6 +122,57 @@ func TestPickerEscClearsWithoutDispatch(t *testing.T) {
 	}
 }
 
+// 2026-05-24 patch — backspace back-navigation.
+
+// samplePickerPayloadWithBack returns a picker payload carrying an
+// OnBack command — mirrors what /config submenus emit so backspace
+// navigates back to the parent group.
+func samplePickerPayloadWithBack(backCmd string) *transport.PickerOpenPayload {
+	p := samplePickerPayload()
+	p.OnBack = &struct {
+		Command string `json:"command"`
+	}{Command: backCmd}
+	return p
+}
+
+func TestPickerBackspace_NoOpWhenOnBackAbsent(t *testing.T) {
+	// Picker without OnBack — backspace should be a no-op, picker
+	// stays open.
+	m := New("sess-1", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{PickerOpen: samplePickerPayload()},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "model", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	app = updated.(Model)
+
+	if app.picker == nil {
+		t.Error("picker should stay open on backspace when OnBack is absent")
+	}
+}
+
+func TestPickerBackspace_ClearsPickerWhenOnBackPresent(t *testing.T) {
+	// Picker with OnBack — backspace clears the current picker and
+	// re-dispatches the back command.
+	m := New("sess-1", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{
+			PickerOpen: samplePickerPayloadWithBack("config providers"),
+		},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	app = updated.(Model)
+
+	if app.picker != nil {
+		t.Error("picker should be cleared after backspace when OnBack is set")
+	}
+}
+
 func TestPickerEnterDispatchesSelectedValue(t *testing.T) {
 	// baseURL "" causes the "(no server)" branch — we want to confirm
 	// the picker clears and the dispatch path is invoked. With baseURL

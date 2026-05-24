@@ -64,6 +64,37 @@ const TOAST_PERSISTED_ONLY = 'saved — effective next session';
 const TOAST_SAVED_NO_SESSION = 'saved';
 
 // ──────────────────────────────────────────────────────────────────────
+// Back-navigation — 2026-05-24 patch.
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the `onBack` command for a picker shown at `groupId`.
+ *
+ * - Top-level groups (any catalog group not nested under a drill-in
+ *   root): backspace re-dispatches `config` → root menu.
+ * - Drill-in subgroups (`providers-anthropic`, `providers-openai`, …):
+ *   backspace re-dispatches `config providers` → the drill-in root.
+ * - The "advanced" virtual group: backspace re-dispatches `config`.
+ * - Root menu itself never calls this — it has no parent.
+ *
+ * Returns the literal back-command string, or undefined when there's
+ * no parent.
+ */
+function parentCommandForGroup(groupId: string): string | undefined {
+  if (groupId === 'advanced') return 'config';
+  // Walk the catalog: if any group has a drillInto entry whose
+  // targetGroupId matches, that group is the parent.
+  for (const group of CONFIG_CATALOG) {
+    if (group.drillInto === undefined) continue;
+    for (const sub of group.drillInto) {
+      if (sub.targetGroupId === groupId) return `config ${group.id}`;
+    }
+  }
+  // No drill-in parent → top-level group. Back goes to the root menu.
+  return 'config';
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Public dispatcher
 // ──────────────────────────────────────────────────────────────────────
 
@@ -180,12 +211,14 @@ function openGroup(groupId: string, ctx: CommandContext): string {
       for (const sub of group.drillInto) lines.push(`  ${sub.targetGroupId}  — ${sub.label}`);
       return lines.join('\n');
     }
+    const parentCmd = parentCommandForGroup(group.id);
     ctx.requestPicker({
       title: `config / ${group.label.toLowerCase()}`,
       ...(group.description !== undefined ? { subtitle: group.description } : {}),
       items: group.drillInto.map((sub) => ({ label: sub.label, value: sub.targetGroupId })),
       initial: 0,
       onSelect: { command: 'config' },
+      ...(parentCmd !== undefined ? { onBack: { command: parentCmd } } : {}),
     });
     return '';
   }
@@ -206,12 +239,14 @@ function openGroup(groupId: string, ctx: CommandContext): string {
     return lines.join('\n');
   }
 
+  const parentCmd = parentCommandForGroup(group.id);
   ctx.requestPicker({
     title: `config / ${group.label.toLowerCase()}`,
     ...(group.description !== undefined ? { subtitle: group.description } : {}),
     items: group.items.map((item) => buildGroupItemPickerRow(item, redacted, settings)),
     initial: 0,
     onSelect: { command: 'config edit' },
+    ...(parentCmd !== undefined ? { onBack: { command: parentCmd } } : {}),
   });
   return '';
 }
@@ -249,6 +284,7 @@ function openAdvancedGroup(ctx: CommandContext): string {
     // Selecting an unmanaged key surfaces /config get <key>. Editing
     // unmanaged keys is v0-out-of-scope.
     onSelect: { command: 'config get' },
+    onBack: { command: 'config' },
   });
   return '';
 }
@@ -342,14 +378,28 @@ function openBooleanPicker(item: ConfigItem, currentRaw: unknown, ctx: CommandCo
     ].join('\n');
   }
   const initial = currentRaw === true ? 0 : currentRaw === false ? 1 : 0;
+  const backCmd = backCommandForEditor(item);
   ctx.requestPicker({
     title: item.path,
     ...(item.description !== undefined ? { subtitle: item.description } : {}),
     items: choices.map((c) => ({ label: c, value: c })),
     initial,
     onSelect: { command: `config set ${item.path}` },
+    ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
   });
   return '';
+}
+
+/**
+ * Resolve the back-navigation command for an editor opened on `item`.
+ * Backspace from the editor returns to the field's containing group.
+ *
+ * 2026-05-24 patch.
+ */
+function backCommandForEditor(item: ConfigItem): string | undefined {
+  const parent = findGroupForItem(item.path);
+  if (parent === undefined) return undefined;
+  return `config ${parent.id}`;
 }
 
 function openEnumPicker(
@@ -371,6 +421,7 @@ function openEnumPicker(
     0,
     choices.findIndex((c) => c === currentStr),
   );
+  const backCmd = backCommandForEditor(item);
   ctx.requestPicker({
     title: item.path,
     ...(item.description !== undefined ? { subtitle: item.description } : {}),
@@ -381,6 +432,7 @@ function openEnumPicker(
     })),
     initial,
     onSelect: { command: `config set ${item.path}` },
+    ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
   });
   return '';
 }
@@ -614,6 +666,7 @@ function reopenEditorWithError(
   if (item === undefined) return error;
   const editor = item.editor;
   const subtitle = `Validation failed — ${errorMessage}`;
+  const backCmd = backCommandForEditor(item);
   if (editor.kind === 'boolean') {
     if (ctx.requestPicker === undefined) return error;
     ctx.requestPicker({
@@ -629,6 +682,7 @@ function reopenEditorWithError(
       ],
       initial: rawValue === 'true' ? 0 : 1,
       onSelect: { command: `config set ${path}` },
+      ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
     });
     return error;
   }
@@ -644,6 +698,7 @@ function reopenEditorWithError(
       })),
       initial: 0,
       onSelect: { command: `config set ${path}` },
+      ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
     });
     return error;
   }

@@ -298,6 +298,63 @@ describe('/config dispatcher', () => {
       expect(result).toContain('config error');
     });
 
+    test('backspace navigation — root menu emits no onBack', async () => {
+      // 2026-05-24 patch — back-navigation. Root menu has no parent.
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onBack).toBeUndefined();
+    });
+
+    test('backspace navigation — top-level group goes back to root', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('general', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onBack?.command).toBe('config');
+    });
+
+    test('backspace navigation — providers drill-in root goes back to root', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('providers', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onBack?.command).toBe('config');
+    });
+
+    test('backspace navigation — drill-in subgroup goes back to drill-in root', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('providers-anthropic', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onBack?.command).toBe('config providers');
+    });
+
+    test('backspace navigation — editor picker goes back to field group', async () => {
+      const { ctx, cap } = captureCtx();
+      // taskRouting.enabled is a boolean → editor is a picker.
+      await dispatchConfigCommand('edit taskRouting.enabled', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onBack?.command).toBe('config task-routing');
+    });
+
+    test('backspace navigation — drill-in subgroup leaf editor goes back to subgroup', async () => {
+      const { ctx, cap } = captureCtx();
+      // providers.anthropic.model is in the providers-anthropic subgroup.
+      await dispatchConfigCommand('edit providers.anthropic.model', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.onBack?.command).toBe('config providers-anthropic');
+    });
+
     test('re-opens the editor with preserved value when validation fails (enum)', async () => {
       // 2026-05-24 review #1 (HIGH) — invalid enum value triggers the
       // re-emit-editor-on-error path so the user can correct in place.

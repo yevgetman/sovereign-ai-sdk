@@ -137,6 +137,48 @@ func TestPickerCard_Command(t *testing.T) {
 	}
 }
 
+// 2026-05-24 patch — back-navigation tests. OnBack() returns the
+// dispatcher command for backspace navigation; empty string when the
+// payload has no OnBack (root menu / non-hierarchical picker).
+
+func TestPickerCard_OnBack_EmptyWhenAbsent(t *testing.T) {
+	// samplePayload doesn't set OnBack (mirrors /model, /resume,
+	// /export, /theme — non-hierarchical pickers).
+	card := NewPickerCard(samplePayload(0), theme.Dark())
+	if back := card.OnBack(); back != "" {
+		t.Errorf("OnBack() with no payload OnBack: got %q want empty", back)
+	}
+}
+
+func TestPickerCard_OnBack_ReturnsPayloadCommand(t *testing.T) {
+	payload := samplePayload(0)
+	payload.OnBack = &struct {
+		Command string `json:"command"`
+	}{Command: "config providers"}
+	card := NewPickerCard(payload, theme.Dark())
+	if back := card.OnBack(); back != "config providers" {
+		t.Errorf("OnBack(): got %q want %q", back, "config providers")
+	}
+}
+
+func TestPickerCard_View_FooterMentionsBackspaceWhenOnBackSet(t *testing.T) {
+	payload := samplePayload(0)
+	payload.OnBack = &struct {
+		Command string `json:"command"`
+	}{Command: "config"}
+	view := NewPickerCard(payload, theme.Dark()).View(60)
+	if !strings.Contains(view, "backspace") {
+		t.Errorf("View(): footer missing backspace hint when OnBack is set\n--- view ---\n%s", view)
+	}
+}
+
+func TestPickerCard_View_FooterOmitsBackspaceWhenOnBackAbsent(t *testing.T) {
+	view := NewPickerCard(samplePayload(0), theme.Dark()).View(60)
+	if strings.Contains(view, "backspace") {
+		t.Errorf("View(): footer mentions backspace when OnBack is absent\n--- view ---\n%s", view)
+	}
+}
+
 // 2026-05-24 config UX rebuild — extended fields tests.
 
 // configSamplePayload builds a 3-item payload with ValueColumn + Badge

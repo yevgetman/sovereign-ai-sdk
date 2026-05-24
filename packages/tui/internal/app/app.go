@@ -748,6 +748,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.picker = nil
 				m.print(m.theme.DimStyle().Render("(cancelled)"))
 				return m, m.respond(nil)
+			case "backspace":
+				// 2026-05-24 patch — back-navigation. The payload's
+				// optional OnBack carries the parent menu's command;
+				// re-dispatch it so the user climbs the menu hierarchy
+				// without re-running /config. When OnBack is absent
+				// (root menu / non-hierarchical picker), backspace
+				// is a no-op.
+				back := m.picker.OnBack()
+				if back == "" {
+					return m, m.respond(nil)
+				}
+				m.picker = nil
+				if m.baseURL == "" {
+					m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, m.respond(nil)
+				}
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + back))
+				// Split into name + args. The OnBack string is "config"
+				// or "config <group-id>"; the dispatcher takes name +
+				// args separately. Split on the first space.
+				name := back
+				args := ""
+				if i := strings.IndexByte(back, ' '); i != -1 {
+					name = back[:i]
+					args = strings.TrimSpace(back[i+1:])
+				}
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
 			}
 			return m, m.respond(nil)
 		}

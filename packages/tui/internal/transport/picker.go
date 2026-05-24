@@ -31,6 +31,13 @@ type PickerItem struct {
 // PickerOpenPayload is the decoded `pickerOpen` side-effect from the
 // dispatcher response. On Enter the TUI re-dispatches
 // `/<OnSelect.Command> <selected.Value>`.
+//
+// 2026-05-24 patch — `OnBack` (optional) carries the command to re-
+// dispatch when the user hits backspace inside the picker so they
+// can navigate back to the previous menu without re-running /config.
+// Absence means no parent (root menu, or any non-hierarchical
+// picker like /model / /resume / /export / /theme), so backspace
+// is a no-op. Esc still cancels outright.
 type PickerOpenPayload struct {
 	Title    string       `json:"title"`
 	Subtitle string       `json:"subtitle,omitempty"`
@@ -39,4 +46,7 @@ type PickerOpenPayload struct {
 	OnSelect struct {
 		Command string `json:"command"`
 	} `json:"onSelect"`
+	OnBack *struct {
+		Command string `json:"command"`
+	} `json:"onBack,omitempty"`
 }

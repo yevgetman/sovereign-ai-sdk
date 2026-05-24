@@ -38,6 +38,12 @@ export type PickerOpenConfig = {
   initial?: number;
   /** Command to dispatch with the selected value as args. */
   onSelect: { command: string };
+  /** 2026-05-24 patch — back-navigation. When present, the TUI
+   *  re-dispatches this command on backspace so the user can
+   *  navigate back to the previous menu without re-running /config.
+   *  Absence means there's no parent (root menu, or non-hierarchical
+   *  picker like /model / /resume / /export / /theme). */
+  onBack?: { command: string };
 };
 
 /** 2026-05-24 — Config UX rebuild. Parallel to `PickerOpenConfig` but for
