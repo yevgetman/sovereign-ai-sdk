@@ -39,13 +39,18 @@ const MOCK_TOOL_USE_ID = 'mock-tool-use-0';
  *  call). `tool_use` entries emit a single tool_use_delta + assistant
  *  message with a tool_use block (stop_reason='tool_use'). `text`
  *  entries emit a text_delta + assistant message with a text block
- *  (stop_reason='end_turn'). Past the end of the script the mock falls
- *  through to the default Hello-world behavior so a runaway test never
- *  hangs. T13/T14 use this to encode multi-call sequences (delegator →
- *  atom-1 → atom-2 → synthesis → final) without a real provider. */
+ *  (stop_reason='end_turn'). `throw` entries throw an Error on
+ *  consumption so atom-failure tests can deterministically inject a
+ *  terminal error mid-call-graph without timing tricks. Past the end
+ *  of the script the mock falls through to the default Hello-world
+ *  behavior so a runaway test never hangs. T13/T14 use this to encode
+ *  multi-call sequences (delegator → atom-1 → atom-2 → synthesis →
+ *  final) without a real provider; T15 uses `throw` for the
+ *  atom-failure integration test. */
 export type ToolCallScript =
   | { kind: 'tool_use'; name: string; input: unknown; id?: string }
-  | { kind: 'text'; text: string };
+  | { kind: 'text'; text: string }
+  | { kind: 'throw'; message: string };
 
 export class MockProvider implements Transport<Message, ToolSchema, unknown, never> {
   readonly name = 'mock';
@@ -378,10 +383,23 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  assistant message carrying a text block, stop_reason='end_turn').
    *  The shapes mirror the existing `toolUseMode` / `streamHelloWorld`
    *  paths exactly so downstream (`query()` + the orchestrator + the
-   *  SSE bridge) consumes them without special-casing. */
+   *  SSE bridge) consumes them without special-casing.
+   *
+   *  T15 — `throw` entries throw an Error as the very first generator
+   *  step so the AgentRunner's `for await` surfaces it as a terminal
+   *  failure. The scheduler catches the throw and returns an
+   *  `interrupted` terminal with the error message embedded in the
+   *  child summary; the parent's tool_result wraps it accordingly. */
   private async *streamScriptedEntry(
     entry: ToolCallScript,
   ): AsyncGenerator<StreamEvent, AssistantMessage> {
+    if (entry.kind === 'throw') {
+      // Throw BEFORE yielding any events so the consumer sees the
+      // failure on the very first .next() call — same shape as the
+      // `preflightShouldFail` path and as any real provider error
+      // raised before the first stream chunk lands.
+      throw new Error(entry.message);
+    }
     yield { type: 'message_start' };
     if (entry.kind === 'tool_use') {
       const toolId = entry.id ?? `mock-script-${MockProvider.scriptCursor - 1}`;

@@ -8,6 +8,18 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 1 T15 (integration tests: atom failure + atom timeout)
+
+**Scope:** Two new integration tests at `tests/router/atomFailure.test.ts` (1 active test / 16 expect calls) and `tests/router/atomTimeout.test.ts` (1 skipped test, documented). The failure test scripts a 7-call graph (parent → delegator → cheap-task throws → delegator continuation → frontier-task synthesis → delegator relay → parent relay), drives a turn, and asserts: (a) parent dispatched to delegator, (b) delegator's tool_result envelope landed with `terminal="completed"` on the parent bus (the delegator continued past the failed atom), (c) the synthesis text reached the parent bus, (d) exactly one `turn_complete` on the parent wire, (e) `MockProvider.streamCalls === 7`, (f) the session tree records 4 rows (parent + delegator + 2 atom grandchildren — failed cheap-task + successful frontier-task).
+
+**MockProvider extension:** Added a third `ToolCallScript` variant `{ kind: 'throw'; message: string }` so atom-failure tests can deterministically inject a terminal error mid-call-graph. `streamScriptedEntry` throws as the first generator step when the cursor lands on a `throw` entry — `AgentRunner`'s `for await` surfaces it as a terminal failure, scheduler catches it and returns `terminal: { reason: 'interrupted', ... }` with the error message embedded in the child summary. This is a minimal, additive extension that keeps the `'tool_use'` and `'text'` paths byte-identical.
+
+**Timeout test skipped:** The plan's R-D mitigation calls for plumbing a `perChildTimeoutMsOverride` on `DelegateInput`, threading `LaneRegistry` through `ToolContext`, and updating `AgentTool.call` to resolve the override from `ctx.laneRegistry.lookup(agent.role)?.timeoutMs`. That's a meaningful three-file surface expansion that's cleaner to land in a Phase 2 follow-up dedicated to scheduler ergonomics. The semantic suite case `task-routing-failure-recovery` (T16) already exercises the user-visible failure path against a real LLM with an unreachable model, so the failure surface is covered. The test stub stays in the repo as a tracked TODO with the future implementation steps documented in the file header.
+
+**Pre-commit gate:** `bun run lint && bun run typecheck && bun run test` — all green. Full suite **2243 / 0 / 15** (+1 pass, +1 skip from prior 2242 / 0 / 14 baseline at `5e2f474`).
+
+**No binary release.** Phase 1 binary cut is owned by T19 per the plan.
+
 ## 2026-05-23 — Phase 1 T13 (integration test: trivial-turn smart routing)
 
 **Scope:** End-to-end integration test that drives a full call graph (parent → delegator → cheap-task → relay chain) through the runtime using `MockProvider.toolUseScript` (T12). New `tests/agents/delegator.integration.test.ts` — 1 test / 18 expect calls. Boots `buildRuntime` with `provider: 'mock'`, `taskRouting.enabled: true`, mounts `buildAppWithRuntime`, drives `POST /sessions/:id/turns`, drains the SSE stream until the parent's `turn_complete`. Asserts: (a) parent dispatched to delegator via AgentTool, (b) tool_result carried a `<subagent_result>` envelope with `lane="mock/mock-haiku"` + `terminal="completed"`, (c) the final assistant text relayed through every layer, (d) exactly one `turn_complete` on the parent's wire, (e) `MockProvider.streamCalls === 5` (one per script entry — confirms the call graph fired without looping).
