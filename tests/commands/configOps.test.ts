@@ -562,4 +562,154 @@ describe('/config dispatcher', () => {
       expect(result).toContain('unknown /config verb');
     });
   });
+
+  // 2026-05-24 Phase 2.5 — preset verbs.
+  describe('preset verbs', () => {
+    test('/config preset opens a picker with built-in presets', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('preset', ctx);
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      const values = picker.items.map((i) => i.value);
+      expect(values).toContain('frugal-anthropic');
+      expect(values).toContain('full-anthropic');
+      expect(values).toContain('local-plus-anthropic');
+      // onSelect dispatches /config apply-preset <value>.
+      expect(picker.onSelect.command).toBe('config apply-preset');
+    });
+
+    test('/config preset lists saved presets after built-ins', async () => {
+      // Seed a saved preset.
+      await dispatchConfigCommand('set defaultProvider anthropic', makeCtx());
+      const { ctx } = captureCtx();
+      await dispatchConfigCommand('save-preset my-snapshot', ctx);
+      // Now /config preset should show the saved one too.
+      const { ctx: ctx2, cap } = captureCtx();
+      await dispatchConfigCommand('preset', ctx2);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      const values = picker.items.map((i) => i.value);
+      expect(values).toContain('my-snapshot');
+    });
+
+    test('/config apply-preset <built-in> writes lane values to config', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('apply-preset local-plus-anthropic', ctx);
+      expect(result).toContain('applied');
+      // Verify the values landed in config.
+      const showResult = await dispatchConfigCommand('show', makeCtx());
+      expect(showResult).toContain('"cheap-task"');
+      expect(showResult).toContain('"ollama"');
+      expect(showResult).toContain('qwen2.5:7b');
+    });
+
+    test('/config apply-preset emits the refreshed task-routing submenu', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('apply-preset full-anthropic', ctx);
+      // Picker re-emit so the user sees the new value columns.
+      expect(cap.pickers.length).toBe(1);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.title).toBe('config / task routing');
+    });
+
+    test('/config apply-preset <unknown> returns a clear error', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('apply-preset nonexistent', ctx);
+      expect(result).toContain('unknown preset');
+    });
+
+    test('/config save-preset <name> snapshots current lane config', async () => {
+      // First apply a preset to have something to snapshot.
+      await dispatchConfigCommand('apply-preset full-anthropic', makeCtx());
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('save-preset my-snapshot', ctx);
+      expect(result).toContain('saved');
+      // Verify it shows up in /config preset now.
+      const { ctx: ctx2, cap } = captureCtx();
+      await dispatchConfigCommand('preset', ctx2);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.items.map((i) => i.value)).toContain('my-snapshot');
+    });
+
+    test('/config save-preset (no arg) opens inputCard prompting for name', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('save-preset', ctx);
+      expect(cap.inputs.length).toBe(1);
+      const input = cap.inputs[0];
+      if (!input) return;
+      expect(input.onSubmit.command).toBe('config save-preset');
+    });
+
+    test('/config save-preset rejects invalid names', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('save-preset UPPER-CASE', ctx);
+      expect(result).toContain('config error');
+    });
+
+    test('/config save-preset rejects collision with built-in id', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('save-preset frugal-anthropic', ctx);
+      expect(result).toContain('built-in');
+    });
+
+    test('/config delete-preset removes a saved preset', async () => {
+      // First save one.
+      await dispatchConfigCommand('save-preset throwaway', makeCtx());
+      // Delete it.
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('delete-preset throwaway', ctx);
+      expect(result).toContain('deleted');
+      // Verify it's gone.
+      const { ctx: ctx2, cap } = captureCtx();
+      await dispatchConfigCommand('preset', ctx2);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.items.map((i) => i.value)).not.toContain('throwaway');
+    });
+
+    test('/config delete-preset refuses to delete built-in', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('delete-preset frugal-anthropic', ctx);
+      expect(result).toContain('cannot delete built-in');
+    });
+
+    test('/config delete-preset returns clear error for unknown name', async () => {
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('delete-preset never-saved', ctx);
+      expect(result).toContain('no saved preset');
+    });
+  });
+
+  describe('task-routing submenu integration', () => {
+    test('emits the preset shortcut items at the top of the picker', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('task-routing', ctx);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      const labels = picker.items.map((i) => i.label);
+      expect(labels[0]).toBe('Apply preset…');
+      expect(labels[1]).toBe('Save current as preset…');
+    });
+
+    test('selecting the "Apply preset…" shortcut routes through runEdit to the preset picker', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('edit __sov_preset_pick__', ctx);
+      // Should emit the preset picker, not a field-editor.
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.title).toBe('task-routing presets');
+    });
+
+    test('selecting the "Save current as preset…" shortcut opens the name inputCard', async () => {
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('edit __sov_preset_save__', ctx);
+      expect(cap.inputs.length).toBe(1);
+      const input = cap.inputs[0];
+      if (!input) return;
+      expect(input.title).toBe('save current as preset');
+    });
+  });
 });

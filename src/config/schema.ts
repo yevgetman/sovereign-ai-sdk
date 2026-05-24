@@ -201,6 +201,31 @@ export const TaskRoutingSchema = z.object({
    *  Phase 1 shipped with — existing users who depend on that
    *  invariant (e.g., cost-tracking via routing-stats) are unaffected. */
   trivialFastPath: z.boolean().default(false),
+  /** Phase 2.5 — user-saved lane presets. Each entry is a snapshot of
+   *  `delegator.model` + `lanes.{cheap,moderate,frontier}-task.{provider,
+   *  model}` under a user-chosen name. Created via
+   *  `/config save-preset <name>` (snapshots current settings) and
+   *  recalled via `/config apply-preset <name>` (writes the snapshot
+   *  back into taskRouting.{delegator,lanes}.*).
+   *
+   *  Names must be lowercase letters/digits/hyphens/underscores and
+   *  must not collide with a built-in preset id (see
+   *  src/config/presets.ts). Validation happens at the slash dispatcher;
+   *  the schema only enforces the value-shape so hand-edited config
+   *  files are tolerated. */
+  savedPresets: z
+    .record(
+      z.string(),
+      z.object({
+        delegator: z.object({ model: z.string() }),
+        lanes: z.object({
+          'cheap-task': z.object({ provider: z.string(), model: z.string() }),
+          'moderate-task': z.object({ provider: z.string(), model: z.string() }),
+          'frontier-task': z.object({ provider: z.string(), model: z.string() }),
+        }),
+      }),
+    )
+    .optional(),
 });
 
 export type TaskRoutingConfig = z.infer<typeof TaskRoutingSchema>;

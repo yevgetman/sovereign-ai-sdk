@@ -289,6 +289,50 @@ describe('LIVE_APPLY_HOOKS — permissionMode', () => {
   });
 });
 
+describe('LIVE_APPLY_HOOKS — microcompaction.* and compaction.proactiveThresholdPct', () => {
+  // 2026-05-24 — runtime refresh via refreshRuntimeFromConfig closure.
+  // The turns route reads runtime.microcompactConfig + runtime.
+  // proactiveCompactThreshold per-request, so a re-read after persist
+  // lands live for the next turn.
+  const KEYS = [
+    'microcompaction.enabled',
+    'microcompaction.keepRecent',
+    'microcompaction.triggerThresholdPct',
+    'compaction.proactiveThresholdPct',
+  ];
+
+  for (const key of KEYS) {
+    test(`${key} — calls refreshRuntimeFromConfig and returns applied`, async () => {
+      let called = 0;
+      const ctx = makeCtx({
+        refreshRuntimeFromConfig: () => {
+          called++;
+        },
+      });
+      const hook = LIVE_APPLY_HOOKS[key];
+      if (!hook) return;
+      const verdict = await hook(true, { commandCtx: ctx });
+      expect(verdict).toBe('applied');
+      expect(called).toBe(1);
+    });
+
+    test(`${key} — returns persisted-only when commandCtx is undefined`, async () => {
+      const hook = LIVE_APPLY_HOOKS[key];
+      if (!hook) return;
+      const verdict = await hook(true, {});
+      expect(verdict).toBe('persisted-only');
+    });
+
+    test(`${key} — returns persisted-only when refreshRuntimeFromConfig is undefined`, async () => {
+      const ctx = makeCtx();
+      const hook = LIVE_APPLY_HOOKS[key];
+      if (!hook) return;
+      const verdict = await hook(true, { commandCtx: ctx });
+      expect(verdict).toBe('persisted-only');
+    });
+  }
+});
+
 describe('LIVE_APPLY_HOOKS — registry shape', () => {
   test('all expected keys are present', () => {
     const expected = [
@@ -303,6 +347,10 @@ describe('LIVE_APPLY_HOOKS — registry shape', () => {
       'webSearch.apiKey',
       'webSearch.maxResults',
       'permissionMode',
+      'microcompaction.enabled',
+      'microcompaction.keepRecent',
+      'microcompaction.triggerThresholdPct',
+      'compaction.proactiveThresholdPct',
     ];
     for (const key of expected) {
       expect(LIVE_APPLY_HOOKS[key], `hook ${key} should exist`).toBeDefined();

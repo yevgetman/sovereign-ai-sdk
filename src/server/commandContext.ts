@@ -25,7 +25,9 @@
 import { createClearedChildSession } from '../agent/sessionRecovery.js';
 import { COMMANDS, buildCommandRegistry } from '../commands/registry.js';
 import type { CommandContext, InputOpenConfig, PickerOpenConfig } from '../commands/types.js';
+import { buildMicrocompactConfig } from '../compact/microcompact.js';
 import { loadPermissionSettings } from '../config/settings.js';
+import { readConfig } from '../config/store.js';
 import { auditContextBudget } from '../context/budget.js';
 import type { Message, SystemSegment } from '../core/types.js';
 import { computeRoutingStats } from '../router/stats.js';
@@ -142,6 +144,17 @@ export function buildServerCommandContext(
     // side-effect is emitted — the model change IS the effect.
     setPermissionMode: (mode: 'default' | 'ask' | 'bypass'): void => {
       runtime.permissionMode = mode;
+    },
+    // 2026-05-24 patch — live-apply hook for microcompaction.* and
+    // compaction.proactiveThresholdPct. Re-reads the persisted config
+    // and rebuilds the cached runtime fields. The turns route reads
+    // both per-request (microcompactConfig + proactiveCompactThreshold)
+    // so the next turn picks up the new values.
+    refreshRuntimeFromConfig: (): void => {
+      const fresh = readConfig();
+      runtime.microcompactConfig = buildMicrocompactConfig(fresh.microcompaction);
+      const pct = fresh.compaction?.proactiveThresholdPct;
+      runtime.proactiveCompactThreshold = pct === undefined ? 0.75 : pct / 100;
     },
     // Backlog #41 — wired 2026-05-19. Mints a fresh child session via
     // the existing createClearedChildSession helper, sets

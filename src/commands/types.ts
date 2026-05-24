@@ -79,6 +79,15 @@ export type CommandContext = {
    *  sov config standalone) can omit it; live-apply degrades to
    *  persisted-only when undefined. */
   setPermissionMode?: (mode: 'default' | 'ask' | 'bypass') => void;
+  /** 2026-05-24 patch — live-apply hook for `microcompaction.*` and
+   *  `compaction.proactiveThresholdPct`. Re-reads userSettings via
+   *  readConfig() and updates the runtime's cached fields:
+   *  `runtime.microcompactConfig` (rebuilt via buildMicrocompactConfig)
+   *  and `runtime.proactiveCompactThreshold` (recomputed). The turns
+   *  route reads both per-request, so the next turn picks up the new
+   *  values without a restart. Optional so non-server surfaces can
+   *  omit it; hooks degrade to persisted-only when undefined. */
+  refreshRuntimeFromConfig?: () => void;
   clearHistory: () => string;
   getCost: () => SessionCost;
   compact: () => Promise<CompactResult>;

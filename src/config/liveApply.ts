@@ -170,6 +170,25 @@ const permissionModeHook: LiveApplyHook = async (newValue, ctx) => {
 };
 
 /**
+ * `microcompaction.*` and `compaction.proactiveThresholdPct` — call
+ * `commandCtx.refreshRuntimeFromConfig()` to re-read the persisted
+ * config and rebuild the runtime's cached fields. The turns route
+ * reads `runtime.microcompactConfig` and `runtime.proactiveCompactThreshold`
+ * per-request, so the next turn picks up the new values.
+ *
+ * One shared closure for all four fields — the underlying refresh
+ * pulls the whole microcompaction block + the proactive threshold
+ * in a single read, so changing any one re-syncs the rest. 2026-05-24
+ * patch.
+ */
+const runtimeConfigRefreshHook: LiveApplyHook = async (_newValue, ctx) => {
+  if (ctx.commandCtx === undefined) return 'persisted-only';
+  if (ctx.commandCtx.refreshRuntimeFromConfig === undefined) return 'persisted-only';
+  ctx.commandCtx.refreshRuntimeFromConfig();
+  return 'applied';
+};
+
+/**
  * `webSearch.*` — VERIFIED read-on-demand. `src/tools/WebSearchTool.ts:61`
  * calls `readConfig()` at invoke time, so any change to
  * `webSearch.provider` / `webSearch.apiKey` / `webSearch.maxResults` is
@@ -200,6 +219,10 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'webSearch.apiKey': webSearchHook,
   'webSearch.maxResults': webSearchHook,
   permissionMode: permissionModeHook,
+  'microcompaction.enabled': runtimeConfigRefreshHook,
+  'microcompaction.keepRecent': runtimeConfigRefreshHook,
+  'microcompaction.triggerThresholdPct': runtimeConfigRefreshHook,
+  'compaction.proactiveThresholdPct': runtimeConfigRefreshHook,
 });
 
 /**

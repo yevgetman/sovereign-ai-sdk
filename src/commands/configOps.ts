@@ -41,6 +41,15 @@ import {
 } from '../config/catalog.js';
 import type { LiveApplySideEffect } from '../config/liveApply.js';
 import {
+  BUILTIN_PRESETS,
+  type PresetShape,
+  applyPresetToSettings,
+  findBuiltinPreset,
+  readSavedPresets,
+  snapshotCurrentAsPreset,
+  validatePresetName,
+} from '../config/presets.js';
+import {
   formatValue,
   getAt,
   parseValueLiteral,
@@ -62,6 +71,16 @@ const UNSET_DISPLAY = '(unset)';
 const TOAST_APPLIED = 'saved — applied to current session';
 const TOAST_PERSISTED_ONLY = 'saved — effective next session';
 const TOAST_SAVED_NO_SESSION = 'saved';
+
+/**
+ * Sentinel "value" strings dispatched by the task-routing submenu's
+ * preset shortcut items. `runEdit` checks for these before the normal
+ * `findItem(dotpath)` lookup and routes to the preset verbs instead.
+ * The `__sov_*__` namespace avoids collision with any real config
+ * dotpath. Phase 2.5.
+ */
+const PRESET_ACTION_PICK_SENTINEL = '__sov_preset_pick__';
+const PRESET_ACTION_SAVE_SENTINEL = '__sov_preset_save__';
 
 // ──────────────────────────────────────────────────────────────────────
 // Back-navigation — 2026-05-24 patch.
@@ -127,6 +146,11 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
     if (verb === 'set') return await runSet(rest, ctx);
     if (verb === 'unset') return await runUnset(rest, ctx);
     if (verb === 'edit') return runEdit(rest, ctx);
+    // 2026-05-24 Phase 2.5 — preset verbs.
+    if (verb === 'preset') return openPresetPicker(ctx);
+    if (verb === 'apply-preset') return await runApplyPreset(rest, ctx);
+    if (verb === 'save-preset') return runSavePreset(rest, ctx);
+    if (verb === 'delete-preset') return runDeletePreset(rest, ctx);
 
     // Maybe the verb is a group id — drill into that group.
     if (findGroup(verb) !== undefined || verb === 'advanced') {
@@ -135,7 +159,7 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
 
     return [
       `unknown /config verb: ${verb}`,
-      'usage: /config [<group-id>|edit <dotpath>|set <dotpath> <value>|unset <dotpath>|show|path|get <dotpath>]',
+      'usage: /config [<group-id>|edit <dotpath>|set <dotpath> <value>|unset <dotpath>|preset|apply-preset <name>|save-preset <name>|delete-preset <name>|show|path|get <dotpath>]',
     ].join('\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -240,10 +264,30 @@ function openGroup(groupId: string, ctx: CommandContext): string {
   }
 
   const parentCmd = parentCommandForGroup(group.id);
+  // 2026-05-24 Phase 2.5 — task-routing submenu gains two preset
+  // shortcuts at the top: pick a preset to apply, or save the current
+  // lane config as a named preset. Selection dispatches sentinel
+  // values that runEdit routes to the preset verbs.
+  const items: PickerOpenConfig['items'] =
+    group.id === 'task-routing'
+      ? [
+          {
+            label: 'Apply preset…',
+            value: PRESET_ACTION_PICK_SENTINEL,
+            hint: 'frugal-anthropic / full-anthropic / local-plus-anthropic / saved',
+          },
+          {
+            label: 'Save current as preset…',
+            value: PRESET_ACTION_SAVE_SENTINEL,
+            hint: 'snapshot delegator + lanes under a name',
+          },
+          ...group.items.map((item) => buildGroupItemPickerRow(item, redacted, settings)),
+        ]
+      : group.items.map((item) => buildGroupItemPickerRow(item, redacted, settings));
   ctx.requestPicker({
     title: `config / ${group.label.toLowerCase()}`,
     ...(group.description !== undefined ? { subtitle: group.description } : {}),
-    items: group.items.map((item) => buildGroupItemPickerRow(item, redacted, settings)),
+    items,
     initial: 0,
     onSelect: { command: 'config edit' },
     ...(parentCmd !== undefined ? { onBack: { command: parentCmd } } : {}),
@@ -344,6 +388,12 @@ function formatValueColumnRaw(raw: unknown): string {
 function runEdit(rest: string, ctx: CommandContext): string {
   if (!rest) return 'usage: /config edit <dotpath>';
   const path = rest;
+  // 2026-05-24 Phase 2.5 — task-routing submenu's preset shortcut
+  // sentinels route through the dispatcher's `edit` verb. Detect them
+  // here and route to the preset handlers instead of the field-editor
+  // path. Real catalog paths never start with `__sov_*__`.
+  if (path === PRESET_ACTION_PICK_SENTINEL) return openPresetPicker(ctx);
+  if (path === PRESET_ACTION_SAVE_SENTINEL) return runSavePreset('', ctx);
   const item = findItem(path);
   if (item === undefined) {
     return `unknown config field: ${path}\nlist available: /config`;
@@ -786,6 +836,158 @@ function pickToast(
   // hook (provider model didn't match the active provider). Honest
   // outcome is "effective next session".
   return TOAST_PERSISTED_ONLY;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Preset verbs (Phase 2.5, 2026-05-24)
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * `/config preset` — opens a picker of all available presets (built-in
+ * + user-saved). Selecting one re-dispatches `/config apply-preset
+ * <id>` which writes the preset's values into config.
+ */
+function openPresetPicker(ctx: CommandContext): string {
+  const settings = readConfig();
+  const saved = readSavedPresets(settings);
+  const savedEntries = Object.entries(saved);
+
+  if (ctx.requestPicker === undefined) {
+    // Headless / scriptable surface: text listing.
+    const lines: string[] = ['task-routing presets:'];
+    for (const p of BUILTIN_PRESETS) {
+      lines.push(`  ${p.id}  — ${p.description}  (built-in)`);
+    }
+    for (const [name, _shape] of savedEntries) {
+      lines.push(`  ${name}  — (saved)`);
+    }
+    lines.push('');
+    lines.push('apply: /config apply-preset <id>');
+    return lines.join('\n');
+  }
+
+  const items: PickerOpenConfig['items'] = [];
+  for (const p of BUILTIN_PRESETS) {
+    items.push({
+      label: p.label,
+      value: p.id,
+      hint: `${p.description}  (built-in)`,
+    });
+  }
+  for (const [name, _shape] of savedEntries) {
+    items.push({
+      label: name,
+      value: name,
+      hint: '(saved)',
+    });
+  }
+  if (items.length === 0) {
+    // No saved presets, no built-ins available — defensive fallback.
+    return 'no presets available';
+  }
+
+  ctx.requestPicker({
+    title: 'task-routing presets',
+    subtitle: 'select one to apply its values to taskRouting.{delegator,lanes}',
+    items,
+    initial: 0,
+    onSelect: { command: 'config apply-preset' },
+    onBack: { command: 'config task-routing' },
+  });
+  return '';
+}
+
+/**
+ * `/config apply-preset <id>` — writes the preset's values into config
+ * and triggers a runtime refresh so subsequent turns pick up the new
+ * lane settings. Re-emits the task-routing submenu so the user sees
+ * the refreshed value columns immediately.
+ */
+async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string> {
+  if (!rest) return 'usage: /config apply-preset <name>';
+  const name = rest.trim();
+  const builtin = findBuiltinPreset(name);
+  const settings = readConfig();
+  const saved = readSavedPresets(settings);
+  const shape: PresetShape | undefined = builtin?.shape ?? saved[name];
+  if (shape === undefined) {
+    return `unknown preset: ${name}\nlist: /config preset`;
+  }
+  const next = applyPresetToSettings(settings, shape);
+  writeConfig(next);
+  // The lane registry rebuilds on next session boot; for the current
+  // session, /routing-stats and the lane preflight refer to the
+  // boot-time registry. Surface that honestly in the toast.
+  const toast = builtin
+    ? `preset '${builtin.label}' applied — effective next session (current registry is boot-cached)`
+    : `saved preset '${name}' applied — effective next session`;
+  // Emit a refreshed task-routing submenu so the user sees the new
+  // value columns. (openGroup re-reads settings.)
+  if (ctx.requestPicker !== undefined) {
+    openGroup('task-routing', ctx);
+  }
+  return toast;
+}
+
+/**
+ * `/config save-preset <name>` — snapshots the current taskRouting
+ * lane configuration as a named preset under taskRouting.savedPresets.
+ * When invoked with no arg, opens an inputCard prompting for a name.
+ */
+function runSavePreset(rest: string, ctx: CommandContext): string {
+  const trimmed = rest.trim();
+  if (!trimmed) {
+    if (ctx.requestInput === undefined) {
+      return 'usage: /config save-preset <name>';
+    }
+    ctx.requestInput({
+      title: 'save current as preset',
+      subtitle: 'name: lowercase letters/digits/hyphens/underscores. Snapshots delegator + lanes.',
+      placeholder: 'e.g. my-setup',
+      onSubmit: { command: 'config save-preset' },
+      onBack: { command: 'config task-routing' },
+    });
+    return '';
+  }
+  const validation = validatePresetName(trimmed);
+  if (validation !== null) {
+    return `config error: ${validation}`;
+  }
+  const settings = readConfig();
+  const shape = snapshotCurrentAsPreset(settings);
+  // Merge into savedPresets via setAt so the existing immutable-update
+  // helpers in store.ts handle the nested path.
+  const next = setAt(settings, `taskRouting.savedPresets.${trimmed}`, shape);
+  writeConfig(next);
+  // Re-emit the task-routing submenu so the user can immediately
+  // verify the snapshot landed.
+  if (ctx.requestPicker !== undefined) {
+    openGroup('task-routing', ctx);
+  }
+  return `saved preset '${trimmed}' from current lane configuration`;
+}
+
+/**
+ * `/config delete-preset <name>` — removes a user-saved preset. Refuses
+ * to delete built-in preset ids (they're shipped in code anyway).
+ */
+function runDeletePreset(rest: string, ctx: CommandContext): string {
+  const name = rest.trim();
+  if (!name) return 'usage: /config delete-preset <name>';
+  if (findBuiltinPreset(name) !== undefined) {
+    return `cannot delete built-in preset '${name}'`;
+  }
+  const settings = readConfig();
+  const saved = readSavedPresets(settings);
+  if (!Object.hasOwn(saved, name)) {
+    return `no saved preset named '${name}'`;
+  }
+  const next = unsetAt(settings, `taskRouting.savedPresets.${name}`);
+  writeConfig(next);
+  if (ctx.requestPicker !== undefined) {
+    openGroup('task-routing', ctx);
+  }
+  return `deleted saved preset '${name}'`;
 }
 
 // ──────────────────────────────────────────────────────────────────────
