@@ -25,6 +25,7 @@ describe('bundle-default reference agents', () => {
       const names = registry.agents.map((a) => a.name).sort();
       expect(names).toEqual([
         'cheap-task',
+        'delegator',
         'explore',
         'frontier-task',
         'instinct-synthesizer',
