@@ -79,6 +79,25 @@ import {
   disposeSessionContext,
 } from './sessionContext.js';
 
+/**
+ * Resolves the effective taskRouting.enabled value from env + settings.
+ *
+ * Semantics:
+ *   SOV_TASK_ROUTING_ENABLED='1' → true (env wins)
+ *   SOV_TASK_ROUTING_ENABLED='0' → false (env wins)
+ *   Any other value (unset, empty, '2', 'true', etc.) → fall through to settings
+ *
+ * Exported for testing.
+ */
+export function resolveTaskRoutingEnabled(
+  envValue: string | undefined,
+  settingsValue: boolean | undefined,
+): boolean {
+  if (envValue === '1') return true;
+  if (envValue === '0') return false;
+  return settingsValue ?? false;
+}
+
 /** Default timeout for a pending permission request (M5-02). 60 seconds —
  *  long enough for a user to read the prompt and decide, short enough that
  *  a forgotten approval doesn't park a turn indefinitely. */
@@ -574,6 +593,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // `userSettings.taskRouting?.enabled === true`.
   const userSettings = readConfig();
 
+  // Resolve the effective taskRouting.enabled once, honoring
+  // SOV_TASK_ROUTING_ENABLED env override ('1'=force-on, '0'=force-off).
+  const taskRoutingEnabled = resolveTaskRoutingEnabled(
+    process.env.SOV_TASK_ROUTING_ENABLED,
+    userSettings.taskRouting?.enabled,
+  );
+
   // Phase 1 — assemble the lane registry from `userSettings.taskRouting`
   // unconditionally. The registry resolves the four well-known roles
   // (cheap-task, moderate-task, frontier-task, delegator) against the
@@ -589,7 +615,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // (e.g. T11 hasn't shipped yet, or a custom bundle omits it), log to
   // stderr and skip the segment — the runtime still boots cleanly.
   let smartRouterPrompt: string | undefined;
-  if (userSettings.taskRouting?.enabled === true && bundle !== null) {
+  if (taskRoutingEnabled && bundle !== null) {
     const promptPath = join(bundle.root, 'prompts', 'smart-router.md');
     try {
       smartRouterPrompt = await readFile(promptPath, 'utf8');
@@ -768,11 +794,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // Resolves the lane's provider via the same `resolveProvider` the
   // scheduler uses, and adapts `preflightProvider`'s ok/err result into
   // the throw-on-failure contract `runLanePreflight` expects.
-  if (
-    opts.preflight !== false &&
-    opts.replayFixturePath === undefined &&
-    userSettings.taskRouting?.enabled === true
-  ) {
+  if (opts.preflight !== false && opts.replayFixturePath === undefined && taskRoutingEnabled) {
     await runLanePreflight({
       registry: laneRegistry,
       harnessHome,
