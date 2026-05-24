@@ -40,6 +40,21 @@ var pickerItemColor = lipgloss.Color("#fab387")
 // with the item rows above (M11.15).
 var pickerFooterColor = lipgloss.Color("#7a8eb8")
 
+// pickerBadgeLiveColor is the success-green used for the "✓ live" badge
+// on config items with a registered live-apply hook. Catppuccin "green"
+// — sits visually distinct from pickerItemColor (orange) so the user
+// can read "live vs reload" at a glance. 2026-05-24 config UX rebuild.
+var pickerBadgeLiveColor = lipgloss.Color("#a6e3a1")
+
+// Badge string constants — discriminated values on PickerItem.Badge.
+// Server emits `"live"` or `"reload"`; any other value (including empty)
+// renders no badge. Keep these in sync with the BadgeSchema enum on
+// the TS side. 2026-05-24 config UX rebuild.
+const (
+	pickerBadgeLive   = "live"
+	pickerBadgeReload = "reload"
+)
+
 // PickerCard is a Bubble Tea component that renders an inline picker.
 // Construct with NewPickerCard; navigate with MoveUp/MoveDown; read the
 // chosen value via Selected and the dispatch command via Command. The
@@ -112,10 +127,69 @@ func (p *PickerCard) SetTheme(t theme.Theme) {
 	p.theme = t
 }
 
+// hasExtraColumns reports whether ANY item in the payload sets
+// ValueColumn or Badge — the trigger for the wide-row layout used by
+// /config submenus. When false, View() renders the M11.5 baseline
+// (label + optional hint) so /model, /resume, /export, /theme stay
+// byte-identical visually. 2026-05-24 config UX rebuild.
+func (p PickerCard) hasExtraColumns() bool {
+	for _, item := range p.payload.Items {
+		if item.ValueColumn != "" || item.Badge != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// labelColumnWidth returns the widest label across all items so the
+// value column lines up uniformly across rows. Uses lipgloss.Width on
+// the un-styled label string — ANSI escape codes haven't been wrapped
+// yet at this point so the rune count is accurate. 2026-05-24 config
+// UX rebuild.
+func (p PickerCard) labelColumnWidth() int {
+	w := 0
+	for _, item := range p.payload.Items {
+		if n := lipgloss.Width(item.Label); n > w {
+			w = n
+		}
+	}
+	return w
+}
+
+// renderBadge returns the styled badge text for an item, or empty when
+// the badge value is unknown (or empty). Badge "live" renders as
+// "✓ live" in success-green; "reload" renders as "⟳ next session" in
+// the same pale-orange used for non-selected item labels (so the badge
+// reads as a quiet "not yet applied" cue, not an error). Any other
+// badge string renders nothing.
+//
+// The badge style is computed by the caller (foreground only, no bold)
+// so the selected row's bold doesn't bleed into the badge — keeping the
+// badge readable as a status pill on every row. 2026-05-24 config UX
+// rebuild.
+func (p PickerCard) renderBadge(badge string) string {
+	switch badge {
+	case pickerBadgeLive:
+		return lipgloss.NewStyle().Foreground(pickerBadgeLiveColor).Render("✓ live")
+	case pickerBadgeReload:
+		return lipgloss.NewStyle().Foreground(pickerItemColor).Render("⟳ next session")
+	default:
+		return ""
+	}
+}
+
 // View renders the picker card. `width` is the total width of the
 // card including its border. When width < 6 the box is dropped and
 // the inner body is returned bare — mirrors the autocomplete popup's
 // narrow-terminal fallback so the card still degrades gracefully.
+//
+// 2026-05-24 (config UX rebuild) — when ANY item sets ValueColumn or
+// Badge, View renders the "wide" layout: label is left-aligned in a
+// label column padded to the widest label across all items; value
+// column sits 3 spaces to the right; badge follows the value with one
+// space of separation. When neither extra field is set on any item,
+// View renders the M11.5 baseline (label + optional hint) — backwards
+// compatible for /model, /resume, /export, /theme.
 func (p PickerCard) View(width int) string {
 	var lines []string
 
@@ -134,6 +208,12 @@ func (p PickerCard) View(width int) string {
 	// Items — pale orange for unselected, bold + default-fg for
 	// selected. Hint sits dim next to the label.
 	hintStyle := lipgloss.NewStyle().Foreground(p.theme.Dim)
+	useWideLayout := p.hasExtraColumns()
+	labelColW := 0
+	if useWideLayout {
+		labelColW = p.labelColumnWidth()
+	}
+	const valueGap = 3 // spaces between label-column end and value-column start
 	for i, item := range p.payload.Items {
 		var prefix string
 		var labelStyle lipgloss.Style
@@ -145,8 +225,29 @@ func (p PickerCard) View(width int) string {
 			labelStyle = lipgloss.NewStyle().Foreground(pickerItemColor)
 		}
 		row := prefix + labelStyle.Render(item.Label)
-		if item.Hint != "" {
-			row += "  " + hintStyle.Render(item.Hint)
+		if useWideLayout {
+			// Wide layout: pad to labelColW, then value column + badge.
+			pad := labelColW - lipgloss.Width(item.Label)
+			if pad < 0 {
+				pad = 0
+			}
+			row += strings.Repeat(" ", pad+valueGap)
+			if item.ValueColumn != "" {
+				// Value column renders dim — it's a contextual readback,
+				// not the primary actionable content (the label is).
+				row += hintStyle.Render(item.ValueColumn)
+			}
+			if badge := p.renderBadge(item.Badge); badge != "" {
+				if item.ValueColumn != "" {
+					row += "  "
+				}
+				row += badge
+			}
+		} else {
+			// Baseline layout (M11.5) — label + optional hint.
+			if item.Hint != "" {
+				row += "  " + hintStyle.Render(item.Hint)
+			}
 		}
 		lines = append(lines, row)
 	}

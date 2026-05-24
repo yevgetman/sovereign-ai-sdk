@@ -1773,3 +1773,310 @@ func TestApp_renderDelegatorCompleteLine(t *testing.T) {
 		t.Errorf("delegator_complete missing lane distribution entry: %q", joined)
 	}
 }
+
+// 2026-05-24 config UX rebuild — SSE side-effect tests for inputOpen
+// and verboseChanged.
+
+// sampleInputOpenPayload builds a non-masked InputOpenPayload used
+// across the inputOpen tests.
+func sampleInputOpenPayload() *transport.InputOpenPayload {
+	p := transport.InputOpenPayload{
+		Title:       "defaultModel",
+		Subtitle:    "Model used when no --model flag is supplied.",
+		Initial:     "claude-sonnet-4-6",
+		Placeholder: "claude-sonnet-4-6",
+		Masked:      false,
+	}
+	p.OnSubmit.Command = "config set defaultModel"
+	return &p
+}
+
+func TestApp_InputOpenSideEffectOpensInputCard(t *testing.T) {
+	m := New("s-input-open", "")
+	resp := &transport.CommandResponse{
+		Output: "",
+		SideEffects: &transport.CommandSideEffects{
+			InputOpen: sampleInputOpenPayload(),
+		},
+	}
+	model, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := model.(Model)
+
+	if app.inputCard == nil {
+		t.Fatalf("expected inputCard to be non-nil after inputOpen side-effect")
+	}
+	if app.inputCard.Command() != "config set defaultModel" {
+		t.Errorf("inputCard.Command() = %q; want %q", app.inputCard.Command(), "config set defaultModel")
+	}
+	if app.inputCard.Value() != "claude-sonnet-4-6" {
+		t.Errorf("inputCard.Value() = %q; want %q (pre-populated from Initial)", app.inputCard.Value(), "claude-sonnet-4-6")
+	}
+}
+
+func TestApp_InputOpenClearsActivePicker(t *testing.T) {
+	// When an inputOpen side-effect arrives while a picker is open
+	// (e.g., user selected a string field from a /config submenu),
+	// the picker is dismissed in favor of the input editor.
+	m := New("s-input-replaces-picker", "")
+	pickerResp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{PickerOpen: samplePickerPayload()},
+	}
+	model, _ := m.Update(commandDispatchedMsg{name: "config", resp: pickerResp})
+	app := model.(Model)
+	if app.picker == nil {
+		t.Fatal("setup: expected picker to be open")
+	}
+	// Now fire the inputOpen.
+	inputResp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{InputOpen: sampleInputOpenPayload()},
+	}
+	model, _ = app.Update(commandDispatchedMsg{name: "config", resp: inputResp})
+	app = model.(Model)
+	if app.picker != nil {
+		t.Errorf("expected picker to be nil after inputOpen takes over; got %+v", *app.picker)
+	}
+	if app.inputCard == nil {
+		t.Fatal("expected inputCard to be non-nil after inputOpen")
+	}
+}
+
+func TestApp_InputCardEscClearsWithoutDispatch(t *testing.T) {
+	m := New("s-input-esc", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{InputOpen: sampleInputOpenPayload()},
+	}
+	model, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := model.(Model)
+
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = model.(Model)
+
+	if app.inputCard != nil {
+		t.Errorf("inputCard should be nil after Esc; got %+v", *app.inputCard)
+	}
+	if !strings.Contains(scrollbackContent(app), "cancelled") {
+		t.Errorf("expected '(cancelled)' marker in scrollback after Esc; got %q", scrollbackContent(app))
+	}
+}
+
+func TestApp_InputCardEnterDispatchesValueViaSlash(t *testing.T) {
+	// With baseURL set, Enter should return a non-nil tea.Cmd carrying
+	// the dispatch. We don't run the Cmd — it would hit a fake URL.
+	m := New("s-input-enter", "http://127.0.0.1:1")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{InputOpen: sampleInputOpenPayload()},
+	}
+	model, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := model.(Model)
+	if app.inputCard == nil {
+		t.Fatal("setup: inputCard should be open")
+	}
+
+	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app = model.(Model)
+
+	if app.inputCard != nil {
+		t.Errorf("inputCard should be cleared after Enter; got %+v", *app.inputCard)
+	}
+	if cmd == nil {
+		t.Error("Enter with baseURL set should return a dispatch tea.Cmd")
+	}
+}
+
+func TestApp_InputCardEnterNoServerNoOps(t *testing.T) {
+	// Without a server (baseURL=""), Enter still clears the card but
+	// no dispatch is fired — same contract as the picker.
+	m := New("s-input-no-server", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{InputOpen: sampleInputOpenPayload()},
+	}
+	model, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := model.(Model)
+
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app = model.(Model)
+
+	if app.inputCard != nil {
+		t.Errorf("inputCard should be cleared even without server; got %+v", *app.inputCard)
+	}
+	if !strings.Contains(scrollbackContent(app), "no server") {
+		t.Errorf("expected '(no server)' marker in scrollback; got %q", scrollbackContent(app))
+	}
+}
+
+func TestApp_InputCardForwardsTypingKeys(t *testing.T) {
+	// When the InputCard is open, character keystrokes should land in
+	// the embedded textinput (not the main prompt). The picker absorbs
+	// every key — the InputCard forwards non-Enter/Esc to its textinput.
+	// Initial="claude-sonnet-4-6"; typing "-2" should extend to
+	// "claude-sonnet-4-6-2".
+	m := New("s-input-typing", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{InputOpen: sampleInputOpenPayload()},
+	}
+	model, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := model.(Model)
+
+	// Type "-2" via two KeyMsg.
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	app = model.(Model)
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	app = model.(Model)
+
+	if app.inputCard == nil {
+		t.Fatal("inputCard should still be open after typing")
+	}
+	if want := "claude-sonnet-4-6-2"; app.inputCard.Value() != want {
+		t.Errorf("inputCard.Value() after typing: got %q want %q", app.inputCard.Value(), want)
+	}
+}
+
+func TestApp_VerboseChangedSideEffectFlipsVerboseRaw(t *testing.T) {
+	m := New("s-verbose-true", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	beforeVerbose := m.verboseRaw
+	if beforeVerbose {
+		t.Skip("baseline verboseRaw already true — cannot verify flip to true")
+	}
+
+	verboseTrue := true
+	resp := &transport.CommandResponse{
+		Output: "verbose set to true",
+		SideEffects: &transport.CommandSideEffects{
+			VerboseChanged: &verboseTrue,
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if !m.verboseRaw {
+		t.Errorf("verboseRaw should be true after VerboseChanged=true; got %v", m.verboseRaw)
+	}
+}
+
+func TestApp_VerboseChangedSideEffectFlipsBackToFalse(t *testing.T) {
+	m := New("s-verbose-false", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Force-set verboseRaw to true to verify the flip-to-false path.
+	m.verboseRaw = true
+
+	verboseFalse := false
+	resp := &transport.CommandResponse{
+		Output: "verbose set to false",
+		SideEffects: &transport.CommandSideEffects{
+			VerboseChanged: &verboseFalse,
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.verboseRaw {
+		t.Errorf("verboseRaw should be false after VerboseChanged=false; got %v", m.verboseRaw)
+	}
+}
+
+func TestApp_VerboseChangedNilPointerNoOps(t *testing.T) {
+	// Defensive — a CommandResponse with sideEffects but no
+	// VerboseChanged pointer should not touch verboseRaw.
+	m := New("s-verbose-nil", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	before := m.verboseRaw
+
+	resp := &transport.CommandResponse{
+		Output:      "some other output",
+		SideEffects: &transport.CommandSideEffects{},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.verboseRaw != before {
+		t.Errorf("verboseRaw should be unchanged when VerboseChanged=nil; before=%v after=%v", before, m.verboseRaw)
+	}
+}
+
+func TestApp_WithInitialCommandSetsField(t *testing.T) {
+	// The builder method seeds the field so the WindowSizeMsg handler
+	// can fire the command once the splash is up.
+	m := New("s-init-cmd", "").WithInitialCommand("/config")
+	if m.initialCommand != "/config" {
+		t.Errorf("WithInitialCommand: got %q want %q", m.initialCommand, "/config")
+	}
+	if m.initialFired {
+		t.Errorf("initialFired should start false; got true")
+	}
+}
+
+func TestApp_WithInitialCommandTrimsWhitespace(t *testing.T) {
+	m := New("s-init-cmd-trim", "").WithInitialCommand("  /config   ")
+	if m.initialCommand != "/config" {
+		t.Errorf("WithInitialCommand should trim; got %q", m.initialCommand)
+	}
+}
+
+func TestApp_WithInitialCommandEmptyStaysEmpty(t *testing.T) {
+	m := New("s-init-cmd-empty", "").WithInitialCommand("")
+	if m.initialCommand != "" {
+		t.Errorf("WithInitialCommand('') should leave field empty; got %q", m.initialCommand)
+	}
+}
+
+func TestApp_InitialCommandFiresOnFirstWindowSizeMsg(t *testing.T) {
+	// With initialCommand set and baseURL non-empty, the first
+	// WindowSizeMsg should fire the command (returning a non-nil Cmd
+	// via dispatchCommandCmd). The initialFired guard flips to true.
+	m := New("s-init-cmd-fire", "http://127.0.0.1:1").WithInitialCommand("/config")
+	model, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	if !m.initialFired {
+		t.Errorf("initialFired should be true after first WindowSizeMsg")
+	}
+	if cmd == nil {
+		t.Errorf("expected a non-nil tea.Cmd from initial-command fire")
+	}
+}
+
+func TestApp_InitialCommandFiresOnlyOnce(t *testing.T) {
+	// A second WindowSizeMsg (e.g., terminal resize) should NOT re-fire
+	// the initial command. The guard ensures one-shot semantics.
+	m := New("s-init-cmd-once", "http://127.0.0.1:1").WithInitialCommand("/config")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	// Resize.
+	model, cmd := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = model.(Model)
+	// The resize WindowSizeMsg should not re-fire the dispatch (no
+	// dispatch Cmd returned).
+	if cmd != nil {
+		// Inspect — dispatchCommandCmd returns a closure; if the guard
+		// failed it would also return a non-nil cmd. We can't easily
+		// type-assert the closure's identity, but we can pin that the
+		// fired flag stays true (which it would even on a wrong re-fire).
+		// The stronger assertion is initialFired stays true and no
+		// second fire happens. Given the guard, the cmd should be nil
+		// (m.respond(nil)) on the second WindowSizeMsg.
+		t.Errorf("expected nil cmd on second WindowSizeMsg (initial command should fire only once); got non-nil")
+	}
+	if !m.initialFired {
+		t.Errorf("initialFired should remain true after second WindowSizeMsg")
+	}
+}
+
+func TestApp_InitialCommandNoOpWithoutBaseURL(t *testing.T) {
+	// Without a server, the splash branch is skipped — and so is the
+	// initial-command fire (it requires baseURL non-empty).
+	m := New("s-init-cmd-no-server", "").WithInitialCommand("/config")
+	model, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	if m.initialFired {
+		t.Errorf("initialFired should stay false without baseURL")
+	}
+	if cmd != nil {
+		t.Errorf("expected nil cmd when no server; got non-nil")
+	}
+}

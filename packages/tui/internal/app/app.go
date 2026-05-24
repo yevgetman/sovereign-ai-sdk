@@ -133,6 +133,9 @@ type Model struct {
 	stallBadge       *components.StallBadge     // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
 	stallGeneration  int                        // M9.6 T2: increments per stall; tick closure captures + compares on expire
 	picker           *components.PickerCard     // M11.5: inline picker card rendered from a pickerOpen side-effect; nil when no picker is active
+	inputCard        *components.InputCard      // 2026-05-24 config UX rebuild: inline input card rendered from an inputOpen side-effect; nil when no input editor is active
+	initialCommand   string                     // 2026-05-24 config UX rebuild: slash command to fire once the splash is up (sov config bootstrap)
+	initialFired     bool                       // 2026-05-24 config UX rebuild: guards the initial-command auto-fire so it runs exactly once
 	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
 	spinner          components.Spinner         // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
@@ -430,6 +433,20 @@ func (m Model) WithVerboseRaw(v bool) Model {
 	return m
 }
 
+// WithInitialCommand seeds a slash command to fire automatically once
+// the TUI is up — the splash has rendered and the SSE consumer is
+// running. Used by `sov config` to launch the TUI straight into
+// `/config` without requiring the user to type anything. Empty value
+// leaves the model in its default "wait for user input" state.
+//
+// The command should be in the form the user would type (with leading
+// "/"), e.g., "/config" or "/help". An empty string disables the
+// behavior. 2026-05-24 config UX rebuild.
+func (m Model) WithInitialCommand(cmd string) Model {
+	m.initialCommand = strings.TrimSpace(cmd)
+	return m
+}
+
 // Layout chrome constants. The transcript fills the remaining vertical
 // space after the prompt + chrome are subtracted from the terminal
 // height. promptH is dynamic and tracked via m.prompt.Height() so the
@@ -637,6 +654,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.splashShown = true
 		}
+		// 2026-05-24 (config UX rebuild) — once the splash has rendered
+		// and the SSE consumer is up (baseURL non-empty), fire the
+		// initial command (if any). Used by `sov config` to launch the
+		// TUI straight into `/config`. Guarded by initialFired so the
+		// command runs exactly once across multiple WindowSizeMsg
+		// dispatches (terminal resizes shouldn't re-fire).
+		if !m.initialFired && m.initialCommand != "" && m.baseURL != "" {
+			m.initialFired = true
+			if cmdName, cmdArgs, ok := parseGenericSlashCommand(m.initialCommand); ok {
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName))
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs))
+			}
+		}
 		return m, m.respond(nil)
 	case tea.KeyMsg:
 		// ux-fixes round 5 — bracketed-paste handling. Bubbletea
@@ -720,6 +750,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.respond(nil)
 			}
 			return m, m.respond(nil)
+		}
+		// 2026-05-24 (config UX rebuild) — input card routing. Mirrors
+		// the picker contract: Enter dispatches `<command> <value>`,
+		// Esc cancels (quiet "(cancelled)" marker), other keys forward
+		// to the embedded textinput so typing populates the value. The
+		// inputCard absorbs ALL keys while open, matching the picker /
+		// permission-modal input-lock pattern.
+		if m.inputCard != nil {
+			switch msg.String() {
+			case "enter":
+				value := m.inputCard.Value()
+				cmdName := m.inputCard.Command()
+				m.inputCard = nil
+				if m.baseURL == "" {
+					m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+					return m, m.respond(nil)
+				}
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value))
+			case "esc":
+				m.inputCard = nil
+				m.print(m.theme.DimStyle().Render("(cancelled)"))
+				return m, m.respond(nil)
+			}
+			// Forward all other keys to the embedded textinput so the
+			// user can type the value. The Update returns a Cmd (cursor
+			// blink tick); thread it through respond so it lands.
+			updated, cmd := m.inputCard.Update(msg)
+			*m.inputCard = updated
+			return m, m.respond(cmd)
 		}
 		// ux-fixes round 5 — the round-4 PgUp/Shift+Arrow scroll
 		// bindings are gone. With the alt screen dropped, the terminal
@@ -1217,6 +1277,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.picker = &picker
 			return m, m.respond(nil)
 		}
+		// 2026-05-24 (config UX rebuild) — inputOpen side-effect opens
+		// an inline text input. Mirrors the pickerOpen pattern. The
+		// active picker (if any) is cleared so the input replaces it
+		// — `/config edit <stringField>` from a submenu picker should
+		// hand off cleanly to the editor card.
+		if msg.resp != nil && msg.resp.SideEffects != nil && msg.resp.SideEffects.InputOpen != nil {
+			if msg.resp.Output != "" {
+				for _, line := range strings.Split(msg.resp.Output, "\n") {
+					m.print(line)
+				}
+			}
+			m.picker = nil
+			input := components.NewInputCard(*msg.resp.SideEffects.InputOpen, m.theme)
+			m.inputCard = &input
+			return m, m.respond(nil)
+		}
 		if msg.resp != nil && msg.resp.Output != "" {
 			// Append each output line individually so transcript scroll
 			// math stays accurate (Transcript.AppendLine is single-line).
@@ -1265,6 +1341,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// line into scrollback; this just refreshes the chrome.)
 			if se.ModelChanged != "" {
 				m.statusLine.Model = se.ModelChanged
+			}
+			// 2026-05-24 (config UX rebuild) — verboseChanged side-effect
+			// applies the new verbose flag live. `false` flips the
+			// toolcard renderer back to compact mode (verboseRaw=false);
+			// `true` enables the raw-output escape hatch. Pointer-typed
+			// on the wire so nil (absent) is distinct from `false`.
+			// Re-rendering finalized tool cards already in scrollback is
+			// out of scope — future tool_results pick up the new mode.
+			if se.VerboseChanged != nil {
+				m.verboseRaw = *se.VerboseChanged
 			}
 			if se.ExitRequested {
 				return m, tea.Quit
@@ -1316,6 +1402,9 @@ func (m *Model) applyThemeByName(name string) error {
 	m.statusLine.SetTheme(m.theme)
 	if m.picker != nil {
 		m.picker.SetTheme(m.theme)
+	}
+	if m.inputCard != nil {
+		m.inputCard.SetTheme(m.theme)
 	}
 	return nil
 }
@@ -1802,6 +1891,10 @@ func (m Model) View() string {
 	}
 	if m.picker != nil {
 		b.WriteString(m.picker.View(m.width))
+		b.WriteString("\n")
+	}
+	if m.inputCard != nil {
+		b.WriteString(m.inputCard.View(m.width))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

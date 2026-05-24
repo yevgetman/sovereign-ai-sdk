@@ -42,6 +42,11 @@ func main() {
 		toolOutputMode        = flag.String("tool-output-mode", "compact", "compact (default, one-line per tool call) or detailed (bordered card capped to --tool-output-inline-lines)")
 		toolOutputInlineLines = flag.Int("tool-output-inline-lines", 10, "in detailed mode, cap each tool's inline output to this many rows + '…[+N more lines]' footer")
 		verboseRaw            = flag.Bool("verbose-raw", false, "orthogonal escape hatch — print full untruncated raw tool output below the compact/detailed rendering")
+		// 2026-05-24 (config UX rebuild) — initial slash command fired
+		// once the splash is up. Used by `sov config` to launch the
+		// TUI straight into `/config` without requiring user input.
+		// Empty value (default) disables the behavior.
+		initialCommand = flag.String("initial-command", "", "slash command to fire automatically once the TUI is up (e.g., '/config'); empty disables")
 	)
 	flag.Parse()
 	_ = mouse   // accepted for back-compat
@@ -60,7 +65,8 @@ func main() {
 	model := app.New(*sessionID, baseURL).
 		WithSessionInfo(*modelName, *provider, *harnessVersion).
 		WithToolOutput(*toolOutputMode, *toolOutputInlineLines).
-		WithVerboseRaw(*verboseRaw)
+		WithVerboseRaw(*verboseRaw).
+		WithInitialCommand(*initialCommand)
 	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
 	// content flows into the terminal's native scrollback (wheel scroll
 	// + click-drag text selection just work). Drop mouse capture too —

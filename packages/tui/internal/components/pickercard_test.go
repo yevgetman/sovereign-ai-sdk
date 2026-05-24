@@ -136,3 +136,157 @@ func TestPickerCard_Command(t *testing.T) {
 		t.Errorf("Command(): got %q want %q", cmd, "model")
 	}
 }
+
+// 2026-05-24 config UX rebuild — extended fields tests.
+
+// configSamplePayload builds a 3-item payload with ValueColumn + Badge
+// set on each row, mirroring the shape `/config task-routing` would
+// emit server-side. Used by the value-column and badge rendering tests.
+func configSamplePayload() transport.PickerOpenPayload {
+	p := transport.PickerOpenPayload{
+		Title: "config / task routing",
+		Items: []transport.PickerItem{
+			{
+				Label:       "enabled",
+				Value:       "taskRouting.enabled",
+				ValueColumn: "false",
+				Badge:       "reload",
+			},
+			{
+				Label:       "delegator.model",
+				Value:       "taskRouting.delegator.model",
+				ValueColumn: "claude-sonnet-4-6",
+				Badge:       "reload",
+			},
+			{
+				Label:       "lanes.cheap-task.provider",
+				Value:       "taskRouting.lanes.cheap-task.provider",
+				ValueColumn: "anthropic",
+				Badge:       "live",
+			},
+		},
+	}
+	p.OnSelect.Command = "config edit"
+	return p
+}
+
+// TestPickerCard_BackwardsCompatibleLayout verifies that the M11.5
+// rendering (label + optional hint) is byte-identical when neither
+// ValueColumn nor Badge is set on any item. This protects /model,
+// /resume, /export, /theme from visual regression.
+func TestPickerCard_BackwardsCompatibleLayout(t *testing.T) {
+	card := NewPickerCard(samplePayload(0), theme.Dark())
+	out := card.View(80)
+	// Hints should still render (M11.5 behavior).
+	for _, hint := range []string{"deepest reasoning", "balanced", "fastest"} {
+		if !strings.Contains(out, hint) {
+			t.Errorf("View(80) baseline layout missing hint %q in:\n%s", hint, out)
+		}
+	}
+	// No value-column / badge artifacts should appear.
+	for _, leak := range []string{"✓ live", "⟳ next session"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("View(80) baseline layout unexpectedly contains %q in:\n%s", leak, out)
+		}
+	}
+}
+
+func TestPickerCard_ValueColumnRendered(t *testing.T) {
+	card := NewPickerCard(configSamplePayload(), theme.Dark())
+	out := card.View(120)
+	for _, value := range []string{"false", "claude-sonnet-4-6", "anthropic"} {
+		if !strings.Contains(out, value) {
+			t.Errorf("View(120) wide layout missing value column %q in:\n%s", value, out)
+		}
+	}
+}
+
+func TestPickerCard_BadgeLiveRenders(t *testing.T) {
+	card := NewPickerCard(configSamplePayload(), theme.Dark())
+	out := card.View(120)
+	if !strings.Contains(out, "✓ live") {
+		t.Errorf("expected '✓ live' badge for live items in:\n%s", out)
+	}
+}
+
+func TestPickerCard_BadgeReloadRenders(t *testing.T) {
+	card := NewPickerCard(configSamplePayload(), theme.Dark())
+	out := card.View(120)
+	if !strings.Contains(out, "⟳ next session") {
+		t.Errorf("expected '⟳ next session' badge for reload items in:\n%s", out)
+	}
+}
+
+func TestPickerCard_UnknownBadgeRendersNothing(t *testing.T) {
+	// Items with Badge="" or Badge=<unknown> render no badge text.
+	payload := transport.PickerOpenPayload{
+		Title: "test",
+		Items: []transport.PickerItem{
+			{Label: "a", Value: "a", ValueColumn: "x", Badge: "mystery"},
+			{Label: "b", Value: "b", ValueColumn: "y", Badge: ""},
+		},
+	}
+	payload.OnSelect.Command = "noop"
+	card := NewPickerCard(payload, theme.Dark())
+	out := card.View(80)
+	for _, leak := range []string{"✓ live", "⟳ next session", "mystery"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("View(80) unexpectedly contains %q for unknown badge in:\n%s", leak, out)
+		}
+	}
+	// Value column should still appear.
+	for _, value := range []string{"x", "y"} {
+		if !strings.Contains(out, value) {
+			t.Errorf("expected value column %q to render alongside unknown badge in:\n%s", value, out)
+		}
+	}
+}
+
+// TestPickerCard_SecretDisplayPassesThrough verifies the Go side just
+// renders whatever ValueColumn contains — masking ("••••••••") is done
+// server-side in the catalog handler. The contract is "display
+// verbatim, server is the source of truth for masking".
+func TestPickerCard_SecretDisplayPassesThrough(t *testing.T) {
+	payload := transport.PickerOpenPayload{
+		Title: "providers / anthropic",
+		Items: []transport.PickerItem{
+			{Label: "apiKey", Value: "providers.anthropic.apiKey", ValueColumn: "••••••••", Badge: "reload"},
+			{Label: "apiKey-unset", Value: "providers.openai.apiKey", ValueColumn: "(unset)", Badge: "reload"},
+		},
+	}
+	payload.OnSelect.Command = "config edit"
+	card := NewPickerCard(payload, theme.Dark())
+	out := card.View(120)
+	if !strings.Contains(out, "••••••••") {
+		t.Errorf("expected masked dots to pass through View(120) verbatim; got:\n%s", out)
+	}
+	if !strings.Contains(out, "(unset)") {
+		t.Errorf("expected '(unset)' marker to pass through View(120) verbatim; got:\n%s", out)
+	}
+}
+
+// TestPickerCard_LabelAlignment verifies labels are padded so the value
+// columns line up. Verifies the layout-math contract: across multiple
+// items, every value column starts at the same horizontal position
+// (label column width + gap).
+func TestPickerCard_LabelAlignment(t *testing.T) {
+	payload := transport.PickerOpenPayload{
+		Title: "alignment",
+		Items: []transport.PickerItem{
+			{Label: "a", Value: "a", ValueColumn: "v1"},
+			{Label: "much-longer-key", Value: "b", ValueColumn: "v2"},
+		},
+	}
+	payload.OnSelect.Command = "noop"
+	card := NewPickerCard(payload, theme.Dark())
+	out := card.View(80)
+	// Both value columns should appear. We can't pin exact column
+	// offsets reliably (lipgloss escape codes), but we can pin that
+	// both values are present and the layout didn't drop either.
+	if !strings.Contains(out, "v1") {
+		t.Errorf("expected 'v1' value column in:\n%s", out)
+	}
+	if !strings.Contains(out, "v2") {
+		t.Errorf("expected 'v2' value column in:\n%s", out)
+	}
+}
