@@ -8,6 +8,71 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-24 — config UX rebuild close-out
+
+**Scope:** Full rebuild of the `sov config` interactive surface and the `/config` slash command per `docs/specs/2026-05-24-config-ux-rebuild-design.md`. Replaces the hand-rolled raw-mode picker (`src/ui/configMenu.ts`, 389 LoC) and the JSON-dump `/config` verb with a single branded Bubble Tea TUI driven by a curated 10-group catalog. Authorized autonomously by the user; subagent-driven implementation across 3 parallel TS/Go/configMode agents + 1 final-review agent.
+
+**What shipped:**
+- `src/config/catalog.ts` — 10 groups + 4 provider subgroups + every field in `SettingsSchema`. `ConfigEditor` discriminated union (boolean / enum / string / number / secret); per-item secret flag + optional liveApply hook reference.
+- `src/config/liveApply.ts` — 6 v0 hooks: `theme`, `defaultModel`, `providers.{anthropic,openai,openrouter,ollama}.model` (conditional on active provider), `verbose`, `webSearch.*`. Each handles in-session vs. `sov config` standalone correctly.
+- `src/commands/configOps.ts` — slash dispatcher: root menu, group submenu, edit, set (with editor-aware coercion + reopen-on-error), unset, legacy show/path/get preserved.
+- `src/cli/configMode.ts` — `runConfigOnlyMode`: hand-rolled minimal Runtime literal (real SessionDb + stub everything else); no buildRuntime, no preflight, no providers. Boots sov-tui with `--initial-command=/config`. Sub-50ms boot.
+- `packages/tui/internal/components/pickercard.go` — extended with `ValueColumn` + `Badge` right-aligned wide layout. Backwards-compat preserved.
+- `packages/tui/internal/components/inputcard.go` — new Bubble Tea component on `bubbles/textinput` for string/number/secret edits. `EchoPassword` mode for masked.
+- `packages/tui/internal/app/app.go` — `inputOpen` + `verboseChanged` SSE switch cases, `WithInitialCommand` builder, initial-command-on-first-WindowSizeMsg guard.
+- `packages/tui/cmd/sov-tui/main.go` — `--initial-command=<text>` flag.
+- Wire: `src/server/schema.ts` extends `PickerOpenItemSchema` with `valueColumn` + `badge`, adds `InputOpenConfigSchema`, adds `inputOpen` + `verboseChanged` to `CommandSideEffectsSchema`. Mirrors on Go side in `transport/`.
+- Deleted: `src/ui/configMenu.ts` (389 LoC) + the readline-asker raw-mode picker path.
+
+**Review-pass fixes (folded into the same session):**
+- HIGH — validation failure preserves the editor (re-emit same picker/InputCard with typed value + error subtitle). New `reopenEditorWithError` helper in `configOps.ts`.
+- MEDIUM — string fields no longer over-coerce numeric-looking input (new `coerceValueForEditor` switches on editor kind).
+- MEDIUM — theme hook respects `commandCtx === undefined` before mutating the TS-side singleton.
+
+**Tests added:**
+- TS: `tests/server/schema.test.ts` (+11), `tests/config/catalog.test.ts` (+16), `tests/config/liveApply.test.ts` (+35), `tests/commands/configOps.test.ts` (+43), `tests/server/configMode.test.ts` (+8), review-fix coverage (+3).
+- Go: `pickercard_test.go` (+7), `inputcard_test.go` new (+11), `app_test.go` (+15), `input_test.go` new (+4), `commands_test.go` (+2).
+- Semantic: `tests/semantic/suites/23-config-ux.cases.ts` (+5): JSON-dump regression, reload badge, theme live-apply, validation error, secret masking.
+
+**Suite numbers:** TS **2420/0/14** (+114 from Phase 2 close-out's 2306). Go: all packages green; +30 new tests across 5 files. Lint+typecheck clean.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2420 pass / 0 fail / 14 skip in ~57s
+
+cd packages/tui && go test ./...
+# 5 packages, all green
+```
+
+**Architectural verification (catalog claims):**
+- WebSearchTool.ts:61 reads `readConfig()` at invoke time — webSearch.* is genuinely live-applyable. ✓
+- agentRunner.ts captures maxTurns at boot — NOT live-applyable. Catalog item is reload-needed, no hook registered, badge correctly shows `⟳ next session`. ✓
+- /model has `ctx.setModel` — defaultModel and providers.<x>.model can pivot the active session's model. ✓
+- /theme protocol — themeChanged side-effect already wired end-to-end in the Go TUI's app.go. ✓
+
+**Follow-ups recorded:**
+- Esc-from-submenu should re-dispatch parent (review MEDIUM #1).
+- Unmanaged-keys group is effectively dead under strict schema (review MEDIUM #6).
+- Standalone `sov config` theme apply doesn't visibly update the in-process Go TUI (cosmetic).
+- More live-apply hooks: `permissionMode`, `microcompaction.*`, `compaction.*`, `review.*`, `learning.*` — each isolated work.
+- Hot-reload for `taskRouting.*` — significant work, deferred.
+- Profile-scoped config writes — mechanical, deferred.
+- Search/jump global fuzzy find — power-user ergonomics, deferred.
+
+**Phase status:** Config UX rebuild closed. `sov config` and `/config` now share a single branded TUI experience covering every field in SettingsSchema with optional live-apply + clear reload-needed badging. Release v0.5.1 follows.
+
+**Commits since v0.5.0 release (`c882adf`):**
+- `3901347` docs(specs): config UX rebuild design + plan
+- `8bfa177` feat(server): wire schema extensions (inputOpen + verboseChanged + PickerOpenItem value+badge)
+- `6664d68` feat(config): curated catalog + live-apply hook system
+- `8db453e` feat(commands): /config picker-driven dispatcher
+- `f9c27cf` feat(cli): sov config standalone mode
+- `6b76921` feat(tui): config UX components and integration
+- `b003190` test(semantic): config UX coverage suite
+- (this entry — T19 close-out)
+- (release v0.5.1 — T18, follows)
+
 ## 2026-05-23 — Phase 2 multi-provider task routing close-out
 
 **Scope:** Phase 2 of multi-provider task routing per `docs/specs/2026-05-23-multi-provider-task-routing-design.md`. Adds full observability + lane timeoutMs enforcement + env-var override. 10 implementation tasks (T1-T10) shipped. T11 (this entry) + T12 (release).
