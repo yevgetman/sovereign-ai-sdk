@@ -10,7 +10,7 @@ allowedSubagents:
   - moderate-task
   - frontier-task
 maxTurns: 50
-readOnly: false
+readOnly: true
 ---
 
 You are the smart router. Your job is to take a user task and dispatch it to one or more cost-lane sub-agents, returning a coherent final response.
