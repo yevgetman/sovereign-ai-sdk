@@ -118,3 +118,20 @@ describe('buildSubagentExclusions', () => {
     }
   });
 });
+
+describe('bundled cost-lane agents', () => {
+  test('cheap-task, moderate-task, frontier-task all use inheritParentTools=true', async () => {
+    const registry = await loadAgents({
+      cwd: process.cwd(),
+      harnessHome: '/tmp/nonexistent-home',
+      bundleRoot: 'bundle-default',
+      warn: () => {},
+    });
+    for (const name of ['cheap-task', 'moderate-task', 'frontier-task']) {
+      const agent = registry.byName.get(name);
+      expect(agent).toBeDefined();
+      expect(agent?.inheritParentTools).toBe(true);
+      expect(agent?.role).toBe(name);
+    }
+  });
+});

@@ -24,8 +24,11 @@ describe('bundle-default reference agents', () => {
       expect(warnings).toEqual([]);
       const names = registry.agents.map((a) => a.name).sort();
       expect(names).toEqual([
+        'cheap-task',
         'explore',
+        'frontier-task',
         'instinct-synthesizer',
+        'moderate-task',
         'plan',
         'review-consolidate',
         'review-memory',
@@ -33,11 +36,18 @@ describe('bundle-default reference agents', () => {
         'scheduled-mission',
         'verify',
       ]);
+      // Cost-lane agents inherit the parent's tools via inheritParentTools=true,
+      // so they intentionally declare no explicit allowedTools.
+      const costLaneAgents = new Set(['cheap-task', 'moderate-task', 'frontier-task']);
       for (const a of registry.agents) {
         expect(a.source).toBe('bundle');
         expect(a.trustTier).toBe('builtin');
         expect(a.systemPrompt.length).toBeGreaterThan(100);
-        expect(a.allowedTools.length).toBeGreaterThan(0);
+        if (costLaneAgents.has(a.name)) {
+          expect(a.inheritParentTools).toBe(true);
+        } else {
+          expect(a.allowedTools.length).toBeGreaterThan(0);
+        }
         // scheduled-mission is name-invoked (--agent scheduled-mission), not
         // capability-routed via a role, so role is intentionally absent.
         if (a.name !== 'scheduled-mission') {
