@@ -153,6 +153,96 @@ func TestPickerBackspace_NoOpWhenOnBackAbsent(t *testing.T) {
 	}
 }
 
+// 2026-05-24 patch — `sov config` standalone mode behavior.
+
+func TestConfigOnly_EscOnSubPickerNavigatesBack(t *testing.T) {
+	// In configOnly mode, Esc on a picker that has OnBack should
+	// behave like backspace (re-dispatch the back command) so the user
+	// climbs the menu hierarchy instead of accidentally exiting.
+	m := New("sess-1", "").WithConfigOnly(true)
+	// Pretend the initial command has fired so the exit-on-no-modal
+	// guard doesn't kick in too early.
+	m.initialFired = true
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{
+			PickerOpen: samplePickerPayloadWithBack("config providers"),
+		},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = updated.(Model)
+
+	if app.picker != nil {
+		t.Error("picker should be cleared after Esc-as-back in configOnly mode")
+	}
+	if app.configOnlyExit {
+		t.Error("configOnlyExit should NOT be set when Esc triggers back-nav (we're still in config flow)")
+	}
+}
+
+func TestConfigOnly_EscOnRootPickerSetsExitLatch(t *testing.T) {
+	// In configOnly mode, Esc on a picker WITHOUT OnBack (root menu)
+	// closes the picker AND triggers the exit-when-no-modal guard,
+	// which sets configOnlyExit so the next render returns tea.Quit.
+	m := New("sess-1", "").WithConfigOnly(true)
+	m.initialFired = true
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{
+			PickerOpen: samplePickerPayload(), // no OnBack — root picker
+		},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = updated.(Model)
+
+	if app.picker != nil {
+		t.Error("root picker should be cleared after Esc")
+	}
+	if !app.configOnlyExit {
+		t.Error("configOnlyExit latch should be set when Esc closes the root menu in configOnly mode")
+	}
+}
+
+func TestConfigOnly_NormalSessionEscDoesNotExit(t *testing.T) {
+	// Sanity check: in NORMAL (non-configOnly) mode, Esc on a picker
+	// just closes the picker. The configOnlyExit latch must stay
+	// false — we're not in standalone mode.
+	m := New("sess-1", "")
+	resp := &transport.CommandResponse{
+		SideEffects: &transport.CommandSideEffects{PickerOpen: samplePickerPayload()},
+	}
+	updated, _ := m.Update(commandDispatchedMsg{name: "model", resp: resp})
+	app := updated.(Model)
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = updated.(Model)
+
+	if app.configOnlyExit {
+		t.Error("configOnlyExit should be false in non-configOnly mode")
+	}
+}
+
+func TestConfigOnly_ViewHidesPrompt(t *testing.T) {
+	// configOnly View() must skip the prompt input + status line.
+	// The replacement footer mentions "Sovereign AI — config".
+	m := New("sess-1", "").WithConfigOnly(true)
+	m.width = 80
+	m.height = 24
+	out := m.View()
+	if !strings.Contains(out, "Sovereign AI — config") {
+		t.Errorf("configOnly View should include the config-mode footer\n--- view ---\n%s", out)
+	}
+	// The default prompt textarea renders a "> " marker; configOnly
+	// View should NOT include it.
+	if strings.Contains(out, "? for shortcuts") {
+		t.Errorf("configOnly View should NOT render the shortcuts hint\n--- view ---\n%s", out)
+	}
+}
+
 func TestPickerBackspace_ClearsPickerWhenOnBackPresent(t *testing.T) {
 	// Picker with OnBack — backspace clears the current picker and
 	// re-dispatches the back command.

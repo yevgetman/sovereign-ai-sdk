@@ -47,6 +47,11 @@ func main() {
 		// TUI straight into `/config` without requiring user input.
 		// Empty value (default) disables the behavior.
 		initialCommand = flag.String("initial-command", "", "slash command to fire automatically once the TUI is up (e.g., '/config'); empty disables")
+		// 2026-05-24 patch — `sov config` standalone mode. Hides the
+		// prompt input + status line so the user doesn't mistake the
+		// editor process for an active agent session, and exits
+		// cleanly when no modal (picker / input card) is open.
+		configOnly = flag.Bool("config-only", false, "config-editor mode: hide prompt + status, exit when no modal is open (used by `sov config`)")
 	)
 	flag.Parse()
 	_ = mouse   // accepted for back-compat
@@ -66,7 +71,8 @@ func main() {
 		WithSessionInfo(*modelName, *provider, *harnessVersion).
 		WithToolOutput(*toolOutputMode, *toolOutputInlineLines).
 		WithVerboseRaw(*verboseRaw).
-		WithInitialCommand(*initialCommand)
+		WithInitialCommand(*initialCommand).
+		WithConfigOnly(*configOnly)
 	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
 	// content flows into the terminal's native scrollback (wheel scroll
 	// + click-drag text selection just work). Drop mouse capture too —

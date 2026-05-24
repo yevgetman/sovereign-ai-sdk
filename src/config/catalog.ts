@@ -26,7 +26,19 @@ import type { Settings } from './schema.js';
 export type ConfigEditor =
   | { kind: 'boolean' }
   | { kind: 'enum'; choices: readonly string[] }
-  | { kind: 'string'; placeholder?: string; choices?: readonly string[] }
+  | {
+      kind: 'string';
+      placeholder?: string;
+      choices?: readonly string[];
+      /** 2026-05-24 patch — settings-aware choices, evaluated at picker-
+       *  render time. Used by `defaultModel` to scope choices to the
+       *  active `defaultProvider`'s known model list. */
+      dynamicChoices?: (settings: import('./schema.js').Settings) => readonly string[];
+      /** 2026-05-24 patch — when true, the choices picker includes a
+       *  "↪ type custom value…" sentinel. Selecting it reroutes to an
+       *  inputCard so the user can type a value outside the known list. */
+      allowCustom?: boolean;
+    }
   | { kind: 'number'; min?: number; max?: number; placeholder?: string }
   | { kind: 'secret' };
 
@@ -81,6 +93,28 @@ const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o'] as const;
 const OPENROUTER_MODELS = ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'] as const;
 const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'] as const;
 
+/**
+ * Map a provider name to its known model list. Used by `defaultModel`'s
+ * dynamicChoices so the picker shows the right models for the active
+ * `defaultProvider`. Falls back to Anthropic's list when the provider
+ * is unknown or unset, mirroring the legacy raw-mode picker.
+ * 2026-05-24 patch.
+ */
+function modelsForProvider(provider: string | undefined): readonly string[] {
+  switch (provider) {
+    case 'anthropic':
+      return ANTHROPIC_MODELS;
+    case 'openai':
+      return OPENAI_MODELS;
+    case 'openrouter':
+      return OPENROUTER_MODELS;
+    case 'ollama':
+      return OLLAMA_MODELS;
+    default:
+      return ANTHROPIC_MODELS;
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Groups
 // ──────────────────────────────────────────────────────────────────────
@@ -100,8 +134,15 @@ const GENERAL_GROUP: ConfigGroup = {
       path: 'defaultModel',
       label: 'defaultModel',
       description:
-        'Model used when no --model flag is supplied. Live-applied to the active session.',
-      editor: { kind: 'string', placeholder: 'e.g. claude-sonnet-4-6' },
+        'Model used when no --model flag is supplied. Choices scoped to defaultProvider. Live-applied to the active session.',
+      editor: {
+        kind: 'string',
+        placeholder: 'e.g. claude-sonnet-4-6',
+        // 2026-05-24 patch — dynamic choices scoped by defaultProvider.
+        // Mirrors the legacy raw-mode picker's modelsForProvider helper.
+        dynamicChoices: (settings) => modelsForProvider(settings.defaultProvider),
+        allowCustom: true,
+      },
     },
     {
       path: 'permissionMode',

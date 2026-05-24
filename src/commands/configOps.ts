@@ -358,10 +358,18 @@ function runEdit(rest: string, ctx: CommandContext): string {
     return openBooleanPicker(item, currentRaw, ctx);
   }
   if (editor.kind === 'enum') {
-    return openEnumPicker(item, editor.choices, currentRaw, ctx);
+    return openEnumPicker(item, editor.choices, currentRaw, ctx, false);
   }
-  if (editor.kind === 'string' && Array.isArray(editor.choices) && editor.choices.length > 0) {
-    return openEnumPicker(item, editor.choices, currentRaw, ctx);
+  if (editor.kind === 'string') {
+    // 2026-05-24 patch — evaluate dynamicChoices against the current
+    // settings so e.g. defaultModel's choices reflect the active
+    // defaultProvider.
+    const dynamic =
+      typeof editor.dynamicChoices === 'function' ? editor.dynamicChoices(settings) : undefined;
+    const choices = dynamic ?? editor.choices;
+    if (Array.isArray(choices) && choices.length > 0) {
+      return openEnumPicker(item, choices, currentRaw, ctx, editor.allowCustom === true);
+    }
   }
 
   // String / number / secret → inputOpen
@@ -402,11 +410,23 @@ function backCommandForEditor(item: ConfigItem): string | undefined {
   return `config ${parent.id}`;
 }
 
+/**
+ * Magic sentinel value for the "↪ type custom value…" picker item.
+ * When runSet sees this value for an item whose editor declared
+ * `allowCustom: true`, it reroutes to the free-text input editor
+ * instead of trying to persist the literal sentinel.
+ *
+ * The double-underscore + namespace prefix avoids collision with any
+ * real config value a user might want to set. 2026-05-24 patch.
+ */
+const CUSTOM_VALUE_SENTINEL = '__sov_config_type_custom__';
+
 function openEnumPicker(
   item: ConfigItem,
   choices: readonly string[],
   currentRaw: unknown,
   ctx: CommandContext,
+  allowCustom: boolean,
 ): string {
   if (ctx.requestPicker === undefined) {
     return [
@@ -422,14 +442,29 @@ function openEnumPicker(
     choices.findIndex((c) => c === currentStr),
   );
   const backCmd = backCommandForEditor(item);
+  const baseItems = choices.map((c) => ({
+    label: c,
+    value: c,
+    ...(c === currentStr ? { hint: '(current)' } : {}),
+  }));
+  // 2026-05-24 patch — append the custom-value sentinel when the
+  // editor allows free-text input alongside the known choices.
+  // Selecting it re-dispatches `config set <path> <CUSTOM_SENTINEL>`,
+  // which runSet recognizes and reroutes to the input editor.
+  const items = allowCustom
+    ? [
+        ...baseItems,
+        {
+          label: '↪ type custom value…',
+          value: CUSTOM_VALUE_SENTINEL,
+          hint: 'open free-text editor',
+        },
+      ]
+    : baseItems;
   ctx.requestPicker({
     title: item.path,
     ...(item.description !== undefined ? { subtitle: item.description } : {}),
-    items: choices.map((c) => ({
-      label: c,
-      value: c,
-      ...(c === currentStr ? { hint: '(current)' } : {}),
-    })),
+    items,
     initial,
     onSelect: { command: `config set ${item.path}` },
     ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
@@ -464,6 +499,7 @@ function openInputEditor(
     ].join('\n');
   }
 
+  const backCmd = backCommandForEditor(item);
   const input: InputOpenConfig = {
     title: item.path,
     ...(item.description !== undefined ? { subtitle: item.description } : {}),
@@ -476,6 +512,7 @@ function openInputEditor(
       : {}),
     ...(isSecret ? { masked: true } : {}),
     onSubmit: { command: `config set ${item.path}` },
+    ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
   };
   ctx.requestInput(input);
   return '';
@@ -499,6 +536,17 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
   // catalog fall through to parseValueLiteral for backward-compat with
   // the legacy `/config set <unmanaged-path> <value>` CLI verb.
   const item = findItem(path);
+
+  // 2026-05-24 patch — custom-value sentinel. The "↪ type custom value…"
+  // picker item dispatches the magic sentinel as its value; runSet
+  // recognizes it and reroutes to the input editor for free-text entry
+  // instead of trying to persist the literal sentinel string.
+  if (rawValue === CUSTOM_VALUE_SENTINEL && item !== undefined) {
+    const settings = readConfig();
+    const currentRaw = getAt(settings as Record<string, unknown>, path);
+    return openInputEditor(item, item.editor, currentRaw, ctx);
+  }
+
   const value = coerceValueForEditor(rawValue, item);
 
   // 2026-05-24 review #1 (HIGH) — validate-then-preserve-editor. The
@@ -713,6 +761,7 @@ function reopenEditorWithError(
     ...(isSecret ? {} : { initial: rawValue }),
     ...(isSecret ? { masked: true } : {}),
     onSubmit: { command: `config set ${path}` },
+    ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
   };
   ctx.requestInput(input);
   return error;

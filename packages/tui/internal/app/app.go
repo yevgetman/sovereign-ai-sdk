@@ -136,6 +136,8 @@ type Model struct {
 	inputCard        *components.InputCard      // 2026-05-24 config UX rebuild: inline input card rendered from an inputOpen side-effect; nil when no input editor is active
 	initialCommand   string                     // 2026-05-24 config UX rebuild: slash command to fire once the splash is up (sov config bootstrap)
 	initialFired     bool                       // 2026-05-24 config UX rebuild: guards the initial-command auto-fire so it runs exactly once
+	configOnly       bool                       // 2026-05-24 patch: `sov config` standalone mode — hide prompt/status, exit when no modal is open
+	configOnlyExit   bool                       // 2026-05-24 patch: latch set when the configOnly run is ready to quit (next tick returns tea.Quit)
 	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
 	spinner          components.Spinner         // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
 	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
@@ -259,6 +261,41 @@ func (m *Model) respond(cmd tea.Cmd) tea.Cmd {
 		return drain
 	}
 	return tea.Batch(cmd, drain)
+}
+
+// splitConfigBackCommand splits an OnBack command string into the
+// slash-command name + args. The dispatcher expects them separately;
+// OnBack strings come as `"config"` or `"config <group-id>"`, so we
+// split on the first space. 2026-05-24 patch.
+func splitConfigBackCommand(back string) (string, string) {
+	if i := strings.IndexByte(back, ' '); i != -1 {
+		return back[:i], strings.TrimSpace(back[i+1:])
+	}
+	return back, ""
+}
+
+// maybeQuitAfterModalClose returns tea.Quit batched with the supplied
+// cmd when (a) the TUI is in configOnly mode AND (b) no modal (picker
+// or inputCard) remains open AND (c) the initial-command has already
+// fired (so we don't quit immediately at boot). Otherwise returns the
+// supplied cmd unchanged. 2026-05-24 patch.
+func (m *Model) maybeQuitAfterModalClose(cmd tea.Cmd) tea.Cmd {
+	if !m.configOnly || m.configOnlyExit {
+		return cmd
+	}
+	if m.picker != nil || m.inputCard != nil {
+		return cmd
+	}
+	if !m.initialFired {
+		// Defensive — shouldn't reach here without the initial-command
+		// having fired; if we did, don't quit prematurely.
+		return cmd
+	}
+	m.configOnlyExit = true
+	if cmd == nil {
+		return tea.Quit
+	}
+	return tea.Batch(cmd, tea.Quit)
 }
 
 // cancelTurnCmd issues POST /sessions/:id/cancel off the Update
@@ -444,6 +481,17 @@ func (m Model) WithVerboseRaw(v bool) Model {
 // behavior. 2026-05-24 config UX rebuild.
 func (m Model) WithInitialCommand(cmd string) Model {
 	m.initialCommand = strings.TrimSpace(cmd)
+	return m
+}
+
+// WithConfigOnly marks the TUI as `sov config` standalone mode: the
+// prompt input + status line are hidden, the splash adapts to omit
+// session/model/provider info, and the program exits cleanly when no
+// modal (picker or input card) is open. Sub-picker Esc behaves like
+// backspace (navigates back via OnBack) so users can climb the menu
+// hierarchy without accidentally exiting. 2026-05-24 patch.
+func (m Model) WithConfigOnly(on bool) Model {
+	m.configOnly = on
 	return m
 }
 
@@ -745,9 +793,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
 				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value))
 			case "esc":
+				// 2026-05-24 patch — in configOnly mode, Esc on a
+				// sub-picker (one with OnBack) behaves like backspace
+				// so the user climbs back instead of being dumped at
+				// a stale screen. Esc on the root menu (no OnBack)
+				// closes the picker and triggers the exit-when-no-
+				// modal check at the end of this case.
+				back := m.picker.OnBack()
+				if m.configOnly && back != "" {
+					m.picker = nil
+					if m.baseURL == "" {
+						m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+						return m, m.respond(nil)
+					}
+					m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + back))
+					name, args := splitConfigBackCommand(back)
+					return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
+				}
 				m.picker = nil
-				m.print(m.theme.DimStyle().Render("(cancelled)"))
-				return m, m.respond(nil)
+				if !m.configOnly {
+					m.print(m.theme.DimStyle().Render("(cancelled)"))
+				}
+				return m, m.maybeQuitAfterModalClose(m.respond(nil))
 			case "backspace":
 				// 2026-05-24 patch — back-navigation. The payload's
 				// optional OnBack carries the parent menu's command;
@@ -765,15 +832,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.respond(nil)
 				}
 				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + back))
-				// Split into name + args. The OnBack string is "config"
-				// or "config <group-id>"; the dispatcher takes name +
-				// args separately. Split on the first space.
-				name := back
-				args := ""
-				if i := strings.IndexByte(back, ' '); i != -1 {
-					name = back[:i]
-					args = strings.TrimSpace(back[i+1:])
-				}
+				name, args := splitConfigBackCommand(back)
 				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
 			}
 			return m, m.respond(nil)
@@ -797,9 +856,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName + " " + value))
 				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, value))
 			case "esc":
+				// 2026-05-24 patch — when the inputCard payload carries
+				// an OnBack command (any /config edit case), Esc closes
+				// the editor and re-dispatches that command so the user
+				// returns to the parent submenu instead of being dumped
+				// to scrollback. Falls back to the legacy "(cancelled)"
+				// marker when OnBack is absent. In configOnly mode,
+				// after the close we check for the "no modal" exit
+				// condition.
+				back := m.inputCard.OnBack()
+				if back != "" {
+					m.inputCard = nil
+					if m.baseURL == "" {
+						m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
+						return m, m.respond(nil)
+					}
+					m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + back))
+					name, args := splitConfigBackCommand(back)
+					return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
+				}
 				m.inputCard = nil
-				m.print(m.theme.DimStyle().Render("(cancelled)"))
-				return m, m.respond(nil)
+				if !m.configOnly {
+					m.print(m.theme.DimStyle().Render("(cancelled)"))
+				}
+				return m, m.maybeQuitAfterModalClose(m.respond(nil))
 			}
 			// Forward all other keys to the embedded textinput so the
 			// user can type the value. The Update returns a Cmd (cursor
@@ -1923,6 +2003,21 @@ func (m Model) View() string {
 	if m.inputCard != nil {
 		b.WriteString(m.inputCard.View(m.width))
 		b.WriteString("\n")
+	}
+	// 2026-05-24 patch — in `sov config` standalone mode the prompt
+	// input + status line are hidden so the user doesn't mistake the
+	// editor process for an active agent session. The splash + active
+	// picker / inputCard remain. A short footer hint replaces the
+	// status line so users know how to exit.
+	if m.configOnly {
+		b.WriteString("\n")
+		footer := lipgloss.NewStyle().
+			Foreground(m.theme.Dim).
+			Italic(true).
+			Render("Sovereign AI — config · esc on the root menu exits")
+		b.WriteString(footer)
+		b.WriteString("\n")
+		return b.String()
 	}
 	b.WriteString("\n")
 	b.WriteString(prompt)

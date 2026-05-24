@@ -169,6 +169,12 @@ export async function runConfigOnlyMode(opts: ConfigOnlyOptions = {}): Promise<n
     CONFIG_ONLY_PROVIDER,
     '--harness-version',
     VERSION,
+    // 2026-05-24 patch — instruct the TUI to hide the prompt + status
+    // line and exit cleanly when no modal (picker / inputCard) is
+    // open. Without this flag the standalone process looks like a
+    // normal agent session with an empty prompt and no model loaded,
+    // which deceives users into thinking they can chat.
+    '--config-only',
   ];
 
   const spawnOpts: SpawnOptions = { stdio: 'inherit' };

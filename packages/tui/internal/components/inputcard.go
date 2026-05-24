@@ -149,6 +149,17 @@ func (i InputCard) Command() string {
 	return i.payload.OnSubmit.Command
 }
 
+// OnBack returns the slash command to re-dispatch when the user hits
+// Esc inside the InputCard. Empty string when the payload has no
+// OnBack (the M11.5-style "(cancelled)" close path). Symmetric with
+// PickerCard.OnBack. 2026-05-24 patch.
+func (i InputCard) OnBack() string {
+	if i.payload.OnBack == nil {
+		return ""
+	}
+	return i.payload.OnBack.Command
+}
+
 // Masked reports whether the input is in EchoPassword mode. Test
 // helper — production code doesn't need to inspect this. 2026-05-24.
 func (i InputCard) Masked() bool {

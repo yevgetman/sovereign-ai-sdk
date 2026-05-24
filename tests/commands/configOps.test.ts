@@ -220,16 +220,52 @@ describe('/config dispatcher', () => {
       expect(values).toContain('light');
     });
 
-    test('string field without choices emits inputOpen', async () => {
+    test('string field with dynamicChoices emits a picker scoped by defaultProvider', async () => {
+      // 2026-05-24 patch — defaultModel now uses dynamicChoices so the
+      // picker shows the active provider's known model list, plus a
+      // "↪ type custom value…" sentinel. Default config has no
+      // defaultProvider set, so modelsForProvider falls back to the
+      // anthropic list.
       const { ctx, cap } = captureCtx();
       await dispatchConfigCommand('edit defaultModel', ctx);
-      expect(cap.pickers.length).toBe(0);
+      expect(cap.pickers.length).toBe(1);
+      expect(cap.inputs.length).toBe(0);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      expect(picker.title).toBe('defaultModel');
+      const labels = picker.items.map((i) => i.label);
+      expect(labels).toContain('claude-haiku-4-5-20251001');
+      expect(labels).toContain('claude-sonnet-4-6');
+      expect(labels).toContain('claude-opus-4-7');
+      // Sentinel for custom-type must be present at the end.
+      expect(labels).toContain('↪ type custom value…');
+    });
+
+    test('defaultModel picker scopes choices to the configured defaultProvider', async () => {
+      // Seed defaultProvider = ollama; picker should show ollama models.
+      await dispatchConfigCommand('set defaultProvider ollama', makeCtx());
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('edit defaultModel', ctx);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      const labels = picker.items.map((i) => i.label);
+      expect(labels).toContain('qwen2.5:7b');
+      expect(labels).toContain('llama3.1:8b');
+      // Anthropic models should NOT appear.
+      expect(labels).not.toContain('claude-opus-4-7');
+    });
+
+    test('defaultModel sentinel reroutes to inputOpen on submit', async () => {
+      // Selecting the custom sentinel dispatches `config set defaultModel
+      // <CUSTOM_SENTINEL>`; runSet should detect the sentinel and open
+      // the inputCard instead of persisting the literal value.
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('set defaultModel __sov_config_type_custom__', ctx);
       expect(cap.inputs.length).toBe(1);
       const input = cap.inputs[0];
       if (!input) return;
       expect(input.title).toBe('defaultModel');
       expect(input.onSubmit.command).toBe('config set defaultModel');
-      expect(input.masked).toBeUndefined();
     });
 
     test('number field emits inputOpen', async () => {

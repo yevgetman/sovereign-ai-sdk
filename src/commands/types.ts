@@ -58,6 +58,10 @@ export type InputOpenConfig = {
   masked?: boolean;
   /** Slash command to re-dispatch with the typed value as args. */
   onSubmit: { command: string };
+  /** 2026-05-24 patch — back-navigation. When present, Esc on the
+   *  InputCard re-dispatches this command instead of cancelling
+   *  outright. Symmetric with `PickerOpenConfig.onBack`. */
+  onBack?: { command: string };
 };
 
 /** Runtime services exposed to slash command handlers. */

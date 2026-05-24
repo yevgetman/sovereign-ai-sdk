@@ -264,6 +264,12 @@ export const InputOpenConfigSchema = z.object({
   placeholder: z.string().optional(),
   masked: z.boolean().optional(),
   onSubmit: z.object({ command: z.string() }),
+  // 2026-05-24 patch — back-navigation. When present, Esc closes the
+  // InputCard and re-dispatches this command (e.g., `config providers-
+  // anthropic` from an apiKey edit) so the user returns to the parent
+  // submenu. Absence falls back to the M11.5-style "(cancelled)"
+  // close. Symmetric with PickerOpenConfigSchema.onBack.
+  onBack: z.object({ command: z.string() }).optional(),
 });
 
 export type InputOpenConfigWire = z.infer<typeof InputOpenConfigSchema>;

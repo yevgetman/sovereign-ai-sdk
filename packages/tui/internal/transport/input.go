@@ -28,4 +28,12 @@ type InputOpenPayload struct {
 	OnSubmit    struct {
 		Command string `json:"command"`
 	} `json:"onSubmit"`
+	// OnBack — when present, Esc closes the input card and re-
+	// dispatches this command (back-navigation). When absent, Esc
+	// closes the card outright (with a "(cancelled)" marker in
+	// scrollback). Symmetric with PickerOpenPayload.OnBack.
+	// 2026-05-24 patch.
+	OnBack *struct {
+		Command string `json:"command"`
+	} `json:"onBack,omitempty"`
 }
