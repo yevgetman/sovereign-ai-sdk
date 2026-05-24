@@ -21,6 +21,8 @@ type Capture = {
   inputs: InputOpenConfig[];
   themeChanges: string[];
   verboseChanges: boolean[];
+  closeModalCount: number;
+  rebuildTaskRoutingCount: number;
 };
 
 function captureCtx(overrides: Partial<CommandContext> = {}): {
@@ -32,6 +34,8 @@ function captureCtx(overrides: Partial<CommandContext> = {}): {
     inputs: [],
     themeChanges: [],
     verboseChanges: [],
+    closeModalCount: 0,
+    rebuildTaskRoutingCount: 0,
   };
   const ctx = makeCtx({
     requestPicker: (p) => {
@@ -45,6 +49,12 @@ function captureCtx(overrides: Partial<CommandContext> = {}): {
     },
     recordVerboseChange: (v) => {
       cap.verboseChanges.push(v);
+    },
+    requestCloseModal: () => {
+      cap.closeModalCount += 1;
+    },
+    rebuildTaskRouting: async () => {
+      cap.rebuildTaskRoutingCount += 1;
     },
     ...overrides,
   });
@@ -691,22 +701,25 @@ describe('/config dispatcher', () => {
 
   // 2026-05-24 patch — draft commit / discard.
   describe('draft commit / discard', () => {
-    test('/config (root open) wires onSave + onCancel on the picker', async () => {
+    test('/config (root open) wires onSave on the picker', async () => {
       const { ctx, cap } = captureCtx();
       await dispatchConfigCommand('', ctx);
       const picker = cap.pickers[0];
       if (!picker) return;
       expect(picker.onSave?.command).toBe('config commit');
-      expect(picker.onCancel?.command).toBe('config discard');
+      // 2026-05-24 regression rollback: onCancel is no longer auto-
+      // wired to /config discard. Esc reverts to safe close-picker
+      // behavior so users don't lose changes by hitting Esc.
+      expect(picker.onCancel).toBeUndefined();
     });
 
-    test('sub-pickers also carry onSave + onCancel', async () => {
+    test('sub-pickers also carry onSave (no onCancel)', async () => {
       const { ctx, cap } = captureCtx();
       await dispatchConfigCommand('general', ctx);
       const picker = cap.pickers[0];
       if (!picker) return;
       expect(picker.onSave?.command).toBe('config commit');
-      expect(picker.onCancel?.command).toBe('config discard');
+      expect(picker.onCancel).toBeUndefined();
     });
 
     test('/config commit with no draft returns "no changes to save"', async () => {
@@ -731,6 +744,24 @@ describe('/config dispatcher', () => {
       await dispatchConfigCommand('set maxTurns 50', ctx);
       const result = await dispatchConfigCommand('commit', ctx);
       expect(result).toContain('saved 2 changes');
+    });
+
+    test('/config commit fires closeModal so the picker closes on the TUI', async () => {
+      // 2026-05-24 patch — the S key dispatches `/config commit` via
+      // tea.Sequence after a selection-apply; the commit response
+      // must signal closeModal so the parent-refresh picker that the
+      // prior dispatch left open actually closes.
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('', ctx);
+      await dispatchConfigCommand('commit', ctx);
+      expect(cap.closeModalCount).toBe(1);
+    });
+
+    test('/config discard fires closeModal even with no draft to discard', async () => {
+      // 2026-05-24 patch — /config discard is terminal; always closes.
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('discard', ctx);
+      expect(cap.closeModalCount).toBe(1);
     });
 
     test('/config discard with no draft returns "no draft to discard"', async () => {

@@ -97,6 +97,16 @@ export type CommandContext = {
    *  values without a restart. Optional so non-server surfaces can
    *  omit it; hooks degrade to persisted-only when undefined. */
   refreshRuntimeFromConfig?: () => void;
+  /** 2026-05-24 — taskRouting hot-reload. Re-reads userSettings,
+   *  rebuilds the lane registry (so the scheduler's resolveLane
+   *  closure routes new dispatches via the updated mapping), and
+   *  reassembles the smart-router system prompt segment (adds /
+   *  removes it based on the new `enabled` value and reads the
+   *  fast-path clause based on `trivialFastPath`). Subsequent turns
+   *  picks up the new state. Optional so non-server surfaces (sov
+   *  config standalone, headless dispatch) can omit it; hooks
+   *  degrade to persisted-only when undefined. */
+  rebuildTaskRouting?: () => Promise<void>;
   clearHistory: () => string;
   getCost: () => SessionCost;
   compact: () => Promise<CompactResult>;
@@ -133,6 +143,13 @@ export type CommandContext = {
   /** Request graceful REPL exit. The REPL loop will close after the
    *  current command's output prints. */
   requestExit: () => void;
+  /** 2026-05-24 patch — close any active picker / input card on the
+   *  TUI side. Set by /config commit and /config discard so the
+   *  S-as-apply-then-save flow (which uses tea.Sequence to dispatch
+   *  the selection THEN commit) doesn't leave a stale parent-refresh
+   *  picker open. Optional so non-server surfaces (headless dispatch,
+   *  sov config standalone) can omit it. */
+  requestCloseModal?: () => void;
   /** Phase 13.2 — task system manager. /tasks reads this directly to
    *  list / show / stop tasks for the current session. */
   taskManager?: import('../tasks/manager.js').TaskManager;

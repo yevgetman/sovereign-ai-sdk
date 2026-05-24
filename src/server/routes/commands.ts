@@ -192,6 +192,9 @@ type SideEffectsBag = {
   verboseChanged?: boolean;
   // 2026-05-24 patch — /clear sets this to true to wipe scrollback.
   clearScrollback?: boolean;
+  // 2026-05-24 patch — /config commit/discard sets this to close
+  // any active picker / input card on the TUI side.
+  closeModal?: boolean;
 };
 
 /** Flatten a prompt command's ContentBlock[] into plain text. The
@@ -229,7 +232,8 @@ function hasSideEffects(s: SideEffectsBag): boolean {
     s.themeChanged !== undefined ||
     s.inputOpen !== undefined ||
     s.verboseChanged !== undefined ||
-    s.clearScrollback !== undefined
+    s.clearScrollback !== undefined ||
+    s.closeModal !== undefined
   );
 }
 
@@ -243,5 +247,6 @@ function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
   if (s.inputOpen !== undefined) out.inputOpen = s.inputOpen;
   if (s.verboseChanged !== undefined) out.verboseChanged = s.verboseChanged;
   if (s.clearScrollback !== undefined) out.clearScrollback = s.clearScrollback;
+  if (s.closeModal !== undefined) out.closeModal = s.closeModal;
   return out;
 }

@@ -98,6 +98,58 @@ export function resolveTaskRoutingEnabled(
   return settingsValue ?? false;
 }
 
+/**
+ * Load the smart-router system prompt segment (and optional trivial-
+ * fast-path clause) for the parent system prompt. Returns undefined
+ * when task routing is disabled or no bundle is present — in that case
+ * the system prompt is built without the smart-router segment.
+ *
+ * Extracted from inline buildRuntime code so the hot-reload path
+ * (rebuildTaskRouting) can reuse the same prompt-assembly logic
+ * without duplicating the file-read / error-handling.
+ *
+ * Missing prompt files are non-fatal: the runtime logs to stderr and
+ * skips the segment.
+ *
+ * 2026-05-24 — taskRouting hot-reload patch.
+ */
+async function loadSmartRouterPrompt(opts: {
+  enabled: boolean;
+  bundle: Bundle | null;
+  trivialFastPath: boolean;
+}): Promise<string | undefined> {
+  if (!opts.enabled || opts.bundle === null) return undefined;
+  let smartRouterPrompt: string | undefined;
+  const promptPath = join(opts.bundle.root, 'prompts', 'smart-router.md');
+  try {
+    smartRouterPrompt = await readFile(promptPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      process.stderr.write(
+        `[taskRouting] smart-router prompt not found at ${promptPath}; segment skipped\n`,
+      );
+    } else {
+      throw err;
+    }
+  }
+  if (smartRouterPrompt !== undefined && opts.trivialFastPath) {
+    const fastPathPath = join(opts.bundle.root, 'prompts', 'smart-router-trivial-fast-path.md');
+    try {
+      const fastPath = await readFile(fastPathPath, 'utf8');
+      smartRouterPrompt = `${smartRouterPrompt.trimEnd()}\n\n${fastPath}`;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        process.stderr.write(
+          `[taskRouting] trivial-fast-path prompt not found at ${fastPathPath}; flag is set but clause is absent — falling back to strict-always-dispatch\n`,
+        );
+      } else {
+        throw err;
+      }
+    }
+  }
+  return smartRouterPrompt;
+}
+
 /** Default timeout for a pending permission request (M5-02). 60 seconds —
  *  long enough for a user to read the prompt and decide, short enough that
  *  a forgotten approval doesn't park a turn indefinitely. */
@@ -285,8 +337,24 @@ export type Runtime = {
    *  `laneRegistry.lookup(role)` before falling through to the Phase 13.2
    *  capability table. When `taskRouting.enabled === true` the runtime
    *  additionally runs `runLanePreflight` at boot and threads the
-   *  `prompts/smart-router.md` body into the parent system prompt. */
+   *  `prompts/smart-router.md` body into the parent system prompt.
+   *
+   *  2026-05-24 — hot-reloadable. `rebuildTaskRouting()` swaps this
+   *  field's value when the user mutates `taskRouting.*` via /config.
+   *  Internally the scheduler reads via a holder so the new value
+   *  flows to subsequent atom dispatches automatically. */
   laneRegistry: LaneRegistry;
+  /** 2026-05-24 — task-routing hot-reload. Re-reads userSettings,
+   *  rebuilds the lane registry, and reassembles the smart-router
+   *  system prompt segment (or removes it when newly disabled).
+   *  Subsequent turns + atom dispatches use the new state. Prompt-
+   *  cache invalidation is the cost of the rebuild — accepted as a
+   *  trade-off the user opts into by editing taskRouting at runtime. */
+  rebuildTaskRouting: () => Promise<void>;
+  /** 2026-05-24 — bundle root, exposed so rebuildTaskRouting can
+   *  re-read prompt files. Internal use; consumers should treat it
+   *  as opaque. */
+  cacheEnabled: boolean;
   /** Single-writer lock for write-capable children. Prevents two child
    *  agents from racing on the same path. v0 is a single in-memory
    *  Semaphore(1); finer-grained per-path locking lands later. */
@@ -612,8 +680,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // operator's overrides + lane defaults. When `taskRouting.enabled` is
   // false (or omitted), the registry still exists so cost-lane sub-agents
   // remain reachable via /agent — the B-via-D bridge baseline. The
-  // scheduler's `resolveLane` callback closes over this instance.
-  const laneRegistry = buildLaneRegistry(userSettings.taskRouting);
+  // scheduler's `resolveLane` callback closes over the holder so a
+  // hot-reload (rebuildTaskRouting) flows through without restarting
+  // the scheduler.
+  const laneRegistryHolder: { current: LaneRegistry } = {
+    current: buildLaneRegistry(userSettings.taskRouting),
+  };
+  // Local alias preserves the rest of buildRuntime's references to
+  // `laneRegistry` (the preflight check below). Subsequent reads —
+  // including the runtime object's exposed `laneRegistry` getter and
+  // the scheduler's resolveLane closure — pull from the holder so a
+  // hot-reload swap is visible everywhere.
+  const laneRegistry = laneRegistryHolder.current;
 
   // Phase 1 — smart-router segment. Loaded only when `taskRouting.enabled
   // === true` AND a bundle is present (the prompt ships under
@@ -628,36 +706,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // turns (greetings, one-liner facts, meta-questions) instead of
   // always dispatching to the delegator. Default false preserves the
   // strict Phase 1 contract.
-  let smartRouterPrompt: string | undefined;
-  if (taskRoutingEnabled && bundle !== null) {
-    const promptPath = join(bundle.root, 'prompts', 'smart-router.md');
-    try {
-      smartRouterPrompt = await readFile(promptPath, 'utf8');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        process.stderr.write(
-          `[taskRouting] smart-router prompt not found at ${promptPath}; segment skipped\n`,
-        );
-      } else {
-        throw err;
-      }
-    }
-    if (smartRouterPrompt !== undefined && userSettings.taskRouting?.trivialFastPath === true) {
-      const fastPathPath = join(bundle.root, 'prompts', 'smart-router-trivial-fast-path.md');
-      try {
-        const fastPath = await readFile(fastPathPath, 'utf8');
-        smartRouterPrompt = `${smartRouterPrompt.trimEnd()}\n\n${fastPath}`;
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          process.stderr.write(
-            `[taskRouting] trivial-fast-path prompt not found at ${fastPathPath}; flag is set but clause is absent — falling back to strict-always-dispatch\n`,
-          );
-        } else {
-          throw err;
-        }
-      }
-    }
-  }
+  const smartRouterPrompt = await loadSmartRouterPrompt({
+    enabled: taskRoutingEnabled,
+    bundle,
+    trivialFastPath: userSettings.taskRouting?.trivialFastPath === true,
+  });
 
   const systemSegments = buildSystemSegments({
     ...(bundle ? { bundle } : {}),
@@ -1040,7 +1093,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // through operator-pinned (provider, model) pairs. Returns
     // `undefined` for unknown roles → falls through to the existing
     // capability profile path.
-    resolveLane: (role) => laneRegistry.lookup(role),
+    // 2026-05-24 — read via holder so rebuildTaskRouting swaps the
+    // registry without restarting the scheduler.
+    resolveLane: (role) => laneRegistryHolder.current.lookup(role),
   });
 
   // M5 T7 — task manager. Wraps the SubagentScheduler with lifecycle
@@ -1127,6 +1182,43 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     });
   };
 
+  // 2026-05-24 — taskRouting hot-reload closure. Re-reads the latest
+  // userSettings + bundle prompts, rebuilds the lane registry (via the
+  // holder so the scheduler sees the new mapping), and reassembles the
+  // smart-router system segment in-place on systemSegments. Subsequent
+  // turns + atom dispatches pick up the new state.
+  //
+  // Cost: the prompt cache invalidates on the next turn — the segment
+  // text changed, so Anthropic's prefix-cache miss costs ~5% extra on
+  // the first turn after the edit. Acceptable for an interactive user
+  // who chose to hot-toggle.
+  const cacheEnabled = opts.cacheEnabled !== false;
+  const rebuildTaskRouting = async (): Promise<void> => {
+    const fresh = readConfig();
+    const freshEnabled = resolveTaskRoutingEnabled(
+      process.env.SOV_TASK_ROUTING_ENABLED,
+      fresh.taskRouting?.enabled,
+    );
+    laneRegistryHolder.current = buildLaneRegistry(fresh.taskRouting);
+    const freshPrompt = await loadSmartRouterPrompt({
+      enabled: freshEnabled,
+      bundle,
+      trivialFastPath: fresh.taskRouting?.trivialFastPath === true,
+    });
+    const newSegments = buildSystemSegments({
+      ...(bundle ? { bundle } : {}),
+      cwd: opts.cwd,
+      homeDir: harnessHome,
+      cacheEnabled,
+      tools: toolPool,
+      ...(freshPrompt !== undefined ? { smartRouterPrompt: freshPrompt } : {}),
+    });
+    // Mutate in place so any closure that captured the array reference
+    // (e.g., harnessInfoSnapshot at line ~580) sees the new content.
+    runtime.systemSegments.length = 0;
+    runtime.systemSegments.push(...newSegments);
+  };
+
   const runtime: Runtime = {
     sessionDb,
     toolPool,
@@ -1146,7 +1238,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     hookRunner,
     approvalQueue,
     laneSemaphores,
-    laneRegistry,
+    // 2026-05-24 — getter so consumers always observe the current
+    // registry post hot-reload. The scheduler uses laneRegistryHolder
+    // directly; this is for external reads (sessionContext, turns,
+    // tests).
+    get laneRegistry() {
+      return laneRegistryHolder.current;
+    },
+    rebuildTaskRouting,
+    cacheEnabled,
     writeLock,
     subagentScheduler,
     taskManager,

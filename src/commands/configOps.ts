@@ -93,17 +93,23 @@ const PRESET_ACTION_SAVE_SENTINEL = '__sov_preset_save__';
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Standard key-binding pair that every /config picker carries so the
- * Go TUI wires the S key to `/config commit` and Esc to `/config
- * discard`. Footer text renders accordingly. 2026-05-24 patch.
+ * Standard key-binding pair carried by every /config picker. The Go
+ * TUI wires the S key to `/config commit` (save & exit).
+ *
+ * 2026-05-24 (regression rollback): the `onCancel` binding that
+ * routed Esc to `/config discard` is GONE. v0.5.8 wired it but users
+ * hit Esc reflexively and lost changes. /config set writes through to
+ * disk immediately; "discard the whole session" wasn't matching the
+ * user's mental model. Esc now reverts to the standard close-picker
+ * behavior (back-nav when OnBack is set, "(cancelled)" close
+ * otherwise). The /config discard slash verb is still available for
+ * users who explicitly want to roll back.
  */
 function configPickerBindings(): {
   onSave: { command: string };
-  onCancel: { command: string };
 } {
   return {
     onSave: { command: 'config commit' },
-    onCancel: { command: 'config discard' },
   };
 }
 
@@ -968,12 +974,18 @@ async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string
     recordModification(ctx.sessionId, `taskRouting.lanes.${lane}.provider`);
     recordModification(ctx.sessionId, `taskRouting.lanes.${lane}.model`);
   }
-  // The lane registry rebuilds on next session boot; for the current
-  // session, /routing-stats and the lane preflight refer to the
-  // boot-time registry. Surface that honestly in the toast.
+  // 2026-05-24 taskRouting hot-reload — trigger a runtime rebuild so
+  // the lane registry + smart-router prompt segment pick up the
+  // preset values immediately. Without this, the user would have to
+  // restart for the preset to take effect.
+  let liveApplied = false;
+  if (ctx.rebuildTaskRouting !== undefined) {
+    await ctx.rebuildTaskRouting();
+    liveApplied = true;
+  }
   const toast = builtin
-    ? `preset '${builtin.label}' applied — effective next session (current registry is boot-cached)`
-    : `saved preset '${name}' applied — effective next session`;
+    ? `preset '${builtin.label}' applied${liveApplied ? ' to current session' : ' — effective next session'}`
+    : `saved preset '${name}' applied${liveApplied ? ' to current session' : ' — effective next session'}`;
   // Emit a refreshed task-routing submenu so the user sees the new
   // value columns. (openGroup re-reads settings.)
   if (ctx.requestPicker !== undefined) {
@@ -1059,6 +1071,12 @@ function runDeletePreset(rest: string, ctx: CommandContext): string {
  */
 function runCommit(ctx: CommandContext): string {
   const count = commitDraft(ctx.sessionId);
+  // 2026-05-24 patch — close any open picker / input card on commit.
+  // Critical for the S-as-apply-then-save flow: the prior dispatch
+  // in the tea.Sequence chain (the field-apply) re-emits the parent
+  // group's picker, and without closeModal we'd leave it open after
+  // commit instead of exiting cleanly.
+  ctx.requestCloseModal?.();
   if (count === 0) return 'no changes to save';
   return `saved ${count} change${count === 1 ? '' : 's'}`;
 }
@@ -1075,6 +1093,10 @@ function runCommit(ctx: CommandContext): string {
  * `onCancel: { command: 'config discard' }` binding).
  */
 async function runDiscard(ctx: CommandContext): Promise<string> {
+  // 2026-05-24 patch — close modal whether or not there's a draft to
+  // discard. /config discard is a terminal verb: the user wants out
+  // of the picker chain regardless.
+  ctx.requestCloseModal?.();
   const taken = takeBaselineForDiscard(ctx.sessionId);
   if (taken === undefined) return 'no draft to discard';
   if (taken.modifiedPaths.length === 0) {

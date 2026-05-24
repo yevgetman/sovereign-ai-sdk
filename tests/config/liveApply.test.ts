@@ -333,6 +333,49 @@ describe('LIVE_APPLY_HOOKS — microcompaction.* and compaction.proactiveThresho
   }
 });
 
+describe('LIVE_APPLY_HOOKS — taskRouting.* hot-reload', () => {
+  // 2026-05-24 — taskRouting fields trigger a full runtime rebuild
+  // (lane registry + smart-router prompt segment) via the new
+  // rebuildTaskRouting hook on CommandContext.
+  const KEYS = [
+    'taskRouting.enabled',
+    'taskRouting.trivialFastPath',
+    'taskRouting.delegator.model',
+    'taskRouting.lanes.cheap-task.provider',
+    'taskRouting.lanes.cheap-task.model',
+    'taskRouting.lanes.cheap-task.timeoutMs',
+    'taskRouting.lanes.moderate-task.provider',
+    'taskRouting.lanes.moderate-task.model',
+    'taskRouting.lanes.moderate-task.timeoutMs',
+    'taskRouting.lanes.frontier-task.provider',
+    'taskRouting.lanes.frontier-task.model',
+    'taskRouting.lanes.frontier-task.timeoutMs',
+  ];
+
+  for (const key of KEYS) {
+    test(`${key} — calls rebuildTaskRouting and returns applied`, async () => {
+      let called = 0;
+      const ctx = makeCtx({
+        rebuildTaskRouting: async () => {
+          called += 1;
+        },
+      });
+      const hook = LIVE_APPLY_HOOKS[key];
+      if (!hook) return;
+      const verdict = await hook(true, { commandCtx: ctx });
+      expect(verdict).toBe('applied');
+      expect(called).toBe(1);
+    });
+
+    test(`${key} — returns persisted-only when commandCtx undefined`, async () => {
+      const hook = LIVE_APPLY_HOOKS[key];
+      if (!hook) return;
+      const verdict = await hook(true, {});
+      expect(verdict).toBe('persisted-only');
+    });
+  }
+});
+
 describe('LIVE_APPLY_HOOKS — registry shape', () => {
   test('all expected keys are present', () => {
     const expected = [
@@ -351,6 +394,18 @@ describe('LIVE_APPLY_HOOKS — registry shape', () => {
       'microcompaction.keepRecent',
       'microcompaction.triggerThresholdPct',
       'compaction.proactiveThresholdPct',
+      'taskRouting.enabled',
+      'taskRouting.trivialFastPath',
+      'taskRouting.delegator.model',
+      'taskRouting.lanes.cheap-task.provider',
+      'taskRouting.lanes.cheap-task.model',
+      'taskRouting.lanes.cheap-task.timeoutMs',
+      'taskRouting.lanes.moderate-task.provider',
+      'taskRouting.lanes.moderate-task.model',
+      'taskRouting.lanes.moderate-task.timeoutMs',
+      'taskRouting.lanes.frontier-task.provider',
+      'taskRouting.lanes.frontier-task.model',
+      'taskRouting.lanes.frontier-task.timeoutMs',
     ];
     for (const key of expected) {
       expect(LIVE_APPLY_HOOKS[key], `hook ${key} should exist`).toBeDefined();

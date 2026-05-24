@@ -189,6 +189,31 @@ const runtimeConfigRefreshHook: LiveApplyHook = async (_newValue, ctx) => {
 };
 
 /**
+ * `taskRouting.*` (except savedPresets) — call
+ * `commandCtx.rebuildTaskRouting()` to:
+ *   1. Rebuild the lane registry from the new config (so the scheduler's
+ *      resolveLane closure picks up the new mapping for subsequent
+ *      atom dispatches).
+ *   2. Reassemble the smart-router system prompt segment (adds /
+ *      removes it based on the new `enabled` value; reads the
+ *      `trivialFastPath` clause based on its flag).
+ *
+ * The next turn sees the new state. Prompt-cache invalidation is the
+ * trade-off the user opts into by hot-toggling routing config.
+ *
+ * `taskRouting.savedPresets.*` does NOT trigger this — those are pure
+ * persistence with no runtime effect.
+ *
+ * 2026-05-24 — taskRouting hot-reload patch.
+ */
+const taskRoutingHotReloadHook: LiveApplyHook = async (_newValue, ctx) => {
+  if (ctx.commandCtx === undefined) return 'persisted-only';
+  if (ctx.commandCtx.rebuildTaskRouting === undefined) return 'persisted-only';
+  await ctx.commandCtx.rebuildTaskRouting();
+  return 'applied';
+};
+
+/**
  * `webSearch.*` — VERIFIED read-on-demand. `src/tools/WebSearchTool.ts:61`
  * calls `readConfig()` at invoke time, so any change to
  * `webSearch.provider` / `webSearch.apiKey` / `webSearch.maxResults` is
@@ -223,6 +248,21 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'microcompaction.keepRecent': runtimeConfigRefreshHook,
   'microcompaction.triggerThresholdPct': runtimeConfigRefreshHook,
   'compaction.proactiveThresholdPct': runtimeConfigRefreshHook,
+  // 2026-05-24 — taskRouting hot-reload. Every non-savedPresets path
+  // triggers a runtime rebuild (lane registry + smart-router prompt
+  // segment). savedPresets is pure persistence; no hook needed.
+  'taskRouting.enabled': taskRoutingHotReloadHook,
+  'taskRouting.trivialFastPath': taskRoutingHotReloadHook,
+  'taskRouting.delegator.model': taskRoutingHotReloadHook,
+  'taskRouting.lanes.cheap-task.provider': taskRoutingHotReloadHook,
+  'taskRouting.lanes.cheap-task.model': taskRoutingHotReloadHook,
+  'taskRouting.lanes.cheap-task.timeoutMs': taskRoutingHotReloadHook,
+  'taskRouting.lanes.moderate-task.provider': taskRoutingHotReloadHook,
+  'taskRouting.lanes.moderate-task.model': taskRoutingHotReloadHook,
+  'taskRouting.lanes.moderate-task.timeoutMs': taskRoutingHotReloadHook,
+  'taskRouting.lanes.frontier-task.provider': taskRoutingHotReloadHook,
+  'taskRouting.lanes.frontier-task.model': taskRoutingHotReloadHook,
+  'taskRouting.lanes.frontier-task.timeoutMs': taskRoutingHotReloadHook,
 });
 
 /**

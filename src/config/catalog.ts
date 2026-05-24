@@ -285,7 +285,8 @@ const PROVIDERS_OLLAMA_GROUP: ConfigGroup = {
 const TASK_ROUTING_GROUP: ConfigGroup = {
   id: 'task-routing',
   label: 'Task routing',
-  description: 'Phase 1+2 multi-provider smart router. Effective next session.',
+  description:
+    'Multi-provider smart router (Phase 1 + 2). Changes apply to the next turn — lane registry + parent prompt rebuild on save.',
   items: [
     {
       path: 'taskRouting.enabled',

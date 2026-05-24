@@ -73,6 +73,12 @@ export type CommandSideEffects = {
    *  though the server has hopped to a child session with no model
    *  context. Bool so absence is the no-op default. */
   clearScrollback?: boolean;
+  /** 2026-05-24 patch — explicit close-modal signal. Set by /config
+   *  commit and /config discard so the TUI clears m.picker / m.inputCard
+   *  regardless of what side-effects the prior dispatch in a
+   *  tea.Sequence chain left behind. Without this, the S-as-apply-
+   *  then-save flow could leave a stale parent-refresh picker open. */
+  closeModal?: boolean;
 };
 
 export type BuildServerCommandContextResult = {
@@ -155,6 +161,13 @@ export function buildServerCommandContext(
       runtime.microcompactConfig = buildMicrocompactConfig(fresh.microcompaction);
       const pct = fresh.compaction?.proactiveThresholdPct;
       runtime.proactiveCompactThreshold = pct === undefined ? 0.75 : pct / 100;
+    },
+    // 2026-05-24 — taskRouting hot-reload. Forwards to the runtime's
+    // own rebuildTaskRouting closure which handles the registry swap +
+    // system-segment reassembly. Async because the smart-router prompt
+    // is reloaded from disk.
+    rebuildTaskRouting: async (): Promise<void> => {
+      await runtime.rebuildTaskRouting();
     },
     // Backlog #41 — wired 2026-05-19. Mints a fresh child session via
     // the existing createClearedChildSession helper, sets
@@ -274,6 +287,12 @@ export function buildServerCommandContext(
     }),
     requestExit: (): void => {
       sideEffects.exitRequested = true;
+    },
+    // 2026-05-24 patch — close-modal side-effect. /config commit and
+    // /config discard use this to reliably clear any open picker /
+    // input card on the TUI.
+    requestCloseModal: (): void => {
+      sideEffects.closeModal = true;
     },
     requestPicker: (config: PickerOpenConfig): void => {
       // ADR M11.5-01: one picker per command dispatch. Double-emission

@@ -87,6 +87,14 @@ type CommandSideEffects struct {
 	// Pointer so absence is distinct from explicit `false`.
 	// 2026-05-24 patch.
 	ClearScrollback *bool `json:"clearScrollback,omitempty"`
+	// CloseModal is set by `/config commit` / `/config discard` so the
+	// TUI clears m.picker and m.inputCard regardless of any
+	// previously-emitted pickerOpen / inputOpen. Critical for the
+	// S-as-apply-then-save flow: dispatch the selection THEN commit,
+	// where the first dispatch re-opens a parent-refresh picker and
+	// the second commit must reliably close it.
+	// 2026-05-24 patch.
+	CloseModal *bool `json:"closeModal,omitempty"`
 }
 
 // CommandResponse is the JSON envelope returned by /commands.

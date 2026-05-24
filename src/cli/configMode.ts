@@ -339,6 +339,11 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     approvalQueue,
     laneSemaphores,
     laneRegistry,
+    // 2026-05-24 — taskRouting hot-reload. In standalone config-only
+    // mode there's no real runtime to hot-reload (no scheduler, no
+    // active session), so this is a no-op that returns immediately.
+    rebuildTaskRouting: async () => {},
+    cacheEnabled: true,
     writeLock,
     subagentScheduler,
     taskManager,

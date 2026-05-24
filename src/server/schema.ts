@@ -315,6 +315,14 @@ export const CommandSideEffectsSchema = z.object({
   // terminal's scrollback buffer so the new (cleared) session starts
   // visually fresh. Without this, the old transcript stays visible.
   clearScrollback: z.boolean().optional(),
+  // 2026-05-24 patch — explicit "close any active modal" signal.
+  // Set by /config commit and /config discard so the picker / input
+  // card reliably closes regardless of what side-effects the prior
+  // dispatch left behind. Critical for the S-as-apply-then-save
+  // flow where two dispatches run via tea.Sequence: the first opens
+  // a parent picker (parent-refresh), the second commits and must
+  // close that picker so the user actually exits.
+  closeModal: z.boolean().optional(),
 });
 
 export type CommandSideEffects = z.infer<typeof CommandSideEffectsSchema>;

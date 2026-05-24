@@ -899,23 +899,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, m.maybeQuitAfterModalClose(m.respond(nil))
 			case "s", "S":
-				// 2026-05-24 patch (v2) — explicit save-and-exit via
-				// OnSave. /config pickers wire this to dispatch
-				// `/config commit` which finalizes the draft session.
-				// When OnSave is absent (non-/config pickers), S is
-				// ignored.
+				// 2026-05-24 patch (v3 — apply-then-save) — explicit
+				// save-and-exit. /config pickers wire OnSave to dispatch
+				// `/config commit`. When the user has a selectable
+				// value highlighted, S dispatches that value FIRST (via
+				// the picker's OnSelect command) and THEN dispatches
+				// OnSave. This matches user intent: "apply my choice
+				// and save everything". Without this, users who
+				// highlighted a value but didn't press Enter would
+				// hit S and lose their selection — the v0.5.8 bug.
+				//
+				// The `closeModal` side-effect on /config commit
+				// reliably closes the parent-refresh picker that the
+				// first dispatch (set) emits, so the user exits cleanly.
 				save := m.picker.OnSave()
 				if save == "" {
 					return m, m.respond(nil)
 				}
-				m.picker = nil
 				if m.baseURL == "" {
+					m.picker = nil
 					m.print(m.theme.DimStyle().Render("slash-command unavailable (no server)"))
 					return m, m.respond(nil)
 				}
-				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + save))
-				name, args := splitConfigBackCommand(save)
-				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, name, args))
+				saveName, saveArgs := splitConfigBackCommand(save)
+				// Apply the current selection first when one exists.
+				// `Selected()` returns false on empty pickers (e.g., the
+				// "Advanced (unmanaged)" group with no items); we just
+				// dispatch save in that case.
+				if value, ok := m.picker.Selected(); ok {
+					selectCmd := m.picker.Command()
+					m.picker = nil
+					m.live.SetRunningCommand(m.theme.DimStyle().Render("…saving"))
+					return m, m.respond(tea.Sequence(
+						dispatchCommandCmd(m.baseURL, m.sessionID, selectCmd, value),
+						dispatchCommandCmd(m.baseURL, m.sessionID, saveName, saveArgs),
+					))
+				}
+				m.picker = nil
+				m.live.SetRunningCommand(m.theme.DimStyle().Render("…saving"))
+				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, saveName, saveArgs))
 			case "backspace":
 				// 2026-05-24 patch — back-navigation. The payload's
 				// optional OnBack carries the parent menu's command;
@@ -1571,6 +1593,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// out of scope — future tool_results pick up the new mode.
 			if se.VerboseChanged != nil {
 				m.verboseRaw = *se.VerboseChanged
+			}
+			// 2026-05-24 patch — explicit close-modal signal from
+			// /config commit / /config discard. Clears any picker /
+			// input card so the S-as-apply-then-save flow exits
+			// cleanly. The toast (msg.resp.Output) still prints via
+			// the regular output handler below.
+			if se.CloseModal != nil && *se.CloseModal {
+				m.picker = nil
+				m.inputCard = nil
 			}
 			if se.ExitRequested {
 				return m, tea.Quit
