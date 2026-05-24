@@ -144,4 +144,53 @@ export const tests: SemanticTest[] = [
     },
     timeoutMs: 60_000,
   },
+  // 2026-05-24 Phase 2.5 — trivial-chat fast-path. When enabled, the
+  // parent's smart-router prompt grants a narrow exception for clearly
+  // trivial turns (greetings, one-liner facts, meta-questions) so it
+  // can respond directly without dispatching to the delegator. Saves
+  // ~2 model calls on conversational turns. The strict-always-dispatch
+  // default is preserved unless the flag is explicitly set.
+  {
+    id: 'task-routing-fast-path-greeting',
+    name: 'Trivial greeting with fast-path → no delegator dispatch',
+    description:
+      'With trivialFastPath enabled, a bare greeting like "hi" should be answered by the parent ' +
+      'directly without invoking the delegator. Guards against the parent over-applying the ' +
+      'strict always-dispatch contract when the fast-path exception clause is present.',
+    category: 'workflow',
+    prompt: 'hi',
+    setup: {
+      userConfig: { taskRouting: { enabled: true, trivialFastPath: true } },
+    },
+    judgeCriteria: {
+      mustSatisfy: ['the parent responds with a brief greeting or acknowledgment'],
+      shouldNot: [
+        'the parent invoked AgentTool with subagent_type "delegator"',
+        'the transcript shows a delegator invocation',
+        'the transcript shows any cost-lane atom dispatch',
+      ],
+    },
+    timeoutMs: 30_000,
+  },
+  {
+    id: 'task-routing-fast-path-substantive-still-dispatches',
+    name: 'Substantive turn with fast-path enabled → still dispatches to delegator',
+    description:
+      'The fast-path is a narrow exception, not a license for the parent to short-circuit any ' +
+      'task it could plausibly answer alone. With trivialFastPath enabled, a task involving file ' +
+      'reads MUST still be dispatched to the delegator. Guards against scope creep on the ' +
+      'fast-path exception.',
+    category: 'workflow',
+    prompt: 'find files in src/ that mention AgentTool',
+    setup: {
+      userConfig: { taskRouting: { enabled: true, trivialFastPath: true } },
+    },
+    judgeCriteria: {
+      mustSatisfy: [
+        'the transcript shows delegator delegation to a cheap-task or moderate-task atom',
+        'the final response lists files containing AgentTool',
+      ],
+    },
+    timeoutMs: 90_000,
+  },
 ];

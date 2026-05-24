@@ -23,6 +23,7 @@ describe('LaneRegistry', () => {
       enabled: true,
       delegator: { model: 'claude-sonnet-4-6' },
       lanes: { 'cheap-task': { provider: 'ollama', model: 'qwen2.5:7b' } },
+      trivialFastPath: false,
     };
     const registry = buildLaneRegistry(cfg);
     expect(registry.lookup('cheap-task')?.provider).toBe('ollama');
@@ -34,6 +35,7 @@ describe('LaneRegistry', () => {
       enabled: true,
       delegator: { model: 'claude-opus-4-7' },
       lanes: {},
+      trivialFastPath: false,
     };
     const registry = buildLaneRegistry(cfg);
     expect(registry.lookup('delegator')?.model).toBe('claude-opus-4-7');

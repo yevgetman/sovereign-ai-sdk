@@ -132,4 +132,101 @@ describe('buildRuntime — taskRouting wiring', () => {
       await runtime.dispose();
     }
   });
+
+  test('trivial-fast-path clause NOT appended when flag is off (default)', async () => {
+    // 2026-05-24 Phase 2.5 — opt-in, default off. The base smart-router
+    // prompt lands but the fast-path clause does not.
+    writeFileSync(
+      join(home, 'config.json'),
+      JSON.stringify({
+        taskRouting: { enabled: true }, // trivialFastPath defaults to false
+      }),
+      'utf8',
+    );
+    const { buildRuntime } = await import('../../src/server/runtime.js');
+    const runtime = await buildRuntime({
+      harnessHome: home,
+      cwd: process.cwd(),
+      cronEnabled: false,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+    });
+    try {
+      const joined = runtime.systemSegments.map((s) => s.text ?? '').join('\n');
+      const promptPath = join(process.cwd(), 'bundle-default', 'prompts', 'smart-router.md');
+      if (existsSync(promptPath)) {
+        expect(joined).toContain('<smart-router>');
+      }
+      // The fast-path clause must NOT be present when the flag is off.
+      expect(joined).not.toContain('<smart-router-fast-path>');
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('trivial-fast-path clause IS appended when flag is on', async () => {
+    // 2026-05-24 Phase 2.5 — flag enables the trivial-bypass exception.
+    writeFileSync(
+      join(home, 'config.json'),
+      JSON.stringify({
+        taskRouting: { enabled: true, trivialFastPath: true },
+      }),
+      'utf8',
+    );
+    const { buildRuntime } = await import('../../src/server/runtime.js');
+    const runtime = await buildRuntime({
+      harnessHome: home,
+      cwd: process.cwd(),
+      cronEnabled: false,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+    });
+    try {
+      const joined = runtime.systemSegments.map((s) => s.text ?? '').join('\n');
+      const fastPathPath = join(
+        process.cwd(),
+        'bundle-default',
+        'prompts',
+        'smart-router-trivial-fast-path.md',
+      );
+      if (existsSync(fastPathPath)) {
+        expect(joined).toContain('<smart-router-fast-path>');
+      }
+      // The base smart-router segment must still be present.
+      const promptPath = join(process.cwd(), 'bundle-default', 'prompts', 'smart-router.md');
+      if (existsSync(promptPath)) {
+        expect(joined).toContain('<smart-router>');
+      }
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('trivial-fast-path clause NOT appended when taskRouting.enabled is false', async () => {
+    // Flag is meaningless when the smart router is off. Defense-in-depth.
+    writeFileSync(
+      join(home, 'config.json'),
+      JSON.stringify({
+        taskRouting: { enabled: false, trivialFastPath: true },
+      }),
+      'utf8',
+    );
+    const { buildRuntime } = await import('../../src/server/runtime.js');
+    const runtime = await buildRuntime({
+      harnessHome: home,
+      cwd: process.cwd(),
+      cronEnabled: false,
+      provider: 'mock',
+      model: 'mock-haiku',
+    });
+    try {
+      const joined = runtime.systemSegments.map((s) => s.text ?? '').join('\n');
+      expect(joined).not.toContain('<smart-router>');
+      expect(joined).not.toContain('<smart-router-fast-path>');
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });

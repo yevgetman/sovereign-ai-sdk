@@ -620,6 +620,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // `<bundle-root>/prompts/smart-router.md`). When the file is missing
   // (e.g. T11 hasn't shipped yet, or a custom bundle omits it), log to
   // stderr and skip the segment — the runtime still boots cleanly.
+  //
+  // Phase 2.5 — when `taskRouting.trivialFastPath: true`, append the
+  // trivial-fast-path exception clause from
+  // `<bundle-root>/prompts/smart-router-trivial-fast-path.md` so the
+  // parent can respond directly on clearly trivial conversational
+  // turns (greetings, one-liner facts, meta-questions) instead of
+  // always dispatching to the delegator. Default false preserves the
+  // strict Phase 1 contract.
   let smartRouterPrompt: string | undefined;
   if (taskRoutingEnabled && bundle !== null) {
     const promptPath = join(bundle.root, 'prompts', 'smart-router.md');
@@ -632,6 +640,21 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         );
       } else {
         throw err;
+      }
+    }
+    if (smartRouterPrompt !== undefined && userSettings.taskRouting?.trivialFastPath === true) {
+      const fastPathPath = join(bundle.root, 'prompts', 'smart-router-trivial-fast-path.md');
+      try {
+        const fastPath = await readFile(fastPathPath, 'utf8');
+        smartRouterPrompt = `${smartRouterPrompt.trimEnd()}\n\n${fastPath}`;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          process.stderr.write(
+            `[taskRouting] trivial-fast-path prompt not found at ${fastPathPath}; flag is set but clause is absent — falling back to strict-always-dispatch\n`,
+          );
+        } else {
+          throw err;
+        }
       }
     }
   }

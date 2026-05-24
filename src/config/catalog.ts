@@ -294,6 +294,13 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
       editor: { kind: 'boolean' },
     },
     {
+      path: 'taskRouting.trivialFastPath',
+      label: 'trivialFastPath',
+      description:
+        'Allow parent to bypass the delegator on trivial turns (greetings, one-liner facts, meta-questions). Saves ~2 model calls on conversational turns. Default off — preserves strict always-dispatch contract.',
+      editor: { kind: 'boolean' },
+    },
+    {
       path: 'taskRouting.delegator.model',
       label: 'delegator.model',
       description:

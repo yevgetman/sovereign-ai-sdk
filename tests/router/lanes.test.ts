@@ -18,6 +18,7 @@ describe('resolveLane', () => {
       enabled: true,
       delegator: { model: 'claude-sonnet-4-6' },
       lanes: { 'cheap-task': { provider: 'ollama', model: 'qwen2.5:7b' } },
+      trivialFastPath: false,
     };
     const lane = resolveLane('cheap-task', cfg);
     expect(lane?.provider).toBe('ollama');
@@ -30,6 +31,7 @@ describe('resolveLane', () => {
       enabled: true,
       delegator: { model: 'claude-opus-4-7' },
       lanes: {},
+      trivialFastPath: false,
     };
     const lane = resolveLane('delegator', cfg);
     expect(lane?.provider).toBe('anthropic');

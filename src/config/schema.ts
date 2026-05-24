@@ -187,6 +187,20 @@ export const TaskRoutingSchema = z.object({
       'frontier-task': LaneConfigSchema.partial().optional(),
     })
     .default({}),
+  /** Phase 2.5 — trivial-chat fast-path. When true (default false), the
+   *  parent's smart-router system prompt gains an exception clause
+   *  allowing it to bypass the delegator on clearly trivial turns
+   *  (greetings, acknowledgments, one-liner lookup-free questions,
+   *  meta-questions about the conversation). The parent answers
+   *  directly in those cases, skipping the delegator + atom hops —
+   *  saves ~2 model calls on conversational turns. For anything
+   *  involving tools, file reads, code, or multi-step reasoning, the
+   *  parent still dispatches to the delegator as before.
+   *
+   *  Off by default to preserve the strict "always delegate" contract
+   *  Phase 1 shipped with — existing users who depend on that
+   *  invariant (e.g., cost-tracking via routing-stats) are unaffected. */
+  trivialFastPath: z.boolean().default(false),
 });
 
 export type TaskRoutingConfig = z.infer<typeof TaskRoutingSchema>;
