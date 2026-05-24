@@ -232,6 +232,85 @@ Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt
 
 **Landed in Phase 13 (2026-05-05):** capability-profile lookup (per-model context length / role hints / tool-call + JSON reliability — see `src/router/capabilities.ts`) and per-lane concurrency caps via `LaneSemaphores` (`src/runtime/laneSemaphores.ts`). Both the router (single-session escalations) and the sub-agent scheduler (parent dispatching N children) acquire from the same per-lane semaphore set so global limits apply regardless of who issues the request. Capability profiles drive role-based agent definitions: an agent that declares `role: explore` resolves to the cheapest available model whose `recommendedRoles` includes that role.
 
+## Multi-provider task routing (Phase 1)
+
+A second routing layer sits above the local-model router: instead of choosing one model per turn, the **smart router** decomposes the turn into atoms and dispatches each to the cheapest sufficient cost-lane sub-agent. The bundled `delegator` agent becomes the parent's first action on every user turn when `taskRouting.enabled: true`. The delegator dispatches one or more atoms via `AgentTool` to three cost-tier sub-agents — `cheap-task`, `moderate-task`, `frontier-task` — each backed by a configured provider/model pair.
+
+**Config schema** (`~/.harness/config.json`):
+
+```json
+{
+  "taskRouting": {
+    "enabled": false,
+    "delegator": {
+      "model": "claude-sonnet-4-6"
+    },
+    "lanes": {
+      "cheap-task": {
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "allowedTools": null,
+        "maxTokens": null,
+        "timeoutMs": 120000
+      },
+      "moderate-task": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6"
+      },
+      "frontier-task": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-7"
+      }
+    }
+  }
+}
+```
+
+All fields are optional. Per-lane overrides are **partial** — any field omitted inherits the defaults from `src/router/lanes.ts` (`LANE_DEFAULTS`). `allowedTools: null` means inherit the parent's tool pool (minus the global exclusion set); `maxTokens: null` defers to the provider default; `timeoutMs` is positive milliseconds (default `120_000`).
+
+**Disabled vs enabled:**
+
+- **Disabled (default).** The B-via-D bridge baseline: the four cost-lane sub-agents (`cheap-task` / `moderate-task` / `frontier-task` / `delegator`) are still loaded into the agent registry, and the lane registry still resolves their provider/model. The parent's system prompt mentions the three cost-tier sub-agents (see `bundle-default/business/system-prompt.md` § "Cost-lane sub-agents") so the parent can opt to delegate via `AgentTool` when it sees a clean fit. No automatic decomposition — the parent stays in control.
+- **Enabled (`taskRouting.enabled: true`).** The smart-router system-prompt segment from `bundle-default/prompts/smart-router.md` is injected into the parent's frozen prompt. On every user turn the parent's first action MUST be `AgentTool(subagent_type: "delegator", ...)`; the delegator decides single-shot vs. decompose-and-synthesize and returns the final response. The parent relays the delegator's `summary` field verbatim.
+
+**The three modes the delegator picks per turn:**
+
+| Mode | When it fires | Atoms dispatched |
+|---|---|---|
+| Trivial single-shot | Single claim, single lookup, conversational reply | 1 atom on `cheap-task` or `moderate-task`. **No** synthesis step. |
+| Compound multi-atom | N independent sub-questions | N atoms (lanes chosen per sub-question complexity), then a final synthesis atom (lane chosen per synthesis difficulty — usually `frontier-task`). |
+| Synthesis-only hard reasoning | Single hard-reasoning question ("design a permission model", "audit for security") | 1 atom on `frontier-task`. **No** synthesis step (the atom IS the synthesis). |
+
+**Per-lane provider overrides** — mix providers freely. Example: keep delegator + synthesis on Anthropic, push cheap atoms to local Ollama:
+
+```json
+{
+  "taskRouting": {
+    "enabled": true,
+    "delegator": { "model": "claude-sonnet-4-6" },
+    "lanes": {
+      "cheap-task": { "provider": "ollama", "model": "qwen2.5:7b" },
+      "moderate-task": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
+      "frontier-task": { "provider": "anthropic", "model": "claude-opus-4-7" }
+    }
+  }
+}
+```
+
+**Boot-time preflight.** When `taskRouting.enabled: true`, the runtime aggregates a preflight pass across every configured cost lane before binding the agent loop. The `delegator` lane is skipped (its provider/model rides the parent's existing preflight when providers align). Failures are collected into a single error so credentials can be fixed in one pass:
+
+```text
+sov: cannot start with taskRouting enabled — preflight failures:
+  cheap-task     ollama/qwen2.5:7b     — connection refused: http://localhost:11434
+  frontier-task  anthropic/claude-opus-4-7  — no API key (set ANTHROPIC_API_KEY or providers.anthropic.apiKey)
+
+Set credentials or override lanes in ~/.harness/config.json.
+```
+
+Pass `--no-preflight` to skip the check (e.g. CI runs that never actually contact the lane provider).
+
+**Phase 2 / Phase 3 pointers.** Quality escalation (the delegator promoting an atom from cheap-task to moderate-task when the cheap-lane output looks off), atom-level progress events (UI surfaces for "atom 2 of 4 running on frontier-task..."), and profile presets (`anthropic+local`, `frugal`, etc.) are Phase 2 work, gated on real-world soak data from Phase 1. Spend management (per-lane budget caps, monthly ceiling, escalation gates) is Phase 3, gated on Phase 1 + Phase 2 soak. Full design at [`docs/specs/2026-05-23-multi-provider-task-routing-design.md`](specs/2026-05-23-multi-provider-task-routing-design.md).
+
 ## Bundleless Invocation + Default Bundle
 
 `sov` runs without requiring a bundle on disk. Bundle resolution is a four-step fallthrough:
