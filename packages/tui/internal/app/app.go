@@ -1602,6 +1602,57 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
 			return stallExpireMsg{gen: capturedGen}
 		})
+	case "delegator_plan":
+		// Phase 2 T5 — Smart router synthesizes this when the delegator
+		// sub-agent starts a turn. Print a "Delegating …" marker so the
+		// user sees the boundary between "the parent decided to delegate"
+		// and the atom-by-atom progress lines that follow.
+		ev, err := transport.DecodeDelegatorPlan(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(components.FormatDelegatorPlanLine(ev, m.theme, m.width))
+	case "delegator_atom_started":
+		// Phase 2 T5 — an atom dispatched onto a specific lane. Prints
+		// the "→ atom N on <lane>: <preview>" line so the user can see
+		// what work was farmed out and where.
+		ev, err := transport.DecodeDelegatorAtomStarted(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(components.FormatDelegatorAtomStartedLine(ev, m.theme, m.width))
+	case "delegator_atom_complete":
+		// Phase 2 T5 — atom finished, success or failure. Renders the
+		// "✓/✗ atom N on <lane> (<ms>ms)" terminal line.
+		ev, err := transport.DecodeDelegatorAtomComplete(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(components.FormatDelegatorAtomCompleteLine(ev, m.theme, m.width))
+	case "delegator_complete":
+		// Phase 2 T5 — delegator turn finished. Prints the summary footer
+		// with total atom count and the sorted per-lane distribution.
+		ev, err := transport.DecodeDelegatorComplete(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(components.FormatDelegatorCompleteLine(ev, m.theme, m.width))
 	}
 	return nil
 }

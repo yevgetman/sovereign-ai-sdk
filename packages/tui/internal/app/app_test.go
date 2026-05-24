@@ -1681,3 +1681,95 @@ func TestApp_idleCheckDroppedAfterTerminalEvent(t *testing.T) {
 		t.Errorf("post-turn_complete idle check must not restart spinner; thinkingPending=%v", m.thinkingPending)
 	}
 }
+
+// Phase 2 T5 — delegator_* event rendering tests. The SSE switch in
+// handleEvent must decode each event and queue the corresponding
+// compact-line via m.print so the user sees the routing observability
+// flow in scrollback. The tests drive handleEvent directly (matching
+// the turn_error / stall_detected pattern above) and assert the queued
+// pendingPrintln contains the expected substrings.
+
+func TestApp_renderDelegatorPlanLine(t *testing.T) {
+	m := New("s-del-plan", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	env := newTestEnvelope("delegator_plan", "s-del-plan", 1,
+		`{"type":"delegator_plan","seq":1,"sessionId":"s-del-plan"}`)
+	_ = m.handleEvent(env)
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "Delegating") {
+		t.Errorf("delegator_plan not queued for scrollback: %q", joined)
+	}
+}
+
+func TestApp_renderDelegatorAtomStartedLine(t *testing.T) {
+	m := New("s-del-start", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	env := newTestEnvelope("delegator_atom_started", "s-del-start", 2,
+		`{"type":"delegator_atom_started","seq":2,"sessionId":"s-del-start","atomIndex":0,"laneName":"cheap-task","promptPreview":"Summarize this"}`)
+	_ = m.handleEvent(env)
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "atom 0 on cheap-task") {
+		t.Errorf("delegator_atom_started not queued with expected substring: %q", joined)
+	}
+	if !strings.Contains(joined, "Summarize this") {
+		t.Errorf("delegator_atom_started preview missing from queued line: %q", joined)
+	}
+}
+
+func TestApp_renderDelegatorAtomCompleteLine_success(t *testing.T) {
+	m := New("s-del-ok", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	env := newTestEnvelope("delegator_atom_complete", "s-del-ok", 3,
+		`{"type":"delegator_atom_complete","seq":3,"sessionId":"s-del-ok","atomIndex":0,"laneName":"cheap-task","success":true,"durationMs":1234}`)
+	_ = m.handleEvent(env)
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "atom 0 on cheap-task") {
+		t.Errorf("delegator_atom_complete success line missing identifier: %q", joined)
+	}
+	if !strings.Contains(joined, "(1234ms)") {
+		t.Errorf("delegator_atom_complete duration missing: %q", joined)
+	}
+	if strings.Contains(joined, "failed") {
+		t.Errorf("success line should not contain 'failed': %q", joined)
+	}
+}
+
+func TestApp_renderDelegatorAtomCompleteLine_failure(t *testing.T) {
+	m := New("s-del-fail", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	env := newTestEnvelope("delegator_atom_complete", "s-del-fail", 4,
+		`{"type":"delegator_atom_complete","seq":4,"sessionId":"s-del-fail","atomIndex":1,"laneName":"reasoning","success":false,"durationMs":42}`)
+	_ = m.handleEvent(env)
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "failed (42ms)") {
+		t.Errorf("delegator_atom_complete failure line missing 'failed (42ms)': %q", joined)
+	}
+}
+
+func TestApp_renderDelegatorCompleteLine(t *testing.T) {
+	m := New("s-del-done", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	env := newTestEnvelope("delegator_complete", "s-del-done", 5,
+		`{"type":"delegator_complete","seq":5,"sessionId":"s-del-done","totalAtomCount":3,"laneDistribution":{"cheap-task":2,"reasoning":1}}`)
+	_ = m.handleEvent(env)
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "Done.") {
+		t.Errorf("delegator_complete missing 'Done.' headline: %q", joined)
+	}
+	if !strings.Contains(joined, "3 atom(s)") {
+		t.Errorf("delegator_complete missing total count: %q", joined)
+	}
+	if !strings.Contains(joined, "cheap-task=2") {
+		t.Errorf("delegator_complete missing lane distribution entry: %q", joined)
+	}
+}
