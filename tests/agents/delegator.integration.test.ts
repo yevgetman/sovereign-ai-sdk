@@ -227,3 +227,226 @@ describe('delegator integration — trivial turn', () => {
     }
   });
 });
+
+// Phase 1 T14 — End-to-end integration test for compound-turn smart routing.
+//
+// Same harness shape as the T13 trivial-turn test, but the script encodes a
+// longer call graph: parent dispatches to delegator → delegator dispatches
+// THREE atoms in sequence (cheap-task, moderate-task, frontier-task acting as
+// synthesizer) → delegator relays the synthesis → parent relays the final.
+//
+// Total provider.stream() calls = 9 (parent: 2, delegator: 4, cheap-task: 1,
+// moderate-task: 1, frontier-task: 1). The shared process-static cursor walks
+// these naturally as each agent's session fires its own stream() invocation.
+//
+// Plan: docs/plans/2026-05-23-phase-1-task-routing.md (T14)
+// Spec: docs/specs/2026-05-23-multi-provider-task-routing-design.md
+describe('delegator integration — compound turn', () => {
+  let home: string;
+  let prevHarnessHome: string | undefined;
+  let prevMockFlag: string | undefined;
+
+  beforeEach(() => {
+    prevHarnessHome = process.env.HARNESS_HOME;
+    prevMockFlag = process.env.SOV_TEST_MOCK_PROVIDER;
+    home = mkdtempSync(join(tmpdir(), 'deleg-int-compound-'));
+    process.env.HARNESS_HOME = home;
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    // taskRouting.enabled flips on the lane registry and the smart-router
+    // system-prompt segment. Same shape as T13.
+    writeFileSync(
+      join(home, 'config.json'),
+      JSON.stringify({ taskRouting: { enabled: true } }),
+      'utf8',
+    );
+    MockProvider.streamCalls = 0;
+    // Nine-entry script walking parent → delegator → cheap-task → delegator →
+    // moderate-task → delegator → frontier-task → delegator → parent. The
+    // cursor advances one entry per stream() call across the call graph, so
+    // each scripted entry corresponds to exactly one provider invocation.
+    MockProvider.toolUseScript = [
+      // 1. Parent stream() #1: dispatch to delegator with the user prompt.
+      {
+        kind: 'tool_use',
+        name: 'AgentTool',
+        input: { subagent_type: 'delegator', prompt: 'do a security audit' },
+        id: 'parent-call-1',
+      },
+      // 2. Delegator stream() #1: dispatch atom 1 (cheap-task).
+      {
+        kind: 'tool_use',
+        name: 'AgentTool',
+        input: { subagent_type: 'cheap-task', prompt: 'list source files' },
+        id: 'deleg-call-1',
+      },
+      // 3. cheap-task stream() #1: terminal answer.
+      { kind: 'text', text: 'src/auth/middleware.ts, src/openai/auth.ts' },
+      // 4. Delegator stream() #2: dispatch atom 2 (moderate-task).
+      {
+        kind: 'tool_use',
+        name: 'AgentTool',
+        input: { subagent_type: 'moderate-task', prompt: 'analyze auth code' },
+        id: 'deleg-call-2',
+      },
+      // 5. moderate-task stream() #1: terminal answer.
+      { kind: 'text', text: 'Auth uses bcrypt; no critical issues.' },
+      // 6. Delegator stream() #3: dispatch synthesis atom (frontier-task).
+      {
+        kind: 'tool_use',
+        name: 'AgentTool',
+        input: {
+          subagent_type: 'frontier-task',
+          prompt: 'synthesize. Atom 1 output: list. Atom 2 output: analysis.',
+        },
+        id: 'deleg-call-3',
+      },
+      // 7. frontier-task stream() #1: synthesis output.
+      { kind: 'text', text: 'Final security audit report: auth implementation is sound.' },
+      // 8. Delegator stream() #4: relay synthesis terminal text.
+      { kind: 'text', text: 'Final security audit report: auth implementation is sound.' },
+      // 9. Parent stream() #2: relay delegator's terminal text.
+      { kind: 'text', text: 'Final security audit report: auth implementation is sound.' },
+    ];
+    MockProvider.resetScriptCursor();
+  });
+
+  afterEach(() => {
+    MockProvider.toolUseScript = undefined;
+    MockProvider.resetScriptCursor();
+    if (prevHarnessHome === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.HARNESS_HOME;
+    } else {
+      process.env.HARNESS_HOME = prevHarnessHome;
+    }
+    if (prevMockFlag === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+    } else {
+      process.env.SOV_TEST_MOCK_PROVIDER = prevMockFlag;
+    }
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('compound turn flows through delegator with multi-atom + synthesis', async () => {
+    const runtime = await buildRuntime({
+      harnessHome: home,
+      cwd: process.cwd(),
+      provider: 'mock',
+      model: 'mock-haiku',
+      cronEnabled: false,
+      preflight: false,
+      // bypass: auto-allow every tool call so the multi-hop AgentTool chain
+      // (parent → delegator → atom) doesn't block on a permission ask().
+      permissionMode: 'bypass',
+    });
+    // Route every lane to mock so each sub-agent's stream() lands on the
+    // shared MockProvider script. Without this, the cost-lane agents would
+    // resolve to anthropic/claude-haiku etc. and bypass the script cursor
+    // entirely.
+    runtime.laneRegistry.lookup = (_role) => ({
+      provider: 'mock',
+      model: 'mock-haiku',
+      allowedTools: null,
+      maxTokens: null,
+      timeoutMs: 60_000,
+    });
+    // Re-stamp delegator's readOnly: true (defensive — the bundled file
+    // already ships this way after the 895d16d deadlock fix).
+    const loaded = runtime.agents.byName.get('delegator');
+    if (loaded !== undefined) {
+      runtime.agents.byName.set('delegator', { ...loaded, readOnly: true });
+    }
+    try {
+      // Smart-router segment must be injected (taskRouting.enabled = true).
+      const systemText = runtime.systemSegments.map((s) => s.text ?? '').join('\n');
+      expect(systemText).toContain('<smart-router>');
+
+      // All three cost lanes resolve to mock via the override above.
+      expect(runtime.laneRegistry.lookup('cheap-task')?.provider).toBe('mock');
+      expect(runtime.laneRegistry.lookup('moderate-task')?.provider).toBe('mock');
+      expect(runtime.laneRegistry.lookup('frontier-task')?.provider).toBe('mock');
+
+      const app = buildAppWithRuntime(runtime);
+
+      // Mint a session.
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      expect(createRes.status).toBe(201);
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      // Drive a turn — the audit request.
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'do a security audit' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      // Drain SSE. The wire closes on turn_complete so `await text()`
+      // returns once the parent's turn settles. Internal child events
+      // (cheap-task, moderate-task, frontier-task, and the delegator's own
+      // intermediate tool_use blocks) stay on their child session buses —
+      // only the delegator's terminal envelope + parent's final text reach
+      // this stream.
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      expect(eventsRes.status).toBe(200);
+      const body = await eventsRes.text();
+
+      // (a) Parent dispatched to delegator.
+      expect(body).toContain('event: tool_use_start');
+      expect(body).toContain('"tool":"AgentTool"');
+      expect(body).toContain('"subagent_type":"delegator"');
+
+      // (b) Delegator's tool_result envelope landed on the parent bus.
+      // The lane string echoes mock/mock-haiku because of the override.
+      // turns=4 (delegator made 4 stream calls); tool_calls=3 (the three
+      // AgentTool atom dispatches). terminal=completed marks a clean close.
+      expect(body).toContain('event: tool_result');
+      expect(body).toContain('<subagent_result name=\\"delegator\\"');
+      expect(body).toContain('lane=\\"mock/mock-haiku\\"');
+      expect(body).toContain('terminal=\\"completed\\"');
+
+      // (c) The synthesis text reached the parent bus as the final
+      // assistant fragment — proves the full relay chain closed cleanly
+      // (frontier-task → delegator → parent).
+      expect(body).toContain('"text":"Final security audit report: auth implementation is sound."');
+
+      // (d) Exactly ONE turn_complete on the parent wire. Child sessions
+      // each fire their own turn_complete on their private bus, but those
+      // are scoped to the scheduler and never leak here.
+      const turnCompleteMatches = body.match(/event: turn_complete/g) ?? [];
+      expect(turnCompleteMatches.length).toBe(1);
+
+      // (e) Nine script entries → nine provider.stream() invocations.
+      // parent(2) + delegator(4) + cheap-task(1) + moderate-task(1) +
+      // frontier-task(1) = 9. A mismatch means an agent looped or the
+      // scheduler re-entered a node — either way a regression marker.
+      expect(MockProvider.streamCalls).toBe(9);
+
+      // (f) The session tree records the full call graph: parent +
+      // delegator child + three atom grandchildren = 5 rows. The parent
+      // row has parentSessionId === null; the delegator row's parent is
+      // the parent session; each atom's parent is the delegator session.
+      // Use listSessions(50) — well above the 5 we expect — so we don't
+      // accidentally truncate.
+      const allSessions = runtime.sessionDb.listSessions(50);
+      const matchedRows = allSessions.filter(
+        (s) => s.sessionId === sessionId || s.parentSessionId !== null,
+      );
+      // Parent + delegator + cheap-task + moderate-task + frontier-task = 5.
+      expect(matchedRows.length).toBe(5);
+      const parentRow = allSessions.find((s) => s.sessionId === sessionId);
+      expect(parentRow).toBeDefined();
+      expect(parentRow?.parentSessionId).toBeNull();
+      const delegatorRow = allSessions.find((s) => s.parentSessionId === sessionId);
+      expect(delegatorRow).toBeDefined();
+      const delegatorSessionId = delegatorRow?.sessionId;
+      const atomRows = allSessions.filter((s) => s.parentSessionId === delegatorSessionId);
+      // Three atoms — cheap-task, moderate-task, frontier-task — all
+      // pointing at the delegator session as parent.
+      expect(atomRows.length).toBe(3);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+});
