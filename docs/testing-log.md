@@ -8,6 +8,29 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 2 T3 lane timeoutMs enforcement (R-D plumbing)
+
+**Scope:** Phase 2 T3 from `docs/plans/2026-05-23-phase-2-task-routing.md`. Wired the per-call lane timeout override path through the scheduler. `SubagentScheduler.DelegateInput` now accepts an optional `perChildTimeoutMsOverride` consumed ahead of the existing `opts.perChildTimeoutMs ?? agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS` fallback. `ToolContext` carries an optional `laneRegistry` so `AgentTool.call` can resolve `agent.role → lane.timeoutMs` at dispatch time and thread it onto `scheduler.delegate()`. The Phase 1 deferred `atomTimeout.test.ts` is now unskipped and verifies a 50ms `cheap-task` lane timeout cancels a slowMode-throttled mock stream.
+
+**Files:**
+- `src/runtime/scheduler.ts` — new optional `perChildTimeoutMsOverride` on `DelegateInput`; three-step precedence in `delegate()`.
+- `src/tool/types.ts` — new optional `laneRegistry` field on `ToolContext` (lazy import to avoid cycle).
+- `src/tools/AgentTool.ts` — resolves `ctx.laneRegistry?.lookup(agent.role)?.timeoutMs` and spreads it as `perChildTimeoutMsOverride` on the `scheduler.delegate()` call.
+- `src/server/routes/turns.ts` — `buildSessionToolContext` now passes `runtime.laneRegistry` onto the per-turn ToolContext.
+- `src/server/sessionContext.ts` — review-fork `parentToolContext` also gets `laneRegistry` so review-spawned children honor the same lane timeouts.
+- `tests/router/laneTimeoutOverride.test.ts` — 4 new unit tests covering: lane hit → override passed; no laneRegistry → no override; role not in registry → no override; agent has no role → no lookup.
+- `tests/router/atomTimeout.test.ts` — unskipped; drives parent → delegator → cheap-task with `timeoutMs: 50` + slowMode 200ms and asserts the atom session row carries the routing-atom metadata.
+
+**Suite numbers:** **2255 pass / 0 fail / 14 skip** (+5 from prior baseline of 2250/0/15: +4 override tests + 1 newly-unskipped atomTimeout). Skip count decreased by 1.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2255 pass / 0 fail / 14 skip / 6054 expect() calls / 289 files
+```
+
+---
+
 ## 2026-05-23 — Phase 2 T1 per-atom lane metadata in SessionDb
 
 **Scope:** Phase 2 T1 from `docs/plans/2026-05-23-phase-2-task-routing.md`. The runtime's `createChildSession` closure now writes richer metadata for router-routed children. The scheduler threads two new attribution fields through the callback (`lane: { name, provider, model } | null` and `isDelegator: boolean`), computed from the same `resolveLane` hit Phase 1 T7 introduced. The closure picks the metadata shape: `{ kind: 'routing-delegator', parentSessionId }` for delegator sessions, `{ kind: 'routing-atom', laneName, laneProvider, laneModel, parentDelegatorSessionId }` for cost-lane atoms, and the legacy `{ agentName, kind: 'subagent' }` for everything else.

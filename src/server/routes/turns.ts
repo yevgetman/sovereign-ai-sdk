@@ -198,6 +198,12 @@ export function buildSessionToolContext(
     ...(runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}),
     subagentScheduler: runtime.subagentScheduler,
     taskManager: runtime.taskManager,
+    // Phase 2 T3 — expose the assembled lane registry so AgentTool can
+    // resolve the target agent's lane timeout at dispatch time and pass
+    // it as `perChildTimeoutMsOverride` into `scheduler.delegate()`.
+    // Always present on Runtime (built by `buildLaneRegistry`), so this
+    // is a direct passthrough rather than a conditional spread.
+    laneRegistry: runtime.laneRegistry,
     parentToolPool: runtime.toolPool,
     canUseTool: sessionCanUseTool,
     // M8 T4 — filtered skill registry + active toolset/tool-name arrays

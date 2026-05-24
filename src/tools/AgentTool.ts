@@ -82,6 +82,17 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
       }
     }
     const parentToolPool = ctx.parentToolPool ?? [];
+    // Phase 2 T3 — resolve the per-child timeout override from the lane
+    // registry when the target agent declares a `role` that maps to a
+    // configured lane. Undefined when no role / no lane / no registry —
+    // the scheduler falls through to its existing construction-time
+    // fallback chain in that case (`opts.perChildTimeoutMs ??
+    // agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS`).
+    const targetAgent = agents.byName.get(input.subagent_type);
+    const laneTimeoutMs =
+      targetAgent?.role !== undefined
+        ? ctx.laneRegistry?.lookup(targetAgent.role)?.timeoutMs
+        : undefined;
     const result = await scheduler.delegate({
       agentName: input.subagent_type,
       prompt: input.prompt,
@@ -92,6 +103,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
       ...(ctx.canUseTool !== undefined ? { canUseTool: ctx.canUseTool } : {}),
       ...(ctx.memoryManager !== undefined ? { memoryManager: ctx.memoryManager } : {}),
       ...(ctx.traceRecorder !== undefined ? { traceRecorder: ctx.traceRecorder } : {}),
+      ...(laneTimeoutMs !== undefined ? { perChildTimeoutMsOverride: laneTimeoutMs } : {}),
     });
     return {
       data: {

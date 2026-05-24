@@ -215,6 +215,10 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           agents: runtime.agents,
           subagentScheduler: runtime.subagentScheduler,
           taskManager: runtime.taskManager,
+          // Phase 2 T3 — thread the lane registry onto the
+          // review-fork parent context too so review-spawned children
+          // honor the same lane timeoutMs as the turn-level pool.
+          laneRegistry: runtime.laneRegistry,
           parentToolPool: runtime.toolPool,
           // Backlog #38 (closed 2026-05-19) — auto-promote opt-ins from
           // settings.review thread through to children so the runtime

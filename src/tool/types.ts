@@ -111,6 +111,13 @@ export type ToolContext = {
    *  calls (no parent agent). Read by `AgentTool` to enforce the parent's
    *  `allowedSubagents` recursion guard. */
   parentAgentName?: string;
+  /** Phase 2 T3 — lane registry exposed so AgentTool can resolve the
+   *  target agent's lane timeout (and thread it as
+   *  `perChildTimeoutMsOverride` into `scheduler.delegate()`). Optional
+   *  so non-server callers (CLI utilities, isolated tests) that never
+   *  build a lane registry stay valid; AgentTool falls through to the
+   *  scheduler's existing fallback chain when this field is absent. */
+  laneRegistry?: import('../router/laneRegistry.js').LaneRegistry;
 };
 
 /** Structured tool output plus optional transcript messages injected after the result. */

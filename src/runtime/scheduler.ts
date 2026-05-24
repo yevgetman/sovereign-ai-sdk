@@ -128,6 +128,14 @@ export type DelegateInput = {
   canUseTool?: CanUseTool;
   memoryManager?: MemoryRuntime;
   traceRecorder?: (event: TraceEvent) => void;
+  /** Phase 2 T3 — per-child timeout override resolved at dispatch time.
+   *  AgentTool reads the target agent's lane timeout from
+   *  `ctx.laneRegistry?.lookup(agent.role)?.timeoutMs` and threads it
+   *  here when a lane was hit. Wins over `opts.perChildTimeoutMs` and
+   *  the `agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS` fallback. Absent
+   *  means "fall through to the construction-time defaults", preserving
+   *  every existing call site that never sets this field. */
+  perChildTimeoutMsOverride?: number;
 };
 
 export type DelegateResult = {
@@ -227,8 +235,15 @@ export class SubagentScheduler {
       try {
         const resolved = this.opts.resolveProvider(providerName, modelName);
 
+        // Phase 2 T3 — three-step precedence: per-call override (lane
+        // timeout from AgentTool) > scheduler construction-time default >
+        // agent.maxTurns-derived fallback. The override is purely additive:
+        // callers that never set `perChildTimeoutMsOverride` see the
+        // identical fallback chain that shipped pre-T3.
         const timeoutMs =
-          this.opts.perChildTimeoutMs ?? agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS;
+          input.perChildTimeoutMsOverride ??
+          this.opts.perChildTimeoutMs ??
+          agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS;
         const timeoutSignal = AbortSignal.timeout(timeoutMs);
         const composed: AbortSignal =
           input.parentSignal !== undefined
