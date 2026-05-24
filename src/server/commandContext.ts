@@ -134,6 +134,15 @@ export function buildServerCommandContext(
       runtime.model = model;
       sideEffects.modelChanged = model;
     },
+    // 2026-05-24 patch — live-apply hook for `permissionMode`. The
+    // turns route reads `runtime.permissionMode` per-request (see
+    // src/server/routes/turns.ts:471), so mutating it here flows into
+    // the next turn's permission gate without a restart. The mode is
+    // not surfaced to the TUI chrome anywhere user-visible, so no
+    // side-effect is emitted — the model change IS the effect.
+    setPermissionMode: (mode: 'default' | 'ask' | 'bypass'): void => {
+      runtime.permissionMode = mode;
+    },
     // Backlog #41 — wired 2026-05-19. Mints a fresh child session via
     // the existing createClearedChildSession helper, sets
     // sideEffects.newSessionId so the TUI hops sessionID for subsequent
@@ -191,6 +200,12 @@ export function buildServerCommandContext(
         return `cannot rollback: parent session ${session.parentSessionId} was not found`;
       }
       sideEffects.newSessionId = parent.sessionId;
+      // 2026-05-24 patch — wipe terminal scrollback so the rolled-back
+      // session starts visually clean. Parity with /clear. The model
+      // retains the parent session's full context server-side; the
+      // visible terminal just doesn't show stale content from the
+      // child session that's now gone.
+      sideEffects.clearScrollback = true;
       return `rolled back to parent session ${parent.sessionId}`;
     },
     tools: runtime.toolPool,

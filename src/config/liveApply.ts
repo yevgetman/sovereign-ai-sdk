@@ -148,6 +148,28 @@ const verboseHook: LiveApplyHook = async (newValue, ctx) => {
 };
 
 /**
+ * `permissionMode` — mutates `runtime.permissionMode` via the
+ * `setPermissionMode` closure on CommandContext. The turns route reads
+ * `runtime.permissionMode` per-request (`src/server/routes/turns.ts:471`)
+ * so the new mode applies starting with the next turn. No TUI side-
+ * effect — the mode isn't surfaced in the chrome.
+ *
+ * Unset → fall back to `'default'`, mirroring the cascade in
+ * `buildRuntime` (option → settings → 'default'). 2026-05-24 patch.
+ */
+const permissionModeHook: LiveApplyHook = async (newValue, ctx) => {
+  if (ctx.commandCtx === undefined) return 'persisted-only';
+  if (ctx.commandCtx.setPermissionMode === undefined) return 'persisted-only';
+  const next = newValue === undefined || newValue === null ? 'default' : String(newValue);
+  if (next !== 'default' && next !== 'ask' && next !== 'bypass') {
+    // Schema validation should already have caught this; defensive.
+    return 'persisted-only';
+  }
+  ctx.commandCtx.setPermissionMode(next);
+  return 'applied';
+};
+
+/**
  * `webSearch.*` — VERIFIED read-on-demand. `src/tools/WebSearchTool.ts:61`
  * calls `readConfig()` at invoke time, so any change to
  * `webSearch.provider` / `webSearch.apiKey` / `webSearch.maxResults` is
@@ -177,6 +199,7 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'webSearch.provider': webSearchHook,
   'webSearch.apiKey': webSearchHook,
   'webSearch.maxResults': webSearchHook,
+  permissionMode: permissionModeHook,
 });
 
 /**

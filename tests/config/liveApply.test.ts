@@ -237,6 +237,58 @@ describe('LIVE_APPLY_HOOKS — maxTurns', () => {
   });
 });
 
+describe('LIVE_APPLY_HOOKS — permissionMode', () => {
+  // 2026-05-24 patch — live-apply via runtime.permissionMode mutation
+  // through the new setPermissionMode CommandContext closure. The
+  // turns route reads runtime.permissionMode per-request so the next
+  // turn picks up the new mode.
+
+  test('calls setPermissionMode with the new mode and returns applied', async () => {
+    const calls: string[] = [];
+    const ctx = makeCtx({
+      setPermissionMode: (mode: string) => {
+        calls.push(mode);
+      },
+    });
+    const hook = LIVE_APPLY_HOOKS.permissionMode;
+    if (!hook) return;
+    const verdict = await hook('bypass', { commandCtx: ctx });
+    expect(verdict).toBe('applied');
+    expect(calls).toEqual(['bypass']);
+  });
+
+  test('falls back to default when newValue is undefined (unset path)', async () => {
+    const calls: string[] = [];
+    const ctx = makeCtx({
+      setPermissionMode: (mode: string) => {
+        calls.push(mode);
+      },
+    });
+    const hook = LIVE_APPLY_HOOKS.permissionMode;
+    if (!hook) return;
+    const verdict = await hook(undefined, { commandCtx: ctx });
+    expect(verdict).toBe('applied');
+    expect(calls).toEqual(['default']);
+  });
+
+  test('returns persisted-only when commandCtx is undefined (standalone)', async () => {
+    const hook = LIVE_APPLY_HOOKS.permissionMode;
+    if (!hook) return;
+    const verdict = await hook('ask', {});
+    expect(verdict).toBe('persisted-only');
+  });
+
+  test('returns persisted-only when setPermissionMode is not exposed (headless dispatch)', async () => {
+    // CommandContext without setPermissionMode — dispatch CLI surface
+    // doesn't wire the closure; hook must degrade gracefully.
+    const ctx = makeCtx();
+    const hook = LIVE_APPLY_HOOKS.permissionMode;
+    if (!hook) return;
+    const verdict = await hook('ask', { commandCtx: ctx });
+    expect(verdict).toBe('persisted-only');
+  });
+});
+
 describe('LIVE_APPLY_HOOKS — registry shape', () => {
   test('all expected keys are present', () => {
     const expected = [
@@ -250,6 +302,7 @@ describe('LIVE_APPLY_HOOKS — registry shape', () => {
       'webSearch.provider',
       'webSearch.apiKey',
       'webSearch.maxResults',
+      'permissionMode',
     ];
     for (const key of expected) {
       expect(LIVE_APPLY_HOOKS[key], `hook ${key} should exist`).toBeDefined();

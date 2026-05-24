@@ -122,8 +122,12 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     expect(json.error).toBeUndefined();
     expect((json.output as string).toLowerCase()).toContain('rolled back to parent session');
 
-    const se = json.sideEffects as { newSessionId?: string };
+    const se = json.sideEffects as { newSessionId?: string; clearScrollback?: boolean };
     expect(se?.newSessionId).toBe(parentId);
+    // 2026-05-24 patch — /rollback also wipes terminal scrollback for
+    // parity with /clear. The rolled-back session starts visually
+    // fresh; the model still has the parent's full context.
+    expect(se?.clearScrollback).toBe(true);
   });
 
   test('/rollback from a session with no parent returns descriptive error message', async () => {

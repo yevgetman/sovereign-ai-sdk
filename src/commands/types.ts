@@ -73,6 +73,12 @@ export type CommandContext = {
   /** Bundle root, when one is loaded (null = generic-agent mode). */
   bundlePath: string | null;
   setModel: (model: string) => void;
+  /** 2026-05-24 patch — live-apply hook for `permissionMode`. Mutates
+   *  runtime.permissionMode so the next turn's permission gate reads
+   *  the new mode. Optional so non-server surfaces (headless dispatch,
+   *  sov config standalone) can omit it; live-apply degrades to
+   *  persisted-only when undefined. */
+  setPermissionMode?: (mode: 'default' | 'ask' | 'bypass') => void;
   clearHistory: () => string;
   getCost: () => SessionCost;
   compact: () => Promise<CompactResult>;
