@@ -662,6 +662,31 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
   // /config discard knows what to roll back.
   recordModification(ctx.sessionId, path);
 
+  // 2026-05-24 patch — defaultModel cascade fix. The provider
+  // resolver picks providers.<defaultProvider>.model BEFORE falling
+  // through to settings.defaultModel (see src/providers/resolver.ts:
+  // model ?? providerConfig?.model ?? settings.defaultModel). So a
+  // user who changes defaultModel via /config while a
+  // providers.<x>.model override is set sees no effect on the next
+  // session — the override shadows their edit. When the user is
+  // changing defaultModel, infer their intent ("THIS model, please")
+  // by also clearing the provider override so the cascade resolves
+  // to the new defaultModel. Toast surfaces what we cleared so the
+  // change isn't silent.
+  let cascadeNote = '';
+  if (path === 'defaultModel') {
+    const afterSet = readConfig();
+    const activeProvider = afterSet.defaultProvider ?? 'anthropic';
+    const overridePath = `providers.${activeProvider}.model`;
+    const providerModel = getAt(afterSet as Record<string, unknown>, overridePath);
+    if (providerModel !== undefined && providerModel !== null) {
+      const cleared = unsetAt(afterSet, overridePath);
+      writeConfig(cleared);
+      recordModification(ctx.sessionId, overridePath);
+      cascadeNote = ` (also cleared ${overridePath} = ${String(providerModel)} so the new default takes effect)`;
+    }
+  }
+
   // Fire live-apply hook, if any.
   const standalone = ctx.isConfigStandalone === true;
   const sideEffect: LiveApplySideEffect = {};
@@ -689,7 +714,7 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
     }
   }
 
-  const toast = pickToast(verdict, hook !== undefined, standalone);
+  const toast = pickToast(verdict, hook !== undefined, standalone) + cascadeNote;
   return emitParentRefresh(path, toast, ctx);
 }
 

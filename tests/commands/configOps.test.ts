@@ -437,6 +437,60 @@ describe('/config dispatcher', () => {
       expect(input.initial).toBe('-1');
     });
 
+    test('setting defaultModel clears providers.<defaultProvider>.model override', async () => {
+      // 2026-05-24 patch — defaultModel cascade fix. Without this,
+      // changing defaultModel via /config has no effect because
+      // providers.<x>.model shadows it in the cascade.
+      // First: seed providers.anthropic.model = sonnet AND defaultModel = haiku.
+      writeFileSync(
+        cfgPath,
+        JSON.stringify({
+          defaultProvider: 'anthropic',
+          defaultModel: 'claude-haiku-4-5-20251001',
+          providers: { anthropic: { model: 'claude-sonnet-4-6' } },
+        }),
+      );
+      const { ctx } = captureCtx();
+      // Change defaultModel — expect the override to ALSO be cleared.
+      const result = await dispatchConfigCommand('set defaultModel claude-opus-4-7', ctx);
+      expect(result).toContain('cleared providers.anthropic.model');
+      // Verify the on-disk state: defaultModel is the new value AND
+      // providers.anthropic.model is gone.
+      const after = JSON.parse(readFileSync(cfgPath, 'utf8'));
+      expect(after.defaultModel).toBe('claude-opus-4-7');
+      expect(after.providers?.anthropic?.model).toBeUndefined();
+    });
+
+    test('setting defaultModel is a no-op on the override when no override is set', async () => {
+      // When providers.<defaultProvider>.model isn't set, the cascade
+      // fix path is a no-op — no spurious mention in the toast.
+      writeFileSync(
+        cfgPath,
+        JSON.stringify({
+          defaultProvider: 'anthropic',
+          defaultModel: 'claude-haiku-4-5-20251001',
+        }),
+      );
+      const { ctx } = captureCtx();
+      const result = await dispatchConfigCommand('set defaultModel claude-sonnet-4-6', ctx);
+      expect(result).not.toContain('cleared');
+    });
+
+    test('setting fields other than defaultModel does NOT touch the override', async () => {
+      writeFileSync(
+        cfgPath,
+        JSON.stringify({
+          defaultProvider: 'anthropic',
+          providers: { anthropic: { model: 'claude-sonnet-4-6' } },
+        }),
+      );
+      const { ctx } = captureCtx();
+      await dispatchConfigCommand('set defaultProvider anthropic', ctx);
+      const after = JSON.parse(readFileSync(cfgPath, 'utf8'));
+      // The override stays intact when the user edits other fields.
+      expect(after.providers?.anthropic?.model).toBe('claude-sonnet-4-6');
+    });
+
     test('string fields accept numeric-looking input (review #5 — no over-coercion)', async () => {
       // 2026-05-24 review #5 — the legacy parseValueLiteral coerced
       // "42" → number, breaking string-typed fields. Setting
