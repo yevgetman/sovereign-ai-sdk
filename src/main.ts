@@ -376,10 +376,16 @@ async function main(argv: string[]): Promise<void> {
 
   const configCmd = program
     .command('config')
-    .description('Read or write user-level config (no args opens an interactive picker)')
+    .description('Open the interactive config picker (no args) or read/write via subcommands')
     .action(async () => {
-      const { runConfigMenu } = await import('./ui/configMenu.js');
-      await runConfigMenu();
+      // 2026-05-24 config UX rebuild — the legacy raw-mode picker
+      // (`src/ui/configMenu.ts`) was removed; `sov config` now boots a
+      // lightweight Hono server + the sov-tui Bubble Tea client in
+      // config-only mode (no providers, no preflight, no bundle). The
+      // TUI launches straight into the `/config` slash command.
+      const { runConfigOnlyMode } = await import('./cli/configMode.js');
+      const code = await runConfigOnlyMode();
+      process.exit(code);
     });
 
   configCmd
