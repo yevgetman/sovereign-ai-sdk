@@ -8,6 +8,63 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-23 — Phase 2 multi-provider task routing close-out
+
+**Scope:** Phase 2 of multi-provider task routing per `docs/specs/2026-05-23-multi-provider-task-routing-design.md`. Adds full observability + lane timeoutMs enforcement + env-var override. 10 implementation tasks (T1-T10) shipped. T11 (this entry) + T12 (release).
+
+**What shipped:**
+- Four new SSE event types: `delegator_plan`, `delegator_atom_started`, `delegator_atom_complete`, `delegator_complete`.
+- Runtime synthesizes events from scheduler delegation lifecycle (no delegator-prompt changes; the synthesis layer observes `delegate()` start/complete).
+- Per-atom + per-delegator session metadata in SessionDb (`metadata.kind='routing-atom'`/`'routing-delegator'` + lane attribution).
+- Lane `timeoutMs` enforcement (R-D plumbing from Phase 1).
+- `SOV_TASK_ROUTING_ENABLED` env override.
+- TUI `delegatorline.go` formatter consuming the four events.
+- `sov drive` plain-text renderer for the events.
+- `sov serve` emits `hermes.delegator.progress` side-channel SSE.
+- `/routing-stats` slash command + `--all` aggregation across sessions.
+
+**Tests added:**
+- `tests/router/laneAttribution.test.ts` (T1): 2 metadata-tagging tests.
+- `tests/server/runtime.envOverride.test.ts` (T2): 5 env-var resolution tests.
+- `tests/router/laneTimeoutOverride.test.ts` (T3): 4 plumbing tests.
+- `tests/router/atomTimeout.test.ts` (T3): 1 unskipped + active test (was skipped in Phase 1).
+- `tests/router/progressEvents.test.ts` + `synthesisIntegration.test.ts` (T4): 21 schema + closure + integration tests.
+- Go: `delegator_events_test.go` (T5): +7 decoder tests.
+- Go: `delegatorline_test.go` (T5): +9 formatter tests.
+- Go: `app_test.go` (T5): +5 SSE-switch tests.
+- `tests/cli/driveCommand.delegator.test.ts` (T6): 5 renderer tests.
+- `tests/openai/streaming/delegatorProgress.test.ts` (T7): 6 side-channel tests.
+- `tests/agent/sessionDb.routingAtomMetadata.test.ts` (T8): 4 query tests.
+- `tests/router/stats.test.ts` (T9): 8 aggregator tests.
+- `tests/commands/routingStats.test.ts` (T9): 7 command tests.
+- `tests/agents/delegator.integration.test.ts` (T10): augmented with SSE-flow assertions (no new tests, +22 expect calls).
+
+**Suite numbers:** TS **2306 pass / 0 fail / 14 skip** (+63 from Phase 1's 2243). Go suite +21 tests across decoders/formatters/app.
+
+**Commands:**
+```
+bun run lint && bun run typecheck && bun run test
+# 2306 pass / 0 fail / 14 skip
+
+cd packages/tui && go test ./...
+# all packages green; +21 tests added in T5
+```
+
+**Architectural fix preserved:** Phase 1 T13's delegator `readOnly: true` fix in `bundle-default/agents/delegator.md` still in place. Lane timeoutMs override now active; the atomTimeout test that was skipped at Phase 1 close-out is unskipped and passing.
+
+**Follow-ups recorded for Phase 2.5 + Phase 3:**
+- Quality-escalation (re-dispatch insufficient atoms) — conditional on soak data.
+- Parent-model auto-downgrade — conditional on soak.
+- Trivial-chat fast-path — conditional on soak.
+- Profile presets (`anthropic+local`, `frugal`) — ergonomics.
+- Success heuristic refinement (move beyond `outputTokens > 0`).
+- Phase 3: spend tracking + budget caps.
+
+**Phase 2 commits since Phase 1 release (`f09c82c`):**
+- T1-T10 shipped as 10 atomic commits.
+- T11 (this entry).
+- T12 (release v0.5.0).
+
 ## 2026-05-23 — Phase 2 T7 `sov serve` SSE side-channel for delegator progress
 
 **Scope:** Phase 2 T7 from `docs/plans/2026-05-23-phase-2-task-routing.md`. The chat completions streaming branch (`POST /v1/chat/completions` with `stream: true`) now subscribes to the per-session event bus before driving `translateStream` and emits each delegator_* event as a `event: hermes.delegator.progress\ndata: <json>\n\n` SSE side-channel frame interleaved with the OpenAI-shaped main stream. `unsubscribe()` runs in the route's `finally` block so a closed stream never receives writes from a late publish. Purely additive — the existing `translateStream` consumer is untouched.

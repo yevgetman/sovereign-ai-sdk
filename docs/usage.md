@@ -309,7 +309,148 @@ Set credentials or override lanes in ~/.harness/config.json.
 
 Pass `--no-preflight` to skip the check (e.g. CI runs that never actually contact the lane provider).
 
-**Phase 2 / Phase 3 pointers.** Quality escalation (the delegator promoting an atom from cheap-task to moderate-task when the cheap-lane output looks off), atom-level progress events (UI surfaces for "atom 2 of 4 running on frontier-task..."), and profile presets (`anthropic+local`, `frugal`, etc.) are Phase 2 work, gated on real-world soak data from Phase 1. Spend management (per-lane budget caps, monthly ceiling, escalation gates) is Phase 3, gated on Phase 1 + Phase 2 soak. Full design at [`docs/specs/2026-05-23-multi-provider-task-routing-design.md`](specs/2026-05-23-multi-provider-task-routing-design.md).
+**Phase 2 / Phase 3 pointers.** Atom-level progress events shipped in Phase 2 (see [Routing observability](#routing-observability) below). Quality escalation (the delegator promoting an atom from cheap-task to moderate-task when the cheap-lane output looks off), parent-model auto-downgrade, trivial-chat fast-path, and profile presets (`anthropic+local`, `frugal`, etc.) are Phase 2.5 work, gated on real-world soak data from Phase 2. Spend management (per-lane budget caps, monthly ceiling, escalation gates) is Phase 3, gated on Phase 2 + Phase 2.5 soak. Full design at [`docs/specs/2026-05-23-multi-provider-task-routing-design.md`](specs/2026-05-23-multi-provider-task-routing-design.md).
+
+## Routing observability (Phase 2)
+
+Phase 2 wraps full atom-level observability around the Phase 1 smart router. The runtime synthesizes four new SSE event types from the scheduler's delegation lifecycle — no delegator-prompt changes required — and routes them through every harness surface (TUI / `sov drive` / `sov serve`). A new `/routing-stats` slash command aggregates per-lane usage from SessionDb. Lane `timeoutMs` enforcement is now wired end-to-end. An `SOV_TASK_ROUTING_ENABLED` env override gives operators a one-shot CI toggle without editing config.
+
+### Four new SSE event types
+
+The runtime publishes these on the per-session event bus whenever `taskRouting.enabled: true` AND the parent's turn dispatches a delegator atom:
+
+| Event | When it fires | Payload |
+|---|---|---|
+| `delegator_plan` | The delegator session starts. | `{ scheduledAtomCount?: number }` (v0 always emits `null`/`undefined`; reserved for a future delegator variant that pre-plans). |
+| `delegator_atom_started` | Each atom dispatch starts. | `{ atomIndex, laneName, promptPreview }`. `atomIndex` is the synthesis closure's running counter (0-indexed). |
+| `delegator_atom_complete` | Each atom completes. | `{ atomIndex, laneName, success, durationMs }`. `success: true` iff terminal === 'completed'. |
+| `delegator_complete` | The delegator session completes. | `{ totalAtomCount, laneDistribution: Record<string, number> }`. |
+
+Non-delegator child dispatches (e.g., the parent calling `explore` directly) are NOT published — the synthesis closure detects "active delegator" by `agentName === 'delegator'` and ignores everything else.
+
+### TUI rendering
+
+The TUI renders the events inline as compact one-liners (matching the M22 tool-call compact-line aesthetic). Glyphs: `◇` plan, `→` atom start, `✓` atom success, `✗` atom failure, `◆` delegator done. Example compound turn:
+
+```text
+◇ Delegating …
+→ atom 0 on cheap-task: List the files in src/router/
+✓ atom 0 on cheap-task (1234ms)
+→ atom 1 on moderate-task: Summarize the test coverage matrix
+✓ atom 1 on moderate-task (3142ms)
+→ atom 2 on frontier-task: Synthesize a coverage-gap report
+✓ atom 2 on frontier-task (4812ms)
+◆ Done. 3 atoms: cheap-task=1, frontier-task=1, moderate-task=1
+```
+
+A failure path swaps the success glyph for the error glyph (`✗ atom 0 on cheap-task failed (89ms)`).
+
+### `sov drive` rendering
+
+The `sov drive` renderer prints plain-text bracketed lines suitable for piping into the semantic-test framework or downstream scripts:
+
+```text
+[delegator_plan] dispatching
+[delegator_atom 0] starting on cheap-task: List the files in src/router/
+[delegator_atom 0] complete on cheap-task (1234ms) ok
+[delegator_atom 1] starting on moderate-task: Summarize the test coverage matrix
+[delegator_atom 1] complete on moderate-task (3142ms) ok
+[delegator_atom 2] starting on frontier-task: Synthesize a coverage-gap report
+[delegator_atom 2] complete on frontier-task (4812ms) ok
+[delegator_complete] 3 atoms: cheap-task=1, frontier-task=1, moderate-task=1
+```
+
+### `sov serve` side-channel SSE
+
+The OpenAI HTTP server (`sov serve`) emits the events as `event: hermes.delegator.progress` side-channel SSE frames interleaved with the main OpenAI-shaped stream. This follows the same `hermes.*` event-name convention Phase 18 introduced for `hermes.tool.progress`. Harness-aware clients can subscribe to the side-channel name; OpenAI-spec-only clients ignore it (the unknown event name is dropped at the SSE parser layer).
+
+Example raw SSE bytes:
+
+```text
+event: hermes.delegator.progress
+data: {"type":"delegator_plan","seq":1,"sessionId":"openai:abc","scheduledAtomCount":null}
+
+data: {"id":"chatcmpl-abc","object":"chat.completion.chunk", ... ,"choices":[{"index":0,"delta":{"role":"assistant"}}]}
+
+event: hermes.delegator.progress
+data: {"type":"delegator_atom_started","seq":2,"sessionId":"openai:abc","atomIndex":0,"laneName":"cheap-task","promptPreview":"List the files ..."}
+
+...
+
+event: hermes.delegator.progress
+data: {"type":"delegator_complete","seq":7,"sessionId":"openai:abc","totalAtomCount":3,"laneDistribution":{"cheap-task":1,"moderate-task":1,"frontier-task":1}}
+```
+
+### `/routing-stats` slash command
+
+`/routing-stats` aggregates per-lane usage for the current session; pass `--all` for cross-session stats. Available in any surface that wires `getRoutingStats` into the CommandContext (TUI / `sov drive` / `sov serve` slash command surface). From headless `sov dispatch` it reports `routing-stats is not wired in this surface`.
+
+```text
+> /routing-stats
+routing stats — current session
+
+total atoms:         5
+overall success:     100.0%
+overall avg duration: 2.3s
+
+per-lane breakdown
+  cheap-task     3 atoms (60.0%)  — 100.0% success  — 1.2s avg
+  frontier-task  1 atom (20.0%)   — 100.0% success  — 4.8s avg
+  moderate-task  1 atom (20.0%)   — 100.0% success  — 3.1s avg
+
+> /routing-stats --all
+routing stats — all sessions
+
+total atoms:         42
+overall success:     95.2%
+overall avg duration: 2.1s
+
+per-lane breakdown
+  cheap-task     28 atoms (66.7%)  — 96.4% success  — 1.4s avg
+  moderate-task  9 atoms (21.4%)   — 100.0% success  — 2.8s avg
+  frontier-task  5 atoms (11.9%)   — 80.0% success  — 5.2s avg
+```
+
+The success heuristic in v0 is `outputTokens > 0` (proxy for "atom produced an assistant message"). This is documented as a Phase 2.5 refinement candidate — a future revision will persist `terminal.reason` on the session row for a more reliable signal.
+
+### `SOV_TASK_ROUTING_ENABLED` env override
+
+A one-shot env-var override that bypasses the config flag. Three-way semantics:
+
+| `SOV_TASK_ROUTING_ENABLED` | Behavior |
+|---|---|
+| `'1'` | Enables `taskRouting` regardless of `~/.harness/config.json`. |
+| `'0'` | Disables `taskRouting` regardless of config. |
+| unset / `''` / `'true'` / `'false'` / anything else | Falls through to `taskRouting.enabled` from config (default `false`). |
+
+Useful for CI runs that want to flip routing on/off per-job without editing config:
+
+```bash
+# CI run with routing forced on:
+SOV_TASK_ROUTING_ENABLED=1 sov dispatch "summarize this changelog"
+
+# CI run with routing forced off (e.g., for byte-for-byte parity checks):
+SOV_TASK_ROUTING_ENABLED=0 sov dispatch "summarize this changelog"
+```
+
+### Lane `timeoutMs` enforcement
+
+Phase 2 wired through the R-D plumbing Phase 1 deferred. Each lane's `timeoutMs` (default `120_000` milliseconds) is now enforced end-to-end: atoms dispatched to a lane that takes longer than its configured `timeoutMs` are interrupted, the atom records `success: false` in the `delegator_atom_complete` event, and the delegator continues to synthesis with `Atom N (failed: timeout)` labeling. Configure per-lane:
+
+```json
+{
+  "taskRouting": {
+    "enabled": true,
+    "lanes": {
+      "cheap-task":    { "timeoutMs": 30000 },
+      "moderate-task": { "timeoutMs": 90000 },
+      "frontier-task": { "timeoutMs": 300000 }
+    }
+  }
+}
+```
+
+The configured value is consulted in three-step precedence: lane override (via `ctx.laneRegistry.lookup(role)?.timeoutMs`) → `SubagentSchedulerOpts.perChildTimeoutMs` → `agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS`.
 
 ## Bundleless Invocation + Default Bundle
 
