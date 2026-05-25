@@ -1,0 +1,189 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to release (e.g., v0.6.0). Must match an existing commit + package.json.'
+        type: string
+        required: true
+      dry-run:
+        description: 'Build artifacts but skip gh release create'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: release-${{ github.event.inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.derive.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref_name }}
+      - name: Derive version
+        id: derive
+        run: |
+          V="${{ github.event.inputs.version || github.ref_name }}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - run: bun install --frozen-lockfile
+      - name: Assert package.json matches tag
+        run: |
+          V="${{ steps.derive.outputs.version }}"
+          PKG=$(bun -e "console.log(require('./package.json').version)")
+          EXPECTED="v$PKG"
+          if [ "$V" != "$EXPECTED" ]; then
+            echo "::error::tag $V does not match package.json $PKG (expected tag $EXPECTED)"
+            exit 1
+          fi
+          echo "OK: tag $V matches package.json $PKG"
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+
+  build-darwin:
+    name: build-darwin
+    needs: preflight
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout sovereign-ai-harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.version }}
+      - name: Checkout sov-releases
+        uses: actions/checkout@v4
+        with:
+          repository: yevgetman/sov-releases
+          ref: main
+          path: sov-releases
+          token: ${{ secrets.SOV_RELEASES_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: bun install --frozen-lockfile
+      - name: Build darwin-arm64
+        env:
+          SOV_RELEASES_PATH: ${{ github.workspace }}/sov-releases
+        run: bun run release:build darwin-arm64 ${{ needs.preflight.outputs.version }}
+      - name: Build darwin-x64
+        env:
+          SOV_RELEASES_PATH: ${{ github.workspace }}/sov-releases
+        run: bun run release:build darwin-x64 ${{ needs.preflight.outputs.version }}
+      - name: Native smoke (darwin-arm64 --version)
+        run: |
+          V="${{ needs.preflight.outputs.version }}"
+          OUT=$("./build/release/$V/darwin-arm64/bin/sov" --version)
+          echo "smoke output: $OUT"
+          # The version string starts with the bare semver (sans leading "v").
+          BARE="${V#v}"
+          case "$OUT" in
+            "$BARE"*) echo "OK: --version starts with $BARE" ;;
+            *) echo "::error::--version output '$OUT' does not start with $BARE"; exit 1 ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarballs-darwin
+          path: build/release/${{ needs.preflight.outputs.version }}/sov-darwin-*.tar.gz
+          if-no-files-found: error
+
+  build-linux:
+    name: build-linux
+    needs: preflight
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout sovereign-ai-harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.version }}
+      - name: Checkout sov-releases
+        uses: actions/checkout@v4
+        with:
+          repository: yevgetman/sov-releases
+          ref: main
+          path: sov-releases
+          token: ${{ secrets.SOV_RELEASES_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: bun install --frozen-lockfile
+      - name: Build linux-x64
+        env:
+          SOV_RELEASES_PATH: ${{ github.workspace }}/sov-releases
+        run: bun run release:build linux-x64 ${{ needs.preflight.outputs.version }}
+      - name: Native smoke (linux-x64 --version)
+        run: |
+          V="${{ needs.preflight.outputs.version }}"
+          OUT=$("./build/release/$V/linux-x64/bin/sov" --version)
+          echo "smoke output: $OUT"
+          BARE="${V#v}"
+          case "$OUT" in
+            "$BARE"*) echo "OK: --version starts with $BARE" ;;
+            *) echo "::error::--version output '$OUT' does not start with $BARE"; exit 1 ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarballs-linux
+          path: build/release/${{ needs.preflight.outputs.version }}/sov-linux-x64.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [build-darwin, build-linux, preflight]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout sovereign-ai-harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.version }}
+      - name: Checkout sov-releases
+        uses: actions/checkout@v4
+        with:
+          repository: yevgetman/sov-releases
+          ref: main
+          path: sov-releases
+          token: ${{ secrets.SOV_RELEASES_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - run: bun install --frozen-lockfile
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tarballs-*
+          merge-multiple: true
+          path: build/release/${{ needs.preflight.outputs.version }}
+      - name: List downloaded artifacts
+        run: ls -la build/release/${{ needs.preflight.outputs.version }}/
+      - name: Upload release
+        env:
+          GH_TOKEN: ${{ secrets.SOV_RELEASES_TOKEN }}
+          SOV_RELEASES_PATH: ${{ github.workspace }}/sov-releases
+        run: |
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry-run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          bun run release:upload ${{ needs.preflight.outputs.version }} $DRY_FLAG
