@@ -1960,6 +1960,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		}
 		m.print("") // breathing room before delegator group
 		m.print(components.FormatDelegatorPlanLine(ev, m.theme, m.width))
+		m.print("") // space between plan header and atom events
 	case "delegator_atom_started":
 		// Phase 2 T5 — an atom dispatched onto a specific lane. Prints
 		// the "→ atom N on <lane>: <preview>" line so the user can see
@@ -1996,6 +1997,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if rendered, ok := m.live.EndAssistantCard(); ok {
 			m.print(rendered)
 		}
+		m.print("") // space between atom events and summary footer
 		m.print(components.FormatDelegatorCompleteLine(ev, m.theme, m.width))
 		m.print("") // breathing room after delegator group
 	}

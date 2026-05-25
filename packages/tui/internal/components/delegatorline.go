@@ -62,10 +62,10 @@ func FormatDelegatorPlanLine(ev transport.DelegatorPlanEvent, t theme.Theme, wid
 	var tail string
 	if ev.ScheduledAtomCount != nil {
 		tail = lipgloss.NewStyle().
-			Foreground(t.Dim).
+			Foreground(t.Info).
 			Render(fmt.Sprintf(" %d atom(s) planned", *ev.ScheduledAtomCount))
 	} else {
-		tail = lipgloss.NewStyle().Foreground(t.Dim).Render(" …")
+		tail = lipgloss.NewStyle().Foreground(t.Info).Render(" …")
 	}
 	return DelegatorLineLeftMargin + prefix + tail
 }
@@ -87,19 +87,39 @@ func FormatDelegatorAtomStartedLine(
 	width int,
 	debugMode bool,
 ) string {
-	glyph := lipgloss.NewStyle().Foreground(t.Info).Render(DelegatorAtomStartGlyph)
+	glyph := lipgloss.NewStyle().Foreground(t.Primary).Render(DelegatorAtomStartGlyph)
 	verb := lipgloss.NewStyle().
-		Foreground(t.Info).
+		Foreground(t.Foreground).
 		Render(fmt.Sprintf(" atom %d on ", ev.AtomIndex))
 	lane := lipgloss.NewStyle().
 		Foreground(t.Primary).
+		Bold(true).
 		Render(ev.LaneName)
 	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
+
+	// Build the fixed prefix to measure how much room the preview gets.
+	fixedPlain := DelegatorLineLeftMargin + DelegatorAtomStartGlyph +
+		fmt.Sprintf(" atom %d on ", ev.AtomIndex) + ev.LaneName
+	if debugMode && (ev.LaneProvider != "" || ev.LaneModel != "") {
+		body := ev.LaneProvider
+		if ev.LaneProvider != "" && ev.LaneModel != "" {
+			body = ev.LaneProvider + "/" + ev.LaneModel
+		} else if ev.LaneModel != "" {
+			body = ev.LaneModel
+		}
+		fixedPlain += " [" + body + "]"
+	}
 	preview := ""
 	if ev.PromptPreview != "" {
+		previewText := ": " + ev.PromptPreview
+		avail := width - len([]rune(fixedPlain)) - 2 // 2 for ": " minimum
+		if avail > 6 && len([]rune(previewText)) > avail {
+			runes := []rune(previewText)
+			previewText = string(runes[:avail-1]) + "…"
+		}
 		preview = lipgloss.NewStyle().
-			Foreground(t.Dim).
-			Render(": " + ev.PromptPreview)
+			Foreground(t.Info).
+			Render(previewText)
 	}
 	return DelegatorLineLeftMargin + glyph + verb + lane + debug + preview
 }
@@ -152,19 +172,20 @@ func FormatDelegatorAtomCompleteLine(
 	}
 	glyph := lipgloss.NewStyle().Foreground(glyphColor).Bold(true).Render(glyphChar)
 	verb := lipgloss.NewStyle().
-		Foreground(t.Info).
+		Foreground(t.Foreground).
 		Render(fmt.Sprintf(" atom %d on ", ev.AtomIndex))
 	lane := lipgloss.NewStyle().
 		Foreground(t.Primary).
+		Bold(true).
 		Render(ev.LaneName)
 	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
 	if ev.Success {
 		tail = lipgloss.NewStyle().
-			Foreground(t.Dim).
+			Foreground(t.Info).
 			Render(fmt.Sprintf(" (%dms)", ev.DurationMs))
 	} else {
 		tail = lipgloss.NewStyle().
-			Foreground(t.Dim).
+			Foreground(t.Info).
 			Render(fmt.Sprintf(" failed (%dms)", ev.DurationMs))
 	}
 	return DelegatorLineLeftMargin + glyph + verb + lane + debug + tail
@@ -217,6 +238,6 @@ func formatLaneDistribution(dist map[string]int, t theme.Theme) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", e.name, e.count))
 	}
 	return lipgloss.NewStyle().
-		Foreground(t.Dim).
+		Foreground(t.Info).
 		Render(": " + strings.Join(parts, ", "))
 }
