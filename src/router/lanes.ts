@@ -13,14 +13,14 @@ export const LANE_DEFAULTS: Record<'cheap-task' | 'moderate-task' | 'frontier-ta
     model: 'claude-sonnet-4-6',
     allowedTools: null,
     maxTokens: null,
-    timeoutMs: 120_000,
+    timeoutMs: 300_000,
   },
   'frontier-task': {
     provider: 'anthropic',
     model: 'claude-opus-4-7',
     allowedTools: null,
     maxTokens: null,
-    timeoutMs: 120_000,
+    timeoutMs: 600_000,
   },
 };
 
@@ -29,7 +29,7 @@ const DELEGATOR_DEFAULTS: LaneConfig = {
   model: 'claude-sonnet-4-6',
   allowedTools: ['AgentTool'],
   maxTokens: null,
-  timeoutMs: 120_000,
+  timeoutMs: 600_000,
 };
 
 export function resolveLane(

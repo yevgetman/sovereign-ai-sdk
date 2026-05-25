@@ -63,6 +63,10 @@ const CompactLineDeniedGlyph = "⚠"
 // hex, not a theme token" rule.
 const CompactLineVerbColor = "#a78bfa"
 
+// CompactLineLeftMargin is a 2-space indent prepended to every compact
+// tool line, setting tool output apart from assistant text.
+const CompactLineLeftMargin = "  "
+
 func FormatCompactToolLine(
 	tool string,
 	input json.RawMessage,
@@ -104,10 +108,17 @@ func FormatCompactToolLine(
 			Render(CompactLineErrorGlyph) + " "
 	}
 
-	// Width budget: account for the chevron ( + space + glyph) and the
-	// status prefix when present. Truncate the target first; verb +
-	// sigil + details stay readable.
-	reserved := 2 // chevron " ›"
+	margin := CompactLineLeftMargin
+	marginWidth := visibleLen(margin)
+	if width < 20 {
+		margin = ""
+		marginWidth = 0
+	}
+
+	// Width budget: account for the chevron ( + space + glyph), the
+	// left margin, and the status prefix when present. Truncate the
+	// target first; verb + sigil + details stay readable.
+	reserved := 2 + marginWidth // chevron " ›" + margin
 	if prefix != "" {
 		reserved += 2 // glyph + space
 	}
@@ -137,13 +148,21 @@ func FormatCompactToolLine(
 		if availForTarget < 4 {
 			// Not enough room — fall back to whole-line tail truncation.
 			plainBody = truncateTail(plainBody, maxBody)
-			return prefix + lipgloss.NewStyle().Foreground(lipgloss.Color(CompactLineVerbColor)).Render(plainBody) + lipgloss.NewStyle().Foreground(t.Dim).Render(" "+CompactLineChevron)
+			verbColor := lipgloss.Color(CompactLineVerbColor)
+			if tool == "AgentTool" {
+				verbColor = t.Primary
+			}
+			return margin + prefix + lipgloss.NewStyle().Foreground(verbColor).Render(plainBody) + lipgloss.NewStyle().Foreground(t.Dim).Render(" "+CompactLineChevron)
 		}
 		target = truncateTail(target, availForTarget)
 	}
 
+	verbColor := lipgloss.Color(CompactLineVerbColor)
+	if tool == "AgentTool" {
+		verbColor = t.Primary
+	}
 	verbStyled := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(CompactLineVerbColor)).
+		Foreground(verbColor).
 		Render(verb)
 	body := verbStyled
 	if sigil != "" {
@@ -159,7 +178,7 @@ func FormatCompactToolLine(
 		body += " " + lipgloss.NewStyle().Foreground(t.Dim).Render(details)
 	}
 	chevronStyled := lipgloss.NewStyle().Foreground(t.Dim).Render(" " + CompactLineChevron)
-	return prefix + body + chevronStyled
+	return margin + prefix + body + chevronStyled
 }
 
 // DetectToolStatus inspects an Output blob and reports whether the
@@ -275,6 +294,19 @@ func verbTargetDetails(
 			name = extractStringField(input, "slug")
 		}
 		return "Proposed skill", "", "'" + name + "'", ""
+	case "AgentTool":
+		agentName := extractStringField(input, "subagent_type")
+		if agentName == "" {
+			agentName = "agent"
+		}
+		summary := extractStringField(output, "summary")
+		details := ""
+		if summary != "" {
+			if idx := strings.Index(summary, "→"); idx >= 0 {
+				details = strings.TrimSpace(summary[idx:])
+			}
+		}
+		return "Dispatched", "", agentName, details
 	}
 
 	// MCP tools: name is `mcp__<server>__<tool>`.

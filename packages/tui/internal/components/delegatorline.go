@@ -30,6 +30,11 @@ import (
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
 
+// DelegatorLineLeftMargin is a 2-space indent prepended to every
+// delegator event line, matching CompactLineLeftMargin so tool output
+// and routing events share the same visual baseline.
+const DelegatorLineLeftMargin = "  "
+
 // Delegator status glyphs — paired with the compact-line family so the
 // visual vocabulary stays consistent across tool calls + atom dispatches.
 const (
@@ -62,7 +67,7 @@ func FormatDelegatorPlanLine(ev transport.DelegatorPlanEvent, t theme.Theme, wid
 	} else {
 		tail = lipgloss.NewStyle().Foreground(t.Dim).Render(" …")
 	}
-	return prefix + tail
+	return DelegatorLineLeftMargin + prefix + tail
 }
 
 // FormatDelegatorAtomStartedLine renders an in-flight atom dispatch:
@@ -96,7 +101,7 @@ func FormatDelegatorAtomStartedLine(
 			Foreground(t.Dim).
 			Render(": " + ev.PromptPreview)
 	}
-	return glyph + verb + lane + debug + preview
+	return DelegatorLineLeftMargin + glyph + verb + lane + debug + preview
 }
 
 // formatLaneDebugSuffix renders the bracketed `[provider/model]` tail
@@ -162,7 +167,7 @@ func FormatDelegatorAtomCompleteLine(
 			Foreground(t.Dim).
 			Render(fmt.Sprintf(" failed (%dms)", ev.DurationMs))
 	}
-	return glyph + verb + lane + debug + tail
+	return DelegatorLineLeftMargin + glyph + verb + lane + debug + tail
 }
 
 // FormatDelegatorCompleteLine renders the closing summary:
@@ -181,7 +186,7 @@ func FormatDelegatorCompleteLine(ev transport.DelegatorCompleteEvent, t theme.Th
 		Foreground(t.Primary).
 		Render(fmt.Sprintf(" %d atom(s)", ev.TotalAtomCount))
 	distribution := formatLaneDistribution(ev.LaneDistribution, t)
-	return prefix + count + distribution
+	return DelegatorLineLeftMargin + prefix + count + distribution
 }
 
 // formatLaneDistribution renders the lane breakdown for the summary

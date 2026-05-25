@@ -1958,6 +1958,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if rendered, ok := m.live.EndAssistantCard(); ok {
 			m.print(rendered)
 		}
+		m.print("") // breathing room before delegator group
 		m.print(components.FormatDelegatorPlanLine(ev, m.theme, m.width))
 	case "delegator_atom_started":
 		// Phase 2 T5 — an atom dispatched onto a specific lane. Prints
@@ -1996,6 +1997,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			m.print(rendered)
 		}
 		m.print(components.FormatDelegatorCompleteLine(ev, m.theme, m.width))
+		m.print("") // breathing room after delegator group
 	}
 	return nil
 }

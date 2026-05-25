@@ -282,6 +282,37 @@ func TestFormatDelegatorAtomStartedLine_debugModeEmptyProviderOmitsSuffix(t *tes
 	}
 }
 
+func TestDelegatorLines_LeftMarginPresent(t *testing.T) {
+	planEv := transport.DelegatorPlanEvent{Type: "delegator_plan", Seq: 1, SessionID: "s"}
+	startEv := transport.DelegatorAtomStartedEvent{
+		Type: "delegator_atom_started", Seq: 2, SessionID: "s",
+		AtomIndex: 0, LaneName: "cheap-task", PromptPreview: "test",
+	}
+	completeEv := transport.DelegatorAtomCompleteEvent{
+		Type: "delegator_atom_complete", Seq: 3, SessionID: "s",
+		AtomIndex: 0, LaneName: "cheap-task", Success: true, DurationMs: 100,
+	}
+	doneEv := transport.DelegatorCompleteEvent{
+		Type: "delegator_complete", Seq: 4, SessionID: "s",
+		TotalAtomCount: 1, LaneDistribution: map[string]int{"cheap-task": 1},
+	}
+	th := theme.Dark()
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"plan", FormatDelegatorPlanLine(planEv, th, 80)},
+		{"atom_started", FormatDelegatorAtomStartedLine(startEv, th, 80, false)},
+		{"atom_complete", FormatDelegatorAtomCompleteLine(completeEv, th, 80, false)},
+		{"complete", FormatDelegatorCompleteLine(doneEv, th, 80)},
+	} {
+		plain := stripANSI(tc.line)
+		if !strings.HasPrefix(plain, DelegatorLineLeftMargin) {
+			t.Errorf("%s: expected left margin %q prefix, got: %q", tc.name, DelegatorLineLeftMargin, plain)
+		}
+	}
+}
+
 // TestFormatDelegatorCompleteLine_emptyDistribution covers the no-atoms
 // edge — the summary should still render the "Done. 0 atom(s)" headline
 // without trailing ": " or panicking on the empty map.

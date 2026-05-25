@@ -172,4 +172,33 @@ describe('AgentTool', () => {
     } as unknown as Parameters<NonNullable<typeof AgentTool.renderResult>>[0]);
     expect(out.isError).toBe(true);
   });
+
+  test('marks observation status=error when completed but summary is empty', async () => {
+    const ctx: ToolContext = {
+      cwd: process.cwd(),
+      sessionId: 'parent',
+      agents: makeRegistry(['explore']),
+      subagentScheduler: makeStubScheduler({
+        resultOverride: { terminalReason: 'completed', summary: '' },
+      }),
+    };
+    const result = await AgentTool.call({ subagent_type: 'explore', prompt: 'hi' }, ctx);
+    const r = result as ToolResult<unknown>;
+    expect(r.observation?.status).toBe('error');
+  });
+
+  test('renderResult flags isError when completed but summary is empty', () => {
+    const out = (AgentTool.renderResult as NonNullable<typeof AgentTool.renderResult>)({
+      childSessionId: 'child-1',
+      agentName: 'frontier-task',
+      resolvedProvider: 'anthropic',
+      resolvedModel: 'claude-opus-4-7',
+      terminalReason: 'completed',
+      iterationsUsed: 2,
+      toolCallCount: 1,
+      durationMs: 120004,
+      summary: '',
+    } as unknown as Parameters<NonNullable<typeof AgentTool.renderResult>>[0]);
+    expect(out.isError).toBe(true);
+  });
 });

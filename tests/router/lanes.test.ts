@@ -23,7 +23,7 @@ describe('resolveLane', () => {
     const lane = resolveLane('cheap-task', cfg);
     expect(lane?.provider).toBe('ollama');
     expect(lane?.model).toBe('qwen2.5:7b');
-    expect(lane?.timeoutMs).toBe(120_000); // inherited default
+    expect(lane?.timeoutMs).toBe(120_000); // cheap-task inherited default
   });
 
   test('resolves delegator role to taskRouting.delegator.model', () => {

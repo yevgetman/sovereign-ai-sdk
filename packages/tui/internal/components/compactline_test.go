@@ -394,6 +394,77 @@ func TestFormatCompactToolLine_MCPTool(t *testing.T) {
 	}
 }
 
+func TestFormatCompactToolLine_AgentTool(t *testing.T) {
+	out := FormatCompactToolLine(
+		"AgentTool",
+		mkJSON(t, map[string]any{"subagent_type": "delegator", "prompt": "Plan the work and dispatch atoms"}),
+		mkJSON(t, map[string]any{"status": "success", "summary": "delegator → completed (3 turns, 2 tool calls)"}),
+		theme.Dark(),
+		120,
+	)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "Dispatched delegator") {
+		t.Errorf("expected 'Dispatched delegator', got: %q", plain)
+	}
+	if !strings.Contains(plain, "→ completed") {
+		t.Errorf("expected '→ completed' in details, got: %q", plain)
+	}
+	if !strings.Contains(plain, CompactLineChevron) {
+		t.Errorf("expected chevron, got: %q", plain)
+	}
+}
+
+func TestFormatCompactToolLine_AgentToolError(t *testing.T) {
+	out := FormatCompactToolLine(
+		"AgentTool",
+		mkJSON(t, map[string]any{"subagent_type": "frontier-task", "prompt": "Build a game"}),
+		mkJSON(t, map[string]any{"status": "error", "summary": "frontier-task → interrupted (1 turns, 0 tool calls)"}),
+		theme.Dark(),
+		120,
+	)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, CompactLineErrorGlyph) {
+		t.Errorf("expected error glyph for failed AgentTool, got: %q", plain)
+	}
+	if !strings.Contains(plain, "Dispatched frontier-task") {
+		t.Errorf("expected 'Dispatched frontier-task', got: %q", plain)
+	}
+}
+
+func TestVerbTargetDetails_AgentTool(t *testing.T) {
+	v, sig, tgt, det := verbTargetDetails(
+		"AgentTool",
+		mkJSON(t, map[string]any{"subagent_type": "explore", "prompt": "find auth code"}),
+		mkJSON(t, map[string]any{"status": "success", "summary": "explore → completed (2 turns, 1 tool calls)"}),
+	)
+	if v != "Dispatched" {
+		t.Errorf("verb = %q, want 'Dispatched'", v)
+	}
+	if sig != "" {
+		t.Errorf("sigil = %q, want empty", sig)
+	}
+	if tgt != "explore" {
+		t.Errorf("target = %q, want 'explore'", tgt)
+	}
+	if !strings.Contains(det, "→ completed") {
+		t.Errorf("details = %q, want to contain '→ completed'", det)
+	}
+}
+
+func TestFormatCompactToolLine_LeftMarginPresent(t *testing.T) {
+	out := FormatCompactToolLine(
+		"FileRead",
+		mkJSON(t, map[string]any{"path": "foo.go"}),
+		mkJSON(t, map[string]any{"status": "success"}),
+		theme.Dark(),
+		80,
+	)
+	plain := stripANSI(out)
+	if !strings.HasPrefix(plain, CompactLineLeftMargin) {
+		t.Errorf("expected left margin %q prefix, got: %q", CompactLineLeftMargin, plain)
+	}
+}
+
 func TestFormatCompactToolLine_UnknownToolFallback(t *testing.T) {
 	out := FormatCompactToolLine(
 		"SomeFutureTool",

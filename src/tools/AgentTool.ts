@@ -113,6 +113,9 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         ? { delegationLifecycleRecorder: ctx.delegationLifecycleRecorder }
         : {}),
     });
+    const nominalSuccess =
+      result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns';
+    const hasOutput = result.summary.trim().length > 0;
     return {
       data: {
         childSessionId: result.childSessionId,
@@ -126,10 +129,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         summary: result.summary,
       },
       observation: {
-        status:
-          result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns'
-            ? 'success'
-            : 'error',
+        status: nominalSuccess && hasOutput ? 'success' : 'error',
         summary: `${result.agentName} → ${result.terminal.reason} (${result.iterationsUsed} turns, ${result.toolCallCount} tool calls)`,
         artifacts: [`session:${result.childSessionId}`],
       },
@@ -141,9 +141,12 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
       output.summary,
       '</subagent_result>',
     ];
+    const nominalSuccess =
+      output.terminalReason === 'completed' || output.terminalReason === 'max_turns';
+    const hasOutput = output.summary.trim().length > 0;
     return {
       content: lines.join('\n'),
-      isError: !(output.terminalReason === 'completed' || output.terminalReason === 'max_turns'),
+      isError: !(nominalSuccess && hasOutput),
     };
   },
 }) as unknown as import('../tool/types.js').Tool<unknown, unknown>;
