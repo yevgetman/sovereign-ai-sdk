@@ -115,6 +115,7 @@ type PermissionStyle struct {
 type EchoStyle struct {
 	Marker      string // "» " prefix
 	MarkerWidth int    // numeric width for wrap calculation
+	TrailingGap int    // blank lines after the echo before the next event
 }
 
 // SeparatorStyle governs the turn separator.
@@ -249,6 +250,7 @@ var S = StyleGuide{
 	Echo: EchoStyle{
 		Marker:      "» ",
 		MarkerWidth: 2,
+		TrailingGap: 1,
 	},
 	Separator: SeparatorStyle{
 		Char: "─",

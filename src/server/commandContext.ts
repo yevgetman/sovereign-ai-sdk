@@ -79,6 +79,9 @@ export type CommandSideEffects = {
    *  tea.Sequence chain left behind. Without this, the S-as-apply-
    *  then-save flow could leave a stale parent-refresh picker open. */
   closeModal?: boolean;
+  /** Carries the new preset id (or '' when routing is disabled) so the
+   *  TUI status bar updates live. Empty string clears the indicator. */
+  taskRouterChanged?: string;
 };
 
 export type BuildServerCommandContextResult = {
@@ -314,6 +317,9 @@ export function buildServerCommandContext(
     },
     recordVerboseChange: (value: boolean): void => {
       sideEffects.verboseChanged = value;
+    },
+    recordTaskRouterChange: (preset: string): void => {
+      sideEffects.taskRouterChanged = preset;
     },
     ...(opts.configStandalone === true ? { isConfigStandalone: true } : {}),
     taskManager: runtime.taskManager,

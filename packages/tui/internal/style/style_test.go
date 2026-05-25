@@ -99,6 +99,7 @@ func TestKnownValues(t *testing.T) {
 		// Echo
 		{"Echo.Marker", S.Echo.Marker, "» "},
 		{"Echo.MarkerWidth", S.Echo.MarkerWidth, 2},
+		{"Echo.TrailingGap", S.Echo.TrailingGap, 1},
 
 		// Separator
 		{"Separator.Char", S.Separator.Char, "─"},

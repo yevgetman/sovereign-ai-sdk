@@ -1246,6 +1246,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs))
 			}
 			m.printUser(text)
+			for range style.S.Echo.TrailingGap {
+				m.print("")
+			}
 			m.prompt.Clear()
 			// M11.2 — branded thinking spinner replaces the static dim
 			// "…thinking" placeholder. The spinner advances every 80ms
@@ -1593,6 +1596,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// out of scope — future tool_results pick up the new mode.
 			if se.VerboseChanged != nil {
 				m.verboseRaw = *se.VerboseChanged
+			}
+			if se.TaskRouterChanged != nil {
+				m.statusLine.TaskRouter = *se.TaskRouterChanged
 			}
 			// 2026-05-24 patch — explicit close-modal signal from
 			// /config commit / /config discard. Clears any picker /

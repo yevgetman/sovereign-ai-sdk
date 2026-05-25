@@ -197,6 +197,7 @@ export type CommandContext = {
    *  full bordered output). Undefined on REPL surfaces — the legacy
    *  REPL has its own raw-output gate driven by CLI flags. */
   recordVerboseChange?: (value: boolean) => void;
+  recordTaskRouterChange?: (preset: string) => void;
   /** 2026-05-24 — Config UX rebuild. True when the dispatcher runs inside
    *  `sov config` standalone mode (no active runtime / agent loop).
    *  Live-apply hooks treat this as "no session to apply to" and return

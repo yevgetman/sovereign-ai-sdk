@@ -27,6 +27,7 @@ import { setTheme } from '../ui/theme.js';
 export type LiveApplySideEffect = {
   themeChanged?: string;
   verboseChanged?: boolean;
+  taskRouterChanged?: string;
 };
 
 /**
@@ -210,6 +211,11 @@ const taskRoutingHotReloadHook: LiveApplyHook = async (_newValue, ctx) => {
   if (ctx.commandCtx === undefined) return 'persisted-only';
   if (ctx.commandCtx.rebuildTaskRouting === undefined) return 'persisted-only';
   await ctx.commandCtx.rebuildTaskRouting();
+  const { readConfig } = await import('./store.js');
+  const { detectActivePreset } = await import('./presets.js');
+  const fresh = readConfig();
+  const preset = detectActivePreset(fresh) ?? '';
+  ctx.recordSideEffect?.({ taskRouterChanged: preset });
   return 'applied';
 };
 

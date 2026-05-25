@@ -69,6 +69,23 @@ import {
 import type { CommandContext, InputOpenConfig, PickerOpenConfig } from './types.js';
 
 // ──────────────────────────────────────────────────────────────────────
+// Side-effect relay — bridges LiveApplySideEffect to CommandContext
+// recorders so all relay sites stay in sync.
+// ──────────────────────────────────────────────────────────────────────
+
+function relayLiveApplySideEffects(effect: LiveApplySideEffect, ctx: CommandContext): void {
+  if (effect.themeChanged !== undefined && ctx.recordThemeChange !== undefined) {
+    ctx.recordThemeChange(effect.themeChanged);
+  }
+  if (effect.verboseChanged !== undefined && ctx.recordVerboseChange !== undefined) {
+    ctx.recordVerboseChange(effect.verboseChanged);
+  }
+  if (effect.taskRouterChanged !== undefined && ctx.recordTaskRouterChange !== undefined) {
+    ctx.recordTaskRouterChange(effect.taskRouterChanged);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Constants — surfaced strings (toast text) live here so tests can assert.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -706,12 +723,7 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
 
   // Relay side-effects through the CommandContext closures.
   if (recordedSideEffect) {
-    if (sideEffect.themeChanged !== undefined && ctx.recordThemeChange !== undefined) {
-      ctx.recordThemeChange(sideEffect.themeChanged);
-    }
-    if (sideEffect.verboseChanged !== undefined && ctx.recordVerboseChange !== undefined) {
-      ctx.recordVerboseChange(sideEffect.verboseChanged);
-    }
+    relayLiveApplySideEffects(sideEffect, ctx);
   }
 
   const toast = pickToast(verdict, hook !== undefined, standalone) + cascadeNote;
@@ -745,12 +757,7 @@ async function runUnset(rest: string, ctx: CommandContext): Promise<string> {
     : 'persisted-only';
 
   if (recordedSideEffect) {
-    if (sideEffect.themeChanged !== undefined && ctx.recordThemeChange !== undefined) {
-      ctx.recordThemeChange(sideEffect.themeChanged);
-    }
-    if (sideEffect.verboseChanged !== undefined && ctx.recordVerboseChange !== undefined) {
-      ctx.recordVerboseChange(sideEffect.verboseChanged);
-    }
+    relayLiveApplySideEffects(sideEffect, ctx);
   }
 
   const toast = pickToast(verdict, hook !== undefined, standalone);
@@ -1007,6 +1014,12 @@ async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string
   if (ctx.rebuildTaskRouting !== undefined) {
     await ctx.rebuildTaskRouting();
     liveApplied = true;
+    const { detectActivePreset } = await import('../config/presets.js');
+    const freshSettings = readConfig();
+    const preset = detectActivePreset(freshSettings) ?? '';
+    if (ctx.recordTaskRouterChange !== undefined) {
+      ctx.recordTaskRouterChange(preset);
+    }
   }
   const toast = builtin
     ? `preset '${builtin.label}' applied${liveApplied ? ' to current session' : ' — effective next session'}`
@@ -1150,12 +1163,7 @@ async function runDiscard(ctx: CommandContext): Promise<string> {
     });
   }
   if (recordedSideEffect) {
-    if (sideEffect.themeChanged !== undefined && ctx.recordThemeChange !== undefined) {
-      ctx.recordThemeChange(sideEffect.themeChanged);
-    }
-    if (sideEffect.verboseChanged !== undefined && ctx.recordVerboseChange !== undefined) {
-      ctx.recordVerboseChange(sideEffect.verboseChanged);
-    }
+    relayLiveApplySideEffects(sideEffect, ctx);
   }
   const n = taken.modifiedPaths.length;
   return `discarded ${n} change${n === 1 ? '' : 's'} — restored previous values`;

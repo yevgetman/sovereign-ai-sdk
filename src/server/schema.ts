@@ -311,6 +311,7 @@ export const CommandSideEffectsSchema = z.object({
   // toggle its verbose-mode flag (controls toolcard render: one-liner
   // compact vs. full bordered output).
   verboseChanged: z.boolean().optional(),
+  taskRouterChanged: z.string().optional(),
   // Set by /clear (2026-05-24 patch). Tells the TUI to wipe the
   // terminal's scrollback buffer so the new (cleared) session starts
   // visually fresh. Without this, the old transcript stays visible.
