@@ -8,6 +8,16 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-25 — UX fixes + task router bugs (v0.6.5)
+
+- `bun run lint && bun run typecheck && bun run test` — TS suite **2560 pass / 0 fail / 14 skip**.
+- Go test suite: `packages/tui/` all packages green.
+- Three fixes from screenshot feedback:
+  - ux2: blank line after user echo via new `style.S.Echo.TrailingGap` token.
+  - bug2: status bar preset indicator updates live on /config preset changes via new `taskRouterChanged` side-effect.
+  - bug1: status bar clears "Task Router Active" when routing is disabled via /config.
+- Release v0.6.5 cut via CI tag push.
+
 ## 2026-05-25 — TUI style guide (v0.6.4)
 
 - `bun run lint && bun run typecheck && bun run test` — TS suite **2559 pass / 0 fail / 14 skip** (second run green; first run had 1 pre-existing cron-JSON flake).
