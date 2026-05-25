@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -25,22 +26,6 @@ var logoLines = []string{
 	"  ╚══════╝ ╚═════╝   ╚═══╝   ",
 }
 
-// logoGradient is the blue → teal → purple → pink vertical gradient
-// applied per-row. Mirrors the Qwen Code splash palette (which sweeps
-// left-to-right) re-oriented top-to-bottom for SOV. The colors are
-// theme-independent — the splash is a brand cue, not a status surface
-// — so they read on Catppuccin Mocha (dark), Latte (light), Tokyo
-// Night, and any user TOML theme. Six rows × four anchor colors with
-// blended midpoints between them: blue → cyan-teal → teal → purple
-// → magenta → pink.
-var logoGradient = []lipgloss.Color{
-	lipgloss.Color("#4f8fff"), // electric blue
-	lipgloss.Color("#22d3ee"), // cyan-teal
-	lipgloss.Color("#14b8a6"), // teal
-	lipgloss.Color("#a78bfa"), // soft purple
-	lipgloss.Color("#d946ef"), // magenta
-	lipgloss.Color("#ec4899"), // pink
-}
 
 // SplashInfo carries the optional info-card fields rendered next to the
 // logo when the terminal is wide enough. Empty fields are skipped.
@@ -62,8 +47,8 @@ func RenderSplash(info SplashInfo, t theme.Theme, width int) string {
 		width = 80
 	}
 	logoWidth := visualWidthMax(logoLines)
-	const gutter = 2
-	const safetyMargin = 2
+	gutter := style.S.Splash.Gutter
+	safetyMargin := style.S.Splash.SafetyMargin
 
 	// Build the info card once and measure it. M11.3 — wrap in a
 	// rounded lipgloss border so the card reads as a discrete element
@@ -76,9 +61,9 @@ func RenderSplash(info SplashInfo, t theme.Theme, width int) string {
 		// The pre-existing Padding(0, 1) was visually cramped against
 		// the rounded border (ux1.png feedback).
 		borderStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(style.S.Card.Border).
 			BorderForeground(t.Border).
-			Padding(1, 2)
+			Padding(style.S.Card.GenerousPaddingV, style.S.Card.GenerousPaddingH)
 		boxed := borderStyle.Render(strings.Join(cardContent, "\n"))
 		card = strings.Split(boxed, "\n")
 	}
@@ -180,9 +165,10 @@ func buildInfoCard(info SplashInfo, t theme.Theme) []string {
 
 // colorize applies the per-row gradient to the logo lines.
 func colorize(lines []string) []string {
+	gradient := style.S.Brand.LogoGradient
 	out := make([]string, len(lines))
 	for i, line := range lines {
-		c := logoGradient[i%len(logoGradient)]
+		c := lipgloss.Color(gradient[i%len(gradient)])
 		out[i] = lipgloss.NewStyle().Foreground(c).Render(line)
 	}
 	return out

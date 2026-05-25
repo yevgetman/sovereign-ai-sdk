@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
@@ -24,8 +25,8 @@ func TestFormatDelegatorPlanLine_noScheduledCount(t *testing.T) {
 	if !strings.Contains(plain, "Delegating") {
 		t.Errorf("expected 'Delegating' in plan line, got %q", plain)
 	}
-	if !strings.Contains(plain, DelegatorPlanGlyph) {
-		t.Errorf("expected plan glyph %q in plan line, got %q", DelegatorPlanGlyph, plain)
+	if !strings.Contains(plain, style.S.Glyph.Plan) {
+		t.Errorf("expected plan glyph %q in plan line, got %q", style.S.Glyph.Plan, plain)
 	}
 	// Without scheduledAtomCount we render an ellipsis to signal "plan is
 	// unfolding atom-by-atom".
@@ -60,8 +61,8 @@ func TestFormatDelegatorAtomStartedLine_includesIdxLaneAndPreview(t *testing.T) 
 	}
 	out := FormatDelegatorAtomStartedLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
-	if !strings.Contains(plain, DelegatorAtomStartGlyph) {
-		t.Errorf("expected start glyph %q, got %q", DelegatorAtomStartGlyph, plain)
+	if !strings.Contains(plain, style.S.Glyph.Arrow) {
+		t.Errorf("expected start glyph %q, got %q", style.S.Glyph.Arrow, plain)
 	}
 	if !strings.Contains(plain, "atom 0 on cheap-task") {
 		t.Errorf("expected 'atom 0 on cheap-task', got %q", plain)
@@ -105,8 +106,8 @@ func TestFormatDelegatorAtomCompleteLine_success(t *testing.T) {
 	}
 	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
-	if !strings.Contains(plain, DelegatorAtomSuccessGlyph) {
-		t.Errorf("expected success glyph %q, got %q", DelegatorAtomSuccessGlyph, plain)
+	if !strings.Contains(plain, style.S.Glyph.Success) {
+		t.Errorf("expected success glyph %q, got %q", style.S.Glyph.Success, plain)
 	}
 	if !strings.Contains(plain, "atom 0 on cheap-task") {
 		t.Errorf("expected 'atom 0 on cheap-task', got %q", plain)
@@ -131,8 +132,8 @@ func TestFormatDelegatorAtomCompleteLine_failure(t *testing.T) {
 	}
 	out := FormatDelegatorAtomCompleteLine(ev, theme.Dark(), 80, false)
 	plain := stripANSI(out)
-	if !strings.Contains(plain, DelegatorAtomFailureGlyph) {
-		t.Errorf("expected failure glyph %q, got %q", DelegatorAtomFailureGlyph, plain)
+	if !strings.Contains(plain, style.S.Glyph.Error) {
+		t.Errorf("expected failure glyph %q, got %q", style.S.Glyph.Error, plain)
 	}
 	if !strings.Contains(plain, "atom 1 on reasoning") {
 		t.Errorf("expected 'atom 1 on reasoning', got %q", plain)
@@ -158,8 +159,8 @@ func TestFormatDelegatorCompleteLine_includesCountAndDistribution(t *testing.T) 
 	if !strings.Contains(plain, "Done.") {
 		t.Errorf("expected 'Done.' in summary line, got %q", plain)
 	}
-	if !strings.Contains(plain, DelegatorCompleteGlyph) {
-		t.Errorf("expected complete glyph %q, got %q", DelegatorCompleteGlyph, plain)
+	if !strings.Contains(plain, style.S.Glyph.Done) {
+		t.Errorf("expected complete glyph %q, got %q", style.S.Glyph.Done, plain)
 	}
 	if !strings.Contains(plain, "3 atom(s)") {
 		t.Errorf("expected '3 atom(s)', got %q", plain)
@@ -307,8 +308,8 @@ func TestDelegatorLines_LeftMarginPresent(t *testing.T) {
 		{"complete", FormatDelegatorCompleteLine(doneEv, th, 80)},
 	} {
 		plain := stripANSI(tc.line)
-		if !strings.HasPrefix(plain, DelegatorLineLeftMargin) {
-			t.Errorf("%s: expected left margin %q prefix, got: %q", tc.name, DelegatorLineLeftMargin, plain)
+		if !strings.HasPrefix(plain, style.S.Delegator.Indent) {
+			t.Errorf("%s: expected left margin %q prefix, got: %q", tc.name, style.S.Delegator.Indent, plain)
 		}
 	}
 }

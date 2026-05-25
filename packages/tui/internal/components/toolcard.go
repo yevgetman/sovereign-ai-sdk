@@ -17,19 +17,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
-
-// ToolCardHeaderColor is the fixed brand-purple hex used for the
-// "> <Tool>" header line on every tool card. Pinned outside the theme
-// tokens because the header must read as on-brand purple/pink across
-// every theme (same rationale as the splash + spinner gradient, which
-// are also theme-independent). #a78bfa is the "soft purple" anchor
-// from the SOV gradient (blue → teal → purple → pink). Per
-// docs/conventions/tui-color-rendering.md, accents that must read as a
-// specific shade family rather than just "some accent color" get
-// pinned to a fixed hex rather than derived from theme.Primary.
-const ToolCardHeaderColor = "#a78bfa"
 
 type ToolCard struct {
 	Tool       string
@@ -59,11 +49,11 @@ func (tc ToolCard) View(width int) string {
 	// collapsed body shows only the dim summary.
 	//
 	// ux-fixes — tool-card header uses a fixed brand-purple hex
-	// (ToolCardHeaderColor, the SOV-gradient "soft purple" anchor)
+	// (style.S.Brand.VerbColor, the SOV-gradient "soft purple" anchor)
 	// rather than theme.Primary. See the const declaration above for
 	// the full rationale.
 	header := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ToolCardHeaderColor)).
+		Foreground(lipgloss.Color(style.S.Brand.VerbColor)).
 		Bold(true).
 		Render(fmt.Sprintf("> %s", tc.Tool))
 	if !tc.Expanded && tc.Input != "" {
@@ -107,7 +97,7 @@ func (tc ToolCard) View(width int) string {
 	default:
 		body = lipgloss.NewStyle().Foreground(tc.Theme.Info).Render(tc.Summary)
 	}
-	box := tc.Theme.CardBorderStyle().Padding(0, 1).Width(width - 2)
+	box := tc.Theme.CardBorderStyle().Padding(style.S.Card.PaddingV, style.S.Card.PaddingH).Width(width - style.S.Card.BorderOverhead)
 	return box.Render(header + "\n" + body)
 }
 

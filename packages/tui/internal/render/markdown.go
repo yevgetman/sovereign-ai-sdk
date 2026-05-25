@@ -24,6 +24,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -560,25 +561,8 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	error_ := string(t.Error)
 	_ = t.CodeBackground // M11.11 — kept on the theme for future renderers; no longer applied here, see Code/CodeBlock comments below
 
-	// M11.13 — inline-code accent color, picked specifically for "light
-	// blue file path" readability. Lighter than theme.Primary's
-	// #89b4fa which rendered too dark on the user's terminal.
-	// #7dd3fc is Tailwind's sky-300 — a clean, recognizable light
-	// sky-blue. Bound to a local var so we can take its address for
-	// the StylePrimitive.Color field below.
-	inlineCodeColor := "#7dd3fc"
-
-	// ux-fixes — markdown section headers (H1–H6) pin to a fixed
-	// light-blue hex rather than theme.Primary. The user reported
-	// theme.Primary (Catppuccin blue #89b4fa / Sovereign #58a6ff)
-	// rendered too dark/saturated for "## Heading" style structural
-	// markers. #bae6fd is Tailwind's sky-200 — one shade lighter than
-	// the inline-code sky-300 so headers and inline-code spans read
-	// as distinct visual elements while sharing the same "light sky
-	// blue" family. Pinning to a fixed hex (per
-	// docs/conventions/tui-color-rendering.md) ensures the chosen
-	// shade survives palette mapping across terminals and themes.
-	headingColor := "#bae6fd"
+	inlineCodeColor := style.S.Brand.AccentColor
+	headingColor := style.S.Brand.HeadingColor
 
 	// ux-fixes 2026-05-22 (ux4.png): drop the Document margin to 0.
 	// Glamour v1.0.0's WithWordWrap value doesn't reliably account for
@@ -589,19 +573,10 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 	// width exactly. The TUI doesn't need glamour's visual left-pad;
 	// our scrollback flows from column 0 like every other line.
 	margin := uint(0)
-	listLevelIndent := uint(4)
-	indent := uint(1)
-	// ux-fixes round 3 — list items need a non-zero Indent so the
-	// wrap-continuation lines of long bullet text hang-indent under
-	// the bullet's content column instead of flushing to column 0
-	// (ux3.png/ux4.png feedback). The pre-round-3 List.StyleBlock
-	// omitted Indent entirely, which made glamour's BlockStack.Indent
-	// resolve to 0 and produced ragged continuation rows.
-	// bullet "• " = 2 visible columns; matching that here aligns the
-	// continuation under the text that begins after the bullet.
-	listIndent := uint(2)
-	indentToken := "│ "
-	bullet := "•"
+	listLevelIndent := uint(style.S.Markdown.ListLevelIndent)
+	indent := uint(style.S.Markdown.BlockquoteIndent)
+	listIndent := uint(style.S.Markdown.ListIndent)
+	indentToken := style.S.Markdown.IndentToken
 
 	bold := true
 	italic := true
@@ -645,42 +620,42 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		H1: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "# ",
+				Prefix: style.S.Markdown.H1Prefix,
 				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H2: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "## ",
+				Prefix: style.S.Markdown.H2Prefix,
 				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H3: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "### ",
+				Prefix: style.S.Markdown.H3Prefix,
 				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H4: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "#### ",
+				Prefix: style.S.Markdown.H4Prefix,
 				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H5: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "##### ",
+				Prefix: style.S.Markdown.H5Prefix,
 				Color:  &headingColor,
 				Bold:   &bold,
 			},
 		},
 		H6: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "###### ",
+				Prefix: style.S.Markdown.H6Prefix,
 				Color:  &headingColor,
 			},
 		},
@@ -700,10 +675,10 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 		},
 		HorizontalRule: ansi.StylePrimitive{
 			Color:  &dim,
-			Format: "\n────────\n",
+			Format: "\n" + style.S.Markdown.HorizontalRule + "\n",
 		},
 		Item: ansi.StylePrimitive{
-			BlockPrefix: bullet + " ",
+			BlockPrefix: style.S.Markdown.Bullet + " ",
 			// No Color — inherit terminal default foreground.
 		},
 		Enumeration: ansi.StylePrimitive{
@@ -714,8 +689,8 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 			StylePrimitive: ansi.StylePrimitive{
 				// No Color — inherit terminal default foreground.
 			},
-			Ticked:   "[✓] ",
-			Unticked: "[ ] ",
+			Ticked:   style.S.Markdown.TickedCheckbox,
+			Unticked: style.S.Markdown.UntickedCheckbox,
 		},
 		Link: ansi.StylePrimitive{
 			Color:     &primary,

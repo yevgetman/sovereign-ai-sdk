@@ -26,36 +26,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
-)
-
-// DelegatorLineLeftMargin is a 2-space indent prepended to every
-// delegator event line, matching CompactLineLeftMargin so tool output
-// and routing events share the same visual baseline.
-const DelegatorLineLeftMargin = "  "
-
-// DelegatorAccentColor is the fixed light blue hex used for accent
-// elements in delegator event lines (plan header, lane names, atom
-// counts). Pinned to Tailwind sky-300 — NOT derived from t.Primary,
-// which renders as a saturated "basic blue" on most terminals. See
-// docs/conventions/tui-color-rendering.md M11.13 + the "no t.Primary
-// in tool/routing output" rule.
-const DelegatorAccentColor = "#7dd3fc"
-
-// Delegator status glyphs — paired with the compact-line family so the
-// visual vocabulary stays consistent across tool calls + atom dispatches.
-const (
-	// DelegatorPlanGlyph marks the start of a delegator turn.
-	DelegatorPlanGlyph = "◇"
-	// DelegatorCompleteGlyph marks the end of a delegator turn.
-	DelegatorCompleteGlyph = "◆"
-	// DelegatorAtomStartGlyph marks an in-flight atom dispatch.
-	DelegatorAtomStartGlyph = "→"
-	// DelegatorAtomSuccessGlyph marks a successful atom completion.
-	DelegatorAtomSuccessGlyph = "✓"
-	// DelegatorAtomFailureGlyph marks a failed atom completion.
-	DelegatorAtomFailureGlyph = "✗"
 )
 
 // FormatDelegatorPlanLine renders the "delegating started" marker. When
@@ -64,9 +37,9 @@ const (
 // the plan is unfolding atom-by-atom.
 func FormatDelegatorPlanLine(ev transport.DelegatorPlanEvent, t theme.Theme, width int) string {
 	prefix := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(DelegatorAccentColor)).
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
 		Bold(true).
-		Render(DelegatorPlanGlyph + " Delegating")
+		Render(style.S.Glyph.Plan + " Delegating")
 	var tail string
 	if ev.ScheduledAtomCount != nil {
 		tail = lipgloss.NewStyle().
@@ -75,7 +48,7 @@ func FormatDelegatorPlanLine(ev transport.DelegatorPlanEvent, t theme.Theme, wid
 	} else {
 		tail = lipgloss.NewStyle().Foreground(t.Info).Render(" …")
 	}
-	return DelegatorLineLeftMargin + prefix + tail
+	return style.S.Delegator.Indent + prefix + tail
 }
 
 // FormatDelegatorAtomStartedLine renders an in-flight atom dispatch:
@@ -95,18 +68,18 @@ func FormatDelegatorAtomStartedLine(
 	width int,
 	debugMode bool,
 ) string {
-	glyph := lipgloss.NewStyle().Foreground(lipgloss.Color(DelegatorAccentColor)).Render(DelegatorAtomStartGlyph)
+	glyph := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.AccentColor)).Render(style.S.Glyph.Arrow)
 	verb := lipgloss.NewStyle().
 		Foreground(t.Foreground).
 		Render(fmt.Sprintf(" atom %d on ", ev.AtomIndex))
 	lane := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(DelegatorAccentColor)).
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
 		Bold(true).
 		Render(ev.LaneName)
 	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
 
 	// Build the fixed prefix to measure how much room the preview gets.
-	fixedPlain := DelegatorLineLeftMargin + DelegatorAtomStartGlyph +
+	fixedPlain := style.S.Delegator.Indent + style.S.Glyph.Arrow +
 		fmt.Sprintf(" atom %d on ", ev.AtomIndex) + ev.LaneName
 	if debugMode && (ev.LaneProvider != "" || ev.LaneModel != "") {
 		body := ev.LaneProvider
@@ -129,7 +102,7 @@ func FormatDelegatorAtomStartedLine(
 			Foreground(t.Info).
 			Render(previewText)
 	}
-	return DelegatorLineLeftMargin + glyph + verb + lane + debug + preview
+	return style.S.Delegator.Indent + glyph + verb + lane + debug + preview
 }
 
 // formatLaneDebugSuffix renders the bracketed `[provider/model]` tail
@@ -172,10 +145,10 @@ func FormatDelegatorAtomCompleteLine(
 		tail       string
 	)
 	if ev.Success {
-		glyphChar = DelegatorAtomSuccessGlyph
+		glyphChar = style.S.Glyph.Success
 		glyphColor = t.Success
 	} else {
-		glyphChar = DelegatorAtomFailureGlyph
+		glyphChar = style.S.Glyph.Error
 		glyphColor = t.Error
 	}
 	glyph := lipgloss.NewStyle().Foreground(glyphColor).Bold(true).Render(glyphChar)
@@ -183,7 +156,7 @@ func FormatDelegatorAtomCompleteLine(
 		Foreground(t.Foreground).
 		Render(fmt.Sprintf(" atom %d on ", ev.AtomIndex))
 	lane := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(DelegatorAccentColor)).
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
 		Bold(true).
 		Render(ev.LaneName)
 	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
@@ -196,7 +169,7 @@ func FormatDelegatorAtomCompleteLine(
 			Foreground(t.Info).
 			Render(fmt.Sprintf(" failed (%dms)", ev.DurationMs))
 	}
-	return DelegatorLineLeftMargin + glyph + verb + lane + debug + tail
+	return style.S.Delegator.Indent + glyph + verb + lane + debug + tail
 }
 
 // FormatDelegatorCompleteLine renders the closing summary:
@@ -210,12 +183,12 @@ func FormatDelegatorCompleteLine(ev transport.DelegatorCompleteEvent, t theme.Th
 	prefix := lipgloss.NewStyle().
 		Foreground(t.Success).
 		Bold(true).
-		Render(DelegatorCompleteGlyph + " Done.")
+		Render(style.S.Glyph.Done + " Done.")
 	count := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(DelegatorAccentColor)).
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
 		Render(fmt.Sprintf(" %d atom(s)", ev.TotalAtomCount))
 	distribution := formatLaneDistribution(ev.LaneDistribution, t)
-	return DelegatorLineLeftMargin + prefix + count + distribution
+	return style.S.Delegator.Indent + prefix + count + distribution
 }
 
 // formatLaneDistribution renders the lane breakdown for the summary

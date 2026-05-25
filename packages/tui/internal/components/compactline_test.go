@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -56,7 +57,7 @@ func TestFormatCompactToolLine_FileRead(t *testing.T) {
 	if !strings.Contains(plain, "Read /Users/julie/code/foo.go") {
 		t.Errorf("expected 'Read /Users/julie/code/foo.go', got: %q", plain)
 	}
-	if !strings.Contains(plain, CompactLineChevron) {
+	if !strings.Contains(plain, style.S.CompactLine.Chevron) {
 		t.Errorf("expected chevron in line, got: %q", plain)
 	}
 }
@@ -409,7 +410,7 @@ func TestFormatCompactToolLine_AgentTool(t *testing.T) {
 	if !strings.Contains(plain, "→ completed") {
 		t.Errorf("expected '→ completed' in details, got: %q", plain)
 	}
-	if !strings.Contains(plain, CompactLineChevron) {
+	if !strings.Contains(plain, style.S.CompactLine.Chevron) {
 		t.Errorf("expected chevron, got: %q", plain)
 	}
 }
@@ -423,7 +424,7 @@ func TestFormatCompactToolLine_AgentToolError(t *testing.T) {
 		120,
 	)
 	plain := stripANSI(out)
-	if !strings.Contains(plain, CompactLineErrorGlyph) {
+	if !strings.Contains(plain, style.S.Glyph.Error) {
 		t.Errorf("expected error glyph for failed AgentTool, got: %q", plain)
 	}
 	if !strings.Contains(plain, "Dispatched frontier-task") {
@@ -460,8 +461,8 @@ func TestFormatCompactToolLine_LeftMarginPresent(t *testing.T) {
 		80,
 	)
 	plain := stripANSI(out)
-	if !strings.HasPrefix(plain, CompactLineLeftMargin) {
-		t.Errorf("expected left margin %q prefix, got: %q", CompactLineLeftMargin, plain)
+	if !strings.HasPrefix(plain, style.S.CompactLine.Indent) {
+		t.Errorf("expected left margin %q prefix, got: %q", style.S.CompactLine.Indent, plain)
 	}
 }
 
@@ -490,10 +491,10 @@ func TestFormatCompactToolLine_ErrorEnvelope(t *testing.T) {
 		80,
 	)
 	plain := stripANSI(out)
-	if !strings.Contains(plain, CompactLineErrorGlyph) {
+	if !strings.Contains(plain, style.S.Glyph.Error) {
 		t.Errorf("expected ✗ glyph for error envelope, got: %q", plain)
 	}
-	if strings.Contains(plain, CompactLineDeniedGlyph) {
+	if strings.Contains(plain, style.S.Glyph.Warning) {
 		t.Errorf("did not expect ⚠ for runtime error, got: %q", plain)
 	}
 }
@@ -510,10 +511,10 @@ func TestFormatCompactToolLine_PermissionDenied(t *testing.T) {
 		80,
 	)
 	plain := stripANSI(out)
-	if !strings.Contains(plain, CompactLineDeniedGlyph) {
+	if !strings.Contains(plain, style.S.Glyph.Warning) {
 		t.Errorf("expected ⚠ glyph for permission denied, got: %q", plain)
 	}
-	if strings.Contains(plain, CompactLineErrorGlyph) {
+	if strings.Contains(plain, style.S.Glyph.Error) {
 		t.Errorf("did not expect ✗ for denied (denied wins), got: %q", plain)
 	}
 }
@@ -602,7 +603,7 @@ func TestFormatCompactToolLine_ChevronAlwaysPresent(t *testing.T) {
 			80,
 		)
 		plain := stripANSI(out)
-		if !strings.Contains(plain, CompactLineChevron) {
+		if !strings.Contains(plain, style.S.CompactLine.Chevron) {
 			t.Errorf("tool %s: expected chevron in line, got: %q", tool, plain)
 		}
 	}

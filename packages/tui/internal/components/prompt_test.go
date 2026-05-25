@@ -1,13 +1,15 @@
 // Prompt component tests — pin the auto-grow behavior added in
 // ux-fixes round 3 (problem1/2/3.png feedback). The textarea-backed
 // prompt must report Height() that reflects soft-wrap line count, cap
-// at maxPromptHeight, and shrink back when content is removed.
+// at style.S.Prompt.MaxHeight, and shrink back when content is removed.
 
 package components
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -30,8 +32,8 @@ func TestPrompt_HeightGrowsWithWrap(t *testing.T) {
 	if got := p.Height(); got < 2 {
 		t.Errorf("expected long content to wrap to >= 2 rows at width 40, got %d", got)
 	}
-	if got := p.Height(); got > maxPromptHeight {
-		t.Errorf("expected height to cap at %d, got %d", maxPromptHeight, got)
+	if got := p.Height(); got > style.S.Prompt.MaxHeight {
+		t.Errorf("expected height to cap at %d, got %d", style.S.Prompt.MaxHeight, got)
 	}
 }
 
@@ -39,11 +41,11 @@ func TestPrompt_HeightCapsAtMax(t *testing.T) {
 	p := NewPrompt()
 	p.SetWidth(40)
 	// A pathologically long string that should wrap to many more than
-	// maxPromptHeight rows. Height() must clamp.
+	// style.S.Prompt.MaxHeight rows. Height() must clamp.
 	veryLong := strings.Repeat("xyz ", 1000)
 	p.SetValue(veryLong)
-	if got := p.Height(); got != maxPromptHeight {
-		t.Errorf("expected height clamped to %d, got %d", maxPromptHeight, got)
+	if got := p.Height(); got != style.S.Prompt.MaxHeight {
+		t.Errorf("expected height clamped to %d, got %d", style.S.Prompt.MaxHeight, got)
 	}
 }
 

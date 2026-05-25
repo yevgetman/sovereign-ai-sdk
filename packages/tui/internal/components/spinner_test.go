@@ -8,6 +8,8 @@ package components
 import (
 	"strings"
 	"testing"
+
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 )
 
 func TestSpinner_NewStartsAtFrameZero(t *testing.T) {
@@ -64,12 +66,12 @@ func TestSpinner_ViewCapitalizesLabelAndAppendsEllipsis(t *testing.T) {
 }
 
 func TestSpinner_ViewEllipsisGrowsWithFrame(t *testing.T) {
-	// dotCycleStride frames per dot step, 3-state cycle (1, 2, 3 dots).
+	// style.S.Spinner.DotCycleStride frames per dot step, 3-state cycle (1, 2, 3 dots).
 	// Walk a full cycle and record the dot counts; assert we hit
 	// "Thinking." and "Thinking..." and "Thinking..." across the cycle.
 	s := NewSpinner()
 	seen := map[string]bool{}
-	for i := 0; i < dotCycleStride*3; i++ {
+	for i := 0; i < style.S.Spinner.DotCycleStride*3; i++ {
 		out := s.View("thinking")
 		for _, suffix := range []string{"Thinking.", "Thinking..", "Thinking..."} {
 			if strings.Contains(out, suffix) {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -98,17 +99,18 @@ func (s StatusLine) View() string {
 		profileColumn = fmt.Sprintf("Task Router Active (%s)", s.TaskRouter)
 	}
 
-	left := dimFg.Render(fmt.Sprintf("%s  %s  %s",
+	sep := style.S.StatusLine.FieldSeparator
+	left := dimFg.Render(fmt.Sprintf("%s"+sep+"%s"+sep+"%s",
 		s.Cwd,
 		profileColumn,
 		s.Model,
 	))
 
-	right := dimFg.Render(fmt.Sprintf("$%.4f  cache %.0f%%", s.Cost, s.CacheHit*100))
+	right := dimFg.Render(fmt.Sprintf("$%.4f"+sep+"cache %.0f%%", s.Cost, s.CacheHit*100))
 	if s.Streaming {
 		spinStyle := lipgloss.NewStyle().Foreground(s.Theme.Primary).Bold(true)
 		spin := spinStyle.Render(spinnerFrames[s.spinner])
-		right = spin + "  " + right
+		right = spin + sep + right
 	}
 
 	// Lay out left + right with padding between to fill width. The
@@ -119,5 +121,6 @@ func (s StatusLine) View() string {
 		padding = 1
 	}
 	gap := lipgloss.NewStyle().Width(padding).Render(" ")
-	return " " + left + gap + right + " "
+	edge := style.S.StatusLine.EdgeMargin
+	return edge + left + gap + right + edge
 }

@@ -32,26 +32,13 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 )
 
-// maxPromptHeight caps the textarea's visible row count. Beyond this,
+// style.S.Prompt.MaxHeight caps the textarea's visible row count. Beyond this,
 // the textarea scrolls internally (the cursor remains visible). 8
 // rows is generous enough for typical multi-paragraph prompts without
 // crushing the transcript above.
-const maxPromptHeight = 8
-
-// pasteAbstractMinLines is the threshold at which a pasted block gets
-// abstracted into a "[Pasted text #N +M lines]" placeholder instead of
-// being inserted verbatim. ux-fixes round 4 — matches the Claude Code
-// behavior the user referenced (claude-code-example.png).
-const pasteAbstractMinLines = 2
-
-// pasteAbstractMinChars is the secondary threshold — a single-line
-// paste shorter than this is inserted verbatim regardless of newline
-// count. Prevents 2 short lines (e.g., "yes\nno") from getting
-// awkwardly abstracted; keeps the abstraction reserved for genuine
-// "long block" pastes.
-const pasteAbstractMinChars = 200
 
 // pastePlaceholderPattern matches "[Pasted text #N +M lines]" with two
 // integer captures. Used by ExpandPastes to find and substitute each
@@ -89,7 +76,7 @@ func NewPrompt() Prompt {
 	})
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0 // no limit
-	ta.MaxHeight = maxPromptHeight
+	ta.MaxHeight = style.S.Prompt.MaxHeight
 	ta.SetHeight(1)
 	// Strip the textarea's own decoration so our outer rounded box owns
 	// every visible border. The textarea otherwise renders its own
@@ -112,7 +99,7 @@ func NewPrompt() Prompt {
 		key.WithHelp("alt+enter", "insert newline"),
 	)
 	ta.Focus()
-	return Prompt{ta: ta, boxOverhead: 4}
+	return Prompt{ta: ta, boxOverhead: style.S.Prompt.BoxOverhead}
 }
 
 // Update forwards events to the embedded textarea. After every update
@@ -168,7 +155,7 @@ func (p *Prompt) RegisterPaste(content string) bool {
 		return false
 	}
 	lineCount := strings.Count(content, "\n") + 1
-	if lineCount < pasteAbstractMinLines && len(content) < pasteAbstractMinChars {
+	if lineCount < style.S.Prompt.PasteAbstractMinLines && len(content) < style.S.Prompt.PasteAbstractMinChars {
 		return false
 	}
 	p.pasteBuffers = append(p.pasteBuffers, content)
@@ -229,7 +216,7 @@ func (p *Prompt) SetValue(v string) {
 }
 
 // Height returns the textarea's current visible row count (1 to
-// maxPromptHeight). App.go adds 2 for the top + bottom box border to
+// style.S.Prompt.MaxHeight). App.go adds 2 for the top + bottom box border to
 // get total prompt-area chrome and reserves that much space below the
 // transcript.
 func (p Prompt) Height() int {
@@ -242,7 +229,7 @@ func (p Prompt) Height() int {
 func (p Prompt) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6c7086")). // Catppuccin overlay1 — visible but muted
+		BorderForeground(lipgloss.Color(style.S.Brand.PromptBorderColor)).
 		Padding(0, 1).
 		Width(p.width - 2)
 	return box.Render(p.ta.View())
@@ -277,8 +264,8 @@ func (p Prompt) computeHeight() int {
 	if total < 1 {
 		total = 1
 	}
-	if total > maxPromptHeight {
-		total = maxPromptHeight
+	if total > style.S.Prompt.MaxHeight {
+		total = style.S.Prompt.MaxHeight
 	}
 	return total
 }

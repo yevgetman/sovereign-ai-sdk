@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -52,9 +53,9 @@ func Notification(message string, t theme.Theme, width int) string {
 		Width(contentWidth).
 		Render(message)
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(style.S.Card.Border).
 		BorderForeground(t.Warning).
-		Padding(0, 1).
+		Padding(style.S.Card.PaddingV, style.S.Card.PaddingH).
 		Render(body)
 	return box
 }

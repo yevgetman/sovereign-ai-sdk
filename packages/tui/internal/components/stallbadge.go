@@ -7,6 +7,7 @@ package components
 
 import (
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -24,14 +25,14 @@ func (b StallBadge) View(width int) string {
 	if width <= 0 {
 		return ""
 	}
-	style := lipgloss.NewStyle().
+	s := lipgloss.NewStyle().
 		Foreground(b.Theme.Warning).
 		Bold(true).
 		Width(width).
-		Padding(0, 1)
-	text := "⚠ stalled"
+		Padding(style.S.Card.PaddingV, style.S.Card.PaddingH)
+	text := style.S.Glyph.Warning + " stalled"
 	if b.Reason != "" {
-		text = "⚠ stalled — " + b.Reason
+		text = style.S.Glyph.Warning + " stalled — " + b.Reason
 	}
-	return style.Render(text)
+	return s.Render(text)
 }

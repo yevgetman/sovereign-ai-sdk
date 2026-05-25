@@ -28,44 +28,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
-
-// CompactLineChevron is the trailing affordance glyph on every compact
-// line. Exported so tests can assert its presence without hardcoding
-// the literal across many test cases.
-const CompactLineChevron = "›"
-
-// CompactLineErrorGlyph prefixes a compact line when the tool's
-// underlying output reports a runtime error (status:'error' envelope).
-const CompactLineErrorGlyph = "✗"
-
-// CompactLineDeniedGlyph prefixes a compact line when permission to
-// run the tool was denied. The orchestrator deny branch emits a tool
-// result with bare-text "permission denied: <reason>" content.
-const CompactLineDeniedGlyph = "⚠"
-
-// FormatCompactToolLine renders a single-line compact representation
-// of a tool_result event, including any status-prefix glyph and the
-// trailing chevron. All styling is baked in; the caller can m.print
-// the return value directly into terminal scrollback.
-//
-// width is the terminal width in columns; the rendered line will fit
-// within this minus a small margin.
-//
-// Status detection happens internally via DetectToolStatus.
-// CompactLineVerbColor is the brand-purple hex used to color the
-// verb segment of a compact tool line ("Read", "Edited", "Ran", …).
-// Pinned to the SOV gradient's "soft purple" anchor — same anchor as
-// ToolCardHeaderColor — so the verb reads as on-brand purple/pink
-// across every theme. See docs/conventions/tui-color-rendering.md for
-// the "accents that must read as a specific shade family get a fixed
-// hex, not a theme token" rule.
-const CompactLineVerbColor = "#a78bfa"
-
-// CompactLineLeftMargin is a 2-space indent prepended to every compact
-// tool line, setting tool output apart from assistant text.
-const CompactLineLeftMargin = "  "
 
 func FormatCompactToolLine(
 	tool string,
@@ -100,15 +65,15 @@ func FormatCompactToolLine(
 		prefix = lipgloss.NewStyle().
 			Foreground(t.Warning).
 			Bold(true).
-			Render(CompactLineDeniedGlyph) + " "
+			Render(style.S.Glyph.Warning) + " "
 	} else if isError {
 		prefix = lipgloss.NewStyle().
 			Foreground(t.Error).
 			Bold(true).
-			Render(CompactLineErrorGlyph) + " "
+			Render(style.S.Glyph.Error) + " "
 	}
 
-	margin := CompactLineLeftMargin
+	margin := style.S.CompactLine.Indent
 	marginWidth := visibleLen(margin)
 	if width < 20 {
 		margin = ""
@@ -148,18 +113,18 @@ func FormatCompactToolLine(
 		if availForTarget < 4 {
 			// Not enough room — fall back to whole-line tail truncation.
 			plainBody = truncateTail(plainBody, maxBody)
-			verbColor := lipgloss.Color(CompactLineVerbColor)
+			verbColor := lipgloss.Color(style.S.Brand.VerbColor)
 			if tool == "AgentTool" {
-				verbColor = lipgloss.Color(DelegatorAccentColor)
+				verbColor = lipgloss.Color(style.S.Brand.AccentColor)
 			}
-			return margin + prefix + lipgloss.NewStyle().Foreground(verbColor).Render(plainBody) + lipgloss.NewStyle().Foreground(t.Dim).Render(" "+CompactLineChevron)
+			return margin + prefix + lipgloss.NewStyle().Foreground(verbColor).Render(plainBody) + lipgloss.NewStyle().Foreground(t.Dim).Render(" "+style.S.CompactLine.Chevron)
 		}
 		target = truncateTail(target, availForTarget)
 	}
 
-	verbColor := lipgloss.Color(CompactLineVerbColor)
+	verbColor := lipgloss.Color(style.S.Brand.VerbColor)
 	if tool == "AgentTool" {
-		verbColor = lipgloss.Color(DelegatorAccentColor)
+		verbColor = lipgloss.Color(style.S.Brand.AccentColor)
 	}
 	verbStyled := lipgloss.NewStyle().
 		Foreground(verbColor).
@@ -177,7 +142,7 @@ func FormatCompactToolLine(
 	if details != "" {
 		body += " " + lipgloss.NewStyle().Foreground(t.Dim).Render(details)
 	}
-	chevronStyled := lipgloss.NewStyle().Foreground(t.Dim).Render(" " + CompactLineChevron)
+	chevronStyled := lipgloss.NewStyle().Foreground(t.Dim).Render(" " + style.S.CompactLine.Chevron)
 	return margin + prefix + body + chevronStyled
 }
 
@@ -317,7 +282,7 @@ func verbTargetDetails(
 
 	// Unknown tool fallback — verb is the tool name verbatim; target
 	// is a flattened preview of the input.
-	return tool, "", truncatePreview(string(input), 40), ""
+	return tool, "", truncatePreview(string(input), style.S.CompactLine.PreviewMaxUnknown), ""
 }
 
 // formatMCPVerbAndTarget renders MCP tool calls as
@@ -331,11 +296,11 @@ func formatMCPVerbAndTarget(tool string, input json.RawMessage) (verb, target st
 	rest := strings.TrimPrefix(tool, "mcp__")
 	parts := strings.SplitN(rest, "__", 2)
 	if len(parts) != 2 {
-		return tool, truncatePreview(string(input), 40)
+		return tool, truncatePreview(string(input), style.S.CompactLine.PreviewMaxUnknown)
 	}
 	server, name := parts[0], parts[1]
 	verb = server + ":"
-	preview := truncatePreview(string(input), 32)
+	preview := truncatePreview(string(input), style.S.CompactLine.PreviewMaxMCP)
 	if preview != "" {
 		target = name + " " + preview
 	} else {
@@ -425,7 +390,7 @@ func truncateURL(url string) string {
 	if url == "" {
 		return ""
 	}
-	const maxURL = 60
+	maxURL := style.S.CompactLine.URLMax
 	if len(url) <= maxURL {
 		return url
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
@@ -111,7 +112,7 @@ func (i InputCard) View(width int) string {
 	// The text input. Width is set per-render to match the card's
 	// inner width (account for the box's padding(0,1) = 2 cols + the
 	// border's 2 cols = 4 cols of total chrome).
-	innerW := width - 4
+	innerW := width - style.S.Prompt.BoxOverhead
 	if innerW < 10 {
 		innerW = width
 	}
@@ -124,7 +125,7 @@ func (i InputCard) View(width int) string {
 
 	// Footer — recessive grey-blue italic, same shade PickerCard uses
 	// for its navigation hint so the two cards read as a matched pair.
-	footerStyle := lipgloss.NewStyle().Foreground(pickerFooterColor).Italic(true)
+	footerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerHintColor)).Italic(true)
 	lines = append(lines, footerStyle.Render("enter submit · esc cancel"))
 
 	body := strings.Join(lines, "\n")
@@ -132,7 +133,7 @@ func (i InputCard) View(width int) string {
 	if width < 6 {
 		return body
 	}
-	box := i.theme.CardBorderStyle().Padding(0, 1).Width(width - 2)
+	box := i.theme.CardBorderStyle().Padding(style.S.Card.PaddingV, style.S.Card.PaddingH).Width(width - style.S.Card.BorderOverhead)
 	return box.Render(body)
 }
 

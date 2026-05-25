@@ -21,6 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/components"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
@@ -200,7 +201,7 @@ const userMessageDisplayCap = 1500
 // character paste doesn't dominate the scrollback; the actual turn still
 // ships the full content via the expanded prompt value.
 func (m *Model) printUser(text string) {
-	marker := lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("» ")
+	marker := lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(style.S.Echo.Marker)
 	body := text
 	if len(body) > userMessageDisplayCap {
 		omitted := len(body) - userMessageDisplayCap
@@ -216,8 +217,7 @@ func (m *Model) printUser(text string) {
 	// Wrap the body to (width - markerWidth) so each wrapped row stays
 	// inside the terminal and continuation lines hang under the marker
 	// column. lipgloss.Width handles word boundaries.
-	const markerWidth = 2 // "» "
-	wrap := width - markerWidth
+	wrap := width - style.S.Echo.MarkerWidth
 	if wrap < 10 {
 		wrap = width
 	}
@@ -2083,7 +2083,7 @@ func turnSeparator(t theme.Theme, width int) string {
 	if n < 8 {
 		n = 8
 	}
-	rule := strings.Repeat("─", n)
+	rule := strings.Repeat(style.S.Separator.Char, n)
 	return lipgloss.NewStyle().Foreground(t.Border).Render(rule)
 }
 

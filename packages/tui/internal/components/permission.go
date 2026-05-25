@@ -24,6 +24,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 )
 
 // PermissionRequest is the modal's input — extracted from a
@@ -113,17 +114,17 @@ func (p Permission) View(width, height int) string {
 	// Truncate input preview to a single line, 60 chars max. Newlines
 	// would break the box layout, so flatten them to spaces.
 	preview := p.req.Input
-	if len(preview) > 60 {
-		preview = preview[:57] + "..."
+	if len(preview) > style.S.Permission.PreviewMax {
+		preview = preview[:style.S.Permission.PreviewMax-3] + "..."
 	}
 	preview = strings.ReplaceAll(preview, "\n", " ")
 
 	// M9 T11: backlog #29 — lipgloss Style is value-typed; .Copy() is a
 	// deprecated identity helper. Direct field-chain assignments already
 	// produce new values, so the .Copy() calls were redundant.
-	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b"))
+	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PermissionYellow))
 	bold := yellow.Bold(true)
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PermissionGrey))
 	defaultChoice := bold.Underline(true)
 
 	lines := []string{
@@ -145,9 +146,9 @@ func (p Permission) View(width, height int) string {
 	)
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#e5c07b")).
-		Padding(0, 2).
+		Border(style.S.Card.Border).
+		BorderForeground(lipgloss.Color(style.S.Brand.PermissionYellow)).
+		Padding(style.S.Card.PaddingV, style.S.Permission.PaddingH).
 		Render(strings.Join(lines, "\n"))
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)

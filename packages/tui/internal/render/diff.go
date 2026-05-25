@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -93,7 +94,7 @@ func RenderHunks(hunks []Hunk, activeIdx int, t theme.Theme, width int) string {
 	var sb strings.Builder
 	for i, h := range hunks {
 		if i == activeIdx {
-			sb.WriteString(activeHeaderStyle.Render("▶ " + h.Header))
+			sb.WriteString(activeHeaderStyle.Render(style.S.Diff.HunkMarker + h.Header))
 		} else {
 			sb.WriteString(headerStyle.Render(h.Header))
 		}
@@ -101,11 +102,11 @@ func RenderHunks(hunks []Hunk, activeIdx int, t theme.Theme, width int) string {
 		for _, line := range h.Lines {
 			switch line.Kind {
 			case DiffAdded:
-				sb.WriteString(addStyle.Render("+ " + line.Text))
+				sb.WriteString(addStyle.Render(style.S.Diff.AddedPrefix + line.Text))
 			case DiffRemoved:
-				sb.WriteString(remStyle.Render("- " + line.Text))
+				sb.WriteString(remStyle.Render(style.S.Diff.RemovedPrefix + line.Text))
 			default:
-				sb.WriteString(ctxStyle.Render("  " + line.Text))
+				sb.WriteString(ctxStyle.Render(style.S.Diff.ContextPrefix + line.Text))
 			}
 			sb.WriteString("\n")
 		}

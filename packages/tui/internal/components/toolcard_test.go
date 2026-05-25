@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
@@ -143,8 +144,8 @@ func TestToolCardLightThemeRenders(t *testing.T) {
 // on-brand across every theme. Pinning the const value catches
 // drift to a different brand hex or a regression back to theme tokens.
 func TestToolCardHeaderColorPinnedToBrandPurple(t *testing.T) {
-	if ToolCardHeaderColor != "#a78bfa" {
-		t.Errorf("brand-purple hex changed: got %q want %q", ToolCardHeaderColor, "#a78bfa")
+	if style.S.Brand.VerbColor != "#a78bfa" {
+		t.Errorf("brand-purple hex changed: got %q want %q", style.S.Brand.VerbColor, "#a78bfa")
 	}
 }
 

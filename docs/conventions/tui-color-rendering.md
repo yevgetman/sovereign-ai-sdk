@@ -5,6 +5,11 @@ Especially before assuming "use a brighter hex" will solve a legibility
 complaint — that assumption cost ~6 commits (M11.5 → M11.10) before the
 right model emerged.
 
+**Brand-fixed colors** (hex values that don't change with themes) now
+live in the style guide at `packages/tui/internal/style/` under
+`style.S.Brand.*`. See `docs/specs/2026-05-25-tui-style-guide-design.md`
+for the full token inventory.
+
 ## The hard rule
 
 **For body text — assistant responses, user-input echoes, notification

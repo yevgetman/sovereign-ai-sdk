@@ -11,6 +11,11 @@ anything visual.
 - [`tui-color-rendering.md`](tui-color-rendering.md) — the color rule
   (body text inherits terminal default; only accents get colors).
   Discovered M11.5–M11.10. Most-cited rule in this file too.
+- **Style guide** (`packages/tui/internal/style/`) — the global,
+  immutable TUI style guide. All spacing, padding, margins, glyphs,
+  brand colors, and typography tokens live here. Components reference
+  `style.S.*` instead of hardcoding values. Themes remain separate
+  for switchable color palettes.
 
 ---
 

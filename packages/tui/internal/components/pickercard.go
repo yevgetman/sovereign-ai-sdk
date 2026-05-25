@@ -25,26 +25,10 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
-
-// pickerItemColor is the pale-orange foreground used for non-selected
-// item rows. Catppuccin "peach" — shared by slashautocomplete.go for
-// visual consistency across inline-card surfaces (M11.14).
-var pickerItemColor = lipgloss.Color("#fab387")
-
-// pickerFooterColor is the recessive grey-blue used for the navigation
-// hint at the bottom of the card. Same shade as `autocompleteHintColor`
-// in slashautocomplete.go — read as ambient guidance, not competing
-// with the item rows above (M11.15).
-var pickerFooterColor = lipgloss.Color("#7a8eb8")
-
-// pickerBadgeLiveColor is the success-green used for the "✓ live" badge
-// on config items with a registered live-apply hook. Catppuccin "green"
-// — sits visually distinct from pickerItemColor (orange) so the user
-// can read "live vs reload" at a glance. 2026-05-24 config UX rebuild.
-var pickerBadgeLiveColor = lipgloss.Color("#a6e3a1")
 
 // Badge string constants — discriminated values on PickerItem.Badge.
 // Server emits `"live"` or `"reload"`; any other value (including empty)
@@ -225,9 +209,9 @@ func (p PickerCard) labelColumnWidth() int {
 func (p PickerCard) renderBadge(badge string) string {
 	switch badge {
 	case pickerBadgeLive:
-		return lipgloss.NewStyle().Foreground(pickerBadgeLiveColor).Render("✓ live")
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerBadgeColor)).Render("✓ live")
 	case pickerBadgeReload:
-		return lipgloss.NewStyle().Foreground(pickerItemColor).Render("⟳ next session")
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerItemColor)).Render("⟳ next session")
 	default:
 		return ""
 	}
@@ -268,16 +252,15 @@ func (p PickerCard) View(width int) string {
 	if useWideLayout {
 		labelColW = p.labelColumnWidth()
 	}
-	const valueGap = 3 // spaces between label-column end and value-column start
 	for i, item := range p.payload.Items {
 		var prefix string
 		var labelStyle lipgloss.Style
 		if i == p.selected {
-			prefix = "› "
+			prefix = style.S.Picker.SelectedPrefix
 			labelStyle = lipgloss.NewStyle().Bold(true)
 		} else {
-			prefix = "  "
-			labelStyle = lipgloss.NewStyle().Foreground(pickerItemColor)
+			prefix = style.S.Picker.UnselectedPrefix
+			labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerItemColor))
 		}
 		row := prefix + labelStyle.Render(item.Label)
 		if useWideLayout {
@@ -286,7 +269,7 @@ func (p PickerCard) View(width int) string {
 			if pad < 0 {
 				pad = 0
 			}
-			row += strings.Repeat(" ", pad+valueGap)
+			row += strings.Repeat(" ", pad+style.S.Picker.ValueGap)
 			if item.ValueColumn != "" {
 				// Value column renders dim — it's a contextual readback,
 				// not the primary actionable content (the label is).
@@ -315,7 +298,7 @@ func (p PickerCard) View(width int) string {
 	//   - S / cancel-exit hints when OnSave / OnCancel are present
 	//     (used by the /config draft-edit pickers)
 	// Pickers without these keep the M11.5 baseline footer.
-	footerStyle := lipgloss.NewStyle().Foreground(pickerFooterColor).Italic(true)
+	footerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerHintColor)).Italic(true)
 	footerText := pickerFooterText(p.payload.OnBack != nil, p.payload.OnSave != nil, p.payload.OnCancel != nil)
 	footer := footerStyle.Render(footerText)
 	body := strings.Join(lines, "\n") + "\n\n" + footer
@@ -323,6 +306,6 @@ func (p PickerCard) View(width int) string {
 	if width < 6 {
 		return body
 	}
-	box := p.theme.CardBorderStyle().Padding(0, 1).Width(width - 2)
+	box := p.theme.CardBorderStyle().Padding(style.S.Card.PaddingV, style.S.Card.PaddingH).Width(width - style.S.Card.BorderOverhead)
 	return box.Render(body)
 }

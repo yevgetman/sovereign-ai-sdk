@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
@@ -230,26 +231,11 @@ func (s SlashAutocomplete) compute() []Entry {
 	return matches
 }
 
-// slashCommandColor is the pale-orange foreground for slash command
-// names in the autocomplete popup. Catppuccin "peach" — readable on
-// dark and light terminals, distinct from inline-code's sky-blue and
-// from theme.Primary's blue. M11.14: replaced theme.Primary (rendered
-// too dark on user palettes; same family of palette-mapping issues
-// documented in docs/conventions/tui-color-rendering.md, but for
-// accent colors that need a specific shade).
-var slashCommandColor = lipgloss.Color("#fab387")
-
-// autocompleteHintColor is a subtle grey-blue for the "press Tab to
-// autocomplete" hint at the bottom of the popup. Picked specifically
-// to read as ambient guidance — visible enough that users notice it,
-// recessive enough that it doesn't compete with the command names
-// above it. M11.15.
-var autocompleteHintColor = lipgloss.Color("#7a8eb8")
 
 // View renders the popup above the prompt row. width is the popup's width.
 // Returns empty when hidden or empty matches list.
 //
-// M11.14 — non-selected rows render in pale orange (slashCommandColor)
+// M11.14 — non-selected rows render in pale orange (lipgloss.Color(style.S.Brand.PickerItemColor))
 // without bold. Selected row drops the orange color and renders bold
 // with NO foreground so the terminal default fg (typically bright
 // white) shows through. The previous Background-highlight design made
@@ -272,7 +258,7 @@ func (s SlashAutocomplete) View(width int) string {
 			nameStyle = lipgloss.NewStyle().Bold(true)
 		} else {
 			// Non-selected: pale orange, regular weight.
-			nameStyle = lipgloss.NewStyle().Foreground(slashCommandColor)
+			nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerItemColor))
 		}
 		line := nameStyle.Render(m.Name) + "  " + descStyle.Render(m.Description)
 		lines = append(lines, line)
@@ -287,12 +273,12 @@ func (s SlashAutocomplete) View(width int) string {
 	// fills the selection AND submits in one keystroke. Tab still works
 	// silently as the fill-only path for users typing args manually.
 	// Esc dismisses the popup.
-	hintStyle := lipgloss.NewStyle().Foreground(autocompleteHintColor).Italic(true)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerHintColor)).Italic(true)
 	hint := hintStyle.Render("Press Enter to select · Esc to cancel")
 	body := strings.Join(lines, "\n") + "\n\n" + hint
 	if width < 6 {
 		return body
 	}
-	box := s.theme.CardBorderStyle().Padding(0, 1).Width(width - 2)
+	box := s.theme.CardBorderStyle().Padding(style.S.Card.PaddingV, style.S.Card.PaddingH).Width(width - style.S.Card.BorderOverhead)
 	return box.Render(body)
 }

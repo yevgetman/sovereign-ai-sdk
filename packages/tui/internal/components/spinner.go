@@ -28,45 +28,15 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 )
 
 // thinkingSpinnerFrames is the Braille rotation used by the thinking
-// indicator. ux-fixes round 3: switched from the round-2 "heavy"
-// full-cell Braille (⣾⣽⣻⢿⡿⣟⣯⣷) to a bottom-weighted rotation that
-// keeps every dot in the lower 2×2 quadrant of the cell (dots 3, 6,
-// 7, 8). The "heavy" set extended dots top-and-bottom of the cell so
-// the spinner visually overhung the text baseline of "Thinking" sitting
-// to its right — the user perceived a baseline mismatch (ux2.png
-// feedback). Bottom-weighted glyphs sit at the same vertical level as
-// text and read as cleanly aligned. The 8 frames rotate the "heavy"
-// position clockwise around the lower quad:
-//
-//	⢀ (BR) → ⣀ (BR+BL) → ⡀ (BL) → ⡄ (BL+ML)
-//	⠄ (ML) → ⠤ (ML+MR) → ⠠ (MR) → ⢠ (MR+BR) → wrap
+// indicator. Bottom-weighted glyphs sit at the same vertical level as
+// text and read as cleanly aligned.
 var thinkingSpinnerFrames = []string{
 	"⢀", "⣀", "⡀", "⡄", "⠄", "⠤", "⠠", "⢠",
 }
-
-// thinkingSpinnerGradient cycles through the same 4-anchor palette the
-// splash logo uses (blue → teal → purple → pink). The colors don't
-// depend on the active theme — the spinner is a brand cue, like the
-// splash logo, and reads identically on Catppuccin Mocha (dark),
-// Latte (light), Tokyo Night, and any user TOML theme. Picks the
-// brightest hex from each anchor band so the rotating glyph stays
-// vivid across the full color sweep.
-var thinkingSpinnerGradient = []lipgloss.Color{
-	lipgloss.Color("#4f8fff"), // electric blue
-	lipgloss.Color("#22d3ee"), // cyan-teal
-	lipgloss.Color("#a78bfa"), // soft purple
-	lipgloss.Color("#ec4899"), // pink
-}
-
-// dotCycleStride controls how many spinner frames pass between dot-count
-// changes. 5 frames at 80ms per frame = 400ms per dot step, ~1.2s for
-// the full "." → ".." → "..." cycle. Slow enough that the dot growth
-// reads as deliberate, fast enough that the eye sees it as an
-// indicator of ongoing activity rather than a stuck label.
-const dotCycleStride = 5
 
 // Spinner is an immutable snapshot of the spinner's frame state.
 // Callers advance via .Tick() which returns a new Spinner; the
@@ -107,21 +77,20 @@ func (s Spinner) Frame() int {
 // Pass an empty label to render the glyph alone (with the same
 // surrounding blank lines for layout consistency).
 func (s Spinner) View(label string) string {
+	gradient := style.S.Brand.SpinnerGradient
 	glyphIdx := s.frame % len(thinkingSpinnerFrames)
-	colorIdx := (s.frame / 3) % len(thinkingSpinnerGradient)
+	colorIdx := (s.frame / style.S.Spinner.ColorCycleStride) % len(gradient)
 	glyph := lipgloss.NewStyle().
-		Foreground(thinkingSpinnerGradient[colorIdx]).
+		Foreground(lipgloss.Color(gradient[colorIdx])).
 		Bold(true).
 		Render(thinkingSpinnerFrames[glyphIdx])
 	if label == "" {
 		return "\n" + glyph + "\n"
 	}
-	// 3-state ellipsis cycle (1, 2, 3 dots) advancing every dotCycleStride
-	// frames so the dots read as "appearing sequentially" per the UX ask.
-	dotCount := 1 + (s.frame/dotCycleStride)%3
+	dotCount := 1 + (s.frame/style.S.Spinner.DotCycleStride)%3
 	displayLabel := capitalizeFirst(label) + strings.Repeat(".", dotCount)
 	labelStyle := lipgloss.NewStyle().Bold(true)
-	return "\n" + glyph + "  " + labelStyle.Render(displayLabel) + "\n"
+	return "\n" + glyph + style.S.Spinner.GlyphSpacing + labelStyle.Render(displayLabel) + "\n"
 }
 
 // capitalizeFirst returns label with its first byte uppercased. Used
