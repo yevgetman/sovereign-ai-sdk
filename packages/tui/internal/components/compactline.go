@@ -150,7 +150,7 @@ func FormatCompactToolLine(
 			plainBody = truncateTail(plainBody, maxBody)
 			verbColor := lipgloss.Color(CompactLineVerbColor)
 			if tool == "AgentTool" {
-				verbColor = t.Primary
+				verbColor = lipgloss.Color(DelegatorAccentColor)
 			}
 			return margin + prefix + lipgloss.NewStyle().Foreground(verbColor).Render(plainBody) + lipgloss.NewStyle().Foreground(t.Dim).Render(" "+CompactLineChevron)
 		}
@@ -159,7 +159,7 @@ func FormatCompactToolLine(
 
 	verbColor := lipgloss.Color(CompactLineVerbColor)
 	if tool == "AgentTool" {
-		verbColor = t.Primary
+		verbColor = lipgloss.Color(DelegatorAccentColor)
 	}
 	verbStyled := lipgloss.NewStyle().
 		Foreground(verbColor).

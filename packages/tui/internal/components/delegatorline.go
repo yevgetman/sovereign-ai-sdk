@@ -35,6 +35,14 @@ import (
 // and routing events share the same visual baseline.
 const DelegatorLineLeftMargin = "  "
 
+// DelegatorAccentColor is the fixed light blue hex used for accent
+// elements in delegator event lines (plan header, lane names, atom
+// counts). Pinned to Tailwind sky-300 — NOT derived from t.Primary,
+// which renders as a saturated "basic blue" on most terminals. See
+// docs/conventions/tui-color-rendering.md M11.13 + the "no t.Primary
+// in tool/routing output" rule.
+const DelegatorAccentColor = "#7dd3fc"
+
 // Delegator status glyphs — paired with the compact-line family so the
 // visual vocabulary stays consistent across tool calls + atom dispatches.
 const (
@@ -56,7 +64,7 @@ const (
 // the plan is unfolding atom-by-atom.
 func FormatDelegatorPlanLine(ev transport.DelegatorPlanEvent, t theme.Theme, width int) string {
 	prefix := lipgloss.NewStyle().
-		Foreground(t.Primary).
+		Foreground(lipgloss.Color(DelegatorAccentColor)).
 		Bold(true).
 		Render(DelegatorPlanGlyph + " Delegating")
 	var tail string
@@ -87,12 +95,12 @@ func FormatDelegatorAtomStartedLine(
 	width int,
 	debugMode bool,
 ) string {
-	glyph := lipgloss.NewStyle().Foreground(t.Primary).Render(DelegatorAtomStartGlyph)
+	glyph := lipgloss.NewStyle().Foreground(lipgloss.Color(DelegatorAccentColor)).Render(DelegatorAtomStartGlyph)
 	verb := lipgloss.NewStyle().
 		Foreground(t.Foreground).
 		Render(fmt.Sprintf(" atom %d on ", ev.AtomIndex))
 	lane := lipgloss.NewStyle().
-		Foreground(t.Primary).
+		Foreground(lipgloss.Color(DelegatorAccentColor)).
 		Bold(true).
 		Render(ev.LaneName)
 	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
@@ -175,7 +183,7 @@ func FormatDelegatorAtomCompleteLine(
 		Foreground(t.Foreground).
 		Render(fmt.Sprintf(" atom %d on ", ev.AtomIndex))
 	lane := lipgloss.NewStyle().
-		Foreground(t.Primary).
+		Foreground(lipgloss.Color(DelegatorAccentColor)).
 		Bold(true).
 		Render(ev.LaneName)
 	debug := formatLaneDebugSuffix(debugMode, ev.LaneProvider, ev.LaneModel, t)
@@ -204,7 +212,7 @@ func FormatDelegatorCompleteLine(ev transport.DelegatorCompleteEvent, t theme.Th
 		Bold(true).
 		Render(DelegatorCompleteGlyph + " Done.")
 	count := lipgloss.NewStyle().
-		Foreground(t.Primary).
+		Foreground(lipgloss.Color(DelegatorAccentColor)).
 		Render(fmt.Sprintf(" %d atom(s)", ev.TotalAtomCount))
 	distribution := formatLaneDistribution(ev.LaneDistribution, t)
 	return DelegatorLineLeftMargin + prefix + count + distribution

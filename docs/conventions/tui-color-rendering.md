@@ -179,6 +179,31 @@ color," pin it to a fixed hex outside the theme tokens. Theme
 tokens are for thematic consistency; fixed hexes are for
 shade-specific identity.
 
+## Rule: no `t.Primary` blue in tool or routing output
+
+`t.Primary` renders as a saturated "basic blue" on most terminal palettes
+(the same root-cause family as the body-text brightness problem above).
+For tool compact lines and delegator event lines, `t.Primary` is **never
+the right choice** for text foreground.
+
+Instead:
+
+| Element family | What to use |
+|---|---|
+| Compact-line verb ("Read", "Edited", …) | `CompactLineVerbColor` (`#a78bfa`, brand purple) |
+| AgentTool verb ("Dispatched") | `DelegatorAccentColor` (`#7dd3fc`, sky-300) |
+| Delegator accents (plan header, lane names, atom count) | `DelegatorAccentColor` (`#7dd3fc`, sky-300) |
+| Structural text ("atom N on") | `t.Foreground` (terminal default, bright) |
+| Detail text (duration, preview, distribution) | `t.Info` (muted but readable) |
+| Status glyphs (✓ / ✗) | `t.Success` / `t.Error` (semantic — keep) |
+
+`t.Primary` remains correct for **structural markdown** (headings, links,
+the `»` user marker) where it serves as an accent against body text. It
+should not appear in the tool/routing output pipeline. This rule was added
+after `t.Primary` blue on the dark Catppuccin Mocha theme rendered
+indistinguishably from "basic terminal blue" in the delegator event lines
+(v0.6.1 → v0.6.3 iteration, 2026-05-25).
+
 ## How to verify a color change actually shipped
 
 The Go binary is rebuilt by `scripts/build-tui.ts` (postinstall) on
