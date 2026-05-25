@@ -8,6 +8,14 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-25 — TUI style guide (v0.6.4)
+
+- `bun run lint && bun run typecheck && bun run test` — TS suite **2559 pass / 0 fail / 14 skip** (second run green; first run had 1 pre-existing cron-JSON flake).
+- Go test suite: `packages/tui/` all packages green. +7 new tests in `style/style_test.go`: `TestAllFieldsNonZero`, `TestKnownValues` (86 sub-tests), `TestCardBorderIsRounded`, `TestImmutability`, `TestLogoGradientLength`, `TestSpinnerGradientLength`.
+- Verified build compiles cleanly after migrating ~90 inline style definitions across 17 component files + 2 render files + app.go to `style.S.*` references.
+- No visual output changes — all tokens seeded from exact current values.
+- Release v0.6.4 cut via CI tag push.
+
 ## 2026-05-25 — Task routing UX polish (v0.6.1)
 
 - `bun run lint && bun run typecheck && bun run test` — TS suite **2560 pass / 0 fail / 14 skip** (+2 from v0.6.0 baseline: new empty-summary-as-error tests in `agentTool.test.ts`).
