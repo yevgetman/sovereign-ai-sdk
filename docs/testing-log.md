@@ -8,6 +8,13 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-25 — Task routing UX polish (v0.6.1)
+
+- `bun run lint && bun run typecheck && bun run test` — TS suite **2560 pass / 0 fail / 14 skip** (+2 from v0.6.0 baseline: new empty-summary-as-error tests in `agentTool.test.ts`).
+- Go test suite: `packages/tui/` all packages green. 5 new tests: `TestFormatCompactToolLine_AgentTool`, `TestFormatCompactToolLine_AgentToolError`, `TestVerbTargetDetails_AgentTool`, `TestFormatCompactToolLine_LeftMarginPresent`, `TestDelegatorLines_LeftMarginPresent`.
+- Verified via session log `d41d5187-f770-41e2-836f-45b162f841ec` that the five screenshot-annotated UX issues are addressed: AgentTool rendering, left margin, vertical spacing, lane timeouts (moderate 5min, frontier/delegator 10min), empty-output detection.
+- Release v0.6.1 tagged and pushed; CI release triggered.
+
 ## 2026-05-25 — Phase 21 M2 release automation shipped (v0.6.0)
 
 - `bun run lint && bun run typecheck && bun run test` — TS suite **2558 pass / 0 fail / 14 skip** as measured at Task 4 commit (`d235e46`). 10 new tests added across `tests/scripts/release-shared.test.ts` (9) + `tests/scripts/release-build-target.test.ts` (6, post-fix) + `tests/scripts/release-upload.test.ts` (4) = 19 new test cases. (Note: 2 openai test files have flaky `beforeEach` hook timeouts that occasionally fail under load; pre-existing and unrelated to M2.)
