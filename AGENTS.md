@@ -34,6 +34,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/conventions/subagent-policy.md`](docs/conventions/subagent-policy.md) | Before dispatching any subagent — HARD RULE on Opus / Sonnet / never-Haiku |
 | [`docs/conventions/estimation.md`](docs/conventions/estimation.md) | Before quoting effort/timeline — sessions/dispatches/wall-minutes, never weeks |
 | [`docs/conventions/repo-layout.md`](docs/conventions/repo-layout.md) | Before adding files in `src/`, naming a plan/spec, or moving things |
+| [`docs/conventions/tui-style-guide.md`](docs/conventions/tui-style-guide.md) | **Before ANY visual work in `packages/tui/`** — all spacing, padding, margins, borders, glyphs, brand colors, and typography tokens MUST come from `style.S.*`; never hardcode layout values in components |
 | [`docs/conventions/tui-color-rendering.md`](docs/conventions/tui-color-rendering.md) | Before adjusting any text color in `packages/tui/` — body text MUST inherit terminal default; never assume a "bright" hex/ANSI value renders bright |
 | [`docs/conventions/tui-ux-patterns.md`](docs/conventions/tui-ux-patterns.md) | Before changing TUI layout, chrome, or visual behavior — flow layout, splash, spinner, separator, tool events, file-ref auto-wrap, prompt/status styling |
 
@@ -119,6 +120,7 @@ These apply every session and override defaults:
 - **`sov upgrade` after runtime changes** — any `src/`, `bundle-default/`, or `packages/tui/` change. Details: [`docs/conventions/sov-upgrade.md`](docs/conventions/sov-upgrade.md).
 - **Testing log obligation** — append to `docs/testing-log.md` for every testing pass. Details: [`docs/conventions/testing-log.md`](docs/conventions/testing-log.md).
 - **No week-based estimates** — sessions / dispatches / wall-minutes only. Details: [`docs/conventions/estimation.md`](docs/conventions/estimation.md).
+- **TUI style guide** — all spacing, padding, glyphs, brand colors, and typography in `packages/tui/` MUST reference `style.S.*` from `packages/tui/internal/style/`. Never hardcode layout values in components. Details: [`docs/conventions/tui-style-guide.md`](docs/conventions/tui-style-guide.md).
 - **Plans and specs paths** — `docs/plans/YYYY-MM-DD-<feature>.md`, `docs/specs/YYYY-MM-DD-<topic>-design.md`. Never `docs/superpowers/`.
 - **AGENTS.md ≡ CLAUDE.md** — byte-identical mirror. Verify with `diff` before commit.
 
