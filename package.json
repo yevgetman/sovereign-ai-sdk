@@ -20,6 +20,8 @@
   "scripts": {
     "chat": "bun src/main.ts",
     "release": "bun run scripts/release.ts",
+    "release:build": "bun run scripts/release-build-target.ts",
+    "release:upload": "bun run scripts/release-upload.ts",
     "eval:website": "bun src/evals/websiteBuildEval.ts",
     "test": "bun test --timeout 20000",
     "test:semantic": "bun tests/semantic/run.ts",
