@@ -8,6 +8,15 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-25 — Phase 21 M2 release automation shipped (v0.6.0)
+
+- `bun run lint && bun run typecheck && bun run test` — TS suite **2558 pass / 0 fail / 14 skip** as measured at Task 4 commit (`d235e46`). 10 new tests added across `tests/scripts/release-shared.test.ts` (9) + `tests/scripts/release-build-target.test.ts` (6, post-fix) + `tests/scripts/release-upload.test.ts` (4) = 19 new test cases. (Note: 2 openai test files have flaky `beforeEach` hook timeouts that occasionally fail under load; pre-existing and unrelated to M2.)
+- Local refactor smoke: `bun run release:build {darwin-arm64,darwin-x64,linux-x64} v0.5.11` + `bun run release:upload v0.5.11 --dry-run` produced tarballs of expected sizes (32.1 / 35.0 / 47.7 MB) + SHA256SUMS. The extracted scripts are byte-equivalent to M1's monolithic flow.
+- Workflow dry-run smoke against `v0.5.11` (`gh workflow run release.yml -f version=v0.5.11 -f dry-run=true`) — preflight + checkout + bun/go setup all green; build step failed correctly (`release:build` alias not present at v0.5.11 tag predating Task 4). Initial dispatch also failed at the runner-startup gate due to a billing issue on the GitHub account; resolved by the user, second dispatch fired runners normally.
+- First M2 release cut: `git tag v0.6.0 && git push origin v0.6.0` fired run [26401213030](https://github.com/yevgetman/sovereign-ai-harness/actions/runs/26401213030). All four jobs green (preflight 1m45s, build-darwin 56s, build-linux 1m3s, release 1m2s) — total wall time ~4 minutes, much faster than the spec estimate of 8-12 min. Release published at https://github.com/yevgetman/sov-releases/releases/tag/v0.6.0 with three platform tarballs + SHA256SUMS.
+- End-to-end install smoke: backed up existing `~/.sov/` to `~/.sov.pre-v0.6.0-bak/`, `curl … install.sh | bash` fetched v0.6.0 cleanly (29.1 MB darwin-arm64 tarball, checksum OK), `~/.sov/bin/sov --version` printed `0.6.0`. PASS.
+- Source-mode workflow unaffected (local `bun run release vX.Y.Z` still works; the script-refactor preserves the M1 entry-point bit-for-bit).
+
 ## 2026-05-24 — config UX rebuild close-out
 
 **Scope:** Full rebuild of the `sov config` interactive surface and the `/config` slash command per `docs/specs/2026-05-24-config-ux-rebuild-design.md`. Replaces the hand-rolled raw-mode picker (`src/ui/configMenu.ts`, 389 LoC) and the JSON-dump `/config` verb with a single branded Bubble Tea TUI driven by a curated 10-group catalog. Authorized autonomously by the user; subagent-driven implementation across 3 parallel TS/Go/configMode agents + 1 final-review agent.

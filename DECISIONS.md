@@ -18,6 +18,14 @@ Rationale: Prefix-string check on `process.execPath` is sufficient because the b
 
 Status: implemented (Phase 21 M1 — Task 2 commit). Plan: `docs/plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `docs/specs/2026-05-21-binary-distribution-design.md` (ADR P21-05).
 
+## ADR P21-C — Cross-repo release upload via fine-grained PAT scoped to `sov-releases`
+
+Decision: The Phase 21 M2 release workflow at `.github/workflows/release.yml` lives in the private `sovereign-ai-harness` repo and uploads tagged GitHub releases to the public `yevgetman/sov-releases` repo via a fine-grained Personal Access Token. The PAT is scoped to **only** `yevgetman/sov-releases` with **Contents: Read and write** permission; it is stored as the repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-harness`. The token is exported to the workflow as the `token:` input on `actions/checkout@v4` (for the sov-releases sibling clone in each job) and as `GH_TOKEN` (only in the final `release` job's upload step, not in the build jobs). The default `GITHUB_TOKEN` is scoped to the workflow's own repo and cannot write to a different repo, so cross-repo write requires either a PAT, a GitHub App installation, or a classic PAT with broad `repo` scope.
+
+Rationale: Fine-grained PAT has the smallest blast radius — read+write on exactly one repo, no other resource. Classic PAT with `repo` scope would also work but grants full read/write across every repo the token owner has access to. GitHub App installation is more correct in principle (rotating short-lived installation tokens) but adds infrastructure for a single-author single-target use case where the security delta is marginal. PAT expiration is bounded at 1 year — calendar-managed regeneration is acceptable for the author's release cadence. The PAT name `sov-releases-upload` makes it discoverable in GitHub settings.
+
+Status: implemented (Phase 21 M2). Plan: `docs/plans/2026-05-24-phase-21-m2-release-automation.md`. Spec: `docs/specs/2026-05-24-phase-21-m2-release-automation-design.md` (ADR P21-C).
+
 ## ADR M8-01 — Router-mode construction lives in `buildRuntime`, not `resolveProvider`
 
 Decision: When `opts.provider === 'router'` (or `userSettings.defaultProvider === 'router'`), `buildRuntime` constructs the `RouterProvider` explicitly — wrapping the configured local + frontier providers — rather than routing through `resolveProvider()`. The router resolved-provider envelope advertises `transport.name === 'router'`, `metadata.provider === 'router'`, and `metadata.localProvider` / `metadata.frontierProvider` carry the underlying provider names. The `routerAuditLogger` is constructed alongside and closed before `mcpClientPool.shutdown()` inside `runtime.dispose()`.
