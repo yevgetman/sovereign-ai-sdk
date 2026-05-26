@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-26 — 8 UX/bug fixes from screenshots (v0.6.6)
+
+- `bun run lint && bun run typecheck` — clean.
+- `bun run test` — TS suite **2556 pass / 4 fail / 14 skip**. 3 pre-existing M7/M8 integration failures (learning observer), 1 configOps test updated for new message.
+- Go test suite: `packages/tui/` all packages green. Style test updated for new `❯` marker and `LeadingGap` field.
+- 8 fixes from 5 user screenshots (`bug1.png`, `ux1.png`–`ux4.png`):
+  - BUG1: routing agents hidden from AgentTool enum when `taskRouting.enabled=false` (both boot-time and hot-reload). New `TASK_ROUTING_ROLES` constant + `filterAgentRegistry` helper.
+  - UX1a: `LeadingGap: 1` above user echo for breathing room between turns.
+  - UX1b: `»` → `❯` in `Brand.AccentColor` (sky-300 #7dd3fc). Color rendering doc updated.
+  - UX1c: idle-check delay 700ms → 400ms for faster spinner re-appearance.
+  - UX2: "Phase X" dev names stripped from config catalog descriptions.
+  - UX3: `EndAssistantCard` trims trailing newlines from glamour markdown output.
+  - UX4a: "no changes to save" → "config is up to date".
+  - UX4b: `maybeQuitAfterModalClose` wired into command-response return path.
+- Release v0.6.6 cut via CI tag push.
+
 ## 2026-05-25 — UX fixes + task router bugs (v0.6.5)
 
 - `bun run lint && bun run typecheck && bun run test` — TS suite **2560 pass / 0 fail / 14 skip**.
