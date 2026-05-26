@@ -191,7 +191,7 @@ func (m *Model) print(line string) {
 const userMessageDisplayCap = 1500
 
 // printUser is shorthand for printing a user-marker styled line —
-// matches the round-1 AppendUserLine convention ("» " in theme.Primary
+// matches the round-1 AppendUserLine convention ("❯ " in Brand.AccentColor
 // followed by the body in terminal default). Used for echoing the
 // user's submission into scrollback.
 //
@@ -201,7 +201,7 @@ const userMessageDisplayCap = 1500
 // character paste doesn't dominate the scrollback; the actual turn still
 // ships the full content via the expanded prompt value.
 func (m *Model) printUser(text string) {
-	marker := lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render(style.S.Echo.Marker)
+	marker := lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.AccentColor)).Bold(true).Render(style.S.Echo.Marker)
 	body := text
 	if len(body) > userMessageDisplayCap {
 		omitted := len(body) - userMessageDisplayCap
@@ -420,10 +420,10 @@ type idleCheckMsg struct {
 
 // idleCheckDelay is how long we wait after the most recent content
 // event before assuming the model is "still thinking" and restarting
-// the spinner. 700ms is short enough to give prompt feedback during a
+// the spinner. 400ms is short enough to give prompt feedback during a
 // real gap (often several seconds) but long enough to avoid flickering
 // the spinner on a brief pause between adjacent text_deltas.
-const idleCheckDelay = 700 * time.Millisecond
+const idleCheckDelay = 400 * time.Millisecond
 
 // stallExpireMsg is dispatched by a tea.Tick scheduled in the
 // stall_detected handler. The closure captures the current
@@ -1235,6 +1235,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// fell through to the normal turn POST and the model saw them as
 			// plain text.
 			if cmdName, cmdArgs, ok := parseGenericSlashCommand(text); ok {
+				for range style.S.Echo.LeadingGap {
+					m.print("")
+				}
 				m.printUser(text)
 				m.prompt.Clear()
 				m.autocomplete.Dismiss()
@@ -1244,6 +1247,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.live.SetRunningCommand(m.theme.DimStyle().Render("…running /" + cmdName))
 				return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, cmdName, cmdArgs))
+			}
+			for range style.S.Echo.LeadingGap {
+				m.print("")
 			}
 			m.printUser(text)
 			for range style.S.Echo.TrailingGap {
@@ -1626,7 +1632,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd)),
 			)
 		}
-		return m, m.wrapClearScrollback(clearScrollbackPending, m.respond(nil))
+		return m, m.wrapClearScrollback(clearScrollbackPending, m.maybeQuitAfterModalClose(m.respond(nil)))
 	}
 	// ux-fixes round 5 — no transcript forwarding for unhandled msgs.
 	// History lives in terminal scrollback; nothing reroutes here.

@@ -776,10 +776,10 @@ describe('/config dispatcher', () => {
       expect(picker.onCancel).toBeUndefined();
     });
 
-    test('/config commit with no draft returns "no changes to save"', async () => {
+    test('/config commit with no draft returns "config is up to date"', async () => {
       const { ctx } = captureCtx();
       const result = await dispatchConfigCommand('commit', ctx);
-      expect(result).toBe('no changes to save');
+      expect(result).toBe('config is up to date');
     });
 
     test('/config commit after a set reports the change count', async () => {

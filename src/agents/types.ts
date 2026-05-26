@@ -52,3 +52,13 @@ export type AgentRegistry = {
   agents: AgentDefinition[];
   byName: Map<string, AgentDefinition>;
 };
+
+export function filterAgentRegistry(
+  registry: AgentRegistry,
+  excludeRoles: ReadonlySet<string>,
+): AgentRegistry {
+  const filtered = registry.agents.filter((a) => a.role === undefined || !excludeRoles.has(a.role));
+  const byName = new Map<string, AgentDefinition>();
+  for (const a of filtered) byName.set(a.name, a);
+  return { agents: filtered, byName };
+}

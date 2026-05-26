@@ -97,8 +97,9 @@ func TestKnownValues(t *testing.T) {
 		{"Permission.LabelWidth", S.Permission.LabelWidth, 7},
 
 		// Echo
-		{"Echo.Marker", S.Echo.Marker, "» "},
+		{"Echo.Marker", S.Echo.Marker, "❯ "},
 		{"Echo.MarkerWidth", S.Echo.MarkerWidth, 2},
+		{"Echo.LeadingGap", S.Echo.LeadingGap, 1},
 		{"Echo.TrailingGap", S.Echo.TrailingGap, 1},
 
 		// Separator

@@ -113,8 +113,9 @@ type PermissionStyle struct {
 
 // EchoStyle governs the user echo marker.
 type EchoStyle struct {
-	Marker      string // "» " prefix
+	Marker      string // "❯ " prefix
 	MarkerWidth int    // numeric width for wrap calculation
+	LeadingGap  int    // blank lines before the echo (breathing room above user turn)
 	TrailingGap int    // blank lines after the echo before the next event
 }
 
@@ -248,8 +249,9 @@ var S = StyleGuide{
 		LabelWidth: 7,
 	},
 	Echo: EchoStyle{
-		Marker:      "» ",
+		Marker:      "❯ ",
 		MarkerWidth: 2,
+		LeadingGap:  1,
 		TrailingGap: 1,
 	},
 	Separator: SeparatorStyle{

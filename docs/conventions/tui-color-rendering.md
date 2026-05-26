@@ -95,7 +95,7 @@ not just bright) still get explicit colors:
 
 | Element | Color | Why |
 |---|---|---|
-| `»` user-line marker | `theme.Primary` (bold) | distinguishes user lines from assistant |
+| `❯` user-line marker | `Brand.AccentColor` (bold) | distinguishes user lines from assistant |
 | Headings (H1–H6) | `theme.Primary` (bold) | structural distinction |
 | Links / images | `theme.Primary` | actionable / external reference |
 | Inline code | `theme.Success` on `theme.CodeBackground` | code-vs-prose distinction |
@@ -202,8 +202,9 @@ Instead:
 | Detail text (duration, preview, distribution) | `t.Info` (muted but readable) |
 | Status glyphs (✓ / ✗) | `t.Success` / `t.Error` (semantic — keep) |
 
-`t.Primary` remains correct for **structural markdown** (headings, links,
-the `»` user marker) where it serves as an accent against body text. It
+`t.Primary` remains correct for **structural markdown** (headings, links)
+where it serves as an accent against body text. The `❯` user marker uses
+`Brand.AccentColor` (sky-300, #7dd3fc) for better visibility. It
 should not appear in the tool/routing output pipeline. This rule was added
 after `t.Primary` blue on the dark Catppuccin Mocha theme rendered
 indistinguishably from "basic terminal blue" in the delegator event lines

@@ -286,7 +286,7 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
   id: 'task-routing',
   label: 'Task routing',
   description:
-    'Multi-provider smart router (Phase 1 + 2). Changes apply to the next turn — lane registry + parent prompt rebuild on save.',
+    'Multi-provider smart router. Changes apply to the next turn — lane registry + parent prompt rebuild on save.',
   items: [
     {
       path: 'taskRouting.enabled',
@@ -365,12 +365,12 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
   ],
 };
 
-// ── Router (Phase 10.6 local-first router) ────────────────────────────
+// ── Router (local-first) ──────────────────────────────────────────────
 
 const ROUTER_GROUP: ConfigGroup = {
   id: 'router',
   label: 'Router (local-first)',
-  description: 'Phase 10.6 local-vs-frontier escalation router. Effective next session.',
+  description: 'Local-vs-frontier escalation router. Effective next session.',
   items: [
     {
       path: 'router.defaultLane',
@@ -651,7 +651,7 @@ const DEBUG_GROUP: ConfigGroup = {
 const OPENAI_SERVER_GROUP: ConfigGroup = {
   id: 'openai-server',
   label: 'OpenAI server',
-  description: 'Phase 18 OpenAI-compatible HTTP API server (sov serve). Effective next session.',
+  description: 'OpenAI-compatible HTTP API server (sov serve). Effective next session.',
   items: [
     {
       path: 'openaiServer.apiKey',

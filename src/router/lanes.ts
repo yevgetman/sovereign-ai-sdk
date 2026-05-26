@@ -32,6 +32,13 @@ const DELEGATOR_DEFAULTS: LaneConfig = {
   timeoutMs: 600_000,
 };
 
+export const TASK_ROUTING_ROLES: ReadonlySet<string> = new Set([
+  'delegator',
+  'cheap-task',
+  'moderate-task',
+  'frontier-task',
+]);
+
 export function resolveLane(
   name: string,
   cfg: TaskRoutingConfig | undefined,

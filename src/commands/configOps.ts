@@ -1115,7 +1115,7 @@ function runCommit(ctx: CommandContext): string {
   // group's picker, and without closeModal we'd leave it open after
   // commit instead of exiting cleanly.
   ctx.requestCloseModal?.();
-  if (count === 0) return 'no changes to save';
+  if (count === 0) return 'config is up to date';
   return `saved ${count} change${count === 1 ? '' : 's'}`;
 }
 

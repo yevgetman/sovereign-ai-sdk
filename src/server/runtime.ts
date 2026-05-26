@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadAgents } from '../agents/loader.js';
-import type { AgentRegistry } from '../agents/types.js';
+import { type AgentRegistry, filterAgentRegistry } from '../agents/types.js';
 import { getDefaultBundlePath, isDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
@@ -57,6 +57,7 @@ import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js
 import type { LLMProvider, Transport } from '../providers/types.js';
 import { RouterAuditLogger } from '../router/auditLogger.js';
 import { type LaneRegistry, buildLaneRegistry } from '../router/laneRegistry.js';
+import { TASK_ROUTING_ROLES } from '../router/lanes.js';
 import { runLanePreflight } from '../router/preflight.js';
 import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
@@ -566,6 +567,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ? mcpClientPool.tools().map((meta) => wrapMcpTool(meta, mcpClientPool))
     : [];
 
+  // Pre-read taskRouting.enabled so we can filter routing agents from the
+  // tool pool's AgentTool enum. The full registry stays on the runtime for
+  // /agent slash-command dispatch; only the model-visible enum is narrowed.
+  const earlySettings = readConfig();
+  const taskRoutingEnabledAtBoot = resolveTaskRoutingEnabled(
+    process.env.SOV_TASK_ROUTING_ENABLED,
+    earlySettings.taskRouting?.enabled,
+  );
+  const toolVisibleAgents = taskRoutingEnabledAtBoot
+    ? agents
+    : filterAgentRegistry(agents, TASK_ROUTING_ROLES);
+
   // Bare tool context — no memory/skills/scheduler/task manager/learning
   // observer. M3 is the "bare turn" milestone (spec §10). Those subsystems
   // land in M4+ per docs/backlog/phase-16-rebuild-prereqs.md.
@@ -574,7 +587,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(bundle ? { bundleRoot: bundle.root } : {}),
     sessionId: 'pending',
     harnessHome,
-    agents,
+    agents: toolVisibleAgents,
   };
 
   // M10 audit fix — wire HarnessInfoTool into the server-mode tool pool.
@@ -1205,12 +1218,30 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       bundle,
       trivialFastPath: fresh.taskRouting?.trivialFastPath === true,
     });
+
+    // Rebuild the tool pool's AgentTool enum so routing agents appear /
+    // disappear when the user toggles taskRouting.enabled mid-session.
+    const freshVisibleAgents = freshEnabled
+      ? agents
+      : filterAgentRegistry(agents, TASK_ROUTING_ROLES);
+    const freshToolCtx: ToolContext = {
+      cwd: opts.cwd,
+      ...(bundle ? { bundleRoot: bundle.root } : {}),
+      sessionId: 'pending',
+      harnessHome,
+      agents: freshVisibleAgents,
+    };
+    const freshPool = assembleToolPool(freshToolCtx, { mcpTools, harnessInfoSnapshot });
+    runtime.toolPool.length = 0;
+    runtime.toolPool.push(...freshPool);
+    finalToolPoolRef = runtime.toolPool;
+
     const newSegments = buildSystemSegments({
       ...(bundle ? { bundle } : {}),
       cwd: opts.cwd,
       homeDir: harnessHome,
       cacheEnabled,
-      tools: toolPool,
+      tools: runtime.toolPool,
       ...(freshPrompt !== undefined ? { smartRouterPrompt: freshPrompt } : {}),
     });
     // Mutate in place so any closure that captured the array reference

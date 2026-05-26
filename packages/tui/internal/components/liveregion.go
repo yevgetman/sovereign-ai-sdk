@@ -99,7 +99,7 @@ func (l *LiveRegion) EndAssistantCard() (string, bool) {
 	body := l.stream.String()
 	l.stream = nil
 	rendered := render.Markdown(body, l.theme, l.width)
-	return rendered, true
+	return strings.TrimRight(rendered, "\n"), true
 }
 
 // SetSpinner installs the given line as the live spinner display.
