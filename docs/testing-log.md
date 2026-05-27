@@ -8,6 +8,14 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-27 — End-of-turn breathing room (v0.6.7)
+
+- Go test suite: `packages/tui/` all packages green. Style test updated for new `Separator.TrailingGap` token.
+- `bun run lint && bun run typecheck` — clean.
+- New `style.S.Separator.TrailingGap: 1` token governs blank lines after the turn separator.
+- `turn_complete` handler emits the gap after the separator line.
+- Release v0.6.7 cut via CI tag push.
+
 ## 2026-05-26 — 8 UX/bug fixes from screenshots (v0.6.6)
 
 - `bun run lint && bun run typecheck` — clean.
