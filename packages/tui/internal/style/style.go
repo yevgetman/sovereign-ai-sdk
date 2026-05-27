@@ -121,7 +121,8 @@ type EchoStyle struct {
 
 // SeparatorStyle governs the turn separator.
 type SeparatorStyle struct {
-	Char string // horizontal rule character
+	Char        string // horizontal rule character
+	TrailingGap int    // blank lines after the separator (end-of-turn breathing room)
 }
 
 // MarkdownStyle governs markdown rendering tokens.
@@ -255,7 +256,8 @@ var S = StyleGuide{
 		TrailingGap: 1,
 	},
 	Separator: SeparatorStyle{
-		Char: "─",
+		Char:        "─",
+		TrailingGap: 1,
 	},
 	Markdown: MarkdownStyle{
 		ListLevelIndent:  4,

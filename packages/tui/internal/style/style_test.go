@@ -104,6 +104,7 @@ func TestKnownValues(t *testing.T) {
 
 		// Separator
 		{"Separator.Char", S.Separator.Char, "─"},
+		{"Separator.TrailingGap", S.Separator.TrailingGap, 1},
 
 		// Glyphs
 		{"Glyph.Success", S.Glyph.Success, "✓"},

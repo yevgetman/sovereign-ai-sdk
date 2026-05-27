@@ -1880,6 +1880,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			m.print(turnSeparator(m.theme, m.width))
 			m.print(dim.Render("  ⚠ " + tc.FinishReason))
 		}
+		for range style.S.Separator.TrailingGap {
+			m.print("")
+		}
 	case "compaction_complete":
 		// M6 T6: T3 (proactive) and T4 (overflow recovery) publish this
 		// event mid-turn when the session id hops to a new child. The
