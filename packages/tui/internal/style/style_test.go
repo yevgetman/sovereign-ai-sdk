@@ -9,7 +9,8 @@ import (
 
 // intentionallyZero lists fields that are 0 by design.
 var intentionallyZero = map[string]bool{
-	"S.Card.PaddingV": true,
+	"S.Card.PaddingV":          true,
+	"S.Separator.TrailingGap":  true,
 }
 
 func TestAllFieldsNonZero(t *testing.T) {
@@ -104,7 +105,7 @@ func TestKnownValues(t *testing.T) {
 
 		// Separator
 		{"Separator.Char", S.Separator.Char, "─"},
-		{"Separator.TrailingGap", S.Separator.TrailingGap, 1},
+		{"Separator.TrailingGap", S.Separator.TrailingGap, 0},
 
 		// Glyphs
 		{"Glyph.Success", S.Glyph.Success, "✓"},

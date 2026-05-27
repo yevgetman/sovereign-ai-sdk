@@ -257,7 +257,7 @@ var S = StyleGuide{
 	},
 	Separator: SeparatorStyle{
 		Char:        "─",
-		TrailingGap: 1,
+		TrailingGap: 0,
 	},
 	Markdown: MarkdownStyle{
 		ListLevelIndent:  4,
