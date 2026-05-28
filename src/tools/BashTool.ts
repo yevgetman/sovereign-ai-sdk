@@ -115,6 +115,12 @@ export const BashTool = buildTool<Input, Output>({
 export function isReadOnlyBashCommand(command: string): boolean {
   if (/\$\(|`|<\(|>\(/.test(command)) return false;
 
+  // Output redirection turns a read command into a write: `cat x > out`,
+  // `echo y >> f`, `grep z 2> err`. Fd-duplications (`2>&1`, `>&2`) target no
+  // file and stay read-only. Fail-closed: a literal '>' even inside quotes is
+  // treated as a redirect (asks rather than silently auto-allowing a write).
+  if (/(?:\d*|&)>>?\s*[^&\s]/.test(command)) return false;
+
   const segments = command.split(/\|\||&&|;|\|/);
   for (const raw of segments) {
     const seg = raw.trim();

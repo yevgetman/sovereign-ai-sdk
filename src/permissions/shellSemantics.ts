@@ -283,7 +283,10 @@ function tokenizeSegment(segment: string): TokenizeResult {
   const raw = segment.trim();
   let redirectsToFile = false;
 
-  if (/(?:^|[^2])>>?\s/.test(raw) || /&>\s/.test(raw)) {
+  // Output redirect to a file: `> out`, `>>out` (no space — previously
+  // slipped through and let `cat x >out` be classified read), `2> err`,
+  // `&> all`. Fd-duplications (`2>&1`, `>&2`) target no file and are excluded.
+  if (/(?:\d*|&)>>?\s*[^&\s]/.test(raw)) {
     redirectsToFile = true;
   }
 

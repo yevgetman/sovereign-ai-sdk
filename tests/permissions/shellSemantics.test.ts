@@ -173,6 +173,16 @@ describe('analyzeShellCommand', () => {
     expect(ops[0]?.kind).toBe('write');
   });
 
+  test('redirect without a trailing space is still a write', () => {
+    expect(analyzeShellCommand('grep pattern file >out.txt')[0]?.kind).toBe('write');
+    expect(analyzeShellCommand('cat x 2> err')[0]?.kind).toBe('write');
+    expect(analyzeShellCommand('cat x &>all')[0]?.kind).toBe('write');
+  });
+
+  test('fd-duplication (2>&1) is not a file write', () => {
+    expect(analyzeShellCommand('grep pattern file 2>&1')[0]?.kind).toBe('read');
+  });
+
   test('compound: read && read is all read', () => {
     const ops = analyzeShellCommand('cat a && cat b');
     expect(ops.every((op) => op.kind === 'read')).toBe(true);
@@ -229,5 +239,6 @@ describe('isShellCommandReadOnly', () => {
 
   test('redirect on read command returns false', () => {
     expect(isShellCommandReadOnly('grep pattern file > out')).toBe(false);
+    expect(isShellCommandReadOnly('grep pattern file >out')).toBe(false); // no space
   });
 });

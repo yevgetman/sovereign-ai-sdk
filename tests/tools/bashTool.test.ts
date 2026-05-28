@@ -92,6 +92,19 @@ describe('BashTool', () => {
     expect(mutating.behavior).toBe('ask');
   });
 
+  test('redirect-to-file on an allowlisted read command is NOT auto-allowed', async () => {
+    // cat/echo are in BASH_READ_COMMANDS; without redirect detection these
+    // would auto-allow a file write with no prompt (the fail-open bug).
+    for (const command of [
+      'cat /etc/passwd > /tmp/exfil',
+      'echo pwned >> /tmp/persist',
+      'echo x>/tmp/nospace', // no space after '>'
+    ]) {
+      const perm = await BashTool.checkPermissions({ command }, ctx);
+      expect(perm.behavior).toBe('ask');
+    }
+  });
+
   test('Phase 4: renderResult formats the bash output and propagates is_error on non-zero exit', async () => {
     const ok = await BashTool.call({ command: 'echo hello' }, ctx);
     const okRendered = BashTool.renderResult?.(ok.data);
@@ -142,6 +155,15 @@ describe('isReadOnlyBashCommand', () => {
     expect(isReadOnlyBashCommand('echo `rm -rf /`')).toBe(false);
     expect(isReadOnlyBashCommand('cat <(rm -rf /)')).toBe(false);
     expect(isReadOnlyBashCommand('cat >(rm -rf /)')).toBe(false);
+  });
+
+  test('output redirection to a file is a write, not read-only', () => {
+    expect(isReadOnlyBashCommand('cat secret > /tmp/x')).toBe(false);
+    expect(isReadOnlyBashCommand('echo pwned >> /tmp/bashrc')).toBe(false);
+    expect(isReadOnlyBashCommand('echo x >/tmp/y')).toBe(false); // no space after '>'
+    expect(isReadOnlyBashCommand('cat foo 2> err.log')).toBe(false);
+    // fd-duplication writes no file — stays read-only
+    expect(isReadOnlyBashCommand('grep x file 2>&1')).toBe(true);
   });
 
   test('leading env-var assignment is skipped before resolving the real command', () => {
