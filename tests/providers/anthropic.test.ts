@@ -8,13 +8,16 @@
 import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import Anthropic from '@anthropic-ai/sdk';
 import type { RawMessageStreamEvent } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import {
   messagesToSdk,
+  normalizeAnthropicError,
   systemToSdk,
   translateAnthropicStream,
 } from '../../src/providers/anthropic.js';
+import { ProviderHttpError } from '../../src/providers/errors.js';
 
 async function loadFixture(name: string): Promise<RawMessageStreamEvent[]> {
   const path = join(process.cwd(), 'fixtures', name);
@@ -136,5 +139,38 @@ describe('Anthropic prompt caching conversion', () => {
       false,
     ) as unknown as Array<{ content: Array<Record<string, unknown>> }>;
     expect(messages[0]?.content[0]?.cache_control).toBeUndefined();
+  });
+});
+
+describe('normalizeAnthropicError', () => {
+  test('wraps an APIError with a numeric status into ProviderHttpError', () => {
+    const apiErr = new Anthropic.APIError(
+      429,
+      undefined,
+      '429 rate limited',
+      new Headers({ 'retry-after': '5' }),
+    );
+    const out = normalizeAnthropicError(apiErr);
+    expect(out).toBeInstanceOf(ProviderHttpError);
+    expect((out as ProviderHttpError).status).toBe(429);
+    expect((out as ProviderHttpError).provider).toBe('anthropic');
+    expect((out as ProviderHttpError).message).toContain('rate limited');
+  });
+
+  test('wraps a 401 so the resolver can mark the credential auth-failed', () => {
+    const apiErr = new Anthropic.APIError(401, undefined, '401 invalid key', new Headers());
+    const out = normalizeAnthropicError(apiErr);
+    expect(out).toBeInstanceOf(ProviderHttpError);
+    expect((out as ProviderHttpError).status).toBe(401);
+  });
+
+  test('passes through a ProviderHttpError unchanged', () => {
+    const existing = new ProviderHttpError('anthropic', 429, 'already normalized');
+    expect(normalizeAnthropicError(existing)).toBe(existing);
+  });
+
+  test('passes through a non-API error (e.g. abort/connection) unchanged', () => {
+    const plain = new Error('socket hang up');
+    expect(normalizeAnthropicError(plain)).toBe(plain);
   });
 });

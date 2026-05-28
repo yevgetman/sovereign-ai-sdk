@@ -28,7 +28,28 @@ import type {
   SystemSegment,
   TokenUsage,
 } from '../core/types.js';
+import { ProviderHttpError } from './errors.js';
 import type { ProviderRequest, ToolSchema, Transport } from './types.js';
+
+/**
+ * Normalize a raw @anthropic-ai/sdk error into a ProviderHttpError so the
+ * resolver's rate-guard + credential-pool feedback and preflight
+ * classification — which all key on `instanceof ProviderHttpError` — fire for
+ * Anthropic too (openai.ts / ollama.ts already throw ProviderHttpError; only
+ * Anthropic let raw SDK errors propagate). APIError subclasses (RateLimitError,
+ * AuthenticationError, BadRequestError, ...) carry a numeric `.status` and a
+ * `Headers`-typed `.headers`. Connection/abort errors have no numeric status
+ * and are left untouched so cancellation still propagates as-is. The original
+ * message is preserved, so message-substring classifiers (context-overflow,
+ * billing) keep working.
+ */
+export function normalizeAnthropicError(err: unknown): unknown {
+  if (err instanceof ProviderHttpError) return err;
+  if (err instanceof Anthropic.APIError && typeof err.status === 'number') {
+    return new ProviderHttpError('anthropic', err.status, err.message, err.headers ?? undefined);
+  }
+  return err;
+}
 
 type WipBlock =
   | { kind: 'text'; text: string }
@@ -84,12 +105,19 @@ export class AnthropicProvider
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
-    const sdkStream = (await this.client.messages.create(
-      this.buildKwargs(req),
-      req.signal ? { signal: req.signal } : {},
-    )) as unknown as AsyncIterable<RawMessageStreamEvent>;
+    // Wrap both the create() call and stream iteration: normalize Anthropic
+    // SDK errors into ProviderHttpError so the resolver hardening wrapper and
+    // preflight can classify 429 / 401 / 403 like the other providers.
+    try {
+      const sdkStream = (await this.client.messages.create(
+        this.buildKwargs(req),
+        req.signal ? { signal: req.signal } : {},
+      )) as unknown as AsyncIterable<RawMessageStreamEvent>;
 
-    return yield* this.normalizeResponse(sdkStream);
+      return yield* this.normalizeResponse(sdkStream);
+    } catch (err) {
+      throw normalizeAnthropicError(err);
+    }
   }
 }
 
