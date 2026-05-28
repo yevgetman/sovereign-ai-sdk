@@ -51,12 +51,22 @@ function fixtureWith(
       {
         turn: 0,
         providerEvents: [],
-        toolResults: results.map((r, i) => ({
-          toolName: r.toolName,
-          callIndex: i,
-          data: r.data,
-          ...(r.error !== undefined ? { error: r.error } : {}),
-        })),
+        // callIndex is PER-TOOL (the K-th call to that tool), matching the real
+        // capture sink (wrapToolsForCapture keys its counter by tool.name) — not
+        // a global index across all results.
+        toolResults: (() => {
+          const perTool = new Map<string, number>();
+          return results.map((r) => {
+            const callIndex = perTool.get(r.toolName) ?? 0;
+            perTool.set(r.toolName, callIndex + 1);
+            return {
+              toolName: r.toolName,
+              callIndex,
+              data: r.data,
+              ...(r.error !== undefined ? { error: r.error } : {}),
+            };
+          });
+        })(),
       },
     ],
   };

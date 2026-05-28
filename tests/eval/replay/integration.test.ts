@@ -151,3 +151,36 @@ describe('replay round-trip through query()', () => {
     expect(captured).toEqual(['completed', 'completed']);
   });
 });
+
+describe('wrapToolsForReplay callIndex correlation', () => {
+  test('returns results by callIndex even when captured in completion order', async () => {
+    // Two Read calls. The fixture stores them in COMPLETION order — call #1
+    // finished before call #0 (as happens for a concurrent same-tool wave) —
+    // but each carries its call-START callIndex. Replay must hand back results
+    // by callIndex, not by stored order, or the two get swapped.
+    const fixture: ReplayFixture = {
+      meta: {
+        sessionId: 'fx',
+        provider: 'anthropic',
+        model: 'm',
+        capturedAt: '2026-05-05T20:00:00.000Z',
+      },
+      turns: [
+        {
+          turn: 0,
+          providerEvents: [],
+          toolResults: [
+            { toolName: 'Read', callIndex: 1, data: 'B' },
+            { toolName: 'Read', callIndex: 0, data: 'A' },
+          ],
+        },
+      ],
+    };
+    const [read] = wrapToolsForReplay([makeRead()], fixture);
+    if (!read) throw new Error('no wrapped tool');
+    const first = (await read.call({ path: '/a' }, ctx)) as { data: unknown };
+    const second = (await read.call({ path: '/b' }, ctx)) as { data: unknown };
+    expect(first.data).toBe('A'); // call #0 → callIndex-0 result, not the first-stored 'B'
+    expect(second.data).toBe('B');
+  });
+});

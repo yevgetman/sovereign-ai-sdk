@@ -44,15 +44,25 @@ export function wrapToolsForReplay(
   });
 }
 
-/** Group fixture results by tool name in observed order. The K-th
- *  result for tool X comes back in `queues.get('X')[K]`. */
+/** Group fixture results by tool name, slotted by `callIndex`. The K-th
+ *  call to tool X comes back in `queues.get('X')[K]`.
+ *
+ *  Captured results are stored in COMPLETION order (recordToolResult fires
+ *  after the awaited call), but each carries the `callIndex` assigned at call
+ *  START. Under concurrent same-tool calls (a Promise.all wave) completion
+ *  order diverges from call-start order, so indexing by push order would hand
+ *  back swapped results. The replay-time counter is call-start order, so we
+ *  must slot by callIndex to align the two. */
 function buildResultQueues(fixture: ReplayFixture): Map<string, ReplayToolResult[]> {
   const out = new Map<string, ReplayToolResult[]>();
   for (const turn of fixture.turns) {
     for (const result of turn.toolResults) {
-      const list = out.get(result.toolName);
-      if (list) list.push(result);
-      else out.set(result.toolName, [result]);
+      let list = out.get(result.toolName);
+      if (!list) {
+        list = [];
+        out.set(result.toolName, list);
+      }
+      list[result.callIndex] = result;
     }
   }
   return out;
