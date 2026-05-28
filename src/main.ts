@@ -9,7 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
 import { getDefaultBundlePath } from './bundle/defaultBundle.js';
 import { parseProfileFlag } from './cli/profileFlag.js';
-import { DEFAULT_PROFILE_NAME, getActiveProfile, getBaseHome } from './config/paths.js';
+import {
+  DEFAULT_PROFILE_NAME,
+  assertProfileName,
+  getActiveProfile,
+  getBaseHome,
+} from './config/paths.js';
 import {
   formatValue,
   getAt,
@@ -71,6 +76,15 @@ function resolveAndApplyProfile(argv: string[]): string[] {
   const { flagValue, rest } = parseProfileFlag(argv);
   const resolved = flagValue ?? getActiveProfile();
   if (resolved !== DEFAULT_PROFILE_NAME) {
+    // Validate before joining into HARNESS_HOME so a malformed `-p` value
+    // (e.g. `../foo`) can't escape the profiles root. getActiveProfile already
+    // sanitizes the persisted file; this guards the explicit flag.
+    try {
+      assertProfileName(resolved);
+    } catch (err) {
+      process.stderr.write(`sov: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    }
     process.env.HARNESS_HOME = join(getBaseHome(), 'profiles', resolved);
   }
   return rest;

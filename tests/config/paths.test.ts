@@ -83,6 +83,15 @@ describe('getActiveProfile / setActiveProfile', () => {
     expect(getActiveProfile()).toBe('work');
   });
 
+  test('falls back to default for a malformed / path-traversal active-profile value', () => {
+    // A corrupted file must not become an unvalidated path segment joined into
+    // HARNESS_HOME (path traversal). Reject by falling back to the default root.
+    for (const bad of ['../../etc', '/abs/path', 'has space', 'with/slash']) {
+      writeFileSync(join(home, 'active-profile'), `${bad}\n`, 'utf8');
+      expect(getActiveProfile()).toBe(DEFAULT_PROFILE_NAME);
+    }
+  });
+
   test("setActiveProfile('default') clears the file in place", () => {
     setActiveProfile('work');
     expect(readFileSync(join(home, 'active-profile'), 'utf8').trim()).toBe('work');

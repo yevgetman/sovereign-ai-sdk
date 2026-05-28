@@ -80,6 +80,11 @@ export function getActiveProfile(): string {
   if (!existsSync(path)) return DEFAULT_PROFILE_NAME;
   const raw = readFileSync(path, 'utf8').trim();
   if (raw.length === 0) return DEFAULT_PROFILE_NAME;
+  // A corrupted / hand-edited active-profile file must never become an
+  // unvalidated path segment joined into HARNESS_HOME (e.g. '../../etc' →
+  // path traversal). Anything that isn't a well-formed profile name falls
+  // back to the default root rather than escaping it.
+  if (!PROFILE_NAME_RE.test(raw)) return DEFAULT_PROFILE_NAME;
   return raw;
 }
 
