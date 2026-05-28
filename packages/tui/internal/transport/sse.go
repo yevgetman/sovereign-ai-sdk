@@ -47,7 +47,13 @@ func Consume(ctx context.Context, url string) (<-chan Envelope, <-chan error) {
 		}
 
 		sc := bufio.NewScanner(resp.Body)
-		sc.Buffer(make([]byte, 64*1024), 1<<20)
+		// A single SSE `data:` line carries a whole event — including a
+		// tool_result whose content can be a full FileRead (capped at 1 MiB).
+		// JSON-encoded + framed that exceeds the old 1 MiB token cap, which made
+		// Scan() fail with bufio.ErrTooLong and killed the stream mid-turn. 16
+		// MiB gives ample headroom for any realistic single event while still
+		// bounding memory.
+		sc.Buffer(make([]byte, 64*1024), 16<<20)
 		var dataLines []string
 		for sc.Scan() {
 			line := sc.Text()
