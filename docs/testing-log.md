@@ -8,6 +8,21 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-28 — Visual TUI QA feature
+
+- `bun run lint && bun run typecheck` — clean.
+- `bun run test` — **2596 pass / 3 fail / 14 skip** (3 pre-existing M7/M8 integration failures unchanged; +39 tests from new `tests/visual/` suite).
+- Go test suite: `packages/tui/` all packages green (no Go changes this session).
+- New feature: agent-driven visual QA loop via VHS.
+  - `bun run visual [name]` shells out to `vhs` for each `.tape` in `.harness/visual/scenarios/`, rendering a PNG to `.harness/visual/output/<name>.png`.
+  - Pipeline: `.tape` script → VHS → ttyd → sov-tui → ANSI capture → PNG. Agent reads the PNG inline.
+  - 7 canonical scenarios: splash, prompt-input, config-menu, config-router, turn-complete, markdown-rich, tool-result. Wall time ~10s (non-API) to ~50s (API-dependent) per scenario.
+  - Preamble pins font (JetBrains Mono), size (14), dimensions (1400×900), theme (GitHub Dark), and runs from `/tmp/sov-visual` to avoid the context-loader security warning on this repo's AGENTS.md.
+  - Regression tests in `tests/visual/` enforce scenario contracts (preamble sourcing, canonical output path, ≥200ms Sleep buffer after Screenshot, explicit exit) without invoking VHS in unit tests.
+- Record-of-truth doc at `docs/conventions/visual-tui-qa.md` covers configuration, scenario authoring, runner semantics, workflow patterns, and limitations.
+- CLAUDE.md / AGENTS.md updated to reference the convention.
+- No release cut — feature is dev-tooling, no runtime change.
+
 ## 2026-05-27 — End-of-turn breathing room (v0.6.7)
 
 - Go test suite: `packages/tui/` all packages green. Style test updated for new `Separator.TrailingGap` token.
