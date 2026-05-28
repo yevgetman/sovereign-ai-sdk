@@ -146,3 +146,61 @@ describe('WebFetchTool.call', () => {
     expect(result.data.text).toContain('HTTP 404');
   });
 });
+
+// A fetch mock that records every URL it is asked to fetch and returns a
+// scripted sequence of responses (one per call; the last repeats).
+function makeSeqFetchMock(
+  responses: Array<{ status?: number; headers?: Record<string, string>; body?: string }>,
+): { fetchImpl: typeof fetch; urls: string[] } {
+  const urls: string[] = [];
+  let i = 0;
+  const fetchImpl = (async (url: string | URL | Request) => {
+    urls.push(String(url));
+    const r = responses[Math.min(i, responses.length - 1)] ?? { body: '' };
+    i += 1;
+    const headers = new Headers(r.headers ?? { 'content-type': 'text/plain' });
+    return new Response(r.body ?? '', { status: r.status ?? 200, headers });
+  }) as unknown as typeof fetch;
+  return { fetchImpl, urls };
+}
+
+describe('WebFetchTool SSRF hardening', () => {
+  test('validateInput refuses link-local / metadata and 0.0.0.0', async () => {
+    for (const host of ['http://169.254.169.254/latest/meta-data', 'http://0.0.0.0/']) {
+      const v = await WebFetchTool.validateInput?.({ url: host }, ctxBase as ToolContext);
+      expect(v?.ok).toBe(false);
+    }
+  });
+
+  test('call() refuses a private initial URL without fetching it', async () => {
+    const { fetchImpl, urls } = makeSeqFetchMock([{ body: 'should not be reached' }]);
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'http://169.254.169.254/' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(urls).toHaveLength(0);
+  });
+
+  test('call() blocks a redirect into a private host and never fetches it', async () => {
+    const { fetchImpl, urls } = makeSeqFetchMock([
+      { status: 302, headers: { location: 'http://169.254.169.254/' } },
+      { body: 'INTERNAL SECRET' },
+    ]);
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'https://example.com/start' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(result.data.text).toContain('redirect blocked');
+    expect(urls).toEqual(['https://example.com/start']);
+  });
+
+  test('call() follows a normal public→public redirect', async () => {
+    const { fetchImpl, urls } = makeSeqFetchMock([
+      { status: 302, headers: { location: 'https://example.org/final' } },
+      { headers: { 'content-type': 'text/plain' }, body: 'final body' },
+    ]);
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const result = await WebFetchTool.call({ url: 'https://example.com/start' }, ctx);
+    expect(result.data.status).toBe(200);
+    expect(result.data.text).toContain('final body');
+    expect(urls).toEqual(['https://example.com/start', 'https://example.org/final']);
+  });
+});

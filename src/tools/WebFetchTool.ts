@@ -41,7 +41,9 @@ type Output = {
 const PRIVATE_HOST_PATTERNS: RegExp[] = [
   /^localhost$/i,
   /^127\./,
+  /^0\./, // 0.0.0.0/8 — "this host"; some stacks route 0.0.0.0 to loopback
   /^10\./,
+  /^169\.254\./, // link-local incl. cloud instance-metadata (169.254.169.254)
   /^192\.168\./,
   /^172\.(1[6-9]|2\d|3[01])\./,
   /^::1$/,
@@ -51,7 +53,36 @@ const PRIVATE_HOST_PATTERNS: RegExp[] = [
 ];
 
 function isPrivateHost(hostname: string): boolean {
-  return PRIVATE_HOST_PATTERNS.some((re) => re.test(hostname));
+  // WHATWG URL keeps IPv6 hosts bracketed (`[::1]`); strip so the patterns match.
+  const host = hostname.replace(/^\[/, '').replace(/\]$/, '');
+  return PRIVATE_HOST_PATTERNS.some((re) => re.test(host));
+}
+
+type Blocked = { data: Output; observation: { status: 'error'; summary: string } };
+
+/** Scheme + private-host gate, shared by validateInput (dispatch-time) and
+ *  call() (initial request + every redirect hop — defense in depth). */
+function checkUrlAllowed(rawUrl: string): { ok: true; url: URL } | { ok: false; reason: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: 'Invalid URL.' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, reason: 'Only http and https URLs are supported.' };
+  }
+  if (isPrivateHost(parsed.hostname)) {
+    return { ok: false, reason: 'Refusing to fetch from private/loopback host.' };
+  }
+  return { ok: true, url: parsed };
+}
+
+function blockedResult(url: string, finalUrl: string, reason: string): Blocked {
+  return {
+    data: { url, finalUrl, status: 0, contentType: '', truncated: false, text: reason },
+    observation: { status: 'error', summary: reason },
+  };
 }
 
 function decodeBasicEntities(text: string): string {
@@ -134,34 +165,56 @@ export const WebFetchTool = buildTool<Input, Output>({
   isConcurrencySafe: () => true,
   renderHint: { kind: 'markdown' },
   validateInput: async (input) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(input.url);
-    } catch {
-      return { ok: false, reason: 'Invalid URL.' };
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return { ok: false, reason: 'Only http and https URLs are supported.' };
-    }
-    if (isPrivateHost(parsed.hostname)) {
-      return { ok: false, reason: 'Refusing to fetch from private/loopback host.' };
-    }
-    return { ok: true };
+    const guard = checkUrlAllowed(input.url);
+    return guard.ok ? { ok: true } : { ok: false, reason: guard.reason };
   },
   async call(input, ctx) {
     const fetchImpl = (ctx as { fetchImpl?: typeof fetch }).fetchImpl ?? globalThis.fetch;
+
+    // Defense in depth: the dispatcher runs validateInput before call(), but
+    // direct/programmatic callers must be guarded here too.
+    const initialGuard = checkUrlAllowed(input.url);
+    if (!initialGuard.ok) return blockedResult(input.url, input.url, initialGuard.reason);
+
     const controller = new AbortController();
     const signalSource = (ctx as { signal?: AbortSignal }).signal;
     if (signalSource) signalSource.addEventListener('abort', () => controller.abort());
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const response = await fetchImpl(input.url, {
-        signal: controller.signal,
-        redirect: 'follow',
-        headers: { 'user-agent': 'sovereign-ai-harness/0.0.1 (+webfetch)' },
-      });
+      // Manual redirect handling so every hop's host is re-validated: a public
+      // URL that 30x-redirects to a private/loopback/metadata address must not
+      // be followed (SSRF). Also enforces the documented REDIRECT_CAP, which
+      // the previous redirect:'follow' left to the platform default.
+      let currentUrl = input.url;
+      let response: Response;
+      let redirects = 0;
+      while (true) {
+        response = await fetchImpl(currentUrl, {
+          signal: controller.signal,
+          redirect: 'manual',
+          headers: { 'user-agent': 'sovereign-ai-harness/0.0.1 (+webfetch)' },
+        });
+        const isRedirect = response.status >= 300 && response.status < 400;
+        const location = response.headers.get('location');
+        if (!isRedirect || !location) break;
+        if (redirects >= REDIRECT_CAP) {
+          return blockedResult(input.url, currentUrl, `too many redirects (> ${REDIRECT_CAP})`);
+        }
+        let nextUrl: string;
+        try {
+          nextUrl = new URL(location, currentUrl).toString();
+        } catch {
+          return blockedResult(input.url, currentUrl, 'invalid redirect Location header');
+        }
+        const hopGuard = checkUrlAllowed(nextUrl);
+        if (!hopGuard.ok) {
+          return blockedResult(input.url, currentUrl, `redirect blocked: ${hopGuard.reason}`);
+        }
+        currentUrl = nextUrl;
+        redirects += 1;
+      }
       const contentType = response.headers.get('content-type') ?? '';
-      const finalUrl = response.url || input.url;
+      const finalUrl = response.url || currentUrl;
       const status = response.status;
       const raw = await readBoundedText(response, RESPONSE_BYTE_CAP);
       const isHtml = /text\/html|application\/xhtml/i.test(contentType);
@@ -217,8 +270,3 @@ export const WebFetchTool = buildTool<Input, Output>({
     ].join('\n'),
   }),
 });
-
-// Note: REDIRECT_CAP is documented in the file header but enforced by
-// the runtime fetch implementation (Bun/Node default). We accept the
-// platform default rather than re-implementing redirect handling.
-void REDIRECT_CAP;
