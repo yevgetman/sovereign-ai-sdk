@@ -8,6 +8,23 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-28 — Multi-screenshot visual QA + tool/edit/permission scenarios
+
+- `bun run lint && bun run typecheck` — clean.
+- `bun test ./tests/visual/` — 59 pass / 0 fail.
+- Visual QA system extended to support multiple `Screenshot` directives per tape.
+- New naming convention enforced by regression tests:
+  - Single-shot: `<name>.png`
+  - Multi-shot: `<name>-NN-<step>.png` (NN starts at 01, sequential, no gaps)
+  - Mixing patterns within one tape is rejected
+- Runner post-validates that every declared PNG exists on disk; reports `PARTIAL` if any are missing.
+- Preamble height reverted 1500 → 900 — multi-shot is the right way to scale across turns (smaller, faster frames).
+- 3 new canonical scenarios:
+  - `file-edit`: 3 screenshots covering baseline → after edit → final. Confirms `Edited <path>` compact verb renders.
+  - `multi-tool`: 2 screenshots showing a Glob+Read flow with bulleted list output.
+  - `permission-prompt`: 2 screenshots — modal up + after-deny. Captures the permission UI (`[y] allow [N] deny [a] always`) and the `⚠` warning glyph on the post-deny compact tool line.
+- No runtime change — pure dev tooling.
+
 ## 2026-05-28 — VHS-verified UX refinements (v0.6.10)
 
 First session driven by the visual QA loop end-to-end. Each change was rendered to PNG via `bun run visual conversation` and visually inspected before commit.
