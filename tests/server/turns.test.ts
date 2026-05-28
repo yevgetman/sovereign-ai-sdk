@@ -192,6 +192,32 @@ describe('POST /sessions + POST /sessions/:id/turns', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test('returns 404 for a well-formed but nonexistent session id', async () => {
+    // A valid-shaped id with no DB row must 404, not flow into the
+    // fire-and-forget turn where saveMessage hits the FOREIGN KEY and throws an
+    // unhandled rejection that crashes the server process.
+    const home = join(tmpdir(), `nonexistent-session-${Date.now()}`);
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({ cwd: process.cwd(), provider: 'mock', harnessHome: home });
+      const app = buildAppWithRuntime(runtime);
+      const res = await app.request('/sessions/does-not-exist-123/turns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe('session not found');
+    } finally {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('turns route — message persistence', () => {

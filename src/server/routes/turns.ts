@@ -104,6 +104,14 @@ export function turnsRoute(runtime: Runtime): Hono {
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
+    // Mirror sibling routes: reject a well-formed but nonexistent session id.
+    // Without this, saveMessage in runTurnInBackground's pre-try setup hits the
+    // messages.session_id FOREIGN KEY and throws — and because the turn is
+    // fire-and-forget (void below), that becomes a process-killing unhandled
+    // rejection rather than a clean 404.
+    if (runtime.sessionDb.getSession(sessionId) === null) {
+      return c.json({ error: 'session not found' }, 404);
+    }
     const body = (await c.req.json()) as { text?: string; kind?: string };
     const rawText = typeof body.text === 'string' ? body.text : '';
     if (rawText === '') return c.json({ error: 'text is required' }, 400);
@@ -144,7 +152,19 @@ export function turnsRoute(runtime: Runtime): Hono {
     // any in-route awaiting. The `void` discards the returned promise
     // intentionally; runTurnInBackground catches its own errors and
     // publishes them as turn_error events onto the bus.
-    void runTurnInBackground(runtime, sessionId, text, bus);
+    void runTurnInBackground(runtime, sessionId, text, bus).catch((err) => {
+      // Defense in depth: runTurnInBackground catches errors inside its try and
+      // publishes turn_error, but a throw in its pre-try setup would otherwise
+      // be an unhandled rejection that crashes the process. Surface it as a
+      // turn_error so the client sees an error instead of a frozen turn.
+      bus.publish({
+        type: 'turn_error',
+        seq: bus.nextSeq(),
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+        recoverable: false,
+      });
+    });
     return c.json({ accepted: true }, 202);
   });
 
