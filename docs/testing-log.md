@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-28 — Deep bug-hunt audit + 21 fixes (TDD, per-fix gate)
+
+Conservative whole-codebase audit (14 subsystem finders → 2 independent
+adversarial verifiers per candidate; only double-confirmed survived) surfaced
+**21 objective, function-breaking bugs** (1 critical, 11 high, 8 medium, 1 low).
+All 21 fixed test-first across 18 atomic commits (`eaee313..0400255`).
+
+- **Per-fix gate:** `bun run lint && bun run typecheck` clean on every commit;
+  Go `go build` / `go vet` / `go test ./...` clean for the two TUI fixes.
+- **Full TS suite (clean CI-like env, fresh `HARNESS_HOME`):** **2646 pass / 0
+  fail / 14 skip** (+~88 from the v0.6.0 baseline — new regression tests for
+  every fix).
+- **Local-env caveat (NOT a regression):** with this machine's
+  `~/.harness/config.json` (`learning.disabled: true`), 3 server tests
+  (`turns.learning` M7 T5, `m7Full`, `m8Full`) fail locally — they don't pin
+  `HARNESS_CONFIG` so they read ambient config. Proven environment-only: green
+  on clean HEAD via `git stash` and green in the fresh-home run above.
+  Documented in `memory/project_test_suite_env_sensitivity.md`.
+
+Highlights: C1 wired the never-invoked `tool.validateInput` into dispatch
+(revived WebFetch's dead SSRF guard); H1 stopped shell output-redirects being
+auto-allowed as read-only; H3/M1 normalized Anthropic errors so the
+rate-guard/credential-pool/preflight fire for the default provider; H4 closed a
+process-crash on a turn to a nonexistent session; H10 fixed the TUI freeze after
+`/clear`/`/rollback` (generation-tagged SSE reconnect); H11 raised the SSE
+scanner cap so large tool results don't kill the stream. Five candidates the
+automated verifier dropped on a tooling failure were hand-re-verified (all 5
+real). Release v0.6.12 follows.
+
 ## 2026-05-28 — Multi-screenshot visual QA + tool/edit/permission scenarios
 
 - `bun run lint && bun run typecheck` — clean.
