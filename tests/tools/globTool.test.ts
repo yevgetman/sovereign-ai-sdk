@@ -101,6 +101,19 @@ describe('GlobTool', () => {
     });
   });
 
+  test('head_limit returns the lexicographically-first N (deterministic)', async () => {
+    await withTmp(async (dir) => {
+      // Created in non-lexicographic order; the result must be the sorted-first
+      // N regardless of filesystem scan order (sort BEFORE truncate).
+      for (const name of ['m.txt', 'z.txt', 'a.txt', 'c.txt', 'b.txt']) {
+        writeFileSync(join(dir, name), '');
+      }
+      const result = await GlobTool.call({ pattern: '*.txt', head_limit: 3 }, makeCtx(dir));
+      expect(result.data.paths).toEqual(['a.txt', 'b.txt', 'c.txt']);
+      expect(result.data.truncated).toBe(true);
+    });
+  });
+
   test('returns lexicographically sorted paths for determinism', async () => {
     await withTmp(async (dir) => {
       writeFileSync(join(dir, 'c.txt'), '');

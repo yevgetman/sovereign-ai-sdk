@@ -52,17 +52,18 @@ export const GlobTool = buildTool<Input, Output>({
   async call(input, ctx) {
     const baseDir = input.path ? resolveToolPath(input.path, ctx.cwd) : ctx.cwd;
     const glob = new Bun.Glob(input.pattern);
-    const found: string[] = [];
-    let truncated = false;
-    const cap = input.head_limit;
+    // Collect ALL matches, then sort, THEN truncate — so head_limit returns the
+    // lexicographically-first N (the documented deterministic contract). The
+    // previous order (break at cap during the filesystem-order scan, then sort)
+    // returned an arbitrary subset that varied run-to-run / across platforms.
+    const matches: string[] = [];
     for (const file of glob.scanSync({ cwd: baseDir, onlyFiles: true })) {
-      found.push(file);
-      if (cap !== undefined && found.length >= cap) {
-        truncated = true;
-        break;
-      }
+      matches.push(file);
     }
-    found.sort();
+    matches.sort();
+    const cap = input.head_limit;
+    const truncated = cap !== undefined && matches.length > cap;
+    const found = truncated ? matches.slice(0, cap) : matches;
     const next_actions: string[] = [];
     if (found.length === 0) {
       next_actions.push(
