@@ -110,9 +110,20 @@ not just bright) still get explicit colors:
 | Boot-notice borders | `theme.Warning` | informational-but-noticeable |
 
 Bold/italic attributes can stand in for color when they're sufficient
-to distinguish — e.g., `Strong` (`**bold**`) and `GenericStrong` use
-Bold only, no Color. The terminal's bold rendering is typically also
-brighter than the regular default, doubling as a brightness boost.
+to distinguish — e.g., `Emph` (`*italic*`) uses italic only, no Color.
+The terminal's bold rendering is typically also brighter than the
+regular default.
+
+**Exception (2026-05-28):** `Strong` (`**bold**`) now uses
+`Brand.AccentColor` (sky-300, `#7dd3fc`) in addition to bold, matching
+inline `Code`. This unifies bold-emphasis treatment — pre-fix, the
+model emitting `**56**` (Strong) rendered uncolored while `Node.js`
+inside backticks (Code) rendered sky-blue, leading to visually
+inconsistent emphasis across the same conceptual "emphasized text"
+category. Brand.AccentColor is a fixed hex (not a theme token) so it
+survives palette quantization. `GenericStrong` inside syntax-
+highlighted code blocks still uses bold-only because it lives inside
+a code block with its own styling.
 
 ## The iteration loop that produced this rule (M11.5 → M11.10)
 

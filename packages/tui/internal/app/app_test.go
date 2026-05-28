@@ -114,10 +114,8 @@ func TestBareScaffold_rendersThreeRegions(t *testing.T) {
 	tm := teatest.NewTestModel(t, New("test-session", "http://127.0.0.1:0"), teatest.WithInitialTermSize(80, 24))
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		// Look for the input prompt marker and the status row's bg color
-		// has rendered (lipgloss outputs ANSI escapes — check for the
-		// textinput prompt char "›").
-		return contains(b, "›")
+		// Look for the input prompt marker (style.S.Prompt.Marker).
+		return contains(b, "▸")
 	}, teatest.WithDuration(2*time.Second))
 
 	// ESC quits.
@@ -274,7 +272,7 @@ func TestApp_enterSubmitsTurnViaPost(t *testing.T) {
 
 	// Wait for initial render so the prompt is alive.
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return contains(b, "›")
+		return contains(b, "▸")
 	}, teatest.WithDuration(2*time.Second))
 
 	// Type "hi" then ENTER.
@@ -587,7 +585,7 @@ func TestApp_compactSlashRoutesToCompactEndpoint(t *testing.T) {
 
 	// Wait for initial render so the prompt is alive.
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return contains(b, "›")
+		return contains(b, "▸")
 	}, teatest.WithDuration(2*time.Second))
 
 	// Type "/compact" then ENTER.
@@ -848,7 +846,7 @@ func TestApp_compactSlashHandlesNoOp(t *testing.T) {
 	tm := teatest.NewTestModel(t, New(parentID, srv.URL), teatest.WithInitialTermSize(80, 24))
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return contains(b, "›")
+		return contains(b, "▸")
 	}, teatest.WithDuration(2*time.Second))
 
 	// Type "/compact" then ENTER — same client-side intercept as the
@@ -1258,7 +1256,7 @@ func TestApp_PromptToSendAutoFiresTurn(t *testing.T) {
 	tm := teatest.NewTestModel(t, New(sessionID, srv.URL), teatest.WithInitialTermSize(80, 24))
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return contains(b, "›")
+		return contains(b, "▸")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/init")})
@@ -1347,7 +1345,7 @@ func TestApp_NoPromptToSendDoesNotFireTurn(t *testing.T) {
 	tm := teatest.NewTestModel(t, New(sessionID, srv.URL), teatest.WithInitialTermSize(80, 24))
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return contains(b, "›")
+		return contains(b, "▸")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/help")})

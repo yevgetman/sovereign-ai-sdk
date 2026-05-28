@@ -74,7 +74,8 @@ type PromptStyle struct {
 	PasteAbstractMinLines int // threshold for paste abstraction (lines)
 	PasteAbstractMinChars int // secondary paste threshold (chars)
 	BoxOverhead          int // border (2) + padding (2)
-	PromptWidth          int // "› " prefix width
+	PromptWidth          int // marker prefix width (visible columns)
+	Marker               string // textarea first-line prefix; visually distinct from Echo.Marker
 }
 
 // SplashStyle governs the boot splash screen.
@@ -224,6 +225,7 @@ var S = StyleGuide{
 		PasteAbstractMinChars: 200,
 		BoxOverhead:           4,
 		PromptWidth:           2,
+		Marker:                "▸ ",
 	},
 	Splash: SplashStyle{
 		Gutter:       2,
@@ -253,7 +255,7 @@ var S = StyleGuide{
 		Marker:      "❯ ",
 		MarkerWidth: 2,
 		LeadingGap:  1,
-		TrailingGap: 1,
+		TrailingGap: 2,
 	},
 	Separator: SeparatorStyle{
 		Char:        "─",

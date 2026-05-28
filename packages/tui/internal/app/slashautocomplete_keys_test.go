@@ -155,11 +155,11 @@ func TestSlashAutocompleteViewPositionsPopupBelowPrompt(t *testing.T) {
 	// (slashautocomplete popup uses bold for selection, not a glyph
 	// prefix). The popup's distinctive marker is "/about" — the first
 	// alphabetical entry in staticEntries.
-	promptIdx := strings.Index(view, "›")
+	promptIdx := strings.Index(view, "▸")
 	popupIdx := strings.Index(view, "/about")
 
 	if promptIdx < 0 {
-		t.Fatalf("expected prompt marker '›' in View; got:\n%s", view)
+		t.Fatalf("expected prompt marker '▸' in View; got:\n%s", view)
 	}
 	if popupIdx < 0 {
 		t.Fatalf("expected '/about' entry in View when popup visible; got:\n%s", view)

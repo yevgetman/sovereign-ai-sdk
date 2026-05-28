@@ -86,7 +86,7 @@ Show
 | `Shell` | `"zsh"` | Match the user's shell so prompt + completion behavior are realistic. Bash works too — just change the value. |
 | `FontFamily` | `"JetBrains Mono"` | Wide glyph coverage (covers `❯`, `›`, `⚠`, `✓`, `✗`, `◇`, `◆`, `→` — every glyph in `style.S.Glyph.*`). Free and ubiquitous. |
 | `FontSize` | `14` | Comfortable read-size in a 1400×900 PNG. Smaller fits more rows; larger reads better in side-by-side comparison. |
-| `Width` × `Height` | `1400 × 900` | Wide enough that the prompt + status line don't wrap on most scenarios; tall enough to fit a multi-block assistant turn + status. Roughly the rendered size of a 14" laptop terminal at the user's defaults. |
+| `Width` × `Height` | `1400 × 1500` | Wide enough that the prompt + status line don't wrap on most scenarios; tall enough to fit a 3-4 turn conversation in one frame. (Initial value was 900 but only fit ~2.5 turns; bumped to 1500 after multi-turn scenarios proved more useful than tighter single-state captures.) |
 | `Padding` | `20` | Inner padding inside the PNG frame. Prevents glyphs from touching the edge — important for readability when reviewing inline. |
 | `Theme` | `"GitHub Dark"` | A widely-recognized dark theme. Matches the sov "sovereign" theme's brightness profile closely enough that color regressions reproduce. To test a specific TUI theme, set the sov theme via `sov config set theme <name>` before running the scenario (or via a `Type "/theme <name>"` step). |
 | `TypingSpeed` | `30ms` | Fast enough that scenarios don't drag; slow enough that the textinput doesn't drop keystrokes. Lower this only if you see lost characters. |

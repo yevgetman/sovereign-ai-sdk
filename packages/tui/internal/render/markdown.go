@@ -669,9 +669,15 @@ func styleForTheme(t theme.Theme) ansi.StyleConfig {
 			Italic: &italic,
 		},
 		Strong: ansi.StylePrimitive{
-			// No Color — inherit terminal default; Bold is enough to
-			// visually distinguish strong text from body.
-			Bold: &bold,
+			// 2026-05-28 — Strong now uses Brand.AccentColor (sky-300) to
+			// match inline Code, unifying bold-emphasis treatment. Pre-
+			// fix, bold `**56**` rendered uncolored while inline `Node.js`
+			// rendered sky-blue — visually inconsistent across the same
+			// "emphasized text" concept. Brand.AccentColor is a fixed hex
+			// (not a theme token) so it survives palette quantization per
+			// the brand-color rule in tui-color-rendering.md.
+			Color: &inlineCodeColor,
+			Bold:  &bold,
 		},
 		HorizontalRule: ansi.StylePrimitive{
 			Color:  &dim,

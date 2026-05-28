@@ -6,7 +6,7 @@ Set Shell "zsh"
 Set FontFamily "JetBrains Mono"
 Set FontSize 14
 Set Width 1400
-Set Height 900
+Set Height 1500
 Set Padding 20
 Set Theme "GitHub Dark"
 Set TypingSpeed 30ms

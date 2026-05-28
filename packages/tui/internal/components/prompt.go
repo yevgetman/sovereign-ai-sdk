@@ -68,9 +68,9 @@ func NewPrompt() Prompt {
 	// first row of a multi-line input; subsequent rows indent with
 	// blank space to match the prompt column. SetPromptFunc lets us
 	// vary the rendered prompt per line index.
-	ta.SetPromptFunc(2, func(lineIdx int) string {
+	ta.SetPromptFunc(style.S.Prompt.PromptWidth, func(lineIdx int) string {
 		if lineIdx == 0 {
-			return "› "
+			return style.S.Prompt.Marker
 		}
 		return "  "
 	})

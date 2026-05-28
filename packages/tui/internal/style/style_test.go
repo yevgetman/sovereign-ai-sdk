@@ -72,6 +72,7 @@ func TestKnownValues(t *testing.T) {
 		{"Prompt.PasteAbstractMinChars", S.Prompt.PasteAbstractMinChars, 200},
 		{"Prompt.BoxOverhead", S.Prompt.BoxOverhead, 4},
 		{"Prompt.PromptWidth", S.Prompt.PromptWidth, 2},
+		{"Prompt.Marker", S.Prompt.Marker, "▸ "},
 
 		// Splash
 		{"Splash.Gutter", S.Splash.Gutter, 2},
@@ -101,7 +102,7 @@ func TestKnownValues(t *testing.T) {
 		{"Echo.Marker", S.Echo.Marker, "❯ "},
 		{"Echo.MarkerWidth", S.Echo.MarkerWidth, 2},
 		{"Echo.LeadingGap", S.Echo.LeadingGap, 1},
-		{"Echo.TrailingGap", S.Echo.TrailingGap, 1},
+		{"Echo.TrailingGap", S.Echo.TrailingGap, 2},
 
 		// Separator
 		{"Separator.Char", S.Separator.Char, "─"},
