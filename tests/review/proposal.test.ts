@@ -63,6 +63,37 @@ describe('memory proposal round-trip', () => {
     const parsed = parseMemoryProposal(serialized);
     expect(parsed).toEqual(original);
   });
+
+  test('round-trips a multi-line sourceExcerpt without corruption', () => {
+    const original: MemoryProposal = {
+      proposalId: '2026-05-06-multiline',
+      type: 'memory',
+      target: 'MEMORY.md',
+      memoryType: 'project',
+      sessionId: 'sess-1',
+      parentSessionId: null,
+      traceId: 'trace-1',
+      sourceMessageRange: [3, 9],
+      sourceHash: 'sha256:multi',
+      // Newlines, a colon, quotes and a backslash — all of which corrupted the
+      // line-based flat-YAML parser before the JSON encode/decode fix.
+      sourceExcerpt: 'line one\nline two: has a colon\n"quoted" and a \\ backslash\nline four',
+      author: 'review-memory',
+      createdAt: '2026-05-06T10:30:00Z',
+      status: 'pending',
+      body: 'body content',
+    };
+
+    const serialized = serializeMemoryProposal(original);
+    // Frontmatter must stay one-key-per-line: the excerpt must NOT inject a raw
+    // newline that the line-based parser would split on. (frontmatter is
+    // between the two `---` fences.)
+    const frontmatter = serialized.split('---')[1] ?? '';
+    expect(frontmatter.split('\n').filter((l) => l.startsWith('sourceExcerpt:')).length).toBe(1);
+    const parsed = parseMemoryProposal(serialized);
+    expect(parsed.sourceExcerpt).toBe(original.sourceExcerpt);
+    expect(parsed).toEqual(original);
+  });
 });
 
 describe('skill proposal meta round-trip', () => {

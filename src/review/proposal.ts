@@ -72,6 +72,15 @@ function parseYamlValue(raw: string): unknown {
     return inner.split(',').map((p) => parseYamlValue(p));
   }
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    // JSON.parse decodes the escapes serializeYamlValue wrote (\n, \", \\, ...)
+    // and is backward-compatible with the old `"..\".."`-only escaping. Fall
+    // back to the naive strip for any legacy value that isn't valid JSON.
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') return parsed;
+    } catch {
+      // not valid JSON — fall through to the legacy strip
+    }
     return trimmed.slice(1, -1).replace(/\\"/g, '"');
   }
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
@@ -122,7 +131,11 @@ function serializeYamlValue(v: unknown): string {
     return `\n${v.map((item) => `  - ${item}`).join('\n')}`;
   }
   const s = String(v);
-  if (s === '' || /[:\n#]/.test(s) || s.trim() !== s) return `"${s.replace(/"/g, '\\"')}"`;
+  // Quote any string that isn't a safe bare scalar. JSON.stringify escapes
+  // quotes, newlines (\n/\r), tabs and backslashes into a SINGLE line — a raw
+  // newline here would be truncated by the line-based parseFlatYaml (a
+  // multi-line sourceExcerpt was silently corrupted on read).
+  if (s === '' || /[:\n\r#"\\]/.test(s) || s.trim() !== s) return JSON.stringify(s);
   return s;
 }
 
