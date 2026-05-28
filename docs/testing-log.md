@@ -8,6 +8,20 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-28 — VHS-verified UX refinements (v0.6.10)
+
+First session driven by the visual QA loop end-to-end. Each change was rendered to PNG via `bun run visual conversation` and visually inspected before commit.
+- `bun run lint && bun run typecheck` — clean.
+- `bun test ./tests/visual/` — 44 pass / 0 fail. Style + prompt tests updated for the new marker glyph.
+- Go tests: app + components + render + style + theme + transport all green after updating 5 `›` → `▸` references in tests.
+- Changes:
+  - `Echo.TrailingGap` 1 → 2 — verified by cropping the question→answer band of the conversation render.
+  - Prompt textinput marker `›` → `▸` (new `style.S.Prompt.Marker` token; `prompt.go` now references it instead of the hardcoded glyph).
+  - Markdown `Strong` now uses `Brand.AccentColor` (sky-300) — verified by cropping the `7 times 8 is **56**.` line; `56` now matches the inline-code style.
+  - Visual preamble height 900 → 1500 — multi-turn `conversation.tape` now fits 3 back-to-back turns in one frame.
+- Deferred: wrap-mangling bug (#9) didn't reproduce in re-renders.
+- Release v0.6.10 cut via CI tag push.
+
 ## 2026-05-28 — Visual TUI QA feature
 
 - `bun run lint && bun run typecheck` — clean.
