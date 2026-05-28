@@ -68,6 +68,8 @@ describe('OpenAIProvider conversion', () => {
     });
     expect(body.tools?.[0]?.function.name).toBe('Echo');
     expect(body.stream).toBe(true);
+    // Without this, openai/openrouter stream usage is never reported → $0 cost.
+    expect(body.stream_options).toEqual({ include_usage: true });
   });
 });
 
@@ -124,5 +126,27 @@ describe('translateOpenAIStream', () => {
       { type: 'text', text: 'Hi ' },
       { type: 'tool_use', id: 'call_1', name: 'Echo', input: { text: 'x' } },
     ]);
+  });
+
+  test('emits a usage_delta from the final include_usage chunk', async () => {
+    const chunks: OpenAIChatChunk[] = [
+      { choices: [{ delta: { content: 'Hello' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      // Final include_usage chunk: empty choices + top-level usage. The
+      // per-choice loop skips it, so usage must be read independently.
+      { choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } },
+    ];
+    const yielded: StreamEvent[] = [];
+    const gen = translateOpenAIStream(iterate(chunks));
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+      yielded.push(step.value);
+    }
+    const usage = yielded.find(
+      (e): e is Extract<StreamEvent, { type: 'usage_delta' }> => e.type === 'usage_delta',
+    );
+    expect(usage?.usage.inputTokens).toBe(11);
+    expect(usage?.usage.outputTokens).toBe(7);
   });
 });

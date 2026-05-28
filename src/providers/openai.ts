@@ -45,6 +45,7 @@ type OpenAIChatBody = {
   temperature?: number;
   tools?: OpenAITool[];
   tool_choice?: 'auto' | 'required' | { type: 'function'; function: { name: string } };
+  stream_options?: { include_usage: boolean };
 };
 
 export type OpenAIChatChunk = {
@@ -63,6 +64,10 @@ export type OpenAIChatChunk = {
     };
     finish_reason?: string | null;
   }>;
+  // Present only on the final chunk when stream_options.include_usage is set.
+  // That chunk carries an empty `choices` array, so usage must be read
+  // independently of the per-choice loop.
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
 };
 
 type OpenAIProviderConfig = {
@@ -109,6 +114,10 @@ export class OpenAIProvider
       model: req.model,
       messages: this.toProviderMessages(req.messages, req.system),
       stream: true,
+      // Ask for a final usage chunk so token/cost accounting isn't silently
+      // zero for openai/openrouter (the chat-completions stream omits usage by
+      // default). Mirrors ollama's num_eval reporting.
+      stream_options: { include_usage: true },
       max_tokens: req.maxTokens,
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(tools !== undefined ? { tools } : {}),
@@ -155,8 +164,10 @@ export async function* translateOpenAIStream(
   const textParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; args: string }>();
   let stopReason: StopReason = 'end_turn';
+  let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
 
   for await (const chunk of raw) {
+    if (chunk.usage) lastUsage = chunk.usage;
     const choice = chunk.choices?.[0];
     if (!choice) continue;
 
@@ -194,6 +205,20 @@ export async function* translateOpenAIStream(
       name: call.name || 'unknown_tool',
       input: parseToolArgs(call.args),
     });
+  }
+
+  if (lastUsage) {
+    yield {
+      type: 'usage_delta',
+      usage: {
+        ...(typeof lastUsage.prompt_tokens === 'number'
+          ? { inputTokens: lastUsage.prompt_tokens }
+          : {}),
+        ...(typeof lastUsage.completion_tokens === 'number'
+          ? { outputTokens: lastUsage.completion_tokens }
+          : {}),
+      },
+    };
   }
 
   const assistant: AssistantMessage = { role: 'assistant', content };
