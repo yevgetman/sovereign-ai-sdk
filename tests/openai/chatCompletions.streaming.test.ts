@@ -124,6 +124,25 @@ describe('POST /v1/chat/completions (streaming)', () => {
     expect(lastLine).toBe('data: [DONE]');
   });
 
+  test('disposes the per-request event bus after the stream completes (no leak)', async () => {
+    const { __test_resetAllBuses, __test_busCount } = await import('../../src/server/eventBus.js');
+    __test_resetAllBuses();
+    const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'harness-default',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: true,
+      }),
+    });
+    await res.text(); // drain → streaming finally runs disposeSession + disposeBus
+    // OpenAI sessions never hit the /events route, so the streaming branch must
+    // dispose its own bus; otherwise one leaks per streaming request.
+    expect(__test_busCount()).toBe(0);
+  });
+
   test('non-streaming branch still returns JSON when stream:false', async () => {
     const app = buildOpenAIApp({ runtime, apiKey: 'test' });
     const res = await app.request('/v1/chat/completions', {

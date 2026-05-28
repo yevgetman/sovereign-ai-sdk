@@ -42,7 +42,7 @@ import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransform
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { AskResponse } from '../../permissions/types.js';
 import { isCredentialUnavailable } from '../../providers/errors.js';
-import { getOrCreateBus } from '../../server/eventBus.js';
+import { disposeBus, getOrCreateBus } from '../../server/eventBus.js';
 import { buildSessionToolContext } from '../../server/routes/turns.js';
 import type { Runtime } from '../../server/runtime.js';
 import { blocksToOpenAI } from '../mapping/blocksToOpenAI.js';
@@ -273,10 +273,17 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // assistant message persistence below still fires.
     const lastUserMessage = findLastUserMessage(messages);
     if (lastUserMessage !== undefined) {
-      runtime.sessionDb.saveMessage(sessionId, {
-        role: 'user',
-        content: lastUserMessage.content,
-      });
+      try {
+        runtime.sessionDb.saveMessage(sessionId, {
+          role: 'user',
+          content: lastUserMessage.content,
+        });
+      } catch (err) {
+        // Best-effort observability write (mirrors the assistant persistence
+        // below). A DB-locked/disk-full failure here must NOT escape as a bare
+        // 500 nor skip the per-request disposeSession in the finally block.
+        console.error('[openai] user message persistence failed:', err);
+      }
     }
 
     // H1 — strip the `openai:` namespace prefix before exposing the id on
@@ -393,10 +400,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         } finally {
           // T7 — drop the bus subscriber FIRST so any delegator events
           // published during disposeSession (or a late publish from a
-          // background hop) don't try to write to a closed stream. The
-          // bus itself stays alive — disposeBus is called by the events
-          // route's own finally on the parent session; the OpenAI route
-          // doesn't own that lifecycle.
+          // background hop) don't try to write to a closed stream.
           unsubscribe();
           // T8 — persist the final assistant message AFTER the wire
           // has flushed. Best-effort: a persistence failure should not
@@ -412,6 +416,11 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             }
           }
           await runtime.disposeSession(sessionId);
+          // This bus was created by getOrCreateBus() above. OpenAI-API sessions
+          // never go through the /sessions/:id/events route, so nothing else
+          // ever removes the entry — dispose it here or `sov serve` leaks one
+          // ServerEventBus per streaming request, unbounded.
+          disposeBus(sessionId);
         }
       });
     }

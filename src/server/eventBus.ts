@@ -140,6 +140,10 @@ export function disposeBus(sessionId: string): void {
  * for this. If a real cleanup path is ever needed, `disposeBus(sessionId)`
  * is the supported per-session API.
  */
+export function __test_busCount(): number {
+  return buses.size;
+}
+
 export function __test_resetAllBuses(): void {
   for (const bus of buses.values()) {
     bus.close();
