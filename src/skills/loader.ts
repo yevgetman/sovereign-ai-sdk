@@ -142,10 +142,14 @@ export async function expandSkillText(
   const args = opts.args ?? '';
   const argsTrimmed = args.trim();
   const hasPlaceholder = /\{\{\s*args\s*\}\}/.test(text);
+  // Function replacers insert the value VERBATIM. A plain-string replacement
+  // would interpret `$&`, `$$`, `` $` ``, `$'`, `$<n>` in the value as special
+  // patterns — so user args (or a skill dir path) containing a `$` sequence
+  // would be mangled instead of substituted literally.
   let withVariables = text
-    .replace(/\{\{\s*args\s*\}\}/g, args)
-    .replace(/\$\{HARNESS_SKILL_DIR\}/g, skill.dir)
-    .replace(/\$\{HARNESS_SESSION_ID\}/g, opts.sessionId ?? '');
+    .replace(/\{\{\s*args\s*\}\}/g, () => args)
+    .replace(/\$\{HARNESS_SKILL_DIR\}/g, () => skill.dir)
+    .replace(/\$\{HARNESS_SESSION_ID\}/g, () => opts.sessionId ?? '');
   // Skills that don't reference {{args}} would otherwise silently drop the
   // user-supplied slash arguments. Append them so the model still sees the
   // path or topic the user typed (e.g. `/review ~/code/babyboard/`).
@@ -292,7 +296,10 @@ async function interpolateShellCommands(body: string, cwd: string): Promise<stri
     const command = (match[1] ?? match[2])?.trim();
     if (!command) continue;
     const replacement = await runInterpolationCommand(command, cwd);
-    out = out.replace(full, replacement);
+    // Function replacer: insert command stdout verbatim. Shell output very
+    // commonly contains `$` ($1/$2 in awk, prices, regexes, git diffs); a
+    // string replacement would treat `$&`/`$$`/`` $` `` as special patterns.
+    out = out.replace(full, () => replacement);
   }
   return out;
 }

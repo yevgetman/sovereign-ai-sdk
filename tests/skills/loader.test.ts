@@ -373,6 +373,37 @@ describe('expandSkillPrompt', () => {
       expect(expanded).not.toContain('User arguments:');
     });
   });
+
+  test('substitutes args verbatim when they contain $ sequences', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'skills/echo.md'),
+        realpath: join(dir, 'skills/echo.md'),
+        dir: join(dir, 'skills'),
+        body: 'Echo this: {{args}}',
+      });
+      // $& and $$ are special in a string-form .replace() replacement; they
+      // must be inserted literally, not interpreted.
+      const expanded = await expandSkillPrompt(skill, {
+        args: 'price is $5, $& and $$',
+        cwd: dir,
+      });
+      expect(expanded).toBe('Echo this: price is $5, $& and $$');
+    });
+  });
+
+  test('inserts inline-shell output verbatim when it contains $ sequences', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'skills/dollars.md'),
+        realpath: join(dir, 'skills/dollars.md'),
+        dir: join(dir, 'skills'),
+        body: "OUT=!`printf '%s' 'a $& b $$ c'`",
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      expect(expanded).toContain('a $& b $$ c');
+    });
+  });
 });
 
 describe('reloadSkill', () => {
