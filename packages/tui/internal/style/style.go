@@ -255,7 +255,7 @@ var S = StyleGuide{
 		Marker:      "❯ ",
 		MarkerWidth: 2,
 		LeadingGap:  1,
-		TrailingGap: 2,
+		TrailingGap: 1,
 	},
 	Separator: SeparatorStyle{
 		Char:        "─",
