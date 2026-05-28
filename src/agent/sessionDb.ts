@@ -326,16 +326,22 @@ export class SessionDb {
    *  created_at is stored as Unix epoch seconds (Date.now() / 1000). */
   cleanupPhantomReviews(maxAgeMs = 3_600_000): number {
     const cutoffSec = (Date.now() - maxAgeMs) / 1000;
-    const result = this.db
-      .prepare(
-        `DELETE FROM sessions
-         WHERE title LIKE 'subagent:review-%'
-           AND (input_tokens + output_tokens) = 0
-           AND (SELECT COUNT(*) FROM messages WHERE session_id = sessions.session_id) = 0
-           AND created_at < ?`,
-      )
-      .run(cutoffSec);
-    return result.changes ?? 0;
+    // Runs unconditionally at runtime boot; cron + the OpenAI server now share
+    // this DB file, so a concurrent writer can hold the WAL lock past the
+    // busy_timeout. Wrap in writeWithRetry (matching cleanupOldCronSessions) so
+    // a transient SQLITE_BUSY/SQLITE_LOCKED is retried instead of aborting boot.
+    return this.writeWithRetry(() => {
+      const result = this.db
+        .prepare(
+          `DELETE FROM sessions
+           WHERE title LIKE 'subagent:review-%'
+             AND (input_tokens + output_tokens) = 0
+             AND (SELECT COUNT(*) FROM messages WHERE session_id = sessions.session_id) = 0
+             AND created_at < ?`,
+        )
+        .run(cutoffSec);
+      return result.changes ?? 0;
+    });
   }
 
   /** Phase 17 follow-up — sweep cron-job sessions older than maxAgeMs.
