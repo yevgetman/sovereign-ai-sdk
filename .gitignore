@@ -32,3 +32,6 @@ bin/sov-tui
 
 # Phase 21 — release artifacts produced by scripts/release.ts
 /build/
+
+# Visual TUI screenshots (regenerated on demand via `bun run visual`)
+.harness/visual/output/

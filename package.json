@@ -29,6 +29,7 @@
     "format": "biome format --write src tests",
     "typecheck": "tsc --noEmit",
     "tui:build": "bun run scripts/build-tui.ts",
+    "visual": "bun run scripts/visual.ts",
     "postinstall": "bun run scripts/build-tui.ts"
   },
   "dependencies": {

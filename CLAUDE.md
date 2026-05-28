@@ -37,6 +37,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/conventions/tui-style-guide.md`](docs/conventions/tui-style-guide.md) | **Before ANY visual work in `packages/tui/`** — all spacing, padding, margins, borders, glyphs, brand colors, and typography tokens MUST come from `style.S.*`; never hardcode layout values in components |
 | [`docs/conventions/tui-color-rendering.md`](docs/conventions/tui-color-rendering.md) | Before adjusting any text color in `packages/tui/` — body text MUST inherit terminal default; never assume a "bright" hex/ANSI value renders bright |
 | [`docs/conventions/tui-ux-patterns.md`](docs/conventions/tui-ux-patterns.md) | Before changing TUI layout, chrome, or visual behavior — flow layout, splash, spinner, separator, tool events, file-ref auto-wrap, prompt/status styling |
+| [`docs/conventions/visual-tui-qa.md`](docs/conventions/visual-tui-qa.md) | **Before evaluating any TUI UX visually** — drives sov-tui via VHS, renders PNG screenshots to `.harness/visual/output/`, agent `Read`s the result. `bun run visual [name]` |
 
 ### Design reference
 
