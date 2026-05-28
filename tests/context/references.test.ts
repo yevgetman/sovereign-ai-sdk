@@ -2,7 +2,7 @@
 // and URLs with an injected fetch implementation.
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expandContextReferences } from '../../src/context/references.js';
@@ -97,5 +97,45 @@ describe('expandContextReferences', () => {
     });
     expect(out).toContain('<referenced-url');
     expect(out).toContain('hello from url');
+  });
+
+  test('an unreadable @file: resolves to an [ERROR] marker, never rejects', async () => {
+    await withTmp(async (dir) => {
+      const f = join(dir, 'locked.txt');
+      writeFileSync(f, 'secret');
+      chmodSync(f, 0o000);
+      try {
+        // Must resolve, not reject — an unhandled rejection in the turns route
+        // would hang the turn with no error event.
+        const out = await expandContextReferences('Read @file:locked.txt now', { cwd: dir });
+        expect(typeof out).toBe('string');
+        expect(out).not.toContain('@file:locked.txt'); // token was expanded
+        // Non-root: readFileSync hits EACCES → inline marker. (Root reads it;
+        // the no-throw contract still holds, so only assert the marker off-root.)
+        if (process.getuid?.() !== 0) {
+          expect(out).toContain('[ERROR: cannot read file');
+        }
+      } finally {
+        chmodSync(f, 0o644); // restore so withTmp cleanup can remove it
+      }
+    });
+  });
+
+  test('an unreadable nested folder is skipped, not fatal', async () => {
+    if (process.getuid?.() === 0) return; // root bypasses perms — can't exercise EACCES
+    await withTmp(async (dir) => {
+      mkdirSync(join(dir, 'proj/readable'), { recursive: true });
+      writeFileSync(join(dir, 'proj/readable/a.txt'), 'x');
+      mkdirSync(join(dir, 'proj/secret'), { recursive: true });
+      chmodSync(join(dir, 'proj/secret'), 0o000);
+      try {
+        const out = await expandContextReferences('@folder:proj', { cwd: dir });
+        expect(typeof out).toBe('string'); // did not throw
+        expect(out).toContain('readable/');
+        expect(out).toContain('[unreadable]');
+      } finally {
+        chmodSync(join(dir, 'proj/secret'), 0o755); // restore for cleanup
+      }
+    });
   });
 });

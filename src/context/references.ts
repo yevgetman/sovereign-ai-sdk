@@ -73,20 +73,33 @@ function fileReference(raw: string, options: ReferenceOptions & { cwd: string })
   const blocked = sensitiveBlock(abs, options);
   if (blocked) return blocked;
   if (!existsSync(abs)) return `[ERROR: file not found ${abs}]`;
-  if (lstatSync(abs).isDirectory()) return `[ERROR: path is a directory ${abs}]`;
-  const real = realpathSync(abs);
-  const stat = lstatSync(real);
-  if (stat.size > MAX_FILE_BYTES) {
-    return `[ERROR: file too large ${real} (${stat.size} bytes, cap ${MAX_FILE_BYTES})]`;
+  // realpath/lstat/readFileSync can throw on EACCES (no read permission) or
+  // ENOENT (deleted mid-read). Mirror urlReference/gitReference: inline an
+  // [ERROR] marker rather than throwing — expandContextReferences must never
+  // reject (an unhandled rejection in the turns route hangs the turn).
+  try {
+    if (lstatSync(abs).isDirectory()) return `[ERROR: path is a directory ${abs}]`;
+    const real = realpathSync(abs);
+    const stat = lstatSync(real);
+    if (stat.size > MAX_FILE_BYTES) {
+      return `[ERROR: file too large ${real} (${stat.size} bytes, cap ${MAX_FILE_BYTES})]`;
+    }
+    let text = readFileSync(real, 'utf8');
+    if (parsed.range) {
+      const lines = text.split('\n');
+      text = lines.slice(parsed.range.start - 1, parsed.range.end).join('\n');
+    }
+    const screened = screenContextFile(real, text);
+    if (!screened.ok) return blockPlaceholder(real, screened.reason);
+    return fence(
+      `referenced-file path="${escapeAttr(real)}"`,
+      screened.text,
+      languageForPath(real),
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.split('\n')[0] : String(err);
+    return `[ERROR: cannot read file ${abs}: ${msg}]`;
   }
-  let text = readFileSync(real, 'utf8');
-  if (parsed.range) {
-    const lines = text.split('\n');
-    text = lines.slice(parsed.range.start - 1, parsed.range.end).join('\n');
-  }
-  const screened = screenContextFile(real, text);
-  if (!screened.ok) return blockPlaceholder(real, screened.reason);
-  return fence(`referenced-file path="${escapeAttr(real)}"`, screened.text, languageForPath(real));
 }
 
 function folderReference(raw: string, options: ReferenceOptions & { cwd: string }): string {
@@ -94,10 +107,15 @@ function folderReference(raw: string, options: ReferenceOptions & { cwd: string 
   const blocked = sensitiveBlock(abs, options);
   if (blocked) return blocked;
   if (!existsSync(abs)) return `[ERROR: folder not found ${abs}]`;
-  const real = realpathSync(abs);
-  if (!lstatSync(real).isDirectory()) return `[ERROR: path is not a directory ${real}]`;
-  const entries = folderTree(real);
-  return fence(`referenced-folder path="${escapeAttr(real)}"`, entries.join('\n'), 'text');
+  try {
+    const real = realpathSync(abs);
+    if (!lstatSync(real).isDirectory()) return `[ERROR: path is not a directory ${real}]`;
+    const entries = folderTree(real);
+    return fence(`referenced-folder path="${escapeAttr(real)}"`, entries.join('\n'), 'text');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.split('\n')[0] : String(err);
+    return `[ERROR: cannot read folder ${abs}: ${msg}]`;
+  }
 }
 
 async function urlReference(raw: string, options: ReferenceOptions): Promise<string> {
@@ -151,7 +169,16 @@ function resolveReferencePath(raw: string, options: ReferenceOptions & { cwd: st
 
 function sensitiveBlock(abs: string, options: ReferenceOptions): string | null {
   const homeDir = options.homeDir ?? homedir();
-  const real = existsSync(abs) ? realpathSync(abs) : resolve(abs);
+  // realpathSync can throw EACCES on an unreadable (chmod 000) path even though
+  // existsSync is true; fall back to the lexically-resolved path so the
+  // sensitive-name check still runs and we never throw out of here.
+  const real = ((): string => {
+    try {
+      return existsSync(abs) ? realpathSync(abs) : resolve(abs);
+    } catch {
+      return resolve(abs);
+    }
+  })();
   const base = real.split('/').at(-1) ?? real;
   const relHome = real.startsWith(homeDir) ? relative(homeDir, real) : '';
   const sensitiveNames = new Set([
@@ -176,9 +203,21 @@ function folderTree(root: string): string[] {
   while (stack.length > 0 && out.length < MAX_FOLDER_ENTRIES) {
     const rel = stack.shift() ?? '';
     const dir = join(root, rel);
-    const entries = readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.name !== '.git' && entry.name !== 'node_modules')
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const entries = (() => {
+      try {
+        return readdirSync(dir, { withFileTypes: true })
+          .filter((entry) => entry.name !== '.git' && entry.name !== 'node_modules')
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch {
+        // Unreadable (EACCES) or vanished (ENOENT) subdirectory.
+        return null;
+      }
+    })();
+    if (entries === null) {
+      // Note it and keep walking the rest instead of aborting the whole listing.
+      out.push(`${rel ? `${rel}/` : ''}[unreadable]`);
+      continue;
+    }
     for (const entry of entries) {
       if (out.length >= MAX_FOLDER_ENTRIES) break;
       const childRel = join(rel, entry.name);
