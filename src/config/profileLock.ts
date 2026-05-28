@@ -85,8 +85,12 @@ export function readLockInfo(home: string = resolveHarnessHome()): LockInfo {
   try {
     process.kill(pid, 0);
     alive = true;
-  } catch {
-    alive = false;
+  } catch (err) {
+    // EPERM: the process exists but we lack permission to signal it (different
+    // owner) — it is ALIVE, so the lock is NOT stale. ESRCH (and anything else)
+    // means no such process → dead/stale. Mirrors lockUtil.isPidAlive; without
+    // this, an EPERM was misread as dead and let a second daemon start.
+    alive = (err as NodeJS.ErrnoException).code === 'EPERM';
   }
   return { held: true, pid, alive };
 }

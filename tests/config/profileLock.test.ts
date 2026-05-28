@@ -96,6 +96,20 @@ describe('readLockInfo', () => {
     expect(info.alive).toBe(false);
   });
 
+  test('reports alive: true for an EPERM pid (exists but not signalable)', () => {
+    // PID 1 (init/launchd) always exists; a non-root process gets EPERM from
+    // process.kill(1, 0). EPERM means the process is ALIVE, so the lock is NOT
+    // stale — previously misread as dead, which let a second daemon start. (As
+    // root the signal succeeds, which is also alive, so the assertion holds.)
+    const lockDir = join(home, '.sov.lock');
+    mkdirSync(lockDir);
+    writeFileSync(join(lockDir, 'pid'), '1\n', 'utf8');
+    const info = readLockInfo(home);
+    expect(info.held).toBe(true);
+    expect(info.pid).toBe(1);
+    expect(info.alive).toBe(true);
+  });
+
   test('reports held: true with no pid when the lock dir has no pid file', () => {
     mkdirSync(join(home, '.sov.lock'));
     const info = readLockInfo(home);
