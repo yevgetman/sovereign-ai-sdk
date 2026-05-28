@@ -86,7 +86,7 @@ Show
 | `Shell` | `"zsh"` | Match the user's shell so prompt + completion behavior are realistic. Bash works too — just change the value. |
 | `FontFamily` | `"JetBrains Mono"` | Wide glyph coverage (covers `❯`, `›`, `⚠`, `✓`, `✗`, `◇`, `◆`, `→` — every glyph in `style.S.Glyph.*`). Free and ubiquitous. |
 | `FontSize` | `14` | Comfortable read-size in a 1400×900 PNG. Smaller fits more rows; larger reads better in side-by-side comparison. |
-| `Width` × `Height` | `1400 × 1500` | Wide enough that the prompt + status line don't wrap on most scenarios; tall enough to fit a 3-4 turn conversation in one frame. (Initial value was 900 but only fit ~2.5 turns; bumped to 1500 after multi-turn scenarios proved more useful than tighter single-state captures.) |
+| `Width` × `Height` | `1400 × 900` | Wide enough that the prompt + status line don't wrap on most scenarios; tall enough to fit ~2-3 turns. For multi-turn captures, use multiple `Screenshot` directives per tape (each writes its own PNG) rather than bumping height — keeps per-frame render time fast and scales to arbitrary conversation length. The 1500px experiment was reverted once multi-screenshot was implemented. |
 | `Padding` | `20` | Inner padding inside the PNG frame. Prevents glyphs from touching the edge — important for readability when reviewing inline. |
 | `Theme` | `"GitHub Dark"` | A widely-recognized dark theme. Matches the sov "sovereign" theme's brightness profile closely enough that color regressions reproduce. To test a specific TUI theme, set the sov theme via `sov config set theme <name>` before running the scenario (or via a `Type "/theme <name>"` step). |
 | `TypingSpeed` | `30ms` | Fast enough that scenarios don't drag; slow enough that the textinput doesn't drop keystrokes. Lower this only if you see lost characters. |
@@ -94,12 +94,63 @@ Show
 
 ### Output destinations
 
-| Path | Purpose |
-|------|---------|
-| `.harness/visual/output/<name>.png` | Canonical capture for scenario `<name>`. **What the agent reads.** Gitignored. |
-| `.harness/visual/output/_trash/<name>.gif` | The full-recording GIF VHS produces because `Output` is required. Throwaway. Gitignored. |
+A scenario can declare ONE Screenshot (single-shot) or MANY (multi-shot). The naming convention is enforced by the regression tests.
 
-The `_trash` GIFs are an artifact of how VHS works: the `Output` directive is mandatory, but we only care about the single-frame `Screenshot` outputs. Pointing `Output` at `_trash/` keeps the GIF out of the way without disabling it.
+| Pattern | When to use | Path |
+|---------|-------------|------|
+| Single-shot | One canonical state per scenario | `.harness/visual/output/<name>.png` |
+| Multi-shot  | Multiple states across a conversation/flow | `.harness/visual/output/<name>-NN-<step>.png` |
+| Throwaway GIF | VHS requires `Output`, contents unused | `.harness/visual/output/_trash/<name>.gif` |
+
+Multi-shot path schema:
+- `NN` — two-digit ordinal, **must start at `01` and increment sequentially**. Enforced by the regression test.
+- `<step>` — kebab-case description of what the screenshot captures (e.g. `before-edit`, `after-edit`, `tool-result`, `final`).
+- Examples: `file-edit-01-baseline.png`, `file-edit-02-after-edit.png`, `multi-tool-03-bash-output.png`.
+
+Why this convention:
+- **Numeric prefix preserves temporal order** when listing the output dir.
+- **Descriptive step name** makes it obvious what each PNG shows without opening it.
+- **Bare scenario name for single-shot** keeps the simple case clean.
+- A scenario MUST use the single-shot pattern OR the multi-shot pattern — mixing is rejected by the regression test.
+
+The `_trash` GIFs are an artifact of how VHS works: the `Output` directive is mandatory, but we only care about the per-Screenshot PNGs. Pointing `Output` at `_trash/` keeps the GIF out of the way without disabling it. Each scenario emits one GIF regardless of how many Screenshots it captures.
+
+### Multi-shot pattern — when to scale across turns
+
+The default 1400×900 viewport fits ~2-3 turns. **Don't bump the height to fit more — render time scales roughly linearly with pixel count, and very large PNGs become slow to read inline.** Instead, take multiple Screenshots inside the same tape: each one writes its own PNG at a different conversation moment.
+
+This scales to arbitrary conversation length without making any individual PNG bigger. A 10-turn flow becomes 10 PNGs of ~150KB each, not one 5MB monster.
+
+Tape skeleton for multi-shot:
+
+```tape
+Source .harness/visual/scenarios/_preamble.tape
+Output .harness/visual/output/_trash/<name>.gif
+
+Type "sov"
+Enter
+Sleep 4s
+
+# Step 1
+Type "first action"
+Enter
+Sleep 10s
+Screenshot .harness/visual/output/<name>-01-after-first.png
+Sleep 500ms
+
+# Step 2
+Type "second action"
+Enter
+Sleep 10s
+Screenshot .harness/visual/output/<name>-02-after-second.png
+Sleep 500ms
+
+# ... etc ...
+
+Type "/quit"
+Enter
+Sleep 500ms
+```
 
 ### Runner
 
@@ -107,8 +158,22 @@ The `_trash` GIFs are an artifact of how VHS works: the `Output` directive is ma
 
 1. Lists `.tape` files in `.harness/visual/scenarios/` (skips any starting with `_` — those are preamble fragments).
 2. Either renders all of them (`bun run visual`) or filters by name (`bun run visual splash`).
-3. Shells out to `vhs <tape>` for each.
-4. Reports per-scenario success + wall time.
+3. Parses each tape for declared `Screenshot` paths so it knows what to expect.
+4. Shells out to `vhs <tape>` for each.
+5. Reports per-scenario success + wall time + each PNG written.
+6. Post-validates that every declared PNG actually exists on disk; reports `PARTIAL` if any are missing.
+
+Output shape:
+
+```
+▶ rendering splash ... OK (10s) → .harness/visual/output/splash.png
+▶ rendering file-edit ... OK (32s) — 3 screenshots:
+    .harness/visual/output/file-edit-01-baseline.png
+    .harness/visual/output/file-edit-02-after-edit.png
+    .harness/visual/output/file-edit-03-final.png
+
+2 scenarios rendered (4 PNGs).
+```
 
 The script intentionally has minimal logic so it doesn't need its own tests beyond the regression checks below.
 
@@ -187,7 +252,8 @@ The runner and scenarios have lightweight regression tests under `tests/visual/`
 - **`scenarios.test.ts`** — for each `.tape` file in `scenarios/`:
   - It sources the preamble.
   - It declares an `Output` to the `_trash/` directory.
-  - It captures a `Screenshot` at exactly the expected output path.
+  - Every `Screenshot` path matches either the single-shot pattern (`<name>.png`) or the multi-shot pattern (`<name>-NN-<step>.png`). A scenario cannot mix the two.
+  - Multi-shot ordinals start at `01` and increment sequentially (no gaps).
   - Every `Screenshot` is followed by a `Sleep` of at least 200ms (buffer against capturing the next keystroke).
   - It has an explicit exit (`/quit` or `Escape` for `sov config` scenarios).
 

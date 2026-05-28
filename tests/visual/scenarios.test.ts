@@ -3,9 +3,14 @@
 //   1. Sources the preamble.
 //   2. Declares an Output to `_trash/<name>.gif` (VHS requires Output;
 //      the GIF is throwaway).
-//   3. Includes a Screenshot directive pointing at
-//      `.harness/visual/output/<name>.png` — that's the file the agent reads.
-//   4. Ends with a clean `/quit` so sov exits cleanly.
+//   3. Includes one or more Screenshot directives:
+//      - Single-shot pattern: `.harness/visual/output/<name>.png`
+//      - Multi-shot pattern:  `.harness/visual/output/<name>-NN-<step>.png`
+//        (NN = two-digit ordinal; <step> = kebab-case step description)
+//      Scenarios may NOT mix the two patterns within a single tape.
+//   4. Every Screenshot is followed by a Sleep of ≥200ms (buffer against
+//      capturing the next keystroke).
+//   5. Ends with a clean `/quit` or `Escape` so sov exits cleanly.
 //
 // Per the convention doc (docs/conventions/visual-tui-qa.md), these are
 // scenario contracts, not runtime tests — we do NOT actually run VHS here
@@ -33,6 +38,20 @@ function listScenarios(): Scenario[] {
     }));
 }
 
+/** Extract every `Screenshot <path>` line from a tape, with the path. */
+function extractScreenshotPaths(body: string): string[] {
+  const out: string[] = [];
+  for (const line of body.split('\n')) {
+    const m = line.match(/^\s*Screenshot\s+(\S+)\s*$/);
+    if (m) out.push(m[1] as string);
+  }
+  return out;
+}
+
+const SINGLE_SHOT_RE = (name: string) => new RegExp(`^\\.harness/visual/output/${name}\\.png$`);
+const MULTI_SHOT_RE = (name: string) =>
+  new RegExp(`^\\.harness/visual/output/${name}-\\d{2}-[a-z0-9][a-z0-9-]*\\.png$`);
+
 describe('visual scenarios', () => {
   const scenarios = listScenarios();
 
@@ -51,20 +70,45 @@ describe('visual scenarios', () => {
         expect(body).toContain(expected);
       });
 
-      test('captures a Screenshot to the canonical path', () => {
-        const expected = `Screenshot .harness/visual/output/${name}.png`;
-        expect(body).toContain(expected);
+      test('all Screenshot paths follow the naming convention', () => {
+        const paths = extractScreenshotPaths(body);
+        expect(paths.length).toBeGreaterThan(0);
+
+        const singleRe = SINGLE_SHOT_RE(name);
+        const multiRe = MULTI_SHOT_RE(name);
+
+        const singleMatches = paths.filter((p) => singleRe.test(p));
+        const multiMatches = paths.filter((p) => multiRe.test(p));
+        const unmatched = paths.filter((p) => !singleRe.test(p) && !multiRe.test(p));
+
+        // No paths outside the two allowed patterns.
+        expect(unmatched).toEqual([]);
+
+        // A scenario uses EITHER the single-shot pattern (1 PNG named
+        // <name>.png) OR the multi-shot pattern (multiple PNGs named
+        // <name>-NN-<step>.png). Mixing is rejected.
+        if (paths.length === 1) {
+          // 1 screenshot — either pattern is OK in theory but the
+          // canonical form for a single capture is the bare name.
+          expect(singleMatches.length).toBe(1);
+        } else {
+          // 2+ screenshots — every path must be in the multi pattern,
+          // and ordinals must be sequential from 01.
+          expect(multiMatches.length).toBe(paths.length);
+          const ordinals = paths.map((p) => {
+            const m = p.match(/-(\d{2})-/);
+            return m ? Number(m[1]) : -1;
+          });
+          for (let i = 0; i < ordinals.length; i++) {
+            expect(ordinals[i]).toBe(i + 1);
+          }
+        }
       });
 
-      test('Screenshot is followed by a Sleep buffer (avoids capturing next-input keystrokes)', () => {
-        // VHS' Screenshot directive is fast but not strictly synchronous
-        // with subsequent Type/Enter directives; without a Sleep buffer
-        // the screenshot can capture the next keystroke landing. Every
-        // scenario must Sleep at least 200ms after each Screenshot.
-        const screenshotPattern =
-          /Screenshot\s+\.harness\/visual\/output\/[\w-]+\.png[^\n]*\n\s*Sleep\s+(\d+)(ms|s)/g;
+      test('every Screenshot is followed by a Sleep ≥200ms', () => {
+        const screenshotPattern = /Screenshot\s+\S+[^\n]*\n\s*Sleep\s+(\d+)(ms|s)/g;
         const matches = [...body.matchAll(screenshotPattern)];
-        const screenshotCount = (body.match(/^Screenshot\s+/gm) ?? []).length;
+        const screenshotCount = (body.match(/^\s*Screenshot\s+/gm) ?? []).length;
         expect(matches.length).toBe(screenshotCount);
         for (const m of matches) {
           const value = Number(m[1]);
@@ -75,9 +119,6 @@ describe('visual scenarios', () => {
       });
 
       test('has an explicit exit (/quit or Escape) so sov exits cleanly', () => {
-        // Full-sov scenarios use `/quit`; `sov config` standalone
-        // scenarios use `Escape` on the root menu (configOnly mode
-        // exits when no modal is open). Either is acceptable.
         const hasQuit = body.includes('Type "/quit"');
         const hasEscape = /\bEscape\b/.test(body);
         expect(hasQuit || hasEscape).toBe(true);
