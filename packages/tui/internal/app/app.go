@@ -26,11 +26,19 @@ import (
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
 
-// sseMsg is emitted into the Bubble Tea event loop for each Envelope.
-type sseMsg struct{ env transport.Envelope }
+// sseMsg is emitted into the Bubble Tea event loop for each Envelope. `gen`
+// identifies which SSE consumer produced it; messages from a consumer that has
+// since been superseded by a reconnect (session pivot) are ignored.
+type sseMsg struct {
+	gen int
+	env transport.Envelope
+}
 
 // sseDoneMsg signals the SSE consumer has finished (turn ended or error).
-type sseDoneMsg struct{ err error }
+type sseDoneMsg struct {
+	gen int
+	err error
+}
 
 // turnSubmitErrMsg is emitted when a POST /turns request fails. M3 prints a
 // dim error line to the transcript; M4+ surfaces structured errors.
@@ -119,6 +127,8 @@ type Model struct {
 	cancel           context.CancelFunc
 	events           <-chan transport.Envelope
 	errs             <-chan error
+	sseGen           int                // generation of the current SSE consumer; stale-gen sseMsg/sseDoneMsg are ignored after a session-pivot reconnect
+	sseCancel        context.CancelFunc // cancels the current SSE consumer's request; torn down + replaced on reconnect (nil until first startSSE)
 	thinkingPending  bool
 	permission       *components.Permission // M5 T9: active approval modal; nil when not visible
 	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
@@ -479,8 +489,10 @@ func New(sessionID, baseURL string) Model {
 		verboseRaw:            false,
 	}
 	if baseURL != "" {
-		streamURL := fmt.Sprintf("%s/sessions/%s/events", baseURL, sessionID)
-		m.events, m.errs = transport.Consume(ctx, streamURL)
+		// Sets up the first SSE consumer (gen 1). Init() issues the matching
+		// waitEvent Cmd; the Cmd returned here is discarded (New returns only
+		// the Model).
+		m, _ = m.startSSE()
 	}
 	return m
 }
@@ -641,7 +653,12 @@ func (m Model) Init() tea.Cmd {
 	if m.events == nil {
 		return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd(), m.fetchCommandsCmd())
 	}
-	return tea.Batch(m.fetchMessagesCmd(), m.fetchSkillsCmd(), m.fetchCommandsCmd(), m.waitEvent)
+	return tea.Batch(
+		m.fetchMessagesCmd(),
+		m.fetchSkillsCmd(),
+		m.fetchCommandsCmd(),
+		m.waitEventGen(m.sseGen, m.events, m.errs),
+	)
 }
 
 // fetchMessagesCmd issues the GET /sessions/<id>/messages backlog fetch
@@ -722,27 +739,59 @@ func (m Model) uninstallSkillCmd(name string) tea.Cmd {
 	}
 }
 
-// waitEvent blocks until the next SSE event arrives (or the stream ends).
-// Idiomatic Bubble Tea pattern for an unbounded event source: the Cmd reads
-// from a long-lived channel and reschedules itself after each delivery.
-func (m Model) waitEvent() tea.Msg {
-	if m.events == nil {
-		return sseDoneMsg{}
+// startSSE (re)opens the SSE consumer for the CURRENT m.sessionID and returns
+// the Cmd that waits on it. It tears down any previous consumer first (cancel
+// its request → its channels close → its in-flight waiter returns a stale-gen
+// sseDoneMsg that the handler ignores) and bumps m.sseGen so no double
+// subscription and no stale event survive a session pivot. Call this after any
+// BETWEEN-TURN session-id pivot (/clear, /rollback, /compact); mid-turn pivots
+// (the compaction_complete event) keep streaming on the original bus and
+// reconnect at turn end via sseDoneMsg.
+func (m Model) startSSE() (Model, tea.Cmd) {
+	if m.baseURL == "" {
+		return m, nil
 	}
-	select {
-	case <-m.ctx.Done():
-		return sseDoneMsg{err: m.ctx.Err()}
-	case env, ok := <-m.events:
-		if !ok {
-			// channel closed — drain errs (single value) if present.
-			select {
-			case err := <-m.errs:
-				return sseDoneMsg{err: err}
-			default:
-				return sseDoneMsg{}
-			}
+	if m.sseCancel != nil {
+		m.sseCancel()
+	}
+	m.sseGen++
+	cctx, cancel := context.WithCancel(m.ctx)
+	m.sseCancel = cancel
+	streamURL := fmt.Sprintf("%s/sessions/%s/events", m.baseURL, m.sessionID)
+	m.events, m.errs = transport.Consume(cctx, streamURL)
+	return m, m.waitEventGen(m.sseGen, m.events, m.errs)
+}
+
+// waitEventGen blocks until the next SSE event arrives (or the stream ends),
+// tagging the result with `gen` and reading the SPECIFIC channels it was
+// created for (not m.events) so a reconnect that reassigns m.events can't make
+// an in-flight waiter read the wrong stream. Idiomatic Bubble Tea pattern for
+// an unbounded source: the Cmd reschedules itself (same gen) after each event.
+func (m Model) waitEventGen(
+	gen int,
+	events <-chan transport.Envelope,
+	errs <-chan error,
+) tea.Cmd {
+	ctx := m.ctx
+	return func() tea.Msg {
+		if events == nil {
+			return sseDoneMsg{gen: gen}
 		}
-		return sseMsg{env: env}
+		select {
+		case <-ctx.Done():
+			return sseDoneMsg{gen: gen, err: ctx.Err()}
+		case env, ok := <-events:
+			if !ok {
+				// channel closed — drain errs (single value) if present.
+				select {
+				case err := <-errs:
+					return sseDoneMsg{gen: gen, err: err}
+				default:
+					return sseDoneMsg{gen: gen}
+				}
+			}
+			return sseMsg{gen: gen, env: env}
+		}
 	}
 }
 
@@ -1288,12 +1337,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_ = msg
 		return m, m.respond(nil)
 	case sseMsg:
+		// gen 0 = an untagged (test-injected) event — always process; real
+		// consumers tag with gen >= 1 (startSSE increments before waiting). A
+		// non-zero gen that doesn't match the current consumer is from one
+		// superseded by a session-pivot reconnect — drop it and do NOT
+		// reschedule (the current-gen waiter is already running).
+		if msg.gen != 0 && msg.gen != m.sseGen {
+			return m, m.respond(nil)
+		}
 		eventCmd := m.handleEvent(msg.env)
 		// ux-fixes round 5 — drain any Println output the handler queued
 		// alongside the next-event waiter. tea.Batch preserves visibility;
 		// Println goes to the terminal's output stream and the waiter
-		// continues blocking on m.events.
-		return m, m.respond(tea.Batch(m.waitEvent, eventCmd))
+		// continues blocking on the current consumer's channel.
+		return m, m.respond(tea.Batch(m.waitEventGen(m.sseGen, m.events, m.errs), eventCmd))
 	case stallExpireMsg:
 		// M9.6 T2: clear the badge only if no NEWER stall has arrived.
 		// Stale ticks (older gen than current) are no-ops; the newer
@@ -1333,13 +1390,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.thinkingPending = true
 		return m, m.startSpinner("thinking")
 	case sseDoneMsg:
+		// gen 0 = untagged (test-injected); always handle. A non-zero gen that
+		// doesn't match the current consumer is a superseded stream ending — the
+		// live consumer owns reconnection, so ignore it (this is what prevents a
+		// torn-down stream from re-subscribing the new session's single-slot
+		// bus and stealing it from the live consumer).
+		if msg.gen != 0 && msg.gen != m.sseGen {
+			return m, m.respond(nil)
+		}
 		// The server closes the SSE stream and disposes the per-session bus
 		// after every turn_complete / turn_error (events.ts:63-74) by M3
 		// design. Without reconnect the TUI subscribes once in New() and
 		// never sees events from any subsequent turn — the user submits a
-		// turn (POST returns 202) but nothing ever renders. Re-Consume on
-		// a fresh subscription against the CURRENT m.sessionID (which may
-		// have pivoted via /compact or compaction_complete). Skip when:
+		// turn (POST returns 202) but nothing ever renders. startSSE re-opens
+		// against the CURRENT m.sessionID (which may have pivoted via
+		// compaction_complete mid-turn). Skip when:
 		//   - app context is cancelled (user pressed ESC / Ctrl+C)
 		//   - baseURL is empty (render-only test fixtures with no server)
 		// The dim "[stream closed]" marker that this branch used to emit
@@ -1348,9 +1413,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ctx.Err() != nil || m.baseURL == "" {
 			return m, m.respond(nil)
 		}
-		streamURL := fmt.Sprintf("%s/sessions/%s/events", m.baseURL, m.sessionID)
-		m.events, m.errs = transport.Consume(m.ctx, streamURL)
-		return m, m.waitEvent
+		var c tea.Cmd
+		m, c = m.startSSE()
+		return m, c
 	case turnSubmitErrMsg:
 		m.print(
 			lipgloss.NewStyle().
@@ -1406,7 +1471,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sessionID = msg.activeSessionID
 		m.print(dim.Render(fmt.Sprintf("─ compacted — new session %s", shortSessionID(msg.activeSessionID))))
-		return m, m.respond(nil)
+		// /compact is a between-turns pivot: the old session's SSE stays idle
+		// and won't close on its own to trigger sseDoneMsg, so reconnect the
+		// stream to the new session here or the next turn renders nothing.
+		var c tea.Cmd
+		m, c = m.startSSE()
+		return m, m.respond(c)
 	case compactErrorMsg:
 		m.live.SetRunningCommand("")
 		m.print(
@@ -1545,6 +1615,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// model change is visible via the command's output text — no
 		// statusline mutation needed in M10.5.
 		var clearScrollbackPending bool
+		var sseReconnect tea.Cmd
 		if msg.resp != nil && msg.resp.SideEffects != nil {
 			se := msg.resp.SideEffects
 			// 2026-05-24 patch — /clear scrollback wipe. We need to
@@ -1565,6 +1636,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						fmt.Sprintf("─ session %s", shortSessionID(se.NewSessionID)),
 					),
 				)
+				// /clear and /rollback pivot the session between turns; the old
+				// session's SSE stays idle and won't close to trigger
+				// sseDoneMsg, so reconnect the stream to the new session here or
+				// the next turn renders nothing. Batched into the return below.
+				m, sseReconnect = m.startSSE()
 			}
 			// Backlog #46 — apply theme client-side. The server has
 			// already persisted to ~/.harness/config.json via
@@ -1629,10 +1705,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			spinCmd := m.startSpinner("thinking")
 			return m, m.wrapClearScrollback(
 				clearScrollbackPending,
-				m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd)),
+				m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd, sseReconnect)),
 			)
 		}
-		return m, m.wrapClearScrollback(clearScrollbackPending, m.maybeQuitAfterModalClose(m.respond(nil)))
+		return m, m.wrapClearScrollback(
+			clearScrollbackPending,
+			m.maybeQuitAfterModalClose(m.respond(sseReconnect)),
+		)
 	}
 	// ux-fixes round 5 — no transcript forwarding for unhandled msgs.
 	// History lives in terminal scrollback; nothing reroutes here.
@@ -1643,7 +1722,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // an optional tea.Cmd for events that need to schedule follow-up work
 // (M9.6 T2: stall_detected schedules a tea.Tick for badge auto-clear;
 // M9.6 T3: compaction_complete returns a refetch-skills cmd). Callers
-// in Update batch the returned cmd with m.waitEvent so neither is dropped.
+// in Update batch the returned cmd with the gen-bound SSE waiter so neither is dropped.
 // applyThemeByName resolves the named theme and updates m.theme + all
 // theme-aware components. Returns nil on success, error on unknown
 // name. Backlog #46: extracted from the prior /theme client-side

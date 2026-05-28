@@ -1057,6 +1057,85 @@ func TestApp_reconsumesSSEAfterTurnComplete(t *testing.T) {
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
 }
 
+// TestApp_reconnectsSSEOnSessionPivot guards H10: /clear and /rollback pivot the
+// session id BETWEEN turns via a NewSessionID side-effect. The old session's
+// SSE stays idle and never closes to trigger sseDoneMsg, so the TUI must
+// reconnect to the NEW session explicitly — otherwise the next turn's events
+// render nowhere and the UI looks frozen. We drive the pivot and assert an SSE
+// connection opens against the new session id.
+func TestApp_reconnectsSSEOnSessionPivot(t *testing.T) {
+	const oldID = "sess-old"
+	const newID = "sess-new"
+	var oldEvents, newEvents int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/messages"):
+			fmt.Fprint(w, `{"messages":[]}`)
+			return
+		case strings.HasSuffix(path, "/skills"):
+			fmt.Fprint(w, `{"skills":[]}`)
+			return
+		case strings.HasSuffix(path, "/commands") && r.Method == http.MethodGet:
+			fmt.Fprint(w, `{"commands":[]}`)
+			return
+		case strings.HasSuffix(path, "/events"):
+			switch {
+			case strings.Contains(path, "/"+newID+"/"):
+				atomic.AddInt32(&newEvents, 1)
+			case strings.Contains(path, "/"+oldID+"/"):
+				atomic.AddInt32(&oldEvents, 1)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			// Hold the connection open + idle (a between-turns subscription)
+			// until the client tears it down (reconnect) or the program exits.
+			<-r.Context().Done()
+			return
+		}
+	}))
+	defer srv.Close()
+
+	tm := teatest.NewTestModel(t, New(oldID, srv.URL), teatest.WithInitialTermSize(80, 24))
+
+	// Wait for the initial SSE connection to the OLD session.
+	waitFor := func(counter *int32) bool {
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if atomic.LoadInt32(counter) >= 1 {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+	if !waitFor(&oldEvents) {
+		t.Fatal("initial SSE connection to the old session never established")
+	}
+
+	// Simulate /clear: a commandDispatchedMsg carrying a NewSessionID pivot.
+	tm.Send(commandDispatchedMsg{
+		name: "clear",
+		resp: &transport.CommandResponse{
+			Output:      "cleared",
+			SideEffects: &transport.CommandSideEffects{NewSessionID: newID},
+		},
+	})
+
+	// The load-bearing assertion: the SSE must reconnect to the NEW session.
+	// Pre-fix the stream stayed on the old session and this never happens.
+	if !waitFor(&newEvents) {
+		t.Fatalf("SSE did not reconnect to new session %q after pivot (old=%d new=%d)",
+			newID, atomic.LoadInt32(&oldEvents), atomic.LoadInt32(&newEvents))
+	}
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+}
+
 // TestApp_hydratesTranscriptFromPriorMessages guards M4 Task 9: on Init the
 // app fetches GET /sessions/<id>/messages and renders each prior text block
 // before (or alongside) the live SSE stream. Resume flows therefore show the
