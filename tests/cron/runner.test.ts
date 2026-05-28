@@ -198,6 +198,37 @@ describe('CronRunner file-lock', () => {
     r2.releaseTickLock();
   });
 
+  test('tick() skips running due jobs while another holder owns the tick lock', async () => {
+    // Contract the `sov cron tick` CLI relies on: tick() must honor the
+    // cross-process lock so a manual tick can't double-fire a job already
+    // being processed by a live scheduler loop. (runDueJobs() does NO locking,
+    // which is why the CLI must call tick(), not runDueJobs().)
+    const job = addJob(home, {
+      prompt: 'echo',
+      schedule: { kind: 'relative', offsetMs: 0 },
+      deliver: 'local',
+      skills: [],
+    });
+    const runs: string[] = [];
+    const mkRunner = () =>
+      new CronRunner({
+        harnessHome: home,
+        now: () => Date.now() + 1000,
+        runJob: async (j) => {
+          runs.push(j.id);
+          return { ok: true, durationMs: 1 };
+        },
+      });
+    const holder = mkRunner();
+    expect(holder.tryAcquireTickLock()).toBe(true); // a live process owns the lock
+    const other = mkRunner();
+    await other.tick();
+    expect(runs).toEqual([]); // lock held → tick skipped, job not fired
+    holder.releaseTickLock();
+    await other.tick();
+    expect(runs).toEqual([job.id]); // lock free → tick runs the due job
+  });
+
   test('tryAcquireTickLock takes over a stale lock (PID dead)', () => {
     const fs = require('node:fs') as typeof import('node:fs');
     const cronDir = join(home, 'cron');

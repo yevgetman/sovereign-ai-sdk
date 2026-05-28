@@ -810,7 +810,9 @@ async function main(argv: string[]): Promise<void> {
       const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
       try {
         const runner = createProductionCronRunner(runtime, resolveHarnessHome());
-        await runner.runDueJobs();
+        // tick() (not runDueJobs()) so the manual tick honors the cross-process
+        // .tick.lock and can't double-fire a job a live scheduler is running.
+        await runner.tick();
         process.stdout.write('tick complete\n');
       } finally {
         await runtime.dispose();
