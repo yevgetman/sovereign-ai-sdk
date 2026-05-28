@@ -498,6 +498,26 @@ async function executeOne(
     }
   }
 
+  // Semantic input validation: tools may declare validateInput() for checks
+  // Zod can't express (e.g. WebFetch's scheme + private-host/SSRF guard).
+  // Runs on the final callInput (after permission + hook rewrites) so the
+  // input that's actually executed is the one checked. {ok:false} short-
+  // circuits to an is_error tool_result; tool.call() is never reached.
+  if (tool.validateInput) {
+    const validation = await tool.validateInput(callInput, ctx);
+    if (!validation.ok) {
+      notifyLearningObserver(ctx, tool.name, callInput, 'error', Date.now() - dispatchStart, {
+        traceId: block.id,
+      });
+      return {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: `input validation failed: ${validation.reason}`,
+        is_error: true,
+      };
+    }
+  }
+
   recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
   const callStart = Date.now();
   let result: { data: unknown; observation?: ToolObservation };

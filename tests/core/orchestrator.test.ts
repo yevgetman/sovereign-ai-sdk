@@ -798,3 +798,45 @@ describe('notifyLearningObserver helper', () => {
     expect(calls[0]?.traceId).toBeUndefined();
   });
 });
+
+describe('validateInput dispatch', () => {
+  function makeValidatedTool(verdict: { ok: true } | { ok: false; reason: string }): {
+    tool: Tool<unknown, unknown>;
+    wasCalled: () => boolean;
+  } {
+    let called = false;
+    const tool = buildTool({
+      name: 'Validated',
+      description: () => 'tool with a validateInput guard',
+      inputSchema: z.object({ url: z.string() }),
+      validateInput: async () => verdict,
+      async call() {
+        called = true;
+        return { data: 'ran' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    return { tool, wasCalled: () => called };
+  }
+
+  test('validateInput rejection short-circuits to is_error and skips call()', async () => {
+    const { tool, wasCalled } = makeValidatedTool({ ok: false, reason: 'blocked host' });
+    const results = await collectResults(
+      [{ type: 'tool_use', id: 'v1', name: 'Validated', input: { url: 'http://x' } }],
+      [tool],
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0]?.is_error).toBe(true);
+    expect(String(results[0]?.content)).toContain('blocked host');
+    expect(wasCalled()).toBe(false);
+  });
+
+  test('validateInput pass lets call() run', async () => {
+    const { tool, wasCalled } = makeValidatedTool({ ok: true });
+    const results = await collectResults(
+      [{ type: 'tool_use', id: 'v2', name: 'Validated', input: { url: 'http://x' } }],
+      [tool],
+    );
+    expect(results[0]?.is_error).toBeFalsy();
+    expect(wasCalled()).toBe(true);
+  });
+});
