@@ -171,7 +171,7 @@ type GlyphTokens struct {
 type BrandColors struct {
 	VerbColor         string // purple for tool verbs + tool card header
 	AccentColor       string // sky-300 for delegator accents + inline code
-	HeadingColor      string // sky-200 for markdown headings
+	HeadingColor      string // sky-100 for markdown headings (one step lighter than sky-300 emphasis)
 	PickerItemColor   string // peach for picker/autocomplete items
 	PickerHintColor   string // grey-blue for hints
 	PickerBadgeColor  string // green for "live" badge
@@ -294,7 +294,7 @@ var S = StyleGuide{
 	Brand: BrandColors{
 		VerbColor:         "#a78bfa",
 		AccentColor:       "#7dd3fc",
-		HeadingColor:      "#bae6fd",
+		HeadingColor:      "#e0f2fe",
 		PickerItemColor:   "#fab387",
 		PickerHintColor:   "#7a8eb8",
 		PickerBadgeColor:  "#a6e3a1",

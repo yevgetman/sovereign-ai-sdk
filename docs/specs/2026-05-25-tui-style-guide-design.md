@@ -183,7 +183,7 @@ Organized by visual context, seeded with exact current values for byte-identical
 | `VerbColor` | `"#a78bfa"` | purple for tool verbs + tool card header |
 | `AccentColor` | `"#7dd3fc"` | sky-300 for delegator accents |
 | `InlineCodeColor` | `"#7dd3fc"` | sky-300 for inline code |
-| `HeadingColor` | `"#bae6fd"` | sky-200 for markdown headings |
+| `HeadingColor` | `"#e0f2fe"` | sky-100 for markdown headings (lighter than sky-300 emphasis) |
 | `PickerItemColor` | `"#fab387"` | peach for picker/autocomplete items |
 | `PickerHintColor` | `"#7a8eb8"` | grey-blue for hints |
 | `PickerBadgeColor` | `"#a6e3a1"` | green for "live" badge |

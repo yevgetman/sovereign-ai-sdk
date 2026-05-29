@@ -48,7 +48,7 @@ func TestMarkdownLightThemeRenders(t *testing.T) {
 }
 
 // TestMarkdownHeadingsAreThemeIndependent guards the ux-fixes choice:
-// H1–H6 colors are pinned to a fixed light-blue hex (sky-200 #bae6fd)
+// H1–H6 colors are pinned to a fixed light-blue hex (sky-100 #e0f2fe)
 // rather than derived from theme.Primary, so headings read as the
 // same shade across every theme. Dark.Primary (#89b4fa) and
 // Sovereign.Primary (#58a6ff) differ; if headings still tracked

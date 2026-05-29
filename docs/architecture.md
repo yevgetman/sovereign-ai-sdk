@@ -294,7 +294,7 @@ The model holds a `pendingPrintln []string` queue. Handlers push via `m.print(li
 
 `packages/tui/internal/theme/` ships built-in themes (Dark / Light / Tokyo Night / Sovereign / Catppuccin Mocha / Latte) plus TOML user themes loaded from `<harness-home>/themes/<name>.toml`. The `/theme` slash command flows through the M11.5 picker → `themeChanged` side-effect → `applyThemeByName` updates `m.theme` + `m.live.SetTheme(t)` + every themed sub-component. Mid-session theme changes affect only the live region; content already printed to scrollback retains the styling it was emitted with (the terminal owns it).
 
-Pinned-hex accents survive: headings (`#bae6fd` Tailwind sky-200), inline code (`#7dd3fc` sky-300), file refs use the inline-code style via the `wrapFileRefs` pre-processor. Body text intentionally has NO Foreground so it inherits the terminal default — see `docs/conventions/tui-color-rendering.md` for the rationale + the M11.5 → M11.10 iteration narrative.
+Pinned-hex accents survive: headings (`#e0f2fe` Tailwind sky-100), inline code (`#7dd3fc` sky-300), file refs use the inline-code style via the `wrapFileRefs` pre-processor. Body text intentionally has NO Foreground so it inherits the terminal default — see `docs/conventions/tui-color-rendering.md` for the rationale + the M11.5 → M11.10 iteration narrative.
 
 ## Runtime Introspection — `HarnessInfo`
 

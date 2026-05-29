@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-29 — Markdown heading color: sky-100 (UX fix from annotated screenshot)
+
+User flagged (annotated `ux1.png`) that markdown heading lines render the same
+blue as bold/inline-code and should be "a lighter blue."
+
+- **Root-cause forensics:** Pixel-sampled the screenshot — all headings (`##`
+  + `###`) rendered `rgb(120,210,250)` ≈ `#7dd3fc` (sky-300), *identical* to
+  bold/inline-code. But a Go probe (`render.Markdown` ANSI dump) proved the
+  source at the user's installed commit (`5ef0aab` / 0.6.9) and at HEAD already
+  emits `#bae6fd` (sky-200) for headings — theme-independent fixed hex. ⇒ the
+  screenshot was a **stale sov-tui Go binary** (predating the `5e2bdc7`
+  heading pin), not a live code bug. Documented the diagnostic in
+  `tui-color-rendering.md`.
+- **Fix (user chose "make it clearly lighter"):** `Brand.HeadingColor`
+  `#bae6fd` (sky-200) → `#e0f2fe` (sky-100). Swatch-compared candidates;
+  rejected `#f0f9ff`/paler (washes toward white, re-enters the bright-white
+  quantization trap). Probe confirms headings now emit `rgb(224,242,254)` =
+  `#e0f2fe`; bold/code stay `rgb(125,211,252)` = `#7dd3fc`.
+- **Go:** `go test ./...` — all test packages green (style snapshot +
+  render + theme-independence). `go vet`/`build` clean.
+- **TS gate:** `bun run lint` + `typecheck` clean; `bun run test` **2643 pass
+  / 3 fail / 14 skip**. The 3 fails are the documented environment-only
+  learning-observer tests (`turns.learning` M7 T5, `m7Full`, `m8Full`) — a
+  Go/docs-only change cannot affect them. No new failures.
+- **Style-guide upkeep:** corrected three stale `tui-color-rendering.md`
+  references that still claimed headings use `theme.Primary`; updated
+  `architecture.md`, the style-guide design spec, and the `style_test.go`
+  snapshot. Release v0.6.13 follows.
+
 ## 2026-05-28 — Deep bug-hunt audit + 21 fixes (TDD, per-fix gate)
 
 Conservative whole-codebase audit (14 subsystem finders → 2 independent

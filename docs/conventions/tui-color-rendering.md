@@ -96,7 +96,7 @@ not just bright) still get explicit colors:
 | Element | Color | Why |
 |---|---|---|
 | `❯` user-line marker | `Brand.AccentColor` (bold) | distinguishes user lines from assistant |
-| Headings (H1–H6) | `theme.Primary` (bold) | structural distinction |
+| Headings (H1–H6) | `Brand.HeadingColor` (`#e0f2fe` sky-100, bold) | structural distinction — clearly *lighter* than emphasis (see "Heading vs emphasis hierarchy" below) |
 | Links / images | `theme.Primary` | actionable / external reference |
 | Inline code | `theme.Success` on `theme.CodeBackground` | code-vs-prose distinction |
 | Block quotes | `theme.Dim` | quoted-source signal |
@@ -185,15 +185,59 @@ foreground end this time.
 **Fix:** for inline code specifically, use a fixed sky-blue hex
 (`#7dd3fc` Tailwind sky-300) bound to a local `inlineCodeColor`
 variable. Not derived from `theme.Primary` so themes can't drift it
-back into a dark range. Other accent colors (headings, links,
-errors) still use theme tokens because they're not the
-"this-must-read-as-light-blue" element.
+back into a dark range. Headings later joined this fixed-hex family
+too (see next section); links and errors still use theme tokens
+because they're not "this-must-read-as-a-specific-light-blue"
+elements.
 
 **Lesson:** if an accent must read as a *specific shade family*
 (light blue, dark green, etc.) rather than just "some accent
 color," pin it to a fixed hex outside the theme tokens. Theme
 tokens are for thematic consistency; fixed hexes are for
 shade-specific identity.
+
+## Heading vs emphasis hierarchy: sky-100 over sky-300
+
+Markdown headings and inline emphasis share the "light sky blue"
+family but are pinned to **two fixed hexes one full rung apart** so
+they read as distinct structural tiers:
+
+| Element | Token | Hex | Tailwind |
+|---|---|---|---|
+| Headings H1–H6 | `Brand.HeadingColor` | `#e0f2fe` | sky-100 (clearly lighter) |
+| `**bold**` (Strong) + inline `` `code` `` | `Brand.AccentColor` | `#7dd3fc` | sky-300 (darker) |
+
+Headings sit **clearly lighter** than inline emphasis. The evolution:
+
+1. **Pre-`5e2bdc7`** — headings derived from `theme.Primary`
+   (Catppuccin `#89b4fa` / Sovereign `#58a6ff`), which the user found
+   too dark/saturated for `##` structural markers.
+2. **`5e2bdc7` (2026-05-20)** — pinned to sky-200 `#bae6fd`, one step
+   lighter than the sky-300 emphasis.
+3. **2026-05-29** — sky-200 sat only *one* rung above the sky-300
+   emphasis, which read as too subtle (headings and bold/code looked
+   nearly the same blue). Moved one more rung lighter to sky-100
+   `#e0f2fe` so the heading tier is unmistakable. sky-50 `#f0f9ff` /
+   anything paler was rejected — it washes toward white and loses the
+   blue identity (and re-enters the bright-white quantization trap that
+   the M11.5→M11.10 saga above warns about).
+
+Both are fixed hexes (not theme tokens) so palette quantization can't
+collapse the gap — per the shade-specific-identity rule above. Headings
+are theme-independent by design; a `## Header` renders byte-identically
+under every theme (asserted in `markdown_test.go`).
+
+**Diagnostic — headings rendering the SAME blue as bold/inline-code:**
+that means the running `sov-tui` Go binary predates `5e2bdc7` (the
+original heading-color pin, 2026-05-20) — i.e. the **Go binary is
+stale** even if `sov --version` reports a current TS runtime. The two
+go out of sync when an upgrade's postinstall TUI rebuild silently skips
+(Go < 1.24 on PATH, or trust not granted). If headings render lighter
+than bold/code but the gap looks too small, the binary is merely a
+generation behind (sky-200 era, `5e2bdc7`..pre-`2026-05-29`); the
+current source is sky-100. Either way the fix is to rebuild the binary
+— the source is already correct. See "How to verify a color change
+actually shipped" below for the binary-freshness check.
 
 ## Rule: no `t.Primary` blue in tool or routing output
 
@@ -213,8 +257,10 @@ Instead:
 | Detail text (duration, preview, distribution) | `t.Info` (muted but readable) |
 | Status glyphs (✓ / ✗) | `t.Success` / `t.Error` (semantic — keep) |
 
-`t.Primary` remains correct for **structural markdown** (headings, links)
-where it serves as an accent against body text. The `❯` user marker uses
+`t.Primary` remains correct for **structural markdown** links
+where it serves as an accent against body text (headings use the fixed
+`Brand.HeadingColor` sky-200, not `t.Primary` — see the heading hierarchy
+section above). The `❯` user marker uses
 `Brand.AccentColor` (sky-300, #7dd3fc) for better visibility. It
 should not appear in the tool/routing output pipeline. This rule was added
 after `t.Primary` blue on the dark Catppuccin Mocha theme rendered

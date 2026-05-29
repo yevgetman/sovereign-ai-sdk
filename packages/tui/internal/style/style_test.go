@@ -119,7 +119,7 @@ func TestKnownValues(t *testing.T) {
 		// Brand
 		{"Brand.VerbColor", S.Brand.VerbColor, "#a78bfa"},
 		{"Brand.AccentColor", S.Brand.AccentColor, "#7dd3fc"},
-		{"Brand.HeadingColor", S.Brand.HeadingColor, "#bae6fd"},
+		{"Brand.HeadingColor", S.Brand.HeadingColor, "#e0f2fe"},
 		{"Brand.PickerItemColor", S.Brand.PickerItemColor, "#fab387"},
 		{"Brand.PickerHintColor", S.Brand.PickerHintColor, "#7a8eb8"},
 		{"Brand.PickerBadgeColor", S.Brand.PickerBadgeColor, "#a6e3a1"},
