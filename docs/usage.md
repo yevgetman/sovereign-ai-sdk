@@ -94,7 +94,7 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `--transcript <path>` | **Warn** | Wires in M7 (trajectory capture) |
 | `--agent <name>` | **Warn** | Wires in M7 (sub-agent scheduler + scheduled-mission) |
 | `--state-dir <path>` | **Warn** | Wires in M7 |
-| `-v, --verbose` | **Warn** | Wires in M9 (visual polish) |
+| `-v, --verbose` | Wired | Forwarded to the TUI as `--verbose-raw` (raw tool-output escape hatch) |
 
 ## CLI Subcommands
 
@@ -107,7 +107,7 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive session; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires an interactive session"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
 | `mission init <dir> --goal "..."` | (Phase 13.5.) Bootstrap a scheduled-mission directory at `<dir>` with `mission.md` (goal + plan template), `state.json` (FSM initial state), `notes.md`, and the `.lock/` subdir. Refuses to overwrite an existing mission dir. |
 | `mission run --state-dir <dir>` | (Phase 13.5.) Non-interactive scheduled-mission wake. Runs one mission cycle (load state → check FSM gate → inject mission segments → invoke `scheduled-mission` agent → parse `MISSION_TRANSITION=<state>` sentinel → append wake-log → atomic state write-back → release lock). Exits with `[mission] state is 'complete' (terminal) — nothing to do` if the FSM is in a terminal state. Designed for launchd / cron invocation. The interactive equivalent `sov --agent scheduled-mission --state-dir <dir>` still works. |
-| `daemon` | (Phase 16.0a — dormant.) Acquire a per-profile PID lock, init the daemon event bus + session cache + approval queue, emit `daemon_started`, wait for SIGTERM/SIGINT. Currently has no foreground subscriber; the intended subscriber (Phase 16.0b Ink TUI) was reverted on 2026-05-12. Functional but unused pending the eventual Phase 16.1 design. Use `harness daemon` interchangeably. |
+| `daemon` | (Phase 16.0a — dormant.) Acquire a per-profile PID lock, init the daemon event bus + session cache + approval queue, emit `daemon_started`, wait for SIGTERM/SIGINT. Currently has no foreground subscriber; the intended subscriber (Phase 16.0b Ink TUI) was reverted on 2026-05-12. Functional but unused; Phase 16.1 shipped as the Bubble Tea TUI rebuild (not a daemon subscriber), so the daemon stays dormant pending a future daemon-subscriber design. Use `harness daemon` interchangeably. |
 | `config [verb]` | View or change durable user-level config. Verbs: `show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`. No verb opens an interactive picker. |
 | `upgrade` | Pull the latest sov from the private repo and re-link the global binary. Pre-uninstalls + reinstalls so Bun's lockfile evicts the stale SHA. Options: `--ref <ref>` (pin to tag/branch/commit), `--dry-run` (preview commands), `--skip-uninstall` (faster but Bun's git-cache may serve a stale SHA), `--purge-cache` (wipe `~/.bun/install/cache/` first — escape hatch when Bun keeps installing an older SHA than master HEAD). `SOV_UPGRADE_URL` env var overrides the install URL for forks. |
 | `profile [verb]` | Manage profile-scoped state roots under `<harness-home>/profiles/`. Verbs: `list` (table with `*` beside the active one), `show` (just the active name), `create <name>` (mkdir the profile dir), `use <name>` (pin the persisted active selection — use `default` to clear), `import-default <name>` (copy `config.json` + `credentials.json` from the unscoped root into the profile; sessions/trajectories/memory stay clean; refuses to overwrite). |
@@ -547,13 +547,13 @@ The TUI runs in **inline mode** (no alt screen) — your terminal owns the scrol
 
 Visual surfaces you'll see in a normal session:
 
-- **Splash** at startup — block-letter "SOV" logo (cyan→blue/purple/pink gradient) next to a boxed info card showing version, provider/auth, model, and cwd. Printed once into terminal scrollback so it sits at the top of your history.
+- **Splash** at startup — block-letter "SOV" logo (blue→teal→purple→pink gradient) next to a boxed info card showing version, provider/auth, model, and cwd. Printed once into terminal scrollback so it sits at the top of your history.
 - **Status line** at the bottom — `<cwd>  <profile>  <model>` on the left; `$<cost>  cache <pct>%` on the right, with a cyan spinner glyph when streaming. Dim foreground (ambient metadata, not primary content).
 - **Hint line** above the status — `? for shortcuts` (dim italic). Press `?` for the shortcut overlay.
-- **Prompt** above the hint — rounded-border box with `›` on the first line. Auto-grows up to 8 rows as you type or paste. Alt+Enter / Ctrl+J insert a newline; plain Enter submits.
+- **Prompt** above the hint — rounded-border box with `▸` on the first line. Auto-grows up to 8 rows as you type or paste. Alt+Enter / Ctrl+J insert a newline; plain Enter submits.
 - **Modal permission prompts** — when a tool needs approval, a yellow-bordered box overlays the screen: title, tool name, input, optional reason, and `[y] allow   [n] deny   [a] always` choices. The thinking spinner suppresses itself while the modal is up.
 - **Thinking spinner** — bottom-weighted Braille glyph (`⢀⣀⡀⡄⠄⠤⠠⢠`) + animated "Thinking…" label, appears immediately above the prompt during silent waits (provider work, tool execution, post-content idle gaps).
-- **User message echo** — your submission appears in scrollback as `» <text>`, wrapped to terminal width with hanging-indent continuation rows. Submissions above 1500 chars are truncated in the echo with a dim ` …[+N chars]` marker (the full text still ships to the model).
+- **User message echo** — your submission appears in scrollback as `❯ <text>`, wrapped to terminal width with hanging-indent continuation rows. Submissions above 1500 chars are truncated in the echo with a dim ` …[+N chars]` marker (the full text still ships to the model).
 - **Paste abstraction** — pastes ≥ 2 lines OR ≥ 200 chars are replaced in the prompt with `[Pasted text #N +M lines]`; the real content ships on Enter. Short pastes insert verbatim.
 - **Tool cards** — each `tool_result` prints a fully-expanded card into scrollback with the tool name, summary, and output. Diff renders inline for FileEdit/FileWrite. Use `/expand N` to re-render the Nth-most-recent tool's raw payload below the prompt.
 - **Pre-compaction warning** — when context utilization crosses 5% below the proactive-compaction threshold, the TUI prints a one-shot `[compact] approaching threshold (ctx N% / trigger M%)`.
@@ -709,16 +709,18 @@ v0 expectation: keep `sov serve` running in a long-lived terminal pane, a launch
 
 ## Themes
 
-Three built-in themes are bundled. The default is `dark`; `light` retunes primaries for light terminals (amber warning, dark blue accent); `no-color` returns identity tokens for transcripts and pipes.
+The Go TUI resolves built-in themes by name: `dark` (Catppuccin Mocha — the default), `light` (Catppuccin Latte), `tokyo-night`, and `sovereign`.
 
 ```bash
 /theme            # opens picker (TTY only)
 /theme light      # switches inline + persists to ~/.harness/config.json
-/theme no-color
+/theme tokyo-night
 /theme dark       # back to default
 ```
 
-The `NO_COLOR` environment variable is honored at startup and overrides the configured value (useful for CI / piped output without changing your config). Custom themes loaded from `~/.harness/themes/*.json` are deferred to a future wave; the registry is structured to absorb them.
+User themes load from `<harness-home>/themes/<name>.toml` (TOML) at startup and appear in the picker by filename. The `NO_COLOR` environment variable is honored at startup (disables ANSI color, per the standard convention) without changing your saved config — useful for CI / piped output.
+
+`/theme` sets the **interactive Go TUI** theme (persisted as the top-level `theme` config field). CLI-output surfaces (`sov config`, `sov drive`) use a separate, smaller TS theme — the `ui.theme` config field, whose built-ins are `dark` / `light` / `no-color`.
 
 ## Config Command
 
@@ -735,7 +737,7 @@ sov config set microcompaction.enabled false
 sov config unset microcompaction.enabled
 ```
 
-Bare `sov config` opens a single-screen picker: ↑/↓ to navigate, Enter to edit, `u` to unset, `s` (or Esc) to save and quit. The same picker is reachable in-session via `/settings`. Fields with curated values (`defaultProvider`, `defaultModel` scoped by provider, `permissionMode`, `maxTurns`, `compaction.proactiveThresholdPct`, etc.) open a sub-picker on Enter; otherwise a free-text value is accepted. Edits are validated through the settings schema before writing. (This is an interim raw-mode UI; a multi-page settings dialog is Wave 5+ work.)
+Bare `sov config` opens the branded Bubble Tea config TUI — the same surface `/config` (or `/settings`) opens in-session (2026-05-24 config UX rebuild). It's a hierarchical drill-in menu: a curated catalog of ~10 groups (plus per-provider subgroups) covering every field in the settings schema, each row showing its current value and a badge — `✓ live` for settings that apply immediately, `⟳ next session` for those that need a restart. Enter edits a field: enum and boolean fields open a sub-picker; string, number, and secret fields open an inline editor (secrets masked). Every edit is validated against the settings schema before writing; on a validation failure the editor re-opens with your typed value preserved and the error shown as the subtitle so you fix it in place. The scriptable `show` / `path` / `get` / `set` / `unset` verbs remain as escape hatches.
 
 The same verbs work in-session via `/config`:
 
@@ -771,7 +773,7 @@ Available config fields (top-level unless noted):
 | `debugMode.enabled` | bool | `false` | umbrella switch — auto-enables every child |
 | `debugMode.transcript` | bool | `false` | write per-session JSONL transcript |
 | `debugMode.transcriptDir` | path | `<harnessHome>/debug` | directory for auto-generated transcripts |
-| `ui.theme` | enum | `dark` | `dark` \| `light` \| `no-color`. `NO_COLOR` env overrides. |
+| `ui.theme` | enum | `dark` | TS CLI-output theme (`sov config` / `sov drive` chalk output): `dark` \| `light` \| `no-color`. Distinct from the interactive Go TUI theme — that's the top-level `theme` field, set via `/theme`. `NO_COLOR` env overrides. |
 | `ui.footer.enabled` | bool | `true` | pre-prompt status line above each input frame |
 | `ui.contextMeter.warnAtPercent` | int 0–100 | `60` | yellow zone threshold for the ctx % footer segment |
 | `ui.contextMeter.dangerAtPercent` | int 0–100 | `80` | red zone threshold for the ctx % footer segment |
@@ -953,7 +955,7 @@ Lines beginning with `/` are handled locally before normal model turns. `/help` 
 | `/config [...]` | View or change durable config (`show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`). |
 | `/model [<name>]` | Picker over provider models when no arg; persists to the session DB so it survives `--resume`. |
 | `/settings` | Open the interactive settings editor (TTY only; equivalent to `sov config` with no verb). |
-| `/theme [<name>]` | Picker over built-in themes (`dark`, `light`, `no-color`); inline arg skips picker. Persists to config. |
+| `/theme [<name>]` | Picker over built-in themes (`dark`, `light`, `tokyo-night`, `sovereign`); inline arg skips picker. Persists to config. |
 
 ### Files
 

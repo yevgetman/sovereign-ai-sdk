@@ -56,7 +56,7 @@ preserved). `m.emittedPrintln` retains the drained snapshot for test
 inspection via the `scrollbackContent(m)` helper.
 
 `m.printUser` wraps the text via `lipgloss.NewStyle().Width(w-2).Render`
-so multi-line submissions hang-indent under the "» " marker.
+so multi-line submissions hang-indent under the "❯ " marker.
 Submissions above `userMessageDisplayCap = 1500` chars are truncated
 in the echo with a dim italic ` …[+N chars]` marker (the full text
 still ships in the actual turn — the truncation is the visual receipt).
@@ -340,17 +340,17 @@ Same rule applies to `CodeBlock.Background` (fenced code blocks) —
 dropped the BackgroundColor for the same reason. Chroma
 syntax-highlight colors provide visual identity instead.
 
-### User-line marker uses `»` + theme.Primary bold
+### User-line marker uses `❯` + Brand.AccentColor bold
 
-User input echoes render as `» <text>` where the marker is
-`theme.Primary` (blue) bold, and the body has no Foreground set
-(inherits terminal default — bright).
+User input echoes render as `❯ <text>` where the marker is
+`Brand.AccentColor` (sky-300 `#7dd3fc`) bold, and the body has no
+Foreground set (inherits terminal default — bright).
 
 The marker color + bold weight is the user/assistant distinction.
 The body matches the brightness of the assistant text and the
 typing cursor.
 
-Location: `Transcript.AppendUserLine`.
+Location: `Model.printUser` (`packages/tui/internal/app/app.go`).
 
 ### Hint line below prompt: dim italic
 

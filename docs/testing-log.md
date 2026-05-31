@@ -8,6 +8,42 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-05-31 — Holistic doc-consistency sweep (bring doc set current to v0.6.13)
+
+Full-repo documentation audit + cascade so the living docs match the runtime tip
+(v0.6.13) — 13 post-M2 patch releases had shipped with no state-file coverage and
+the "find the latest snapshot" boot workflow was surfacing the stale v0.6.0 M2 file.
+
+- **Method:** 5 parallel Opus audit agents (entry-points / conventions / reference
+  docs / state+backlog / specs+plans+links) → synthesis + source verification →
+  fixes → 1 independent adversarial verification agent (verdict **CLEAN**).
+- **Fixes (12 files, doc-only):** new canonical state snapshot
+  `docs/state/2026-05-31-post-m2-hardening.md`; re-pointed README + CLAUDE.md/
+  AGENTS.md boot + state table to it; filled the phase-21-m2 `HEAD` placeholder
+  (`7010800`); closed backlog #48 framing + opened #49 (Node-20 CI deprecation);
+  fixed the stale user-marker glyph (`»`→`❯`, 6 sites), a heading-color straggler
+  (`sky-200`→`sky-100`), removed-surface refs (`--ui`/REPL fallback in
+  `sov-upgrade.md`), 8 present-tense "the REPL" refs in `architecture.md` (+ added a
+  dedicated Cron section), the deleted raw-mode config-picker description + stale
+  themes + `--verbose`/logo-gradient/prompt-marker nits in `usage.md`, the
+  style-guide-spec `Marker` token, and the "Active" Phase-16.1 spec label + stale
+  plan/snapshot pointers.
+- **Verification corrected one self-inflicted error:** the first pass wrongly
+  changed the `ui.theme` config enum to the Go TUI theme set; source check
+  (`src/config/schema.ts:62` = `z.enum(['dark','light','no-color'])`) showed
+  `ui.theme` is the **TS CLI-output** theme, distinct from the Go TUI theme (top-level
+  `theme`, set via `/theme`) — reverted + disambiguated both. (The verifier's
+  `extending.md` `no-color` flag was a false positive for the same reason — confirmed
+  against `src/ui/theme.ts`, which does ship a `no-color` theme, and left as-is.)
+- **Broken-link sweep:** 0 dead internal links across the whole `docs/` tree (one
+  audit agent ran this exhaustively); all added links resolve.
+- **Gate:** `bun run lint` + `typecheck` clean; `bun run test` **2643 pass / 3 fail /
+  14 skip** — the 3 are the documented env-only learning tests (`turns.learning` M7
+  T5, `m7Full`, `m8Full`); doc-only changes can't affect them, no new failures.
+  CLAUDE.md ≡ AGENTS.md byte-identical.
+- **No release / no `sov upgrade`** — doc-only, zero runtime impact (per
+  `cutting-releases.md` "when to skip").
+
 ## 2026-05-29 — Markdown heading color: sky-100 (UX fix from annotated screenshot)
 
 User flagged (annotated `ux1.png`) that markdown heading lines render the same

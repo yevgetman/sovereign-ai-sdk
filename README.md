@@ -8,7 +8,7 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/state/2026-05-17-m11.md`](docs/state/2026-05-17-m11.md) — `docs/state/` carries the most recent close-out; check `ls docs/state/*.md | sort -r | head -1` for the latest dated snapshot.
+- **Latest snapshot:** [`docs/state/2026-05-31-post-m2-hardening.md`](docs/state/2026-05-31-post-m2-hardening.md) — `docs/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/state/*.md | sort -r | head -1`.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).

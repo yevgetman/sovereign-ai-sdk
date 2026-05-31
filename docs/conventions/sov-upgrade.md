@@ -16,7 +16,7 @@ When in doubt, run it. The cost is ~5–10 seconds; the cost of a stale binary i
 
 `sov upgrade` also triggers the package's postinstall hook, which rebuilds `bin/sov-tui` from `packages/tui/`. The TUI binary requires Go ≥ 1.24 on PATH.
 
-- If Go is missing, the install succeeds and bare `sov` auto-falls back to the readline REPL with a one-line stderr warning (M11 default-flip preserved this safety net). To force REPL explicitly, pass `sov --ui repl` or persist via `sov config set ui.surface repl`.
+- If Go is missing, `sov upgrade` still installs the TS runtime successfully but the `sov-tui` binary stays stale or absent — and bare `sov` then **hard-errors** with install instructions. There is no fallback surface: the readline REPL, the `--ui` flag, and the `ui.surface` config field were all removed in M13 (2026-05-20). Fix it by putting Go ≥ 1.24 on PATH (and, on a first global install, running `bun pm -g trust @yevgetman/sov`), then re-running `sov upgrade`.
 - Changes under `packages/tui/` therefore have the same "run `sov upgrade`" obligation as changes under `src/`.
 
 ## First-install gotcha

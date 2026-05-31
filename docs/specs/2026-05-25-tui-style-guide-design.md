@@ -128,7 +128,7 @@ Organized by visual context, seeded with exact current values for byte-identical
 
 | Token | Value | Notes |
 |-------|-------|-------|
-| `Marker` | `"» "` | 2-char prefix |
+| `Marker` | `"❯ "` | 2-char prefix |
 | `MarkerWidth` | `2` | numeric width for wrap calculation |
 
 ### Separator — turn separator

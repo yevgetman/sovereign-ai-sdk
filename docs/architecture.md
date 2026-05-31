@@ -29,7 +29,7 @@ Two processes — a TypeScript runtime/server (on Bun) and a Go Bubble Tea TUI c
 async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal>
 ```
 
-That shape is a load-bearing contract. It lets the REPL render partial model output, tool results, usage events, and terminal state without collapsing the turn loop into a single promise.
+That shape is a load-bearing contract. It lets the TUI render partial model output, tool results, usage events, and terminal state without collapsing the turn loop into a single promise.
 
 `src/tool/types.ts` defines the uniform capability contract. Native tools, future MCP tools, skills, and sub-agents all flow through `Tool<I, O, P>`. Every concrete tool is created with `buildTool()` so fail-closed defaults are applied consistently.
 
@@ -167,7 +167,7 @@ Configuration via `~/.harness/config.json`:
 }
 ```
 
-A `microcompact` StreamEvent is emitted when clearing occurs, rendered by the REPL as `[cleared N stale tool results, ~XK tokens]`.
+A `microcompact` StreamEvent is emitted when clearing occurs, rendered by the TUI as `[cleared N stale tool results, ~XK tokens]`.
 
 ## Runtime State
 
@@ -228,7 +228,7 @@ Each session writes a JSONL trace at `<harness-home>/traces/<sessionId>.jsonl` c
 
 `src/config/paths.ts` is the single source of truth for path resolution (`getHarnessHome`, `getBaseHome`, `getProfileHome`, `getActiveProfile`, `setActiveProfile`, `assertProfileName`). Every disk-access call site in `src/agent/sessionDb.ts`, `src/config/store.ts`, `src/config/loader.ts`, `src/providers/credentials/pool.ts`, and `src/providers/credentials/rateGuard.ts` resolves paths through these helpers at call time, never at module load.
 
-`src/config/profileLock.ts` ships an atomic-mkdir-based PID lock with stale-process detection as a helper (`tryAcquireLock`, `readLockInfo`); REPL integration is deferred. `src/cli/profileCommands.ts` implements the `sov profile [list|create|use|show|import-default]` subcommand cluster — `import-default` copies the unscoped `config.json` + `credentials.json` into a target profile but leaves sessions/trajectories/memory empty (a profile is meant to scope history per project, not duplicate it).
+`src/config/profileLock.ts` ships an atomic-mkdir-based PID lock with stale-process detection as a helper (`tryAcquireLock`, `readLockInfo`); interactive-session integration is deferred. `src/cli/profileCommands.ts` implements the `sov profile [list|create|use|show|import-default]` subcommand cluster — `import-default` copies the unscoped `config.json` + `credentials.json` into a target profile but leaves sessions/trajectories/memory empty (a profile is meant to scope history per project, not duplicate it).
 
 ## TUI Rendering (`sov-tui` Go client + `LiveRegion`)
 
@@ -259,7 +259,7 @@ Permanent content (user messages, finalized assistant cards, tool results, syste
 
 ### Print queue + drain pattern
 
-The model holds a `pendingPrintln []string` queue. Handlers push via `m.print(line)` or `m.printUser(text)` (the latter applies the "» " marker + wraps to terminal width + truncates >1500 chars). At the end of every Update branch, `m.respond(cmd)` batches the caller's Cmd with `m.drainPrintln()`, which consolidates the queue into a single newline-joined `tea.Println` Cmd (ordered emission). The drained snapshot is also retained in `m.emittedPrintln` so tests can inspect scrollback content via the `scrollbackContent(m)` helper.
+The model holds a `pendingPrintln []string` queue. Handlers push via `m.print(line)` or `m.printUser(text)` (the latter applies the "❯ " marker + wraps to terminal width + truncates >1500 chars). At the end of every Update branch, `m.respond(cmd)` batches the caller's Cmd with `m.drainPrintln()`, which consolidates the queue into a single newline-joined `tea.Println` Cmd (ordered emission). The drained snapshot is also retained in `m.emittedPrintln` so tests can inspect scrollback content via the `scrollbackContent(m)` helper.
 
 ### LiveRegion component
 
@@ -333,7 +333,7 @@ Triage classification is conservative:
 - `sometimes` — deferred MCP tools; skills with `requires_*` or `fallback_for_*` gates that aren't currently active
 - `rarely` — skills whose `fallback_for_*` intersects with active tools (the primary is winning); not in the visibility set
 
-The audit drives three surfaces: the `/context-budget` slash command (sectioned report with bloat flags), the `'budget'` section on `HarnessInfo`, and a `CommandContext.getBudgetReport()` hook the REPL plumbs through. Auto-warning at 60%+ utilization is deferred — Invariant #4 freezes the system prompt per session, so the warning would only appear at session start; the audit currently surfaces utilization on demand.
+The audit drives three surfaces: the `/context-budget` slash command (sectioned report with bloat flags), the `'budget'` section on `HarnessInfo`, and a `CommandContext.getBudgetReport()` hook the TUI plumbs through. Auto-warning at 60%+ utilization is deferred — Invariant #4 freezes the system prompt per session, so the warning would only appear at session start; the audit currently surfaces utilization on demand.
 
 ## Hooks
 
@@ -407,11 +407,17 @@ Per-request flow: parse + Zod-validate the body; resolve the model (`harness-def
 
 **Cron co-deployment.** The cron tick loop runs INSIDE the runtime's lifecycle (Phase 17). When `sov serve` boots, `buildRuntime({ cronEnabled: opts.cron !== false })` attaches a `CronRunner` to the runtime by default; `--no-cron` opts out. Long-lived `sov serve` is the natural cron host: the operator runs ONE process that serves both the OpenAI API AND scheduled jobs.
 
+## Cron / Scheduled Jobs
+
+`src/cron/` (Phase 17) is the scheduled-jobs subsystem: a typed schedule parser (relative / interval / cron-expression / ISO timestamp), atomic `jobs.json` CRUD, and a `CronRunner` whose 60-second tick is embedded in the `buildRuntime` lifecycle (`.unref?.()` so tests don't hang; `cronEnabled: false` opts out). The tick is guarded by a cross-process file lock so a co-running `sov serve` + a manual `sov cron tick` can't double-fire a job. CLI surface: `sov cron add | list | show | pause | resume | delete | run | tick`.
+
+Each due job runs in a fresh `metadata.kind='cron'` session via `AgentRunner` with auto-deny on permission asks (the same headless policy as `sov drive` and the OpenAI server). A job may chain a skill (`expandSkillPrompt` user-message injection) and/or run a pre-agent script via `spawnSync` with interpreter inference (`.py → python3`, `.ts`/`.js → bun`, `.sh → bash`; 120s default timeout, 16 KiB stdout cap). Output is delivered to `<harnessHome>/cron/outbox/<jobId>/<ts>.txt`; a `[SILENT]` first-line prefix (case-insensitive, post-trim) short-circuits the file write. The six cron CRUD tool names sit in `SUBAGENT_EXCLUDED_TOOLS` so a job's agent can't recursively schedule more jobs. Long-lived `sov serve` is the natural cron host (see the OpenAI HTTP Server § Cron co-deployment above).
+
 ## Sudo Guardrail And Inline Shell
 
 `BashTool` refuses `sudo`, `pkexec`, `doas`, and `su` upfront with a structured error (exit code 126). These commands need a TTY for password / TouchID prompts which a piped subprocess can't supply — without the guardrail the spawn would hang for two minutes until BashTool's timeout fires, leaving the agent stuck. The refusal envelope's `next_actions` tell the model to ask the user to run the command themselves.
 
-The `! <command>` REPL prefix is the explicit escape hatch for cases BashTool can't handle. The rest of the line runs as a bash command with the user's stdio inherited — sudo / TouchID / pagers / interactive editors all work as if typed at the user's regular shell. The harness does not capture inline-shell output; the user typed `! foo` to do something for themselves, not to feed state to the agent.
+The `! <command>` prompt prefix is the explicit escape hatch for cases BashTool can't handle. The rest of the line runs as a bash command with the user's stdio inherited — sudo / TouchID / pagers / interactive editors all work as if typed at the user's regular shell. The harness does not capture inline-shell output; the user typed `! foo` to do something for themselves, not to feed state to the agent.
 
 ## Trajectory Capture
 
@@ -423,7 +429,7 @@ The `! <command>` REPL prefix is the explicit escape hatch for cases BashTool ca
 
 - **`writer.ts`** — `buildTrajectoryRecord()` (pure) + `writeTrajectory()` (appending) + `tryWriteTrajectory()` (fire-and-forget wrapper, swallows errors per Invariant #10). Bucket split: `terminal.reason ∈ {completed, max_turns}` → `samples.jsonl`; everything else → `failed.jsonl`. JSON serialization passes through `redact()` before disk write.
 
-REPL wiring captures `lastTerminal` across all turns of the session and calls `tryWriteTrajectory` after the input loop closes, before DB shutdown. Empty sessions (zero in-memory messages) skip the write. Storage:
+Session-end wiring captures `lastTerminal` across all turns of the session and calls `tryWriteTrajectory` after the input loop closes, before DB shutdown. Empty sessions (zero in-memory messages) skip the write. Storage:
 
 - Bundle loaded → `<bundle>/state/artifacts/trajectories/`
 - Generic-agent → `<harnessHome>/trajectories/`
@@ -466,7 +472,7 @@ System prompt body goes here (when not in a frontmatter `systemPrompt:` field).
 7. **Parent-child session lineage** — caller-provided `createChildSession` callback writes the child row with `parent_session_id` set (the existing schema-v3 column).
 8. **`on_delegation` hook** — after successful child completion (terminal `completed` or `max_turns`), the scheduler calls `parent.memoryManager.onDelegation(prompt, summary)`. Errors and interrupts skip the hook. Hook errors route to `traceRecorder` rather than failing the scheduler return.
 
-**AgentRunner (`src/runtime/agentRunner.ts`).** Focused wrapper around `query()` that owns the non-UI plumbing: building the user message from a string prompt, wiring query() params, tracking the final assistant message, iteration count, tool-call count, and parent-child lineage carry. `query()` itself stays unchanged (Invariant #1). The REPL keeps its inline `query()` call because UI is woven into the per-event loop and isn't pure plumbing; AgentRunner exists for sub-agents and future surfaces (background review, scheduled missions, daemon).
+**AgentRunner (`src/runtime/agentRunner.ts`).** Focused wrapper around `query()` that owns the non-UI plumbing: building the user message from a string prompt, wiring query() params, tracking the final assistant message, iteration count, tool-call count, and parent-child lineage carry. `query()` itself stays unchanged (Invariant #1). The interactive server turn handler keeps its inline `query()` call because UI is woven into the per-event loop and isn't pure plumbing; AgentRunner exists for sub-agents and other surfaces (background review, scheduled missions, cron, the OpenAI server).
 
 **AgentTool (`src/tools/AgentTool.ts`).** Thin `buildTool()` wrapper. The registry's `patchSchemasAgainstAvailable()` rewrites AgentTool's `subagent_type` field from open string to a closed enum derived from `ctx.agents`, and **drops the tool from the pool entirely when no agents are loaded** — exposing a tool whose enum is empty would let the model attempt calls that always fail. `renderResult` wraps the summary in `<subagent_result name="X" session="Y" lane="provider/model" turns="N" tool_calls="M" duration_ms="..." terminal="completed">…</subagent_result>` so the parent context shows lineage at a glance without the full transcript.
 
@@ -525,7 +531,7 @@ Phase 13.3 ships the Hermes-pattern propose-then-promote learning loop as a back
 
 **Trajectory routing (B2).** `isDefaultBundlePath()` (`src/bundle/defaultBundle.ts`) detects stock-bundle sessions and routes their trajectories to `<harnessHome>/trajectories/` instead of `<bundle>/state/artifacts/trajectories/`, keeping the shipped `bundle-default/state/` directory clean.
 
-**Session-end cleanup (B4).** `ReviewManager.cancelAll()` is called on `session_end` to abort any in-flight review forks. This prevents orphaned child sessions after the REPL exits.
+**Session-end cleanup (B4).** `ReviewManager.cancelAll()` is called on `session_end` to abort any in-flight review forks. This prevents orphaned child sessions after the session exits.
 
 **Per-settings configuration.** Seven fields under `review` in `~/.harness/config.json` (or any settings layer):
 

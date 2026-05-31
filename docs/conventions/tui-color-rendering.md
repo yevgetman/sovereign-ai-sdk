@@ -17,10 +17,14 @@ content, anything that needs to be the user's primary reading surface —
 do NOT set a foreground color.** Let it inherit the terminal default.
 
 For accent colors — headings, links, errors, dim metadata, code
-keywords, the user-line `»` marker, anything that needs to be
-*distinguishable from body text* rather than just bright — keep using
-`theme.Primary` / `theme.Success` / `theme.Error` / `theme.Dim`. Those
-ARE different from terminal default, which is the point.
+keywords, the user-line `❯` marker, anything that needs to be
+*distinguishable from body text* rather than just bright — keep
+setting an explicit foreground: theme tokens (`theme.Primary` /
+`theme.Success` / `theme.Error` / `theme.Dim`) for links / errors /
+dim metadata, or fixed `Brand.*` hexes for headings
+(`Brand.HeadingColor`, sky-100) and the `❯` marker
+(`Brand.AccentColor`, sky-300). Those ARE different from terminal
+default, which is the point.
 
 ## Why
 
@@ -259,7 +263,7 @@ Instead:
 
 `t.Primary` remains correct for **structural markdown** links
 where it serves as an accent against body text (headings use the fixed
-`Brand.HeadingColor` sky-200, not `t.Primary` — see the heading hierarchy
+`Brand.HeadingColor` sky-100, not `t.Primary` — see the heading hierarchy
 section above). The `❯` user marker uses
 `Brand.AccentColor` (sky-300, #7dd3fc) for better visibility. It
 should not appear in the tool/routing output pipeline. This rule was added
