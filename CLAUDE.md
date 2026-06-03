@@ -15,6 +15,7 @@ This file is a **lean index** — a table of contents into the deeper docs. Read
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
 7. **`~/code/sovereign-ai-docs/harness/docs/reference/agent-harness-design-lessons.md`** — unifying design principles and Claude Code reference lessons.
+8. **`docs/plans/2026-06-03-learning-loop-spike-kickoff.md`** — **CURRENT #1 PRIORITY: the learning-loop spike.** Start here — points at the canonical specs in `sovereign-ai-docs` (the spike spec, the portable-learning-layer design, ADR H-0010) and instructs authoring the implementation specs + build plans in this repo.
 
 `~/code/claude-code/src/` is the architectural reference. Look up specific patterns there when a design question comes up.
 
