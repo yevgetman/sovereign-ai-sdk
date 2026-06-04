@@ -20,6 +20,8 @@ const DEFAULT_CONFIDENCE_CAP = 0.9;
 const CONFIDENCE_FLOOR = 0;
 const DEFAULT_REINFORCEMENT_K = 0.04; // tunable; logarithmic
 const DEFAULT_CONTRADICTION_DELTA = -0.2;
+const DEFAULT_EVIDENCE_SATURATION = 13; // obs scale; ~6 clears 0.3, ~20 clears 0.7 at cap 0.9
+const CONFIDENCE_ROUND_PLACES = 3;
 
 export interface ConfidenceTuning {
   /** Logarithmic reinforcement coefficient. Higher = faster ramp.
@@ -36,6 +38,11 @@ export interface ConfidenceTuning {
    *  applying the curve. Effectively bumps the starting floor for new
    *  instincts. Default unset = pure reinforce from current. */
   initialConfidenceBaseline?: number;
+  /** Evidence scale (τ) for the saturating confidenceFromEvidence curve.
+   *  Smaller τ ramps confidence faster per observation. Default 13 —
+   *  ~6 obs clear the 0.3 prune floor, ~20 clear the 0.7 promotion gate
+   *  at the default 0.9 cap. Tune via settings.learning.evidenceSaturation. */
+  evidenceSaturation?: number;
 }
 
 /** Logarithmic reinforcement; bounded at the configured cap. The curve
@@ -55,6 +62,28 @@ export function reinforce(
   const delta = k * Math.log(1 + evidenceCount);
   const next = Math.min(startFrom + delta, cap);
   return roundTo(next, 3);
+}
+
+/** Absolute confidence as a saturating function of TOTAL supporting
+ *  evidence. Replaces the near-flat logarithmic accumulation for
+ *  propose/update: `reinforce(0, n)` with k=0.04 needed ~40M observations
+ *  to clear the 0.7 promotion gate, so real proposals never promoted.
+ *  This curve clears 0.3 at ~6 obs and 0.7 at ~20 obs (default τ=13, cap
+ *  0.9). The raw curve approaches but never reaches the cap; we clamp the
+ *  rounded result strictly below the cap so certainty stays unwarranted. */
+export function confidenceFromEvidence(
+  totalEvidenceCount: number,
+  tuning?: ConfidenceTuning,
+): number {
+  if (totalEvidenceCount <= 0) return 0;
+  const cap = tuning?.confidenceCap ?? DEFAULT_CONFIDENCE_CAP;
+  const tau = tuning?.evidenceSaturation ?? DEFAULT_EVIDENCE_SATURATION;
+  const raw = cap * (1 - Math.exp(-totalEvidenceCount / tau));
+  const rounded = roundTo(raw, CONFIDENCE_ROUND_PLACES);
+  // The raw curve is always strictly < cap for finite input; preserve that
+  // invariant through rounding (large n would otherwise round up to cap).
+  if (rounded >= cap) return roundTo(cap - 10 ** -CONFIDENCE_ROUND_PLACES, CONFIDENCE_ROUND_PLACES);
+  return rounded;
 }
 
 /** Sharp contradiction drop. Floor at 0. contradictionWeight is a

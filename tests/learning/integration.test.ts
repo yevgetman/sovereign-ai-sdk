@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getLearningStatus } from '../../src/cli/learningStatus.js';
-import { reinforce } from '../../src/learning/confidence.js';
+import { confidenceFromEvidence } from '../../src/learning/confidence.js';
 import { InstinctStore } from '../../src/learning/instinctStore.js';
 import { LearningObserver } from '../../src/learning/observer.js';
 import { observationsPath } from '../../src/learning/paths.js';
@@ -158,8 +158,13 @@ describe('Phase 13.4 — end-to-end Check (synthetic)', () => {
       ctx,
     )) as ToolResult<{ instinct: Instinct; previousConfidence: number }>;
     expect(reinforced.data.instinct.confidence).toBeGreaterThan(initialConfidence);
-    // Math should equal the pure reinforce() output
-    expect(reinforced.data.instinct.confidence).toBeCloseTo(reinforce(initialConfidence, 3), 3);
+    // Confidence is the saturating curve over the new TOTAL evidence
+    // (5 initial + 3 reinforced = 8), not an incremental bump.
+    expect(reinforced.data.instinct.evidence_count).toBe(8);
+    expect(reinforced.data.instinct.confidence).toBeCloseTo(
+      confidenceFromEvidence(reinforced.data.instinct.evidence_count),
+      3,
+    );
 
     // Contradict drops confidence sharply
     const contradicted = (await InstinctUpdateConfidenceTool.call(
@@ -219,10 +224,10 @@ describe('Phase 13.4 — end-to-end Check (synthetic)', () => {
     for (const projectId of store.listAllProjects()) {
       allInstincts.push(...store.list(projectId));
     }
-    // A single InstinctProposeTool call yields confidence ≈ 0.07-0.10
-    // (logarithmic reinforce from zero), well below the default 0.7 floor.
-    // Lower the threshold for this synthetic check so the math is the focus,
-    // not the confidence-curve calibration.
+    // These proposals use small evidence_counts (8 and 12), yielding
+    // confidence well above 0.05 under the saturating curve but below the
+    // default 0.7 floor. Lower the threshold for this synthetic check so the
+    // promotion math is the focus, not confidence-curve calibration.
     const candidates = findPromotionCandidates(allInstincts, { minConfidence: 0.05 });
     expect(candidates.length).toBe(1);
     expect(candidates[0]?.trigger).toBe('when writing TS function');

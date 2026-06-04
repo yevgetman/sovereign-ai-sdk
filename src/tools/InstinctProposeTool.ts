@@ -1,11 +1,12 @@
 // Phase 13.4 — synthesizer-only tool to create a new instinct. The
-// initial confidence comes from reinforce(0, evidence_count) — there's
-// no "manual confidence" path; all confidence math flows through the
+// initial confidence comes from confidenceFromEvidence(evidence_count) —
+// an absolute saturating curve over total supporting evidence; there's
+// no "manual confidence" path. All confidence math flows through the
 // pure functions in src/learning/confidence.ts.
 
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { reinforce } from '../learning/confidence.js';
+import { confidenceFromEvidence } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { loadConfidenceTuning } from '../learning/tuning.js';
 import { type Instinct, InstinctDomainSchema, InstinctScopeSchema } from '../learning/types.js';
@@ -43,7 +44,7 @@ export const InstinctProposeTool = buildTool<InstinctProposeInput, { instinct: I
     [
       'Propose a new instinct: a small, evidence-backed learned behavior with confidence.',
       'Synthesizer-only — main agents and review forks cannot call this.',
-      'Initial confidence is computed from evidence_count via the logarithmic reinforcement curve.',
+      'Initial confidence is computed from evidence_count via the saturating evidence curve.',
     ].join(' '),
   inputSchema: InstinctProposeInputSchema,
   isReadOnly: () => false,
@@ -63,7 +64,7 @@ export const InstinctProposeTool = buildTool<InstinctProposeInput, { instinct: I
       id: newInstinctId(),
       trigger: input.trigger,
       action: input.action,
-      confidence: reinforce(0, input.evidence_count, tuning),
+      confidence: confidenceFromEvidence(input.evidence_count, tuning),
       evidence_count: input.evidence_count,
       domain: input.domain,
       scope: input.scope,

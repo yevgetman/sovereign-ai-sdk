@@ -592,6 +592,13 @@ const LEARNING_GROUP: ConfigGroup = {
       editor: { kind: 'number', min: 0 },
     },
     {
+      path: 'learning.evidenceSaturation',
+      label: 'evidenceSaturation',
+      description:
+        'Evidence scale (τ) for the saturating confidence curve; smaller ramps faster (default 13).',
+      editor: { kind: 'number', min: 0 },
+    },
+    {
       path: 'learning.contradictionDelta',
       label: 'contradictionDelta',
       description: 'Per-unit contradiction drop (default -0.2; must be ≤ 0).',

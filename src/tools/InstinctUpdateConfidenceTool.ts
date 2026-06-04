@@ -3,7 +3,7 @@
 // through the pure functions in src/learning/confidence.ts.
 
 import { z } from 'zod';
-import { contradict, reinforce } from '../learning/confidence.js';
+import { confidenceFromEvidence, contradict } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { loadConfidenceTuning } from '../learning/tuning.js';
 import type { Instinct } from '../learning/types.js';
@@ -45,15 +45,20 @@ export const InstinctUpdateConfidenceTool = buildTool<
     const { instinct: prior, body } = store.readWithBody(input.project_id, input.id);
     const evidenceWeight = input.evidence_count ?? 1;
     const tuning = loadConfidenceTuning();
+    // Reinforce: confidence is an absolute saturating function of the new
+    // TOTAL supporting evidence — not an incremental bump from the prior
+    // value (that curve was structurally too flat to ever promote).
+    // Contradict: unchanged sharp drop from the prior confidence.
+    const nextEvidenceCount =
+      input.action === 'reinforce' ? prior.evidence_count + evidenceWeight : prior.evidence_count;
     const nextConfidence =
       input.action === 'reinforce'
-        ? reinforce(prior.confidence, evidenceWeight, tuning)
+        ? confidenceFromEvidence(nextEvidenceCount, tuning)
         : contradict(prior.confidence, evidenceWeight, tuning);
     const updated: Instinct = {
       ...prior,
       confidence: nextConfidence,
-      evidence_count:
-        input.action === 'reinforce' ? prior.evidence_count + evidenceWeight : prior.evidence_count,
+      evidence_count: nextEvidenceCount,
       last_evidence_at: new Date().toISOString(),
     };
     store.write(updated, body);

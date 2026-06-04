@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { contradict, reinforce, shouldPrune } from '../../src/learning/confidence.js';
+import {
+  confidenceFromEvidence,
+  contradict,
+  reinforce,
+  shouldPrune,
+} from '../../src/learning/confidence.js';
 
 describe('reinforce', () => {
   test('zero or negative evidence is a no-op (returns current rounded)', () => {
@@ -34,6 +39,40 @@ describe('reinforce', () => {
     const result = reinforce(0.5, 1);
     // result is a finite number with at most 3 decimals after rounding
     expect(result.toString()).toMatch(/^\d+(\.\d{1,3})?$/);
+  });
+});
+
+describe('confidenceFromEvidence', () => {
+  test('zero evidence -> 0', () => expect(confidenceFromEvidence(0)).toBe(0));
+  test('negative evidence -> 0', () => expect(confidenceFromEvidence(-3)).toBe(0));
+  test('~6 obs clears the 0.3 prune floor', () =>
+    expect(confidenceFromEvidence(6)).toBeGreaterThanOrEqual(0.3));
+  test('~20 obs clears the 0.7 promotion gate', () =>
+    expect(confidenceFromEvidence(20)).toBeGreaterThanOrEqual(0.7));
+  test('monotonic increasing', () =>
+    expect(confidenceFromEvidence(10)).toBeGreaterThan(confidenceFromEvidence(5)));
+  test('never reaches the cap', () => expect(confidenceFromEvidence(100000)).toBeLessThan(0.9));
+
+  test('exact value at the documented saturation scale', () => {
+    // 0.9 * (1 - exp(-13/13)) rounded to 3 places.
+    expect(confidenceFromEvidence(13)).toBe(0.569);
+  });
+
+  test('respects a custom confidenceCap', () => {
+    // Lower cap shrinks every output proportionally.
+    const capped = confidenceFromEvidence(20, { confidenceCap: 0.5 });
+    expect(capped).toBeLessThan(confidenceFromEvidence(20));
+    expect(capped).toBeLessThan(0.5);
+  });
+
+  test('respects a custom evidenceSaturation (smaller tau ramps faster)', () => {
+    const fast = confidenceFromEvidence(6, { evidenceSaturation: 6 });
+    const slow = confidenceFromEvidence(6, { evidenceSaturation: 26 });
+    expect(fast).toBeGreaterThan(slow);
+  });
+
+  test('omitted tuning preserves default behavior', () => {
+    expect(confidenceFromEvidence(6)).toBe(confidenceFromEvidence(6, {}));
   });
 });
 

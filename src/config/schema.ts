@@ -340,6 +340,11 @@ export const SettingsSchema = z
          *  drive any changes here, not speculative tuning. */
         /** Logarithmic reinforcement coefficient. Default 0.04. */
         reinforcementCurveK: z.number().min(0).optional(),
+        /** Evidence scale (τ) for the saturating confidenceFromEvidence
+         *  curve used by instinct propose/update. Smaller = faster ramp.
+         *  Default 13 (~6 obs clear the prune floor, ~20 the promotion
+         *  gate at cap 0.9). */
+        evidenceSaturation: z.number().positive().optional(),
         /** Per-unit contradiction drop. Default −0.2. Must be ≤ 0. */
         contradictionDelta: z.number().max(0).optional(),
         /** Confidence ceiling. Default 0.9. */

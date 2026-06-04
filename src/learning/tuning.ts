@@ -17,6 +17,9 @@ export function loadConfidenceTuning(): ConfidenceTuning {
   if (learning.reinforcementCurveK !== undefined) {
     tuning.reinforcementCurveK = learning.reinforcementCurveK;
   }
+  if (learning.evidenceSaturation !== undefined) {
+    tuning.evidenceSaturation = learning.evidenceSaturation;
+  }
   if (learning.contradictionDelta !== undefined) {
     tuning.contradictionDelta = learning.contradictionDelta;
   }
