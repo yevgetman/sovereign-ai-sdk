@@ -142,7 +142,8 @@ describe('bundle-default reference agents', () => {
 
       const synth = registry.byName.get('instinct-synthesizer');
       expect(synth).toBeDefined();
-      expect(synth?.maxTurns).toBe(8);
+      // Task 14 — raised 8 → 16 so a real synthesis pass isn't truncated.
+      expect(synth?.maxTurns).toBe(16);
       expect(synth?.role).toBe('synthesizer');
 
       // Required: read-only inspection + the four instinct tools

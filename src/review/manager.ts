@@ -23,6 +23,14 @@ export interface ReviewThresholds {
    *  tool iteration. Independent from synthesizerEveryN (user-turn rhythm).
    *  Either counter can trip a dispatch. Default 50. */
   synthesizerEveryNToolIterations: number;
+  /** Learning-loop spike Task 14 — END-OF-SESSION synthesis trigger. When
+   *  `onSessionEnd()` is invoked with at least this many new
+   *  observations/tool-iterations accrued since the last synthesis, the
+   *  synthesizer fires once (honoring minIntervalMs). This is what closes
+   *  the N → N+1 learning loop: the periodic counters above rarely trip in
+   *  a short session, so a session's observations would otherwise never be
+   *  synthesized before the next session begins. Default 10. */
+  synthesizeOnSessionEndAfter: number;
 }
 
 export interface ReviewPaths {
@@ -79,6 +87,7 @@ const DEFAULT_THRESHOLDS: ReviewThresholds = {
   minIntervalMs: 30_000, // 30s
   synthesizerEveryN: 20,
   synthesizerEveryNToolIterations: 50,
+  synthesizeOnSessionEndAfter: 10,
 };
 
 const TRIVIAL_MIN_ITERATIONS = 2;
@@ -121,7 +130,13 @@ export class ReviewManager {
   /** Phase 13.4 follow-up (Item 10) — synthesizer tool-iteration counter.
    *  Independent from synthesizerSince — neither resets the other. */
   private synthesizerToolIterationsSince = 0;
-  private lastDispatchAtMs: Map<ReviewAgentName, number> = new Map();
+  /** Learning-loop spike Task 14 — "new activity since the last synthesis"
+   *  counter. Increments on BOTH user turns and tool iterations and resets
+   *  whenever ANY synthesizer dispatch fires (from any trigger). The
+   *  end-of-session hook checks this against synthesizeOnSessionEndAfter so
+   *  it only fires when a session actually accrued un-synthesized signal. */
+  private activitySinceLastSynthesis = 0;
+  private lastDispatchAtMs: Map<ReviewAgentName | 'instinct-synthesizer', number> = new Map();
   /** Phase 13.3 (B3) — per-agent dispatch counts for the goodbye summary.
    *  Phase 13.4 — extended to include 'instinct-synthesizer'. */
   private dispatchCounts: Map<
@@ -164,6 +179,9 @@ export class ReviewManager {
     if (!this.enabled) return;
     if (this.signal.aborted) return;
     if (callerSessionId !== this.sessionId) return;
+    // Task 14 — every user turn is new un-synthesized signal for the
+    // end-of-session trigger (reset inside dispatchSynthesizer).
+    this.activitySinceLastSynthesis += 1;
     this.userTurnsSince += 1;
     if (this.userTurnsSince >= this.thresholds.userTurnsForMemoryReview) {
       this.userTurnsSince = 0;
@@ -185,6 +203,9 @@ export class ReviewManager {
     if (!this.enabled) return;
     if (this.signal.aborted) return;
     if (callerSessionId !== this.sessionId) return;
+    // Task 14 — tool iterations are new un-synthesized signal too (reset
+    // inside dispatchSynthesizer).
+    this.activitySinceLastSynthesis += 1;
     this.toolIterationsSince += 1;
     if (this.toolIterationsSince >= this.thresholds.toolIterationsForSkillReview) {
       this.toolIterationsSince = 0;
@@ -300,12 +321,43 @@ export class ReviewManager {
     });
   }
 
+  /** Learning-loop spike Task 14 — END-OF-SESSION synthesis trigger.
+   *  Invoked from the session-disposal path BEFORE the review abort fires.
+   *  Dispatches the synthesizer once when at least
+   *  `synthesizeOnSessionEndAfter` new observations/tool-iterations have
+   *  accrued since the last synthesis. Honors minIntervalMs and the
+   *  projectIdentity/harnessHome guards (both inside dispatchSynthesizer).
+   *  This is the trigger that closes the N → N+1 learning loop — periodic
+   *  counters rarely trip in a short session. */
+  onSessionEnd(): void {
+    if (!this.enabled) return;
+    if (this.signal.aborted) return;
+    if (this.activitySinceLastSynthesis < this.thresholds.synthesizeOnSessionEndAfter) return;
+    this.dispatchSynthesizer();
+  }
+
   /** Phase 13.4 — fire-and-forget dispatch of the instinct-synthesizer
    *  sub-agent. Early-returns when project identity / harness home are
-   *  absent (no learning context configured) or the signal is aborted. */
-  private dispatchSynthesizer(): void {
-    if (!this.projectIdentity || !this.harnessHome) return;
-    if (this.signal.aborted) return;
+   *  absent (no learning context configured) or the signal is aborted.
+   *  Task 14 — also honors the per-agent minIntervalMs temporal lockout
+   *  (same machinery as review-fork dispatch) and resets the
+   *  activity-since-last-synthesis counter when a dispatch actually fires.
+   *  Returns true when a dispatch fired, false when guarded/locked out. */
+  private dispatchSynthesizer(): boolean {
+    if (!this.projectIdentity || !this.harnessHome) return false;
+    if (this.signal.aborted) return false;
+    // Task 14 — temporal lockout. Mirrors dispatch(): skip silently when
+    // the synthesizer fired within minIntervalMs. Prevents the
+    // end-of-session trigger from re-running a synthesis that a periodic
+    // counter just kicked off seconds earlier.
+    const last = this.lastDispatchAtMs.get('instinct-synthesizer');
+    if (last !== undefined && Date.now() - last < this.thresholds.minIntervalMs) {
+      return false;
+    }
+    this.lastDispatchAtMs.set('instinct-synthesizer', Date.now());
+    // A dispatch is firing: clear the un-synthesized-activity counter so the
+    // end-of-session trigger only fires on genuinely new signal.
+    this.activitySinceLastSynthesis = 0;
     const project = this.projectIdentity();
     this.dispatchCounts.set(
       'instinct-synthesizer',
@@ -323,5 +375,6 @@ export class ReviewManager {
       recentObservationCount: 50,
       ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
     });
+    return true;
   }
 }

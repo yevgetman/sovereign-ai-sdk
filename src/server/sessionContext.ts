@@ -209,6 +209,11 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
                   userSettings.learning.synthesizerEveryNToolIterations,
               }
             : {}),
+          ...(userSettings.learning?.synthesizeOnSessionEndAfter !== undefined
+            ? {
+                synthesizeOnSessionEndAfter: userSettings.learning.synthesizeOnSessionEndAfter,
+              }
+            : {}),
         },
         pathsResolver: () => ({
           trajectoryPath: `${resolveSubagentArtifactsRoot(runtime.harnessHome, runtime.bundle)}/trajectories/samples.jsonl`,
@@ -309,6 +314,10 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
  *       `<artifactsRoot>/trajectories/{samples,failed}.jsonl`. Skipped when
  *       the session has no persisted messages — an empty record adds
  *       nothing but noise to the corpus.
+ *    3.5 (Task 14) Fire the end-of-session synthesis trigger BEFORE the
+ *       review abort — the ReviewManager dispatches the instinct-synthesizer
+ *       over this session's accrued observations when the new-activity
+ *       threshold is met. This closes the N → N+1 learning loop.
  *    4. (T6) Abort any in-flight review-fork sub-agents, then emit a
  *       `session_summary` SSE event with the ReviewManager's dispatch
  *       summary. The event is only emitted when `opts.bus` is supplied:
@@ -406,6 +415,24 @@ export async function disposeSessionContext(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     log(`[sessionContext] trajectory write failed for ${ctx.sessionId}: ${reason}`);
+  }
+
+  // (3.5) Learning-loop spike Task 14 — END-OF-SESSION synthesis trigger.
+  //       Fire the synthesizer over this session's accrued observations
+  //       BEFORE the review abort below (the synthesizer's own
+  //       signal-aborted guard would otherwise suppress it). This is what
+  //       closes the N → N+1 learning loop: a short session rarely trips
+  //       the periodic synthesizer counters, so without this hook a
+  //       session's observations would never be synthesized before the
+  //       next session begins. The ReviewManager internally gates on the
+  //       new-activity threshold + minIntervalMs + projectIdentity guards,
+  //       and the dispatch is fire-and-forget (never blocks disposal).
+  //       Best-effort — a throw here must not abort the rest of teardown.
+  try {
+    ctx.reviewManager?.onSessionEnd();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log(`[sessionContext] end-of-session synthesis trigger failed for ${ctx.sessionId}: ${reason}`);
   }
 
   // (4) T6: abort any in-flight review forks and emit the dispatch summary.

@@ -326,6 +326,13 @@ export const SettingsSchema = z
          *  iteration. Independent from synthesizerEveryN — either counter
          *  can trip a dispatch. Default 50. */
         synthesizerEveryNToolIterations: z.number().int().positive().optional(),
+        /** Learning-loop spike Task 14 — END-OF-SESSION synthesis trigger.
+         *  When a session disposes with at least this many new
+         *  observations/tool-iterations accrued since the last synthesis,
+         *  the synthesizer fires once before the next session begins. This
+         *  is what closes the N → N+1 learning loop (periodic counters
+         *  rarely trip in short sessions). Honors minIntervalMs. Default 10. */
+        synthesizeOnSessionEndAfter: z.number().int().positive().optional(),
         /** In-memory observation buffer cap before backpressure drops the
          *  oldest. Default 200. */
         observationBufferSize: z.number().int().positive().optional(),

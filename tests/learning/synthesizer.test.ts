@@ -76,13 +76,13 @@ describe('runSynthesizer', () => {
     expect(names.has('instinct_update_confidence')).toBe(true);
   });
 
-  test('swallows scheduler errors silently', async () => {
+  test('does not throw on scheduler error (non-blocking)', async () => {
     const fakeBoom = {
       delegate: async () => {
         throw new Error('boom');
       },
     } as unknown as SubagentScheduler;
-    // must not throw
+    // must not throw — failures stay non-blocking for the user turn
     await runSynthesizer({
       scheduler: fakeBoom,
       parentSessionId: 'p',
@@ -93,5 +93,94 @@ describe('runSynthesizer', () => {
       projectName: 'p',
       recentObservationCount: 5,
     });
+  });
+
+  // Task 14 — synthesis failures must be OBSERVABLE, not swallowed. The
+  // dispatcher returns a small status object so callers and tests can
+  // assert on the outcome without making the dispatch block the turn.
+  test('returns { ok: true } when the delegation completes', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const status = await runSynthesizer({
+      scheduler: fakeScheduler(calls),
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      ...emptyParent(),
+      harnessHome: '/tmp/h',
+      projectId: 'proj',
+      projectName: 'p',
+      recentObservationCount: 5,
+    });
+    expect(status.ok).toBe(true);
+  });
+
+  test('returns { ok: false, reason } when the scheduler throws', async () => {
+    const fakeBoom = {
+      delegate: async () => {
+        throw new Error('boom');
+      },
+    } as unknown as SubagentScheduler;
+    const status = await runSynthesizer({
+      scheduler: fakeBoom,
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      ...emptyParent(),
+      harnessHome: '/tmp/h',
+      projectId: 'proj',
+      projectName: 'p',
+      recentObservationCount: 5,
+    });
+    expect(status.ok).toBe(false);
+    if (!status.ok) {
+      expect(status.reason).toContain('boom');
+    }
+  });
+
+  test('logs a clear warning on failure via the injected log sink', async () => {
+    const fakeBoom = {
+      delegate: async () => {
+        throw new Error('disk full');
+      },
+    } as unknown as SubagentScheduler;
+    const logged: string[] = [];
+    await runSynthesizer({
+      scheduler: fakeBoom,
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      ...emptyParent(),
+      harnessHome: '/tmp/h',
+      projectId: 'proj',
+      projectName: 'p',
+      recentObservationCount: 5,
+      log: (m) => logged.push(m),
+    });
+    expect(logged.some((m) => m.includes('disk full'))).toBe(true);
+    expect(logged.some((m) => m.includes('synthesizer'))).toBe(true);
+  });
+
+  test('reports { ok: false } when the delegation returns a non-success terminal', async () => {
+    const fakeFail = {
+      delegate: async (input: Record<string, unknown>) => ({
+        childSessionId: 'c',
+        agentName: input.agentName,
+        resolvedProvider: 'fake',
+        resolvedModel: 'fake-1',
+        terminal: { reason: 'error' as const, error: new Error('child blew up') },
+        summary: 'failed',
+        iterationsUsed: 1,
+        toolCallCount: 0,
+        durationMs: 1,
+      }),
+    } as unknown as SubagentScheduler;
+    const status = await runSynthesizer({
+      scheduler: fakeFail,
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      ...emptyParent(),
+      harnessHome: '/tmp/h',
+      projectId: 'proj',
+      projectName: 'p',
+      recentObservationCount: 5,
+    });
+    expect(status.ok).toBe(false);
   });
 });
