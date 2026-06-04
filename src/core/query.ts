@@ -27,6 +27,7 @@ import { type TurnSummary, detectStall } from '../review/stall.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { runTools } from './orchestrator.js';
+import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
 import type {
   AssistantMessage,
   ContentBlock,
@@ -72,6 +73,14 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   let history: Message[] = params.memoryManager
     ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
     : [...messages];
+
+  // Learning loop (Recall): after memory injection, prepend recalled lessons to
+  // the latest user message. Optional thunk bound by the host; query() stays
+  // project-agnostic. Empty injectionText leaves history unchanged (same ref).
+  if (params.recall) {
+    const recalled = await params.recall(originalUserText);
+    history = injectRecallIntoLatestUserMessage(history, recalled.injectionText);
+  }
 
   // UserPromptSubmit: runs once before turn 0. A hook can deny (terminating
   // immediately) or rewrite the prompt text in the latest user message.

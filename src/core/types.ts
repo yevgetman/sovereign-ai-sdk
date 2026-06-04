@@ -5,7 +5,13 @@
 // Source of pattern: Claude Code (agent-harness-design-lessons.md § Lesson 1-6;
 // harness-build-plan.md § 0.3).
 
+import type { RecallResult } from '../learning-layer/ports.js';
+
 export type Role = 'user' | 'assistant';
+
+/** Per-turn recall thunk: bound by the host (sessionContext) to its learning
+ *  layer + project id; `query()` stays project-agnostic and only invokes it. */
+export type RecallTurn = (latestUserText: string | undefined) => Promise<RecallResult>;
 
 export type ContentBlock =
   | { type: 'text'; text: string }
@@ -110,6 +116,10 @@ export type QueryParams = {
   cacheEnabled?: boolean;
   /** Optional bounded-memory manager; injects a fenced snapshot once per user turn. */
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
+  /** Optional per-turn recall thunk (learning loop). When set, runs after memory
+   *  injection and prepends recalled lessons to the latest user message. The host
+   *  binds the underlying RecallApi + projectId; query() stays project-agnostic. */
+  recall?: RecallTurn;
   /** Microcompaction config. When enabled, stale tool results are cleared before
    *  they cause full compaction. Omit or set `enabled: false` to disable. */
   microcompactConfig?: import('../compact/microcompact.js').MicrocompactConfig;
