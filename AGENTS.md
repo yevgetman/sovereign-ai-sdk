@@ -6,11 +6,35 @@ Business context lives in `~/code/sovereign-ai-docs/`. This repo contains code a
 
 This file is a **lean index** — a table of contents into the deeper docs. Read only what your current task requires. Don't try to load it all at boot.
 
+---
+
+## ⚠️ ACTIVE FOCUS — Learning-loop soak (TEMPORARY — the founder will say when to remove this)
+
+**Read this first. For the next several sessions the learning loop is the #1 thing in motion — keep it front of mind during all work, whatever the task.**
+
+**What's live (harness v0.6.16, 2026-06-04):** the learning loop is **closed and running by default**. The portable four-port learning layer (`src/learning-layer/` — Observe / Recall / Reason / Persist, per ADR H-0010) is wired into the runtime:
+- **Recall is ON by default** (`learning.recall.enabled`): before each turn (server / TUI / `sov drive`), relevant synthesized *instincts* are spliced into the latest user message as a `<learned-context>` block. Fail-open; a no-op when the corpus is empty.
+- **Capture + synthesis are ON** (`learning.disabled: false`): tool use is observed every session; synthesis runs in the background and writes instincts to the corpus.
+
+**Proven vs not (be precise):** Phase 1 cleared the spike's *scripted-scenario* bar — a recalled lesson measurably changes behavior (5/5 curated scenarios, **3/3 reps each, 0 regressions, 0 variance**; one full end-to-end run; real-corpus synthesis yields useful instincts). That proves the **mechanism under controlled conditions — NOT real-world or longitudinal value.** **This soak exists to test exactly that:** does the loop actually help in real day-to-day use as the corpus accrues depth? Do not describe it as "proven" beyond the mechanism.
+
+**What to look for during normal work — and surface to the founder:**
+- **Did recall help or hurt?** If a `<learned-context>` block was injected, was the instinct relevant + correct, and did it change what you did for better or worse? Flag any recall that was irrelevant, stale, wrong, or harmful.
+- **Synthesis quality:** when instincts get synthesized, are they specific + correct or trivial/noisy? (Known caveat: cluster keys are coarse — the synthesizer LLM carries the specificity.)
+- **Corpus growth + depth:** `sov learning status`. (Known caveat: only one project has real depth so far — payoff stays thin until depth accrues.)
+- Anything surprising about the loop's behavior. **Record observations in `docs/testing-log.md`** and tell the founder.
+
+**Do NOT:** disable recall or learning (they are intentionally on for the soak); decide the founder-reserved calls — the **Phase-2 rented engine** (TS-vs-Python is a *major* decision), the **go/no-go**, or **auto-promote-by-default**.
+
+**Deeper context:** state snapshot `docs/state/2026-06-04-learning-loop-spike-phase-1.md` · spec `docs/specs/2026-06-03-portable-learning-layer-adapter-1-design.md` · plan `docs/plans/2026-06-03-learning-loop-spike-phase-1.md` · evals `bun run eval:learning` + `bun run eval:synthesis-audit` · canonical open-question `learning-loop-closure-and-proof` (still **OPEN**) in `~/code/sovereign-ai-docs`.
+
+---
+
 ## Session boot
 
 1. **This file** (`CLAUDE.md`) — index and standing rules
 2. **`README.md`** — repo intro, install, layout
-3. **`docs/state/2026-06-04-learning-loop-spike-phase-1.md`** — most recent close-out snapshot (**Learning-Loop Spike Phase 1 — the learning loop is now CLOSED; Q1 PASS**). HEAD `bb0cb78`; interim release **v0.6.14** (D6 memory fix + inert recall scaffolding); the completed feature releases as the next patch separately. Closes the open loop behind a portable four-port learning layer (`src/learning-layer/`, per ADR H-0010): Recall spliced into the latest user message in `query()` (gated by `learning.recall.enabled`, default FALSE), the D6 memory-on-server-surface fix, the synthesis-yield repair (saturating confidence curve + normalized cluster keys + end-of-session synthesis), and a with-vs-without correctness-flip eval (`bun run eval:learning`) that proves **6 flips / 0 regressions, no human in the loop**. TS suite ~2708 pass / 14 skip / 3 known env-only learning-test fails. Phase-2 items + founder-reserved decisions captured in the snapshot. Predecessor: `docs/state/2026-05-31-post-m2-hardening.md` (post-M2 hardening run, v0.6.1 → v0.6.13; not a new phase). Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
+3. **`docs/state/2026-06-04-learning-loop-spike-phase-1.md`** — most recent close-out snapshot (**Learning-Loop Spike Phase 1 — the learning loop is now CLOSED; Q1 PASS**). Latest release **v0.6.16** (recall now **ON by default** + the synthesis-yield fix; soaking — see the ACTIVE FOCUS banner above). Closes the open loop behind a portable four-port learning layer (`src/learning-layer/`, per ADR H-0010): Recall spliced into the latest user message in `query()` (gated by `learning.recall.enabled`, **default TRUE as of v0.6.16**), the D6 memory-on-server-surface fix, the synthesis-yield repair (saturating confidence curve + normalized cluster keys + end-of-session synthesis), and a with-vs-without correctness-flip eval (`bun run eval:learning`) that proves **6 flips / 0 regressions, no human in the loop**. TS suite ~2708 pass / 14 skip / 3 known env-only learning-test fails. Phase-2 items + founder-reserved decisions captured in the snapshot. Predecessor: `docs/state/2026-05-31-post-m2-hardening.md` (post-M2 hardening run, v0.6.1 → v0.6.13; not a new phase). Replaced each session — find the latest via `ls docs/state/*.md | sort -r | head -1`.
 4. **`docs/backlog/post-phase-13-4.md`** — open backlog items not in the canonical build plan.
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
