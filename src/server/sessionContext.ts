@@ -24,7 +24,7 @@ import {
 } from '../context/subdirectoryHints.js';
 import type { RecallTurn, Terminal } from '../core/types.js';
 import { LearningObserver } from '../learning/observer.js';
-import { GLOBAL_PROJECT_ID, instinctsDir } from '../learning/paths.js';
+import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
 import { type MemoryManager, createDefaultMemoryManager } from '../memory/provider.js';
 import { type ProjectScope, resolveProjectScope } from '../memory/scope.js';
@@ -268,15 +268,25 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // Learning-loop spike Phase 1 — per-session recall thunk. Built only when
   // `learning.recall.enabled` is true (default false → field left undefined
   // → the turns route omits `recall` from query() → recall stays inert, so
-  // default behavior is unchanged). Bound to this session's project id:
-  // when the session is in a project (bundle or git repo) we recall that
-  // project's instincts; otherwise we recall the global corpus
-  // (GLOBAL_PROJECT_ID), matching the instinct store's global-scope key.
-  // Fail-open is the layer's own responsibility — `learningLayer.recall`
-  // swallows errors and returns an empty result rather than breaking the
-  // turn.
+  // default behavior is unchanged). Bound to this session's project id.
+  //
+  // Recall MUST read the SAME project id that the WRITE path stores under.
+  // The observer (src/learning/observer.ts) and the synthesizer's
+  // projectIdentity (above) both scope the corpus by `getProjectId(cwd).id`,
+  // and the corpus paths above use the same scheme. We therefore derive the
+  // recall id identically — NOT from the memory subsystem's
+  // `resolveProjectScope` (projectScope.id), which DIVERGES under a loaded
+  // bundle (it prefers the bundle's declared projectId, else a hash of the
+  // bundle path), leaving project-scoped instincts written under one id but
+  // recalled under another → unreachable. `getProjectId` always returns an
+  // id (git-remote hash, else realpath hash), and `readInstincts` unions in
+  // the `_global` corpus, so this id grants recall access to both the
+  // project and global instinct stores. (`projectScope` is still used for
+  // memory routing, which has its own id scheme.) Fail-open is the layer's
+  // own responsibility — `learningLayer.recall` swallows errors and returns
+  // an empty result rather than breaking the turn.
   const recallCfg = userSettings.learning?.recall;
-  const recallProjectId = projectScope.kind === 'project' ? projectScope.id : GLOBAL_PROJECT_ID;
+  const recallProjectId = getProjectId(runtime.cwd).id;
   const recall: RecallTurn | undefined = recallCfg?.enabled
     ? (latestUserText) =>
         runtime.learningLayer.recall({

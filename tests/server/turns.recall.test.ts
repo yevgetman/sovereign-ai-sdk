@@ -31,7 +31,7 @@ import { join } from 'node:path';
 import type { Message } from '../../src/core/types.js';
 import { createFsPersist } from '../../src/learning-layer/adapters/harness/persistFs.js';
 import { serializeInstinct } from '../../src/learning/instinctSerde.js';
-import { __test_resetProjectIdCache } from '../../src/learning/project.js';
+import { __test_resetProjectIdCache, getProjectId } from '../../src/learning/project.js';
 import type { Instinct } from '../../src/learning/types.js';
 import { MockProvider } from '../../src/providers/mock.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
@@ -77,6 +77,47 @@ async function seedGlobalInstinct(harnessHome: string): Promise<void> {
   );
 }
 
+/** A PROJECT-scoped instinct with a DISTINCT trigger/action from the global
+ *  one. Because it is scoped to a project id (NOT `_global`), recall can only
+ *  surface it by reading `learning/<projectId>/instincts` — i.e., only if the
+ *  recall thunk derives the same project id the write path stores under. This
+ *  is the load-bearing fixture for the project-id alignment regression. */
+const PROJECT_INSTINCT_TRIGGER = 'deploy the service';
+const PROJECT_INSTINCT_ACTION = 'run the canary rollout first';
+const PROJECT_USER_PROMPT = 'please deploy the service to staging';
+
+function buildProjectInstinct(projectId: string, projectName: string): Instinct {
+  return {
+    id: 'deploycmd',
+    trigger: PROJECT_INSTINCT_TRIGGER,
+    action: PROJECT_INSTINCT_ACTION,
+    confidence: 0.9,
+    evidence_count: 3,
+    domain: 'workflow',
+    scope: 'project',
+    project_id: projectId,
+    project_name: projectName,
+    created_at: '2026-06-03T00:00:00.000Z',
+    last_evidence_at: '2026-06-03T00:00:00.000Z',
+    observation_ids: ['obs-1', 'obs-2', 'obs-3'],
+  };
+}
+
+/** Seed a PROJECT-scoped instinct under `learning/<projectId>/instincts`,
+ *  where `<projectId>` is computed EXACTLY as production computes the write
+ *  path: `getProjectId(cwd).id`. The runtime under test boots with
+ *  `cwd: harnessHome`, so that is the cwd we resolve here. Returns the
+ *  resolved id so callers can sanity-check it differs from `_global`. */
+async function seedProjectInstinct(harnessHome: string): Promise<string> {
+  const project = getProjectId(harnessHome);
+  const persist = createFsPersist(harnessHome);
+  await persist.write(
+    `learning/${project.id}/instincts/deploycmd.md`,
+    serializeInstinct(buildProjectInstinct(project.id, project.name), ''),
+  );
+  return project.id;
+}
+
 /** Flatten the captured provider request messages into a single searchable
  *  string. The injected snapshots live in text blocks of the latest user
  *  message, so concatenating every text block is sufficient for substring
@@ -111,7 +152,7 @@ function resetMockProviderStatics(): void {
  *  completes, and return the captured provider request as a searchable
  *  string. MockProvider is scripted to a single text response so the turn
  *  completes in exactly one stream() call. */
-async function driveTurnAndCapture(tmpHome: string): Promise<string> {
+async function driveTurnAndCapture(tmpHome: string, prompt: string = USER_PROMPT): Promise<string> {
   // Single-entry script → one stream() call → no tool loop. `lastMessages`
   // is therefore exactly the turn-0 request with memory + recall injected.
   MockProvider.toolUseScript = [{ kind: 'text', text: 'ok.' }];
@@ -137,7 +178,7 @@ async function driveTurnAndCapture(tmpHome: string): Promise<string> {
     const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: USER_PROMPT }),
+      body: JSON.stringify({ text: prompt }),
     });
     expect(turnRes.status).toBe(202);
 
@@ -195,6 +236,36 @@ describe('turns route — recall + memory injection (Task 11)', () => {
     // The trigger appears in the rendered line too — pin both halves so a
     // future format change that drops the action is caught.
     expect(requestText).toContain(INSTINCT_TRIGGER);
+  });
+
+  test('recall ON — a PROJECT-scoped instinct reaches the provider (project-id alignment)', async () => {
+    // Regression for the write/read project-id divergence: the WRITE path
+    // (observer + synthesizer) scopes the corpus by `getProjectId(cwd).id`,
+    // but the recall thunk previously derived its id from the memory
+    // subsystem's `resolveProjectScope` (projectScope.id). The two agree for
+    // a plain git/realpath cwd but DIVERGE under a loaded bundle, leaving
+    // project-scoped instincts unreachable. This case seeds an instinct under
+    // the WRITE-path id and proves recall now finds it. Unlike the global
+    // case above, this instinct is scoped to a project id (not `_global`), so
+    // `readInstincts`'s `_global` union cannot rescue it — recall only sees it
+    // by reading `learning/<getProjectId(cwd).id>/instincts`. Under the old
+    // `projectScope.id` logic this would fail whenever the ids diverge.
+    const configPath = join(tmpHome, 'config.json');
+    writeFileSync(configPath, JSON.stringify({ learning: { recall: { enabled: true } } }));
+    process.env.HARNESS_CONFIG = configPath;
+
+    // Seed under the SAME id the runtime's write path uses. The runtime boots
+    // with `cwd: tmpHome` (see driveTurnAndCapture), so resolve from tmpHome.
+    const projectId = await seedProjectInstinct(tmpHome);
+    // Sanity: a project-scoped seed must NOT live under the global key, else
+    // this would only re-prove the global path.
+    expect(projectId).not.toBe('_global');
+
+    const requestText = await driveTurnAndCapture(tmpHome, PROJECT_USER_PROMPT);
+
+    expect(requestText).toContain('<learned-context>');
+    expect(requestText).toContain(PROJECT_INSTINCT_ACTION);
+    expect(requestText).toContain(PROJECT_INSTINCT_TRIGGER);
   });
 
   test('recall OFF — no learned-context injected', async () => {
