@@ -4,7 +4,7 @@
 // + markdown body for evidence summary / human-readable notes.
 
 import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { parseInstinct, serializeInstinct } from './instinctSerde.js';
 import {
   GLOBAL_PROJECT_ID,
   ensureGlobalLearningDirs,
@@ -13,9 +13,7 @@ import {
   instinctsDir,
   learningRoot,
 } from './paths.js';
-import { type Instinct, InstinctSchema } from './types.js';
-
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
+import type { Instinct } from './types.js';
 
 export class InstinctStore {
   constructor(private readonly harnessHome: string) {}
@@ -41,27 +39,14 @@ export class InstinctStore {
   read(projectId: string, instinctId: string): Instinct {
     const path = instinctPath(this.harnessHome, projectId, instinctId);
     const raw = readFileSync(path, 'utf-8');
-    const m = raw.match(FRONTMATTER_RE);
-    if (!m) {
-      throw new Error(`malformed instinct ${instinctId}: missing frontmatter`);
-    }
-    const data = parseYaml(m[1] ?? '') as Record<string, unknown>;
-    return InstinctSchema.parse(data);
+    return parseInstinct(raw, instinctId).instinct;
   }
 
   /** Read both frontmatter (parsed) and body (markdown text). */
   readWithBody(projectId: string, instinctId: string): { instinct: Instinct; body: string } {
     const path = instinctPath(this.harnessHome, projectId, instinctId);
     const raw = readFileSync(path, 'utf-8');
-    const m = raw.match(FRONTMATTER_RE);
-    if (!m) {
-      throw new Error(`malformed instinct ${instinctId}: missing frontmatter`);
-    }
-    const data = parseYaml(m[1] ?? '') as Record<string, unknown>;
-    return {
-      instinct: InstinctSchema.parse(data),
-      body: m[2] ?? '',
-    };
+    return parseInstinct(raw, instinctId);
   }
 
   /** Write an instinct, overwriting any existing record at the same id.
@@ -76,8 +61,7 @@ export class InstinctStore {
     }
     const projectId = instinct.scope === 'global' ? GLOBAL_PROJECT_ID : (instinct.project_id ?? '');
     const path = instinctPath(this.harnessHome, projectId, instinct.id);
-    const fm = stringifyYaml(instinct);
-    writeFileSync(path, `---\n${fm}---\n${body}`);
+    writeFileSync(path, serializeInstinct(instinct, body));
   }
 
   /** Remove an instinct from disk. No-op if missing. */
