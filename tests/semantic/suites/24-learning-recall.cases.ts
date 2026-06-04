@@ -74,12 +74,12 @@ function homeInstinct(i: SeedInstinct): TestSetupFile {
   };
 }
 
-/** The user-config delta that turns recall on for the session AND lets the
- *  end-to-end learning loop run without human approval (mirrors the with-arm
- *  config in src/learning-layer/eval/runner.ts). */
+/** The user-config delta that turns recall on for the session. These are seeded
+ *  single-turn recall cases (mirroring the Track-A with-arm in
+ *  src/learning-layer/eval/runner.ts), so recall.enabled is the only relevant
+ *  knob — the write-side review.autoPromote* flags play no role here. */
 const RECALL_ON_CONFIG: Record<string, unknown> = {
   learning: { recall: { enabled: true } },
-  review: { autoPromoteMemory: true, autoPromoteSkills: true },
 };
 
 export const tests: SemanticTest[] = [
@@ -87,22 +87,28 @@ export const tests: SemanticTest[] = [
     id: 'recall-unusual-test-command',
     name: 'recalled instinct routes the agent to the non-default test command',
     description:
-      'There is no `test` script and the Makefile test target is named `ci` (next to a decoy ' +
-      '`check` target that only lints). Without the recalled instinct the agent reaches for the ' +
-      'universal default `npm test` / `bun test` (which do not exist here). The recalled instinct ' +
-      'names the exact command — non-derivable because no file says the suite runs via `make ci`.',
+      'There is no `test` script and no `make test` target. The Makefile exposes three plausible ' +
+      'check-ish targets — `check` (only lints), `audit` (only scans deps), and `verify` (the real ' +
+      'test target) — and every recipe echoes a neutral line, so nothing reveals which runs the ' +
+      'suite. Without the recalled instinct the agent reaches for the universal default `npm test` ' +
+      '/ `bun test` (absent) or guesses a check-ish target. The recalled instinct names the exact ' +
+      'target — non-derivable because no file says the suite runs via `make verify` and its `OK` ' +
+      'output does not confirm it after the fact.',
     category: 'workflow',
     setup: {
       files: [
         {
           path: 'Makefile',
           content: [
-            '# Developer tasks. NOTE: the test suite does NOT run via `make test`.',
+            '# Developer tasks. There is no `make test` target in this repo.',
             'check:',
             '\t@echo "lint: 0 problems"',
             '',
-            'ci:',
-            '\t@echo "ran 12 tests, all pass"',
+            'audit:',
+            '\t@echo "0 vulnerabilities found"',
+            '',
+            'verify:',
+            '\t@echo "OK"',
             '',
             'clean:',
             '\t@rm -rf dist',
@@ -123,7 +129,7 @@ export const tests: SemanticTest[] = [
           id: 'testcmd',
           trigger: 'run the test suite in this repo',
           action:
-            'run `make ci` — there is no npm or bun test script, and `make check` only lints; the suite is the `ci` target',
+            'run `make verify` — that is the test target. There is no npm or bun test script; `make check` only lints and `make audit` only scans dependencies. A passing run prints `OK`.',
           domain: 'testing',
         }),
       ],
@@ -132,11 +138,12 @@ export const tests: SemanticTest[] = [
     prompt: 'Run this repo’s test suite and tell me the result.',
     judgeCriteria: {
       mustSatisfy: [
-        'The agent ran the `make ci` command (the Makefile target named `ci`).',
-        'The agent reported the suite passed — specifically that 12 tests ran and all passed.',
+        'The agent ran the `make verify` command (the Makefile target named `verify`).',
+        'The agent reported the suite passed (the `verify` target succeeded — its output was `OK`).',
       ],
       shouldNot: [
         'The agent ran `make check` and treated its lint output as the test result.',
+        'The agent ran `make audit` and treated its dependency-scan output as the test result.',
         'The agent reported `npm test` or `bun test` as the way to run the suite.',
         'The agent concluded there is no way to run the tests.',
       ],

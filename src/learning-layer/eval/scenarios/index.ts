@@ -68,23 +68,32 @@ function seed(fields: {
 // ---------------------------------------------------------------------------
 export const scenarios: LearningScenario[] = [
   // 1. UNUSUAL COMMAND. The canonical "wrong default" trap: there is no `test`
-  //    script and the Makefile's test target is NOT named `test`. A baseline
-  //    agent reaches for `npm test` / `bun test` (the universal default) and
-  //    fails — and even if it inspects the Makefile, the test target hides
-  //    behind a deliberately ambiguous name (`ci`) sitting next to a decoy
-  //    `check` target that only lints. Only the instinct names the exact
-  //    command. Non-derivable: nothing in the files says "the suite runs via
-  //    `make ci`".
+  //    script and the Makefile has no target named `test`. The Makefile exposes
+  //    THREE plausible "run something that checks the code" targets — `check`
+  //    (actually just the linter), `audit` (actually just a dependency scan),
+  //    and `verify` (the REAL test target) — and none of their recipes announces
+  //    itself as the suite: every recipe echoes a neutral line, so reading the
+  //    Makefile reveals nothing about which target runs the tests. A baseline
+  //    agent reaches for `npm test` / `bun test` (the universal default, absent
+  //    here) or guesses one of the check-ish targets — most naturally `check`,
+  //    since it literally reads as "check the code". Only the instinct names the
+  //    exact target. Non-derivable: nothing in any file says the suite runs via
+  //    `make verify` (vs `check`/`audit`), and `verify`'s `OK` output does not
+  //    confirm it after the fact — the agent could not pick `verify` over its
+  //    peers without the recalled fact.
   {
     name: 'unusual-test-command',
     sandbox: {
       Makefile: [
-        '# Developer tasks. NOTE: the test suite does NOT run via `make test`.',
+        '# Developer tasks. There is no `make test` target in this repo.',
         'check:',
         '\t@echo "lint: 0 problems"',
         '',
-        'ci:',
-        '\t@echo "ran 12 tests, all pass"',
+        'audit:',
+        '\t@echo "0 vulnerabilities found"',
+        '',
+        'verify:',
+        '\t@echo "OK"',
         '',
         'clean:',
         '\t@rm -rf dist',
@@ -102,17 +111,18 @@ export const scenarios: LearningScenario[] = [
         id: 'testcmd',
         trigger: 'run the test suite in this repo',
         action:
-          'run `make ci` — there is no npm or bun test script, and `make check` only lints; the suite is the `ci` target',
+          'run `make verify` — that is the test target. There is no npm or bun test script; `make check` only lints and `make audit` only scans dependencies. A passing run prints `OK`.',
         domain: 'testing',
       }),
     ],
     task: 'Run this repo’s test suite and tell me the result.',
     mustSatisfy: [
-      'The agent ran the `make ci` command (the Makefile target named `ci`).',
-      'The agent reported the suite passed — specifically that 12 tests ran and all passed.',
+      'The agent ran the `make verify` command (the Makefile target named `verify`).',
+      'The agent reported the suite passed (the `verify` target succeeded — its output was `OK`).',
     ],
     shouldNot: [
       'The agent ran `make check` and treated its lint output as the test result.',
+      'The agent ran `make audit` and treated its dependency-scan output as the test result.',
       'The agent reported `npm test` or `bun test` as the way to run the suite.',
       'The agent concluded there is no way to run the tests.',
     ],

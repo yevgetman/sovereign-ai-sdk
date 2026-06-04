@@ -8,6 +8,63 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-04 — Learning eval integrity hardening (recall as sole Track-A axis + non-derivable scenario 1)
+
+Two integrity fixes to the with-vs-without learning eval (neither blocked the prior 6/6 PASS;
+both make the proof more robust):
+
+- **Fix 1 — recall is now the SOLE Track-A axis.** `armUserConfig` in
+  `src/learning-layer/eval/runner.ts` previously set `review.autoPromote{Memory,Skills}: true`
+  only on the recall-ON arm. Those flags are write-side (govern unattended promotion of
+  review-fork proposals) and irrelevant to the seeded single-turn Track-A tasks, but their
+  presence meant the two arms differed by more than recall. Removed them entirely;
+  `armUserConfig` now returns only `{ learning: { recall: { enabled } } }`. Updated the
+  file-header + function comments to match. Track-B config (`trackB.ts`) untouched. Also
+  updated the semantic mirror's shared `RECALL_ON_CONFIG` (dropped autoPromote) + its comment.
+- **Fix 2 — scenario #1 (`unusual-test-command`) is now genuinely non-derivable.** The old
+  Makefile revealed the answer: a `ci:` target whose recipe echoed "ran 12 tests, all pass"
+  next to a `check:` lint target — a baseline reading the Makefile could infer `ci` was the
+  suite. Redesigned: three plausible check-ish targets (`check` = lint, `audit` = dep scan,
+  `verify` = the REAL test target) with NEUTRAL recipe outputs (`lint: 0 problems`,
+  `0 vulnerabilities found`, `OK`) so nothing announces the suite. Seeded `instinct.action`
+  now names `make verify` (output `OK`); `task`/`mustSatisfy`/`shouldNot` updated to match
+  (mustSatisfy = ran `make verify` + reported it passed; shouldNot = ran `check`/`audit`/
+  npm-or-bun-test / concluded no way to test). Trigger kept lexically overlapping the task.
+  Mirror in `tests/semantic/suites/24-learning-recall.cases.ts` updated identically
+  (structurally valid; `test:semantic` not run).
+
+- **Empirical confirmation (`bun run eval:learning`, all 6 scenarios; binary `sov` 0.6.14;
+  judge = `claude` CLI; agent `claude-sonnet-4-6`; `ANTHROPIC_API_KEY` from
+  `~/.harness/config.json`, exported for the run only):**
+
+  ```
+  Scenario                         without  with   flip  regression  Δtools
+  -------------------------------- -------  ----   ----  ----------  ------
+  unusual-test-command             fail    PASS   yes   no          +2
+  handler-directory-convention     fail    PASS   yes   no          -2
+  migrate-safe-flag                fail    PASS   yes   no          +2
+  build-no-cache-flag              fail    PASS   yes   no          +1
+  deploy-target-region             fail    PASS   yes   no          +2
+  project-check-strict-flag        fail    PASS   yes   no          +2
+
+  summary: 6 scenarios, 6 flips, 0 regressions (need >= 3 flips, 0 regressions).
+  RESULT: PASS
+  ```
+
+  **Scenario #1 STILL FLIPS after the redesign** (`without: fail, 3 tool calls` →
+  `with: PASS, 1 tool call`): the recall-OFF baseline inspected the Makefile, found three
+  neutral-output check-ish targets, and could not pick `verify` — it failed. The recall-ON
+  arm ran `make verify` directly from the instinct. Honest flip from genuine
+  non-derivability, not a contrived tell. No regressions; Track-B full loop still closes
+  end-to-end (13 obs → synthesis → 2 instincts → N+1 flip YES).
+
+- **Gate:** `bun run lint` clean; `bun run typecheck` clean; `bun run test` →
+  **2708 pass / 14 skip / 3 fail**. The 3 fails are the known env-only learning-observer set
+  (`turns route — learning observer`, `M8 polish-surfaces end-to-end`,
+  `M7 six-subsystems end-to-end`) caused by the ambient `~/.harness/config.json`
+  `learning.disabled: true` leak — NOT new, and untouched by these eval-only changes.
+  No release cut (per task instruction).
+
 ## 2026-06-04 — Learning-loop spike Phase 1 Task 18 (Track-B end-to-end synthesis→recall eval)
 
 Added a Track-B full-loop branch to the learning eval that proves the WHOLE loop with NO

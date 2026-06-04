@@ -5,8 +5,11 @@
 // two arms that differ ONLY by learning config:
 //   without — learning.recall.enabled = false (lessons on disk, never recalled)
 //   with    — learning.recall.enabled = true  (recall splices lessons in front
-//             of the turn) + review.autoPromote{Memory,Skills} = true so the
-//             loop runs end-to-end with no human approval (D12).
+//             of the turn)
+// Track A is a seeded single-turn proof, so recall is the SOLE axis of
+// difference — the write-side review.autoPromote* flags are irrelevant here and
+// deliberately omitted (see armUserConfig). Track B, which runs the full
+// observe -> synthesize -> recall loop, owns its own config in trackB.ts.
 //
 // Each arm runs in its own isolated sandbox (config is baked into the sandbox
 // at creation time), via the existing semantic-test driver (`sov drive`
@@ -56,16 +59,14 @@ export function countToolCalls(transcript: string): number {
   return matches ? matches.length : 0;
 }
 
-/** The learning config delta that distinguishes the two arms. This is the ONLY
- *  axis of difference between `without` and `with`. */
+/** The learning config delta that distinguishes the two arms. `learning.recall.enabled`
+ *  is the ONLY axis of difference between `without` and `with`: both arms seed the same
+ *  instinct corpus, so a flip is attributable to recall and nothing else. The Track-A
+ *  scenarios are seeded single-turn tasks, so the write-side `review.autoPromote*` flags
+ *  (which only govern whether review-fork-proposed memory/skills are written without human
+ *  approval) are irrelevant here and deliberately omitted — keeping recall the sole delta. */
 function armUserConfig(recallEnabled: boolean): Record<string, unknown> {
-  if (!recallEnabled) {
-    return { learning: { recall: { enabled: false } } };
-  }
-  return {
-    learning: { recall: { enabled: true } },
-    review: { autoPromoteMemory: true, autoPromoteSkills: true },
-  };
+  return { learning: { recall: { enabled: recallEnabled } } };
 }
 
 /** Build the synthetic SemanticTest the judge scores an arm's transcript against. */
