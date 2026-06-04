@@ -311,3 +311,40 @@ describe('taskRouting schema', () => {
     expect(parsed.taskRouting).toBeUndefined();
   });
 });
+
+// Learning-loop spike Phase 1 Task 10 — learning.recall schema.
+// The recall block gates the per-session recall thunk that splices
+// recalled instinct lessons in front of the latest user turn. Disabled
+// by default so existing behavior is unchanged. Pure config schema.
+// Plan: docs/plans/2026-06-03-learning-loop-spike-kickoff.md
+describe('learning.recall schema', () => {
+  test('defaults: recall disabled', () => {
+    const parsed = SettingsSchema.parse({});
+    expect(parsed.learning?.recall?.enabled ?? false).toBe(false);
+  });
+
+  test('accepts a recall override', () => {
+    const parsed = SettingsSchema.parse({
+      learning: { recall: { enabled: true, maxLessons: 5, tokenBudget: 800 } },
+    });
+    expect(parsed.learning?.recall?.enabled).toBe(true);
+    expect(parsed.learning?.recall?.maxLessons).toBe(5);
+    expect(parsed.learning?.recall?.tokenBudget).toBe(800);
+  });
+
+  test('recall sub-object applies its own field defaults when present but partial', () => {
+    const parsed = SettingsSchema.parse({ learning: { recall: { enabled: true } } });
+    expect(parsed.learning?.recall?.enabled).toBe(true);
+    expect(parsed.learning?.recall?.maxLessons).toBe(8);
+    expect(parsed.learning?.recall?.tokenBudget).toBe(1200);
+  });
+
+  test('rejects non-positive maxLessons / tokenBudget', () => {
+    expect(() => SettingsSchema.parse({ learning: { recall: { maxLessons: 0 } } })).toThrow();
+    expect(() => SettingsSchema.parse({ learning: { recall: { tokenBudget: -1 } } })).toThrow();
+  });
+
+  test('rejects unknown keys under learning.recall (strict mode)', () => {
+    expect(() => SettingsSchema.parse({ learning: { recall: { unknownField: true } } })).toThrow();
+  });
+});

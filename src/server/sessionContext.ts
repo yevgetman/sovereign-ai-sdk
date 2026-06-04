@@ -22,9 +22,9 @@ import {
   type SubdirectoryHintState,
   createSubdirectoryHintState,
 } from '../context/subdirectoryHints.js';
-import type { Terminal } from '../core/types.js';
+import type { RecallTurn, Terminal } from '../core/types.js';
 import { LearningObserver } from '../learning/observer.js';
-import { instinctsDir } from '../learning/paths.js';
+import { GLOBAL_PROJECT_ID, instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
 import { type MemoryManager, createDefaultMemoryManager } from '../memory/provider.js';
 import { type ProjectScope, resolveProjectScope } from '../memory/scope.js';
@@ -96,6 +96,14 @@ export type SessionContext = {
    *  on first use. */
   memoryManager: MemoryManager;
   projectScope: ProjectScope;
+  /** Learning-loop spike Phase 1 — per-session recall thunk, bound to this
+   *  session's project id. Present only when `learning.recall.enabled` is
+   *  true; left undefined otherwise so the turns route omits it from the
+   *  query() call and recall stays inert (default behavior unchanged). The
+   *  turns route threads this onto the query() params; query() runs it
+   *  after memory injection and prepends recalled lessons to the latest
+   *  user message. */
+  recall?: RecallTurn;
 };
 
 export type BuildSessionContextOpts = {
@@ -252,6 +260,28 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   });
   const memoryManager = createDefaultMemoryManager(runtime.harnessHome, projectScope);
 
+  // Learning-loop spike Phase 1 — per-session recall thunk. Built only when
+  // `learning.recall.enabled` is true (default false → field left undefined
+  // → the turns route omits `recall` from query() → recall stays inert, so
+  // default behavior is unchanged). Bound to this session's project id:
+  // when the session is in a project (bundle or git repo) we recall that
+  // project's instincts; otherwise we recall the global corpus
+  // (GLOBAL_PROJECT_ID), matching the instinct store's global-scope key.
+  // Fail-open is the layer's own responsibility — `learningLayer.recall`
+  // swallows errors and returns an empty result rather than breaking the
+  // turn.
+  const recallCfg = userSettings.learning?.recall;
+  const recallProjectId = projectScope.kind === 'project' ? projectScope.id : GLOBAL_PROJECT_ID;
+  const recall: RecallTurn | undefined = recallCfg?.enabled
+    ? (latestUserText) =>
+        runtime.learningLayer.recall({
+          projectId: recallProjectId,
+          latestUserText,
+          tokenBudget: recallCfg.tokenBudget ?? 1200,
+          maxLessons: recallCfg.maxLessons ?? 8,
+        })
+    : undefined;
+
   return {
     sessionId,
     traceWriter,
@@ -266,6 +296,7 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     subdirectoryHintState: createSubdirectoryHintState(),
     memoryManager,
     projectScope,
+    ...(recall !== undefined ? { recall } : {}),
     ...(learningObserver !== undefined ? { learningObserver } : {}),
     ...(reviewManager !== undefined ? { reviewManager } : {}),
   };

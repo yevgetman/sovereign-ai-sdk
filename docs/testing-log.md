@@ -8,6 +8,42 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-03 — Learning-loop spike Phase 1 Task 10 (runtime + recall/memory server wiring)
+
+Wired the (already-built) learning layer onto the live runtime + turns route:
+constructed `createLearningLayer({ persist: createFsPersist(harnessHome), reason:
+createProviderReason(resolved.transport, resolved.model) })` once at boot (new
+`Runtime.learningLayer`), built a per-session recall thunk gated on
+`learning.recall.enabled` in `buildSessionContext` (bound to the session's project
+id — `projectScope.kind === 'project' ? .id : GLOBAL_PROJECT_ID`), and threaded BOTH
+`memoryManager` (the D6 latent-bug fix — server/TUI surface previously omitted it, so
+MEMORY.md never injected) and `recall` into the `query({...})` call in `turns.ts`.
+Added the `learning.recall` config block (enabled/maxLessons/tokenBudget, default-off)
+and reserved an `'instinct'` `ComponentKind` in the context-budget union.
+
+- **TDD:** added `learning.recall schema` tests to `tests/config/schema.test.ts`
+  (defaults disabled / override / partial-defaults / non-positive rejection / strict
+  unknown-key rejection); ran red (recall unrecognized under strict mode) → implemented
+  → green (45/45 in that file).
+- **D6 server-test watch:** ran `tests/server/` before vs after via `git stash` —
+  **identical 206 pass / 3 fail** both ways; the 3 are the documented env-only
+  learning-OBSERVER tests (`turns.learning` M7 T5 obs JSONL, `m8Full`, `m7Full`),
+  which fail because the ambient `~/.harness/config.json` carries `learning.disabled:
+  true` (leaves `learningObserver` undefined). Unrelated to recall/memory; adding
+  `memoryManager` to the route broke NO server/turns test.
+- **Gate:** `bun run lint` clean; `bun run typecheck` clean (fixed the config-only
+  minimal-Runtime literal in `src/cli/configMode.ts` — added an inert `learningLayer`
+  stub); `bun run test` **2669 pass / 3 fail / 14 skip** — the 3 are the same known
+  env-only learning-observer set, no new failures (pass count +5 from the new schema
+  tests vs the prior snapshot baseline).
+- **Files:** `src/config/schema.ts`, `src/context/budget.ts`, `src/server/runtime.ts`,
+  `src/server/sessionContext.ts`, `src/server/routes/turns.ts`, `src/cli/configMode.ts`,
+  `tests/config/schema.test.ts`.
+- **Behavior unchanged by default:** recall is `enabled: false` by default → the
+  per-session thunk is left undefined → the conditional spread omits `recall` from
+  query() → recall stays inert. The only default-behavior delta is the intended D6 fix
+  (MEMORY.md now injects on the server/TUI surface, matching the CLI paths).
+
 ## 2026-05-31 — Holistic doc-consistency sweep (bring doc set current to v0.6.13)
 
 Full-repo documentation audit + cascade so the living docs match the runtime tip

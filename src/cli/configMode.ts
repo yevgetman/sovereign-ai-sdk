@@ -349,6 +349,16 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     taskManager,
     daemonEventBus,
     skills: { skills: [], byName: new Map() },
+    // Learning-loop spike Phase 1 — inert learning layer. Config-only mode
+    // runs no turns (no session ever calls recall) and Observe is a Phase 1
+    // no-op everywhere, so a stub that returns an empty recall result is
+    // sufficient and avoids constructing the provider-backed Reason adapter
+    // for a surface that never reasons.
+    learningLayer: {
+      recall: async () => ({ injectionText: '', lessons: [] }),
+      observeSession: async () => {},
+      observeToolEvent: () => {},
+    },
     microcompactConfig: {
       enabled: false,
       keepRecent: 0,

@@ -563,6 +563,20 @@ async function runTurnInBackground(
         toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool, {
           delegationLifecycleRecorder,
         }),
+        // Backlog #43 (D6 fix) — the server/TUI surface previously OMITTED
+        // memoryManager from query(), so MEMORY.md never injected here (only
+        // CLI paths passed it). `sessionCtx.memoryManager` is always present
+        // (built unconditionally in buildSessionContext), so injection now
+        // fires on this surface too. MemoryManager is assignable to query()'s
+        // MemoryRuntime field.
+        memoryManager: sessionCtx.memoryManager,
+        // Learning-loop spike Phase 1 — per-session recall thunk. Present
+        // only when `learning.recall.enabled` is true; the conditional
+        // spread keeps the field absent otherwise (exactOptionalPropertyTypes
+        // discipline + default-off behavior). When set, query() runs it
+        // after memory injection and prepends recalled lessons to the latest
+        // user message.
+        ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
         maxTokens: runtime.maxTokens,
         sessionId,
         cwd: runtime.cwd,

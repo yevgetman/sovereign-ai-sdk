@@ -19,7 +19,17 @@ import type { SystemSegment } from '../core/types.js';
 import type { Skill } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 
-export type ComponentKind = 'system-segment' | 'tool-schema' | 'skill' | 'bundle' | 'memory';
+export type ComponentKind =
+  | 'system-segment'
+  | 'tool-schema'
+  | 'skill'
+  | 'bundle'
+  | 'memory'
+  /** Learning-loop spike Phase 1 — recalled instinct lessons injected in
+   *  front of a user turn. Reserved as a budget category now so the recall
+   *  injection can be inventoried by `/context-budget` once it is wired
+   *  into the audit. */
+  | 'instinct';
 
 export type Classification = 'always' | 'sometimes' | 'rarely';
 
@@ -278,5 +288,7 @@ function labelForKind(kind: ComponentKind): string {
       return 'bundle context';
     case 'memory':
       return 'memory files';
+    case 'instinct':
+      return 'instinct lessons';
   }
 }

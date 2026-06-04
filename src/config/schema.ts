@@ -351,6 +351,20 @@ export const SettingsSchema = z
         /** Cross-project promotion threshold (synthesizer surfaces
          *  candidates with confidence ≥ this). Default 0.7. */
         crossProjectMinConfidence: z.number().min(0).max(1).optional(),
+        /** Learning-loop spike Phase 1 — per-turn recall. When enabled,
+         *  the host builds a per-session recall thunk (sessionContext) that
+         *  splices recalled instinct lessons in front of the latest user
+         *  turn (query() does the splice). Disabled by default so existing
+         *  behavior is unchanged. `maxLessons` caps how many lessons are
+         *  surfaced; `tokenBudget` caps the injected snapshot size. */
+        recall: z
+          .object({
+            enabled: z.boolean().default(false),
+            maxLessons: z.number().int().positive().default(8),
+            tokenBudget: z.number().int().positive().default(1200),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

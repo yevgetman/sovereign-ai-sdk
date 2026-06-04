@@ -45,6 +45,10 @@ import { wrapToolsForReplay } from '../eval/replay/toolPool.js';
 import { buildConsentChecker, buildFileConsentStore } from '../hooks/consent.js';
 import { buildHookRunner } from '../hooks/runner.js';
 import type { HookRunner } from '../hooks/types.js';
+import { createFsPersist } from '../learning-layer/adapters/harness/persistFs.js';
+import { createProviderReason } from '../learning-layer/adapters/harness/reasonProvider.js';
+import { createLearningLayer } from '../learning-layer/index.js';
+import type { LearningLayer } from '../learning-layer/ports.js';
 import { buildMcpClientPool } from '../mcp/client.js';
 import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
@@ -411,6 +415,16 @@ export type Runtime = {
    *  registry; visibility filtering is rendering-only.
    *  Closes phase-16 prereq row 20. */
   skills: SkillRegistry;
+  /** Learning-loop spike Phase 1 — the learning layer (Recall + Observe
+   *  ports) constructed once at boot over a filesystem Persist adapter
+   *  ($HARNESS_HOME) and a provider-backed Reason adapter. The turns route
+   *  builds a per-session recall thunk (in buildSessionContext) bound to
+   *  the session's project that calls `learningLayer.recall(...)`; query()
+   *  splices the recalled lessons in front of the latest user turn. Always
+   *  present — recall is gated by `learning.recall.enabled` at the
+   *  session-thunk layer, not by the layer's existence. Observe ports are
+   *  Phase 1 no-ops (existing capture hooks stay authoritative). */
+  learningLayer: LearningLayer;
   /** Per-session subsystem registry (M7-01). Holds the trace writer
    *  (T3) and — in follow-up tasks — learning observer (T5), review
    *  manager (T6), and trajectory metadata (T4) for each active session
@@ -851,6 +865,19 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   }
   const provider = resolved.transport;
 
+  // Learning-loop spike Phase 1 — construct the learning layer once at boot.
+  // Persist maps named-blob keys to files under $HARNESS_HOME; Reason wraps
+  // the resolved provider transport (Transport extends LLMProvider) + model
+  // so any future synthesizer reasoning rides the same provider the turn
+  // uses. The layer is constructed unconditionally: recall is gated per
+  // session by `learning.recall.enabled` (in buildSessionContext), and the
+  // layer's Observe ports are Phase 1 no-ops. Cheap to construct — both
+  // adapters defer all I/O to first call.
+  const learningLayer = createLearningLayer({
+    persist: createFsPersist(harnessHome),
+    reason: createProviderReason(resolved.transport, resolved.model),
+  });
+
   // Provider preflight — fail fast on bad credentials / quota / transport
   // before opening the sessionDb or doing other side-effects. Skip when
   // opts.preflight === false or when replay is configured: ReplayProvider
@@ -1283,6 +1310,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     taskManager,
     daemonEventBus,
     skills,
+    learningLayer,
     microcompactConfig,
     compact,
     proactiveCompactThreshold,
