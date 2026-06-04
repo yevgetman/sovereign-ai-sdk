@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { clusterKey, clusterObservations } from '../../src/learning/cluster.js';
+import {
+  clusterKey,
+  clusterObservations,
+  normalizeActionPattern,
+} from '../../src/learning/cluster.js';
 import type { Observation } from '../../src/learning/types.js';
 
 function obs(partial: Partial<Observation> = {}): Observation {
@@ -69,5 +73,36 @@ describe('clusterObservations', () => {
 
   test('empty input returns empty array', () => {
     expect(clusterObservations([])).toEqual([]);
+  });
+});
+
+describe('cluster normalization', () => {
+  test('paths/numbers/quoted strings collapse to placeholders', () => {
+    expect(normalizeActionPattern('ls -la /Users/a/Desktop')).toBe(
+      normalizeActionPattern('ls -la /Users/b/code'),
+    );
+  });
+
+  test('path collapses to the documented <path> placeholder', () => {
+    expect(normalizeActionPattern('ls -la /Users/a/Desktop')).toBe('ls -la <path>');
+  });
+
+  test('numbers and quoted strings collapse to <n> and <str>', () => {
+    expect(normalizeActionPattern("git commit -m 'fix bug' 42")).toBe('git commit -m <str> <n>');
+  });
+
+  test('same command over different paths forms ONE cluster', () => {
+    const observations = ['~/a', '~/b', '~/c', '~/d'].map((d) =>
+      obs({ tool_name: 'Bash', tool_input_summary: `ls -la ${d}`, status: 'success' }),
+    );
+    const clusters = clusterObservations(observations);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]?.observations).toHaveLength(4);
+  });
+
+  test('different tool names stay distinct', () => {
+    const a = obs({ tool_name: 'Bash', tool_input_summary: 'cat x' });
+    const b = obs({ tool_name: 'Grep', tool_input_summary: 'cat x' });
+    expect(clusterKey(a)).not.toBe(clusterKey(b));
   });
 });
