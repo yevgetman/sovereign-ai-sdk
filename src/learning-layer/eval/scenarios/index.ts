@@ -13,6 +13,12 @@ export interface LearningScenario {
   readonly mustSatisfy: readonly string[];
   readonly shouldNot?: readonly string[];
   readonly track: 'A' | 'B';
+  /** Track B ONLY — the session-N task. Run first (recall OFF, real tools)
+   *  so its tool calls accrue several consistent observations of a learnable
+   *  pattern. The runner then synthesizes those observations into an instinct
+   *  and runs `task` (N+1) to test recall. Unused by Track A (seeded corpus,
+   *  single session). Required when `track === 'B'`. */
+  readonly setupTask?: string;
 }
 
 /** Fixed timestamps for seeded instincts — these are curated, not synthesized,
@@ -259,5 +265,53 @@ export const scenarios: LearningScenario[] = [
       'The agent deployed to us-east-1 (or any region other than eu-west-1).',
     ],
     track: 'A',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Track B — full-loop REAL-SYNTHESIS scenario (no seeded instinct).
+  //
+  // Unlike Track A (which seeds the corpus), Track B proves the WHOLE loop:
+  //   session N  → repeated tool use generates consistent observations
+  //   synthesis  → the live synthesizer clusters them into a real instinct
+  //   session N+1 → recall surfaces that instinct and flips behavior
+  //
+  // The learnable fact is the mandatory `--strict` flag on the project's
+  // `./bin/check` script. It is NON-DERIVABLE from the files: the script just
+  // echoes its args, and nothing in the repo states that `--strict` is
+  // required (or even exists). Session N learns it only because the setup
+  // task drives `./bin/check --strict <file>` across five files — five
+  // structurally-identical, all-success observations the synthesizer can
+  // cluster and articulate sharply. Session N+1 ("check src/zeta.ts") would
+  // run `./bin/check` bare in the baseline (the natural move) and only adds
+  // `--strict` when the synthesized instinct is recalled. The instinct's
+  // trigger ("check a file with ./bin/check in this repo") lexically overlaps
+  // the N+1 prompt so deterministic recall assembly surfaces it.
+  {
+    name: 'project-check-strict-flag',
+    sandbox: {
+      // The checker just echoes its args — it teaches the agent NOTHING about
+      // the --strict flag, so the requirement is genuinely non-derivable.
+      'bin/check': ['#!/usr/bin/env bash', 'echo "check invoked with args: $*"', ''].join('\n'),
+      'src/alpha.ts': 'export const alpha = 1;\n',
+      'src/beta.ts': 'export const beta = 2;\n',
+      'src/gamma.ts': 'export const gamma = 3;\n',
+      'src/delta.ts': 'export const delta = 4;\n',
+      'src/epsilon.ts': 'export const epsilon = 5;\n',
+      'src/zeta.ts': 'export const zeta = 6;\n',
+      // README frames bin/check as the checker but never mentions --strict.
+      'README.md': '# demo lib\n\nSource lives in src/. Files are checked with ./bin/check.\n',
+    },
+    seedInstincts: [],
+    // Session N — drive five consistent `./bin/check --strict <file>` calls.
+    setupTask:
+      'This project checks source files with ./bin/check, and in this repo every file MUST be checked with the --strict flag. Run `./bin/check --strict` on each of these files individually, one command per file, and report each result: src/alpha.ts, src/beta.ts, src/gamma.ts, src/delta.ts, src/epsilon.ts.',
+    // Session N+1 — dependent task. Does NOT mention --strict; the baseline
+    // has no reason to add it, so only a recalled instinct flips behavior.
+    task: 'Check the file src/zeta.ts using this project’s checker.',
+    mustSatisfy: [
+      'The agent ran ./bin/check on src/zeta.ts WITH the --strict flag (e.g. `./bin/check --strict src/zeta.ts`).',
+    ],
+    shouldNot: ['The agent ran ./bin/check on src/zeta.ts WITHOUT the --strict flag.'],
+    track: 'B',
   },
 ];

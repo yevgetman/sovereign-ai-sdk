@@ -8,6 +8,56 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-04 — Learning-loop spike Phase 1 Task 18 (Track-B end-to-end synthesis→recall eval)
+
+Added a Track-B full-loop branch to the learning eval that proves the WHOLE loop with NO
+seeded instinct (unlike Track A): session N generates observations → the LIVE synthesizer
+writes a real instinct → session N+1 recalls it and flips behavior. New code:
+`src/learning-layer/eval/trackB.ts` (loop orchestration) + `trackBCorpus.ts` (post-synthesis
+corpus reader); 1 new `track: 'B'` scenario (`project-check-strict-flag`) +
+`setupTask` field in `scenarios/index.ts`; runner splits Track A / Track B and prints a
+loop trace. Synthesis runs IN-PROCESS via `buildRuntime` + `runSynthesizer(...)` (awaited)
+— the installed binary carries the PRE-FIX near-zero-confidence curve and `sov drive` exits
+before its fire-and-forget end-of-session synthesizer completes, so the in-process path
+exercises this working tree's fixed synthesizer. N/N+1 arms run via the installed `sov drive`
+(same path as Track A). Provider creds: `ANTHROPIC_API_KEY` from `~/.harness/config.json`,
+exported for the run only. Judge: `claude` CLI. Agent model: `claude-sonnet-4-6`.
+
+- **Scenario:** mandatory `--strict` flag on a project's echo-only `./bin/check` script
+  (non-derivable — nothing in the files reveals the flag). Session N drives
+  `./bin/check --strict <file>` across 5 files; N+1 ("check src/zeta.ts") flips iff the
+  synthesized instinct is recalled.
+- **Full-suite run (`bun run eval:learning`, all 6 scenarios): 6 flips / 0 regressions →
+  RESULT: PASS (exit 0).** Track-B trace: session N = 11 observations → live synthesizer
+  proposed 2 project-scoped instincts (the target `--strict` instinct at confidence 0.287
+  — confirming the NEW saturating `confidenceFromEvidence` curve; the old curve would
+  yield ~0.000) → N+1 with recall PASS (`./bin/check --strict src/zeta.ts`, 1 tool call)
+  vs baseline (recall off) fail → **flip YES, full loop closed end-to-end YES.** The
+  synthesizer also emergently proposed a `chmod +x`-on-exit-126 instinct (real bonus
+  lesson from the agent self-correcting a missing execute bit).
+- **FINDING (real, surfaced by this task) — write/read project-id divergence.** The corpus
+  WRITE path (observer + synthesizer) derives the project id via
+  `getProjectId()` (git-remote hash, else realpath hash). The recall READ path derives it
+  via `resolveProjectScope()`, which — WHEN A BUNDLE IS LOADED — prefers the bundle's
+  declared `projectId`, else a hash of the bundle PATH. With the DEFAULT bundle (declares
+  no `projectId`) the two ids diverge, so a project-scoped synthesized instinct written
+  under the git id is UNREACHABLE by recall. Proven directly: a project-scoped instinct did
+  NOT flip under the default bundle, the identical instinct stored at GLOBAL scope DID flip
+  (recall always reads `_global`), and `assembleLessons` returned the project-scoped instinct
+  when queried with a matching project id — isolating the gap to the binary's read-path id
+  derivation, not the recall layer. The eval works around it faithfully: it builds a minimal
+  sandbox bundle that (a) carries the shipped `bundle-default/agents/` so synthesis can
+  resolve the `instinct-synthesizer` agent, and (b) declares `projectId` = the sandbox git
+  id, so recall and synthesis agree — mirroring how a real Sovereign-AI deployment pins a
+  stable bundle `projectId`. This divergence is worth a product follow-up: `getProjectId`
+  (write) and `resolveProjectScope` (read) should agree on identity, or the synthesizer
+  should write under the bundle scope.
+- **Gate:** `bun run lint` clean; `bun run typecheck` clean; `bun run test`
+  **2707 pass / 3 fail / 14 skip** — the 3 fails are the known env-only learning-observer
+  integration tests (ambient `~/.harness/config.json` `learning.disabled:true` leak), NOT
+  new failures; my changes are confined to `src/learning-layer/eval/`. `test:semantic` not
+  run (heavy; out of Task 18 scope). No release cut (per task instruction).
+
 ## 2026-06-03 — Learning-loop spike Phase 1 Task 17 (Track-A curated recall scenarios + Q1 eval)
 
 Authored the 5 curated Track-A scenarios in `src/learning-layer/eval/scenarios/index.ts`
