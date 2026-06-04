@@ -4,6 +4,16 @@
 
 **Predecessor:** [`docs/state/2026-05-31-post-m2-hardening.md`](2026-05-31-post-m2-hardening.md) (post-M2 hardening run, v0.6.1 → v0.6.13).
 
+## Post-Phase-1 update — recall flipped ON by default (v0.6.16, 2026-06-04)
+
+> This block records decisions/results taken **after** Phase 1 closed. It does **not** rewrite the Phase-1 historical record below (D13 shipping recall off by default was accurate for Phase 1).
+
+1. **Recall is now ON by default** as of **v0.6.16** — a **founder decision (2026-06-04)** taken after the spike's Q1 cleared its bar. The schema default flipped `false → true` (`src/config/schema.ts`), and — because Zod's `.default(true)` only fires when a `recall` block is present — the runtime gate in `src/server/sessionContext.ts` now reads `recallCfg?.enabled !== false` so that **absent** config also means ON. It stays **fail-open** and is a **no-op on an empty instinct corpus**, and remains wired on the **turns route** only (TUI / `sov serve` / `sov drive`). Opt out with `learning.recall.enabled: false`. (Supersedes the "Founder-reserved → whether `learning.recall.enabled` flips to true by default" item and the "(default FALSE)" note below — both were accurate as of Phase-1 close-out.)
+
+2. **#1 hardening — curated eval re-run at 3 repetitions.** Each Track-A scenario's OFF/ON arms now run 3× (`src/learning-layer/eval/runner.ts`; a scenario counts as a robust flip only if it flips in EVERY rep, and the verdict fails on any regression in any rep). Live 3-rep run: **all 5 Track-A scenarios scored 3/3 robust flips, 0 regressions, 0 variance** (15/15 rep-flips); Track-B full loop closed. Dev/eval tooling only — no binary impact.
+
+3. **#2 hardening — real-corpus synthesis-quality audit** (`bun run eval:synthesis-audit`; `src/learning-layer/eval/synthesisAudit.ts`). Running the fixed synthesizer over a COPY of the user's real observation corpus (live corpus read-only) found that **where real data exists, synthesis yields useful instincts**: the one deep project (552 obs) produced **7 instincts at confidence 0.185–0.691, ~6/7 genuinely useful**, versus the broken baseline where real proposals were all prune-eligible (the old `0.04·ln(1+n)` curve cleared the 0.3 floor only at n≈2048). Two caveats: **(a) corpus depth gates the payoff** — only one project currently has real depth (the rest are thin eval/soak scratch dirs); **(b) the deterministic cluster keys are coarse** — the synthesizer LLM, not the keys, carries the specificity. Dev tooling only — no binary impact.
+
 ## What this snapshot is
 
 The **first phase of the learning-loop spike** — a real phase, not a hardening run. It **closes the open learning loop** on this harness behind a portable four-port contract (per ADR H-0010 in `sovereign-ai-docs`), and proves via an eval that a lesson available in session N changes behavior in session N+1 with **no human in the loop**.

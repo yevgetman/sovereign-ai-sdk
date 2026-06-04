@@ -314,22 +314,33 @@ describe('taskRouting schema', () => {
 
 // Learning-loop spike Phase 1 Task 10 — learning.recall schema.
 // The recall block gates the per-session recall thunk that splices
-// recalled instinct lessons in front of the latest user turn. Disabled
-// by default so existing behavior is unchanged. Pure config schema.
+// recalled instinct lessons in front of the latest user turn. ON by
+// default as of v0.6.16 (founder decision 2026-06-04, post-Q1); explicit
+// `enabled: false` still opts out. Pure config schema.
 // Plan: docs/plans/2026-06-03-learning-loop-spike-kickoff.md
 describe('learning.recall schema', () => {
-  test('defaults: recall disabled', () => {
-    const parsed = SettingsSchema.parse({});
-    expect(parsed.learning?.recall?.enabled ?? false).toBe(false);
+  test('defaults: recall enabled when the recall block is present', () => {
+    // The `.default(true)` fires whenever a `recall` object is parsed. (When
+    // the block is ABSENT, Zod has nothing to default and leaves it
+    // undefined; the runtime gate in src/server/sessionContext.ts treats
+    // undefined as ON — `recallCfg?.enabled !== false` — so absent config
+    // is also recall-ON. That absent-config path is covered there, not here.)
+    const parsed = SettingsSchema.parse({ learning: { recall: {} } });
+    expect(parsed.learning?.recall?.enabled).toBe(true);
   });
 
-  test('accepts a recall override', () => {
+  test('accepts a recall override (explicit enable)', () => {
     const parsed = SettingsSchema.parse({
       learning: { recall: { enabled: true, maxLessons: 5, tokenBudget: 800 } },
     });
     expect(parsed.learning?.recall?.enabled).toBe(true);
     expect(parsed.learning?.recall?.maxLessons).toBe(5);
     expect(parsed.learning?.recall?.tokenBudget).toBe(800);
+  });
+
+  test('accepts a recall override (explicit disable still parses to false)', () => {
+    const parsed = SettingsSchema.parse({ learning: { recall: { enabled: false } } });
+    expect(parsed.learning?.recall?.enabled).toBe(false);
   });
 
   test('recall sub-object applies its own field defaults when present but partial', () => {

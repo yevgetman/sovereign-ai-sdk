@@ -366,12 +366,16 @@ export const SettingsSchema = z
         /** Learning-loop spike Phase 1 — per-turn recall. When enabled,
          *  the host builds a per-session recall thunk (sessionContext) that
          *  splices recalled instinct lessons in front of the latest user
-         *  turn (query() does the splice). Disabled by default so existing
-         *  behavior is unchanged. `maxLessons` caps how many lessons are
-         *  surfaced; `tokenBudget` caps the injected snapshot size. */
+         *  turn (query() does the splice). ON by default as of v0.6.16
+         *  (founder decision 2026-06-04, after the spike's Q1 cleared its
+         *  bar). It stays fail-open and is a no-op when the instinct corpus
+         *  is empty; it is wired on the turns route only (TUI/server/`sov
+         *  drive`). Opt out with `learning.recall.enabled: false`.
+         *  `maxLessons` caps how many lessons are surfaced; `tokenBudget`
+         *  caps the injected snapshot size. */
         recall: z
           .object({
-            enabled: z.boolean().default(false),
+            enabled: z.boolean().default(true),
             maxLessons: z.number().int().positive().default(8),
             tokenBudget: z.number().int().positive().default(1200),
           })

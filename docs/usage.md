@@ -790,7 +790,7 @@ Available config fields (top-level unless noted):
 | `learning.observationBufferSize` | int > 0 | `200` | in-memory buffer cap before backpressure drops the oldest |
 | `learning.pruneBelowConfidence` | 0..1 | `0.3` | threshold below which instincts age out via `sov learning prune` |
 | `learning.pruneAgeDays` | int > 0 | `30` | days without reinforcement before sub-threshold instincts are pruned |
-| `learning.recall.enabled` | bool | `false` | (Learning-loop spike Phase 1.) When true, recall splices matching instinct lessons in front of the latest user message each turn. Off → behavior byte-identical. |
+| `learning.recall.enabled` | bool | `true` | (On by default as of v0.6.16.) When on, recall splices matching instinct lessons in front of the latest user message each turn. Fail-open and a no-op when the corpus is empty, so it's byte-identical for sessions with nothing to recall. Set `false` to opt out. |
 | `learning.recall.maxLessons` | int > 0 | `8` | cap on how many lessons recall surfaces per turn |
 | `learning.recall.tokenBudget` | int > 0 | `1200` | cap on the injected recall snapshot size |
 | `learning.evidenceSaturation` | num > 0 | `13` | (Learning-loop spike Phase 1.) τ for the saturating confidence curve — ~6 obs clears the 0.3 prune floor, ~20 clears the 0.7 promotion gate |
@@ -800,10 +800,10 @@ Available config fields (top-level unless noted):
 
 (Learning-loop spike Phase 1.) The learning loop is closed: instincts synthesized from prior sessions can be **recalled** in front of the agent on a later turn. Recall is a deterministic, in-context injection — it reads the project's instinct corpus, ranks lessons by trigger overlap with the latest user message and confidence, fits them to a token budget, and prepends a fenced `<learned-context>` snapshot to the latest user message (mirroring the MEMORY.md injection). No model call; no auto-promotion. Subsystem detail lives in [`docs/architecture.md`](architecture.md) ("Learning Layer — the four-port contract").
 
-Recall is **off by default** — `learning.recall.enabled: false` keeps every surface byte-identical. Opt in per the config table above:
+Recall is **on by default** (as of v0.6.16 — founder decision 2026-06-04, after the spike's Q1 cleared its bar). It stays fail-open and is a no-op when the instinct corpus is empty, so a fresh harness with nothing learned yet behaves byte-identically. Recall is wired on the turns route (TUI / `sov serve` / `sov drive`). Opt out, or tune the knobs, per the config table above:
 
 ```bash
-sov config set learning.recall.enabled true     # turn on per-turn recall
+sov config set learning.recall.enabled false    # opt out of per-turn recall
 sov config set learning.recall.maxLessons 5      # surface at most 5 lessons/turn
 sov config set learning.recall.tokenBudget 800   # cap the injected snapshot
 ```

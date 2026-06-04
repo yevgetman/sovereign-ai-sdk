@@ -265,10 +265,16 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   });
   const memoryManager = createDefaultMemoryManager(runtime.harnessHome, projectScope);
 
-  // Learning-loop spike Phase 1 — per-session recall thunk. Built only when
-  // `learning.recall.enabled` is true (default false → field left undefined
-  // → the turns route omits `recall` from query() → recall stays inert, so
-  // default behavior is unchanged). Bound to this session's project id.
+  // Learning-loop spike Phase 1 — per-session recall thunk. ON by default
+  // as of v0.6.16 (founder decision 2026-06-04, post-Q1): the thunk is built
+  // unless recall is EXPLICITLY disabled (`learning.recall.enabled === false`).
+  // Absent config now means ON, so the gate tests `!== false` rather than
+  // `=== true` — the schema's `.default(true)` only materializes when a
+  // `recall` object is present, so the runtime, not Zod, carries the
+  // absent-config default. Recall stays fail-open and is a no-op when the
+  // instinct corpus is empty (the layer's `recall` swallows errors / returns
+  // an empty result), so flipping it on is byte-identical for any session
+  // with no recallable instincts. Bound to this session's project id.
   //
   // Recall MUST read the SAME project id that the WRITE path stores under.
   // The observer (src/learning/observer.ts) and the synthesizer's
@@ -287,13 +293,15 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // an empty result rather than breaking the turn.
   const recallCfg = userSettings.learning?.recall;
   const recallProjectId = getProjectId(runtime.cwd).id;
-  const recall: RecallTurn | undefined = recallCfg?.enabled
+  // ON by default — only an explicit `enabled: false` opts out.
+  const recallEnabled = recallCfg?.enabled !== false;
+  const recall: RecallTurn | undefined = recallEnabled
     ? (latestUserText) =>
         runtime.learningLayer.recall({
           projectId: recallProjectId,
           latestUserText,
-          tokenBudget: recallCfg.tokenBudget ?? 1200,
-          maxLessons: recallCfg.maxLessons ?? 8,
+          tokenBudget: recallCfg?.tokenBudget ?? 1200,
+          maxLessons: recallCfg?.maxLessons ?? 8,
         })
     : undefined;
 

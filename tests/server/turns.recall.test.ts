@@ -269,9 +269,10 @@ describe('turns route — recall + memory injection (Task 11)', () => {
   });
 
   test('recall OFF — no learned-context injected', async () => {
-    // No recall config → field defaults off → the route omits `recall` from
-    // query() → recall stays inert. Seed the instinct anyway to prove it is
-    // the OFF switch, not a missing corpus, that suppresses injection.
+    // Recall is now ON by default (v0.6.16), so the OFF arm MUST set
+    // `enabled: false` EXPLICITLY — relying on the absence of a recall block
+    // would now INJECT. Seed the instinct anyway to prove it is the explicit
+    // OFF switch, not a missing corpus, that suppresses injection.
     const configPath = join(tmpHome, 'config.json');
     writeFileSync(configPath, JSON.stringify({ learning: { recall: { enabled: false } } }));
     process.env.HARNESS_CONFIG = configPath;
@@ -283,6 +284,30 @@ describe('turns route — recall + memory injection (Task 11)', () => {
     expect(requestText).not.toContain('<learned-context>');
     // The lesson text must not leak in via any other path either.
     expect(requestText).not.toContain(INSTINCT_ACTION);
+  });
+
+  test('recall ON by default — no recall config still injects (v0.6.16 flip)', async () => {
+    // The founder flip (2026-06-04, post-Q1): with NO recall block in the
+    // config at all, recall is ON. The schema `.default(true)` only fires
+    // when a recall object is present, so this proves the RUNTIME gate in
+    // buildSessionContext (`recallCfg?.enabled !== false`) carries the
+    // absent-config default — not Zod.
+    //
+    // Point HARNESS_CONFIG at a NON-EXISTENT path inside tmpHome so
+    // readConfig() takes its `!existsSync → {}` branch deterministically
+    // (rather than reading the dev machine's real ~/.harness/config.json,
+    // which carries an ambient learning.disabled leak). `{}` → learning
+    // undefined → recallCfg undefined → gate is ON. Seed a matching instinct
+    // and assert it reaches the provider with no opt-in config written.
+    process.env.HARNESS_CONFIG = join(tmpHome, 'does-not-exist.json');
+
+    await seedGlobalInstinct(tmpHome);
+
+    const requestText = await driveTurnAndCapture(tmpHome);
+
+    expect(requestText).toContain('<learned-context>');
+    expect(requestText).toContain(INSTINCT_ACTION);
+    expect(requestText).toContain(INSTINCT_TRIGGER);
   });
 
   test('MEMORY.md present — memory block injected on the server route (D6 fix)', async () => {
