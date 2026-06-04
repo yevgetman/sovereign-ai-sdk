@@ -34,17 +34,28 @@ import { tryGitProjectId } from '../../learning/project.js';
 import { createFsPersist } from '../adapters/harness/persistFs.js';
 import { scenarios } from './scenarios/index.js';
 import type { LearningScenario } from './scenarios/index.js';
-import { scoreScenario, verdict } from './score.js';
-import type { ArmResult, ScenarioScore } from './score.js';
+import { aggregateScenario, aggregateVerdict, scoreScenario } from './score.js';
+import type { ArmResult, ScenarioAggregate, ScenarioScore } from './score.js';
 import { type TrackBResult, runTrackBScenario } from './trackB.js';
 
 /** Per-arm binary timeout — each turn is a real model call; learning arms can
  *  trigger end-of-session synthesis, so give them generous headroom. */
 const ARM_TIMEOUT_MS = 180_000;
 
-/** Verdict bar for the spike: at least 3 correctness flips and no regressions. */
+/** Verdict bar for the spike: at least 3 ROBUST correctness flips and no regressions. */
 const MIN_FLIPS = 3;
-const REPETITIONS = 1;
+
+/** Repetitions per arm, per Track-A scenario. LLM output is stochastic, so a single run's
+ *  flip is suggestive but not statistical: repeating each arm N times and counting how often
+ *  the flip reproduces surfaces fragility a single run would hide. A scenario counts toward the
+ *  verdict bar ONLY if it flips in all N reps (robust). Bump this to trade cost for confidence. */
+const REPETITIONS = 3;
+
+/** Track B (the full observe -> synthesize -> recall loop) is the end-to-end existence demo;
+ *  its synthesis angle is covered separately, so it runs once rather than paying N× for the
+ *  expensive in-process synthesizer. Its single rep is still folded through the same aggregate
+ *  so the verdict math is uniform — a Track-B flip is robust-at-1, a Track-B regression fails. */
+const TRACK_B_REPETITIONS = 1;
 
 /** Binary under test — `sov` from PATH unless overridden (mirrors the semantic suite). */
 function resolveBinary(): string {
@@ -128,6 +139,33 @@ async function runArm(opts: {
   } finally {
     sandbox.cleanup();
   }
+}
+
+/** Run one Track-A scenario `reps` times (each rep = a fresh OFF arm + a fresh ON arm in their
+ *  own sandboxes) and fold the per-rep scores into a single honest aggregate. Each rep is a
+ *  genuinely independent live run against the real model, so the flip count across reps is the
+ *  statistical signal: 3/3 is robust, 2/3 or 1/3 is fragile and reported as such. */
+async function runTrackAScenario(opts: {
+  scenario: LearningScenario;
+  reps: number;
+  binary: string;
+  judge: Judge;
+}): Promise<ScenarioAggregate> {
+  const { scenario, reps, binary, judge } = opts;
+  const repScores: ScenarioScore[] = [];
+  for (let rep = 1; rep <= reps; rep++) {
+    console.log(`\n-> ${scenario.name} (track ${scenario.track}) rep ${rep}/${reps}`);
+    const without = await runArm({ scenario, arm: 'without', recallEnabled: false, binary, judge });
+    console.log(
+      `   without: ${without.passed ? 'PASS' : 'fail'} (${without.toolCalls} tool calls)`,
+    );
+    const withArm = await runArm({ scenario, arm: 'with', recallEnabled: true, binary, judge });
+    console.log(
+      `   with:    ${withArm.passed ? 'PASS' : 'fail'} (${withArm.toolCalls} tool calls)`,
+    );
+    repScores.push(scoreScenario({ scenario: scenario.name, without, with: withArm }));
+  }
+  return aggregateScenario(scenario.name, repScores);
 }
 
 /** The arm config delta for Track B's N+1 arms. Same axis of difference as
@@ -251,24 +289,43 @@ async function runTrackB(opts: {
   }
 }
 
-/** Print the per-scenario results table. */
-function printTable(
-  scores: readonly ScenarioScore[],
-  armResults: ReadonlyMap<string, { without: ArmResult; with: ArmResult }>,
-): void {
+/** Print the per-scenario aggregate table. Each cell is a raw count out of `reps`, so a
+ *  fragile 2/3 flip is visible at a glance and never rounded up. The `robust` column marks
+ *  the honest bar: YES only when the scenario flipped in EVERY rep. */
+function printTable(aggregates: readonly ScenarioAggregate[]): void {
   console.log('');
-  console.log('Scenario                         without  with   flip  regression  Δtools');
-  console.log('-------------------------------- -------  ----   ----  ----------  ------');
-  for (const s of scores) {
-    const arms = armResults.get(s.scenario);
-    const withoutPass = arms ? (arms.without.passed ? 'PASS' : 'fail') : '?';
-    const withPass = arms ? (arms.with.passed ? 'PASS' : 'fail') : '?';
-    const name = s.scenario.padEnd(32).slice(0, 32);
-    const flip = s.flip ? 'yes' : 'no';
-    const regression = s.regression ? 'YES' : 'no';
-    const delta = s.efficiencyDelta >= 0 ? `+${s.efficiencyDelta}` : `${s.efficiencyDelta}`;
+  console.log(
+    'Scenario                         without  with   flips  regress  robust  Δtools(avg)',
+  );
+  console.log(
+    '-------------------------------- -------  -----  -----  -------  ------  -----------',
+  );
+  for (const a of aggregates) {
+    const name = a.scenario.padEnd(32).slice(0, 32);
+    const without = `${a.withoutPasses}/${a.reps}`;
+    const withCol = `${a.withPasses}/${a.reps}`;
+    const flips = `${a.flips}/${a.reps}`;
+    const regress = `${a.regressions}/${a.reps}`;
+    const robust = a.robustFlip ? 'YES' : 'no';
+    const avg = a.avgEfficiencyDelta;
+    const delta = avg >= 0 ? `+${avg.toFixed(1)}` : `${avg.toFixed(1)}`;
     console.log(
-      `${name} ${withoutPass.padEnd(7)} ${withPass.padEnd(5)}  ${flip.padEnd(4)}  ${regression.padEnd(10)}  ${delta}`,
+      `${name} ${without.padEnd(7)} ${withCol.padEnd(5)}  ${flips.padEnd(5)}  ${regress.padEnd(7)}  ${robust.padEnd(6)}  ${delta}`,
+    );
+  }
+}
+
+/** Print the honest per-scenario flip-rate lines the task requires, verbatim format:
+ *  `<name>: without P/N, with P/N, flips F/N, regressions R/N`. Makes per-scenario variance
+ *  impossible to miss — a 2/3 flip reads as a 2/3 flip, not a pass. */
+function printFlipRates(aggregates: readonly ScenarioAggregate[]): void {
+  console.log('');
+  console.log('Per-scenario flip rates (raw counts — fragility is NOT rounded up):');
+  for (const a of aggregates) {
+    console.log(
+      `  ${a.scenario}: without ${a.withoutPasses}/${a.reps}, with ${a.withPasses}/${a.reps}, ` +
+        `flips ${a.flips}/${a.reps}, regressions ${a.regressions}/${a.reps}` +
+        `${a.robustFlip ? ' [ROBUST]' : ''}`,
     );
   }
 }
@@ -276,9 +333,9 @@ function printTable(
 async function main(): Promise<void> {
   if (scenarios.length === 0) {
     console.log('learning eval: no scenarios — nothing to run.');
-    const v = verdict([], { minFlips: MIN_FLIPS, repetitions: REPETITIONS });
+    const v = aggregateVerdict([], { minFlips: MIN_FLIPS });
     console.log(
-      `summary: 0 scenarios, ${v.flips} flips, ${v.regressions} regressions (need >= ${MIN_FLIPS} flips, 0 regressions).`,
+      `summary: 0 scenarios, ${v.robustFlips} robust flips, ${v.totalRegressions} regressions (need >= ${MIN_FLIPS} robust flips, 0 regressions).`,
     );
     // No scenarios is a no-op, not a failure: exit 0 so the empty machinery
     // run is clean. The verdict bar only bites once scenarios exist.
@@ -301,49 +358,35 @@ async function main(): Promise<void> {
   const trackA = selected.filter((s) => s.track === 'A');
   const trackB = selected.filter((s) => s.track === 'B');
   console.log(
-    `learning eval: ${selected.length} scenario(s) (${trackA.length} track-A, ${trackB.length} track-B), binary=${binary}`,
+    `learning eval: ${selected.length} scenario(s) (${trackA.length} track-A, ${trackB.length} track-B), ` +
+      `binary=${binary}, track-A reps=${REPETITIONS}, track-B reps=${TRACK_B_REPETITIONS}`,
   );
-  const scores: ScenarioScore[] = [];
-  const armResults = new Map<string, { without: ArmResult; with: ArmResult }>();
+  const aggregates: ScenarioAggregate[] = [];
   const trackBResults: TrackBResult[] = [];
 
-  // Track A — seeded-corpus, two-arm-per-sandbox proof (unchanged).
+  // Track A — seeded-corpus, two-arm-per-sandbox proof, run REPETITIONS times.
   for (const scenario of trackA) {
-    console.log(`\n-> ${scenario.name} (track ${scenario.track})`);
-    const without = await runArm({
-      scenario,
-      arm: 'without',
-      recallEnabled: false,
-      binary,
-      judge,
-    });
-    console.log(
-      `   without: ${without.passed ? 'PASS' : 'fail'} (${without.toolCalls} tool calls)`,
-    );
-    const withArm = await runArm({
-      scenario,
-      arm: 'with',
-      recallEnabled: true,
-      binary,
-      judge,
-    });
-    console.log(
-      `   with:    ${withArm.passed ? 'PASS' : 'fail'} (${withArm.toolCalls} tool calls)`,
-    );
-    armResults.set(scenario.name, { without, with: withArm });
-    scores.push(scoreScenario({ scenario: scenario.name, without, with: withArm }));
+    aggregates.push(await runTrackAScenario({ scenario, reps: REPETITIONS, binary, judge }));
   }
 
   // Track B — full-loop real-synthesis proof (session N → synthesize → N+1).
+  // Runs TRACK_B_REPETITIONS (1) times; each rep's ScenarioScore is folded through the same
+  // aggregate as Track A so the verdict math is uniform (a Track-B flip is robust-at-1).
   for (const scenario of trackB) {
-    console.log(`\n-> ${scenario.name} (track ${scenario.track}) [full loop]`);
-    const result = await runTrackB({ scenario, binary, judge });
-    armResults.set(scenario.name, { without: result.without, with: result.with });
-    scores.push(result.score);
-    trackBResults.push(result);
+    const repScores: ScenarioScore[] = [];
+    for (let rep = 1; rep <= TRACK_B_REPETITIONS; rep++) {
+      console.log(
+        `\n-> ${scenario.name} (track ${scenario.track}) [full loop] rep ${rep}/${TRACK_B_REPETITIONS}`,
+      );
+      const result = await runTrackB({ scenario, binary, judge });
+      repScores.push(result.score);
+      trackBResults.push(result);
+    }
+    aggregates.push(aggregateScenario(scenario.name, repScores));
   }
 
-  printTable(scores, armResults);
+  printTable(aggregates);
+  printFlipRates(aggregates);
 
   if (trackBResults.length > 0) {
     console.log('');
@@ -361,10 +404,12 @@ async function main(): Promise<void> {
     }
   }
 
-  const v = verdict(scores, { minFlips: MIN_FLIPS, repetitions: REPETITIONS });
+  const v = aggregateVerdict(aggregates, { minFlips: MIN_FLIPS });
   console.log('');
   console.log(
-    `summary: ${v.total} scenarios, ${v.flips} flips, ${v.regressions} regressions (need >= ${MIN_FLIPS} flips, 0 regressions).`,
+    `summary: ${v.total} scenarios, ${v.robustFlips} robust flips (flipped in EVERY rep), ` +
+      `${v.totalRegressions} regressions across all reps ` +
+      `(need >= ${MIN_FLIPS} robust flips, 0 regressions).`,
   );
   console.log(v.pass ? 'RESULT: PASS' : 'RESULT: FAIL');
   process.exit(v.pass ? 0 : 1);
