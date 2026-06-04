@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createFsPersist } from '../../src/learning-layer/adapters/harness/persistFs.js';
 import { readInstincts } from '../../src/learning-layer/recall/readInstincts.js';
 import { serializeInstinct } from '../../src/learning/instinctSerde.js';
+import { GLOBAL_PROJECT_ID } from '../../src/learning/paths.js';
 import type { Instinct } from '../../src/learning/types.js';
 
 const home = mkdtempSync(join(tmpdir(), 'read-'));
@@ -29,6 +30,20 @@ const inst = (id: string, over: Partial<Instinct> = {}): Instinct =>
   }) as Instinct;
 
 describe('readInstincts', () => {
+  test('deduplicates prefix when projectId === GLOBAL_PROJECT_ID (no duplicate instincts)', async () => {
+    const p = createFsPersist(home);
+    await p.write(
+      `learning/${GLOBAL_PROJECT_ID}/instincts/g.md`,
+      serializeInstinct(
+        inst('g-dedup', { scope: 'global', project_id: null, project_name: null }),
+        '',
+      ),
+    );
+    const got = await readInstincts(p, GLOBAL_PROJECT_ID);
+    // Without dedup the prefix would be listed twice and 'g-dedup' would appear twice.
+    expect(got.filter((i) => i.id === 'g-dedup')).toHaveLength(1);
+  });
+
   test('reads project + _global instincts; tolerates a malformed file', async () => {
     const p = createFsPersist(home);
     await p.write('learning/proj/instincts/a.md', serializeInstinct(inst('a'), ''));

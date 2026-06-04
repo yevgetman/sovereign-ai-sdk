@@ -11,7 +11,7 @@ const instinctsPrefix = (projectId: string): string => `learning/${projectId}/in
  *  the Persist port. Non-`.md` keys are ignored; any file that fails to read or
  *  parse is skipped (fail-open) rather than throwing. */
 export async function readInstincts(persist: PersistPort, projectId: string): Promise<Instinct[]> {
-  const prefixes = [instinctsPrefix(projectId), instinctsPrefix(GLOBAL_PROJECT_ID)];
+  const prefixes = [...new Set([instinctsPrefix(projectId), instinctsPrefix(GLOBAL_PROJECT_ID)])];
   const keyLists = await Promise.all(prefixes.map((prefix) => persist.list(prefix)));
   const mdKeys = keyLists.flat().filter((key) => key.endsWith('.md'));
 

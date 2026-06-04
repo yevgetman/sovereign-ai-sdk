@@ -23,9 +23,12 @@ function tokenize(text: string): string[] {
     .filter((token) => token.length > 0);
 }
 
-/** Estimated token cost of a single lesson's injected text. */
+/** Estimated token cost of a single lesson's injected text.
+ *  Matches the rendered line format in format.ts (`- when … → …`).
+ *  The fixed PREAMBLE + <learned-context> fence wrapper is a small constant
+ *  intentionally NOT counted here, so this is a conservative lower bound. */
 function estimateLessonTokens(instinct: Instinct): number {
-  const text = `when ${instinct.trigger} → ${instinct.action}`;
+  const text = `- when ${instinct.trigger} → ${instinct.action}`;
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
