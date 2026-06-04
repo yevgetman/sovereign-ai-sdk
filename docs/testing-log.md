@@ -8,6 +8,47 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-04 — Real-corpus synthesis-quality audit (the test Track A skips)
+
+Track A hand-seeds instincts, so it proves recall→behavior but says nothing about whether
+*synthesis* produces useful lessons. New dev tool `src/learning-layer/eval/synthesisAudit.ts`
+(`bun run eval:synthesis-audit [projectId ...]`) runs the live (fixed) instinct synthesizer over a
+COPY of the user's real `~/.harness/learning/<projectId>/observations.jsonl` corpus in an isolated
+temp `HARNESS_HOME` (live corpus read-only; verified the 2 pre-existing live instincts were
+untouched and no temp dirs leaked). Synthesis makes live model calls (`claude-sonnet-4-6`,
+`ANTHROPIC_API_KEY` exported from config).
+
+- **Corpus inventory:** one busy project (552 obs, "julie"), then a steep drop — 16 / 12 / 11, and
+  everything else ≤ 5. The ≤5 tail is synthetic soak/eval scratch dirs ("cwd-A3", "sov-soak-A", …);
+  too thin to cluster.
+- **552-obs "julie":** synthesis OK → **7 instincts**, confidence **0.185–0.691**, all SPECIFIC +
+  ACTIONABLE (Desktop-orientation at session start 0.691/ev19; read `~/code/me/*` for personal
+  context 0.45/ev9; `sitekit verify` loop after edits 0.414/ev8; first-encounter Node project
+  package.json→README→src 0.375/ev7; pnpm exit-127 → `npm i -g pnpm` 0.238/ev4; remote-PDF
+  scp-fetch+pdftotext 0.185/ev3). ~6/7 genuinely useful; none trivial/tautological. Verdict: GOOD.
+- **Thin projects (16/12/11):** synthesis OK on all three (2 + 3 + 2 = 7 instincts), each sharply
+  articulated and correctly above the 3-obs bar — but the corpora are eval-harness sessions, so the
+  instincts describe the *eval scenario* (parallel Glob/task fan-out, harness-internal reads
+  erroring) not durable user lessons. Mechanically correct synthesis; low standalone value because
+  the input is synthetic. Confidence 0.185–0.333.
+- **Delta vs the broken 2-instinct baseline:** the fixed `confidenceFromEvidence` (τ=13, cap 0.9)
+  lifts confidence **3.4×–5.8×** over the old `0.04·ln(1+n)` curve — 3 obs 0.055→0.185, 19 obs
+  0.12→0.691. OLD cleared the 0.3 prune floor only at n≈2048 (so real proposals were all
+  prune-eligible); NEW clears 0.3 at n=6 and the 0.7 promotion gate at n=20. The 2 pre-existing live
+  instincts (ev 4 & 6) carry the old near-zero values (0.064 / 0.078); re-synthesized today they'd
+  be ~0.238 / ~0.333.
+- **Bonus recall-flip:** SKIPPED, deliberately. No synthesized instinct clears the Track-A
+  attribution bar (a *non-derivable* fact where recall-OFF reliably takes a measurably wrong action
+  and recall-ON flips it): the high-confidence ones are idiosyncratic to the user's filesystem
+  (`ls ~/Desktop`) and the generalizable ones are derivable common practice (read package.json
+  before src) — a baseline already does them, so a flip wouldn't be attributable to the instinct.
+  Manufacturing a contrived case would not be honest; the eval's engineered Track-B `--strict`
+  scenario already demonstrates a synthesized-instinct flip.
+- Tool committed (`feat(learning-layer): real-corpus synthesis-quality audit tool`, `c10f4f7`); no
+  observation data or secrets committed; no release, no version bump. Pre-commit gate green at the
+  known baseline (**2720 pass / 14 skip / 3 fail** — the same 3 env-only learning-observer tests;
+  no new failures).
+
 ## 2026-06-04 — Learning-Loop Spike Phase 1 close-out (full suite + eval Q1 PASS)
 
 Final verification for the Phase 1 close-out (docs-only change in this pass — `docs/architecture.md`,
