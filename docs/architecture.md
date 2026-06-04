@@ -51,7 +51,7 @@ Each segment has a `cacheable` marker. Providers that support prompt caching tra
 
 On resume, the session reuses the exact frozen system prompt from SQLite. Runtime facts and local context are not rebuilt for an existing session.
 
-Current-turn context is injected through the user message, not by mutating the frozen system prompt. That includes bounded memory snapshots and explicit references such as `@file:src/main.ts`.
+Current-turn context is injected through the user message, not by mutating the frozen system prompt. That includes bounded memory snapshots, recalled instinct lessons (when `learning.recall.enabled` — see "Learning Layer" below), and explicit references such as `@file:src/main.ts`.
 
 The `<harness-self-doc>` segment is deliberately vendor-neutral (uses `<harness-home>` rather than `~/.harness/` and avoids the "Sovereign AI" identity) so white-label deployments inherit the same prompt unchanged.
 
@@ -316,7 +316,7 @@ A `section` input filters the response (`settings` / `mcp` / `tools` / `commands
 
 ```ts
 type ComponentTokens = {
-  kind: 'system-segment' | 'tool-schema' | 'skill' | 'bundle' | 'memory'
+  kind: 'system-segment' | 'tool-schema' | 'skill' | 'bundle' | 'memory' | 'instinct'
   name: string
   path?: string
   tokens: number
@@ -324,6 +324,8 @@ type ComponentTokens = {
   classification: 'always' | 'sometimes' | 'rarely'
 }
 ```
+
+(The `'instinct'` kind covers recalled instinct lessons injected into the latest user message — see "Learning Layer" below.)
 
 Token estimation reuses `src/core/tokenEstimate.ts`'s 4-chars-per-token heuristic; provider-exact tokenization would require shipping per-provider tokenizer libs and is overkill for triage. Bloat thresholds (skill 300/800, tool-schema 500/1500, system-segment 800/2000, memory 1000, bundle 1500/3000) match the build plan's table and are overridable via the `thresholds` opt and the prospective `~/.harness/config.json` `contextBudget.thresholds.*` block.
 
@@ -585,6 +587,36 @@ The harness captures every tool call into a per-project observation corpus and c
 - No cross-user instinct sharing.
 - No instinct UI/TUI viewer.
 
+## Learning Layer — the four-port contract (Learning-loop spike Phase 1)
+
+Before this phase the learning loop was **open**: the Phase 13.4 pipeline synthesized instincts to disk but nothing ever read them back into the main agent. The spike closes the loop and seats the whole learning concern behind a portable contract (ADR H-0010; spec at `docs/specs/2026-06-03-portable-learning-layer-adapter-1-design.md`; plan at `docs/plans/2026-06-03-learning-loop-spike-phase-1.md`).
+
+**The sealed module (`src/learning-layer/`).** A new module that depends only on its own four-port contract:
+
+- `ports.ts` — the four ports: **Observe** (capture sessions / tool events), **Recall** (surface lessons ahead of a turn), **Reason** (LLM completion), **Persist** (named-blob storage). Plus the shared `readonly` types (`RecallContext`, `RecalledLesson`, `RecallResult`, `CapturedSession`, …). This is the only file host code imports from the layer.
+- `index.ts` — `createLearningLayer(deps)` wires Recall over the host-provided ports; returns a `LearningLayer`.
+- `recall/` — pure machinery: `assemble.ts` (trigger-overlap match → confidence sort → token budget), `format.ts` (the fenced `<learned-context>` snapshot), `readInstincts.ts` (a Persist-backed instinct reader sharing a pure serde with the synchronous `InstinctStore`).
+- `adapters/harness/` — the only host-specific code (adapter #1): `persistFs.ts` (FS `PersistPort` over `$HARNESS_HOME` using the existing `src/learning/paths.ts` layout) and `reasonProvider.ts` (a thin provider-backed `ReasonPort` — defined and unit-tested but not yet load-bearing; the production synthesizer migrates onto it in a later phase).
+- `eval/` — the with-vs-without correctness-flip eval: `score.ts` (pure flip + efficiency scorer), `runner.ts` (paired-arm runner over the semantic driver), `scenarios/` + `trackB.ts` + `trackBCorpus.ts` (Track A curated scenarios; Track B full-loop synthesis→recall).
+
+The layer is portable by construction — the adapter is the only host-coupled file. The mock-host isolation suite and the four portability acceptance gates are Phase 2.
+
+**Recall injection point.** `query()` (`src/core/query.ts`) injects recall immediately **after** the MEMORY.md injection and before turn 0: it calls the optional `params.recall` thunk with the latest user text, then `injectRecallIntoLatestUserMessage()` (`src/core/recallInjection.ts`) prepends the snapshot to the latest user message (immutable; same pattern as `src/memory/injection.ts`). `query()` stays project-agnostic — recall is passed as a bound thunk (`RecallTurn` on `QueryParams`), built per session in `src/server/sessionContext.ts` and bound to the session's project id. The thunk is constructed only when `learning.recall.enabled` is true; off → the field is undefined → the turns route omits `recall` → recall is inert and behavior is byte-identical.
+
+**The D6 latent-bug fix.** The server turns route (`src/server/routes/turns.ts`) previously built its `query({...})` call **without** `memoryManager`, so MEMORY.md never injected on the default (server/TUI) surface — only the CLI paths passed it. The route now passes `memoryManager: sessionCtx.memoryManager` (and, conditionally, `recall`). Side-effect-safe: the builtin memory provider's `syncTurn` is a no-op, so only the read/injection path activates.
+
+**Project-id alignment.** Recall reads the corpus under `getProjectId(cwd).id` — the same id the observer and synthesizer **write** under — rather than the memory subsystem's `resolveProjectScope` id (which diverges under a loaded bundle). This guarantees project-scoped synthesized instincts are recallable under any bundle; the same id also grants access to the `_global` corpus.
+
+**Synthesis-yield repair.** The corpus that produced only 2 instincts from 185 trajectories is fixed across three axes:
+
+- **Saturating confidence curve** — `confidenceFromEvidence(totalEvidenceCount)` (`src/learning/confidence.ts`) replaces the near-flat logarithmic accumulation for propose/update: `cap · (1 − e^(−n/τ))` with `τ` defaulting to 13. ~6 observations clear the 0.3 prune floor; ~20 clear the 0.7 promotion gate (the old log curve needed ~40M). Tunable via `learning.evidenceSaturation`.
+- **Normalized cluster keys** — `src/learning/cluster.ts` collapses paths / numbers / quoted strings to placeholders before keying, so same-tool/different-arg observations co-cluster into one pattern instead of fragmenting.
+- **End-of-session synthesis + visibility** — `ReviewManager` (`src/review/manager.ts`) dispatches the synthesizer at session end once ≥ `learning.synthesizeOnSessionEndAfter` (default 10) new observations have accrued; the synthesizer (`src/learning/synthesizer.ts`) now surfaces failures (assertable status) instead of swallowing them; the `instinct-synthesizer` agent's zero-bias framing is softened and its `maxTurns` raised 8 → 16.
+
+**The proof (`bun run eval:learning`).** The eval scores correctness flips on two tracks — Track A (curated, non-derivable, seeded instincts; the gate) and Track B (the full loop end-to-end). **Q1 — does the loop work? — verdict: PASS (6 flips / 0 regressions), live, with no human in the loop.** The wiring is separately proven without LLM variance in `tests/server/turns.recall.test.ts`; a CI-visible behavior signal mirrors the scenarios in `tests/semantic/suites/24-learning-recall.cases.ts`.
+
+**Product defaults unchanged.** Recall ships behind `learning.recall.enabled: false` (opt-in, matching the cautious task-routing pattern). Flipping the default on, auto-promotion-by-default, the Phase-2 rented-engine adapter, and the go/no-go are founder-reserved decisions — see the close-out snapshot `docs/state/2026-06-04-learning-loop-spike-phase-1.md`.
+
 ## Extension Surfaces
 
 The primary extension surfaces are:
@@ -605,5 +637,6 @@ The primary extension surfaces are:
 - `src/agents/` for agent definitions (loader + types + global exclusion set) and `src/runtime/` for the sub-agent runtime (AgentRunner, scheduler, semaphores)
 - `src/router/capabilities.ts` for the per-model capability profile table (consumed by the router classifier and the sub-agent role resolver)
 - `src/review/` for the background review pipeline (ReviewManager, runReviewFork, ProposalStore, consolidation, stall detection)
+- `src/learning-layer/` for the portable learning layer (the four-port contract in `ports.ts`, the `adapters/harness/` bindings, the `recall/` assembly + format, and the `eval/` with-vs-without runner)
 
 See `docs/extending.md` for concrete recipes.

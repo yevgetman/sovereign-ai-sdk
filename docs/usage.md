@@ -790,6 +790,35 @@ Available config fields (top-level unless noted):
 | `learning.observationBufferSize` | int > 0 | `200` | in-memory buffer cap before backpressure drops the oldest |
 | `learning.pruneBelowConfidence` | 0..1 | `0.3` | threshold below which instincts age out via `sov learning prune` |
 | `learning.pruneAgeDays` | int > 0 | `30` | days without reinforcement before sub-threshold instincts are pruned |
+| `learning.recall.enabled` | bool | `false` | (Learning-loop spike Phase 1.) When true, recall splices matching instinct lessons in front of the latest user message each turn. Off → behavior byte-identical. |
+| `learning.recall.maxLessons` | int > 0 | `8` | cap on how many lessons recall surfaces per turn |
+| `learning.recall.tokenBudget` | int > 0 | `1200` | cap on the injected recall snapshot size |
+| `learning.evidenceSaturation` | num > 0 | `13` | (Learning-loop spike Phase 1.) τ for the saturating confidence curve — ~6 obs clears the 0.3 prune floor, ~20 clears the 0.7 promotion gate |
+| `learning.synthesizeOnSessionEndAfter` | int > 0 | `10` | (Learning-loop spike Phase 1.) trigger end-of-session synthesis once ≥ N new observations have accrued |
+
+## Learning recall
+
+(Learning-loop spike Phase 1.) The learning loop is closed: instincts synthesized from prior sessions can be **recalled** in front of the agent on a later turn. Recall is a deterministic, in-context injection — it reads the project's instinct corpus, ranks lessons by trigger overlap with the latest user message and confidence, fits them to a token budget, and prepends a fenced `<learned-context>` snapshot to the latest user message (mirroring the MEMORY.md injection). No model call; no auto-promotion. Subsystem detail lives in [`docs/architecture.md`](architecture.md) ("Learning Layer — the four-port contract").
+
+Recall is **off by default** — `learning.recall.enabled: false` keeps every surface byte-identical. Opt in per the config table above:
+
+```bash
+sov config set learning.recall.enabled true     # turn on per-turn recall
+sov config set learning.recall.maxLessons 5      # surface at most 5 lessons/turn
+sov config set learning.recall.tokenBudget 800   # cap the injected snapshot
+```
+
+Two more knobs improve **synthesis yield** (how many instincts the corpus actually produces): `learning.evidenceSaturation` shapes the confidence curve so real-world evidence counts reach usable confidence, and `learning.synthesizeOnSessionEndAfter` triggers a synthesis pass at session end once enough new observations have accrued. Both are optional overrides; their defaults are baked into the runtime.
+
+### The recall eval (`bun run eval:learning`)
+
+The with-vs-without correctness-flip eval proves a lesson available in session N changes behavior in session N+1 with no human in the loop. It runs two arms per scenario (recall off, then recall on) through the semantic driver and scores correctness flips (baseline fails → with-learning passes) and tool-call efficiency.
+
+```bash
+bun run eval:learning
+```
+
+It has two tracks: **Track A** — curated, non-derivable scenarios with seeded instincts (isolates recall→behavior; the gate); **Track B** — the full loop end-to-end (session N observations → real synthesis → instinct → session N+1 recall). The eval drives the live `sov` binary and uses the semantic judge, so it needs an `ANTHROPIC_API_KEY` (or `~/.harness/config.json` credentials) and is not part of `bun test`. The deterministic wiring is separately proven without LLM variance in `tests/server/turns.recall.test.ts`; a CI-visible recall-behavior signal mirrors the scenarios in `tests/semantic/suites/24-learning-recall.cases.ts`. Phase 1 verdict: **PASS — 6 flips / 0 regressions.**
 
 ## Ollama Notes
 

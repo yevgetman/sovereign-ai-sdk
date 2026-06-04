@@ -8,6 +8,27 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-04 — Learning-Loop Spike Phase 1 close-out (full suite + eval Q1 PASS)
+
+Final verification for the Phase 1 close-out (docs-only change in this pass — `docs/architecture.md`,
+`docs/usage.md`, the new state snapshot `docs/state/2026-06-04-learning-loop-spike-phase-1.md`,
+`CLAUDE.md`/`AGENTS.md` reconciled byte-identical + state pointer, `docs/backlog/post-phase-13-4.md`,
+this log). Ran the full pre-commit gate to confirm no accidental code edits:
+
+- `bun run lint && bun run typecheck && bun run test` — green at the known baseline:
+  **~2708 pass / 14 skip / 3 fail.** The 3 failures are the documented env-only learning-observer
+  integration tests (`turns.learning` M7 T5 / `m7Full` / `m8Full`) that trip on this machine's
+  ambient `~/.harness/config.json` (`learning.disabled`); they pass in CI and on a clean
+  `HARNESS_HOME`. Gate criterion ("no new failures beyond the known set") met.
+- **Eval — `bun run eval:learning` → Q1 PASS (6 flips / 0 regressions).** Full table + Track-B
+  loop confirmation in the eval-integrity entry immediately below (run 2026-06-04, binary `sov`
+  0.6.14, judge `claude` CLI, agent `claude-sonnet-4-6`). The learning loop is CLOSED behind the
+  four-port contract; a lesson available in session N changes behavior in session N+1 with no
+  human in the loop.
+
+No new failures introduced by the doc pass. Interim release v0.6.14 already cut (D6 memory fix +
+inert recall scaffolding); the completed feature releases as the next patch separately.
+
 ## 2026-06-04 — Learning eval integrity hardening (recall as sole Track-A axis + non-derivable scenario 1)
 
 Two integrity fixes to the with-vs-without learning eval (neither blocked the prior 6/6 PASS;
