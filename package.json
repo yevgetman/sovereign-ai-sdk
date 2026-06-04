@@ -24,6 +24,7 @@
     "release:upload": "bun run scripts/release-upload.ts",
     "eval:website": "bun src/evals/websiteBuildEval.ts",
     "eval:learning": "bun run src/learning-layer/eval/runner.ts",
+    "eval:synthesis-audit": "bun run src/learning-layer/eval/synthesisAudit.ts",
     "test": "bun test --timeout 20000",
     "test:semantic": "bun tests/semantic/run.ts",
     "lint": "biome check src tests",
