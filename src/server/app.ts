@@ -5,6 +5,7 @@
 // route that needs the runtime (sessions, turns) plus the SSE stream.
 
 import { Hono } from 'hono';
+import { bearerAuth } from './auth.js';
 import { approvalsRoute } from './routes/approvals.js';
 import { cancelRoute } from './routes/cancel.js';
 import { commandsRoute } from './routes/commands.js';
@@ -24,9 +25,32 @@ export function buildApp(): Hono {
   return app;
 }
 
-export function buildAppWithRuntime(runtime: Runtime): Hono {
+/**
+ * Options for the native HTTP+SSE app surface.
+ *
+ * `auth` opts the gateway into bearer-token auth on the session routes;
+ * when unset the app is byte-unchanged (no auth middleware) so the
+ * existing TUI / `sov serve` / `sov drive` loopback path keeps working
+ * without credentials. `corsOrigins` is accepted here for a stable type
+ * across T3/T4 but is wired by T4 (CORS middleware) — it is ignored now.
+ */
+export type BuildAppOpts = {
+  auth?: string;
+  corsOrigins?: string[];
+};
+
+export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono {
   const app = new Hono();
+  // /health is always open (probe-friendly) — mounted before the auth
+  // middleware so it stays reachable without credentials.
   app.route('/', healthRoute);
+  // Bearer auth is opt-in: only when opts.auth is set do we gate the
+  // session routes. `app.use` applies to every route registered after
+  // this line, so /health above stays open while everything below
+  // (sessions, turns, approvals, commands, …) is protected.
+  if (opts?.auth !== undefined) {
+    app.use('/sessions/*', bearerAuth(opts.auth));
+  }
   app.route('/', sessionsRoute(runtime));
   app.route('/', turnsRoute(runtime));
   app.route('/', approvalsRoute(runtime));
