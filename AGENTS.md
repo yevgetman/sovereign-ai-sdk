@@ -51,6 +51,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 
 | File | When to read |
 |---|---|
+| [`docs/conventions/autonomous-feature-builds.md`](docs/conventions/autonomous-feature-builds.md) | **Before any large feature build with a planning phase** — spec → plan → subagent-execute → ship, fully autonomous, NO approval gates; ends in docs + tests + commit/push + `sov upgrade` + skills + release-when-applicable |
 | [`docs/conventions/lint-and-commit.md`](docs/conventions/lint-and-commit.md) | Before any commit — `lint`, `typecheck`, `test` all required; atomic commits; push autonomously |
 | [`docs/conventions/sov-upgrade.md`](docs/conventions/sov-upgrade.md) | After any `src/` or `bundle-default/` or `packages/tui/` change — keep global binary current |
 | [`docs/conventions/cutting-releases.md`](docs/conventions/cutting-releases.md) | After any `src/` / `bundle-default/` / `packages/tui/` change — cut the next binary release in the same session so `~/.sov/bin/sov` picks it up |
@@ -142,6 +143,7 @@ The `src/bundle/` subdirectory carries its own README — `src/bundle/README.md`
 
 These apply every session and override defaults:
 
+- **Autonomous feature builds** — any large build warranting a spec + plan runs spec → plan → subagent-execute → ship **fully autonomously**: NO approval gate at the spec or the plan, NO between-task check-ins. Self-review the spec; write the plan immediately; execute immediately; fix issues with judgment + prudence; final-pass; update docs + tests; run the gate; commit + push; `sov upgrade` + agent skills + cut a release when applicable. Founder-reserved/strategic decisions and destructive external actions still pause. Details: [`docs/conventions/autonomous-feature-builds.md`](docs/conventions/autonomous-feature-builds.md).
 - **Subagent model policy** — Opus 4.7 default; Sonnet 4.6 only for trivially mechanical fully-specified tasks; **never Haiku**. Details: [`docs/conventions/subagent-policy.md`](docs/conventions/subagent-policy.md).
 - **Pre-commit gate** — `bun run lint && bun run typecheck && bun run test`. All three. Details: [`docs/conventions/lint-and-commit.md`](docs/conventions/lint-and-commit.md).
 - **Atomic commits + autonomous push** — one logical change per commit; push `origin/master` without asking. Same rule as the docs repo.
