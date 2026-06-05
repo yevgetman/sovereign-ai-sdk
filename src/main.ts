@@ -388,6 +388,21 @@ async function main(argv: string[]): Promise<void> {
       await new Promise<never>(() => {});
     });
 
+  program
+    .command('gateway')
+    .description(
+      'Run the long-lived native HTTP+SSE gateway (Phase A) with bearer auth + CORS. Refuses to boot off-loopback without a token. SIGINT/SIGTERM trigger graceful shutdown.',
+    )
+    .option('--host <addr>', 'host (default 127.0.0.1, env SOV_GATEWAY_HOST)')
+    .option('--port <n>', 'port (default 8766, env SOV_GATEWAY_PORT)', parsePositiveInt)
+    .action(async (opts) => {
+      const { runGateway } = await import('./cli/gatewayCommand.js');
+      await runGateway({
+        ...(opts.host !== undefined ? { host: opts.host } : {}),
+        ...(typeof opts.port === 'number' ? { port: opts.port } : {}),
+      });
+    });
+
   const configCmd = program
     .command('config')
     .description('Open the interactive config picker (no args) or read/write via subcommands')

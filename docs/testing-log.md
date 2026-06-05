@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-05 — Phase A T6 `sov gateway` entrypoint smoke + suite
+
+New long-lived `sov gateway` command (native HTTP+SSE protocol with bearer auth + CORS),
+mirroring the `sov serve` lifecycle. `startServer` gained backward-compatible optional
+`auth?` + `corsOrigins?` (forwarded to `buildAppWithRuntime`; unset → byte-unchanged call
+for TUI/serve/drive).
+
+- **Refuse-boot (off-loopback, no token):** `bun run src/main.ts gateway --host 0.0.0.0`
+  (env `SOV_GATEWAY_TOKEN` empty) → **exit 1** with the actionable `assertGatewaySafe`
+  message; token never printed. PASS.
+- **Live boot + auth:** `SOV_GATEWAY_TOKEN=testtok bun run src/main.ts gateway --host
+  127.0.0.1 --port 8766` → prints `listening on http://127.0.0.1:8766` + `auth=on cors=off`
+  (token NOT printed). `curl localhost:8766/health` → **200**; `POST /sessions` no auth →
+  **401**; `POST /sessions` with `Authorization: Bearer testtok` → **201**. SIGINT →
+  graceful shutdown (`server.stop()` + `runtime.dispose()`), process exited clean. PASS.
+- **Suite:** `bun run lint && bun run typecheck && bun run test` clean —
+  **2751 pass / 0 fail / 14 skip** (323 files, ~69s). No new failures; `startServer`
+  signature change is backward-compatible (existing callers pass no auth/corsOrigins).
+
 ## 2026-06-04 — Real-corpus synthesis-quality audit (the test Track A skips)
 
 Track A hand-seeds instincts, so it proves recall→behavior but says nothing about whether

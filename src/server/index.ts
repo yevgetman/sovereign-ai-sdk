@@ -18,6 +18,15 @@ export type StartServerOptions = {
   hostname?: string;
   /** When provided, mounts the M3+ surface (sessions, turns, events). */
   runtime?: Runtime;
+  /** Phase A `sov gateway` — opts the session routes into bearer-token
+   *  auth. Forwarded to buildAppWithRuntime; unset leaves the app
+   *  byte-unchanged so the TUI launcher, `sov serve`, and `sov drive`
+   *  stay credential-free. */
+  auth?: string;
+  /** Phase A `sov gateway` — CORS allow-list of browser origins for
+   *  cross-origin clients. Forwarded to buildAppWithRuntime; unset
+   *  never constructs the CORS middleware (byte-unchanged). */
+  corsOrigins?: string[];
 };
 
 export type StartedServer = {
@@ -28,7 +37,21 @@ export type StartedServer = {
 export async function startServer(opts: StartServerOptions = {}): Promise<StartedServer> {
   const hostname = resolveBindHost(opts.hostname);
   const port = opts.port ?? (await findFreePort(hostname));
-  const app = opts.runtime ? buildAppWithRuntime(opts.runtime) : buildApp();
+  // Only construct the app-opts object when the gateway actually passes
+  // auth/CORS — keeps the TUI/serve/drive paths calling
+  // buildAppWithRuntime(runtime) with no second arg (byte-unchanged).
+  const appOpts =
+    opts.auth !== undefined || opts.corsOrigins !== undefined
+      ? {
+          ...(opts.auth !== undefined ? { auth: opts.auth } : {}),
+          ...(opts.corsOrigins !== undefined ? { corsOrigins: opts.corsOrigins } : {}),
+        }
+      : undefined;
+  const app = opts.runtime
+    ? appOpts
+      ? buildAppWithRuntime(opts.runtime, appOpts)
+      : buildAppWithRuntime(opts.runtime)
+    : buildApp();
   const server = Bun.serve({
     port,
     hostname,
