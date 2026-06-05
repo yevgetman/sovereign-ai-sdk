@@ -71,6 +71,8 @@ Run-anywhere harness
 Ordering rule (per your "prioritize with respect to dev effort"): do the **cheapest high-leverage unlocks first**, respecting hard dependencies, so value lands early and each phase builds on the last. Effort is in subagent **dispatches** + rough token magnitude (per `docs/conventions/estimation.md`; subagent pace per the calibration memory).
 
 ### Phase A — Secure remote gateway (M1) · ~5–7 dispatches · ~250–350K
+**✅ Shipped v0.6.17 (2026-06-05).** The `sov gateway` long-lived entrypoint serves the native HTTP+SSE protocol off-loopback with bearer auth + configurable host bind (loopback default) + CORS + a refuse-to-boot-when-exposed-without-auth guard; the TUI/serve/drive paths are byte-unchanged (auth/CORS are options-gated middleware). Security-reviewed **secure-to-ship**. See `docs/specs/2026-06-05-phase-a-secure-remote-gateway-design.md` (spec), `docs/plans/2026-06-05-phase-a-secure-remote-gateway.md` (plan), and `docs/state/2026-06-05-phase-a-gateway.md` (close-out).
+
 **The unlock.** Make the native HTTP+SSE protocol reachable + safe off-loopback. Add a configurable host binding (default still `127.0.0.1`), a bearer-token auth layer (mirror the proven `sov serve` pattern: env > config > refuse-to-boot-when-exposed), CORS, and a `sov gateway` (or `sov serve --native`) long-lived entrypoint. Single-user, single-token to start.
 **Depends on:** nothing. **Exit:** a remote client can authenticate and drive a full turn (incl. permission round-trip) over the network; loopback default + tests + a release.
 

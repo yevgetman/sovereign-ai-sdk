@@ -8,6 +8,42 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-05 — Phase A (secure remote gateway) close-out + release v0.6.17
+
+Close-out pass for **Phase A — Secure Remote Gateway** (the `sov gateway` long-lived
+authenticated native HTTP+SSE surface; the first module of the run-anywhere roadmap).
+Consolidates the T1–T7 build, the live smoke, the e2e test, the security review, and the
+full-suite gate ahead of cutting v0.6.17.
+
+- **The build (T1–T7):** `gateway` config block; host-configurable native bind; bearer-auth
+  middleware (`/sessions/*` incl. SSE, `/health` open); CORS allow-list + preflight; the
+  refuse-to-boot-when-exposed-without-auth guard; the `sov gateway` entrypoint; options-gated
+  middleware so the TUI / `sov serve` / `sov drive` paths stay byte-unchanged. Commits
+  `b6b1a6b..cfe09b6`.
+- **Live smoke (re-confirmed):** refuse-boot — `gateway --host 0.0.0.0` with no token → **exit
+  1** + actionable `assertGatewaySafe` message (token NOT printed). Live loopback boot —
+  `SOV_GATEWAY_TOKEN=… gateway --host 127.0.0.1 --port 8766` → boot banner `auth=on cors=off`
+  (token NOT printed); `curl /health` → **200**; `POST /sessions` no-auth → **401**; with
+  `Authorization: Bearer …` → **201**; SIGINT → graceful `server.stop()` + `runtime.dispose()`.
+  PASS.
+- **End-to-end test:** `tests/server/gatewayEndToEnd.test.ts` — full authed turn over the
+  gateway via MockProvider (open session → SSE events → turn) WITH the token; the same flow
+  WITHOUT the token is **401** at every `/sessions/*` call. Plus unit suites
+  `tests/server/auth.test.ts` / `cors.test.ts` / `gatewaySafety.test.ts`. Green.
+- **Security review:** Phase A reviewed (exposing a tool-running agent off-loopback is the
+  central risk of the roadmap). **Verdict: SECURE-TO-SHIP.** Posture: default loopback;
+  refuse-boot off-loopback without a token; constant-time token compare; token never logged;
+  CORS closed by default; documented single-full-access-principal trust model with the
+  "run behind a constrained permission policy + TLS when exposed" guidance in `docs/usage.md`.
+- **Full gate:** `bun run lint && bun run typecheck && bun run test` clean —
+  **2753 pass / 0 fail / 14 skip** (324 files, ~77s). No new failures (the 3 ambient-config
+  learning-observer tests passed on this clean run). Lint (`biome check`, 637 files) +
+  typecheck (`tsc --noEmit`) clean.
+- **Release:** cut **v0.6.17** (CI-driven, tag-push pipeline) per
+  `docs/conventions/cutting-releases.md`. Runtime change (new `sov gateway` surface) → release
+  obligation met; `sov upgrade` + `~/.sov/bin/sov --version` verification recorded in the
+  release step.
+
 ## 2026-06-05 — Phase A T6 `sov gateway` entrypoint smoke + suite
 
 New long-lived `sov gateway` command (native HTTP+SSE protocol with bearer auth + CORS),

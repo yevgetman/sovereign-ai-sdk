@@ -707,6 +707,111 @@ Env vars: `SOV_OPENAI_API_KEY`, `SOV_OPENAI_PORT`, `SOV_OPENAI_HOST`. Precedence
 
 v0 expectation: keep `sov serve` running in a long-lived terminal pane, a launchd plist, or a systemd service. If the process exits, both the OpenAI surface and any cron jobs go silent. Localhost-only by default (`127.0.0.1`); set `--host 0.0.0.0` to expose on a LAN — but put a reverse proxy with TLS in front since the API key travels in cleartext on the wire.
 
+## Remote gateway (`sov gateway`)
+
+Run the harness's **native HTTP+SSE protocol** as a long-lived, remote-reachable, authenticated server. This is the *rich, interactive* protocol the Go TUI / `sov drive` already speak — turns, streaming output, tool events, **permission prompts**, slash commands, and skills — not the stateless OpenAI completion surface (`sov serve`, above). It's the first piece of the run-anywhere roadmap (`docs/specs/2026-06-05-run-anywhere-harness-roadmap-design.md`, Phase A); it lets any remote UI (a web app, an iOS app, a custom client) drive a full session over the network.
+
+`sov gateway` is distinct from the default `sov` launch: the default forks `sov-tui` next to a per-invocation loopback server, whereas `sov gateway` is a headless, standalone, always-on server with no TUI. The TUI / `sov serve` / `sov drive` surfaces are unchanged.
+
+### Quick start
+
+```bash
+# Local (loopback) — no token needed:
+sov gateway
+# sov gateway: listening on http://127.0.0.1:8766
+#   provider=anthropic  model=claude-haiku-4-5-20251001
+#   auth=off  cors=off  harnessHome=/Users/you/.harness
+
+# Exposed — a token is REQUIRED off-loopback (refuses to boot otherwise):
+export SOV_GATEWAY_TOKEN=$(openssl rand -hex 32)
+sov gateway --host 0.0.0.0 --port 8766
+```
+
+Drive it from a remote client. All `/sessions/*` calls (including the SSE event stream) carry `Authorization: Bearer <token>`:
+
+```bash
+# Probe liveness (no auth):
+curl -s http://HOST:8766/health
+
+# Open a session, then stream its events + post a turn:
+curl -s -H "Authorization: Bearer $SOV_GATEWAY_TOKEN" \
+  -X POST http://HOST:8766/sessions
+# → { "sessionId": "<id>", ... }
+
+curl -s -N -H "Authorization: Bearer $SOV_GATEWAY_TOKEN" \
+  http://HOST:8766/sessions/<id>/events          # SSE: text_delta, tool_use_start, permission_request, turn_complete, ...
+
+curl -s -H "Authorization: Bearer $SOV_GATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -X POST http://HOST:8766/sessions/<id>/turns \
+  -d '{"text":"what files are in src/?"}'
+```
+
+A `permission_request` event over the SSE stream is answered by `POST /sessions/<id>/approvals/<approvalId>` (the same protocol the TUI uses) — the rich interactive round-trip works end-to-end over the network.
+
+### CLI flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--host <addr>` | `127.0.0.1` | Bind host. Env: `SOV_GATEWAY_HOST`. Config: `gateway.host`. Off-loopback requires a token (see Security model). |
+| `--port <n>` | `8766` | Listening port (distinct from `sov serve`'s 8765). Env: `SOV_GATEWAY_PORT`. Config: `gateway.port`. |
+
+### Endpoints
+
+The gateway serves the existing native session routes. Auth (when a token is configured) gates everything under `/sessions/*`; `/health` is always open.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | none | Liveness probe. Exempt from auth so orchestrators can ping it. |
+| POST | `/sessions` | Bearer | Open a session. |
+| GET | `/sessions/:id/events` | Bearer | SSE event stream (turns, tool events, permission prompts, `turn_complete`). |
+| GET | `/sessions/:id/messages` | Bearer | Backlog hydration on resume. |
+| POST | `/sessions/:id/turns` | Bearer | Submit a prose turn. |
+| POST | `/sessions/:id/commands` | Bearer | Dispatch a slash command. |
+| POST | `/sessions/:id/approvals/:id` | Bearer | Answer a permission prompt. |
+| POST | `/sessions/:id/cancel` | Bearer | Cancel the in-flight turn. |
+
+(The full route set is the native protocol in `src/server/`; the gateway adds auth + CORS middleware in front of it without changing the routes themselves.)
+
+### Configuration
+
+Persistent config block in `~/.harness/config.json`:
+
+```json
+{
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 8766,
+    "token": "<bearer-token>",
+    "corsOrigins": ["https://app.example.com"]
+  }
+}
+```
+
+Env vars: `SOV_GATEWAY_HOST`, `SOV_GATEWAY_PORT`, `SOV_GATEWAY_TOKEN`. Resolution precedence:
+
+- **host** — `--host` > `SOV_GATEWAY_HOST` > `gateway.host` > `127.0.0.1`
+- **port** — `--port` > `SOV_GATEWAY_PORT` > `gateway.port` > `8766`
+- **token** — `SOV_GATEWAY_TOKEN` > `gateway.token` (trimmed; empty → no token)
+- **corsOrigins** — `gateway.corsOrigins` (default `[]` = no cross-origin / same-origin only)
+
+`corsOrigins` is an allow-list of browser origins. When set, the gateway echoes `Access-Control-Allow-Origin` for a matching `Origin` (and only a matching one) and answers preflight `OPTIONS` with the methods/headers the protocol uses (incl. `Authorization`, `Content-Type`, `Last-Event-ID`). Required for browser clients (the reference web UI is Phase C of the roadmap).
+
+### Security model
+
+Exposing the gateway exposes a **tool-running agent** — read this before binding off-loopback.
+
+- **Loopback by default.** The default host is `127.0.0.1`, so out of the box the gateway is reachable only from the same machine, exactly like the per-invocation TUI server. On loopback, a token is optional (back-compat).
+- **Refuse-to-boot when exposed without auth.** If the resolved host is **not** loopback (anything other than `127.0.0.1` / `::1` / `localhost` / the `127/8` block) **and** no token is configured, `sov gateway` hard-exits (exit 1) with an actionable message and never binds. There is no anonymous off-loopback mode.
+- **Bearer auth on every `/sessions/*` route, including the SSE stream.** Requests without a valid `Authorization: Bearer <token>` get 401. The compare is constant-time; the token is never logged or printed (the boot banner shows only `auth=on`/`off`).
+- **`/health` is open** so liveness probes don't need the token.
+- **CORS is closed by default** and opens only to the exact origins you allow-list.
+- **One token = one full-access principal.** Whoever holds the token gets the harness's **full tool powers** (Bash, file edit, web) under whatever permission policy is configured — there is no per-principal scoping yet (multi-user identity + authz is Phase E of the roadmap). **When you expose the gateway, run it behind a constrained permission policy** (a tightened `settings.local.json` allow/deny set, ideally a dedicated bundle) rather than a dev machine's broad `allow Bash(*)`. As with `sov serve`, put TLS (a reverse proxy) in front since the token travels on the wire.
+
+### Deployment
+
+Keep `sov gateway` running in a long-lived pane, a launchd plist, or a systemd service (a supervised always-on host is Phase D of the roadmap). SIGINT/SIGTERM trigger a graceful shutdown (`server.stop()` + `runtime.dispose()`). The cron tick runs inside the runtime lifecycle here too, so a long-lived gateway is also a cron host.
+
 ## Themes
 
 The Go TUI resolves built-in themes by name: `dark` (Catppuccin Mocha — the default), `light` (Catppuccin Latte), `tokyo-night`, and `sovereign`.

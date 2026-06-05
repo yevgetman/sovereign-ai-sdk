@@ -6,7 +6,7 @@ The authoritative product and business context lives in `~/code/sovereign-ai-doc
 
 ## Request Flow
 
-Two processes — a TypeScript runtime/server (on Bun) and a Go Bubble Tea TUI client (`sov-tui`) — talk over HTTP+SSE on localhost. The interactive path:
+Two processes — a TypeScript runtime/server (on Bun) and a Go Bubble Tea TUI client (`sov-tui`) — talk over HTTP+SSE on localhost. The same native HTTP+SSE protocol backs every interactive surface: the TUI, `sov drive` (headless line-driven), and — as of Phase A — `sov gateway`, a long-lived authenticated server that exposes that protocol off-loopback for remote clients (see "Native Gateway" below). The interactive path:
 
 1. `src/main.ts` parses CLI flags and resolves the bundle, provider, model, settings, session DB, tools, skills, slash commands, permissions, memory provider, system prompt — then starts the Hono server (`src/server/index.ts`) on a dynamic port. `src/cli/tuiLauncher.ts` forks `sov-tui` as a subprocess, passing `--port`, `--session-id`, `--model`, `--provider` as CLI args.
 2. `sov-tui` connects to `GET /sessions/:id/events` (SSE) for the live event stream and `GET /sessions/:id/messages` for backlog hydration on resume.
@@ -408,6 +408,33 @@ Per-request flow: parse + Zod-validate the body; resolve the model (`harness-def
 **Session observability.** Every request mints a SessionDb row via `runtime.sessionDb.upsertSession({ sessionId: 'openai:<id>', metadata: { kind: 'openai-api', clientSessionId? } })`. The `openai:` prefix structurally disjoints this surface's keyspace from TUI / cron / drive (post-H1 audit fix) — a client cannot pollute another surface's transcript by sending `X-Session-Id` matching an existing UUID. The wire (`chatcmpl-<id>`) echoes the CLIENT's unprefixed view so the public contract is unchanged. Latest user message + final assistant message persist for observability; the model never sees the row.
 
 **Cron co-deployment.** The cron tick loop runs INSIDE the runtime's lifecycle (Phase 17). When `sov serve` boots, `buildRuntime({ cronEnabled: opts.cron !== false })` attaches a `CronRunner` to the runtime by default; `--no-cron` opts out. Long-lived `sov serve` is the natural cron host: the operator runs ONE process that serves both the OpenAI API AND scheduled jobs.
+
+## Native Gateway (`sov gateway`)
+
+`sov gateway` (Phase A — the first module of the run-anywhere roadmap) is a long-lived, headless server that exposes the **native** HTTP+SSE protocol (`src/server/`) off-loopback, authenticated — the *rich interactive* protocol (turns, streaming, tool events, permission prompts, slash commands, skills), not the stateless OpenAI completion surface. It mirrors the `sov serve` lifecycle (build runtime once, `Bun.serve`, SIGINT/SIGTERM → `server.stop()` + `runtime.dispose()`, park) but serves `buildAppWithRuntime` instead of the OpenAI app, and adds nothing to the routes themselves — auth + CORS are middleware mounted in front.
+
+```
+sov gateway  →  src/main.ts (command('gateway'))
+             →  runGateway({ host?, port? })  in src/cli/gatewayCommand.ts
+                  ↓  resolve host/port/token/corsOrigins (flag > env > config > default)
+                  ↓  assertGatewaySafe({ host, token })   ← refuse-boot guard
+             →  buildRuntime({ cwd, harnessHome })
+             →  startServer({ runtime, hostname, port, auth?, corsOrigins? })
+                  ↓
+                buildAppWithRuntime(runtime, { auth?, corsOrigins? })
+                  ├─  /health            (no auth)
+                  ├─  cors(corsOrigins)  (when configured)
+                  ├─  bearerAuth('/sessions/*')  (when a token is set)
+                  └─  the existing native session routes (unchanged)
+```
+
+The **TUI launcher path is byte-unchanged**: `startServer` and `buildAppWithRuntime` gained backward-compatible optional `auth?` / `corsOrigins?` params; absent them (the TUI / `sov serve` / `sov drive` callers), the app is built and bound exactly as before, loopback-only with no auth.
+
+- **Host-configurable bind (D2).** `src/server/index.ts` / `src/server/port.ts` thread an optional `hostname` (default `127.0.0.1`); the gateway resolves it via `--host` > `SOV_GATEWAY_HOST` > `gateway.host` > `127.0.0.1` (port: `--port` > `SOV_GATEWAY_PORT` > `gateway.port` > `8766`, distinct from `sov serve`'s 8765).
+- **Bearer auth (D3).** `src/server/auth.ts` — constant-time token compare (mirrors `src/openai/auth.ts`), mounted on `/sessions/*` (incl. the SSE stream); `/health` stays open. Token: `SOV_GATEWAY_TOKEN` > `gateway.token`; never logged.
+- **Refuse-to-boot when exposed without auth (D4).** `assertGatewaySafe` (`src/server/gatewaySafety.ts`) hard-exits (exit 1) when the bind host is non-loopback (`isLoopbackHost` accepts `127.0.0.1` / `::1` / `localhost` / the `127/8` block) AND no token is set. On loopback, auth is optional.
+- **CORS (D5).** `src/server/cors.ts` — echoes `Access-Control-Allow-Origin` for an allow-listed `Origin` only + handles preflight `OPTIONS`; closed by default (`gateway.corsOrigins: []`). Needed for the reference web UI (Phase C).
+- **Single-user / single-token (D7).** One token = one full-access principal; per-principal authz is Phase E. **Session model unchanged (D8)** — the gateway serves the existing per-turn-resubscribe session routes; the multi-subscriber bus + reconnect/replay is Phase B.
 
 ## Cron / Scheduled Jobs
 
