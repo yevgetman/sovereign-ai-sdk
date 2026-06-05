@@ -417,7 +417,7 @@ export const SettingsSchema = z
     gateway: z
       .object({
         host: z.string().min(1).optional(),
-        port: z.number().int().positive().optional(),
+        port: z.number().int().min(1).max(65535).optional(),
         token: z.string().min(1).optional(),
         corsOrigins: z.array(z.string()).optional(),
       })

@@ -6,12 +6,16 @@
 // the health-only flavor.
 
 import { buildApp, buildAppWithRuntime } from './app.js';
-import { findFreePort } from './port.js';
+import { findFreePort, resolveBindHost } from './port.js';
 import type { Runtime } from './runtime.js';
 
 export type StartServerOptions = {
   /** Override the random-port pick (testing / explicit-port modes). */
   port?: number;
+  /** Bind host. Defaults to loopback (127.0.0.1) so the TUI launcher,
+   *  `sov serve`, and `sov drive` are byte-unchanged; the later
+   *  `sov gateway` passes an explicit (possibly off-loopback) host. */
+  hostname?: string;
   /** When provided, mounts the M3+ surface (sessions, turns, events). */
   runtime?: Runtime;
 };
@@ -22,11 +26,12 @@ export type StartedServer = {
 };
 
 export async function startServer(opts: StartServerOptions = {}): Promise<StartedServer> {
-  const port = opts.port ?? (await findFreePort());
+  const hostname = resolveBindHost(opts.hostname);
+  const port = opts.port ?? (await findFreePort(hostname));
   const app = opts.runtime ? buildAppWithRuntime(opts.runtime) : buildApp();
   const server = Bun.serve({
     port,
-    hostname: '127.0.0.1',
+    hostname,
     fetch: app.fetch,
     // SSE responses are long-lived; the application layer owns lifecycle
     // via abort signals and turn_complete events. Bun's default 10s
