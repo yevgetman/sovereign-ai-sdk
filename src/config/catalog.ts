@@ -682,6 +682,35 @@ const OPENAI_SERVER_GROUP: ConfigGroup = {
   ],
 };
 
+// ── Gateway ──────────────────────────────────────────────────────────
+
+const GATEWAY_GROUP: ConfigGroup = {
+  id: 'gateway',
+  label: 'Gateway',
+  description: 'Long-lived native HTTP+SSE gateway (sov gateway). Effective next session.',
+  items: [
+    {
+      path: 'gateway.token',
+      label: 'token',
+      description: 'Bearer token clients must send. Required when exposed off-loopback.',
+      editor: { kind: 'secret' },
+      secret: true,
+    },
+    {
+      path: 'gateway.port',
+      label: 'port',
+      description: 'Bind port for sov gateway (default 8766).',
+      editor: { kind: 'number', min: 1, max: 65535 },
+    },
+    {
+      path: 'gateway.host',
+      label: 'host',
+      description: 'Bind host for sov gateway (default 127.0.0.1 loopback).',
+      editor: { kind: 'string', placeholder: '127.0.0.1' },
+    },
+  ],
+};
+
 // ── Appearance ───────────────────────────────────────────────────────
 
 const TOOL_OUTPUT_MODE_CHOICES = ['compact', 'detailed'] as const;
@@ -769,6 +798,7 @@ export const CONFIG_CATALOG: readonly ConfigGroup[] = Object.freeze([
   LEARNING_GROUP,
   DEBUG_GROUP,
   OPENAI_SERVER_GROUP,
+  GATEWAY_GROUP,
   APPEARANCE_GROUP,
 ]);
 

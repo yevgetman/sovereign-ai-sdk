@@ -359,3 +359,28 @@ describe('learning.recall schema', () => {
     expect(() => SettingsSchema.parse({ learning: { recall: { unknownField: true } } })).toThrow();
   });
 });
+
+describe('gateway schema', () => {
+  test('accepts a full gateway block', () => {
+    const p = SettingsSchema.parse({
+      gateway: {
+        host: '0.0.0.0',
+        port: 8766,
+        token: 'secret',
+        corsOrigins: ['https://app.example'],
+      },
+    });
+    expect(p.gateway?.host).toBe('0.0.0.0');
+    expect(p.gateway?.port).toBe(8766);
+    expect(p.gateway?.token).toBe('secret');
+    expect(p.gateway?.corsOrigins).toEqual(['https://app.example']);
+  });
+
+  test('gateway is optional / absent by default', () => {
+    expect(SettingsSchema.parse({}).gateway).toBeUndefined();
+  });
+
+  test('rejects unknown keys in gateway (strict)', () => {
+    expect(() => SettingsSchema.parse({ gateway: { bogus: 1 } })).toThrow();
+  });
+});

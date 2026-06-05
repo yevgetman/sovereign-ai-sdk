@@ -408,6 +408,21 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Phase A — long-lived `sov gateway` exposing the native HTTP+SSE
+     *  protocol off-loopback. `host` defaults to loopback (127.0.0.1);
+     *  `token` is the bearer token clients must present and is REQUIRED
+     *  whenever the gateway is exposed off-loopback; `corsOrigins` is the
+     *  allow-list of browser origins for cross-origin clients. All fields
+     *  optional; defaults documented at the call site. */
+    gateway: z
+      .object({
+        host: z.string().min(1).optional(),
+        port: z.number().int().positive().optional(),
+        token: z.string().min(1).optional(),
+        corsOrigins: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
