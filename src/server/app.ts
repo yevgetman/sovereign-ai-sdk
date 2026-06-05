@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import { bearerAuth } from './auth.js';
+import { corsMiddleware } from './cors.js';
 import { approvalsRoute } from './routes/approvals.js';
 import { cancelRoute } from './routes/cancel.js';
 import { commandsRoute } from './routes/commands.js';
@@ -31,8 +32,10 @@ export function buildApp(): Hono {
  * `auth` opts the gateway into bearer-token auth on the session routes;
  * when unset the app is byte-unchanged (no auth middleware) so the
  * existing TUI / `sov serve` / `sov drive` loopback path keeps working
- * without credentials. `corsOrigins` is accepted here for a stable type
- * across T3/T4 but is wired by T4 (CORS middleware) — it is ignored now.
+ * without credentials. `corsOrigins` opts the gateway into CORS for a
+ * browser-based web UI on another origin: the matched origin is echoed in
+ * Access-Control-Allow-Origin and preflight OPTIONS short-circuits 204. When
+ * unset, no CORS middleware is mounted and the app stays byte-unchanged.
  */
 export type BuildAppOpts = {
   auth?: string;
@@ -41,6 +44,13 @@ export type BuildAppOpts = {
 
 export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono {
   const app = new Hono();
+  // CORS is opt-in and mounted FIRST so it runs for every route and BEFORE
+  // bearer auth — browsers preflight with OPTIONS (no Authorization header),
+  // which auth would otherwise reject. Listed origins are echoed back; the
+  // no-corsOrigins default never constructs this middleware (byte-unchanged).
+  if (opts?.corsOrigins?.length) {
+    app.use('*', corsMiddleware(opts.corsOrigins));
+  }
   // /health is always open (probe-friendly) — mounted before the auth
   // middleware so it stays reachable without credentials.
   app.route('/', healthRoute);
