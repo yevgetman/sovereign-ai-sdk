@@ -1186,6 +1186,114 @@ curl -s -o /dev/null -w '%{http_code}\n' "$GW/sessions"
 
 **Known v1 limitations.** Operator-side **traces and fine-tune trajectories are not per-user-partitioned** — but they are operator-only artifacts, never served over the API, so they are not a turn-surfaced cross-user leak. The **admin learning CLI** (`sov learning status|export|prune`) operates on the legacy top-level corpus, not per-user. These are noted follow-ups, not bugs.
 
+## Channels (`sov gateway`)
+
+As of Phase F (v0.6.23 — the final module of the run-anywhere roadmap) a self-hosted `sov gateway` can be driven from **Slack, Telegram, or a generic webhook**. An inbound channel message routes to a per-conversation harness session, runs one headless turn, and the reply is delivered back over the channel. Channels are **off unless configured** and only run on `sov gateway` (not the TUI / `sov serve` / `sov drive`).
+
+**Each channel is an isolated principal.** Every channel binds to a Phase-E principal (`principalId` ∈ `gateway.principals`), so its sessions, memory, and learning are isolated from every other principal — and never see a human user's data. A channel conversation is keyed per `(channel, sender[, thread])`, so each sender gets a continuous, coherent thread (history is hydrated into every turn).
+
+### Safe-by-default permission posture (read this first)
+
+A channel message is **untrusted remote input** — the highest-risk surface the harness exposes. Channel turns therefore run under a deliberately strict posture that is **stricter than cron**:
+
+- **No local-allow inheritance.** A channel turn does NOT load your `settings.local.json` allow-rules. A remote sender cannot ride your `allow: Bash(*)` to run shell commands. By default the rule set is empty.
+- **Auto-deny.** There is no human at a channel boundary to approve a prompt, so anything that would `ask` resolves to **deny**. In practice `Bash`, `Write`, `Edit`, and any other permission-gated tool are **denied by default**; read-only / permissionless tools still run.
+- **`bypass` is forbidden.** `permissionMode: 'bypass'` is rejected for channels at config-parse time — a remotely-reachable bypass would be RCE. Only `'default'` (recommended) or `'ask'` (coerced to auto-deny) are allowed.
+- **Subagent ceiling.** The tool pool is filtered against `SUBAGENT_EXCLUDED_TOOLS` (drops `AgentTool`, `send_message`, cron CRUD, etc.) — the same ceiling as the other headless surfaces.
+
+To let a specific channel run a specific tool you would add explicit, channel-scoped allow rules (an escape hatch in the framework) — there is no way to inherit the local dev's rules wholesale.
+
+### Configure `gateway.channels`
+
+Each channel is `{ enabled, principalId, <secret(s)>, permissionMode? }`. The `principalId` must name a principal in `gateway.principals`, and the secret(s) are resolved **env-first** (see the table below) — keep them out of the config file in production. An enabled channel with a missing secret, an unknown `principalId`, or `permissionMode: 'bypass'` is a hard boot error.
+
+```json
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8766,
+    "principals": [
+      { "id": "wh-bot", "token": "...", "name": "Webhook bot" },
+      { "id": "tg-bot", "token": "...", "name": "Telegram bot" },
+      { "id": "sl-bot", "token": "...", "name": "Slack bot" }
+    ],
+    "channels": {
+      "webhook":  { "enabled": true, "principalId": "wh-bot" },
+      "telegram": { "enabled": true, "principalId": "tg-bot" },
+      "slack":    { "enabled": true, "principalId": "sl-bot" }
+    }
+  }
+}
+```
+
+| Channel | Required secret(s) | Env var(s) (preferred) | Inbound |
+|---|---|---|---|
+| `webhook` | `secret` | `SOV_WEBHOOK_SECRET` | `POST /channels/webhook/default` (HMAC-verified, synchronous reply) |
+| `telegram` | `botToken` | `SOV_TELEGRAM_BOT_TOKEN` | `getUpdates` long-poll (no public endpoint) |
+| `slack` | `signingSecret`, `botToken` | `SOV_SLACK_SIGNING_SECRET`, `SOV_SLACK_BOT_TOKEN` | `POST /channels/slack/events` (signing-secret-verified, async reply) |
+
+A config secret wins over the env var; the env var only fills an absent field. Secrets are **never logged** — the gateway prints only a one-line `channels: webhook, slack` enabled-names summary at boot. The webhook + Slack inbound routes mount **open** on the gateway (before the bearer/principal auth, like `/health`) and are gated by their own per-channel verification, not the gateway token.
+
+### Generic webhook (the keystone — no external account needed)
+
+The simplest channel: `POST /channels/webhook/default` with a JSON body and an `X-Signature: sha256=<hmac>` header, where the HMAC is **HMAC-SHA256 of the raw request body** keyed by your `SOV_WEBHOOK_SECRET`. The signature is verified constant-time over the raw bytes before any turn runs; a bad/missing signature is **401**, a malformed body is **400**. The reply comes back synchronously as `{ "reply": "..." }` (or `{ "silent": true }` when the model declines via a `[SILENT]` prefix / empty reply).
+
+```bash
+GW=http://127.0.0.1:8766
+SECRET="$SOV_WEBHOOK_SECRET"
+BODY='{"sender":"alice","text":"hello from a webhook"}'
+
+# Compute the HMAC-SHA256 of the EXACT body bytes:
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.*= /sha256=/')
+
+curl -s -X POST "$GW/channels/webhook/default" \
+  -H 'content-type: application/json' \
+  -H "X-Signature: $SIG" \
+  --data "$BODY"
+# → {"reply":"..."}
+
+# A wrong signature is rejected before any turn runs:
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$GW/channels/webhook/default" \
+  -H 'content-type: application/json' -H 'X-Signature: sha256=deadbeef' --data "$BODY"
+# → 401
+```
+
+The body fields: `sender` (required), `text` (required), optional `chatId` (defaults to `sender`) and `threadId`. `sender`/`chatId`/`threadId` are validated as safe id segments (no path separators / `..`) and rejected with a 400 otherwise.
+
+### Telegram — real-credential setup
+
+Telegram needs **no public endpoint**: the adapter long-polls the Bot API's `getUpdates`. Setup:
+
+1. In Telegram, message **@BotFather**, send `/newbot`, and follow the prompts to name the bot. BotFather returns a **bot token**.
+2. Export it as `SOV_TELEGRAM_BOT_TOKEN` on the gateway host (or set `gateway.channels.telegram.botToken` in config — env is preferred).
+3. Enable the channel: `gateway.channels.telegram = { "enabled": true, "principalId": "tg-bot" }` (the principal must exist in `gateway.principals`).
+4. Start `sov gateway`. The poll loop runs in the background; message your bot and it replies. (Webhook mode for Telegram is possible but out of scope for v1 — long-poll is the default and needs no inbound URL.)
+
+> Not provisioned here. The adapter is built + tested against an injected transport; a live bot token is the operator setup above. Telegram numeric user/chat ids are stringified into the session key, so each chat is a stable conversation.
+
+### Slack — real-credential setup
+
+Slack delivers events to a **single public endpoint** and authenticates each request with your app's signing secret. Setup:
+
+1. Create a Slack app at <https://api.slack.com/apps> (from scratch, in your workspace).
+2. **Basic Information → App Credentials:** copy the **Signing Secret** → export as `SOV_SLACK_SIGNING_SECRET`.
+3. **OAuth & Permissions:** add a bot scope that can post (e.g. `chat:write`), install the app to the workspace, and copy the **Bot User OAuth Token** (`xoxb-…`) → export as `SOV_SLACK_BOT_TOKEN`.
+4. **Event Subscriptions:** enable events, set the **Request URL** to `https://<your-host>/channels/slack/events` (Slack sends a one-time `url_verification` challenge, which the gateway answers automatically), then **Subscribe to bot events** — add `message` events (e.g. `message.im` for DMs and/or `message.channels`).
+5. Enable the channel: `gateway.channels.slack = { "enabled": true, "principalId": "sl-bot" }`.
+6. Start `sov gateway` behind a public HTTPS endpoint (a reverse proxy or tunnel). DM the bot or @-mention it; it replies in the same channel.
+
+How it behaves: the route verifies the **`v0=` signing-secret HMAC** over `v0:{timestamp}:{rawBody}` (constant-time) with a **300-second replay window**, then **acks within 3 s** and runs the turn + posts the reply **asynchronously** via `chat.postMessage`. Slack retries (`X-Slack-Retry-Num` / duplicate `event_id`) are deduped so a slow turn isn't run twice. A bad or stale signature is **403** with no turn.
+
+> Not provisioned here. The adapter is built + tested against an injected transport (signing-secret verify, challenge handshake, async post, retry dedupe); a live app + secrets are the operator setup above.
+
+### v1 limitations
+
+- **Auto-deny, no in-channel approval.** Channel turns auto-deny permission prompts; there is no approve-from-Slack/Telegram UI (a future enhancement). Tasks needing `Bash`/`Write`/`Edit` won't run from a channel by default.
+- **No rich channel UX.** No Slack blocks/buttons/reactions, no Telegram inline keyboards, no threads beyond the basic conversation key, no file attachments, no in-channel slash commands. Replies are plain text.
+- **Uncompacted long conversations.** A channel conversation accrues history on one session and is not microcompacted — a very long single conversation could overflow the context window (same caveat as cron). Restart the conversation (a new chat) or delete the session row to reset.
+- **Channel sessions aren't individually API-addressable.** Their ids are colon-delimited (`agent:main:{channel}:…`), so they don't match the `/sessions/:id*` routes — fail-closed and channel-managed (the Phase-D supervisor evicts idle ones; rows accrue like cron).
+- **Live operation needs real external credentials.** Slack/Telegram were built + tested against injected transports and a real-HMAC webhook e2e; provisioning real apps is the operator setup above.
+
 ## Themes
 
 The Go TUI resolves built-in themes by name: `dark` (Catppuccin Mocha — the default), `light` (Catppuccin Latte), `tokyo-night`, and `sovereign`.

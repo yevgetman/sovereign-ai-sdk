@@ -1,7 +1,7 @@
 # Run-Anywhere, Persistent, Multi-Channel Harness — Roadmap Design Spec
 
 **Date:** 2026-06-05
-**Status:** Draft (high-level roadmap; subordinate specs + plans authored incrementally per phase)
+**Status:** ✅ COMPLETE — all six phases (A–F) shipped 2026-06-05/06 (A v0.6.17/18 · B v0.6.19 · C v0.6.20 · D v0.6.21 · E v0.6.22 · F v0.6.23). Subordinate specs + plans were authored incrementally per phase.
 **Relationship:** Builds the **multi-channel gateway** differentiator named in ADR H-0010 (`~/code/sovereign-ai-docs/harness/decisions/0010-...`). Orthogonal to and parallel with the learning-loop soak (`docs/state/2026-06-04-learning-loop-spike-phase-1.md`) — the learning layer rides on top unchanged. Governed by `docs/conventions/autonomous-feature-builds.md`.
 
 ---
@@ -101,6 +101,8 @@ Per-principal auth (tokens/JWT, multiple users), **session ownership + authz** o
 **Depends on:** A, D. **Exit:** two users have isolated sessions + memory through the same gateway; no cross-user access; security review + tests + release.
 
 ### Phase F — Channel framework + first adapters (M6 + M7) · ~8–12 dispatches · ~500–700K
+**✅ Shipped v0.6.23 (2026-06-06). This phase COMPLETES the run-anywhere roadmap (A–F).** The dormant `src/channels/` contract is activated into a working **inbound → session → headless turn → outbound** pipeline hosted by the gateway: a **Slack / Telegram / generic-webhook message drives a real harness session and gets a reply**, with each channel mapped to an isolated Phase-E principal and a **safe-by-default permission posture** (`buildChannelCanUseTool` never inherits the local dev's allow-rules + auto-denies; `bypass` rejected — a channel can't run `Bash`/`Write`/`Edit` by default). `runChannelTurn` (`src/channels/pipeline.ts`) is the channel-agnostic core (per-`(channel,sender)` session via `buildSessionKey`+`upsertSession`, owned by the channel principal, history hydrated for coherent conversations). Three adapters over **injectable transports**: a **generic webhook** (`POST /channels/webhook/:id`, HMAC-SHA256-verified, synchronous reply — the keystone, no external deps), **Telegram** (`getUpdates` long-poll, no public endpoint), and **Slack** (`POST /channels/slack/events`, signing-secret verify + replay window + challenge + ack-fast-then-async `chat.postMessage` + retry dedupe). Config: `gateway.channels: { webhook?, telegram?, slack? }`, each binding a `principalId` ∈ `gateway.principals`, secrets env-first, `bypass` rejected. Hosted by the gateway (webhook + Slack are open inbound routes verified by their own credential; Telegram is an `unref`'d poll worker). A hard **adversarial security review** found + fixed a **CRITICAL path-traversal arbitrary-file-write** (an attacker-controlled webhook `chatId` with `../` escaped the trace dir before the model ran — fixed defense-in-depth: bound the inbound ids in `parseWebhook` → 400 + sanitize/contain the trace path in `TraceWriter`) and re-reviewed **SECURE-TO-SHIP**. Built against injected transports + a real-HMAC webhook e2e; live Slack/Telegram need real external credentials (documented operator setup, not live-verified here). Gateway-scoped + off by default → TUI / `sov serve` / `sov drive` byte-unchanged. See `docs/specs/2026-06-06-phase-f-channels-design.md` (spec, D1–D9), `docs/plans/2026-06-06-phase-f-channels.md` (plan, F-T1…F-T9), and `docs/state/2026-06-06-phase-f-channels.md` (close-out).
+
 Activate the channel-adapter contract: an **inbound ingestion path** (`InboundMessage` → `buildSessionKey` routing → turn → outbound delivery), hosted by the supervisor (D), authorized per user (E). Ship **Slack + Telegram** adapters and a **generic webhook/WebSocket** adapter, each with its own permission posture (X1).
 **Depends on:** D, E. **Exit:** a Slack and a Telegram message each drive a real session and get a reply; tests + release.
 
@@ -114,6 +116,8 @@ A ──> B ──> C            (browser UI on a secure, robust transport)
    └────────> D
 ```
 A is the root unlock. A→B→C delivers the first visible "run-anywhere from a browser" milestone fast. D/E/F build the persistent, multi-user, multi-channel backbone.
+
+> **✅ ROADMAP COMPLETE (2026-06-06).** All six phases are shipped: A (v0.6.17/v0.6.18) · B (v0.6.19) · C (v0.6.20) · D (v0.6.21) · E (v0.6.22) · F (v0.6.23). The harness is now a run-anywhere, persistent, multi-user, multi-channel runtime base — a secure remote gateway with a reference browser UI, a persistent multi-session supervisor, multi-user identity + isolation, and Slack/Telegram/webhook inbound channels, all engine-agnostic above the HTTP+SSE protocol seam. The out-of-scope / founder-reserved items (native mobile apps as separate client projects; horizontal scale/clustering; managed-multi-tenant-vs-self-hosted; agent-core rent-vs-build) are unchanged and out of this roadmap's scope. The learning-loop soak ran in parallel throughout, untouched.
 
 ## Cross-cutting concerns
 
