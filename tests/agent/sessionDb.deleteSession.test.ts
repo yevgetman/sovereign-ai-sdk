@@ -18,6 +18,36 @@ function countMessages(db: SessionDb, sessionId: string): number {
   return row?.n ?? 0;
 }
 
+/** Insert a raw `tasks` row, matching the migration-3→4 schema. The
+ *  `parent_session_id` FK is `ON DELETE CASCADE`; `child_session_id` is
+ *  `ON DELETE SET NULL`. No public insert helper sets `child_session_id`, so
+ *  the test writes through the same `db.handle` the other cases use. */
+function insertTask(
+  db: SessionDb,
+  taskId: string,
+  parentSessionId: string,
+  childSessionId: string | null,
+): void {
+  const now = Date.now() / 1000;
+  db.handle.run(
+    `INSERT INTO tasks (
+       task_id, parent_session_id, child_session_id, agent, prompt,
+       state, created_at, updated_at
+     ) VALUES (?, ?, ?, 'agent', 'prompt', 'queued', ?, ?)`,
+    [taskId, parentSessionId, childSessionId, now, now],
+  );
+}
+
+/** Read a single task row's `child_session_id` (null when SET NULL fired). */
+function taskChildSessionId(db: SessionDb, taskId: string): string | null | undefined {
+  const row = db.handle
+    .query<{ child_session_id: string | null }, [string]>(
+      'SELECT child_session_id FROM tasks WHERE task_id = ?',
+    )
+    .get(taskId);
+  return row === null ? undefined : row.child_session_id;
+}
+
 describe('SessionDb.deleteSession', () => {
   test('removes the session row and all dependent rows', () => {
     const db = open();
@@ -59,6 +89,33 @@ describe('SessionDb.deleteSession', () => {
       )
       .get(parent, parent);
     expect(after?.n).toBe(0);
+    db.close();
+  });
+
+  test('tasks rows CASCADE on parent_session_id and SET NULL on child_session_id', () => {
+    const db = open();
+    const target = db.createSession({ model: 'm', provider: 'p' });
+    // A surviving session that owns the SET-NULL task as its parent.
+    const survivor = db.createSession({ model: 'm', provider: 'p' });
+
+    // Task A: target is the parent → must CASCADE-delete with the target.
+    insertTask(db, 'task-cascade', target, null);
+    // Task B: survivor is the parent (so the row survives), target is the
+    // child → its child_session_id must be SET NULL, leaving the row intact.
+    insertTask(db, 'task-setnull', survivor, target);
+
+    // sanity: both rows + both FK links exist before the delete.
+    expect(taskChildSessionId(db, 'task-cascade')).toBeNull();
+    expect(taskChildSessionId(db, 'task-setnull')).toBe(target);
+
+    db.deleteSession(target);
+
+    // CASCADE: the task parented by the deleted session is gone (undefined).
+    expect(taskChildSessionId(db, 'task-cascade')).toBeUndefined();
+    // SET NULL: the survivor-parented task still exists, child pointer nulled.
+    expect(taskChildSessionId(db, 'task-setnull')).toBeNull();
+    // The survivor session itself is untouched.
+    expect(db.getSession(survivor)).not.toBeNull();
     db.close();
   });
 
