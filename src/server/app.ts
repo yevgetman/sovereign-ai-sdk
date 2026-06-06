@@ -17,6 +17,7 @@ import { sessionsRoute } from './routes/sessions.js';
 import { skillsRoute } from './routes/skills.js';
 import { turnsRoute } from './routes/turns.js';
 import type { Runtime } from './runtime.js';
+import { WEB_UI_HTML } from './webui.js';
 
 export function buildApp(): Hono {
   // Health-only app for boot tests (no runtime). M3+ callers use
@@ -54,6 +55,12 @@ export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono
   // /health is always open (probe-friendly) — mounted before the auth
   // middleware so it stays reachable without credentials.
   app.route('/', healthRoute);
+  // The web UI shell is served at GET / and GET /ui. It's just the browser
+  // client's HTML — it carries no secret — so it's mounted OPEN, before the
+  // bearer-auth middleware, exactly like /health. The session routes below
+  // stay gated. The HTML is embedded at build time (see webui.ts).
+  app.get('/', (c) => c.html(WEB_UI_HTML));
+  app.get('/ui', (c) => c.html(WEB_UI_HTML));
   // Bearer auth is opt-in: only when opts.auth is set do we gate the
   // session routes. `app.use` applies to every route registered after
   // this line, so /health above stays open while everything below

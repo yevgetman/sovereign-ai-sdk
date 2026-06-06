@@ -8,6 +8,36 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-05 — Phase C T1 (embedded web UI shell — serving mechanism)
+
+TDD pass for **Phase C T1** — the serving mechanism for the reference web UI: embed a self-contained
+HTML shell into the binary and serve it at the OPEN routes `GET /` + `GET /ui` on the native gateway
+app, while `/sessions/*` stays bearer-gated (the real UI lands in T2; T1 ships a minimal placeholder).
+
+**Build (TDD).** RED first: `tests/server/webui.test.ts` (MockProvider runtime via the existing
+server-test harness) asserting `GET /` and `GET /ui` (no Authorization) → 200 `text/html` containing
+the `id="app"` marker, `POST /sessions` (no auth) → still 401, `GET /health` (no auth) → still 200 —
+the two open-UI cases returned 404 (RED), the auth/health cases passed (auth unaffected). GREEN:
+`src/server/webui.html` (placeholder doc), `src/server/webui.ts` (`export const WEB_UI_HTML` via a
+co-located `import ... with { type: 'text' }` text import — the same inlining mechanism `version.ts`
+uses for `with { type: 'json' }`), and two `app.get('/', …)` / `app.get('/ui', …)` routes mounted in
+`src/server/app.ts` BEFORE the `app.use('/sessions/*', bearerAuth(...))` line (open, like `/health`).
+
+**Embedding verification (compiled binary).** Compiled a throwaway entry re-exporting `WEB_UI_HTML`
+with the release flags (`bun build --compile`, 3 modules bundled, 63 MB binary), copied the binary
+into an isolated dir containing ONLY the binary (no `webui.html` on disk), ran it → emitted the full
+HTML with `id="app"` (marker count 1). Proves `with { type: 'text' }` is inlined into `--compile`
+output (no runtime FS read). Temp dir + probe entry cleaned up.
+
+**Typecheck note.** `bun-types` stubs `.html` imports as `HTMLBundle` keyed off the extension, but
+`with { type: 'text' }` yields a plain `string` at runtime (verified `typeof === 'string'`, len 132);
+coerced the export through `unknown` with an explanatory comment. Lint clean, typecheck clean.
+
+**Gate.** `bun run lint` clean (644 files), `bun run typecheck` clean, full suite **2814 pass / 0
+fail / 14 skip** (the 3 known env-only learning-test fails did not trip this run; no new failures).
+No release cut (final Phase C task ships it). The `[WARN] blocked context file … AGENTS.md` lines are
+the pre-existing harness scanner flagging the installer `curl … | bash` one-liner — unrelated.
+
 ## 2026-06-05 — Phase B (multi-client session transport) close-out + release v0.6.19
 
 Close-out pass for **Phase B — Multi-Client Session Transport** (the multi-subscriber event bus
