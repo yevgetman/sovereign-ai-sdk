@@ -426,6 +426,18 @@ export const SettingsSchema = z
          *  for Last-Event-ID reconnect / fresh-subscriber replay at the
          *  cost of memory. Defaults to DEFAULT_MAX_RING (512) when unset. */
         eventBufferSize: z.number().int().positive().optional(),
+        /** Phase D — SessionSupervisor idle-session lifecycle policy for a
+         *  long-lived gateway. `idleSessionTimeoutMs` is the window an
+         *  untouched (no live subscriber, no in-flight turn) session may sit
+         *  before its in-memory state is reclaimed; `idleSweepIntervalMs` is
+         *  the background sweep cadence. Both are positive-int milliseconds;
+         *  the supervisor applies its own defaults (30 min / 5 min) when
+         *  unset. `maxConcurrentSessions` caps live in-memory sessions — 0
+         *  means unlimited — enforced by POST /sessions (429 once at the
+         *  ceiling). All three optional + gateway-scoped. */
+        idleSessionTimeoutMs: z.number().int().positive().optional(),
+        idleSweepIntervalMs: z.number().int().positive().optional(),
+        maxConcurrentSessions: z.number().int().nonnegative().optional(),
       })
       .strict()
       .optional(),

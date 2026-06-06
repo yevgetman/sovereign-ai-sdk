@@ -402,4 +402,50 @@ describe('gateway schema', () => {
     expect(() => SettingsSchema.parse({ gateway: { eventBufferSize: -1 } })).toThrow();
     expect(() => SettingsSchema.parse({ gateway: { eventBufferSize: 1.5 } })).toThrow();
   });
+
+  // Phase D T5 — gateway idle-session lifecycle policy fields consumed by the
+  // SessionSupervisor: idleSessionTimeoutMs / idleSweepIntervalMs (positive int
+  // ms) + maxConcurrentSessions (non-negative int; 0 = unlimited). All optional.
+  test('accepts gateway idle/sweep/max fields', () => {
+    const p = SettingsSchema.parse({
+      gateway: {
+        idleSessionTimeoutMs: 60000,
+        idleSweepIntervalMs: 30000,
+        maxConcurrentSessions: 5,
+      },
+    });
+    expect(p.gateway?.idleSessionTimeoutMs).toBe(60000);
+    expect(p.gateway?.idleSweepIntervalMs).toBe(30000);
+    expect(p.gateway?.maxConcurrentSessions).toBe(5);
+  });
+
+  test('gateway idle/sweep/max fields are absent / undefined by default', () => {
+    const p = SettingsSchema.parse({ gateway: {} });
+    expect(p.gateway?.idleSessionTimeoutMs).toBeUndefined();
+    expect(p.gateway?.idleSweepIntervalMs).toBeUndefined();
+    expect(p.gateway?.maxConcurrentSessions).toBeUndefined();
+    // Absent gateway block stays valid too.
+    expect(SettingsSchema.parse({}).gateway).toBeUndefined();
+  });
+
+  test('rejects non-positive / non-integer idleSessionTimeoutMs', () => {
+    expect(() => SettingsSchema.parse({ gateway: { idleSessionTimeoutMs: 0 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { idleSessionTimeoutMs: -1 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { idleSessionTimeoutMs: 1.5 } })).toThrow();
+  });
+
+  test('rejects non-positive / non-integer idleSweepIntervalMs', () => {
+    expect(() => SettingsSchema.parse({ gateway: { idleSweepIntervalMs: 0 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { idleSweepIntervalMs: -1 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { idleSweepIntervalMs: 1.5 } })).toThrow();
+  });
+
+  test('maxConcurrentSessions accepts 0 (unlimited) but rejects negatives / non-integers', () => {
+    expect(
+      SettingsSchema.parse({ gateway: { maxConcurrentSessions: 0 } }).gateway
+        ?.maxConcurrentSessions,
+    ).toBe(0);
+    expect(() => SettingsSchema.parse({ gateway: { maxConcurrentSessions: -1 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { maxConcurrentSessions: 1.5 } })).toThrow();
+  });
 });
