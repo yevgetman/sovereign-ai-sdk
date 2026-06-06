@@ -8,6 +8,69 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — A-C gateway holistic verification pass (integration review + semantic run vs source + real-model smoke + new real-socket test)
+
+Holistic verification of the A-C gateway stack (auth + CORS + native HTTP/SSE protocol + the Phase-C
+reference web UI) **after** the v0.6.20 close-out above. Tests + docs only — **no runtime behavior
+change, no release.**
+
+**Holistic integration review — ROBUST (zero findings).** A full read-through of the gateway stack
+(`startServer`/`Bun.serve`, `src/server/app.ts` composition, `cors.ts`, `auth.ts`, the
+`routes/events.ts` SSE lifecycle, bus reclamation in `runtime.dispose`) surfaced **no bugs**.
+Throwaway real-socket probes confirmed the seams the in-memory `app.request()` suite can't reach:
+CORS-on-SSE (the ACAO header rides out with the flushed streaming response headers), client-disconnect
+cleanup (aborting a `?follow` fetch + `dispose()` reclaims the bus), `Last-Event-ID` reconnect replay,
+and basic concurrency. The stack is sound as shipped.
+
+**Semantic suite run against SOURCE (v0.6.20) — no gateway regression.** Run with the binary override
+pointed at the working tree (NOT the stale dev `sov` — see the gotcha below) so it exercised current
+code. The ~9 failures are **all pre-existing known flakes / structural test-design issues, none of
+which touch the A-C gateway commits**: config-UX-on-headless (the `/config` TUI can't render under
+`sov drive`'s non-TTY surface), `/compact` size-gate no-op (the gate correctly declines to compact a
+tiny transcript), token-verbalization (model phrasing variance), and task-routing model-choice (the
+delegator's lane pick is non-deterministic). Gateway-touching cases all pass.
+
+**Gateway real-model smoke — PASS.** A live-model run against `sov gateway` confirmed streaming
+(`text_delta` into the bubble), tool-use (permission card → approve → tool dispatches), and
+`Last-Event-ID` reconnect (kill + reboot auto-recovers to a clean terminal state) over real sockets
+with a real provider.
+
+**Binary-version gotcha documented.** During this pass `which sov` resolved to `~/.bun/bin/sov` at
+**0.6.14**, while `package.json` was at **0.6.20** — a 6-patch stale dev shadow. `bun run
+test:semantic` defaults to bare `sov` from PATH, so an unguarded run silently tests OLD code. Recorded
+the resolution order + the source-shim / `sov upgrade` override + the mandatory `--version`-matches-
+`package.json` check in [`conventions/semantic-tests.md`](conventions/semantic-tests.md) (override
+mechanism: `--binary <path>` flag, else `SEMANTIC_BINARY` env, else `sov` from PATH — see
+`tests/semantic/run.ts` / `framework/driver.ts`).
+
+**New permanent real-socket integration test.** Added `tests/server/gatewayIntegration.test.ts` to
+lock in the reviewer's throwaway probes as durable coverage. One deterministic test (MockProvider
+default Hello-world stream — no real model) stands the gateway up via the REAL `startServer` →
+`Bun.serve` path on a free loopback port with auth + a CORS allow-list, then drives it through global
+`fetch` against `http://127.0.0.1:<port>`: (a) `GET /` UI open 200; (b) `POST /sessions` 401 without
+token / 201 with `Bearer itok`; (c) preflight `OPTIONS /sessions` from the listed origin returns ACAO
+on a real response (non-listed gets none); (d) a full turn over real sockets — `?follow` SSE consumed
+via `fetch().body` reader, asserting `text_delta` + `turn_complete` arrive AND the streaming SSE
+response carries the ACAO header for the listed origin (the seam `app.request()` cannot prove); (e)
+after the client aborts the fetch + `dispose()`, `__test_busCount() === 0` (no bus leak). Free port
+per test, `server.stop()` in `finally`, MockProvider statics + `__test_resetAllBuses()` reset in
+`afterEach`, all waits are bounded polls (no fixed sleeps). **Ran it 6× standalone — stable (1 pass /
+0 fail each, no unhandled rejections); also green interleaved with the related bus/CORS suite.**
+
+**Known non-blocking items (carried, all inert/sound — no action this pass):** the two Phase-C client
+LOWs from the v0.6.20 review (duplicate permission card on a mid-turn reconnect-replay — cosmetic,
+second answer no-ops; CRLF-vs-LF SSE parser split — correct against this gateway's LF encoder, only a
+CRLF third-party proxy would leave a stray `\r`); and two hardening NOTES (`corsOrigins: ['']`
+empty-string entry is inert — the empty string never matches a real `Origin`; `idleTimeout: 0` is the
+intentional, sound choice for long-lived SSE — the application layer owns lifecycle via abort signals +
+turn terminals). None block.
+
+**Gate.** `bun run lint` clean (645 files — +1 for the new test), `bun run typecheck` clean, full TS
+suite **2815 pass / 0 fail / 14 skip** (clean run; +1 vs the v0.6.20 baseline of ~2814, the new
+real-socket test; the 3 known env-only learning-observer fails did not trip on a clean `HARNESS_HOME`
+— no new failures). No Go change (no `packages/tui/` touch). No bundle changes; surface is entirely
+`tests/server/` + `docs/`.
+
 ## 2026-06-06 — Phase C reference web UI — close-out (build + e2e + security review + release v0.6.20)
 
 Close-out pass for **Phase C (reference web UI)** — the embedded single-file browser chat client
