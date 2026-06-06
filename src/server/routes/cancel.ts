@@ -21,17 +21,30 @@
 // "I clicked ESC twice fast" race).
 
 import { Hono } from 'hono';
+import type { AppVariables } from '../auth.js';
 import { getOrCreateBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+import { loadOwnedSession, ownerIdOf } from './ownership.js';
 
-export function cancelRoute(_runtime: Runtime): Hono {
-  const r = new Hono();
+export function cancelRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   r.post('/sessions/:id/cancel', (c) => {
     const sessionId = c.req.param('id');
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
+    }
+    // Phase E T4 — owner-only access. When the caller is a real principal, a
+    // session it doesn't own (or an unowned/non-existent one) is hidden as
+    // non-existent → 404 (existence-hiding; never 403), BEFORE getOrCreateBus so
+    // bob can't mint a bus / cancel a turn on alice's session. The implicit/null
+    // owner path is left byte-identical to the documented open-mode behavior:
+    // cancel on a non-existent session is a harmless idempotent no-op (returns
+    // `{ cancelled: false }`), NOT a 404 — so the loopback TUI's ESC handling is
+    // unchanged. (We only short-circuit when a principal is present.)
+    if (ownerIdOf(c) !== null && loadOwnedSession(runtime, c, sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
     }
     const bus = getOrCreateBus(sessionId);
     const cancelled = bus.cancelCurrentTurn();

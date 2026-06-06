@@ -24,12 +24,22 @@
 //     disposeBus) and at full shutdown (runtime.dispose). This lets the
 //     replay ring survive a reconnect window and across turns. The `finally`
 //     here only unsubscribes + removes the abort listener.
+//
+// Phase E T4 — owner-only access. The handler resolves the session through the
+// shared ownership chokepoint BEFORE getOrCreateBus, so a session owned by
+// another principal (or unowned, when the caller is a real principal) is hidden
+// as non-existent → 404 (existence-hiding; never 403) and no bus is minted /
+// subscribed. The implicit/null-owner path (loopback TUI / `sov drive` / open)
+// is byte-unchanged. This is why the route is now a factory taking `runtime`.
 
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import type { AppVariables } from '../auth.js';
 import { getOrCreateBus } from '../eventBus.js';
+import type { Runtime } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
 import { isValidSessionId } from '../sessionId.js';
+import { loadOwnedSession } from './ownership.js';
 
 /** Parse the reconnect cursor from the `Last-Event-ID` header, falling back to
  *  the `?lastEventId=<n>` query param. Returns a non-negative integer seq when
@@ -47,128 +57,142 @@ function parseLastEventId(
   return parsed;
 }
 
-export const eventsRoute = new Hono();
+export function eventsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const route = new Hono<{ Variables: AppVariables }>();
 
-eventsRoute.get('/sessions/:id/events', (c) => {
-  const sessionId = c.req.param('id');
-  if (!isValidSessionId(sessionId)) {
-    return c.json({ error: 'invalid session id' }, 400);
-  }
-  const bus = getOrCreateBus(sessionId);
-  const requestSignal = c.req.raw.signal;
-  // Reconnect cursor: `Last-Event-ID` header (SSE standard) wins, else the
-  // `?lastEventId=<n>` query equivalent. A valid non-negative int enables
-  // seq > N replay; undefined falls through to fresh current-turn replay.
-  const lastEventId = parseLastEventId(c.req.header('Last-Event-ID'), c.req.query('lastEventId'));
-  // `?follow=true` keeps the stream open across turn boundaries.
-  const follow = c.req.query('follow') === 'true';
-  return streamSSE(c, async (stream) => {
-    // Flush the response headers immediately with an SSE comment line. Without
-    // an initial write, Bun does not send the HTTP response headers until the
-    // first event is written — so a browser `fetch()` opening a `?follow`
-    // stream on an idle session (no queued events, e.g. right after a
-    // reconnect to a fresh session) stays pending on the headers forever. That
-    // left the reference web UI wedged in a permanent "Reconnecting…" state
-    // because its stream-reader promise never resolved. The leading `:` makes
-    // this a comment frame the SSE spec (and our client parser) ignore.
-    await stream.write(': connected\n\n');
-    let stopped = false;
-    const queue: ServerEvent[] = [];
-    let resolver: (() => void) | null = null;
-    // Wake the loop if it is parked on the empty-queue Promise. Shared by the
-    // live-event push, the client-disconnect abort handler, and (Fix 1) the
-    // bus-abort handler so they all release a parked loop the same way.
-    const wake = (): void => {
-      if (resolver !== null) {
-        const r = resolver;
-        resolver = null;
-        r();
+  route.get('/sessions/:id/events', (c) => {
+    const sessionId = c.req.param('id');
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
+    // Phase E T4 — owner-only access. Hide a session owned by another principal
+    // (or unowned, when the caller is a real principal) as non-existent → 404
+    // (existence-hiding; never 403). MUST run BEFORE getOrCreateBus so bob can't
+    // mint a bus / subscribe to alice's session. Implicit/null owner sees all
+    // (back-compat — the loopback TUI / `sov drive` path is unchanged).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const bus = getOrCreateBus(sessionId);
+    const requestSignal = c.req.raw.signal;
+    // Reconnect cursor: `Last-Event-ID` header (SSE standard) wins, else the
+    // `?lastEventId=<n>` query equivalent. A valid non-negative int enables
+    // seq > N replay; undefined falls through to fresh current-turn replay.
+    const lastEventId = parseLastEventId(c.req.header('Last-Event-ID'), c.req.query('lastEventId'));
+    // `?follow=true` keeps the stream open across turn boundaries.
+    const follow = c.req.query('follow') === 'true';
+    return streamSSE(c, async (stream) => {
+      // Flush the response headers immediately with an SSE comment line. Without
+      // an initial write, Bun does not send the HTTP response headers until the
+      // first event is written — so a browser `fetch()` opening a `?follow`
+      // stream on an idle session (no queued events, e.g. right after a
+      // reconnect to a fresh session) stays pending on the headers forever. That
+      // left the reference web UI wedged in a permanent "Reconnecting…" state
+      // because its stream-reader promise never resolved. The leading `:` makes
+      // this a comment frame the SSE spec (and our client parser) ignore.
+      await stream.write(': connected\n\n');
+      let stopped = false;
+      const queue: ServerEvent[] = [];
+      let resolver: (() => void) | null = null;
+      // Wake the loop if it is parked on the empty-queue Promise. Shared by the
+      // live-event push, the client-disconnect abort handler, and (Fix 1) the
+      // bus-abort handler so they all release a parked loop the same way.
+      const wake = (): void => {
+        if (resolver !== null) {
+          const r = resolver;
+          resolver = null;
+          r();
+        }
+      };
+      const onEvent = (ev: ServerEvent): void => {
+        queue.push(ev);
+        wake();
+      };
+      // Pass the reconnect cursor through to the bus so it replays the right
+      // ring slice (seq > lastEventId) synchronously on attach, with no
+      // duplicates of what the client already received. Omitting the option
+      // (the common fresh-subscriber path) yields current-turn replay —
+      // byte-identical to the pre-T3 default.
+      const unsubscribe =
+        lastEventId !== undefined
+          ? bus.subscribe(onEvent, { lastEventId })
+          : bus.subscribe(onEvent);
+      // Fix 2 — capture the synchronous replay count. `subscribe()` calls
+      // `onEvent` (which pushes onto `queue`) for each replayed ring event
+      // BEFORE returning, so right here `queue.length` is exactly how many
+      // events were replayed on attach. A NON-follow stream that replayed
+      // NOTHING and lands with no turn in progress has nothing to wait for —
+      // the turn already completed and its terminal event is past the cursor.
+      // Without this it would park forever on the empty-queue Promise (the
+      // bus closes only at session/shutdown teardown). End immediately instead.
+      // This does NOT affect `?follow` (it never auto-ends), and it does NOT
+      // affect the normal "POST /turns then GET /events" path (a turn IS active
+      // at subscribe time) nor a reconnect mid-turn (replay is non-empty there).
+      const replayedCount = queue.length;
+      if (!follow && replayedCount === 0 && !bus.isTurnActive()) {
+        stopped = true;
       }
-    };
-    const onEvent = (ev: ServerEvent): void => {
-      queue.push(ev);
-      wake();
-    };
-    // Pass the reconnect cursor through to the bus so it replays the right
-    // ring slice (seq > lastEventId) synchronously on attach, with no
-    // duplicates of what the client already received. Omitting the option
-    // (the common fresh-subscriber path) yields current-turn replay —
-    // byte-identical to the pre-T3 default.
-    const unsubscribe =
-      lastEventId !== undefined ? bus.subscribe(onEvent, { lastEventId }) : bus.subscribe(onEvent);
-    // Fix 2 — capture the synchronous replay count. `subscribe()` calls
-    // `onEvent` (which pushes onto `queue`) for each replayed ring event
-    // BEFORE returning, so right here `queue.length` is exactly how many
-    // events were replayed on attach. A NON-follow stream that replayed
-    // NOTHING and lands with no turn in progress has nothing to wait for —
-    // the turn already completed and its terminal event is past the cursor.
-    // Without this it would park forever on the empty-queue Promise (the
-    // bus closes only at session/shutdown teardown). End immediately instead.
-    // This does NOT affect `?follow` (it never auto-ends), and it does NOT
-    // affect the normal "POST /turns then GET /events" path (a turn IS active
-    // at subscribe time) nor a reconnect mid-turn (replay is non-empty there).
-    const replayedCount = queue.length;
-    if (!follow && replayedCount === 0 && !bus.isTurnActive()) {
-      stopped = true;
-    }
-    // Fix 1 — the bus being disposed (disposeSession / dispose → bus.close())
-    // is a SECOND stop source, mirroring requestSignal below. Without it an
-    // open ?follow stream (which never auto-ends on a turn terminal) stays
-    // parked on the empty-queue Promise forever after the bus closes — a
-    // dangling connection that outlives its session. If the bus is already
-    // closed by the time we attach, don't park at all; otherwise wake + stop
-    // the loop when its abortSignal fires. (close() also clears subscribers,
-    // so onEvent won't fire after this — the loop must be woken explicitly.)
-    if (bus.abortSignal.aborted) {
-      stopped = true;
-    }
-    const onBusAbort = (): void => {
-      stopped = true;
-      wake();
-    };
-    bus.abortSignal.addEventListener('abort', onBusAbort);
-    // Without this listener the loop can park forever on the empty-queue
-    // Promise: a client disconnect with no pending events leaves nothing
-    // to invoke the resolver, so `unsubscribe()` never runs and the
-    // subscriber leaks (the bus itself is now reclaimed per-session, not
-    // here).
-    const abortHandler = (): void => {
-      stopped = true;
-      wake();
-    };
-    requestSignal.addEventListener('abort', abortHandler);
-    try {
-      while (!stopped) {
-        if (queue.length === 0) {
-          await new Promise<void>((r) => {
-            resolver = r;
+      // Fix 1 — the bus being disposed (disposeSession / dispose → bus.close())
+      // is a SECOND stop source, mirroring requestSignal below. Without it an
+      // open ?follow stream (which never auto-ends on a turn terminal) stays
+      // parked on the empty-queue Promise forever after the bus closes — a
+      // dangling connection that outlives its session. If the bus is already
+      // closed by the time we attach, don't park at all; otherwise wake + stop
+      // the loop when its abortSignal fires. (close() also clears subscribers,
+      // so onEvent won't fire after this — the loop must be woken explicitly.)
+      if (bus.abortSignal.aborted) {
+        stopped = true;
+      }
+      const onBusAbort = (): void => {
+        stopped = true;
+        wake();
+      };
+      bus.abortSignal.addEventListener('abort', onBusAbort);
+      // Without this listener the loop can park forever on the empty-queue
+      // Promise: a client disconnect with no pending events leaves nothing
+      // to invoke the resolver, so `unsubscribe()` never runs and the
+      // subscriber leaks (the bus itself is now reclaimed per-session, not
+      // here).
+      const abortHandler = (): void => {
+        stopped = true;
+        wake();
+      };
+      requestSignal.addEventListener('abort', abortHandler);
+      try {
+        while (!stopped) {
+          if (queue.length === 0) {
+            await new Promise<void>((r) => {
+              resolver = r;
+            });
+          }
+          const ev = queue.shift();
+          if (ev === undefined) continue;
+          await stream.writeSSE({
+            event: ev.type,
+            id: String(ev.seq),
+            data: JSON.stringify(ev),
           });
+          // Default per-turn contract: end the stream on the turn terminal.
+          // A `?follow` stream skips this so it keeps streaming subsequent
+          // turns on the same connection until the client disconnects (the
+          // abort handler above) or the bus closes (server.stop / dispose).
+          if (!follow && (ev.type === 'turn_complete' || ev.type === 'turn_error')) {
+            stopped = true;
+          }
         }
-        const ev = queue.shift();
-        if (ev === undefined) continue;
-        await stream.writeSSE({
-          event: ev.type,
-          id: String(ev.seq),
-          data: JSON.stringify(ev),
-        });
-        // Default per-turn contract: end the stream on the turn terminal.
-        // A `?follow` stream skips this so it keeps streaming subsequent
-        // turns on the same connection until the client disconnects (the
-        // abort handler above) or the bus closes (server.stop / dispose).
-        if (!follow && (ev.type === 'turn_complete' || ev.type === 'turn_error')) {
-          stopped = true;
-        }
+      } finally {
+        requestSignal.removeEventListener('abort', abortHandler);
+        bus.abortSignal.removeEventListener('abort', onBusAbort);
+        unsubscribe();
+        // Phase B T3 — the bus is intentionally NOT disposed here anymore.
+        // Disposal moved to per-session teardown (runtime.disposeSession →
+        // disposeBus) and full shutdown (runtime.dispose → abortAllBuses +
+        // the disposeSession walk). Keeping the bus alive past this stream's
+        // close is what lets a reconnect (within the window) replay the
+        // retained ring and what lets the ring survive across turns.
       }
-    } finally {
-      requestSignal.removeEventListener('abort', abortHandler);
-      bus.abortSignal.removeEventListener('abort', onBusAbort);
-      unsubscribe();
-      // Phase B T3 — the bus is intentionally NOT disposed here anymore.
-      // Disposal moved to per-session teardown (runtime.disposeSession →
-      // disposeBus) and full shutdown (runtime.dispose → abortAllBuses +
-      // the disposeSession walk). Keeping the bus alive past this stream's
-      // close is what lets a reconnect (within the window) replay the
-      // retained ring and what lets the ring survive across turns.
-    }
+    });
   });
-});
+
+  return route;
+}

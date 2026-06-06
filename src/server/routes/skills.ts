@@ -34,27 +34,29 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { installSkill, uninstallSkill } from '../../skills/install.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
+import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+import { loadOwnedSession } from './ownership.js';
 
 const InstallBodySchema = z.object({
   source: z.string().min(1, 'source path is required'),
   force: z.boolean().optional(),
 });
 
-export function skillsRoute(runtime: Runtime): Hono {
-  const r = new Hono();
+export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   r.get('/sessions/:id/skills', (c) => {
     const sessionId = c.req.param('id');
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    const session = runtime.sessionDb.getSession(sessionId);
+    // Phase E T4 — owner-only access (404 hides another principal's session;
+    // never 403). Implicit/null owner sees all (back-compat). Same wire shape
+    // as the sibling routes.
+    const session = loadOwnedSession(runtime, c, sessionId);
     if (session === null) {
-      // Align with sessions.ts (:41, :54) and compact.ts (:48) — same wire
-      // shape across sibling routes. The TUI knows which sessionId it
-      // requested, so echoing it back was redundant.
       return c.json({ error: 'not found' }, 404);
     }
     // Per-request filter (see header). The active tool list is the
@@ -86,7 +88,9 @@ export function skillsRoute(runtime: Runtime): Hono {
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    if (runtime.sessionDb.getSession(sessionId) === null) {
+    // Phase E T4 — owner-only access. 404 (never 403) BEFORE installSkill
+    // touches the filesystem. Implicit/null owner sees all (back-compat).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
       return c.json({ error: 'not found' }, 404);
     }
     let body: unknown;
@@ -123,7 +127,9 @@ export function skillsRoute(runtime: Runtime): Hono {
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    if (runtime.sessionDb.getSession(sessionId) === null) {
+    // Phase E T4 — owner-only access. 404 (never 403) BEFORE uninstallSkill
+    // touches the filesystem. Implicit/null owner sees all (back-compat).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
       return c.json({ error: 'not found' }, 404);
     }
     const name = c.req.param('name');

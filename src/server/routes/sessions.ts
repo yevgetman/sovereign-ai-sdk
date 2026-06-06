@@ -25,9 +25,11 @@
 // / `sov drive` paths (which build the app without a supervisor) are untouched.
 
 import { Hono } from 'hono';
+import type { AppVariables } from '../auth.js';
 import { disposeBus, peekBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+import { loadOwnedSession, ownerIdOf } from './ownership.js';
 
 /** Upper bound on the `?limit` query param for GET /sessions. */
 const MAX_LIST_LIMIT = 100;
@@ -46,8 +48,11 @@ export interface SessionSupervisorLike {
   getMaxConcurrentSessions(): number | undefined;
 }
 
-export function sessionsRoute(runtime: Runtime, supervisor?: SessionSupervisorLike): Hono {
-  const r = new Hono();
+export function sessionsRoute(
+  runtime: Runtime,
+  supervisor?: SessionSupervisorLike,
+): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   r.post('/sessions', async (c) => {
     // Concurrency cap (opt-in). Only enforced when a supervisor is wired in
@@ -64,10 +69,15 @@ export function sessionsRoute(runtime: Runtime, supervisor?: SessionSupervisorLi
         }
       }
     }
+    // Phase E T4 — stamp the creating principal as owner. ownerIdOf returns
+    // null in legacy single-token / open mode, so the conditional spread keeps
+    // `owner` absent there (createSession stores owner_id null — back-compat).
+    const owner = ownerIdOf(c);
     const sessionId = runtime.sessionDb.createSession({
       model: runtime.model,
       provider: runtime.resolvedProvider.transport.name,
       systemPrompt: runtime.systemSegments,
+      ...(owner !== null ? { owner } : {}),
       metadata: {
         cwd: runtime.cwd,
         ...(runtime.bundleRoot !== undefined ? { bundleRoot: runtime.bundleRoot } : {}),
@@ -84,10 +94,14 @@ export function sessionsRoute(runtime: Runtime, supervisor?: SessionSupervisorLi
     const limit = Number.isInteger(parsed)
       ? Math.min(Math.max(parsed, 1), MAX_LIST_LIMIT)
       : undefined;
+    // Phase E T4 — owner-scope the listing. ownerIdOf returns null in legacy /
+    // open mode → undefined owner arg → unfiltered (back-compat). A real
+    // principal sees ONLY its own sessions.
+    const owner = ownerIdOf(c) ?? undefined;
     const entries =
       limit !== undefined
-        ? runtime.sessionDb.listSessions(limit)
-        : runtime.sessionDb.listSessions();
+        ? runtime.sessionDb.listSessions(limit, owner)
+        : runtime.sessionDb.listSessions(undefined, owner);
     // Annotate each row IMMUTABLY with live in-memory state. peekBus never
     // mints a bus on a miss, so a session with no live bus reads as
     // live:false / turnActive:false / subscribers:0.
@@ -106,7 +120,10 @@ export function sessionsRoute(runtime: Runtime, supervisor?: SessionSupervisorLi
   r.get('/sessions/:id', (c) => {
     const id = c.req.param('id');
     if (!isValidSessionId(id)) return c.json({ error: 'invalid session id' }, 400);
-    const session = runtime.sessionDb.getSession(id);
+    // Phase E T4 — owner-only access. A session owned by another principal (or
+    // unowned, when the caller is a real principal) reads as non-existent → 404
+    // (existence-hiding; never 403). Implicit/null owner sees all (back-compat).
+    const session = loadOwnedSession(runtime, c, id);
     if (session === null) return c.json({ error: 'not found' }, 404);
     return c.json({
       sessionId: session.sessionId,
@@ -119,7 +136,8 @@ export function sessionsRoute(runtime: Runtime, supervisor?: SessionSupervisorLi
   r.get('/sessions/:id/messages', (c) => {
     const id = c.req.param('id');
     if (!isValidSessionId(id)) return c.json({ error: 'invalid session id' }, 400);
-    const session = runtime.sessionDb.getSession(id);
+    // Phase E T4 — owner-only access (404 hides another principal's session).
+    const session = loadOwnedSession(runtime, c, id);
     if (session === null) return c.json({ error: 'not found' }, 404);
     const stored = runtime.sessionDb.loadMessages(id);
     // Strip storage-internal fields — callers only need role + content to render.
@@ -130,8 +148,11 @@ export function sessionsRoute(runtime: Runtime, supervisor?: SessionSupervisorLi
   r.delete('/sessions/:id', async (c) => {
     const id = c.req.param('id');
     if (!isValidSessionId(id)) return c.json({ error: 'invalid session id' }, 400);
-    // 404 BEFORE any teardown so a bad/unknown id never mutates state.
-    if (runtime.sessionDb.getSession(id) === null) return c.json({ error: 'not found' }, 404);
+    // 404 BEFORE any teardown so a bad/unknown id never mutates state. Phase E
+    // T4 — loadOwnedSession also hides another principal's session as
+    // non-existent (404, never 403), so bob's DELETE on alice's session can't
+    // tear it down.
+    if (loadOwnedSession(runtime, c, id) === null) return c.json({ error: 'not found' }, 404);
     // Teardown order: dispose the in-memory session context (no bus arg — no
     // SSE consumer to send a goodbye card to), then dispose the bus, then
     // remove the persisted rows. disposeSession already calls disposeBus, but

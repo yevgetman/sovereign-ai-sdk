@@ -11,11 +11,13 @@
 //   404 — requestId unknown or already resolved/expired
 
 import { Hono } from 'hono';
+import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+import { loadOwnedSession } from './ownership.js';
 
-export function approvalsRoute(runtime: Runtime): Hono {
-  const r = new Hono();
+export function approvalsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   r.post('/sessions/:id/approvals/:requestId', async (c) => {
     const sessionId = c.req.param('id');
@@ -29,6 +31,15 @@ export function approvalsRoute(runtime: Runtime): Hono {
     // probing the queue map.
     if (!isValidSessionId(requestId)) {
       return c.json({ error: 'invalid request id' }, 400);
+    }
+    // Phase E T4 — owner-only access. Resolve the session through the shared
+    // ownership chokepoint BEFORE touching the approval queue: a session owned
+    // by another principal (or unowned, when the caller is a real principal) is
+    // hidden as non-existent → 404 (existence-hiding; never 403), so bob can't
+    // resolve / probe a pending approval on alice's session. Implicit/null
+    // owner sees all (back-compat).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
     }
     // 404 BEFORE parsing the JSON body: an unknown / expired requestId is
     // the common shape of a late client retry, and we don't want to spend

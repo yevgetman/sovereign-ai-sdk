@@ -1,55 +1,98 @@
 // Phase 16.1 M3 — events route consumes the per-session event bus.
 // Test seeds the bus with synthetic events, GETs the SSE endpoint, and
 // asserts the on-wire payload contains them plus a terminal turn_complete.
+//
+// Phase E T4 — the events route now resolves the session through the ownership
+// chokepoint before minting a bus, so the seeded bus must correspond to a real
+// session row. We mint one via a real runtime (open mode → owner null → no
+// per-principal enforcement) and seed THAT session's bus.
 
-import { describe, expect, test } from 'bun:test';
-import { Hono } from 'hono';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { MockProvider } from '../../src/providers/mock.js';
+import { buildAppWithRuntime } from '../../src/server/app.js';
 import { __test_resetAllBuses, getOrCreateBus } from '../../src/server/eventBus.js';
-import { eventsRoute } from '../../src/server/routes/events.js';
+import { buildRuntime } from '../../src/server/runtime.js';
 import { parseServerEvent } from '../../src/server/schema.js';
 
 describe('eventsRoute (M3 bus-driven)', () => {
-  test('GET /sessions/:id/events streams buffered bus events + terminal turn_complete', async () => {
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'events-route-home-'));
+    cwd = mkdtempSync(join(tmpdir(), 'events-route-cwd-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
     __test_resetAllBuses();
-    const sessionId = 's_test';
-    const bus = getOrCreateBus(sessionId);
-    bus.publish({ type: 'text_delta', seq: bus.nextSeq(), sessionId, block: 0, text: 'Hello ' });
-    bus.publish({ type: 'text_delta', seq: bus.nextSeq(), sessionId, block: 0, text: 'world.' });
-    bus.publish({
-      type: 'turn_complete',
-      seq: bus.nextSeq(),
-      sessionId,
-      finishReason: 'end_turn',
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    __test_resetAllBuses();
+    MockProvider.lastMessages = undefined;
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+  });
+
+  test('GET /sessions/:id/events streams buffered bus events + terminal turn_complete', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
     });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      // Mint a real session so the ownership chokepoint (Phase E T4) resolves it
+      // — the events route refuses to mint a bus for a non-existent session id.
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
 
-    const app = new Hono().route('/', eventsRoute);
-    const res = await app.request(`/sessions/${sessionId}/events`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
+      const bus = getOrCreateBus(sessionId);
+      bus.publish({ type: 'text_delta', seq: bus.nextSeq(), sessionId, block: 0, text: 'Hello ' });
+      bus.publish({ type: 'text_delta', seq: bus.nextSeq(), sessionId, block: 0, text: 'world.' });
+      bus.publish({
+        type: 'turn_complete',
+        seq: bus.nextSeq(),
+        sessionId,
+        finishReason: 'end_turn',
+      });
 
-    const body = await res.text();
-    const blocks = body
-      .split('\n\n')
-      .map((b) => b.trim())
-      .filter(Boolean)
-      // Drop SSE comment frames (lines starting with ':') — the route emits a
-      // leading ': connected' heartbeat to flush headers on connect.
-      .filter((b) => !b.split('\n').every((l) => l.startsWith(':')));
-    expect(blocks.length).toBeGreaterThanOrEqual(3);
+      const res = await app.request(`/sessions/${sessionId}/events`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
 
-    // Parse the JSON data field from each block.
-    const events = blocks.map((b) => {
-      const dataLine = b.split('\n').find((l) => l.startsWith('data: '));
-      if (!dataLine) throw new Error(`no data line in block: ${b}`);
-      return parseServerEvent(dataLine.slice('data: '.length));
-    });
+      const body = await res.text();
+      const blocks = body
+        .split('\n\n')
+        .map((b) => b.trim())
+        .filter(Boolean)
+        // Drop SSE comment frames (lines starting with ':') — the route emits a
+        // leading ': connected' heartbeat to flush headers on connect.
+        .filter((b) => !b.split('\n').every((l) => l.startsWith(':')));
+      expect(blocks.length).toBeGreaterThanOrEqual(3);
 
-    expect(events[0]?.type).toBe('text_delta');
-    if (events[0]?.type !== 'text_delta') throw new Error('narrow');
-    expect(events[0].sessionId).toBe(sessionId);
-    expect(events[0].text).toBe('Hello ');
+      // Parse the JSON data field from each block.
+      const events = blocks.map((b) => {
+        const dataLine = b.split('\n').find((l) => l.startsWith('data: '));
+        if (!dataLine) throw new Error(`no data line in block: ${b}`);
+        return parseServerEvent(dataLine.slice('data: '.length));
+      });
 
-    const last = events[events.length - 1];
-    expect(last?.type).toBe('turn_complete');
+      expect(events[0]?.type).toBe('text_delta');
+      if (events[0]?.type !== 'text_delta') throw new Error('narrow');
+      expect(events[0].sessionId).toBe(sessionId);
+      expect(events[0].text).toBe('Hello ');
+
+      const last = events[events.length - 1];
+      expect(last?.type).toBe('turn_complete');
+    } finally {
+      await runtime.dispose();
+    }
   });
 });

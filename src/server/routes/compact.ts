@@ -29,22 +29,26 @@
 // /compact HTTP call, and the JSON response carries the same payload.
 
 import { Hono } from 'hono';
+import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
+import { loadOwnedSession } from './ownership.js';
 
-export function compactRoute(runtime: Runtime): Hono {
-  const r = new Hono();
+export function compactRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   r.post('/sessions/:id/compact', async (c) => {
     const sessionId = c.req.param('id');
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    const session = runtime.sessionDb.getSession(sessionId);
+    // Phase E T4 — owner-only access. loadOwnedSession hides a session owned by
+    // another principal (or unowned, when the caller is a real principal) as
+    // non-existent → 404 (existence-hiding; never 403), BEFORE any compaction
+    // work. Implicit/null owner sees all (back-compat). Same wire shape as the
+    // sibling routes.
+    const session = loadOwnedSession(runtime, c, sessionId);
     if (session === null) {
-      // Align with sessions.ts (:41, :54) — same wire shape across sibling
-      // routes. The TUI / scripts already know which sessionId they POSTed
-      // against, so echoing it back was redundant.
       return c.json({ error: 'not found' }, 404);
     }
 

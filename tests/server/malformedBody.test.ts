@@ -95,11 +95,16 @@ describe('malformed JSON body → 400 (not 500)', () => {
       });
       const app = buildAppWithRuntime(runtime);
 
+      // Create a real session so the ownership/existence guard passes — the
+      // malformed-body guard is then the failing point.
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
       // Pre-arm a pending request so the malformed-body guard is reached:
       // the 404-before-parse guard only fires for unknown requestIds.
       const pending = runtime.approvalQueue.createPending('test-req-malformed', 5000);
 
-      const res = await app.request('/sessions/sess-1/approvals/test-req-malformed', {
+      const res = await app.request(`/sessions/${sessionId}/approvals/test-req-malformed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{bad',
@@ -128,9 +133,14 @@ describe('malformed JSON body → 400 (not 500)', () => {
       });
       const app = buildAppWithRuntime(runtime);
 
+      // Create a real session so the 404 here is the unknown-requestId branch
+      // (ownership check passes), not the ownership/existence branch.
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
       // Even with a malformed body, an unknown requestId resolves to 404
       // because the 404 guard runs ahead of the body parse.
-      const res = await app.request('/sessions/sess-1/approvals/does-not-exist', {
+      const res = await app.request(`/sessions/${sessionId}/approvals/does-not-exist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{bad',
@@ -149,8 +159,11 @@ describe('malformed JSON body → 400 (not 500)', () => {
       });
       const app = buildAppWithRuntime(runtime);
 
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
       const pending = runtime.approvalQueue.createPending('test-req-ok', 5000);
-      const res = await app.request('/sessions/sess-1/approvals/test-req-ok', {
+      const res = await app.request(`/sessions/${sessionId}/approvals/test-req-ok`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved: true }),

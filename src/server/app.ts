@@ -102,6 +102,6 @@ export function buildAppWithRuntime(
   // M10.5 — POST /sessions/:id/commands, generic slash-command dispatcher.
   // Closes M10 audit slice 1 HIGH gap; unblocks M11.
   app.route('/', commandsRoute(runtime));
-  app.route('/', eventsRoute);
+  app.route('/', eventsRoute(runtime));
   return app;
 }

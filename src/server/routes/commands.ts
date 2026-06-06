@@ -52,13 +52,15 @@
 
 import { Hono } from 'hono';
 import { COMMANDS, dispatchSlashCommand } from '../../commands/registry.js';
+import type { AppVariables } from '../auth.js';
 import { buildServerCommandContext } from '../commandContext.js';
 import type { Runtime } from '../runtime.js';
 import { CommandRequestSchema, type CommandResponse } from '../schema.js';
 import { isValidSessionId } from '../sessionId.js';
+import { loadOwnedSession } from './ownership.js';
 
-export function commandsRoute(runtime: Runtime): Hono {
-  const r = new Hono();
+export function commandsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   // Backlog #45 — GET discovery endpoint. Returns the built-in
   // commands the dispatcher knows about so the TUI can populate its
@@ -70,7 +72,8 @@ export function commandsRoute(runtime: Runtime): Hono {
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    if (runtime.sessionDb.getSession(sessionId) === null) {
+    // Phase E T4 — owner-only access (404 hides another principal's session).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
       return c.json({ error: 'not found' }, 404);
     }
     return c.json({
@@ -87,7 +90,10 @@ export function commandsRoute(runtime: Runtime): Hono {
     if (!isValidSessionId(sessionId)) {
       return c.json({ error: 'invalid session id' }, 400);
     }
-    const session = runtime.sessionDb.getSession(sessionId);
+    // Phase E T4 — owner-only access. Hide another principal's session as
+    // non-existent → 404 (never 403), BEFORE getSessionContext builds/caches a
+    // per-session context. Implicit/null owner sees all (back-compat).
+    const session = loadOwnedSession(runtime, c, sessionId);
     if (session === null) {
       return c.json({ error: 'not found' }, 404);
     }

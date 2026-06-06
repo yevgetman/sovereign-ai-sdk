@@ -47,11 +47,13 @@ import { expandSkillPrompt } from '../../skills/loader.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import type { TraceEvent } from '../../trace/types.js';
+import type { AppVariables } from '../auth.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
 import type { SessionContext } from '../sessionContext.js';
 import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
+import { loadOwnedSession } from './ownership.js';
 
 /** State captured at `tool_use_start` emission, drained when the matching
  *  `tool_result` arrives so the tool_result wire event can echo the same
@@ -91,8 +93,8 @@ function publishCompactionComplete(
   });
 }
 
-export function turnsRoute(runtime: Runtime): Hono {
-  const r = new Hono();
+export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
+  const r = new Hono<{ Variables: AppVariables }>();
 
   r.post('/sessions/:id/turns', async (c) => {
     const sessionId = c.req.param('id');
@@ -109,7 +111,14 @@ export function turnsRoute(runtime: Runtime): Hono {
     // messages.session_id FOREIGN KEY and throws — and because the turn is
     // fire-and-forget (void below), that becomes a process-killing unhandled
     // rejection rather than a clean 404.
-    if (runtime.sessionDb.getSession(sessionId) === null) {
+    //
+    // Phase E T4 — owner-only access. loadOwnedSession ALSO hides a session
+    // owned by another principal (or unowned, when the caller is a real
+    // principal) as non-existent → 404 (existence-hiding; never 403). This runs
+    // at the TOP of the handler, BEFORE getOrCreateBus / markTurnStart / the
+    // background turn — so bob's turn on alice's session creates no bus and runs
+    // nothing. Implicit/null owner sees all (back-compat).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
       return c.json({ error: 'session not found' }, 404);
     }
     // Guard the body parse: a malformed/empty body makes `c.req.json()`
