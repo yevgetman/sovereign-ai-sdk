@@ -1124,6 +1124,68 @@ launchctl unload ~/Library/LaunchAgents/ai.sovereign.gateway.plist
 
 `KeepAlive` (launchd) and `Restart=on-failure` (systemd) restart the gateway if it exits; combined with the durable SQLite session store, an interrupted session **resumes lazily on the next request after a restart** — the service comes back up and clients reattach to their sessions by id. Idle eviction (above) keeps the long-lived process's memory bounded across that uptime.
 
+### Multi-user gateway
+
+As of Phase E (v0.6.22) a single self-hosted `sov gateway` can serve **multiple named users**, each with **isolated sessions, memory, and learning**. You configure a list of *principals* — each with a stable `id`, its own bearer `token`, and an optional display `name` — and the gateway resolves the presented token to a principal on every request. A user can only see and act on the sessions they created; the memory and learned instincts a turn reads or writes are scoped to that user.
+
+**Trust model — read this.** This is the **within-org / single-trust-domain** model: multiple *trusted-but-separate* users on one operator-run gateway (a team, a household, a small org), isolated from each other's sessions and state. It is **NOT hostile multi-tenant isolation** — there is no process/filesystem sandbox, no per-tenant resource limit, no defense against a *malicious* user (every principal still wields the harness's full tool powers under the configured permission policy, on the same host). The threat it addresses is *accidental cross-user access or leakage among trusted users*. Hostile cross-tenant / managed-multi-tenant isolation is a separate, founder-reserved decision; the within-org model is additive to it.
+
+**Configure principals.** Set `gateway.principals` in `config.json`. Each `id` must be a safe path segment (`^[A-Za-z0-9_-]+$` — it becomes a directory component for per-user state), and each `token` must be non-empty and unique:
+
+```json
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8766,
+    "principals": [
+      { "id": "alice", "token": "alice-long-random-token", "name": "Alice" },
+      { "id": "bob",   "token": "bob-long-random-token",   "name": "Bob" }
+    ]
+  }
+}
+```
+
+`gateway.principals` and the single `gateway.token` are **mutually exclusive** (XOR) — the config is rejected if both are set. Choose **single-user** (`token`, or no auth on loopback) or **multi-user** (`principals`); there is no full-access "admin" token coexisting with scoped principals (that would be a bypass footgun).
+
+**What isolation you get:**
+
+- **Owner-only sessions.** `POST /sessions` stamps the calling principal as the session's owner. **Every `/sessions/:id/*` route returns 404 — not 403 — when the caller isn't the owner** (existence-hiding: another user's session looks like it doesn't exist). The chokepoint covers messages, turns, events, approvals, cancel, compact, commands, skills, and DELETE. `GET /sessions` lists only the caller's own sessions.
+- **Per-user memory.** A principal's memory lives under `$HARNESS_HOME/users/{id}/memory/…` (the same global + `projects/{projectId}` layout, nested under the user). The namespace is derived from the **session's owner**, never from anything the caller supplies, and the `id` is re-validated as a safe segment at the path boundary.
+- **Per-user learning.** Identically, a principal's learning corpus (observations + synthesized instincts) lives under `$HARNESS_HOME/users/{id}/learning/{projectId}/…`. Recall, capture, and synthesis all scope to the session's owner; instinct promotion never crosses a user boundary.
+
+This is **two-layer isolation**: an authz layer (the route ownership checks) and a scoping layer (memory/learning derived from the session's owner). Even if an authz check were bypassed, a turn would still read its owner's state, not the caller's — but both layers hold.
+
+**No anonymous bypass.** When `principals` is configured, a token that resolves to a principal is **required on every request — including on loopback**. There is no token-less fallback in principals mode: the operator deliberately opted into multi-user, so anonymous access is off everywhere. (The implicit single-principal, legacy top-level paths apply *only* in single-`token` or no-auth mode.)
+
+**Curl example — alice can't touch bob's session.** With the two-principal config above, alice creates a session and bob is locked out of it (404), and bob's session list never shows alice's:
+
+```bash
+GW=http://HOST:8766
+
+# Alice creates a session, capture its id:
+ALICE_SID=$(curl -s -H "Authorization: Bearer alice-long-random-token" \
+  -X POST "$GW/sessions" | jq -r '.sessionId')
+
+# Bob tries to read Alice's session → 404 (existence-hidden, not 403):
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer bob-long-random-token" \
+  "$GW/sessions/$ALICE_SID"
+# → 404
+
+# Bob's session list does NOT contain Alice's session:
+curl -s -H "Authorization: Bearer bob-long-random-token" "$GW/sessions" \
+  | jq -r '.sessions[].sessionId'
+# → (Alice's id is absent)
+
+# No token at all → 401 (principals mode requires one, even on loopback):
+curl -s -o /dev/null -w '%{http_code}\n' "$GW/sessions"
+# → 401
+```
+
+**Unchanged modes.** The single-`token` mode and the no-auth loopback mode are **byte-identical to before** — they run as the implicit single principal against the existing top-level `$HARNESS_HOME/memory/…` and `…/learning/…` paths, with no ownership enforcement. The **TUI, `sov drive`, and `sov serve`** surfaces configure no principals and are unchanged. The `owner_id` column is an additive migration (existing rows = null = implicit principal).
+
+**Known v1 limitations.** Operator-side **traces and fine-tune trajectories are not per-user-partitioned** — but they are operator-only artifacts, never served over the API, so they are not a turn-surfaced cross-user leak. The **admin learning CLI** (`sov learning status|export|prune`) operates on the legacy top-level corpus, not per-user. These are noted follow-ups, not bugs.
+
 ## Themes
 
 The Go TUI resolves built-in themes by name: `dark` (Catppuccin Mocha — the default), `light` (Catppuccin Latte), `tokyo-night`, and `sovereign`.

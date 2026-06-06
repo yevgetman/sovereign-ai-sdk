@@ -8,6 +8,74 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — Phase E close-out (multi-user identity + state scoping): 9-task build + keystone authz + adversarial security review (found 2 cross-user leaks) + gate + release v0.6.22
+
+Close-out of **Phase E — Multi-user identity + state scoping** (M4 + M5 of the run-anywhere
+roadmap), shipped as **v0.6.22**. Makes the long-lived `sov gateway` multi-user: named principals
+with isolated sessions, memory, and learning (within-org / single-trust-domain model). Resolves the
+standing `multi-user-memory-scoping` blocker.
+
+**Build (E-T1…E-T8, subagent-driven, Opus).** Principals registry config + token→principal resolver
+(`15d0f5b`) → principal-aware auth middleware, no anonymous bypass (`f843914`) → `owner_id` column
+(SessionDb migration 4→5) + owner-scoped `getSession`/`listSessions` (`4e156c4`) → **the keystone:
+owner-only session access across all `/sessions/*` routes, 404 on mismatch** (`b2f12a6`) → per-user
+memory namespace `users/{id}/memory/…` derived from the session owner (`be31f5f`) → per-user learning
+corpus namespace derived from the session owner (`7de6e2e`) → end-to-end multi-user isolation suite
+(`22152fa`). Spec + plan committed up front (`af3227c`).
+
+**Keystone authz (E-T4) — the security chokepoint.** A single ownership check on every
+`/sessions/:id/*` route (messages/turns/events/approvals/cancel/compact/commands/skills/DELETE)
+returns **404 — not 403 —** on an owner mismatch (existence-hiding), enforced before any per-session
+state (bus/context) is built; `GET /sessions` is owner-filtered. Combined with the owner-derived
+memory/learning namespace, isolation holds at two independent layers (authz + scoping).
+
+**Adversarial security review (E-T8) — found + fixed 2 cross-user leaks; SECURE-TO-SHIP.** The hard
+review gate over the whole Phase E surface (auth, ownership, memory + learning scoping, back-compat)
+**found two real cross-user isolation leaks**, both where per-turn code dropped the principal id and
+fell back to the SHARED legacy `$HARNESS_HOME/memory|learning` store. Both fixed RED-before/GREEN-after
+in `d7559a8`:
+- **C1 (Critical)** — the default-registry `memory` tool (reachable on the gateway + from sub-agents)
+  called the bounded-memory path helpers WITHOUT the `userId` arg → every user's tool reads/writes hit
+  the shared legacy files. Fixed by threading `ctx.userId` through `handleView` + `handleReplace` to all
+  five helper call sites. Test: `tests/tools/memoryToolUserScope.test.ts`.
+- **H1 (High)** — `compactSession` copied model/provider/etc. onto the compaction child but NOT `owner`,
+  so after a compaction pivot `turns.ts` (`getSessionContext(childId)`) rebuilt context with
+  `ownerId=null` → legacy namespace for the rest of the turn. Fixed by carrying `parent.ownerId` onto the
+  child `createSession` (+ defense-in-depth: the scheduler's `createChildSession` closure stamps the
+  child with the parent's owner too). Test: `tests/compact/compactOwner.test.ts`.
+A sibling-bug sweep (memory provider, learning observer, instinct tools, injected-prefetch path) found
+none — they already thread the principal id; the eval harnesses + admin CLI are out of the per-turn
+path. **Final verdict: SECURE-TO-SHIP (no remaining Critical/High); A cannot reach B's sessions,
+memory, or learning.** Known v1 limitations documented (not fixed): operator-side traces + fine-tune
+trajectories aren't per-user-partitioned (operator-only, never API-served, not a turn-surfaced leak);
+the admin learning CLI (`learningStatus/Export/Prune`) operates on the legacy top-level corpus; a
+synthesizer prompt-label cosmetically shows the legacy observations path (display-only); `timingSafeEqual`
+early-returns on length mismatch (pre-existing, codebase-wide, acceptable within the non-hostile within-org
+model). Also the E-T4 tightening: events/approvals routes now require the session to exist in the DB.
+
+**Pre-release gate — clean.** `bun run lint && bun run typecheck && bun run test` → TS suite
+**2957 pass / 0 fail / 14 skip** (clean run; up from the v0.6.21 baseline ~2861, from the new
+principals/auth/ownership/per-user-memory/per-user-learning/e2e-isolation + C1/H1-fix coverage). Gate
+criterion unchanged: no new failures beyond the known env-only set. Lint (`biome check`, 660 files) +
+typecheck (`tsc --noEmit`) clean. No `packages/tui/` change → Go suite unaffected. (The
+`[WARN] blocked context file … AGENTS.md` lines during the run are the harness's own context-loader
+threat-scanner flagging the `curl … | bash` installer string in the AGENTS.md doc text — a doc
+reference, not an executable threat; not a test failure.)
+
+**Release v0.6.22.** First pushed all 9 local Phase E commits to `origin/master`, bumped `package.json`
+0.6.21 → 0.6.22, updated the public `sov-releases/CHANGELOG.md` (user-facing: multi-user gateway —
+named principals with isolated sessions, memory, and learning), tagged `v0.6.22`, CI built + published
+all 4 artifacts (darwin-arm64 / darwin-x64 / linux-x64 + SHA256SUMS), then `sov upgrade`.
+
+**Post-upgrade binary smoke — PASS (proves multi-user isolation ships in the binary).** Booted the
+upgraded `~/.sov/bin/sov gateway` against an isolated temp `HARNESS_HOME` carrying
+`gateway.principals: [{id:'alice',token:'tok-a'},{id:'bob',token:'tok-b'}]` (+ the provider key copied
+from the real config for boot — the real config was NOT mutated) on a free loopback port. As alice
+(`Bearer tok-a`), `POST /sessions` → a session id. As bob (`Bearer tok-b`), `GET /sessions/<aliceId>` →
+**404** and `GET /sessions` did NOT list alice's session. No token → **401** (principals mode requires
+one even on loopback). Killed the gateway, cleaned up the temp home. `~/.sov/bin/sov --version` →
+**0.6.22**.
+
 ## 2026-06-06 — Phase D close-out (persistent multi-session supervisor): 7-task build + keystone review + final whole-phase review + gate + release v0.6.21
 
 Close-out of **Phase D — Persistent multi-session supervisor** (M3 of the run-anywhere roadmap),
