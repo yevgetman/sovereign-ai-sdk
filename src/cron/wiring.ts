@@ -134,8 +134,21 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // memory manager, project scope) the same way the turns route does
         // so a cron-spawned agent sees the same world as an interactive
         // turn — minus the SSE bus + serverAsk (cron auto-denies any
-        // fall-through ask, so no bus is needed).
+        // fall-through ask, so no bus is needed). It also builds (and caches)
+        // the SessionContext we read memoryManager + recall off of below.
         const toolContext = buildSessionToolContext(runtime, sessionId, canUseTool);
+        // Learning-loop participation — the SAME per-session context the
+        // ToolContext above was built from (getSessionContext caches by
+        // sessionId). It carries the memory manager (always present) and the
+        // recall thunk (present only when recall is enabled), which we thread
+        // into the AgentRunner so a scheduled job draws on MEMORY.md + learned
+        // instincts and writes memory back — exactly like the interactive turns
+        // route and the channel pipeline. Cron sessions are owner-null →
+        // legacy/global memory + learning namespace (correct for operator-
+        // scheduled jobs). Without this, a cron job never injected MEMORY.md,
+        // never ran recall, and never wrote memory back (the same omission the
+        // Phase-F channel fix closed for channels).
+        const sessionCtx = runtime.getSessionContext(sessionId);
 
         const runner = new AgentRunner({
           provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
@@ -148,6 +161,12 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           maxTurns: DEFAULT_CRON_MAX_TURNS,
           sessionId,
           cwd: runtime.cwd,
+          // Thread memory + recall (mirrors the turns route + channel pipeline).
+          // memoryManager is always present; recall is conditionally spread so a
+          // recall-disabled session stays inert (matches the
+          // `...(recall ? { recall } : {})` discipline elsewhere).
+          memoryManager: sessionCtx.memoryManager,
+          ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
         });
 
         const gen = runner.run(prompt);
