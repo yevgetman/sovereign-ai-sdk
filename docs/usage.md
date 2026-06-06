@@ -963,6 +963,67 @@ async function followSession(onEvent) {
 
 The header form is equivalent — set `'Last-Event-ID': lastId` in the `fetch` headers instead of the `?lastEventId` query param.
 
+### Persistent gateway & session lifecycle
+
+As of Phase D (v0.6.21), a long-running `sov gateway` is a **persistent multi-session host**: it owns many concurrent sessions across clients and across restarts, and it reclaims memory for sessions you've stopped using — automatically and transparently — so the process stays healthy over days of uptime rather than accumulating session state for its whole lifetime.
+
+**Idle eviction (automatic + transparent).** A background sweep periodically reclaims the *in-memory* state (the session context + its event bus) of any session that has been idle beyond `gateway.idleSessionTimeoutMs` (default **30 min**). The sweep runs every `gateway.idleSweepIntervalMs` (default **5 min**). Eviction is:
+
+- **Transparent.** Only the in-memory working set is freed — the durable SQLite session row is **left intact**. The next request for that session (a turn, an event subscription, a message fetch) **lazily rebuilds** it from disk, so a client can come back hours later and resume the conversation. From the client's side an evicted session is indistinguishable from a live one; it just costs one cold rebuild.
+- **Graceful.** Eviction tears the session down cleanly — learning, trace, and trajectory state are flushed exactly as on a normal session disposal (no data is dropped).
+- **Conservative.** The sweep **never** reclaims a session that is **turn-active** (a turn is in flight) or that has **any connected SSE subscriber**, and only evicts past the idle TTL. A session someone is actively watching or running is always pinned.
+
+The boot banner summarizes the effective policy, e.g.:
+
+```text
+sov gateway: listening on http://127.0.0.1:8766
+  provider=anthropic  model=claude-haiku-4-5-20251001
+  auth=off  cors=off  harnessHome=/Users/you/.harness
+  idle-evict: reclaim sessions idle >30m every 5m; max-sessions: unlimited
+```
+
+**Concurrency cap (optional).** `gateway.maxConcurrentSessions` caps the number of live in-memory sessions. The default is **0 = unlimited**. When set to a positive number, `POST /sessions` first runs an idle sweep when the cap is reached, and only refuses with **429** (`{ "error": "session capacity reached" }`) if the sweep can't free room — so an idle session never blocks a new one, but a host saturated with active sessions pushes back instead of growing without bound.
+
+Config knobs (all under `gateway`, all optional, gateway-scoped — the TUI / `sov serve` / `sov drive` paths never run the supervisor and are byte-unchanged):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `gateway.idleSessionTimeoutMs` | `1800000` (30 min) | Idle window before a session's in-memory state is reclaimed. |
+| `gateway.idleSweepIntervalMs` | `300000` (5 min) | Cadence of the background idle sweep. |
+| `gateway.maxConcurrentSessions` | `0` (unlimited) | Cap on live in-memory sessions; `0` disables the cap. |
+
+```json
+{
+  "gateway": {
+    "idleSessionTimeoutMs": 1800000,
+    "idleSweepIntervalMs": 300000,
+    "maxConcurrentSessions": 0
+  }
+}
+```
+
+**Session management routes.** Two routes let a client or operator inspect and prune the live session set (both bearer-gated like the rest of `/sessions/*`):
+
+| Method | Path | Auth | Status | Description |
+|---|---|---|---|---|
+| GET | `/sessions` | Bearer | 200 | List sessions → `{ sessions: [...] }`. Each row is the stored session annotated with live in-memory state: `live` (a bus exists), `turnActive` (a turn is in flight), and `subscribers` (connected SSE clients). Optional `?limit` (clamped to `[1, 100]`). |
+| DELETE | `/sessions/:id` | Bearer | 204 | **Permanently** remove a session — disposes the in-memory context + bus, then deletes the durable rows (FK-safe). 404 if the id is unknown (no state is mutated on a miss). Unlike idle eviction, this is destructive: the session does not resume. |
+
+```bash
+# List sessions with live annotations:
+curl -s -H "Authorization: Bearer $SOV_GATEWAY_TOKEN" \
+  http://HOST:8766/sessions
+# → { "sessions": [ { "sessionId": "...", "live": true, "turnActive": false, "subscribers": 1, ... }, ... ] }
+
+# Permanently delete a session (204 No Content on success):
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer $SOV_GATEWAY_TOKEN" \
+  -X DELETE http://HOST:8766/sessions/<id>
+# → 204
+```
+
+`DELETE` is for *removing* a session for good; idle eviction (above) is the transparent, reversible reclaim that keeps a long-lived host's memory bounded without you doing anything.
+
 ### Security model
 
 Exposing the gateway exposes a **tool-running agent** — read this before binding off-loopback.
@@ -976,9 +1037,92 @@ Exposing the gateway exposes a **tool-running agent** — read this before bindi
 - **One token = one full-access principal.** Whoever holds the token gets the harness's **full tool powers** (Bash, file edit, web) under whatever permission policy is configured — there is no per-principal scoping yet (multi-user identity + authz is Phase E of the roadmap). **When you expose the gateway, run it behind a constrained permission policy** (a tightened `settings.local.json` allow/deny set, ideally a dedicated bundle) rather than a dev machine's broad `allow Bash(*)`. As with `sov serve`, put TLS (a reverse proxy) in front since the token travels on the wire.
 - **Robust to bad input.** Malformed/empty JSON bodies on `/turns` and `/approvals` return a structured **400** (not a 500 with a stack), an out-of-range/garbage port fails fast at startup, and SIGINT/SIGTERM aborts in-flight session turns before closing the database — a clean shutdown even mid-turn.
 
-### Deployment
+### Run the gateway as a service
 
-Keep `sov gateway` running in a long-lived pane, a launchd plist, or a systemd service (a supervised always-on host is Phase D of the roadmap). SIGINT/SIGTERM trigger a graceful shutdown (`server.stop()` + `runtime.dispose()`). The cron tick runs inside the runtime lifecycle here too, so a long-lived gateway is also a cron host.
+A persistent gateway (Phase D) is meant to be run as a long-lived background service so it survives reboots and crashes. SIGINT/SIGTERM trigger a graceful shutdown — the idle sweep is drained, in-flight turns are aborted, then `server.stop()` + `runtime.dispose()` close the database cleanly. The cron tick runs inside the same runtime lifecycle, so a long-lived gateway is also a cron host. Two ready-to-adapt service definitions follow.
+
+**Security posture first.** When you bind off-loopback (`--host 0.0.0.0` or a LAN address), a bearer **token is required** — the gateway refuses to boot off-loopback without one (Phase A). Set it via `SOV_GATEWAY_TOKEN` in the unit's environment (never on the command line, where it would show up in process listings), and put TLS (a reverse proxy) in front since the token travels on the wire. On loopback the token is optional. Run the service under a dedicated, least-privileged user with a constrained permission policy (a tightened `settings.local.json` / dedicated bundle), not a developer account's broad `allow Bash(*)` — whoever holds the token gets the harness's full tool powers.
+
+**Linux — systemd.** A user or system unit (e.g. `/etc/systemd/system/sov-gateway.service`):
+
+```ini
+[Unit]
+Description=Sovereign AI harness gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sov
+# Loopback default; drop --host/--port to bind 127.0.0.1:8766.
+ExecStart=/usr/local/bin/sov gateway --host 0.0.0.0 --port 8766
+# REQUIRED off-loopback. Keep secrets out of the unit file itself:
+# prefer EnvironmentFile=/etc/sov/gateway.env (chmod 600) over an inline value.
+Environment=SOV_GATEWAY_TOKEN=replace-with-a-long-random-token
+Environment=HARNESS_HOME=/var/lib/sov
+Restart=on-failure
+RestartSec=5
+# Graceful shutdown: SIGTERM drains the sweep + aborts turns + closes the DB.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now sov-gateway
+sudo systemctl status sov-gateway
+journalctl -u sov-gateway -f          # follow the boot banner + logs
+```
+
+**macOS — launchd.** A LaunchAgent at `~/Library/LaunchAgents/ai.sovereign.gateway.plist` (per-user; use `/Library/LaunchDaemons/` for a system-wide service):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.sovereign.gateway</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/.sov/bin/sov</string>
+    <string>gateway</string>
+    <!-- Loopback default; add --host 0.0.0.0 to expose (then a token is required). -->
+    <string>--port</string>
+    <string>8766</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- REQUIRED when bound off-loopback. -->
+    <key>SOV_GATEWAY_TOKEN</key>
+    <string>replace-with-a-long-random-token</string>
+    <key>HARNESS_HOME</key>
+    <string>/Users/you/.harness</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/you/Library/Logs/sov-gateway.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/sov-gateway.err.log</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/ai.sovereign.gateway.plist
+launchctl list | grep ai.sovereign.gateway
+# To stop / reload:
+launchctl unload ~/Library/LaunchAgents/ai.sovereign.gateway.plist
+```
+
+`KeepAlive` (launchd) and `Restart=on-failure` (systemd) restart the gateway if it exits; combined with the durable SQLite session store, an interrupted session **resumes lazily on the next request after a restart** — the service comes back up and clients reattach to their sessions by id. Idle eviction (above) keeps the long-lived process's memory bounded across that uptime.
 
 ## Themes
 

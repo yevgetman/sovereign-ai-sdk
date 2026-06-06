@@ -8,6 +8,61 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — Phase D close-out (persistent multi-session supervisor): 7-task build + keystone review + final whole-phase review + gate + release v0.6.21
+
+Close-out of **Phase D — Persistent multi-session supervisor** (M3 of the run-anywhere roadmap),
+shipped as **v0.6.21**. Adds a gateway-scoped session-lifecycle layer: `SessionSupervisor` idle
+eviction, `GET`/`DELETE /sessions`, a `POST /sessions` concurrency cap, FK-safe
+`SessionDb.deleteSession`, a bus-liveness surface, and three `gateway.*` config knobs.
+
+**Build (T1–T7, subagent-driven, Opus).** Bus liveness surface (`90caa1b`) → `SessionSupervisor`
+idle sweep + live-session count (`d927814`) → FK-safe `SessionDb.deleteSession` (`44308c3`, +
+context-only DB-seconds idle-fallback test `7e1c96d`) → `GET`/`DELETE /sessions` + `POST /sessions`
+cap (`23571a3`) → config knobs (`55b72bd`) → gateway wiring + restart-resume test (`23a6ca2`) → the
+in-flight-guard / awaitable-`stop()` hardening (`657f4e6`) → deleteSession cascade/set-null coverage
+(`d3c54cf`). Spec + plan committed up front (`b09a963`).
+
+**Keystone correctness review — surfaced the shutdown race (LOW), now closed.** The keystone review
+of the supervisor + its gateway wiring flagged one real issue: an in-flight sweep's DB reads could
+outlive `sessionDb.close()` on shutdown. Fixed in `657f4e6` — `sweep()` retains an in-flight promise
+(re-entrant ticks no-op rather than overlap) and `stop()` clears the interval then awaits/drains the
+in-flight pass; the gateway shutdown path calls `await supervisor.stop()` BEFORE `runtime.dispose()`
+(same stop-then-teardown ordering as `CronRunner`). Dispose interaction otherwise judged safe — the
+eviction path is the normal `disposeSession` + `disposeBus` path and the sweep never reclaims a
+turn-active or subscribed session.
+
+**Final whole-phase review — READY TO SHIP (no Critical/High).** A final read of the whole phase
+returned READY TO SHIP. **Two known-LOWs documented, not fixed:** (1) a tiny TOCTOU in `sweep()` — a
+turn/subscribe landing during one eviction's `disposeSession` await — recoverable (next request lazily
+rebuilds) and gated behind the 30-min idle floor; (2) a pre-existing `buildMockRuntime` test-isolation
+smell (the mock-runtime helper opens the global `~/.harness/sessions.db`), not introduced by Phase D.
+
+**Restart-resume proven.** A test disposes/evicts a session then drives a fresh request that lazily
+rebuilds it from the durable SQLite row — confirming the transparent, reversible nature of idle
+eviction and the restart-resume property a supervised service relies on.
+
+**Pre-release gate — clean.** `bun run lint && bun run typecheck && bun run test` → TS suite
+**~2861 pass / 0 fail / 14 skip** (clean run; up from the v0.6.20 baseline ~2814). Gate criterion
+unchanged: no new failures beyond the known env-only set. Lint + typecheck clean. No `packages/tui/`
+change → Go suite unaffected.
+
+**Release v0.6.21.** First pushed all local Phase D commits to `origin/master`, bumped `package.json`
+0.6.20 → 0.6.21, updated the public `sov-releases/CHANGELOG.md`, tagged `v0.6.21`, CI built + published
+all 4 artifacts (darwin-arm64 / darwin-x64 / linux-x64 + SHA256SUMS), then `sov upgrade`.
+
+**Post-upgrade binary smoke — PASS (proves the supervisor + new route ship in the binary).** Booted
+the upgraded `~/.sov/bin/sov gateway` against an isolated temp `HARNESS_HOME` (the real config copied
+in for the provider key only — the real config was NOT mutated) on a free loopback port with
+`SOV_GATEWAY_TOKEN=t`. Confirmed the boot log prints the `idle-evict: reclaim sessions idle >30m
+every 5m; max-sessions: unlimited` summary line (the supervisor is wired + reporting its effective
+policy), and `curl -H 'Authorization: Bearer t' .../sessions` → **200** `{"sessions":[...]}` (the new
+`GET /sessions` lifecycle route ships). Killed the gateway, cleaned up the temp home.
+`~/.sov/bin/sov --version` → **0.6.21**.
+
+**Learning-loop soak — untouched.** Recall stays ON by default + capture on; Phase D did not disable
+recall or learning. Idle eviction goes through the graceful dispose path that flushes the learning
+corpus, so the soak's data accrual is preserved.
+
 ## 2026-06-06 — A-C gateway holistic verification pass (integration review + semantic run vs source + real-model smoke + new real-socket test)
 
 Holistic verification of the A-C gateway stack (auth + CORS + native HTTP/SSE protocol + the Phase-C
