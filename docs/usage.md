@@ -754,24 +754,30 @@ A `permission_request` event over the SSE stream is answered by `POST /sessions/
 | Flag | Default | Description |
 |---|---|---|
 | `--host <addr>` | `127.0.0.1` | Bind host. Env: `SOV_GATEWAY_HOST`. Config: `gateway.host`. Off-loopback requires a token (see Security model). |
-| `--port <n>` | `8766` | Listening port (distinct from `sov serve`'s 8765). Env: `SOV_GATEWAY_PORT`. Config: `gateway.port`. |
+| `--port <n>` | `8766` | Listening port (distinct from `sov serve`'s 8765). Env: `SOV_GATEWAY_PORT`. Config: `gateway.port`. Validated to `[1, 65535]` — the gateway fails fast (stderr + exit 1) on `0`, `70000`, `-1`, or garbage like `8080x` rather than silently binding a random/clamped port. |
+
+There is no `--cors-origins` flag yet — set the CORS allow-list in `config.json` (`gateway.corsOrigins`); see Configuration and "Driving the gateway from a browser" below.
 
 ### Endpoints
 
-The gateway serves the existing native session routes. Auth (when a token is configured) gates everything under `/sessions/*`; `/health` is always open.
+The gateway serves the existing native session routes. Auth (when a token is configured) gates everything under `/sessions/*`, including the SSE event stream; `/health` is always open. The `Status` column is the success code — use `res.ok` in clients, not `res.status === 200`, since the surface uses `201`/`202`/`200` deliberately.
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/health` | none | Liveness probe. Exempt from auth so orchestrators can ping it. |
-| POST | `/sessions` | Bearer | Open a session. |
-| GET | `/sessions/:id/events` | Bearer | SSE event stream (turns, tool events, permission prompts, `turn_complete`). |
-| GET | `/sessions/:id/messages` | Bearer | Backlog hydration on resume. |
-| POST | `/sessions/:id/turns` | Bearer | Submit a prose turn. |
-| POST | `/sessions/:id/commands` | Bearer | Dispatch a slash command. |
-| POST | `/sessions/:id/approvals/:id` | Bearer | Answer a permission prompt. |
-| POST | `/sessions/:id/cancel` | Bearer | Cancel the in-flight turn. |
+| Method | Path | Auth | Status | Description |
+|---|---|---|---|---|
+| GET | `/health` | none | 200 | Liveness probe (`{ ok, version }`). Exempt from auth so orchestrators can ping it. |
+| POST | `/sessions` | Bearer | **201** | Open a session → `{ sessionId, createdAt }`. |
+| GET | `/sessions/:id/messages` | Bearer | 200 | Stored message backlog → `{ messages: [{ role, content }] }`. Hydrate UI on resume. |
+| GET | `/sessions/:id/events` | Bearer | 200 | SSE event stream (`text_delta`, `tool_use_start`, `permission_request`, `turn_complete`/`turn_error`, …). Ends per turn — see "re-subscribe per turn" below. |
+| POST | `/sessions/:id/turns` | Bearer | **202** | Submit a turn → `{ accepted: true }`. Body `{ text }` (prose) or `{ text: "/name args", kind: "skill" }` (server-side skill expansion). Fire-and-forget: events arrive on the SSE stream. |
+| POST | `/sessions/:id/approvals/:requestId` | Bearer | 200 | Answer a permission prompt → `{ ok: true }`. Body `{ approved: boolean, always?: boolean }`. `:requestId` is the `requestId` from the `permission_request` event. |
+| POST | `/sessions/:id/cancel` | Bearer | 200 | Cancel the in-flight turn → `{ cancelled }`. |
+| POST | `/sessions/:id/compact` | Bearer | 200 | Compact the session's history (manual microcompaction). |
+| GET | `/sessions/:id/commands` | Bearer | 200 | List available slash commands. |
+| POST | `/sessions/:id/commands` | Bearer | 200 | Dispatch a slash command. |
+| GET | `/sessions/:id/skills` | Bearer | 200 | List installed skills. |
+| POST | `/sessions/:id/skills/install` | Bearer | 200 | Install a skill into the session. |
 
-(The full route set is the native protocol in `src/server/`; the gateway adds auth + CORS middleware in front of it without changing the routes themselves.)
+Errors are structured JSON (`{ error: "…" }`): a malformed/empty JSON body on `/turns` or `/approvals` returns **400** (not 500), an unknown session id returns 404, and a missing/invalid bearer token returns 401. (The full route set is the native protocol in `src/server/routes/`; the gateway adds auth + CORS middleware in front of it without changing the routes themselves.)
 
 ### Configuration
 
@@ -791,11 +797,81 @@ Persistent config block in `~/.harness/config.json`:
 Env vars: `SOV_GATEWAY_HOST`, `SOV_GATEWAY_PORT`, `SOV_GATEWAY_TOKEN`. Resolution precedence:
 
 - **host** — `--host` > `SOV_GATEWAY_HOST` > `gateway.host` > `127.0.0.1`
-- **port** — `--port` > `SOV_GATEWAY_PORT` > `gateway.port` > `8766`
+- **port** — `--port` > `SOV_GATEWAY_PORT` > `gateway.port` > `8766`. The resolved value is validated to an integer in `[1, 65535]`; anything else (`0`, `70000`, `8080x`) is a fatal startup error.
 - **token** — `SOV_GATEWAY_TOKEN` > `gateway.token` (trimmed; empty → no token)
-- **corsOrigins** — `gateway.corsOrigins` (default `[]` = no cross-origin / same-origin only)
+- **corsOrigins** — `gateway.corsOrigins` (default `[]` = no cross-origin / same-origin only). **Config-only — there is no CLI flag or env var for it yet**; set it in `config.json`.
 
 `corsOrigins` is an allow-list of browser origins. When set, the gateway echoes `Access-Control-Allow-Origin` for a matching `Origin` (and only a matching one) and answers preflight `OPTIONS` with the methods/headers the protocol uses (incl. `Authorization`, `Content-Type`, `Last-Event-ID`). Required for browser clients (the reference web UI is Phase C of the roadmap).
+
+### Driving the gateway from a browser
+
+The gateway is genuinely browser-drivable — this has been validated live, cross-origin, against a real model, with a tool-use/permission round-trip streaming end to end. But there are a few realities a client author must know up front; they are not obvious, and the first one bites everyone.
+
+**The browser `EventSource` API cannot consume the SSE stream.** `EventSource` cannot set an `Authorization` header, and every `/sessions/*` route — including `GET /sessions/:id/events` — is bearer-gated, so an `EventSource` connection just gets a **401**. There is no query-param-token escape hatch. **Consume the SSE stream with `fetch()` + a `ReadableStream` reader instead**, which lets you send the bearer header and parse the `event:` / `id:` / `data:` frames yourself. This is the single most important thing to get right.
+
+A few more realities, all confirmed live:
+
+- **Use `res.ok`, not `res.status === 200`.** `POST /sessions` returns **201**, `POST /sessions/:id/turns` returns **202**, and approvals return **200**. A client that hard-codes `=== 200` will treat session-create and turn-submit as failures.
+- **Re-subscribe per turn.** The SSE stream **ends** when `turn_complete` (or `turn_error`) arrives — the reader's `read()` returns `done`. A multi-turn client opens a fresh `fetch('/sessions/:id/events', …)` for each turn (open the stream, post the turn, read to completion, repeat). Reconnect-with-replay across a single long-lived stream is Phase B; today the lifecycle is per-turn.
+- **CORS.** Set `gateway.corsOrigins` to your web app's exact origin(s) (e.g. `["https://app.example.com"]`, or `["http://localhost:5173"]` in dev). The gateway then handles the preflight `OPTIONS` and allows the `Authorization`, `Content-Type`, and `Last-Event-ID` request headers. It echoes the exact origin back — never `*` — so the allow-list must match the browser's `Origin` byte-for-byte (scheme + host + port).
+- **Permission modes.** Under the `default` permission mode, the read-only shell-command allow-list (`echo`, `ls`, `cat`, `pwd`, `grep`, `find`, `git status`, … — these resolve as virtual *read* operations) is auto-allowed, so **not every command prompts**. A turn like "list the files in src/" can complete with no `permission_request` at all, while a write or an arbitrary command does prompt. Operators exposing the gateway should understand the *effective* policy (mode + the rule layer in `settings.json`), not assume every action surfaces an approval.
+
+The canonical browser client flow — open a session, stream its events with the bearer header, submit a turn, and approve any permission prompt:
+
+```js
+const BASE = 'https://host:8766';
+const TOKEN = '…';                       // the gateway bearer token
+const authHeaders = { Authorization: `Bearer ${TOKEN}` };
+
+// 1) Open a session (201, not 200).
+const created = await fetch(`${BASE}/sessions`, { method: 'POST', headers: authHeaders });
+if (!created.ok) throw new Error(`open session: ${created.status}`);
+const { sessionId } = await created.json();
+
+// Stream this turn's events. EventSource can't send Authorization → 401,
+// so read the SSE body manually with a ReadableStream reader. Resolves when
+// the turn ends (turn_complete / turn_error); call it again for the next turn.
+async function streamTurn(onEvent) {
+  const res = await fetch(`${BASE}/sessions/${sessionId}/events`, { headers: authHeaders });
+  if (!res.ok) throw new Error(`events: ${res.status}`); // 401 if EventSource were used
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;                                     // stream ends per turn
+    buf += decoder.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n\n')) !== -1) {           // frames are \n\n-delimited
+      const frame = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      const type = frame.match(/^event:\s*(.*)$/m)?.[1];
+      const data = frame.match(/^data:\s*(.*)$/m)?.[1];  // also: id: <seq> for Last-Event-ID
+      if (type && data) onEvent(type, JSON.parse(data));
+    }
+  }
+}
+
+// 2) Start streaming, then 3) submit the turn (202).
+const streamDone = streamTurn(async (type, ev) => {
+  if (type === 'text_delta') process.stdout.write(ev.text);
+  // 4) On a permission prompt, approve it (200) so the turn unparks.
+  if (type === 'permission_request') {
+    await fetch(`${BASE}/sessions/${sessionId}/approvals/${ev.requestId}`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: true }),
+    });
+  }
+});
+const turn = await fetch(`${BASE}/sessions/${sessionId}/turns`, {
+  method: 'POST',
+  headers: { ...authHeaders, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ text: 'what files are in src/?' }),
+});
+if (!turn.ok) throw new Error(`turn: ${turn.status}`);   // 202 = accepted
+await streamDone;
+```
 
 ### Security model
 
@@ -805,8 +881,10 @@ Exposing the gateway exposes a **tool-running agent** — read this before bindi
 - **Refuse-to-boot when exposed without auth.** If the resolved host is **not** loopback (anything other than `127.0.0.1` / `::1` / `localhost` / the `127/8` block) **and** no token is configured, `sov gateway` hard-exits (exit 1) with an actionable message and never binds. There is no anonymous off-loopback mode.
 - **Bearer auth on every `/sessions/*` route, including the SSE stream.** Requests without a valid `Authorization: Bearer <token>` get 401. The compare is constant-time; the token is never logged or printed (the boot banner shows only `auth=on`/`off`).
 - **`/health` is open** so liveness probes don't need the token.
-- **CORS is closed by default** and opens only to the exact origins you allow-list.
+- **CORS is closed by default** and opens only to the exact origins you allow-list (exact-origin echo, never `*`).
+- **Effective permission policy ≠ "every action prompts".** Under the `default` mode the read-only shell allow-list (`echo`, `ls`, `cat`, …) auto-resolves as virtual reads, so those never raise a `permission_request`. The policy that actually governs a remote session is the combination of the permission *mode* and the *rule layer* (`settings.json` allow/ask/deny) — reason about that combined surface, not the prompt stream alone.
 - **One token = one full-access principal.** Whoever holds the token gets the harness's **full tool powers** (Bash, file edit, web) under whatever permission policy is configured — there is no per-principal scoping yet (multi-user identity + authz is Phase E of the roadmap). **When you expose the gateway, run it behind a constrained permission policy** (a tightened `settings.local.json` allow/deny set, ideally a dedicated bundle) rather than a dev machine's broad `allow Bash(*)`. As with `sov serve`, put TLS (a reverse proxy) in front since the token travels on the wire.
+- **Robust to bad input.** Malformed/empty JSON bodies on `/turns` and `/approvals` return a structured **400** (not a 500 with a stack), an out-of-range/garbage port fails fast at startup, and SIGINT/SIGTERM aborts in-flight session turns before closing the database — a clean shutdown even mid-turn.
 
 ### Deployment
 

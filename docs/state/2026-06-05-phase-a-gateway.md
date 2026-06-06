@@ -1,6 +1,6 @@
-# State of the build — Phase A: Secure Remote Gateway (shipped; SECURE-TO-SHIP)
+# State of the build — Phase A: Secure Remote Gateway (shipped; SECURE-TO-SHIP; hardened)
 
-**HEAD:** the `chore(release): bump version 0.6.16 -> 0.6.17` commit (docs + the gateway feature run). **Release:** **v0.6.17** (2026-06-05) — the first run-anywhere increment.
+**HEAD:** the `chore(release): bump version 0.6.17 -> 0.6.18` commit (the gateway-hardening + browser-docs run). **Release:** **v0.6.18** (2026-06-05) — Phase A shipped at v0.6.17; v0.6.18 is the hardening + browser-client-docs increment. See the "Hardening pass (2026-06-05)" section at the foot of this file.
 
 **Predecessor:** [`docs/state/2026-06-04-learning-loop-spike-phase-1.md`](2026-06-04-learning-loop-spike-phase-1.md) (Learning-Loop Spike Phase 1 — loop closed, Q1 PASS; recall ON by default as of v0.6.16).
 
@@ -72,4 +72,46 @@ Phase A was security-reviewed (the surface is, by design, the central risk of th
 
 ## Cross-repo record-keeping (flag for a docs-repo session)
 
-The roadmap + decision record are canonical in `~/code/sovereign-ai-docs` and this repo can't commit there. A docs-repo session should reflect **Phase A shipped (v0.6.17)** against the multi-channel-gateway differentiator (ADR H-0010) and the run-anywhere program tracker.
+The roadmap + decision record are canonical in `~/code/sovereign-ai-docs` and this repo can't commit there. A docs-repo session should reflect **Phase A shipped (v0.6.17), hardened + validated browser-drivable (v0.6.18)** against the multi-channel-gateway differentiator (ADR H-0010) and the run-anywhere program tracker.
+
+---
+
+## Hardening pass (2026-06-05) — v0.6.18
+
+After v0.6.17 shipped, Phase A got a **deep correctness review** plus a **live, cross-origin, real-model browser E2E test**. The gateway came through robust; the review + the live test together surfaced three fixes (all committed, all TDD) and a set of browser-client realities now documented in `docs/usage.md`. Released as **v0.6.18**.
+
+### The deep correctness review
+
+A focused review of the gateway surface (the central risk of the whole roadmap — a tool-running agent over the network). The verdict was **robust**; the review found three sharp edges worth fixing and one stale report:
+
+1. **Malformed JSON body → 500 (should be 400)** on `POST /sessions/:id/turns` and `POST /sessions/:id/approvals/:requestId` — both read the body via an unguarded `await c.req.json()` while every other body-reading route (`commands`, `skills`, `chatCompletions`) already guards it.
+2. **Resolved gateway port unvalidated** — `SOV_GATEWAY_PORT` / `gateway.port` flowed into `Bun.serve` unchecked, so `0` / `70000` / `-1` / `8080x` silently bound a random or clamped port.
+3. **In-flight buses not aborted on dispose** — on SIGINT during an active turn, `runtime.dispose()` closed `sessionDb` but never aborted in-flight turns / their SSE buses, so a running `query()` kept writing to a closed DB handle until `process.exit`.
+4. **Stale report (no change):** the review's "port has no upper bound" note was wrong — `gateway.port` and `openaiServer.port` in `src/config/schema.ts` already carry `.int().min(1).max(65535)`. The new fix adds a *resolved-value* check (env/flag don't pass through the schema); the schema itself was already correct.
+
+### The live browser E2E test
+
+Drove the gateway **from a real browser, cross-origin, against a real model** — the first proof that the rich interactive protocol is genuinely browser-drivable, not just curl-drivable. Result: **it works end to end.** The model's output **streamed over SSE cross-origin**; **CORS was clean** (preflight + the bearer + `Last-Event-ID` headers all handled, exact-origin echo); and a **tool-use → `permission_request` → approval → completion round-trip worked** over the network. The test also surfaced the key client-author realities, now written into the usage doc:
+
+- **The browser `EventSource` API can't consume the SSE stream** — it can't set an `Authorization` header, and `GET /sessions/:id/events` is bearer-gated, so `EventSource` just gets a **401**. The working pattern is **`fetch()` + a `ReadableStream` reader** with the bearer header, parsing the `event:`/`id:`/`data:` frames manually. This is the single biggest gotcha and is now documented with a copy-pasteable ~40-line canonical client snippet.
+- **Status codes:** `POST /sessions` → 201, `/turns` → 202, approvals → 200; clients must use `res.ok`, not `=== 200`.
+- **Re-subscribe per turn:** the SSE stream ends on `turn_complete`/`turn_error`; a multi-turn client opens a fresh stream per turn (single-stream reconnect-with-replay is Phase B).
+- **Permission modes:** under `default` mode the read-only shell allow-list (`echo`, `ls`, `cat`, …) auto-resolves as virtual reads, so not every command prompts — operators must reason about the effective policy (mode + rule layer), not the prompt stream alone.
+
+### The three fixes (committed, TDD)
+
+1. **`fix(gateway): return 400 (not 500) on malformed JSON body for turns + approvals`** (`adba2c6`) — wrapped both body reads in try/catch → structured `{ error: 'invalid JSON body' }` 400, mirroring the other routes. Auth + id/session guards still run first; the approvals 404-before-parse guard for unknown requestIds is unchanged. `tests/server/malformedBody.test.ts` (5 cases).
+2. **`fix(gateway): validate resolved port is in [1,65535], fail fast on bad values`** (`3cae86e`) — extracted pure `resolveGatewayPort(flag, env, configPort)` in `src/cli/gatewayCommand.ts` (precedence flag > env > config > default 8766; integer-in-`[1,65535]` check; env parsed with `Number()` so `8080x` is rejected not truncated; top-level `main()` catch → stderr + exit 1). `tests/cli/gatewayPort.test.ts` (18 cases).
+3. **`fix(runtime): abort in-flight session buses before closing the DB on dispose`** (`b5dbbee`) — new `abortAllBuses()` in `src/server/eventBus.ts` (closes every live bus without clearing the map — distinct from `__test_resetAllBuses` / per-session `disposeBus`); `dispose()` calls it FIRST, then yields one `await Promise.resolve()` tick before `sessionDb.close()` so the abort propagates through the parked generators. Idempotent. Shared path → improves `sov gateway` + `sov serve`. `tests/server/disposeAbortsBuses.test.ts` (2 cases: ordering proof + behavioral mid-turn dispose).
+
+### Docs updated
+
+- **`docs/usage.md`** — the "Remote gateway (`sov gateway`)" section expanded: port-range-validation notes; a complete endpoints table (verb / path / auth / **success status** / description, incl. `messages`, `compact`, `commands`, `skills`, with the structured-error note); a `corsOrigins`-is-config-only callout; and a **new "Driving the gateway from a browser" subsection** — the EventSource-can't-auth reality, the `fetch()` + `ReadableStream` canonical client snippet, `res.ok` vs `=== 200`, re-subscribe-per-turn, CORS setup, and the effective-permission-policy note.
+- **`docs/architecture.md`** — the Native Gateway section gained a browser-transport note (fetch-streaming because SSE is bearer-gated) + a hardening bullet (the three fixes + the live-browser-E2E validation).
+
+### Tests + release
+
+- **TS suite — 2778 pass / 0 fail / 14 skip** (327 files, ~68s), +25 from the v0.6.17 baseline of ~2753 (5 malformedBody + 18 gatewayPort + 2 disposeAbortsBuses). No new failures, no timeouts. Gate criterion unchanged.
+- **Lint + typecheck** clean (`biome check` 640 files; `tsc --noEmit`).
+- **No bundle / `packages/tui/` changes** — the surface is `src/server/routes/{turns,approvals}.ts`, `src/server/eventBus.ts`, `src/server/runtime.ts`, `src/cli/gatewayCommand.ts`, their tests, and docs. No new ADRs (purely additive hardening; decisions captured in commit messages + the testing-log entry).
+- **Release: v0.6.18** (CI-driven tag-push per `docs/conventions/cutting-releases.md`).
