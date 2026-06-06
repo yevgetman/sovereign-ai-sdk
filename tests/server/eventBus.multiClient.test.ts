@@ -61,6 +61,37 @@ describe('ServerEventBus — multi-subscriber + replay ring (T1)', () => {
     expect(b.length).toBe(2);
   });
 
+  test('fan-out isolation: a throwing subscriber does not skip later subscribers or escape publish (Fix 3)', () => {
+    const bus = new ServerEventBus();
+    const received: ServerEvent[] = [];
+    // First subscriber throws. Second subscriber must STILL receive the event,
+    // and publish() itself must not throw (the throw is isolated to the bad
+    // subscriber and logged, never propagated into the turn loop / scheduler).
+    bus.subscribe(() => {
+      throw new Error('boom');
+    });
+    bus.subscribe((ev) => received.push(ev));
+
+    // Suppress the expected stderr log line so the test output stays clean.
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const errLines: string[] = [];
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      errLines.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(() => bus.publish(emit(bus, 'one'))).not.toThrow();
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    // The second subscriber still received the event despite the first throwing.
+    expect(received.length).toBe(1);
+    expect(received[0]?.type).toBe('text_delta');
+    // And the throw was logged to stderr, not silently swallowed.
+    expect(errLines.some((l) => l.includes('[eventBus] subscriber threw'))).toBe(true);
+  });
+
   test('ring retain/evict: ring holds only the last N events', () => {
     const bus = new ServerEventBus(3);
     // No subscriber yet; everything lands in the ring.

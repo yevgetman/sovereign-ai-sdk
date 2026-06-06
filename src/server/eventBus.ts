@@ -141,8 +141,18 @@ export class ServerEventBus {
     if (this.ring.length > this.maxRing) {
       this.ring.shift();
     }
+    // Fix 3 — isolate throwing subscribers. A subscriber callback (an SSE
+    // route's onEvent, a future cross-process forwarder) must never let its
+    // own throw skip later subscribers or propagate back into the publisher
+    // (the turn loop / scheduler that called publish()). Catch + log to
+    // stderr and continue the fan-out.
     for (const subscriber of this.subscribers) {
-      subscriber(event);
+      try {
+        subscriber(event);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[eventBus] subscriber threw: ${msg}\n`);
+      }
     }
   }
 
