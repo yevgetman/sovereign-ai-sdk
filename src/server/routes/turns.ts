@@ -112,7 +112,17 @@ export function turnsRoute(runtime: Runtime): Hono {
     if (runtime.sessionDb.getSession(sessionId) === null) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const body = (await c.req.json()) as { text?: string; kind?: string };
+    // Guard the body parse: a malformed/empty body makes `c.req.json()`
+    // throw, which Hono surfaces as an HTTP 500 text/plain response.
+    // Mirror the structured 400 every other body-reading route returns
+    // (chatCompletions.ts, commands.ts, skills.ts). Auth + the id/session
+    // guards above run BEFORE this, so order is preserved.
+    let body: { text?: string; kind?: string };
+    try {
+      body = (await c.req.json()) as { text?: string; kind?: string };
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400);
+    }
     const rawText = typeof body.text === 'string' ? body.text : '';
     if (rawText === '') return c.json({ error: 'text is required' }, 400);
 

@@ -36,11 +36,25 @@ export function approvalsRoute(runtime: Runtime): Hono {
     if (!runtime.approvalQueue.hasPending(requestId)) {
       return c.json({ error: 'unknown or expired requestId' }, 404);
     }
-    const body = (await c.req.json()) as {
+    // Guard the body parse: a malformed/empty body makes `c.req.json()`
+    // throw, which Hono surfaces as an HTTP 500 text/plain response.
+    // Mirror the structured 400 every other body-reading route returns.
+    // The 404-before-parse guard above still pre-empts this for unknown
+    // requestIds; this only covers the valid-pending-requestId case.
+    let body: {
       approved?: unknown;
       always?: unknown;
       updatedInput?: unknown;
     };
+    try {
+      body = (await c.req.json()) as {
+        approved?: unknown;
+        always?: unknown;
+        updatedInput?: unknown;
+      };
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400);
+    }
     // Strict boolean check — accept only `true` / `false`, not truthy values.
     if (typeof body.approved !== 'boolean') {
       return c.json({ error: '`approved` is required (boolean)' }, 400);
