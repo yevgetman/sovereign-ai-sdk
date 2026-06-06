@@ -81,6 +81,7 @@ import {
   DEFAULT_MAX_RING,
   type ServerEventBus,
   abortAllBuses,
+  disposeBus,
   setDefaultRingSize,
 } from './eventBus.js';
 import {
@@ -1221,17 +1222,30 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // present, disposeSessionContext emits a `session_summary` SSE event
   // with the ReviewManager's dispatch summary. The shutdown walk inside
   // `dispose()` below does NOT supply a bus — the summary is logged.
+  //
+  // Phase B T3 — per-session teardown now also reclaims the session's SSE
+  // bus + replay ring via disposeBus. The events route NO LONGER disposes
+  // the bus in its `finally` (the ring must survive a reconnect window and
+  // across turns), so disposal is consolidated here (single-session teardown:
+  // DELETE /sessions, OpenAI per-request finally, cron per-job, the M6
+  // compaction-pivot on the parent id) and in `dispose()`'s shutdown walk.
+  // disposeBus runs AFTER disposeSessionContext so any `session_summary`
+  // publish in the T6 path still reaches a live bus before it closes; it's
+  // also unconditional (outside the `ctx` guard) so a session that only ever
+  // had a bus (subscribed but never ran a turn) still gets reclaimed.
   const disposeSession = async (
     sessionId: string,
     disposeOpts?: { bus?: ServerEventBus },
   ): Promise<void> => {
     const ctx = sessionContexts.get(sessionId);
-    if (!ctx) return;
-    sessionContexts.delete(sessionId);
-    await disposeSessionContext(ctx, {
-      runtime,
-      ...(disposeOpts?.bus !== undefined ? { bus: disposeOpts.bus } : {}),
-    });
+    if (ctx) {
+      sessionContexts.delete(sessionId);
+      await disposeSessionContext(ctx, {
+        runtime,
+        ...(disposeOpts?.bus !== undefined ? { bus: disposeOpts.bus } : {}),
+      });
+    }
+    disposeBus(sessionId);
   };
 
   // 2026-05-24 — taskRouting hot-reload closure. Re-reads the latest

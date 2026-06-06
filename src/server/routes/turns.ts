@@ -293,6 +293,16 @@ async function runTurnInBackground(
   text: string,
   bus: ServerEventBus,
 ): Promise<void> {
+  // Phase B T3 — mark the turn boundary on the bus BEFORE this turn stamps
+  // its first event (the status_update{streaming:true} below is the first
+  // bus.nextSeq() / bus.publish() of the turn). markTurnStart records
+  // `seq + 1` as currentTurnStartSeq so a fresh subscriber (no Last-Event-ID)
+  // replays only THIS turn's events, not prior turns retained in the ring.
+  // Now that the bus persists across turns (disposal moved to disposeSession),
+  // this re-scoping is what keeps a mid-turn fresh subscribe from replaying
+  // every accumulated event. Placed at the very top so it precedes every
+  // bus interaction on every code path (including the catch's turn_error).
+  bus.markTurnStart();
   // Mutable across the proactive-compaction hop below — once compactSession
   // returns, the rest of the turn (persistence, query(), serverAsk binding)
   // must target the new child session id, not the parent.
