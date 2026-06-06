@@ -70,7 +70,7 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | File | What's in it |
 |---|---|
 | [`docs/design-principles.md`](docs/design-principles.md) | The 9 locked design principles. Don't relitigate. |
-| [`docs/architecture.md`](docs/architecture.md) | Current runtime flow — request lifecycle, system prompt, tools, permissions, persistence, sub-agents, microcompaction, REPL UX layers, learning + review pipelines, trajectory capture |
+| [`docs/architecture.md`](docs/architecture.md) | Current runtime flow — request lifecycle, system prompt, tools, permissions, persistence, sub-agents, microcompaction, REPL UX layers, learning + review pipelines, trajectory capture, OpenAI + native gateway server surfaces (auth, multi-client transport, supervisor, multi-user isolation, channels) |
 | [`docs/usage.md`](docs/usage.md) | Day-to-day operation — CLI flags, subcommands, slash commands, eval suite, local-model router, profiles, providers, themes, web tools |
 | [`docs/extending.md`](docs/extending.md) | Recipes for adding extension points — tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, trajectory redaction |
 | [`docs/semantic-testing.md`](docs/semantic-testing.md) | Semantic test framework — judge backends, suites, coverage inventory |
@@ -126,7 +126,14 @@ Each link is a chapter loaded on demand. Don't pre-read.
 | [`docs/specs/2026-05-19-phase-16-1-m12-repl-deprecation-design.md`](docs/specs/2026-05-19-phase-16-1-m12-repl-deprecation-design.md) | M12 REPL deprecation design spec |
 | [`docs/specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md`](docs/specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md) | M13 terminalRepl removal design spec (just shipped — Phase 16.1 closed) |
 | [`docs/specs/2026-05-21-binary-distribution-design.md`](docs/specs/2026-05-21-binary-distribution-design.md) | Phase 21 binary distribution design — `bun build --compile` + Go cross-compile + public `sov-releases` repo + one-line installer script; M1 manual pipeline, M2 GitHub Actions automation |
-| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Latest: `2026-05-24-phase-21-m2-release-automation.md` (Phase 21 M2 — GitHub Actions release automation; shipped + closed 2026-05-25). |
+| [`docs/specs/2026-06-05-run-anywhere-harness-roadmap-design.md`](docs/specs/2026-06-05-run-anywhere-harness-roadmap-design.md) | **Run-anywhere harness roadmap — ✅ COMPLETE (A–F shipped).** The umbrella program: secure gateway (A) → multi-client transport (B) → reference web UI (C) → persistent supervisor (D) → multi-user (E) → channels (F). Per-phase specs + plans below; close-out snapshots in `docs/state/2026-06-0*-phase-*.md`. |
+| [`docs/specs/2026-06-05-phase-a-secure-remote-gateway-design.md`](docs/specs/2026-06-05-phase-a-secure-remote-gateway-design.md) | Phase A — secure remote gateway design (shipped v0.6.17/0.6.18) |
+| [`docs/specs/2026-06-05-phase-b-multi-client-transport-design.md`](docs/specs/2026-06-05-phase-b-multi-client-transport-design.md) | Phase B — multi-client session transport design (shipped v0.6.19) |
+| [`docs/specs/2026-06-05-phase-c-reference-web-ui-design.md`](docs/specs/2026-06-05-phase-c-reference-web-ui-design.md) | Phase C — reference web UI design (shipped v0.6.20) |
+| [`docs/specs/2026-06-06-phase-d-persistent-supervisor-design.md`](docs/specs/2026-06-06-phase-d-persistent-supervisor-design.md) | Phase D — persistent multi-session supervisor / service install design (shipped v0.6.21) |
+| [`docs/specs/2026-06-06-phase-e-multi-user-design.md`](docs/specs/2026-06-06-phase-e-multi-user-design.md) | Phase E — multi-user identity + state scoping design (shipped v0.6.22) |
+| [`docs/specs/2026-06-06-phase-f-channels-design.md`](docs/specs/2026-06-06-phase-f-channels-design.md) | Phase F — channel framework + Slack/Telegram/webhook adapters design (shipped v0.6.23) |
+| [`docs/plans/`](docs/plans/) | Implementation plans (executed; left as record). Run-anywhere roadmap plans (A–F): [`2026-06-05-phase-a-secure-remote-gateway.md`](docs/plans/2026-06-05-phase-a-secure-remote-gateway.md), [`2026-06-05-phase-b-multi-client-transport.md`](docs/plans/2026-06-05-phase-b-multi-client-transport.md), [`2026-06-05-phase-c-reference-web-ui.md`](docs/plans/2026-06-05-phase-c-reference-web-ui.md), [`2026-06-06-phase-d-persistent-supervisor.md`](docs/plans/2026-06-06-phase-d-persistent-supervisor.md), [`2026-06-06-phase-e-multi-user.md`](docs/plans/2026-06-06-phase-e-multi-user.md), [`2026-06-06-phase-f-channels.md`](docs/plans/2026-06-06-phase-f-channels.md). Earlier latest: `2026-05-24-phase-21-m2-release-automation.md` (Phase 21 M2 — GitHub Actions release automation; shipped + closed 2026-05-25). |
 
 ### Postmortems — required reading before similar work
 
