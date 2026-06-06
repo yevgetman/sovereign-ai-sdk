@@ -454,50 +454,144 @@ export const SettingsSchema = z
             }),
           )
           .optional(),
+        /** Phase F — inbound channels (webhook / telegram / slack) that drive
+         *  harness turns. Each ENABLED channel binds to a Phase-E principal via
+         *  `principalId` (∈ gateway.principals) so it is isolated to one
+         *  principal, and carries its required secret(s). `permissionMode`
+         *  EXCLUDES 'bypass' by construction — a remotely-reachable channel
+         *  running with permissions bypassed is an RCE — so bypass is a parse
+         *  error, not a refine. Secret-vs-env: this schema requires the secret
+         *  field present in CONFIG; boot-time env resolution is handled in F-T7
+         *  by injecting env into the config object BEFORE parse (keeping this
+         *  schema pure / env-free). The enabled-channel cross-field rules
+         *  (principalId ∈ principals; required secrets) are in the superRefine. */
+        channels: z
+          .object({
+            webhook: z
+              .object({
+                enabled: z.boolean().optional(),
+                secret: z.string().optional(),
+                principalId: z.string(),
+                permissionMode: z.enum(['default', 'ask']).optional(),
+              })
+              .strict()
+              .optional(),
+            telegram: z
+              .object({
+                enabled: z.boolean().optional(),
+                botToken: z.string().optional(),
+                principalId: z.string(),
+                permissionMode: z.enum(['default', 'ask']).optional(),
+              })
+              .strict()
+              .optional(),
+            slack: z
+              .object({
+                enabled: z.boolean().optional(),
+                signingSecret: z.string().optional(),
+                botToken: z.string().optional(),
+                principalId: z.string(),
+                permissionMode: z.enum(['default', 'ask']).optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .superRefine((gw, ctx) => {
-        const { principals, token } = gw;
-        if (principals === undefined) return;
-        // (a) single-token and per-principal auth are mutually exclusive.
-        if (token !== undefined) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: 'gateway.principals and gateway.token are mutually exclusive',
-            path: ['principals'],
+        const { principals, token, channels } = gw;
+        if (principals !== undefined) {
+          // (a) single-token and per-principal auth are mutually exclusive.
+          if (token !== undefined) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'gateway.principals and gateway.token are mutually exclusive',
+              path: ['principals'],
+            });
+          }
+          const seenIds = new Set<string>();
+          const seenTokens = new Set<string>();
+          const idRe = /^[A-Za-z0-9_-]+$/;
+          principals.forEach((p, i) => {
+            // (d) each id must be a filesystem-safe segment.
+            if (!idRe.test(p.id)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `gateway.principals[${i}].id ${JSON.stringify(p.id)} must match ${idRe}`,
+                path: ['principals', i, 'id'],
+              });
+            }
+            // (b) ids unique.
+            if (seenIds.has(p.id)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `gateway.principals[${i}].id ${JSON.stringify(p.id)} is duplicated`,
+                path: ['principals', i, 'id'],
+              });
+            }
+            seenIds.add(p.id);
+            // (c) tokens unique.
+            if (seenTokens.has(p.token)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `gateway.principals[${i}].token is duplicated`,
+                path: ['principals', i, 'token'],
+              });
+            }
+            seenTokens.add(p.token);
           });
         }
-        const seenIds = new Set<string>();
-        const seenTokens = new Set<string>();
-        const idRe = /^[A-Za-z0-9_-]+$/;
-        principals.forEach((p, i) => {
-          // (d) each id must be a filesystem-safe segment.
-          if (!idRe.test(p.id)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `gateway.principals[${i}].id ${JSON.stringify(p.id)} must match ${idRe}`,
-              path: ['principals', i, 'id'],
-            });
+        // Phase F — validate ENABLED channels only. (a) principalId must resolve
+        // to a declared principal (channels are per-principal-isolated; this also
+        // fails when principals is absent entirely). (b) the channel's required
+        // secret(s) must be present in config (env injection happens in F-T7
+        // before parse, so an env-sourced secret merged in passes here). Disabled
+        // / enabled-omitted channels are not validated. ('bypass' is already
+        // impossible — permissionMode's enum is ['default','ask'].)
+        if (channels !== undefined) {
+          const principalIds = new Set((principals ?? []).map((p) => p.id));
+          const requireSecret = (
+            name: 'webhook' | 'telegram' | 'slack',
+            field: string,
+            value: string | undefined,
+          ): void => {
+            if (value === undefined) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `gateway.channels.${name} is enabled but ${field} is missing`,
+                path: ['channels', name, field],
+              });
+            }
+          };
+          const requirePrincipal = (
+            name: 'webhook' | 'telegram' | 'slack',
+            principalId: string,
+          ): void => {
+            if (!principalIds.has(principalId)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `gateway.channels.${name}.principalId ${JSON.stringify(principalId)} is not a declared gateway.principals id`,
+                path: ['channels', name, 'principalId'],
+              });
+            }
+          };
+          const { webhook, telegram, slack } = channels;
+          if (webhook?.enabled === true) {
+            requirePrincipal('webhook', webhook.principalId);
+            requireSecret('webhook', 'secret', webhook.secret);
           }
-          // (b) ids unique.
-          if (seenIds.has(p.id)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `gateway.principals[${i}].id ${JSON.stringify(p.id)} is duplicated`,
-              path: ['principals', i, 'id'],
-            });
+          if (telegram?.enabled === true) {
+            requirePrincipal('telegram', telegram.principalId);
+            requireSecret('telegram', 'botToken', telegram.botToken);
           }
-          seenIds.add(p.id);
-          // (c) tokens unique.
-          if (seenTokens.has(p.token)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `gateway.principals[${i}].token is duplicated`,
-              path: ['principals', i, 'token'],
-            });
+          if (slack?.enabled === true) {
+            requirePrincipal('slack', slack.principalId);
+            requireSecret('slack', 'signingSecret', slack.signingSecret);
+            requireSecret('slack', 'botToken', slack.botToken);
           }
-          seenTokens.add(p.token);
-        });
+        }
       })
       .optional(),
   })

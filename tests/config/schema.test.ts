@@ -531,3 +531,212 @@ describe('SettingsSchema — gateway.principals', () => {
     ).toThrow();
   });
 });
+
+// Phase F T3 — gateway.channels: webhook/telegram/slack channel adapters that
+// drive harness turns. Each ENABLED channel (a) binds to a Phase-E principal
+// (principalId ∈ gateway.principals, so a channel is isolated to one principal),
+// and (b) must carry its required secret(s) in config. permissionMode excludes
+// 'bypass' BY CONSTRUCTION (the enum is ['default','ask']) — a remote channel
+// running in bypass is an RCE, so it is rejected at the type level, not a refine.
+// Secret-vs-env decision: this schema requires the secret field present IN CONFIG.
+// Boot-time env resolution (e.g. SLACK_SIGNING_SECRET) is handled in F-T7 by
+// injecting env into the config object BEFORE parse — keeping this schema pure /
+// env-free. So an enabled channel whose secret arrives only via env passes the
+// schema once F-T7 has merged it in.
+describe('SettingsSchema — gateway.channels', () => {
+  const principals = [
+    { id: 'wh', token: 't1' },
+    { id: 'tg', token: 't2' },
+    { id: 'sl', token: 't3' },
+  ];
+
+  test('accepts a full channels block bound to principals', () => {
+    const p = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: {
+          webhook: { enabled: true, secret: 'whsec', principalId: 'wh' },
+          telegram: { enabled: true, botToken: 'b', principalId: 'tg' },
+          slack: { enabled: true, signingSecret: 'ss', botToken: 'bt', principalId: 'sl' },
+        },
+      },
+    });
+    expect(p.gateway?.channels?.webhook).toEqual({
+      enabled: true,
+      secret: 'whsec',
+      principalId: 'wh',
+    });
+    expect(p.gateway?.channels?.telegram).toEqual({
+      enabled: true,
+      botToken: 'b',
+      principalId: 'tg',
+    });
+    expect(p.gateway?.channels?.slack).toEqual({
+      enabled: true,
+      signingSecret: 'ss',
+      botToken: 'bt',
+      principalId: 'sl',
+    });
+  });
+
+  test('absent channels stays valid', () => {
+    expect(SettingsSchema.parse({ gateway: { principals } }).gateway?.channels).toBeUndefined();
+    expect(SettingsSchema.parse({ gateway: {} }).gateway?.channels).toBeUndefined();
+    expect(SettingsSchema.parse({}).gateway?.channels).toBeUndefined();
+  });
+
+  test('rejects unknown keys in a channel (strict)', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: { webhook: { enabled: true, secret: 's', principalId: 'wh', bogus: 1 } },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('accepts permissionMode default and ask', () => {
+    const dflt = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: {
+          webhook: { enabled: true, secret: 's', principalId: 'wh', permissionMode: 'default' },
+        },
+      },
+    });
+    expect(dflt.gateway?.channels?.webhook?.permissionMode).toBe('default');
+    const ask = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: {
+          webhook: { enabled: true, secret: 's', principalId: 'wh', permissionMode: 'ask' },
+        },
+      },
+    });
+    expect(ask.gateway?.channels?.webhook?.permissionMode).toBe('ask');
+  });
+
+  test("rejects permissionMode 'bypass' on any channel (remote bypass = RCE)", () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: {
+            webhook: { enabled: true, secret: 's', principalId: 'wh', permissionMode: 'bypass' },
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: {
+            telegram: { enabled: true, botToken: 'b', principalId: 'tg', permissionMode: 'bypass' },
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: {
+            slack: {
+              enabled: true,
+              signingSecret: 'ss',
+              botToken: 'bt',
+              principalId: 'sl',
+              permissionMode: 'bypass',
+            },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled channel whose principalId is not in principals', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: { webhook: { enabled: true, secret: 'whsec', principalId: 'ghost' } },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled channel when principals is absent entirely', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          channels: { webhook: { enabled: true, secret: 'whsec', principalId: 'wh' } },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled webhook missing its secret', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { principals, channels: { webhook: { enabled: true, principalId: 'wh' } } },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled telegram missing its botToken', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { principals, channels: { telegram: { enabled: true, principalId: 'tg' } } },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled slack missing signingSecret', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: { slack: { enabled: true, botToken: 'bt', principalId: 'sl' } },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled slack missing botToken', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: { slack: { enabled: true, signingSecret: 'ss', principalId: 'sl' } },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('a disabled channel is NOT validated for secret/principal binding', () => {
+    // enabled: false → no principalId-in-principals check, no secret check.
+    const p = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: {
+          webhook: { enabled: false, principalId: 'ghost' },
+          telegram: { enabled: false, principalId: 'ghost' },
+          slack: { enabled: false, principalId: 'ghost' },
+        },
+      },
+    });
+    expect(p.gateway?.channels?.webhook?.enabled).toBe(false);
+  });
+
+  test('a channel with enabled omitted is NOT validated (disabled by default)', () => {
+    const p = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: { webhook: { principalId: 'ghost' } },
+      },
+    });
+    expect(p.gateway?.channels?.webhook?.principalId).toBe('ghost');
+  });
+});
