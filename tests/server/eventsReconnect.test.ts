@@ -995,3 +995,73 @@ describe('events route — ?follow stream closes when the bus is disposed (Fix 1
     }
   }, 10_000);
 });
+
+// Phase B transport hardening — Fix 4.
+//
+// dispose() walked sessionContexts to call disposeBus, but a session that
+// opened an events stream and never ran a turn has a BUS (getOrCreateBus on
+// subscribe) with NO sessionContext (built lazily on the first turn). Its map
+// entry therefore lingered after dispose() — closed, but never deleted —
+// accumulating across repeated build/dispose in one process. Full dispose()
+// now clears every bus map entry (clearAllBuses), not just the ones that ran
+// a turn.
+describe('events route — full dispose() reclaims subscribe-only bus map entries (Fix 4)', () => {
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-fix4-'));
+    cwd = mkdtempSync(join(tmpdir(), 'sov-fix4-cwd-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    __test_resetAllBuses();
+  });
+
+  afterEach(() => {
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    __test_resetAllBuses();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+  });
+
+  test('a session that opened an events stream but never ran a turn leaves NO bus entry after dispose()', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Open an events stream WITHOUT ever running a turn. The subscribe mints
+      // a bus via getOrCreateBus; with no active turn + empty replay, Fix 2
+      // ends the stream immediately, but the bus stays in the map (the route
+      // no longer disposes it, and there is no sessionContext for the
+      // dispose() walk to reach). stopWhen never matches — the server ends it.
+      const stream = openSse(app, `/sessions/${sessionId}/events`, () => false);
+      await stream.done;
+
+      // The bus is present (a stream subscribed to it), but no turn ran so
+      // there is no sessionContext entry for it.
+      expect(__test_busCount()).toBeGreaterThanOrEqual(1);
+    } finally {
+      await runtime.dispose();
+    }
+
+    // After full dispose(), the subscribe-only bus entry must be gone — Fix 4
+    // clears every map entry, not just sessions that ran a turn (which is all
+    // the sessionContexts walk could reach).
+    expect(__test_busCount()).toBe(0);
+  }, 10_000);
+});

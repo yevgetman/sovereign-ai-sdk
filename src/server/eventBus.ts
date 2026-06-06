@@ -287,6 +287,33 @@ export function abortAllBuses(): void {
 }
 
 /**
+ * Fix 4 — close AND remove every session bus from the map.
+ *
+ * Called by `runtime.dispose()` at full shutdown. `dispose()` reclaims
+ * per-session buses by walking `sessionContexts` → `disposeBus`, but a
+ * session that only ever opened an events stream (subscribed, minting a bus
+ * via `getOrCreateBus`) and never ran a turn has NO sessionContext — its bus
+ * entry is closed by `abortAllBuses()` but never deleted, so it lingers in
+ * the map and accumulates across repeated build/dispose cycles in one
+ * process. This clears all entries unconditionally.
+ *
+ * Distinct from the per-session `disposeBus` (still owns single-session,
+ * non-shutdown teardown) and from `abortAllBuses` (closes but intentionally
+ * leaves entries for the per-session walk). Distinct from `__test_resetAllBuses`
+ * — that's a soft-fenced test helper; this is the production shutdown path.
+ *
+ * `close()` is idempotent, so this is safe to call after `abortAllBuses()` +
+ * the per-session disposal walk have already closed (and possibly removed)
+ * some entries.
+ */
+export function clearAllBuses(): void {
+  for (const bus of buses.values()) {
+    bus.close();
+  }
+  buses.clear();
+}
+
+/**
  * Test-only: reset all buses so a fresh suite starts clean.
  *
  * The `__test_` prefix is a soft fence: production code should never reach

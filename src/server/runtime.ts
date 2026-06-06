@@ -81,6 +81,7 @@ import {
   DEFAULT_MAX_RING,
   type ServerEventBus,
   abortAllBuses,
+  clearAllBuses,
   disposeBus,
   setDefaultRingSize,
 } from './eventBus.js';
@@ -1369,6 +1370,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       for (const liveId of liveSessionIds) {
         await disposeSession(liveId);
       }
+      // Phase B transport hardening, Fix 4 — sweep up every remaining bus map
+      // entry. The disposeSession walk above only reaches sessions that ran a
+      // turn (they have a sessionContext); a session that merely opened an
+      // events stream minted a bus with no sessionContext, so abortAllBuses
+      // closed it but left the entry in the map. clearAllBuses closes (idempotent)
+      // + deletes all remaining entries so they don't accumulate across
+      // build/dispose cycles in one process. Per-session disposeBus +
+      // abortAllBuses keep their non-shutdown semantics.
+      clearAllBuses();
       if (routerAuditLogger) await routerAuditLogger.close();
       // M8 T2 — flush the capture sink BEFORE MCP shutdown so the
       // fixture write succeeds even if MCP teardown later throws. The
