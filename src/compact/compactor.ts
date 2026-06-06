@@ -177,6 +177,12 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     systemPrompt: options.systemPrompt,
     metadata,
     ...(parent.title !== null ? { title: parent.title } : {}),
+    // Phase E H1 — carry the parent's owner onto the compaction child.
+    // Without it the child row is unowned (owner_id null), so after a
+    // compaction pivot turns.ts (getSessionContext(newSessionId)) rebuilds
+    // context with ownerId=null and the rest of the turn writes
+    // memory/learning under the SHARED legacy namespace (cross-user leak).
+    ...(parent.ownerId != null ? { owner: parent.ownerId } : {}),
   });
 
   options.db.saveMessage(newSessionId, {

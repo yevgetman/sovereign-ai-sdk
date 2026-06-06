@@ -68,6 +68,13 @@ export const MemoryTool = buildTool<Input, Output>({
   renderHint: { kind: 'markdown' },
   async call(input, ctx) {
     const harnessHome = ctx.harnessHome ?? resolveHarnessHome();
+    // Phase E C1 — the owning principal for this session. Threaded into EVERY
+    // bounded-memory helper call so reads/writes land under
+    // `<harnessHome>/users/{userId}/memory/…` per user. Undefined keeps the
+    // legacy top-level path (byte-identical to pre-Phase-E single-user
+    // behavior). SECURITY-LOAD-BEARING: omitting it on the gateway path lets
+    // every user's tool hit the shared legacy files (cross-user leak).
+    const userId = ctx.userId;
     const file = optionalFile(input.file);
     const requestedScope = input.scope;
     const ctxScope = ctx.projectScope;
@@ -75,7 +82,7 @@ export const MemoryTool = buildTool<Input, Output>({
     const effectiveScope: EffectiveScope = requestedScope ?? defaultScope;
 
     if (input.action === 'view') {
-      return handleView({ file, effectiveScope, ctxScope, harnessHome });
+      return handleView({ file, effectiveScope, ctxScope, harnessHome, userId });
     }
 
     return handleReplace({
@@ -85,6 +92,7 @@ export const MemoryTool = buildTool<Input, Output>({
       effectiveScope,
       ctxScope,
       harnessHome,
+      userId,
       ctx,
     });
   },
@@ -95,17 +103,18 @@ function handleView(args: {
   effectiveScope: EffectiveScope;
   ctxScope: ProjectScope | undefined;
   harnessHome: string;
+  userId: string | undefined;
 }): { data: Output; observation: { status: 'success'; summary: string } } {
-  const { file, effectiveScope, ctxScope, harnessHome } = args;
+  const { file, effectiveScope, ctxScope, harnessHome, userId } = args;
 
   // view-all: omit `file`. Returns global files; when project context exists,
   // also returns the project MEMORY.md under `MEMORY.md@project`.
   if (!file) {
-    const all = readAllMemory(harnessHome);
+    const all = readAllMemory(harnessHome, userId);
     const result: Record<string, MemoryReadResult | ProjectScopedReadResult> = { ...all };
     let summary = 'viewed all memory files';
     if (effectiveScope === 'project' && ctxScope?.kind === 'project') {
-      const projectRead = readProjectMemoryFile(ctxScope.id, harnessHome);
+      const projectRead = readProjectMemoryFile(ctxScope.id, harnessHome, userId);
       result['MEMORY.md@project'] = {
         ...projectRead,
         scope: 'project',
@@ -122,14 +131,14 @@ function handleView(args: {
   // view a specific file. USER.md is always global.
   if (file === 'USER.md') {
     return {
-      data: { ok: true, result: readMemoryFile(file, harnessHome) },
+      data: { ok: true, result: readMemoryFile(file, harnessHome, userId) },
       observation: { status: 'success', summary: 'viewed USER.md' },
     };
   }
 
   // MEMORY.md — scope determines which file is read.
   if (effectiveScope === 'project' && ctxScope?.kind === 'project') {
-    const read = readProjectMemoryFile(ctxScope.id, harnessHome);
+    const read = readProjectMemoryFile(ctxScope.id, harnessHome, userId);
     return {
       data: {
         ok: true,
@@ -143,7 +152,7 @@ function handleView(args: {
   }
 
   return {
-    data: { ok: true, result: readMemoryFile(file, harnessHome) },
+    data: { ok: true, result: readMemoryFile(file, harnessHome, userId) },
     observation: {
       status: 'success',
       summary: 'viewed MEMORY.md (scope=global)',
@@ -158,6 +167,7 @@ async function handleReplace(args: {
   effectiveScope: EffectiveScope;
   ctxScope: ProjectScope | undefined;
   harnessHome: string;
+  userId: string | undefined;
   ctx: ToolContext;
 }): Promise<{
   data: Output;
@@ -168,7 +178,8 @@ async function handleReplace(args: {
     artifacts?: string[];
   };
 }> {
-  const { file, content, requestedScope, effectiveScope, ctxScope, harnessHome, ctx } = args;
+  const { file, content, requestedScope, effectiveScope, ctxScope, harnessHome, userId, ctx } =
+    args;
 
   if (!file) {
     return {
@@ -195,7 +206,7 @@ async function handleReplace(args: {
   // route to global and surface a note in the success summary.
   if (file === 'USER.md') {
     const userScopeNote = requestedScope === 'project';
-    const result = replaceMemoryFile(file, content, harnessHome);
+    const result = replaceMemoryFile(file, content, harnessHome, userId);
     if (result.ok) await ctx.memoryManager?.onMemoryWrite({ file, chars: content.length });
     return buildReplaceResult({
       file,
@@ -230,7 +241,7 @@ async function handleReplace(args: {
 
   // MEMORY.md with project scope and project context → per-project file.
   if (effectiveScope === 'project' && ctxScope?.kind === 'project') {
-    const result = replaceProjectMemoryFile(ctxScope.id, content, harnessHome);
+    const result = replaceProjectMemoryFile(ctxScope.id, content, harnessHome, userId);
     if (result.ok) {
       await ctx.memoryManager?.onMemoryWrite({
         file,
@@ -249,7 +260,7 @@ async function handleReplace(args: {
   }
 
   // MEMORY.md global write.
-  const result = replaceMemoryFile(file, content, harnessHome);
+  const result = replaceMemoryFile(file, content, harnessHome, userId);
   if (result.ok) await ctx.memoryManager?.onMemoryWrite({ file, chars: content.length });
   return buildReplaceResult({ file, result, content, effectiveScope: 'global' });
 }

@@ -1123,6 +1123,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
               parentDelegatorSessionId: input.parentSessionId,
             }
           : { agentName: input.agentName, kind: 'subagent' };
+      // Phase E H1 (defense-in-depth) — stamp the child with the parent
+      // session's owner so any future getSessionContext(childId) scopes the
+      // child's memory/learning under users/{owner}/… rather than the shared
+      // legacy namespace. Harmless when the parent is unowned / unresolvable
+      // (owner omitted → child row stays unowned, byte-identical to before).
+      const parentOwner = sessionDb.getSession(input.parentSessionId)?.ownerId ?? null;
       return sessionDb.createSession({
         provider: input.provider,
         model: input.model,
@@ -1130,6 +1136,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         title: `subagent:${input.agentName}`,
         systemPrompt: input.systemPrompt,
         metadata,
+        ...(parentOwner != null ? { owner: parentOwner } : {}),
       });
     },
     availableProviders: resolveSubagentAvailableProviders(resolved),
