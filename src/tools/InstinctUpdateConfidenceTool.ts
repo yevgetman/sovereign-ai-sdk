@@ -41,7 +41,9 @@ export const InstinctUpdateConfidenceTool = buildTool<
     if (!home) {
       throw new Error('instinct_update_confidence: harnessHome not configured in tool context');
     }
-    const store = new InstinctStore(home);
+    // Phase E T6 — scope read+write to the owning principal (matches the
+    // synthesizer write path); undefined → legacy corpus (unchanged).
+    const store = new InstinctStore(home, ctx.userId);
     const { instinct: prior, body } = store.readWithBody(input.project_id, input.id);
     const evidenceWeight = input.evidence_count ?? 1;
     const tuning = loadConfidenceTuning();

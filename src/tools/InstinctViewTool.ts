@@ -30,7 +30,9 @@ export const InstinctViewTool = buildTool<InstinctViewInput, { instinct: Instinc
     if (!home) {
       throw new Error('instinct_view: harnessHome not configured in tool context');
     }
-    const store = new InstinctStore(home);
+    // Phase E T6 — scope reads to the owning principal (matches the write
+    // path); undefined → legacy corpus (unchanged).
+    const store = new InstinctStore(home, ctx.userId);
     const result = store.readWithBody(input.project_id, input.id);
     return {
       data: result,

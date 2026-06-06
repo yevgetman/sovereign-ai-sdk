@@ -287,6 +287,12 @@ export function buildSessionToolContext(
     // project (bundle or git repo).
     memoryManager: sessionCtx.memoryManager,
     projectScope: sessionCtx.projectScope,
+    // Phase E T6 — thread the owning principal onto the per-turn ToolContext
+    // so any synthesizer dispatched from this turn (and spread by the
+    // scheduler into its child) writes instincts under the user's learning
+    // namespace. Optional spread keeps the field absent for the implicit
+    // single principal (legacy / open mode) — byte-identical to today.
+    ...(sessionCtx.userId !== undefined ? { userId: sessionCtx.userId } : {}),
     // Phase 2 T4 — optional spread keeps the field absent when no recorder
     // was supplied (matches `exactOptionalPropertyTypes` discipline for
     // every other optional field on ToolContext).

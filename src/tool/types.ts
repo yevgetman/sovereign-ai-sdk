@@ -93,6 +93,14 @@ export type ToolContext = {
    *  Optional — when absent, MemoryTool defaults all operations to
    *  global scope. */
   projectScope?: import('../memory/scope.js').ProjectScope;
+  /** Phase E T6 — the owning principal for this session, sourced from the
+   *  session row's ownerId (never caller input). Threaded onto the per-session
+   *  ToolContext and spread to sub-agent children by the scheduler, so the
+   *  instinct synthesizer's InstinctProposeTool writes under the same user's
+   *  learning namespace (`<harnessHome>/users/{userId}/learning/…`). Undefined
+   *  keeps the legacy top-level corpus (byte-identical to pre-Phase-E
+   *  behavior). Validated at the path boundary in src/learning/paths.ts. */
+  userId?: string;
   /** Phase 13.5 — parent's full tool pool, captured at session
    *  bootstrap so the scheduler can filter from it without
    *  reassembling per call. */

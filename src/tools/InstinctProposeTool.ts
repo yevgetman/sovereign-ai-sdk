@@ -74,7 +74,10 @@ export const InstinctProposeTool = buildTool<InstinctProposeInput, { instinct: I
       last_evidence_at: now,
       observation_ids: input.observation_ids,
     };
-    const store = new InstinctStore(home);
+    // Phase E T6 — scope the synthesized instinct to the owning principal.
+    // ctx.userId rides the per-session ToolContext (spread to this synthesizer
+    // child by the scheduler); undefined keeps the legacy top-level corpus.
+    const store = new InstinctStore(home, ctx.userId);
     store.write(instinct, input.body ?? defaultBody(instinct));
     return {
       data: { instinct },

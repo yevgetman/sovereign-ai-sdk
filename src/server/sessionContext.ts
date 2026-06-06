@@ -96,6 +96,14 @@ export type SessionContext = {
    *  on first use. */
   memoryManager: MemoryManager;
   projectScope: ProjectScope;
+  /** Phase E T6 — the owning principal for this session, sourced from the
+   *  session row's ownerId (never caller input). Undefined for the implicit
+   *  single principal (legacy / open / loopback-no-token). Threaded onto the
+   *  per-turn ToolContext by buildSessionToolContext so the synthesizer's
+   *  InstinctProposeTool writes under the right user's learning namespace.
+   *  This is a PER-SESSION holder (SessionContext is keyed by sessionId) — NOT
+   *  a field on the shared runtime/learningLayer singleton. */
+  userId?: string;
   /** Learning-loop spike Phase 1 — per-session recall thunk, bound to this
    *  session's project id. Present only when `learning.recall.enabled` is
    *  true; left undefined otherwise so the turns route omits it from the
@@ -145,6 +153,21 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // smell the T5 reviewer flagged as a watch item for T6.
   const userSettings = readConfig();
 
+  // Phase E T6 — the owning principal for this session. Read ONCE from the
+  // SESSION ROW's ownerId (stamped at session creation by the authenticated
+  // gateway), NEVER from anything the caller supplies in the turn. A real owner
+  // scopes BOTH the learning corpus (observe + recall + synthesis) AND memory
+  // (T5) under `<harnessHome>/users/{ownerId}/…`; a null owner (no-principals /
+  // legacy / open mode) → undefined → the legacy top-level paths, byte-identical
+  // to pre-Phase-E behavior. `userId` is re-validated at each path boundary
+  // (paths.ts / bounded.ts) as defense-in-depth. This is the SINGLE source of
+  // the per-session userId — it must ride the per-session/per-turn context
+  // (observer opts, recall context, sub-agent parentToolContext), never a field
+  // on the shared runtime/learningLayer singleton, since the runtime is shared
+  // across users.
+  const ownerId = runtime.sessionDb.getSession(sessionId)?.ownerId ?? null;
+  const userId = ownerId ?? undefined;
+
   // M7 T5 — per-session learning observer.
   //
   // When `learning.disabled === true`, the field is LEFT UNDEFINED so the
@@ -161,6 +184,8 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           ? { bufferSize: userSettings.learning.observationBufferSize }
           : {}),
         enabled: true,
+        // Phase E T6 — scope observations to the owning principal (write path).
+        ...(userId !== undefined ? { userId } : {}),
       })
     : undefined;
 
@@ -218,7 +243,12 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
         pathsResolver: () => ({
           trajectoryPath: `${resolveSubagentArtifactsRoot(runtime.harnessHome, runtime.bundle)}/trajectories/samples.jsonl`,
           tracePath: traceWriter.path,
-          instinctsDir: instinctsDir(runtime.harnessHome, getProjectId(runtime.cwd).id),
+          // Phase E T6 — the synthesizer reads existing instincts from this
+          // directory and writes new ones (via InstinctProposeTool, scoped by
+          // ctx.userId) under the SAME user namespace, so the read hint must be
+          // user-scoped too — otherwise the synthesizer would read the legacy
+          // corpus but write into the user's, splitting the corpus.
+          instinctsDir: instinctsDir(runtime.harnessHome, getProjectId(runtime.cwd).id, userId),
         }),
         parentToolPool: runtime.toolPool,
         parentToolContext: {
@@ -228,6 +258,10 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           agents: runtime.agents,
           subagentScheduler: runtime.subagentScheduler,
           taskManager: runtime.taskManager,
+          // Phase E T6 — thread the owning principal onto the review-fork
+          // parent context so the synthesizer child (spread from this context
+          // by the scheduler) writes instincts under the user's namespace.
+          ...(userId !== undefined ? { userId } : {}),
           // Phase 2 T3 — thread the lane registry onto the
           // review-fork parent context too so review-spawned children
           // honor the same lane timeoutMs as the turn-level pool.
@@ -263,20 +297,13 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     bundle: runtime.bundle ?? null,
     harnessHome: runtime.harnessHome,
   });
-  // Phase E T5 — per-user memory namespace. The owning principal is read from
-  // the SESSION ROW's ownerId (set at session creation by the authenticated
-  // gateway), NEVER from anything the caller supplies in the turn. A real owner
-  // routes memory under `<harnessHome>/users/{ownerId}/memory/…`; a null owner
-  // (no-principals / legacy / open mode) → undefined → the legacy top-level
-  // `<harnessHome>/memory/…` paths, byte-identical to pre-Phase-E behavior.
-  // (userId is re-validated at the path boundary in bounded.ts as defense-in-
-  // depth, even though the gateway already validated it at config time.)
-  const ownerId = runtime.sessionDb.getSession(sessionId)?.ownerId ?? null;
-  const memoryManager = createDefaultMemoryManager(
-    runtime.harnessHome,
-    projectScope,
-    ownerId ?? undefined,
-  );
+  // Phase E T5 — per-user memory namespace. Reuses the single `userId` read
+  // above (sourced from the session row's ownerId, never caller input). A real
+  // owner routes memory under `<harnessHome>/users/{userId}/memory/…`; undefined
+  // → the legacy top-level `<harnessHome>/memory/…` paths, byte-identical to
+  // pre-Phase-E behavior. (userId is re-validated at the path boundary in
+  // bounded.ts as defense-in-depth.)
+  const memoryManager = createDefaultMemoryManager(runtime.harnessHome, projectScope, userId);
 
   // Learning-loop spike Phase 1 — per-session recall thunk. ON by default
   // as of v0.6.16 (founder decision 2026-06-04, post-Q1): the thunk is built
@@ -315,6 +342,11 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
           latestUserText,
           tokenBudget: recallCfg?.tokenBudget ?? 1200,
           maxLessons: recallCfg?.maxLessons ?? 8,
+          // Phase E T6 — scope recall to the owning principal (read path). The
+          // learningLayer is a SHARED singleton across users, so userId rides
+          // this per-turn recall context (exactly like projectId) — never a
+          // field stored on the layer. undefined reads the legacy corpus.
+          ...(userId !== undefined ? { userId } : {}),
         })
     : undefined;
 
@@ -332,6 +364,9 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     subdirectoryHintState: createSubdirectoryHintState(),
     memoryManager,
     projectScope,
+    // Phase E T6 — surface the per-session owning principal so the turn route
+    // can thread it onto the per-turn ToolContext (synthesizer write path).
+    ...(userId !== undefined ? { userId } : {}),
     ...(recall !== undefined ? { recall } : {}),
     ...(learningObserver !== undefined ? { learningObserver } : {}),
     ...(reviewManager !== undefined ? { reviewManager } : {}),

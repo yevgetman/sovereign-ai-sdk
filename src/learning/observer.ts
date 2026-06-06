@@ -18,6 +18,12 @@ export interface LearningObserverOpts {
   sessionId: string;
   bufferSize?: number;
   enabled?: boolean;
+  /** Phase E T6 — owning principal. When set, observations land under
+   *  `<harnessHome>/users/{userId}/learning/…`; undefined keeps the legacy
+   *  top-level paths (byte-identical to pre-Phase-E behavior). Sourced from
+   *  the session's ownerId, never from caller input; validated at the path
+   *  boundary in paths.ts. */
+  userId?: string;
 }
 
 export interface ObserveInput {
@@ -41,6 +47,7 @@ export class LearningObserver {
   private readonly sessionId: string;
   private readonly enabled: boolean;
   private readonly bufferSize: number;
+  private readonly userId: string | undefined;
 
   constructor(opts: LearningObserverOpts) {
     this.harnessHome = opts.harnessHome;
@@ -48,6 +55,7 @@ export class LearningObserver {
     this.sessionId = opts.sessionId;
     this.enabled = opts.enabled ?? true;
     this.bufferSize = opts.bufferSize ?? DEFAULT_BUFFER;
+    this.userId = opts.userId;
   }
 
   observe(input: ObserveInput): void {
@@ -67,10 +75,10 @@ export class LearningObserver {
     this.writeChain = this.writeChain.then(async () => {
       try {
         const project = getProjectId(this.cwd);
-        const path = observationsPath(this.harnessHome, project.id);
+        const path = observationsPath(this.harnessHome, project.id, this.userId);
         if (!existsSync(dirname(path))) {
           mkdirSync(dirname(path), { recursive: true });
-          ensureLearningDirs(this.harnessHome, project.id);
+          ensureLearningDirs(this.harnessHome, project.id, this.userId);
         }
         await appendFile(path, `${JSON.stringify(observation)}\n`, 'utf-8');
       } catch {

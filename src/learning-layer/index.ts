@@ -11,7 +11,10 @@ export function createLearningLayer(deps: LearningHostDeps): LearningLayer {
   return {
     async recall(ctx) {
       try {
-        const instincts = await readInstincts(deps.persist, ctx.projectId);
+        // Phase E T6 — userId rides the per-turn RecallContext (the layer is a
+        // shared singleton; never store userId on it). Scopes the corpus read
+        // to the owning principal; undefined reads the legacy top-level corpus.
+        const instincts = await readInstincts(deps.persist, ctx.projectId, ctx.userId);
         const lessons = assembleLessons({
           instincts,
           latestUserText: ctx.latestUserText,

@@ -31,6 +31,13 @@ export interface RecallContext {
   readonly latestUserText: string | undefined;
   readonly tokenBudget: number;
   readonly maxLessons: number;
+  /** Phase E T6 — the owning principal for this turn. When set, recall reads
+   *  only that user's corpus (`<harnessHome>/users/{userId}/learning/…`);
+   *  undefined reads the legacy top-level corpus (byte-identical to
+   *  pre-Phase-E behavior). This rides the PER-TURN context — the layer is a
+   *  shared singleton, so the userId must never be stored on it; it travels
+   *  with each recall call exactly like `projectId` does. */
+  readonly userId?: string;
 }
 
 /** A single lesson the layer chose to surface (Recall output, for tracing/eval). */

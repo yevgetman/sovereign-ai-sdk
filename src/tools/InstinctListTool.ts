@@ -35,7 +35,10 @@ export const InstinctListTool = buildTool<InstinctListInput, { instincts: Instin
     if (!home) {
       throw new Error('instinct_list: harnessHome not configured in tool context');
     }
-    const store = new InstinctStore(home);
+    // Phase E T6 — scope reads to the owning principal so a user's agent sees
+    // its own synthesized corpus (matching InstinctProposeTool's write path),
+    // not the legacy top-level one. Undefined → legacy corpus (unchanged).
+    const store = new InstinctStore(home, ctx.userId);
     let results = store.list(input.project_id);
     if (input.domain !== undefined) {
       results = results.filter((i) => i.domain === input.domain);

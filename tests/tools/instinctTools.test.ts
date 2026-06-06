@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { InstinctStore } from '../../src/learning/instinctStore.js';
+import { instinctPath } from '../../src/learning/paths.js';
 import type { Instinct } from '../../src/learning/types.js';
 import type { ToolContext } from '../../src/tool/types.js';
 import { InstinctListTool } from '../../src/tools/InstinctListTool.js';
@@ -148,6 +150,61 @@ describe('instinct tools', () => {
     );
     const c = contradicted.data as { instinct: Instinct; previousConfidence: number };
     expect(c.instinct.confidence).toBeLessThan(c.previousConfidence);
+  });
+
+  test('instinct_propose honors ctx.userId — writes under the user namespace, isolated from legacy', async () => {
+    // Phase E T6 — the synthesizer's write path. ctx.userId (sourced from the
+    // session owner, spread onto the synthesizer child by the scheduler) must
+    // route the new instinct under `<home>/users/{userId}/learning/…`.
+    const aliceCtx = {
+      cwd: '/tmp',
+      sessionId: 's',
+      harnessHome: home,
+      userId: 'alice',
+    } as unknown as ToolContext;
+    const created = await InstinctProposeTool.call(
+      {
+        trigger: 'when writing TS function',
+        action: 'add return type annotation',
+        evidence_count: 5,
+        domain: 'code-style',
+        scope: 'project',
+        project_id: 'p1',
+        project_name: 'pp',
+        observation_ids: ['o1'],
+      },
+      aliceCtx,
+    );
+    const id = (created.data as { instinct: Instinct }).instinct.id;
+
+    // lands under alice's namespace, NOT the legacy tree
+    expect(existsSync(instinctPath(home, 'p1', id, 'alice'))).toBe(true);
+    expect(existsSync(instinctPath(home, 'p1', id))).toBe(false);
+
+    // alice's store sees it; a no-userId store + bob's store do not
+    expect(new InstinctStore(home, 'alice').list('p1').map((i) => i.id)).toEqual([id]);
+    expect(new InstinctStore(home).list('p1')).toEqual([]);
+    expect(new InstinctStore(home, 'bob').list('p1')).toEqual([]);
+  });
+
+  test('instinct_propose with no ctx.userId is byte-identical to legacy (top-level corpus)', async () => {
+    const created = await InstinctProposeTool.call(
+      {
+        trigger: 't',
+        action: 'a',
+        evidence_count: 5,
+        domain: 'code-style',
+        scope: 'project',
+        project_id: 'p1',
+        project_name: 'pp',
+        observation_ids: ['o1'],
+      },
+      makeCtx(home),
+    );
+    const id = (created.data as { instinct: Instinct }).instinct.id;
+    // EXACT legacy path
+    expect(existsSync(join(home, 'learning', 'p1', 'instincts', `${id}.md`))).toBe(true);
+    expect(existsSync(instinctPath(home, 'p1', id, 'alice'))).toBe(false);
   });
 
   test('all four tools throw when harnessHome is absent', async () => {
