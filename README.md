@@ -4,11 +4,20 @@ The agent runtime for Sovereign AI. A Claude-Code-style harness (TypeScript on B
 
 This is **runtime code**. The business data it operates against lives in a separate repo: `~/code/sovereign-ai-docs/`. This repo reads that one as a *harness bundle* and never writes to business-scope files; runtime state lives under `$HARNESS_HOME` (default `~/.harness`) unless a later phase introduces explicit bundle-state writers.
 
+## Surfaces
+
+The same runtime drives several run modes — pick by how you want to reach it:
+
+- **Local TUI (`sov`)** — the default. The Go Bubble Tea client backed by a per-invocation loopback server: interactive chat in your terminal. See [usage › Quick Start](docs/usage.md#quick-start).
+- **Headless line driver (`sov drive`)** — stdin/stdout, no TTY: pipe a prompt in, read events out. For scripting, semantic tests, and CI. See [usage › CLI Subcommands](docs/usage.md#cli-subcommands).
+- **OpenAI-compatible API (`sov serve`)** — a drop-in OpenAI HTTP backend (Open WebUI, LibreChat, the `openai` SDKs). Stateless completions. See [usage › OpenAI-compatible HTTP API](docs/usage.md#openai-compatible-http-api-sov-serve).
+- **Secure remote gateway (`sov gateway`)** — the harness's rich **native HTTP+SSE** protocol exposed off-loopback with bearer auth: turns, streaming, tool events, **permission prompts**, slash commands, skills. Ships a built-in **browser UI**, persistent **multi-session** hosting, **multi-user** principals (isolated sessions/memory/learning), and **Slack / Telegram / webhook channels**. The run-anywhere roadmap (A–F). See [usage › Remote gateway](docs/usage.md#remote-gateway-sov-gateway).
+
 ## Status
 
 Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/state/2026-05-31-post-m2-hardening.md`](docs/state/2026-05-31-post-m2-hardening.md) — `docs/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/state/*.md | sort -r | head -1`.
+- **Latest snapshot:** [`docs/state/2026-06-06-phase-f-channels.md`](docs/state/2026-06-06-phase-f-channels.md) — Phase F (channels) shipped; the run-anywhere roadmap (A–F) is COMPLETE. `docs/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/state/*.md | sort -r | head -1`.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
@@ -202,7 +211,8 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5, 10.6 |
 | `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
 | `src/ui/` | Shared terminal-rendering helpers — diff renderer, theme system, splash assets — consumed by the Go Bubble Tea client and headless surfaces | 0 stub, 1, 10.5b–e |
-| `src/server/` | Hono HTTP+SSE server backing the Phase 16.1 split-process TUI; routes for sessions, turns, approvals; event bus; on-disk SessionDb; preflight; CLI flag forwarding | 16.1 |
+| `src/server/` | Hono HTTP+SSE server backing the split-process TUI and the remote gateway; routes for sessions, turns, approvals, channels; multi-subscriber event bus; idle-session supervisor; bearer/principal auth + CORS; embedded web UI; on-disk SessionDb; preflight; CLI flag forwarding | 16.1, gateway A–F |
+| `src/channels/` | Inbound channel framework for `sov gateway` — Slack / Telegram / webhook adapters (verify → parse → deliver), the shared safe-by-default channel turn pipeline, env-first secret resolution, poll-loop listeners | gateway F |
 | `src/cli/` | `sov dispatch` (headless slash surface) + `sov-tui` launcher (Phase 16.1 spawn-and-supervise) | 16.0c, 16.1 |
 | `packages/tui/` | Go + Bubble Tea TUI client (`sov-tui`); communicates with `sov` via localhost HTTP+SSE | 16.1 |
 
