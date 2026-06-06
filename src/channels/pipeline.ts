@@ -28,11 +28,13 @@
 // reply text + the silent verdict.
 
 import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
+import { repairMissingToolResults } from '../core/transcriptRepair.js';
 import type { AssistantMessage } from '../core/types.js';
 import type { LLMProvider } from '../providers/types.js';
 import { AgentRunner } from '../runtime/agentRunner.js';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
+import { loadHistoryAsMessages } from '../server/sessionId.js';
 import { assertChannelPermissionMode, buildChannelCanUseTool } from './permission.js';
 import { buildSessionKey } from './sessionKey.js';
 import type { InboundMessage } from './types.js';
@@ -138,6 +140,28 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
     // threaded — a channel turn has no live UI consumer (mirrors cron).
     const toolContext = buildSessionToolContext(runtime, sessionId, canUseTool);
 
+    // Conversational coherence: hydrate the session's PRIOR history into the
+    // turn so the model can follow up + remember what was just said. We just
+    // upserted the row and persisted the new user message above, so
+    // `loadHistoryAsMessages` returns exactly `[...priorMessages, newUserMessage]`
+    // — the same projection the interactive turns route's `hydrate()` uses.
+    // `repairMissingToolResults` synthesizes any missing tool_result for an
+    // orphaned tool_use in the persisted history (e.g. a prior turn that
+    // crashed mid-tool-call) so the next turn doesn't reject as invalid — the
+    // same M10-audit repair the turns route applies. AgentRunner never writes
+    // to the DB, so feeding the persisted history back as the seed does NOT
+    // re-persist the new user message (the pipeline saved it exactly once,
+    // above). Without `initialMessages`, AgentRunner would seed ONLY the new
+    // user message and the model would cold-start every channel message.
+    const rawHistory = loadHistoryAsMessages(runtime.sessionDb, sessionId);
+    const { messages: hydratedMessages, insertedToolResults } =
+      repairMissingToolResults(rawHistory);
+    if (insertedToolResults > 0) {
+      process.stderr.write(
+        `[repair] synthesized ${insertedToolResults} missing tool_result block(s) for channel session ${sessionId}\n`,
+      );
+    }
+
     const runner = new AgentRunner({
       provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
       model: runtime.model,
@@ -149,8 +173,13 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
       maxTurns: DEFAULT_CHANNEL_MAX_TURNS,
       sessionId,
       cwd: runtime.cwd,
+      // Seed the full hydrated history (prior turns + the new user message)
+      // instead of a single-message prompt seed.
+      initialMessages: hydratedMessages,
     });
 
+    // The prompt arg is ignored when `initialMessages` is set (the new user
+    // message is already the tail of the hydrated seed); pass it for clarity.
     const gen = runner.run(msg.text);
     let step: Awaited<ReturnType<typeof gen.next>>;
     for (;;) {

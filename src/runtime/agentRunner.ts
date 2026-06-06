@@ -54,6 +54,18 @@ export type AgentRunnerOpts = {
    *  to the session DB. AgentRunner does not write to the DB itself. */
   parentSessionId?: string;
 
+  /** Optional seed history. When set, `run()` uses this array verbatim as the
+   *  model's starting context INSTEAD of building a single-message seed from
+   *  the `run(prompt)` argument (the prompt is then ignored). The caller is
+   *  responsible for ordering — the array must already end with the new user
+   *  message the turn is responding to (i.e. `[...priorMessages, newUser]`) and
+   *  must be provider-valid (run `repairMissingToolResults` first so an
+   *  orphaned tool_use from a prior turn doesn't reject). AgentRunner never
+   *  persists; the caller owns the session DB. This is how the channel pipeline
+   *  hydrates a continuous conversation's prior history into the model context
+   *  while keeping the headless turn loop. */
+  initialMessages?: Message[];
+
   tools?: Tool<unknown, unknown>[];
   /** Required when `tools` is set. Same contract as query().toolContext. */
   toolContext?: ToolContext;
@@ -98,11 +110,15 @@ export class AgentRunner {
   constructor(private readonly opts: AgentRunnerOpts) {}
 
   async *run(prompt: string): AsyncGenerator<StreamEvent | Message, AgentRunnerResult> {
-    const userMessage: Message = {
-      role: 'user',
-      content: [{ type: 'text', text: prompt }],
-    };
-    const seedMessages: Message[] = [userMessage];
+    // When the caller supplies `initialMessages`, use them verbatim as the seed
+    // (the conversation's prior history already ending with the new user
+    // message) and ignore `prompt`. Otherwise build the legacy single-message
+    // seed from the prompt — the default for sub-agents + cron, which always
+    // cold-start from one instruction string.
+    const seedMessages: Message[] =
+      this.opts.initialMessages !== undefined
+        ? this.opts.initialMessages
+        : [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
 
     const gen = query({
       provider: this.opts.provider,

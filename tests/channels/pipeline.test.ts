@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { runChannelTurn } from '../../src/channels/pipeline.js';
 import { buildSessionKey } from '../../src/channels/sessionKey.js';
 import type { InboundMessage } from '../../src/channels/types.js';
+import type { Message } from '../../src/core/types.js';
 import { MockProvider } from '../../src/providers/mock.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { Runtime } from '../../src/server/runtime.js';
@@ -130,6 +131,51 @@ describe('runChannelTurn — channel-agnostic inbound→turn→outbound pipeline
 
     // Same session id reused (find-or-create), history GREW (not reset).
     expect(afterSecond).toBeGreaterThan(afterFirst);
+  });
+
+  test('coherence — a second turn hydrates the prior turn into the model context', async () => {
+    // The gap this fix closes: AgentRunner.run(prompt) seeds ONLY the new user
+    // message, so the model cold-starts every channel message and can't follow
+    // up. Drive TWO turns on the same (channel, sender); the MockProvider
+    // snapshots req.messages on every stream() call (last-writer-wins), so after
+    // the SECOND turn `lastMessages` is exactly what the model saw on turn 2. It
+    // must include turn 1's user prompt AND turn 1's assistant reply — proving
+    // the prior conversation was hydrated into the turn, not reset.
+
+    // Turn 1 — default mock reply is "Hello world."; persists user + assistant.
+    await runChannelTurn({ runtime, msg: TG_MSG, principalId: PRINCIPAL });
+
+    // Clear the snapshot so the assertion below reflects ONLY turn 2's call.
+    MockProvider.lastMessages = undefined;
+
+    // Turn 2 — same sender. The model must see turn 1's history plus this turn's
+    // new user message.
+    await runChannelTurn({ runtime, msg: TG_MSG, principalId: PRINCIPAL });
+
+    const seen: Message[] = MockProvider.lastMessages ?? [];
+    // Flatten all text the provider received on turn 2.
+    const seenText = seen
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n');
+
+    // Turn 1's assistant reply is in the hydrated context (the load-bearing
+    // assertion — the model can now follow up). Without the fix turn 2 seeds
+    // only the new user message and this text is absent.
+    expect(seenText).toContain('Hello world.');
+
+    // Turn 1's user prompt + turn 2's new user prompt are BOTH present. The
+    // (channel, sender) message text is identical here, so the model sees the
+    // user line at least twice — proving the prior turn is hydrated alongside
+    // the new one ([...priorMessages, newUserMessage]).
+    const userMessages = seen.filter((m) => m.role === 'user');
+    expect(userMessages.length).toBeGreaterThanOrEqual(2);
+
+    // The prior assistant message is in the hydrated context as its own
+    // assistant-role message (not just text bleed).
+    const assistantMessages = seen.filter((m) => m.role === 'assistant');
+    expect(assistantMessages.length).toBeGreaterThanOrEqual(1);
   });
 
   test('silent — a [SILENT]-prefixed reply yields { silent: true } and no text', async () => {
