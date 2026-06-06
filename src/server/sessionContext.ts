@@ -263,7 +263,20 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     bundle: runtime.bundle ?? null,
     harnessHome: runtime.harnessHome,
   });
-  const memoryManager = createDefaultMemoryManager(runtime.harnessHome, projectScope);
+  // Phase E T5 — per-user memory namespace. The owning principal is read from
+  // the SESSION ROW's ownerId (set at session creation by the authenticated
+  // gateway), NEVER from anything the caller supplies in the turn. A real owner
+  // routes memory under `<harnessHome>/users/{ownerId}/memory/…`; a null owner
+  // (no-principals / legacy / open mode) → undefined → the legacy top-level
+  // `<harnessHome>/memory/…` paths, byte-identical to pre-Phase-E behavior.
+  // (userId is re-validated at the path boundary in bounded.ts as defense-in-
+  // depth, even though the gateway already validated it at config time.)
+  const ownerId = runtime.sessionDb.getSession(sessionId)?.ownerId ?? null;
+  const memoryManager = createDefaultMemoryManager(
+    runtime.harnessHome,
+    projectScope,
+    ownerId ?? undefined,
+  );
 
   // Learning-loop spike Phase 1 — per-session recall thunk. ON by default
   // as of v0.6.16 (founder decision 2026-06-04, post-Q1): the thunk is built

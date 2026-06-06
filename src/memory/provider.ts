@@ -35,10 +35,17 @@ export class BuiltinMarkdownMemoryProvider implements MemoryProvider {
 
   private readonly harnessHome: string;
   private readonly projectScope?: ProjectScope;
+  /** Phase E T5 — owning principal id. When set, all reads/writes route
+   *  through the `<harnessHome>/users/{userId}/memory/…` namespace; when
+   *  undefined, the legacy top-level `<harnessHome>/memory/…` paths (byte-
+   *  identical to pre-Phase-E). Sourced from the session's ownerId by
+   *  buildSessionContext — never from caller-supplied turn input. */
+  private readonly userId?: string;
 
-  constructor(harnessHome: string, projectScope?: ProjectScope) {
+  constructor(harnessHome: string, projectScope?: ProjectScope, userId?: string) {
     this.harnessHome = harnessHome;
     if (projectScope !== undefined) this.projectScope = projectScope;
+    if (userId !== undefined) this.userId = userId;
   }
 
   isAvailable(): boolean {
@@ -62,10 +69,10 @@ export class BuiltinMarkdownMemoryProvider implements MemoryProvider {
   }
 
   async prefetchSnapshot(_userMsg: string): Promise<string> {
-    const all = readAllMemory(this.harnessHome);
+    const all = readAllMemory(this.harnessHome, this.userId);
     const projectPart = (() => {
       if (!this.projectScope || this.projectScope.kind !== 'project') return undefined;
-      const proj = readProjectMemoryFile(this.projectScope.id, this.harnessHome);
+      const proj = readProjectMemoryFile(this.projectScope.id, this.harnessHome, this.userId);
       if (!proj.content.trim()) return undefined;
       return { content: proj.content, name: this.projectScope.name };
     })();
@@ -144,8 +151,9 @@ export class MemoryManager {
 export function createDefaultMemoryManager(
   harnessHome: string,
   projectScope?: ProjectScope,
+  userId?: string,
 ): MemoryManager {
   const manager = new MemoryManager();
-  manager.addProvider(new BuiltinMarkdownMemoryProvider(harnessHome, projectScope));
+  manager.addProvider(new BuiltinMarkdownMemoryProvider(harnessHome, projectScope, userId));
   return manager;
 }

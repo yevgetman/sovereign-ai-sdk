@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
+import { validatePrincipalId } from '../server/principals.js';
 
 export type MemoryFile = 'MEMORY.md' | 'USER.md';
 
@@ -41,15 +42,29 @@ export function normalizeMemoryFile(file: string): MemoryFile {
   throw new Error(`unknown memory file: ${file}`);
 }
 
-export function memoryPath(harnessHome: string, file: MemoryFile): string {
-  return join(harnessHome, 'memory', file);
+/** Phase E T5 — the memory root for a given principal. When `userId` is
+ *  provided it is the per-user namespace `<harnessHome>/users/{userId}/memory`;
+ *  when undefined it is the legacy top-level `<harnessHome>/memory` (BYTE-
+ *  IDENTICAL to pre-Phase-E behavior). SECURITY-LOAD-BEARING: `userId` becomes
+ *  a filesystem path segment, so it is validated (validatePrincipalId rejects
+ *  separators, `.`/`..`, empty, and control chars) BEFORE it is joined into any
+ *  path. */
+function memoryRoot(harnessHome: string, userId?: string): string {
+  if (userId === undefined) return join(harnessHome, 'memory');
+  validatePrincipalId(userId);
+  return join(harnessHome, 'users', userId, 'memory');
+}
+
+export function memoryPath(harnessHome: string, file: MemoryFile, userId?: string): string {
+  return join(memoryRoot(harnessHome, userId), file);
 }
 
 export function readMemoryFile(
   file: MemoryFile,
   harnessHome = resolveHarnessHome(),
+  userId?: string,
 ): MemoryReadResult {
-  const path = memoryPath(harnessHome, file);
+  const path = memoryPath(harnessHome, file, userId);
   const content = existsSync(path) ? readFileSync(path, 'utf8') : '';
   return {
     file,
@@ -62,10 +77,11 @@ export function readMemoryFile(
 
 export function readAllMemory(
   harnessHome = resolveHarnessHome(),
+  userId?: string,
 ): Record<MemoryFile, MemoryReadResult> {
   return {
-    'MEMORY.md': readMemoryFile('MEMORY.md', harnessHome),
-    'USER.md': readMemoryFile('USER.md', harnessHome),
+    'MEMORY.md': readMemoryFile('MEMORY.md', harnessHome, userId),
+    'USER.md': readMemoryFile('USER.md', harnessHome, userId),
   };
 }
 
@@ -73,8 +89,9 @@ export function replaceMemoryFile(
   file: MemoryFile,
   content: string,
   harnessHome = resolveHarnessHome(),
+  userId?: string,
 ): MemoryReplaceResult {
-  const path = memoryPath(harnessHome, file);
+  const path = memoryPath(harnessHome, file, userId);
   const cap = MEMORY_CAPS[file];
   if (content.length > cap) {
     return {
@@ -86,20 +103,21 @@ export function replaceMemoryFile(
       cap,
     };
   }
-  mkdirSync(join(harnessHome, 'memory'), { recursive: true });
+  mkdirSync(memoryRoot(harnessHome, userId), { recursive: true });
   writeFileSync(path, content, 'utf8');
-  return { ok: true, ...readMemoryFile(file, harnessHome) };
+  return { ok: true, ...readMemoryFile(file, harnessHome, userId) };
 }
 
-export function projectMemoryPath(harnessHome: string, projectId: string): string {
-  return join(harnessHome, 'memory', PROJECT_DIR_NAME, projectId, PROJECT_MEMORY_FILE);
+export function projectMemoryPath(harnessHome: string, projectId: string, userId?: string): string {
+  return join(memoryRoot(harnessHome, userId), PROJECT_DIR_NAME, projectId, PROJECT_MEMORY_FILE);
 }
 
 export function readProjectMemoryFile(
   projectId: string,
   harnessHome = resolveHarnessHome(),
+  userId?: string,
 ): MemoryReadResult {
-  const path = projectMemoryPath(harnessHome, projectId);
+  const path = projectMemoryPath(harnessHome, projectId, userId);
   const content = existsSync(path) ? readFileSync(path, 'utf8') : '';
   return {
     file: PROJECT_MEMORY_FILE,
@@ -114,8 +132,9 @@ export function replaceProjectMemoryFile(
   projectId: string,
   content: string,
   harnessHome = resolveHarnessHome(),
+  userId?: string,
 ): MemoryReplaceResult {
-  const path = projectMemoryPath(harnessHome, projectId);
+  const path = projectMemoryPath(harnessHome, projectId, userId);
   const cap = MEMORY_CAPS[PROJECT_MEMORY_FILE];
   if (content.length > cap) {
     return {
@@ -127,7 +146,9 @@ export function replaceProjectMemoryFile(
       cap,
     };
   }
-  mkdirSync(join(harnessHome, 'memory', PROJECT_DIR_NAME, projectId), { recursive: true });
+  mkdirSync(join(memoryRoot(harnessHome, userId), PROJECT_DIR_NAME, projectId), {
+    recursive: true,
+  });
   writeFileSync(path, content, 'utf8');
-  return { ok: true, ...readProjectMemoryFile(projectId, harnessHome) };
+  return { ok: true, ...readProjectMemoryFile(projectId, harnessHome, userId) };
 }
