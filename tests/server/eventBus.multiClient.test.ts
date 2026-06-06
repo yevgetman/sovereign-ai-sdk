@@ -10,8 +10,11 @@ import { describe, expect, test } from 'bun:test';
 import {
   DEFAULT_MAX_RING,
   ServerEventBus,
+  __test_busCount,
   __test_resetAllBuses,
   getOrCreateBus,
+  liveBusSessionIds,
+  peekBus,
   setDefaultRingSize,
 } from '../../src/server/eventBus.js';
 import type { ServerEvent } from '../../src/server/schema.js';
@@ -328,5 +331,110 @@ describe('setDefaultRingSize + getOrCreateBus (T2)', () => {
     expect(replayed.length).toBe(10);
 
     __test_resetAllBuses();
+  });
+});
+
+// Phase D T1 — purely additive bus liveness surface. The SessionSupervisor (T2)
+// and the new session routes (T4) read these to decide TTL eviction and to list
+// live sessions. Nothing here changes abort/cancel/ring/seq/per-turn semantics.
+describe('ServerEventBus — liveness surface (Phase D T1)', () => {
+  /** Build a text_delta event on an arbitrary session id, stamping seq. */
+  function emitOn(bus: ServerEventBus, sid: string, text: string): ServerEvent {
+    return { type: 'text_delta', seq: bus.nextSeq(), sessionId: sid, block: 0, text };
+  }
+
+  test('getSubscriberCount: 0 fresh, 1 after subscribe, 0 after unsubscribe', () => {
+    const bus = new ServerEventBus();
+    expect(bus.getSubscriberCount()).toBe(0);
+
+    const unsub = bus.subscribe(() => {});
+    expect(bus.getSubscriberCount()).toBe(1);
+
+    unsub();
+    expect(bus.getSubscriberCount()).toBe(0);
+  });
+
+  test('getLastActivityAt: returns the injected construction time', () => {
+    let clock = 1000;
+    const bus = new ServerEventBus(DEFAULT_MAX_RING, () => clock);
+    expect(bus.getLastActivityAt()).toBe(1000);
+    // Advancing the clock without any activity does not move lastActivityAt.
+    clock = 5000;
+    expect(bus.getLastActivityAt()).toBe(1000);
+  });
+
+  test('getLastActivityAt: bumped by subscribe', () => {
+    let clock = 1000;
+    const bus = new ServerEventBus(DEFAULT_MAX_RING, () => clock);
+    clock = 2000;
+    bus.subscribe(() => {});
+    expect(bus.getLastActivityAt()).toBe(2000);
+  });
+
+  test('getLastActivityAt: bumped by publish', () => {
+    let clock = 1000;
+    const bus = new ServerEventBus(DEFAULT_MAX_RING, () => clock);
+    clock = 3000;
+    bus.publish(emitOn(bus, 's_live', 'hi'));
+    expect(bus.getLastActivityAt()).toBe(3000);
+  });
+
+  test('getLastActivityAt: bumped by markTurnStart', () => {
+    let clock = 1000;
+    const bus = new ServerEventBus(DEFAULT_MAX_RING, () => clock);
+    clock = 4000;
+    bus.markTurnStart();
+    expect(bus.getLastActivityAt()).toBe(4000);
+  });
+
+  test('getLastActivityAt: default clock yields a number that does not decrease across activity', () => {
+    const bus = new ServerEventBus();
+    const before = bus.getLastActivityAt();
+    expect(typeof before).toBe('number');
+    bus.publish(emitOn(bus, 's_live', 'hi'));
+    const after = bus.getLastActivityAt();
+    expect(typeof after).toBe('number');
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+
+  test('peekBus: undefined for unknown id and does NOT create a bus', () => {
+    __test_resetAllBuses();
+    try {
+      const countBefore = __test_busCount();
+      expect(peekBus('nope')).toBeUndefined();
+      // A miss must not allocate.
+      expect(__test_busCount()).toBe(countBefore);
+    } finally {
+      __test_resetAllBuses();
+    }
+  });
+
+  test('peekBus: returns the same instance after getOrCreateBus', () => {
+    __test_resetAllBuses();
+    try {
+      const sid = 's_peek';
+      const created = getOrCreateBus(sid);
+      expect(peekBus(sid)).toBe(created);
+    } finally {
+      __test_resetAllBuses();
+    }
+  });
+
+  test('liveBusSessionIds: empty initially, then contains created ids; length matches __test_busCount', () => {
+    __test_resetAllBuses();
+    try {
+      expect(liveBusSessionIds()).toEqual([]);
+
+      getOrCreateBus('s_a');
+      getOrCreateBus('s_b');
+
+      const ids = liveBusSessionIds();
+      expect(ids).toContain('s_a');
+      expect(ids).toContain('s_b');
+      expect(ids.length).toBe(2);
+      expect(__test_busCount()).toBe(ids.length);
+    } finally {
+      __test_resetAllBuses();
+    }
   });
 });

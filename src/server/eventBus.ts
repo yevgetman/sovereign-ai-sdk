@@ -76,14 +76,30 @@ export class ServerEventBus {
   // turns on the same session keep working. turns.ts registers it at
   // turn start and clears it in the finally block.
   private currentTurnAbort: AbortController | null = null;
+  /**
+   * Phase D T1 — injectable clock, so the liveness surface is deterministically
+   * testable (advance the injected clock and assert exact `lastActivityAt`
+   * values). Defaults to `Date.now`.
+   */
+  private readonly now: () => number;
+  /**
+   * Phase D T1 — epoch ms of the most recent activity on this bus (construction,
+   * a `subscribe`, a `publish`, or a `markTurnStart`). The SessionSupervisor
+   * reads this via `getLastActivityAt()` to decide idle/TTL eviction. Purely
+   * observational — it never gates any existing behavior.
+   */
+  private lastActivityAt: number;
 
   /**
    * @param maxRing Bound on the replay ring. Defaults to {@link DEFAULT_MAX_RING}.
    *   A non-positive value is coerced to the default so the ring always retains
    *   at least the default window.
+   * @param now Injectable clock for the liveness surface. Defaults to `Date.now`.
    */
-  constructor(maxRing: number = DEFAULT_MAX_RING) {
+  constructor(maxRing: number = DEFAULT_MAX_RING, now: () => number = () => Date.now()) {
     this.maxRing = maxRing > 0 ? maxRing : DEFAULT_MAX_RING;
+    this.now = now;
+    this.lastActivityAt = this.now();
   }
 
   /**
@@ -136,6 +152,7 @@ export class ServerEventBus {
    * Idempotent in effect — just overwrites the mark.
    */
   markTurnStart(): void {
+    this.lastActivityAt = this.now();
     this.currentTurnStartSeq = this.seq + 1;
     // Fix 2 — a turn is now in progress. Cleared by `publish()` on the
     // matching terminal event.
@@ -159,6 +176,7 @@ export class ServerEventBus {
    * No-op once closed.
    */
   publish(event: ServerEvent): void {
+    this.lastActivityAt = this.now();
     if (this.closed) return;
     this.ring.push(event);
     if (this.ring.length > this.maxRing) {
@@ -200,6 +218,7 @@ export class ServerEventBus {
    * @returns an unsubscribe function (idempotent — safe to call repeatedly).
    */
   subscribe(fn: (ev: ServerEvent) => void, opts?: { lastEventId?: number }): () => void {
+    this.lastActivityAt = this.now();
     const replay =
       typeof opts?.lastEventId === 'number'
         ? this.ring.filter((ev) => ev.seq > (opts.lastEventId as number))
@@ -223,6 +242,24 @@ export class ServerEventBus {
 
   isClosed(): boolean {
     return this.closed;
+  }
+
+  /**
+   * Phase D T1 — number of currently-registered subscribers. The
+   * SessionSupervisor (T2) reads this to avoid evicting a bus that still has a
+   * live SSE watcher attached. Purely observational.
+   */
+  getSubscriberCount(): number {
+    return this.subscribers.size;
+  }
+
+  /**
+   * Phase D T1 — epoch ms of the most recent activity (construction / subscribe
+   * / publish / markTurnStart). The SessionSupervisor (T2) reads this to decide
+   * idle/TTL eviction. Purely observational.
+   */
+  getLastActivityAt(): number {
+    return this.lastActivityAt;
   }
 }
 
@@ -254,6 +291,26 @@ export function getOrCreateBus(sessionId: string, maxRing?: number): ServerEvent
     buses.set(sessionId, bus);
   }
   return bus;
+}
+
+/**
+ * Phase D T1 — session ids of every live bus currently in the map. The
+ * SessionSupervisor (T2) walks these to find idle buses; the session-list route
+ * (T4) surfaces them. Returns a fresh array (snapshot) — callers may iterate and
+ * dispose without mutating the live key set.
+ */
+export function liveBusSessionIds(): string[] {
+  return [...buses.keys()];
+}
+
+/**
+ * Phase D T1 — look up an existing bus WITHOUT creating one. Returns `undefined`
+ * for an unknown id (unlike `getOrCreateBus`, which lazily allocates). The
+ * SessionSupervisor (T2) and session routes (T4) use this to inspect a bus
+ * without minting a phantom entry on a miss.
+ */
+export function peekBus(sessionId: string): ServerEventBus | undefined {
+  return buses.get(sessionId);
 }
 
 export function disposeBus(sessionId: string): void {
@@ -321,7 +378,7 @@ export function clearAllBuses(): void {
  * is the supported per-session API.
  */
 export function __test_busCount(): number {
-  return buses.size;
+  return liveBusSessionIds().length;
 }
 
 export function __test_resetAllBuses(): void {
