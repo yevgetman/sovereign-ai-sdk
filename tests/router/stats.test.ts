@@ -30,6 +30,7 @@ function makeRow(opts: MakeRowOpts): Session {
     systemPrompt: null,
     schemaVersion: 1,
     metadata,
+    ownerId: null,
     inputTokens: 100,
     outputTokens: opts.outputTokens,
     cacheCreationInputTokens: 0,

@@ -103,6 +103,7 @@ describe('/resume — non-TTY fallback', () => {
           createdAt: Math.floor(Date.now() / 1000) - 120,
           lastUpdated: Math.floor(Date.now() / 1000) - 60,
           title: 'old session',
+          ownerId: null,
           msgCount: 3,
           totalTokens: 100,
           totalCostUsd: 0.01,

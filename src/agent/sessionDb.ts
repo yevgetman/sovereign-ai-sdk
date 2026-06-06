@@ -40,7 +40,7 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 type Migration = { from: number; to: number; sql: string };
 
@@ -142,6 +142,17 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_tasks_state ON tasks(state);
     `,
   },
+  {
+    // Phase E — per-principal session ownership for the multi-user gateway.
+    // Nullable: pre-existing rows + non-gateway surfaces (CLI/cron) leave it
+    // null. The composite index backs owner-scoped newest-first listing.
+    from: 4,
+    to: 5,
+    sql: `
+      ALTER TABLE sessions ADD COLUMN owner_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_id, last_updated DESC);
+    `,
+  },
 ];
 
 // Retry + checkpoint tuning. Match Hermes within reason; tune under load
@@ -175,6 +186,10 @@ export type CreateSessionInput = {
    *  id and the DB row. Callers must use {@link upsertSession} to
    *  idempotently land a row when reuse is expected. */
   sessionId?: string;
+  /** Phase E — owning principal id for the multi-user gateway. When
+   *  omitted the row is unowned (owner_id null) — the back-compat path
+   *  for the single-user CLI / cron / OpenAI surfaces. */
+  owner?: string;
 };
 
 /** Message payload persisted into the session transcript. */
@@ -211,6 +226,8 @@ export type Session = {
   systemPrompt: SystemSegment[] | null;
   schemaVersion: number;
   metadata: Record<string, unknown>;
+  /** Phase E — owning principal id, or null for unowned rows. */
+  ownerId: string | null;
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens: number;
@@ -268,6 +285,8 @@ export type SessionListEntry = {
   lastUpdated: number;
   /** Stored title if present, else the first user message (truncated). */
   title: string | null;
+  /** Phase E — owning principal id, or null for unowned rows. */
+  ownerId: string | null;
   /** Number of messages in the session. */
   msgCount: number;
   /** Total tokens (chat + cache + compaction lanes summed). */
@@ -429,7 +448,7 @@ export class SessionDb {
       .query<SessionRow, [string]>(
         `SELECT session_id, parent_session_id, model, provider, platform,
                 created_at, last_updated, title, system_prompt,
-                schema_version, metadata,
+                schema_version, metadata, owner_id,
                 input_tokens, output_tokens, cache_creation_input_tokens,
                 cache_read_input_tokens, estimated_cost_usd,
                 compaction_input_tokens, compaction_output_tokens,
@@ -458,7 +477,7 @@ export class SessionDb {
       .query<SessionRow, []>(
         `SELECT session_id, parent_session_id, model, provider, platform,
                 created_at, last_updated, title, system_prompt,
-                schema_version, metadata,
+                schema_version, metadata, owner_id,
                 input_tokens, output_tokens, cache_creation_input_tokens,
                 cache_read_input_tokens, estimated_cost_usd,
                 compaction_input_tokens, compaction_output_tokens,
@@ -482,8 +501,8 @@ export class SessionDb {
         `INSERT INTO sessions (
           session_id, parent_session_id, model, provider, platform,
           created_at, last_updated, title, system_prompt,
-          schema_version, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          schema_version, metadata, owner_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           sessionId,
           input.parentSessionId ?? null,
@@ -496,6 +515,7 @@ export class SessionDb {
           systemPromptJson,
           CURRENT_SCHEMA_VERSION,
           metadataJson,
+          input.owner ?? null,
         ],
       );
     });
@@ -563,11 +583,14 @@ export class SessionDb {
    *  (truncated) when the row's `title` column is null — matches what
    *  Claude Code shows in its session picker. msgCount and totalCost
    *  come from cheap aggregates. */
-  listSessions(limit = 20): SessionListEntry[] {
+  listSessions(limit = 20, owner?: string): SessionListEntry[] {
+    const ownerClause = owner !== undefined ? 'WHERE s.owner_id = ?' : '';
+    // Param order mirrors the placeholder order: owner (if filtering) before limit.
+    const params: (string | number)[] = owner !== undefined ? [owner, limit] : [limit];
     const rows = this.db
-      .query<SessionListRow, [number]>(
+      .query<SessionListRow, (string | number)[]>(
         `SELECT s.session_id, s.parent_session_id, s.model, s.provider, s.platform,
-                s.created_at, s.last_updated, s.title,
+                s.created_at, s.last_updated, s.title, s.owner_id,
                 s.input_tokens + s.output_tokens + s.cache_creation_input_tokens
                   + s.cache_read_input_tokens + s.compaction_input_tokens
                   + s.compaction_output_tokens AS total_tokens,
@@ -577,10 +600,11 @@ export class SessionDb {
                   WHERE session_id = s.session_id AND role = 'user'
                   ORDER BY id ASC LIMIT 1) AS first_user_content
          FROM sessions s
+         ${ownerClause}
          ORDER BY s.last_updated DESC
          LIMIT ?`,
       )
-      .all(limit);
+      .all(...params);
     return rows.map(rowToListEntry);
   }
 
@@ -598,19 +622,26 @@ export class SessionDb {
     });
   }
 
-  getSession(sessionId: string): Session | null {
+  /** Load a single session by id. When `owner` is supplied the row is only
+   *  returned if its `owner_id` matches (Phase E per-principal scoping);
+   *  an unowned row never matches an owner. Omitting `owner` returns the
+   *  row regardless of ownership — the single-user / internal back-compat
+   *  path. */
+  getSession(sessionId: string, owner?: string): Session | null {
+    const ownerClause = owner !== undefined ? ' AND owner_id = ?' : '';
+    const params: string[] = owner !== undefined ? [sessionId, owner] : [sessionId];
     const row = this.db
-      .query<SessionRow, [string]>(
+      .query<SessionRow, string[]>(
         `SELECT session_id, parent_session_id, model, provider, platform,
                 created_at, last_updated, title, system_prompt,
-                schema_version, metadata,
+                schema_version, metadata, owner_id,
                 input_tokens, output_tokens, cache_creation_input_tokens,
                 cache_read_input_tokens, estimated_cost_usd,
                 compaction_input_tokens, compaction_output_tokens,
                 estimated_compaction_cost_usd
-         FROM sessions WHERE session_id = ?`,
+         FROM sessions WHERE session_id = ?${ownerClause}`,
       )
-      .get(sessionId);
+      .get(...params);
     if (!row) return null;
     return rowToSession(row);
   }
@@ -861,6 +892,7 @@ type SessionRow = {
   system_prompt: string | null;
   schema_version: number;
   metadata: string;
+  owner_id: string | null;
   input_tokens: number;
   output_tokens: number;
   cache_creation_input_tokens: number;
@@ -897,6 +929,7 @@ type SessionListRow = {
   created_at: number;
   last_updated: number;
   title: string | null;
+  owner_id: string | null;
   total_tokens: number;
   total_cost_usd: number;
   msg_count: number;
@@ -934,6 +967,7 @@ function rowToListEntry(row: SessionListRow): SessionListEntry {
     createdAt: row.created_at,
     lastUpdated: row.last_updated,
     title: row.title ?? deriveTitleFromContent(row.first_user_content),
+    ownerId: row.owner_id ?? null,
     msgCount: row.msg_count,
     totalTokens: row.total_tokens,
     totalCostUsd: row.total_cost_usd,
@@ -967,6 +1001,7 @@ function rowToSession(row: SessionRow): Session {
       row.system_prompt === null ? null : (JSON.parse(row.system_prompt) as SystemSegment[]),
     schemaVersion: row.schema_version,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
+    ownerId: row.owner_id ?? null,
     ...rowToCost(row),
   };
 }

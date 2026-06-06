@@ -105,6 +105,7 @@ describe('/resume — requestPicker branch (M11.5 T7)', () => {
       createdAt: Math.floor(Date.now() / 1000) - 120,
       lastUpdated: Math.floor(Date.now() / 1000) - 60,
       title: overrides.title ?? 'a recorded session',
+      ownerId: null,
       msgCount: 4,
       totalTokens: 200,
       totalCostUsd: 0.02,
