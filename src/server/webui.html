@@ -1,1 +1,2228 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Sovereign AI</title></head><body><div id="app">loading…</div></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Sovereign AI · Console</title>
+    <style>
+      /* ============================================================
+         Sovereign AI — reference web console
+         Single self-contained file. No framework, no build.
+         Aesthetic: refined dark technical instrument. Near-black warm
+         charcoal field, a single sovereign-amber accent, mono chrome +
+         readable sans prose, hairline borders, generous vertical rhythm.
+         ============================================================ */
+
+      /* ---- Type. System sans for prose (no webfont dependency so the
+         binary stays self-contained + works fully offline), tuned mono
+         for chrome. The character comes from scale, color, and spacing
+         rather than a downloaded display face. ---- */
+      :root {
+        --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          'Helvetica Neue', Helvetica, Arial, sans-serif;
+        --font-mono: ui-monospace, 'SF Mono', 'SFMono-Regular', 'JetBrains Mono',
+          'Cascadia Code', 'Fira Code', Menlo, Consolas, 'Liberation Mono', monospace;
+
+        /* Field — warm near-black, layered for depth */
+        --bg-0: #0a0a0c;
+        --bg-1: #101013;
+        --bg-2: #16161b;
+        --bg-3: #1d1d23;
+        --bg-raise: #202028;
+
+        /* Hairlines */
+        --line: #26262e;
+        --line-strong: #34343f;
+
+        /* Ink */
+        --ink-0: #f4f1ea; /* primary prose */
+        --ink-1: #c8c4bb; /* secondary */
+        --ink-2: #8f8b82; /* muted / chrome labels */
+        --ink-3: #5f5c55; /* faint */
+
+        /* Sovereign amber — the single confident accent */
+        --gold: #e8b059;
+        --gold-soft: #f0c97e;
+        --gold-dim: #8a6a32;
+        --gold-glow: rgba(232, 176, 89, 0.16);
+
+        /* Semantic */
+        --ok: #7fc8a9;
+        --warn: #e6b15a;
+        --err: #e8826f;
+        --err-bg: rgba(232, 130, 111, 0.08);
+        --think: #9aa3c4;
+
+        --radius: 10px;
+        --radius-sm: 7px;
+        --shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 18px 48px -24px rgba(0, 0, 0, 0.8);
+
+        --maxw: 860px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg-0);
+        /* atmospheric depth: a faint top-anchored amber wash + a fine grain
+           feel via layered radial gradients (CSS only, no asset). */
+        background-image:
+          radial-gradient(120% 80% at 50% -10%, rgba(232, 176, 89, 0.05), transparent 55%),
+          radial-gradient(80% 60% at 100% 0%, rgba(120, 130, 180, 0.04), transparent 60%);
+        background-attachment: fixed;
+        color: var(--ink-0);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.62;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        overflow: hidden;
+      }
+      ::selection {
+        background: var(--gold-glow);
+        color: var(--gold-soft);
+      }
+
+      /* slim, on-theme scrollbar */
+      *::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      *::-webkit-scrollbar-thumb {
+        background: var(--line-strong);
+        border-radius: 99px;
+        border: 3px solid transparent;
+        background-clip: padding-box;
+      }
+      *::-webkit-scrollbar-thumb:hover {
+        background: #45454f;
+        background-clip: padding-box;
+        border: 3px solid transparent;
+      }
+
+      #app {
+        height: 100%;
+      }
+
+      /* =================== shared atoms =================== */
+      .mono {
+        font-family: var(--font-mono);
+      }
+      .crown {
+        color: var(--gold);
+      }
+      .btn {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        letter-spacing: 0.04em;
+        color: var(--ink-0);
+        background: var(--bg-3);
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-sm);
+        padding: 9px 15px;
+        cursor: pointer;
+        transition:
+          background 120ms ease,
+          border-color 120ms ease,
+          transform 80ms ease,
+          color 120ms ease;
+      }
+      .btn:hover {
+        background: var(--bg-raise);
+        border-color: #44444f;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .btn-primary {
+        color: #15110a;
+        background: linear-gradient(180deg, var(--gold-soft), var(--gold));
+        border-color: var(--gold-dim);
+        font-weight: 600;
+      }
+      .btn-primary:hover {
+        background: linear-gradient(180deg, #f6d493, var(--gold-soft));
+        border-color: var(--gold);
+      }
+      .btn-ghost {
+        background: transparent;
+        border-color: transparent;
+        color: var(--ink-2);
+      }
+      .btn-ghost:hover {
+        background: var(--bg-2);
+        color: var(--ink-0);
+        border-color: var(--line);
+      }
+      .btn-danger:hover {
+        border-color: var(--err);
+        color: var(--err);
+      }
+
+      input[type='text'],
+      input[type='password'],
+      textarea {
+        font-family: inherit;
+        font-size: 15px;
+        color: var(--ink-0);
+        background: var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 12px 14px;
+        width: 100%;
+        outline: none;
+        transition:
+          border-color 140ms ease,
+          box-shadow 140ms ease,
+          background 140ms ease;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--ink-3);
+      }
+      input:focus,
+      textarea:focus {
+        border-color: var(--gold-dim);
+        box-shadow: 0 0 0 3px var(--gold-glow);
+        background: var(--bg-2);
+      }
+      .field-label {
+        display: block;
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+        margin: 0 0 8px 2px;
+      }
+
+      /* =================== connect screen =================== */
+      .gate {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        overflow: auto;
+      }
+      .gate-card {
+        width: 100%;
+        max-width: 460px;
+        background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 38px 36px 32px;
+        position: relative;
+        overflow: hidden;
+      }
+      .gate-card::before {
+        /* a thin sovereign rule across the very top of the card */
+        content: '';
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--gold), transparent);
+        opacity: 0.7;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        margin-bottom: 6px;
+      }
+      .sigil {
+        width: 38px;
+        height: 38px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--gold-dim);
+        border-radius: 9px;
+        background: radial-gradient(circle at 50% 30%, var(--gold-glow), transparent 70%);
+        color: var(--gold);
+        font-family: var(--font-mono);
+        font-size: 19px;
+        line-height: 1;
+      }
+      .brand-text h1 {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .brand-text .sub {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+      .gate-blurb {
+        color: var(--ink-1);
+        font-size: 14px;
+        line-height: 1.6;
+        margin: 18px 0 26px;
+      }
+      .gate-form > .row {
+        margin-bottom: 18px;
+      }
+      .gate-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 26px;
+      }
+      .gate-actions .btn {
+        flex: 1;
+        padding: 12px 16px;
+      }
+      .gate-foot {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: var(--ink-3);
+      }
+      .gate-status {
+        min-height: 20px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        margin-top: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .gate-status.is-err {
+        color: var(--err);
+      }
+      .gate-status.is-ok {
+        color: var(--ok);
+      }
+      .gate-status.is-busy {
+        color: var(--gold);
+      }
+
+      /* =================== chat shell =================== */
+      .shell {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(16, 16, 19, 0.72);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+      .topbar .sigil {
+        width: 30px;
+        height: 30px;
+        font-size: 15px;
+        border-radius: 8px;
+      }
+      .top-title {
+        font-weight: 600;
+        font-size: 14.5px;
+        letter-spacing: -0.01em;
+      }
+      .top-meta {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        letter-spacing: 0.06em;
+        color: var(--ink-2);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .sid {
+        color: var(--ink-3);
+      }
+      .top-spacer {
+        flex: 1;
+      }
+      .conn-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 99px;
+        background: var(--ink-3);
+        flex: none;
+        box-shadow: 0 0 0 0 transparent;
+        transition: background 200ms ease;
+      }
+      .conn-dot.live {
+        background: var(--ok);
+        box-shadow: 0 0 9px rgba(127, 200, 169, 0.6);
+      }
+      .conn-dot.reconnecting {
+        background: var(--gold);
+        animation: pulse 1.1s ease-in-out infinite;
+      }
+      .conn-dot.dead {
+        background: var(--err);
+      }
+      .conn-label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        color: var(--ink-2);
+        min-width: 84px;
+      }
+
+      /* transcript */
+      .scroll {
+        overflow-y: auto;
+        overflow-x: hidden;
+        scroll-behavior: smooth;
+      }
+      .stream {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 30px 22px 40px;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+
+      /* empty state */
+      .empty {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 8vh 22px 0;
+        text-align: center;
+        color: var(--ink-2);
+      }
+      .empty .ring {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 22px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--gold-dim);
+        background: radial-gradient(circle at 50% 35%, var(--gold-glow), transparent 70%);
+        color: var(--gold);
+        font-family: var(--font-mono);
+        font-size: 26px;
+      }
+      .empty h2 {
+        color: var(--ink-0);
+        font-weight: 600;
+        font-size: 21px;
+        letter-spacing: -0.01em;
+        margin: 0 0 10px;
+      }
+      .empty p {
+        margin: 0 auto;
+        max-width: 440px;
+        font-size: 14px;
+        line-height: 1.65;
+      }
+      .empty .hints {
+        margin-top: 26px;
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .chip {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--ink-1);
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        padding: 7px 14px;
+        cursor: pointer;
+        transition:
+          border-color 120ms ease,
+          color 120ms ease,
+          background 120ms ease;
+      }
+      .chip:hover {
+        border-color: var(--gold-dim);
+        color: var(--gold-soft);
+        background: var(--bg-3);
+      }
+
+      /* message rows */
+      .msg {
+        display: grid;
+        grid-template-columns: 26px 1fr;
+        gap: 14px;
+        animation: rise 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .gutter {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        padding-top: 3px;
+        user-select: none;
+        text-align: center;
+      }
+      .role-badge {
+        display: inline-grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 7px;
+        font-size: 11px;
+        border: 1px solid var(--line-strong);
+      }
+      .msg.user .role-badge {
+        color: var(--gold);
+        border-color: var(--gold-dim);
+        background: var(--gold-glow);
+      }
+      .msg.assistant .role-badge {
+        color: var(--ink-1);
+        background: var(--bg-3);
+      }
+      .body {
+        min-width: 0;
+      }
+      .msg.user .body {
+        color: var(--ink-0);
+      }
+      .bubble {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .msg.user .bubble {
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-left: 2px solid var(--gold);
+        border-radius: var(--radius-sm);
+        padding: 11px 15px;
+        display: inline-block;
+        max-width: 100%;
+      }
+      .msg.assistant .bubble {
+        color: var(--ink-0);
+      }
+
+      /* streaming caret */
+      .caret {
+        display: inline-block;
+        width: 8px;
+        height: 1.05em;
+        margin-left: 1px;
+        vertical-align: -2px;
+        background: var(--gold);
+        border-radius: 1px;
+        animation: blink 1s steps(2, start) infinite;
+        box-shadow: 0 0 8px var(--gold-glow);
+      }
+
+      /* thinking block */
+      .think {
+        margin-top: 10px;
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius-sm);
+        background: rgba(154, 163, 196, 0.04);
+        overflow: hidden;
+      }
+      .think summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 8px 13px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        letter-spacing: 0.04em;
+        color: var(--think);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        user-select: none;
+      }
+      .think summary::-webkit-details-marker {
+        display: none;
+      }
+      .think summary .tw {
+        color: var(--ink-3);
+        margin-left: auto;
+        font-size: 14px;
+        transition: transform 160ms ease;
+      }
+      .think[open] summary .tw {
+        transform: rotate(90deg);
+      }
+      .think .think-body {
+        padding: 4px 14px 13px 34px;
+        color: var(--ink-2);
+        font-size: 13.5px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-style: italic;
+      }
+
+      /* tool card */
+      .tool {
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        border-left: 2px solid var(--gold-dim);
+        border-radius: var(--radius-sm);
+        background: var(--bg-1);
+        overflow: hidden;
+        transition: border-color 160ms ease;
+      }
+      .tool.running {
+        border-left-color: var(--gold);
+      }
+      .tool.error {
+        border-left-color: var(--err);
+        background: var(--err-bg);
+      }
+      .tool-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 9px 13px;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+      }
+      .tool-glyph {
+        color: var(--gold);
+        font-size: 12px;
+      }
+      .tool.error .tool-glyph {
+        color: var(--err);
+      }
+      .tool-name {
+        color: var(--ink-0);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .tool-input {
+        color: var(--ink-2);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+      .tool-state {
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        flex: none;
+      }
+      .tool.running .tool-state {
+        color: var(--gold);
+      }
+      .tool.ok .tool-state {
+        color: var(--ok);
+      }
+      .tool.error .tool-state {
+        color: var(--err);
+      }
+      .spin {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        border: 2px solid var(--gold-dim);
+        border-top-color: var(--gold);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+      .tool-out {
+        border-top: 1px solid var(--line);
+        margin: 0;
+        padding: 11px 14px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--ink-1);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 320px;
+        overflow: auto;
+        background: var(--bg-0);
+      }
+      .tool.error .tool-out {
+        color: var(--err);
+        background: transparent;
+      }
+      .tool-out.clip {
+        max-height: 132px;
+      }
+      .tool-more {
+        border-top: 1px solid var(--line);
+        text-align: center;
+        padding: 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--ink-2);
+        cursor: pointer;
+        background: var(--bg-1);
+      }
+      .tool-more:hover {
+        color: var(--gold-soft);
+      }
+
+      /* permission card */
+      .perm {
+        margin-top: 12px;
+        border: 1px solid var(--gold-dim);
+        border-radius: var(--radius);
+        background: linear-gradient(180deg, rgba(232, 176, 89, 0.07), var(--bg-1));
+        box-shadow: 0 0 0 1px var(--gold-glow);
+        overflow: hidden;
+        animation: rise 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .perm-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 15px 9px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--gold);
+        border-bottom: 1px solid var(--line);
+      }
+      .perm-body {
+        padding: 13px 15px;
+      }
+      .perm-tool {
+        font-family: var(--font-mono);
+        font-size: 13.5px;
+        color: var(--ink-0);
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .perm-reason {
+        color: var(--ink-1);
+        font-size: 13.5px;
+        margin-bottom: 10px;
+      }
+      .perm-input {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--ink-2);
+        background: var(--bg-0);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 10px 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 180px;
+        overflow: auto;
+        margin-bottom: 13px;
+      }
+      .perm-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .perm-actions .grow {
+        flex: 1;
+      }
+      .always {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--ink-2);
+        cursor: pointer;
+        user-select: none;
+      }
+      .always input {
+        width: auto;
+        accent-color: var(--gold);
+        cursor: pointer;
+      }
+      .perm.answered {
+        opacity: 0.62;
+        border-color: var(--line);
+        box-shadow: none;
+        background: var(--bg-1);
+      }
+      .perm-verdict {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        padding: 9px 15px;
+        border-top: 1px solid var(--line);
+      }
+      .perm-verdict.approved {
+        color: var(--ok);
+      }
+      .perm-verdict.denied {
+        color: var(--err);
+      }
+
+      /* turn footer (finish / cost / error) */
+      .turnfoot {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        color: var(--ink-3);
+        margin-top: 12px;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .turnfoot .dot {
+        color: var(--ink-3);
+      }
+      .turnfoot .stop {
+        color: var(--gold-soft);
+      }
+      .turn-error {
+        margin-top: 12px;
+        border: 1px solid var(--err);
+        border-radius: var(--radius-sm);
+        background: var(--err-bg);
+        color: var(--err);
+        padding: 11px 14px;
+        font-size: 13.5px;
+      }
+      .notice {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 0 22px;
+      }
+      .notice-inner {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--ink-2);
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius-sm);
+        padding: 8px 12px;
+        text-align: center;
+      }
+
+      /* composer */
+      .composer-wrap {
+        border-top: 1px solid var(--line);
+        background: rgba(13, 13, 16, 0.8);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+      .composer {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 14px 22px 18px;
+      }
+      .status-line {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: var(--ink-2);
+        min-height: 16px;
+        margin-bottom: 9px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .status-line .live-spin {
+        width: 9px;
+        height: 9px;
+        border: 2px solid var(--gold-dim);
+        border-top-color: var(--gold);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        flex: none;
+      }
+      .status-metrics {
+        margin-left: auto;
+        color: var(--ink-3);
+        display: flex;
+        gap: 12px;
+      }
+      .input-shell {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        background: var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 8px 8px 8px 14px;
+        transition:
+          border-color 140ms ease,
+          box-shadow 140ms ease;
+      }
+      .input-shell:focus-within {
+        border-color: var(--gold-dim);
+        box-shadow: 0 0 0 3px var(--gold-glow);
+      }
+      .input-shell textarea {
+        border: none;
+        background: transparent;
+        padding: 6px 0;
+        resize: none;
+        max-height: 200px;
+        line-height: 1.55;
+      }
+      .input-shell textarea:focus {
+        box-shadow: none;
+        background: transparent;
+      }
+      .send {
+        flex: none;
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--gold-dim);
+        background: linear-gradient(180deg, var(--gold-soft), var(--gold));
+        color: #15110a;
+        cursor: pointer;
+        font-size: 17px;
+        transition:
+          transform 80ms ease,
+          filter 120ms ease,
+          background 120ms ease;
+      }
+      .send:hover {
+        filter: brightness(1.06);
+      }
+      .send:active {
+        transform: translateY(1px) scale(0.97);
+      }
+      .send:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        filter: none;
+      }
+      .send.stopping {
+        background: var(--bg-3);
+        border-color: var(--err);
+        color: var(--err);
+      }
+      .composer-hint {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        color: var(--ink-3);
+        margin-top: 8px;
+        text-align: right;
+      }
+      kbd {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        background: var(--bg-3);
+        border: 1px solid var(--line-strong);
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 1px 5px;
+        color: var(--ink-1);
+      }
+
+      /* =================== animations =================== */
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes blink {
+        0%,
+        50% {
+          opacity: 1;
+        }
+        50.01%,
+        100% {
+          opacity: 0;
+        }
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
+        }
+        .caret {
+          opacity: 1;
+        }
+      }
+      @media (max-width: 560px) {
+        .stream,
+        .composer,
+        .empty,
+        .notice {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        .msg {
+          grid-template-columns: 22px 1fr;
+          gap: 10px;
+        }
+        .conn-label {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      'use strict';
+      /* ================================================================
+         Sovereign AI reference chat client.
+         Drives the native HTTP+SSE gateway protocol (Phase A/B).
+         Vanilla JS, no dependencies. Served same-origin → no CORS.
+
+         SECURITY INVARIANTS (load-bearing):
+         - The bearer token lives ONLY in localStorage + an in-memory var.
+           It is NEVER written into the DOM and NEVER logged.
+         - ALL server / model / tool text is inserted via textContent or
+           the el() helper (which uses textContent). We never assign
+           innerHTML from untrusted content. The only innerHTML uses are
+           static, author-controlled SVG/markup with no interpolation.
+         ================================================================ */
+
+      // ---------- tiny DOM helper (textContent-only; XSS-safe by default) ----------
+      /**
+       * Create an element. `props.text` is set via textContent (escaped).
+       * `props.html` is allowed ONLY for static author markup — never pass
+       * server/model/tool content to it.
+       */
+      function el(tag, props, children) {
+        const node = document.createElement(tag);
+        if (props) {
+          for (const k in props) {
+            const v = props[k];
+            if (v == null) continue;
+            if (k === 'text') node.textContent = String(v);
+            else if (k === 'html') node.innerHTML = v; // static markup only
+            else if (k === 'class') node.className = v;
+            else if (k === 'dataset') Object.assign(node.dataset, v);
+            else if (k.slice(0, 2) === 'on' && typeof v === 'function')
+              node.addEventListener(k.slice(2).toLowerCase(), v);
+            else if (k in node) node[k] = v;
+            else node.setAttribute(k, v);
+          }
+        }
+        if (children != null) {
+          const list = Array.isArray(children) ? children : [children];
+          for (const c of list) {
+            if (c == null) continue;
+            node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+          }
+        }
+        return node;
+      }
+      const $app = document.getElementById('app');
+      function clear(node) {
+        while (node.firstChild) node.removeChild(node.firstChild);
+      }
+
+      // ---------- persisted connection config ----------
+      const LS_BASE = 'sov.web.baseUrl';
+      const LS_TOKEN = 'sov.web.token';
+
+      const store = {
+        getBase() {
+          try {
+            return localStorage.getItem(LS_BASE) || '';
+          } catch {
+            return '';
+          }
+        },
+        getToken() {
+          try {
+            return localStorage.getItem(LS_TOKEN) || '';
+          } catch {
+            return '';
+          }
+        },
+        set(base, token) {
+          try {
+            localStorage.setItem(LS_BASE, base);
+            if (token) localStorage.setItem(LS_TOKEN, token);
+            else localStorage.removeItem(LS_TOKEN);
+          } catch {
+            /* private mode / disabled storage — run in-memory only */
+          }
+        },
+        clear() {
+          try {
+            localStorage.removeItem(LS_BASE);
+            localStorage.removeItem(LS_TOKEN);
+          } catch {
+            /* ignore */
+          }
+        },
+      };
+
+      // ---------- shared connection state (token never leaves this module) ----------
+      const conn = {
+        base: '',
+        token: '', // in-memory only; never rendered
+      };
+
+      function normalizeBase(raw) {
+        let b = (raw || '').trim();
+        if (!b) return '';
+        // tolerate a missing scheme by assuming the page's
+        if (!/^https?:\/\//i.test(b)) b = location.protocol + '//' + b;
+        return b.replace(/\/+$/, '');
+      }
+
+      /** Build request headers; the Authorization header is attached ONLY
+       *  when a token is set (token-less loopback gateways must work). */
+      function authHeaders(extra) {
+        const h = Object.assign({}, extra || {});
+        if (conn.token) h['Authorization'] = 'Bearer ' + conn.token;
+        return h;
+      }
+
+      // ================================================================
+      //  CONNECT SCREEN
+      // ================================================================
+      const SIGIL_SVG =
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">' +
+        '<path d="M3 8l4 4 5-7 5 7 4-4-2 11H5L3 8z"/></svg>';
+
+      function renderGate(prefillErr) {
+        clear($app);
+        const savedBase = store.getBase() || location.origin;
+        const hasToken = !!store.getToken();
+
+        const baseInput = el('input', {
+          type: 'text',
+          value: savedBase,
+          placeholder: location.origin,
+          autocomplete: 'off',
+          autocapitalize: 'off',
+          spellcheck: false,
+        });
+        // Token field: we show a neutral placeholder when one is already
+        // stored, but we NEVER place the real token value into the DOM.
+        const tokenInput = el('input', {
+          type: 'password',
+          value: '',
+          placeholder: hasToken ? '•••••••• (saved — leave blank to keep)' : 'optional for loopback',
+          autocomplete: 'off',
+          spellcheck: false,
+        });
+
+        const statusEl = el('div', { class: 'gate-status' });
+        function setStatus(kind, msg, busy) {
+          statusEl.className = 'gate-status' + (kind ? ' is-' + kind : '');
+          clear(statusEl);
+          if (busy) statusEl.appendChild(el('span', { class: 'spin' }));
+          statusEl.appendChild(el('span', { text: msg }));
+        }
+        if (prefillErr) setStatus('err', prefillErr);
+
+        const connectBtn = el('button', {
+          class: 'btn btn-primary',
+          type: 'submit',
+          text: 'Connect',
+        });
+        const forgetBtn = el('button', {
+          class: 'btn btn-ghost btn-danger',
+          type: 'button',
+          text: hasToken || store.getBase() ? 'Forget saved' : 'Reset',
+          onClick: () => {
+            store.clear();
+            renderGate();
+          },
+        });
+
+        async function doConnect(ev) {
+          if (ev) ev.preventDefault();
+          const base = normalizeBase(baseInput.value);
+          if (!base) {
+            setStatus('err', 'Enter a gateway URL.');
+            return;
+          }
+          // Token: a freshly typed value wins; otherwise reuse the saved one.
+          const typed = tokenInput.value.trim();
+          const token = typed || store.getToken();
+
+          connectBtn.disabled = true;
+          forgetBtn.disabled = true;
+          setStatus('busy', 'Probing ' + base + '/health …', true);
+
+          conn.base = base;
+          conn.token = token;
+          try {
+            const res = await fetch(base + '/health', {
+              method: 'GET',
+              headers: authHeaders(),
+              cache: 'no-store',
+            });
+            if (!res.ok) throw new Error('health check returned ' + res.status);
+            let ver = '';
+            try {
+              const j = await res.json();
+              if (j && typeof j.version === 'string') ver = j.version;
+            } catch {
+              /* health body optional */
+            }
+            // Persist only after a successful probe.
+            store.set(base, token);
+            setStatus('ok', 'Connected' + (ver ? ' · gateway v' + ver : '') + ' — opening session…');
+            // Hand off to the chat shell.
+            startChat(ver).catch((e) => {
+              renderGate(errMsg(e));
+            });
+          } catch (e) {
+            conn.token = '';
+            connectBtn.disabled = false;
+            forgetBtn.disabled = false;
+            setStatus(
+              'err',
+              'Could not reach the gateway. ' +
+                errMsg(e) +
+                (conn.token ? '' : ' (check the URL / token)'),
+            );
+          }
+        }
+
+        const form = el('form', { class: 'gate-form', onSubmit: doConnect }, [
+          el('div', { class: 'row' }, [
+            el('label', { class: 'field-label', text: 'Gateway URL' }),
+            baseInput,
+          ]),
+          el('div', { class: 'row' }, [
+            el('label', { class: 'field-label', text: 'Bearer token' }),
+            tokenInput,
+          ]),
+          el('div', { class: 'gate-actions' }, [forgetBtn, connectBtn]),
+        ]);
+
+        const card = el('div', { class: 'gate-card' }, [
+          el('div', { class: 'brand' }, [
+            el('div', { class: 'sigil', html: SIGIL_SVG }),
+            el('div', { class: 'brand-text' }, [
+              el('h1', { text: 'Sovereign AI' }),
+              el('div', { class: 'sub', text: 'agent console' }),
+            ]),
+          ]),
+          el('p', {
+            class: 'gate-blurb',
+            text:
+              'Connect to a running sov gateway to drive a full agent session — ' +
+              'streaming output, tool calls, and permission prompts — over the network.',
+          }),
+          form,
+          statusEl,
+          el('div', {
+            class: 'gate-foot',
+            text:
+              'Token stays in this browser (localStorage) and is sent only as a Bearer header. ' +
+              'Loopback gateways may need no token.',
+          }),
+        ]);
+
+        $app.appendChild(el('div', { class: 'gate' }, card));
+        baseInput.focus();
+      }
+
+      function errMsg(e) {
+        if (e && typeof e.message === 'string') return e.message;
+        return 'Unexpected error.';
+      }
+
+      // ================================================================
+      //  CHAT SHELL
+      // ================================================================
+      // Per-session live state.
+      const S = {
+        sessionId: null,
+        gatewayVersion: '',
+        lastEventId: null, // last SSE `id:` (seq) seen — drives reconnect
+        streamCtrl: null, // AbortController for the active ?follow fetch
+        streamAlive: false,
+        turnActive: false,
+        retry: 0, // reconnect attempt counter
+        retryTimer: null,
+        disposed: false,
+        // current-turn render anchors
+        cur: null, // { wrap, assistantBubble, caret, blocks: Map, container }
+        metrics: { cost: null, tokensIn: null, tokensOut: null },
+      };
+
+      // UI handles populated by renderShell()
+      const UI = {};
+
+      const MAX_RETRY = 6;
+      const BACKOFF = [500, 1000, 2000, 4000, 8000, 8000]; // ms, capped
+
+      async function startChat(version) {
+        S.gatewayVersion = version || '';
+        renderShell();
+        await newSession();
+      }
+
+      function renderShell() {
+        clear($app);
+        S.disposed = false;
+
+        const sigil = el('div', { class: 'sigil', html: SIGIL_SVG });
+        UI.connDot = el('div', { class: 'conn-dot' });
+        UI.connLabel = el('div', { class: 'conn-label', text: 'connecting' });
+        UI.sidLabel = el('span', { class: 'sid mono', text: '—' });
+
+        const topbar = el('div', { class: 'topbar' }, [
+          sigil,
+          el('div', {}, [
+            el('div', { class: 'top-title', text: 'Sovereign AI' }),
+            el('div', { class: 'top-meta' }, [
+              UI.sidLabel,
+              S.gatewayVersion ? el('span', { text: 'v' + S.gatewayVersion }) : null,
+            ]),
+          ]),
+          el('div', { class: 'top-spacer' }),
+          UI.connDot,
+          UI.connLabel,
+          el('button', {
+            class: 'btn btn-ghost',
+            text: '+ New chat',
+            title: 'Start a fresh session',
+            onClick: () => {
+              if (S.turnActive) return;
+              newSession().catch((e) => setStatusLine('error: ' + errMsg(e)));
+            },
+          }),
+          el('button', {
+            class: 'btn btn-ghost',
+            text: 'Disconnect',
+            title: 'Clear token and return to the connect screen',
+            onClick: disconnect,
+          }),
+        ]);
+
+        UI.scroll = el('div', { class: 'scroll' });
+        UI.stream = el('div', { class: 'stream' });
+        UI.scroll.appendChild(UI.stream);
+        renderEmptyState();
+
+        // composer
+        UI.statusLine = el('div', { class: 'status-line' });
+        UI.metricsEl = el('div', { class: 'status-metrics' });
+        UI.statusLine.appendChild(el('span', { class: 'status-text', text: 'Ready.' }));
+        UI.statusLine.appendChild(UI.metricsEl);
+
+        UI.textarea = el('textarea', {
+          rows: 1,
+          placeholder: 'Send a message…  (Enter to send · Shift+Enter for newline)',
+          autocomplete: 'off',
+          spellcheck: true,
+          onInput: autoGrow,
+          onKeydown: onComposerKey,
+        });
+        UI.sendBtn = el('button', {
+          class: 'send',
+          title: 'Send',
+          html:
+            '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+          onClick: onSendClick,
+        });
+
+        const composer = el('div', { class: 'composer-wrap' }, [
+          el('div', { class: 'composer' }, [
+            UI.statusLine,
+            el('div', { class: 'input-shell' }, [UI.textarea, UI.sendBtn]),
+            el('div', { class: 'composer-hint' }, [
+              document.createTextNode('Streaming over '),
+              el('span', { class: 'crown', text: 'fetch' }),
+              document.createTextNode(' + ReadableStream · reconnects on drop'),
+            ]),
+          ]),
+        ]);
+
+        $app.appendChild(el('div', { class: 'shell' }, [topbar, UI.scroll, composer]));
+        setTimeout(() => UI.textarea && UI.textarea.focus(), 30);
+      }
+
+      function renderEmptyState() {
+        clear(UI.stream);
+        UI.stream.appendChild(
+          el('div', { class: 'empty' }, [
+            el('div', { class: 'ring', html: SIGIL_SVG }),
+            el('h2', { text: 'A new session is open.' }),
+            el('p', {
+              text:
+                'Ask the agent to do something. It can read and write files, run commands, ' +
+                'and search the web — actions that need approval will surface an inline prompt.',
+            }),
+            el('div', { class: 'hints' }, [
+              chip('What files are in src/?'),
+              chip('Summarize the README'),
+              chip('Run git status'),
+            ]),
+          ]),
+        );
+      }
+      function chip(text) {
+        return el('button', {
+          class: 'chip',
+          text,
+          onClick: () => {
+            if (!UI.textarea) return;
+            UI.textarea.value = text;
+            autoGrow.call(UI.textarea);
+            UI.textarea.focus();
+          },
+        });
+      }
+
+      function autoGrow() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+      }
+
+      function onComposerKey(e) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          submitTurn();
+        }
+      }
+      function onSendClick() {
+        if (S.turnActive) cancelTurn();
+        else submitTurn();
+      }
+
+      // ---------- scroll management (stick to bottom unless user scrolled up) ----------
+      let stick = true;
+      function onScrollObserve() {
+        const s = UI.scroll;
+        stick = s.scrollHeight - s.scrollTop - s.clientHeight < 80;
+      }
+      function scrollDown(force) {
+        if (!UI.scroll) return;
+        if (force) stick = true;
+        if (stick) UI.scroll.scrollTop = UI.scroll.scrollHeight;
+      }
+
+      // ================================================================
+      //  SESSION + STREAM LIFECYCLE
+      // ================================================================
+      async function newSession() {
+        // Tear down any existing stream first.
+        stopStream();
+        S.sessionId = null;
+        S.lastEventId = null;
+        S.turnActive = false;
+        S.metrics = { cost: null, tokensIn: null, tokensOut: null };
+        renderEmptyState();
+        renderMetrics();
+        setConn('connecting', 'opening');
+        setStatusLine('Opening session…');
+
+        const res = await fetch(conn.base + '/sessions', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: '{}',
+        });
+        if (res.status === 401) throw new Error('unauthorized (401) — token rejected');
+        if (!res.ok) throw new Error('open session failed: ' + res.status);
+        const data = await res.json();
+        if (!data || typeof data.sessionId !== 'string') throw new Error('malformed session response');
+        S.sessionId = data.sessionId;
+        if (UI.sidLabel) UI.sidLabel.textContent = shortId(data.sessionId);
+        setStatusLine('Ready.');
+        UI.scroll.addEventListener('scroll', onScrollObserve, { passive: true });
+        openStream();
+      }
+
+      function shortId(id) {
+        if (!id) return '—';
+        return id.length > 13 ? id.slice(0, 8) + '…' + id.slice(-4) : id;
+      }
+
+      function disconnect() {
+        S.disposed = true;
+        stopStream();
+        conn.token = '';
+        store.clear();
+        S.sessionId = null;
+        renderGate();
+      }
+
+      function setConn(state, label) {
+        if (!UI.connDot) return;
+        UI.connDot.className = 'conn-dot ' + (state === 'live' ? 'live' : state === 'reconnecting' ? 'reconnecting' : state === 'dead' ? 'dead' : '');
+        UI.connLabel.textContent = label || state;
+      }
+
+      // ---- the persistent ?follow stream with capped exponential backoff ----
+      function stopStream() {
+        if (S.retryTimer) {
+          clearTimeout(S.retryTimer);
+          S.retryTimer = null;
+        }
+        if (S.streamCtrl) {
+          try {
+            S.streamCtrl.abort();
+          } catch {
+            /* ignore */
+          }
+          S.streamCtrl = null;
+        }
+        S.streamAlive = false;
+      }
+
+      function openStream() {
+        if (S.disposed || !S.sessionId) return;
+        stopStream(); // ensure single live reader
+        const ctrl = new AbortController();
+        S.streamCtrl = ctrl;
+        runStream(ctrl).catch(() => {
+          /* runStream handles its own retry; this guards unexpected throws */
+          if (!S.disposed) scheduleReconnect();
+        });
+      }
+
+      async function runStream(ctrl) {
+        const url = new URL(conn.base + '/sessions/' + S.sessionId + '/events');
+        url.searchParams.set('follow', 'true');
+        const headers = authHeaders({ Accept: 'text/event-stream' });
+        if (S.lastEventId != null) {
+          // Both forms work; the header is the SSE standard.
+          headers['Last-Event-ID'] = String(S.lastEventId);
+        }
+        setConn(S.retry > 0 ? 'reconnecting' : 'live', S.retry > 0 ? 'reconnecting…' : 'live');
+
+        let res;
+        try {
+          res = await fetch(url.toString(), { headers, signal: ctrl.signal, cache: 'no-store' });
+        } catch (e) {
+          if (ctrl.signal.aborted) return; // intentional teardown
+          return scheduleReconnect();
+        }
+        if (res.status === 401) {
+          // Auth went away — bounce to the connect screen rather than looping.
+          setConn('dead', 'unauthorized');
+          if (!S.disposed) renderGate('Session stream rejected the token (401). Re-connect.');
+          return;
+        }
+        if (!res.ok || !res.body) {
+          if (ctrl.signal.aborted) return;
+          return scheduleReconnect();
+        }
+
+        // Connected cleanly → reset backoff.
+        S.retry = 0;
+        S.streamAlive = true;
+        setConn('live', 'live');
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break; // server closed / connection dropped → reconnect
+            buf += decoder.decode(value, { stream: true });
+            let i;
+            while ((i = buf.indexOf('\n\n')) !== -1) {
+              const frame = buf.slice(0, i);
+              buf = buf.slice(i + 2);
+              dispatchFrame(frame);
+            }
+          }
+        } catch (e) {
+          if (ctrl.signal.aborted) return; // intentional teardown
+        }
+        // Reader ended unexpectedly while the session is still active → reconnect.
+        S.streamAlive = false;
+        if (!S.disposed && S.streamCtrl === ctrl) scheduleReconnect();
+      }
+
+      function scheduleReconnect() {
+        if (S.disposed || !S.sessionId) return;
+        if (S.retry >= MAX_RETRY) {
+          setConn('dead', 'disconnected');
+          setStatusLine('Connection lost — gateway unreachable.');
+          // Offer a manual retry without busy-looping.
+          showReconnectNotice();
+          return;
+        }
+        const delay = BACKOFF[Math.min(S.retry, BACKOFF.length - 1)];
+        S.retry += 1;
+        setConn('reconnecting', 'reconnect ' + S.retry + '/' + MAX_RETRY);
+        setStatusLine('Reconnecting in ' + (delay / 1000).toFixed(1) + 's… (' + S.retry + '/' + MAX_RETRY + ')');
+        if (S.retryTimer) clearTimeout(S.retryTimer);
+        S.retryTimer = setTimeout(() => {
+          S.retryTimer = null;
+          openStream();
+        }, delay);
+      }
+
+      let reconnectNotice = null;
+      function showReconnectNotice() {
+        if (reconnectNotice) return;
+        reconnectNotice = el('div', { class: 'notice' }, [
+          el('div', { class: 'notice-inner' }, [
+            document.createTextNode('Stream disconnected after ' + MAX_RETRY + ' attempts.  '),
+            el('button', {
+              class: 'btn btn-ghost',
+              text: 'Reconnect now',
+              onClick: () => {
+                if (reconnectNotice) {
+                  reconnectNotice.remove();
+                  reconnectNotice = null;
+                }
+                S.retry = 0;
+                openStream();
+              },
+            }),
+          ]),
+        ]);
+        UI.stream.appendChild(reconnectNotice);
+        scrollDown();
+      }
+      function clearReconnectNotice() {
+        if (reconnectNotice) {
+          reconnectNotice.remove();
+          reconnectNotice = null;
+        }
+      }
+
+      // ================================================================
+      //  SSE FRAME PARSING + EVENT DISPATCH
+      // ================================================================
+      function dispatchFrame(frame) {
+        // Each frame is a block of `field: value` lines. We care about
+        // `event:`, `id:`, and `data:`. SSE allows multi-line data.
+        let type = null;
+        let id = null;
+        const dataLines = [];
+        const lines = frame.split('\n');
+        for (const line of lines) {
+          if (!line || line.charAt(0) === ':') continue; // comment / blank
+          const idx = line.indexOf(':');
+          const field = idx === -1 ? line : line.slice(0, idx);
+          let val = idx === -1 ? '' : line.slice(idx + 1);
+          if (val.charAt(0) === ' ') val = val.slice(1);
+          if (field === 'event') type = val;
+          else if (field === 'id') id = val;
+          else if (field === 'data') dataLines.push(val);
+        }
+        if (id != null && id !== '') {
+          // seq is monotonic; keep the highest for reconnect.
+          const n = Number.parseInt(id, 10);
+          if (Number.isInteger(n)) S.lastEventId = n;
+        }
+        if (dataLines.length === 0) return;
+        let ev;
+        try {
+          ev = JSON.parse(dataLines.join('\n'));
+        } catch {
+          return; // ignore unparseable frame
+        }
+        if (!ev || typeof ev !== 'object') return;
+        handleEvent(type || ev.type, ev);
+      }
+
+      function handleEvent(type, ev) {
+        switch (type) {
+          case 'text_delta':
+            ensureTurn();
+            appendAssistantText(ev.text);
+            break;
+          case 'thinking_delta':
+            ensureTurn();
+            appendThinking(ev.text);
+            break;
+          case 'tool_use_start':
+            ensureTurn();
+            toolStart(ev);
+            break;
+          case 'tool_use_input_delta':
+            // streamed partial input — we render final input on done; ignore deltas
+            break;
+          case 'tool_use_done':
+            toolDone(ev);
+            break;
+          case 'tool_result':
+            toolResult(ev);
+            break;
+          case 'permission_request':
+            ensureTurn();
+            permissionRequest(ev);
+            break;
+          case 'status_update':
+            statusUpdate(ev);
+            break;
+          case 'compaction_complete':
+            compactionNotice(ev);
+            break;
+          case 'stall_detected':
+            inlineNotice('⚠ stalled: ' + safe(ev.reason));
+            break;
+          case 'turn_complete':
+            turnComplete(ev);
+            break;
+          case 'turn_error':
+            turnError(ev);
+            break;
+          // session_resumed, session_summary, delegator_* — known but
+          // not rendered in v1; ignored gracefully. Unknown types: ignored.
+          default:
+            break;
+        }
+      }
+
+      // ---------- value normalization + escaping helpers ----------
+      /** Coerce any value to a safe display string. Used everywhere model /
+       *  tool content lands. (Insertion is always via textContent, so the
+       *  output is inert regardless — this is for shape, not escaping.) */
+      function safe(v) {
+        if (v == null) return '';
+        if (typeof v === 'string') return v;
+        return String(v);
+      }
+
+      /** Normalize a tool_result `output` (Anthropic content shape) to text.
+       *  It may be a string, or an array of content blocks like
+       *  [{ type:'text', text:'…' }], or arbitrary JSON. */
+      function normalizeOutput(out) {
+        if (out == null) return '';
+        if (typeof out === 'string') return out;
+        if (Array.isArray(out)) {
+          const parts = [];
+          for (const b of out) {
+            if (b == null) continue;
+            if (typeof b === 'string') parts.push(b);
+            else if (typeof b === 'object' && typeof b.text === 'string') parts.push(b.text);
+            else parts.push(prettyJson(b));
+          }
+          return parts.join('\n');
+        }
+        if (typeof out === 'object') {
+          if (typeof out.text === 'string') return out.text;
+          return prettyJson(out);
+        }
+        return String(out);
+      }
+
+      function prettyJson(v) {
+        try {
+          return JSON.stringify(v, null, 2);
+        } catch {
+          return String(v);
+        }
+      }
+
+      /** One-line preview of a tool's input object for the card header. */
+      function inputPreview(input) {
+        if (input == null) return '';
+        if (typeof input === 'string') return input;
+        if (typeof input === 'object') {
+          // Prefer the most telling field if present.
+          for (const key of ['command', 'path', 'file_path', 'pattern', 'query', 'url', 'prompt']) {
+            if (typeof input[key] === 'string' && input[key]) {
+              const others = Object.keys(input).filter((k) => k !== key).length;
+              return input[key] + (others ? '  +' + others : '');
+            }
+          }
+          const flat = prettyJson(input).replace(/\s+/g, ' ');
+          return flat.length > 160 ? flat.slice(0, 157) + '…' : flat;
+        }
+        return String(input);
+      }
+
+      // ================================================================
+      //  RENDERING: turns, text, thinking, tools, permissions
+      // ================================================================
+      function newAssistantTurn() {
+        clearReconnectNotice();
+        if (UI.stream.querySelector('.empty')) clear(UI.stream);
+
+        const caret = el('span', { class: 'caret' });
+        const bubble = el('div', { class: 'bubble' });
+        const container = el('div', {}); // holds bubble + thinking + tools + perms in order
+        container.appendChild(bubble);
+
+        const wrap = el('div', { class: 'msg assistant' }, [
+          el('div', { class: 'gutter' }, el('span', { class: 'role-badge mono', text: 'AI' })),
+          el('div', { class: 'body' }, container),
+        ]);
+        UI.stream.appendChild(wrap);
+
+        S.cur = {
+          wrap,
+          container,
+          bubble,
+          caret,
+          caretAttached: false,
+          textBuf: '',
+          thinkEl: null,
+          thinkBody: null,
+          blocks: new Map(), // block index → tool card record
+          finished: false,
+        };
+        attachCaret();
+        scrollDown(true);
+      }
+
+      function attachCaret() {
+        if (S.cur && !S.cur.finished && !S.cur.caretAttached) {
+          S.cur.bubble.appendChild(S.cur.caret);
+          S.cur.caretAttached = true;
+        }
+      }
+      function detachCaret() {
+        if (S.cur && S.cur.caretAttached && S.cur.caret.parentNode) {
+          S.cur.caret.parentNode.removeChild(S.cur.caret);
+          S.cur.caretAttached = false;
+        }
+      }
+
+      function ensureTurn() {
+        if (!S.cur || S.cur.finished) newAssistantTurn();
+      }
+
+      function appendAssistantText(text) {
+        if (!text) return;
+        const c = S.cur;
+        detachCaret();
+        c.textBuf += text;
+        // textContent assignment — inert by construction (XSS-safe).
+        c.bubble.textContent = c.textBuf;
+        attachCaret();
+        scrollDown();
+      }
+
+      function appendThinking(text) {
+        if (!text) return;
+        const c = S.cur;
+        if (!c.thinkEl) {
+          c.thinkBody = el('div', { class: 'think-body' });
+          const summary = el('summary', {}, [
+            el('span', { text: '◇ thinking' }),
+            el('span', { class: 'tw', text: '›' }),
+          ]);
+          c.thinkEl = el('details', { class: 'think' }, [summary, c.thinkBody]);
+          // Insert thinking right after the text bubble, before tool cards.
+          if (c.bubble.nextSibling) c.container.insertBefore(c.thinkEl, c.bubble.nextSibling);
+          else c.container.appendChild(c.thinkEl);
+        }
+        c.thinkBody.textContent = (c.thinkBody.textContent || '') + text;
+        scrollDown();
+      }
+
+      function toolStart(ev) {
+        const c = S.cur;
+        const card = el('div', { class: 'tool running' });
+        const head = el('div', { class: 'tool-head' }, [
+          el('span', { class: 'tool-glyph', text: '⚒' }),
+          el('span', { class: 'tool-name', text: safe(ev.tool) || 'tool' }),
+          el('span', { class: 'tool-input mono', text: inputPreview(ev.inputPartial) }),
+          el('span', { class: 'tool-state' }, el('span', { class: 'spin' })),
+        ]);
+        card.appendChild(head);
+        c.container.appendChild(card);
+        c.blocks.set(ev.block, {
+          card,
+          inputEl: head.querySelector('.tool-input'),
+          stateEl: head.querySelector('.tool-state'),
+          outEl: null,
+        });
+        scrollDown();
+      }
+
+      function toolDone(ev) {
+        const rec = S.cur && S.cur.blocks.get(ev.block);
+        if (!rec) return;
+        // Refine the input preview now that the full input is known.
+        if (rec.inputEl) rec.inputEl.textContent = inputPreview(ev.input);
+      }
+
+      function toolResult(ev) {
+        const rec = S.cur && S.cur.blocks.get(ev.block);
+        const text = normalizeOutput(ev.output);
+        const isErr = isErrorOutput(ev.output);
+        if (!rec) {
+          // Orphan result (e.g. after reconnect mid-turn) — render standalone.
+          ensureTurn();
+          const card = el('div', { class: 'tool ' + (isErr ? 'error' : 'ok') }, [
+            el('div', { class: 'tool-head' }, [
+              el('span', { class: 'tool-glyph', text: isErr ? '✗' : '⚒' }),
+              el('span', { class: 'tool-name', text: safe(ev.tool) || 'tool' }),
+              el('span', { class: 'tool-input mono', text: inputPreview(ev.input) }),
+              el('span', { class: 'tool-state', text: isErr ? 'error' : 'done' }),
+            ]),
+          ]);
+          attachOutput(card, text);
+          S.cur.container.appendChild(card);
+          scrollDown();
+          return;
+        }
+        rec.card.classList.remove('running');
+        rec.card.classList.add(isErr ? 'error' : 'ok');
+        if (rec.stateEl) {
+          clear(rec.stateEl);
+          rec.stateEl.textContent = isErr ? 'error' : 'done';
+        }
+        const glyph = rec.card.querySelector('.tool-glyph');
+        if (glyph) glyph.textContent = isErr ? '✗' : '✓';
+        if (rec.inputEl) rec.inputEl.textContent = inputPreview(ev.input);
+        attachOutput(rec.card, text, isErr);
+        scrollDown();
+      }
+
+      function attachOutput(card, text, isErr) {
+        if (!text || !text.trim()) return;
+        const lines = text.split('\n');
+        const long = lines.length > 14 || text.length > 1400;
+        const out = el('pre', { class: 'tool-out' + (long ? ' clip' : '') });
+        out.textContent = text; // textContent — inert / XSS-safe
+        card.appendChild(out);
+        if (long) {
+          let expanded = false;
+          const more = el('div', {
+            class: 'tool-more',
+            text: '▾ show ' + lines.length + ' lines',
+          });
+          more.addEventListener('click', () => {
+            expanded = !expanded;
+            out.classList.toggle('clip', !expanded);
+            more.textContent = expanded ? '▴ collapse' : '▾ show ' + lines.length + ' lines';
+          });
+          card.appendChild(more);
+        }
+      }
+
+      /** Detect an error tool_result. The wire's `output` for an error is
+       *  typically a content array with `is_error` upstream; the route only
+       *  forwards `content`, so we heuristically detect error-shaped blocks. */
+      function isErrorOutput(out) {
+        if (out && typeof out === 'object' && !Array.isArray(out)) {
+          if (out.is_error === true) return true;
+        }
+        if (Array.isArray(out)) {
+          for (const b of out) {
+            if (b && typeof b === 'object' && b.is_error === true) return true;
+          }
+        }
+        return false;
+      }
+
+      // ---------- permission request ----------
+      function permissionRequest(ev) {
+        const c = S.cur;
+        detachCaret(); // pause the streaming caret while we await a decision
+        const card = el('div', { class: 'perm' });
+        const reasonText = safe(ev.reason);
+        const inputText = prettyJson(ev.input);
+
+        const cb = el('input', { type: 'checkbox' });
+        const verdict = el('div', { class: 'perm-verdict' });
+
+        const denyBtn = el('button', { class: 'btn', text: 'Deny' });
+        const approveBtn = el('button', { class: 'btn btn-primary', text: 'Approve' });
+
+        function answer(approved) {
+          approveBtn.disabled = true;
+          denyBtn.disabled = true;
+          cb.disabled = true;
+          card.classList.add('answered');
+          verdict.classList.add(approved ? 'approved' : 'denied');
+          verdict.textContent =
+            (approved ? '✓ approved' : '✗ denied') + (cb.checked ? ' · always' : '');
+          card.appendChild(verdict);
+          sendApproval(ev.requestId, approved, cb.checked).catch((e) => {
+            verdict.textContent = '⚠ failed to send: ' + errMsg(e);
+            verdict.classList.remove('approved', 'denied');
+            verdict.classList.add('denied');
+          });
+          attachCaret();
+        }
+
+        denyBtn.addEventListener('click', () => answer(false));
+        approveBtn.addEventListener('click', () => answer(true));
+
+        card.appendChild(el('div', { class: 'perm-head' }, [
+          el('span', { text: '⚠' }),
+          el('span', { text: 'permission required' }),
+        ]));
+        const body = el('div', { class: 'perm-body' }, [
+          el('div', { class: 'perm-tool', text: safe(ev.tool) || 'tool' }),
+          reasonText ? el('div', { class: 'perm-reason', text: reasonText }) : null,
+          el('div', { class: 'perm-input mono', text: inputText }),
+          el('div', { class: 'perm-actions' }, [
+            el('label', { class: 'always' }, [cb, el('span', { text: 'always allow' })]),
+            el('span', { class: 'grow' }),
+            denyBtn,
+            approveBtn,
+          ]),
+        ]);
+        card.appendChild(body);
+        (c ? c.container : UI.stream).appendChild(card);
+        scrollDown(true);
+      }
+
+      async function sendApproval(requestId, approved, always) {
+        const body = { approved };
+        if (always) body.always = true;
+        const res = await fetch(
+          conn.base + '/sessions/' + S.sessionId + '/approvals/' + encodeURIComponent(requestId),
+          {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(body),
+          },
+        );
+        if (!res.ok) throw new Error('approval ' + res.status);
+      }
+
+      // ---------- status / compaction / inline notices ----------
+      function statusUpdate(ev) {
+        if (typeof ev.cost === 'number') S.metrics.cost = ev.cost;
+        if (typeof ev.tokensIn === 'number') S.metrics.tokensIn = ev.tokensIn;
+        if (typeof ev.tokensOut === 'number') S.metrics.tokensOut = ev.tokensOut;
+        renderMetrics();
+        if (ev.streaming === true && !S.turnActive) {
+          // a turn is underway even if we joined late
+          S.turnActive = true;
+          reflectTurnState();
+        }
+      }
+
+      function renderMetrics() {
+        if (!UI.metricsEl) return;
+        clear(UI.metricsEl);
+        const m = S.metrics;
+        if (typeof m.tokensIn === 'number' || typeof m.tokensOut === 'number') {
+          const tin = typeof m.tokensIn === 'number' ? m.tokensIn : 0;
+          const tout = typeof m.tokensOut === 'number' ? m.tokensOut : 0;
+          UI.metricsEl.appendChild(el('span', { text: '↑' + fmtNum(tin) + ' ↓' + fmtNum(tout) }));
+        }
+        if (typeof m.cost === 'number') {
+          UI.metricsEl.appendChild(el('span', { text: '$' + m.cost.toFixed(4) }));
+        }
+      }
+
+      function compactionNotice(ev) {
+        // The active session may pivot to a child id after compaction.
+        if (ev.activeSessionId && ev.activeSessionId !== S.sessionId) {
+          S.sessionId = ev.activeSessionId;
+          if (UI.sidLabel) UI.sidLabel.textContent = shortId(S.sessionId);
+        }
+        inlineNotice('◆ compacted context (~' + fmtNum(ev.estimatedAfterTokens) + ' tokens)');
+      }
+
+      function inlineNotice(text) {
+        const note = el('div', { class: 'notice' }, el('div', { class: 'notice-inner', text }));
+        UI.stream.appendChild(note);
+        scrollDown();
+      }
+
+      // ================================================================
+      //  TURN SUBMIT / COMPLETE / ERROR / CANCEL
+      // ================================================================
+      async function submitTurn() {
+        const text = (UI.textarea.value || '').replace(/\s+$/, '');
+        if (!text || S.turnActive || !S.sessionId) return;
+
+        // Render the user's message immediately.
+        renderUserMessage(text);
+        UI.textarea.value = '';
+        autoGrow.call(UI.textarea);
+
+        S.turnActive = true;
+        S.cur = null; // next assistant event opens a fresh turn
+        reflectTurnState();
+        setStatusLine('Sent — waiting for the agent…', true);
+
+        try {
+          const res = await fetch(conn.base + '/sessions/' + S.sessionId + '/turns', {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ text }),
+          });
+          // 202 Accepted is the success code here.
+          if (res.status === 401) throw new Error('unauthorized (401)');
+          if (!res.ok) throw new Error('turn rejected: ' + res.status);
+          // Events now flow over the live ?follow stream.
+        } catch (e) {
+          S.turnActive = false;
+          reflectTurnState();
+          turnErrorInline(errMsg(e));
+        }
+      }
+
+      function renderUserMessage(text) {
+        clearReconnectNotice();
+        if (UI.stream.querySelector('.empty')) clear(UI.stream);
+        const bubble = el('div', { class: 'bubble', text });
+        const wrap = el('div', { class: 'msg user' }, [
+          el('div', { class: 'gutter' }, el('span', { class: 'role-badge mono', text: 'YOU' })),
+          el('div', { class: 'body' }, bubble),
+        ]);
+        UI.stream.appendChild(wrap);
+        scrollDown(true);
+      }
+
+      function turnComplete(ev) {
+        S.turnActive = false;
+        if (S.cur) {
+          S.cur.finished = true;
+          detachCaret();
+          // If the assistant produced no text at all (pure tool turn), drop
+          // the empty bubble so we don't leave a blank line.
+          if (S.cur.bubble && !S.cur.bubble.textContent) {
+            S.cur.bubble.remove();
+          }
+          const reason = safe(ev.finishReason);
+          const parts = [];
+          if (reason && reason !== 'end_turn') parts.push(reason);
+          const u = ev.usage;
+          if (u && typeof u === 'object') {
+            const tin = num(u.input_tokens);
+            const tout = num(u.output_tokens);
+            if (tin || tout) parts.push('↑' + fmtNum(tin) + ' ↓' + fmtNum(tout) + ' tok');
+          }
+          if (parts.length) {
+            const foot = el('div', { class: 'turnfoot' });
+            foot.appendChild(el('span', { text: '— turn complete' }));
+            for (const p of parts) {
+              foot.appendChild(el('span', { class: 'dot', text: '·' }));
+              foot.appendChild(el('span', { text: p }));
+            }
+            S.cur.container.appendChild(foot);
+          }
+        }
+        reflectTurnState();
+        setStatusLine('Ready.');
+        scrollDown();
+      }
+
+      function turnError(ev) {
+        S.turnActive = false;
+        detachCaret();
+        if (S.cur) S.cur.finished = true;
+        turnErrorInline(safe(ev.error) || 'turn error', ev.recoverable);
+        reflectTurnState();
+        setStatusLine('Ready.');
+      }
+
+      function turnErrorInline(message, recoverable) {
+        const target = S.cur ? S.cur.container : UI.stream;
+        const box = el('div', { class: 'turn-error' }, [
+          el('span', { text: '⚠ ' + message + (recoverable === false ? ' (unrecoverable)' : '') }),
+        ]);
+        target.appendChild(box);
+        scrollDown();
+      }
+
+      async function cancelTurn() {
+        if (!S.sessionId) return;
+        setStatusLine('Cancelling…', true);
+        try {
+          await fetch(conn.base + '/sessions/' + S.sessionId + '/cancel', {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: '{}',
+          });
+          // The turn loop will emit turn_complete/turn_error over the stream;
+          // reflect immediately for responsiveness.
+          inlineNotice('■ cancel requested');
+        } catch (e) {
+          setStatusLine('Cancel failed: ' + errMsg(e));
+        }
+      }
+
+      // ---------- turn-state reflection in the composer ----------
+      function reflectTurnState() {
+        if (!UI.sendBtn) return;
+        if (S.turnActive) {
+          UI.sendBtn.classList.add('stopping');
+          UI.sendBtn.title = 'Stop the current turn';
+          UI.sendBtn.innerHTML =
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+            '<rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+        } else {
+          UI.sendBtn.classList.remove('stopping');
+          UI.sendBtn.title = 'Send';
+          UI.sendBtn.innerHTML =
+            '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+        }
+      }
+
+      function setStatusLine(text, busy) {
+        if (!UI.statusLine) return;
+        const txt = UI.statusLine.querySelector('.status-text');
+        // remove any existing spinner
+        const oldSpin = UI.statusLine.querySelector('.live-spin');
+        if (oldSpin) oldSpin.remove();
+        if (busy) {
+          UI.statusLine.insertBefore(el('span', { class: 'live-spin' }), UI.statusLine.firstChild);
+        }
+        if (txt) txt.textContent = text;
+      }
+
+      // ---------- small format helpers ----------
+      function num(v) {
+        return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+      }
+      function fmtNum(n) {
+        n = num(n);
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+        return String(n);
+      }
+
+      // ================================================================
+      //  BOOT
+      // ================================================================
+      window.addEventListener('beforeunload', () => {
+        S.disposed = true;
+        stopStream();
+      });
+
+      // If we have a saved base (and the page is same-origin or the user
+      // previously connected), show the gate prefilled. We always start at
+      // the gate so the health probe confirms reachability before chatting.
+      renderGate();
+    </script>
+  </body>
+</html>
