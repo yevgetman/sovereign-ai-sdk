@@ -1276,6 +1276,7 @@
         lastEventId: null, // last SSE `id:` (seq) seen — drives reconnect
         streamCtrl: null, // AbortController for the active ?follow fetch
         streamAlive: false,
+        connecting: false, // an openStream()/runStream() attempt is in flight
         turnActive: false,
         retry: 0, // reconnect attempt counter
         retryTimer: null,
@@ -1505,20 +1506,37 @@
           S.streamCtrl = null;
         }
         S.streamAlive = false;
+        S.connecting = false;
       }
 
       function openStream() {
         if (S.disposed || !S.sessionId) return;
+        // Single-flight guard. The ?follow fetch can stay pending for a long
+        // time (it resolves when the server flushes response headers; an idle
+        // session with no queued events keeps the reader parked). If a retry
+        // timer or another caller fires openStream() while a prior attempt is
+        // still in flight, stacking a second attempt aborts the first and the
+        // overlapping lifecycles can leave zero live streams AND zero pending
+        // retries — a permanent "Reconnecting…" freeze. One attempt at a time.
+        if (S.connecting) return;
         stopStream(); // ensure single live reader
+        S.connecting = true;
         const ctrl = new AbortController();
         S.streamCtrl = ctrl;
         runStream(ctrl).catch(() => {
           /* runStream handles its own retry; this guards unexpected throws */
+          if (S.streamCtrl === ctrl) S.connecting = false;
           if (!S.disposed) scheduleReconnect();
         });
       }
 
       async function runStream(ctrl) {
+        // Capture whether we are recovering from a degraded connection BEFORE
+        // the optimistic setConn() below paints the dot. "Recovering" = the
+        // dot is not already live — true for both the auto-retry path and the
+        // manual "Reconnect now" path (which zeroes S.retry). Used on clean
+        // connect to clear a stale "Reconnecting…" / "Connection lost…" status.
+        const wasRecovering = !!(UI.connDot && !UI.connDot.classList.contains('live'));
         const url = new URL(conn.base + '/sessions/' + S.sessionId + '/events');
         url.searchParams.set('follow', 'true');
         const headers = authHeaders({ Accept: 'text/event-stream' });
@@ -1532,24 +1550,36 @@
         try {
           res = await fetch(url.toString(), { headers, signal: ctrl.signal, cache: 'no-store' });
         } catch (e) {
-          if (ctrl.signal.aborted) return; // intentional teardown
+          if (ctrl.signal.aborted) return onAttemptSettled(ctrl); // intentional teardown
+          S.connecting = false;
           return scheduleReconnect();
         }
         if (res.status === 401) {
           // Auth went away — bounce to the connect screen rather than looping.
+          S.connecting = false;
           setConn('dead', 'unauthorized');
           if (!S.disposed) renderGate('Session stream rejected the token (401). Re-connect.');
           return;
         }
         if (!res.ok || !res.body) {
-          if (ctrl.signal.aborted) return;
+          if (ctrl.signal.aborted) return onAttemptSettled(ctrl);
+          S.connecting = false;
           return scheduleReconnect();
         }
 
         // Connected cleanly → reset backoff.
         S.retry = 0;
         S.streamAlive = true;
+        S.connecting = false;
         setConn('live', 'live');
+        // If we just recovered from a drop, the status line and the
+        // max-retry notice are stale ("Connection lost…" / "Reconnecting…").
+        // The connection dot is already authoritative; refresh the idle
+        // surface too, but never stomp a live turn's status.
+        if (wasRecovering) {
+          clearReconnectNotice();
+          if (!S.turnActive) setStatusLine('Ready.');
+        }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -1567,15 +1597,35 @@
             }
           }
         } catch (e) {
-          if (ctrl.signal.aborted) return; // intentional teardown
+          if (ctrl.signal.aborted) return onAttemptSettled(ctrl); // intentional teardown
         }
         // Reader ended unexpectedly while the session is still active → reconnect.
         S.streamAlive = false;
+        S.connecting = false;
         if (!S.disposed && S.streamCtrl === ctrl) scheduleReconnect();
+      }
+
+      /** Called when a runStream attempt ends via the `aborted` guard. If it
+       *  was superseded by a newer attempt (S.streamCtrl !== ctrl), the newer
+       *  one owns the lifecycle — do nothing. But if THIS controller is still
+       *  the current one and nothing is in flight, the abort left us with no
+       *  live stream and no pending retry: re-arm so we can never wedge in a
+       *  permanent "Reconnecting…" state. */
+      function onAttemptSettled(ctrl) {
+        if (S.streamCtrl !== ctrl) return; // a newer attempt took over
+        S.connecting = false;
+        S.streamAlive = false;
+        if (!S.disposed && S.sessionId && !S.retryTimer) scheduleReconnect();
       }
 
       function scheduleReconnect() {
         if (S.disposed || !S.sessionId) return;
+        // Idempotent: if a retry is already armed, a single drop that fired
+        // several failure paths must NOT stack timers or inflate the attempt
+        // counter (which would skip backoff steps and exhaust retries early).
+        if (S.retryTimer) return;
+        // A retry attempt supersedes any in-flight connect bookkeeping.
+        S.connecting = false;
         if (S.retry >= MAX_RETRY) {
           setConn('dead', 'disconnected');
           setStatusLine('Connection lost — gateway unreachable.');
@@ -1587,7 +1637,6 @@
         S.retry += 1;
         setConn('reconnecting', 'reconnect ' + S.retry + '/' + MAX_RETRY);
         setStatusLine('Reconnecting in ' + (delay / 1000).toFixed(1) + 's… (' + S.retry + '/' + MAX_RETRY + ')');
-        if (S.retryTimer) clearTimeout(S.retryTimer);
         S.retryTimer = setTimeout(() => {
           S.retryTimer = null;
           openStream();
@@ -1608,7 +1657,15 @@
                   reconnectNotice.remove();
                   reconnectNotice = null;
                 }
+                // Reset the full reconnect state so a manual retry always
+                // re-arms cleanly, even from a wedged/in-flight bookkeeping.
+                if (S.retryTimer) {
+                  clearTimeout(S.retryTimer);
+                  S.retryTimer = null;
+                }
+                S.connecting = false;
                 S.retry = 0;
+                setStatusLine('Reconnecting…', true);
                 openStream();
               },
             }),

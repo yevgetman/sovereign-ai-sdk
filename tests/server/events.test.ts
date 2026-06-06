@@ -31,7 +31,10 @@ describe('eventsRoute (M3 bus-driven)', () => {
     const blocks = body
       .split('\n\n')
       .map((b) => b.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      // Drop SSE comment frames (lines starting with ':') — the route emits a
+      // leading ': connected' heartbeat to flush headers on connect.
+      .filter((b) => !b.split('\n').every((l) => l.startsWith(':')));
     expect(blocks.length).toBeGreaterThanOrEqual(3);
 
     // Parse the JSON data field from each block.

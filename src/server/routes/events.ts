@@ -63,6 +63,15 @@ eventsRoute.get('/sessions/:id/events', (c) => {
   // `?follow=true` keeps the stream open across turn boundaries.
   const follow = c.req.query('follow') === 'true';
   return streamSSE(c, async (stream) => {
+    // Flush the response headers immediately with an SSE comment line. Without
+    // an initial write, Bun does not send the HTTP response headers until the
+    // first event is written — so a browser `fetch()` opening a `?follow`
+    // stream on an idle session (no queued events, e.g. right after a
+    // reconnect to a fresh session) stays pending on the headers forever. That
+    // left the reference web UI wedged in a permanent "Reconnecting…" state
+    // because its stream-reader promise never resolved. The leading `:` makes
+    // this a comment frame the SSE spec (and our client parser) ignore.
+    await stream.write(': connected\n\n');
     let stopped = false;
     const queue: ServerEvent[] = [];
     let resolver: (() => void) | null = null;
