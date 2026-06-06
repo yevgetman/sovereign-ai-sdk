@@ -189,13 +189,29 @@ export class ServerEventBus {
 
 const buses = new Map<string, ServerEventBus>();
 
-export function getOrCreateBus(
-  sessionId: string,
-  maxRing: number = DEFAULT_MAX_RING,
-): ServerEventBus {
+/**
+ * Phase B T2 — module-level default ring size for buses minted by
+ * `getOrCreateBus` when the caller passes no explicit `maxRing`. Set once at
+ * boot by `buildRuntime` from `gateway.eventBufferSize` so every runtime-
+ * created bus inherits the configured size without threading it through each
+ * call site. Starts at {@link DEFAULT_MAX_RING}.
+ */
+let defaultRingSize = DEFAULT_MAX_RING;
+
+/**
+ * Set the module-level default ring size used by `getOrCreateBus`. A
+ * non-positive or non-integer value is ignored (clamped to
+ * {@link DEFAULT_MAX_RING}) so a malformed config never shrinks the replay
+ * window below the default. Only affects buses created AFTER this call.
+ */
+export function setDefaultRingSize(n: number): void {
+  defaultRingSize = Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_RING;
+}
+
+export function getOrCreateBus(sessionId: string, maxRing?: number): ServerEventBus {
   let bus = buses.get(sessionId);
   if (bus === undefined) {
-    bus = new ServerEventBus(maxRing);
+    bus = new ServerEventBus(maxRing ?? defaultRingSize);
     buses.set(sessionId, bus);
   }
   return bus;

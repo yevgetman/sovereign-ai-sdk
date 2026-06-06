@@ -77,7 +77,12 @@ import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
-import { type ServerEventBus, abortAllBuses } from './eventBus.js';
+import {
+  DEFAULT_MAX_RING,
+  type ServerEventBus,
+  abortAllBuses,
+  setDefaultRingSize,
+} from './eventBus.js';
 import {
   type SessionContext,
   buildSessionContext,
@@ -693,6 +698,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // smart-router prompt body can flow into the parent system prompt when
   // `userSettings.taskRouting?.enabled === true`.
   const userSettings = readConfig();
+
+  // Phase B T2 — set the per-session SSE replay-ring default from
+  // gateway.eventBufferSize so every bus minted at runtime (turns / events /
+  // cancel / OpenAI routes all call getOrCreateBus with no explicit size)
+  // inherits the configured window. setDefaultRingSize clamps invalid values
+  // back to DEFAULT_MAX_RING, so a malformed config can't shrink the ring.
+  setDefaultRingSize(userSettings.gateway?.eventBufferSize ?? DEFAULT_MAX_RING);
 
   // Resolve the effective taskRouting.enabled once, honoring
   // SOV_TASK_ROUTING_ENABLED env override ('1'=force-on, '0'=force-off).

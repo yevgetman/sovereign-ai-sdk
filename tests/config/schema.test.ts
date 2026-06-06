@@ -383,4 +383,23 @@ describe('gateway schema', () => {
   test('rejects unknown keys in gateway (strict)', () => {
     expect(() => SettingsSchema.parse({ gateway: { bogus: 1 } })).toThrow();
   });
+
+  // Phase B T2 — gateway.eventBufferSize sets the per-session SSE replay
+  // ring size for buses created at runtime. Pure config schema here.
+  // Plan: docs/plans/2026-06-?? phase-b-multi-client-transport.
+  test('accepts gateway.eventBufferSize as a positive integer', () => {
+    const p = SettingsSchema.parse({ gateway: { eventBufferSize: 256 } });
+    expect(p.gateway?.eventBufferSize).toBe(256);
+  });
+
+  test('gateway.eventBufferSize is absent / undefined by default', () => {
+    expect(SettingsSchema.parse({ gateway: {} }).gateway?.eventBufferSize).toBeUndefined();
+    expect(SettingsSchema.parse({}).gateway?.eventBufferSize).toBeUndefined();
+  });
+
+  test('rejects non-positive / non-integer gateway.eventBufferSize', () => {
+    expect(() => SettingsSchema.parse({ gateway: { eventBufferSize: 0 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { eventBufferSize: -1 } })).toThrow();
+    expect(() => SettingsSchema.parse({ gateway: { eventBufferSize: 1.5 } })).toThrow();
+  });
 });

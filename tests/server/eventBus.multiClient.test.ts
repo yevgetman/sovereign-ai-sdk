@@ -7,7 +7,13 @@
 // publish, exactly as the real route does).
 
 import { describe, expect, test } from 'bun:test';
-import { ServerEventBus } from '../../src/server/eventBus.js';
+import {
+  DEFAULT_MAX_RING,
+  ServerEventBus,
+  __test_resetAllBuses,
+  getOrCreateBus,
+  setDefaultRingSize,
+} from '../../src/server/eventBus.js';
 import type { ServerEvent } from '../../src/server/schema.js';
 
 const sessionId = 's_multi';
@@ -196,5 +202,61 @@ describe('ServerEventBus — multi-subscriber + replay ring (T1)', () => {
     // After clear, cancel reports false again.
     bus.clearCurrentTurnAbort();
     expect(bus.cancelCurrentTurn()).toBe(false);
+  });
+});
+
+// Phase B T2 — configurable replay-ring size via the module-level default.
+// buildRuntime calls setDefaultRingSize(config.gateway?.eventBufferSize ??
+// DEFAULT_MAX_RING) at boot; getOrCreateBus then mints first-create buses
+// with that size without threading it through every caller.
+describe('setDefaultRingSize + getOrCreateBus (T2)', () => {
+  /** Build a text_delta event on an arbitrary session id, stamping seq. */
+  function emitOn(bus: ServerEventBus, sid: string, text: string): ServerEvent {
+    return { type: 'text_delta', seq: bus.nextSeq(), sessionId: sid, block: 0, text };
+  }
+
+  test('a freshly created bus retains only the last N events after setDefaultRingSize(N)', () => {
+    __test_resetAllBuses();
+    setDefaultRingSize(3);
+    try {
+      const sid = 's_t2_ring';
+      const bus = getOrCreateBus(sid);
+      for (let i = 1; i <= 5; i++) {
+        bus.publish(emitOn(bus, sid, `e${i}`));
+      }
+
+      // Fresh subscriber from seq 0 replays everything still retained.
+      const replayed: ServerEvent[] = [];
+      bus.subscribe((ev) => replayed.push(ev), { lastEventId: 0 });
+
+      // Ring capped at 3 → only seq 3,4,5 survive.
+      expect(replayed.map((e) => e.seq)).toEqual([3, 4, 5]);
+    } finally {
+      // Restore the module default so later tests are unaffected.
+      setDefaultRingSize(DEFAULT_MAX_RING);
+      __test_resetAllBuses();
+    }
+  });
+
+  test('invalid sizes are ignored (clamped to default), no crash', () => {
+    __test_resetAllBuses();
+    // Non-positive / non-finite values must not crash and must fall back to
+    // the default so the ring always retains at least the default window.
+    expect(() => setDefaultRingSize(0)).not.toThrow();
+    expect(() => setDefaultRingSize(-5)).not.toThrow();
+    expect(() => setDefaultRingSize(1.5)).not.toThrow();
+    expect(() => setDefaultRingSize(Number.NaN)).not.toThrow();
+
+    const sid = 's_t2_invalid';
+    const bus = getOrCreateBus(sid);
+    // With the default window restored, far more than a tiny ring is retained.
+    for (let i = 1; i <= 10; i++) {
+      bus.publish(emitOn(bus, sid, `e${i}`));
+    }
+    const replayed: ServerEvent[] = [];
+    bus.subscribe((ev) => replayed.push(ev), { lastEventId: 0 });
+    expect(replayed.length).toBe(10);
+
+    __test_resetAllBuses();
   });
 });

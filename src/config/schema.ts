@@ -420,6 +420,12 @@ export const SettingsSchema = z
         port: z.number().int().min(1).max(65535).optional(),
         token: z.string().min(1).optional(),
         corsOrigins: z.array(z.string()).optional(),
+        /** Phase B — bound on each per-session SSE replay ring. Buses
+         *  created at runtime use this size (set once at boot via
+         *  setDefaultRingSize); larger values keep more events available
+         *  for Last-Event-ID reconnect / fresh-subscriber replay at the
+         *  cost of memory. Defaults to DEFAULT_MAX_RING (512) when unset. */
+        eventBufferSize: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
