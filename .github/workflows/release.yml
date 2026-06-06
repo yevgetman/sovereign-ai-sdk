@@ -28,7 +28,7 @@ jobs:
     outputs:
       version: ${{ steps.derive.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.version || github.ref_name }}
       - name: Derive version
@@ -62,11 +62,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout sovereign-ai-harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.preflight.outputs.version }}
       - name: Checkout sov-releases
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: yevgetman/sov-releases
           ref: main
@@ -75,7 +75,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.2.0'
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
       - run: bun install --frozen-lockfile
@@ -98,7 +98,7 @@ jobs:
             "$BARE"*) echo "OK: --version starts with $BARE" ;;
             *) echo "::error::--version output '$OUT' does not start with $BARE"; exit 1 ;;
           esac
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: tarballs-darwin
           path: build/release/${{ needs.preflight.outputs.version }}/sov-darwin-*.tar.gz
@@ -111,11 +111,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout sovereign-ai-harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.preflight.outputs.version }}
       - name: Checkout sov-releases
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: yevgetman/sov-releases
           ref: main
@@ -124,7 +124,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.2.0'
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
       - run: bun install --frozen-lockfile
@@ -142,7 +142,7 @@ jobs:
             "$BARE"*) echo "OK: --version starts with $BARE" ;;
             *) echo "::error::--version output '$OUT' does not start with $BARE"; exit 1 ;;
           esac
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: tarballs-linux
           path: build/release/${{ needs.preflight.outputs.version }}/sov-linux-x64.tar.gz
@@ -155,11 +155,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout sovereign-ai-harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.preflight.outputs.version }}
       - name: Checkout sov-releases
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: yevgetman/sov-releases
           ref: main
@@ -170,7 +170,7 @@ jobs:
           bun-version: '1.2.0'
       - run: bun install --frozen-lockfile
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: tarballs-*
           merge-multiple: true
