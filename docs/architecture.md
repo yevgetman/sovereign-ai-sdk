@@ -6,7 +6,7 @@ The authoritative product and business context lives in `~/code/sovereign-ai-doc
 
 ## Request Flow
 
-Two processes — a TypeScript runtime/server (on Bun) and a Go Bubble Tea TUI client (`sov-tui`) — talk over HTTP+SSE on localhost. The same native HTTP+SSE protocol backs every interactive surface: the TUI, `sov drive` (headless line-driven), and — as of Phase A — `sov gateway`, a long-lived authenticated server that exposes that protocol off-loopback for remote clients (see "Native Gateway" below). The interactive path:
+Two processes — a TypeScript runtime/server (on Bun) and a Go Bubble Tea TUI client (`sov-tui`) — talk over HTTP+SSE on localhost. The same native HTTP+SSE protocol backs every interactive surface: the TUI, `sov drive` (headless line-driven), and `sov gateway`, a long-lived authenticated server that exposes that protocol off-loopback for remote clients (the run-anywhere roadmap A–F: secure gateway, multi-client transport, web UI, persistent supervisor, multi-user, channels — see "Native Gateway" below). The interactive path:
 
 1. `src/main.ts` parses CLI flags and resolves the bundle, provider, model, settings, session DB, tools, skills, slash commands, permissions, memory provider, system prompt — then starts the Hono server (`src/server/index.ts`) on a dynamic port. `src/cli/tuiLauncher.ts` forks `sov-tui` as a subprocess, passing `--port`, `--session-id`, `--model`, `--provider` as CLI args.
 2. `sov-tui` connects to `GET /sessions/:id/events` (SSE) for the live event stream and `GET /sessions/:id/messages` for backlog hydration on resume.
@@ -411,7 +411,7 @@ Per-request flow: parse + Zod-validate the body; resolve the model (`harness-def
 
 ## Native Gateway (`sov gateway`)
 
-`sov gateway` (Phase A — the first module of the run-anywhere roadmap) is a long-lived, headless server that exposes the **native** HTTP+SSE protocol (`src/server/`) off-loopback, authenticated — the *rich interactive* protocol (turns, streaming, tool events, permission prompts, slash commands, skills), not the stateless OpenAI completion surface. It mirrors the `sov serve` lifecycle (build runtime once, `Bun.serve`, SIGINT/SIGTERM → `server.stop()` + `runtime.dispose()`, park) but serves `buildAppWithRuntime` instead of the OpenAI app, and adds nothing to the routes themselves — auth + CORS are middleware mounted in front.
+`sov gateway` (the home of the run-anywhere roadmap, A–F complete) is a long-lived, headless server that exposes the **native** HTTP+SSE protocol (`src/server/`) off-loopback, authenticated — the *rich interactive* protocol (turns, streaming, tool events, permission prompts, slash commands, skills), not the stateless OpenAI completion surface. It mirrors the `sov serve` lifecycle (build runtime once, `Bun.serve`, SIGINT/SIGTERM → `server.stop()` + `runtime.dispose()`, park) but serves `buildAppWithRuntime` instead of the OpenAI app, and adds nothing to the routes themselves — auth + CORS are middleware mounted in front. Phase A established the secure-bind + auth foundation below; Phases B–F layered the multi-client transport (`src/server/eventBus.ts`), the embedded web UI (`src/server/webui.*`), the persistent session supervisor (`src/server/sessionSupervisor.ts`), multi-user principals (`src/server/principals.ts`), and inbound channels (`src/channels/`) on top — all over the same protocol seam, all gateway-scoped (the TUI / `sov serve` / `sov drive` paths are byte-unchanged).
 
 ```
 sov gateway  →  src/main.ts (command('gateway'))
