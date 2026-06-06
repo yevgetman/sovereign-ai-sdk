@@ -137,6 +137,17 @@ function openSse(
 const isTurnEnd = (ev: SseEvent): boolean =>
   ev.event === 'turn_complete' || ev.event === 'turn_error';
 
+/** Project an SSE stream's drained events to the comparable `(seq, event)`
+ *  shape. Two concurrent live subscribers on the same bus MUST observe the
+ *  identical ordered sequence — same seqs, same event types — so this is the
+ *  load-bearing equality the fan-out test asserts on. */
+function seqEventPairs(events: SseEvent[]): Array<{ seq: number; event: string }> {
+  return events.map((e) => ({
+    seq: e.id !== null ? Number.parseInt(e.id, 10) : Number.NaN,
+    event: e.event,
+  }));
+}
+
 describe('events route — Last-Event-ID reconnect (T3)', () => {
   let home: string;
   let cwd: string;
@@ -524,4 +535,192 @@ describe('events route — per-session bus lifecycle (T3)', () => {
       await runtime.dispose();
     }
   }, 15_000);
+});
+
+// Phase B T4 — concurrent-subscriber fan-out at the HTTP/route level.
+//
+// T1 proved the bus fans out to multiple subscribers at the UNIT level
+// (eventBus.multiClient.test.ts). T3 proved reconnect / ?follow / lifecycle
+// at the route level, but with at most ONE live stream at a time. The
+// remaining exit-criterion gap is "multiple devices watch one session at
+// once": TWO SSE streams open SIMULTANEOUSLY on the SAME session, both live
+// while a single turn produces its events, BOTH receiving the full sequence.
+//
+// Determinism without sleeps: MockProvider.slowMode inserts an awaited delay
+// (`slowModeDelayMs`) between every yielded provider event. With it on, the
+// Hello-world turn takes ~8 × delay to complete instead of racing to the end
+// in one microtask tick — long enough that two streams opened immediately
+// after the 202 are both attached and LIVE before the bulk of the turn's
+// events are published, so most events reach each subscriber as a live
+// fan-out delivery (not just a ring replay). Both streams are still asserted
+// to receive the byte-identical ordered `(seq, event)` sequence and to reach
+// turn_complete — an assertion that cannot pass trivially: if fan-out were
+// broken (only one subscriber served), the other stream would be empty and
+// both the equality check and its turn_complete assertion would fail.
+describe('events route — concurrent-subscriber fan-out (T4)', () => {
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-fanout-'));
+    cwd = mkdtempSync(join(tmpdir(), 'sov-fanout-cwd-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    __test_resetAllBuses();
+  });
+
+  afterEach(() => {
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    __test_resetAllBuses();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+  });
+
+  test('two concurrent live streams on the SAME session BOTH receive the full event sequence', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Slow the provider so the turn spans ~8 delays — both streams attach
+      // (well under a delay) before the turn finishes, so the bulk of events
+      // fan out as LIVE deliveries to both subscribers rather than ring replay.
+      MockProvider.slowMode = true;
+      MockProvider.slowModeDelayMs = 15;
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      // Open BOTH streams concurrently, immediately after the 202. Neither
+      // passes a Last-Event-ID, so each is a fresh subscriber replaying only
+      // the current turn (currentTurnStartSeq) then going live — the "two
+      // devices both watching the same in-flight session" shape.
+      const a = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd);
+      const b = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd);
+      await Promise.all([a.done, b.done]);
+
+      // Both streams must have reached turn_complete — neither was starved.
+      expect(a.events.some((e) => e.event === 'turn_complete')).toBe(true);
+      expect(b.events.some((e) => e.event === 'turn_complete')).toBe(true);
+
+      // The load-bearing fan-out assertion: both subscribers observed the
+      // IDENTICAL ordered (seq, event) sequence. A turn has a stable seq
+      // ordering on the bus, and every subscriber sees every event exactly
+      // once in that order — so the two projections must be deeply equal.
+      const pairsA = seqEventPairs(a.events);
+      const pairsB = seqEventPairs(b.events);
+      expect(pairsA.length).toBeGreaterThanOrEqual(3);
+      expect(pairsB).toEqual(pairsA);
+
+      // And concretely: BOTH carry the turn's text_delta payloads (the
+      // "Hello world." pair) — proving real turn content fanned out to each,
+      // not merely the terminal event.
+      expect(a.events.filter((e) => e.event === 'text_delta').length).toBeGreaterThanOrEqual(2);
+      expect(b.events.filter((e) => e.event === 'text_delta').length).toBeGreaterThanOrEqual(2);
+
+      // Identical seq sets (no event delivered to one stream but dropped on
+      // the other). Derived from the equality above, asserted explicitly so a
+      // regression points straight at the fan-out set rather than ordering.
+      const seqsA = new Set(pairsA.map((p) => p.seq));
+      const seqsB = new Set(pairsB.map((p) => p.seq));
+      expect([...seqsB].sort((x, y) => x - y)).toEqual([...seqsA].sort((x, y) => x - y));
+    } finally {
+      await runtime.dispose();
+    }
+  }, 20_000);
+
+  test('a second stream joining mid-turn sees the current turn from its start (current-turn replay)', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Slow the turn so the second subscriber can demonstrably join AFTER
+      // the turn has already started emitting (we gate the join on the first
+      // stream seeing a text_delta) but BEFORE turn_complete.
+      MockProvider.slowMode = true;
+      MockProvider.slowModeDelayMs = 20;
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      // First stream, live from the start. Resolve a gate the moment it sees
+      // a text_delta — proof the turn is genuinely in-flight (past its opening
+      // status_update) when we open the second stream.
+      let resolveMidTurn: (() => void) | null = null;
+      const midTurn = new Promise<void>((resolve) => {
+        resolveMidTurn = resolve;
+      });
+      const first = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd);
+      first.onEvent((ev) => {
+        if (ev.event === 'text_delta' && resolveMidTurn !== null) {
+          const r = resolveMidTurn;
+          resolveMidTurn = null;
+          r();
+        }
+      });
+      await midTurn;
+
+      // Second stream joins NOW, mid-turn, as a fresh subscriber. Current-turn
+      // replay (seq >= currentTurnStartSeq) means it sees THIS turn from its
+      // first event — the opening status_update{streaming:true} the turn
+      // published right after markTurnStart — then goes live for the rest.
+      const late = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd);
+
+      await Promise.all([first.done, late.done]);
+
+      // Both reached turn_complete on the one in-flight turn.
+      expect(first.events.some((e) => e.event === 'turn_complete')).toBe(true);
+      expect(late.events.some((e) => e.event === 'turn_complete')).toBe(true);
+
+      // The late joiner saw the current turn FROM ITS START: its first event is
+      // the turn-opening status_update{streaming:true}, and it captured the
+      // text_delta content even though it attached after the turn began.
+      const lateFirst = late.events[0];
+      expect(lateFirst?.event).toBe('status_update');
+      expect(late.events.some((e) => e.event === 'text_delta')).toBe(true);
+
+      // It did NOT miss the head of the turn: the late joiner's first seq is
+      // <= the first seq the always-live stream saw. (Current-turn replay
+      // backfills from the turn's opening event, so the late stream's window
+      // starts at or before the early stream's window — never after it.)
+      const firstSeqOf = (events: SseEvent[]): number =>
+        events.length > 0 && events[0]?.id !== null
+          ? Number.parseInt(events[0]?.id as string, 10)
+          : Number.NaN;
+      expect(firstSeqOf(late.events)).toBeLessThanOrEqual(firstSeqOf(first.events));
+    } finally {
+      await runtime.dispose();
+    }
+  }, 20_000);
 });
