@@ -7,6 +7,7 @@
 // Bus state is reset per test via __test_resetAllBuses().
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -277,5 +278,86 @@ describe('SessionSupervisor (Phase D T2)', () => {
   test('exports sane defaults', () => {
     expect(DEFAULT_IDLE_TIMEOUT_MS).toBe(1_800_000);
     expect(DEFAULT_SWEEP_INTERVAL_MS).toBe(300_000);
+  });
+
+  // The DB-seconds fallback: a candidate that lives in sessionContexts but has
+  // NO bus reads its staleness from the persisted row's `lastUpdated` — stored
+  // as epoch SECONDS — which `sweep()` multiplies by 1000 to compare against
+  // `now()` (epoch ms). These two cases pin that `* 1000`: drop it and a
+  // freshly-created session reads as ~55 years idle (seconds compared against
+  // ms), so Case A would wrongly evict.
+  describe('context-only (no-bus) DB-seconds idle fallback', () => {
+    // Create a real row (last_updated = creation time, in seconds) and seed it
+    // into sessionContexts as a context-only entry — NO bus. Read the creation
+    // instant back as epoch ms (lastUpdated * 1000), exactly the value the
+    // fallback path computes. disposeSession is spied so the stub is never
+    // really torn down.
+    function seedContextOnlySession(id: string): {
+      creationMs: number;
+      calls: Array<{ id: string; opts: { bus?: ServerEventBus } | undefined }>;
+    } {
+      runtime.sessionDb.createSession({ sessionId: id, model: 'mock-haiku', provider: 'mock' });
+      const row = runtime.sessionDb.getSession(id);
+      expect(row).not.toBeNull();
+      // No bus for this id — it lives ONLY in sessionContexts.
+      runtime.getSessionContext(id);
+      expect(peekBus(id)).toBeUndefined();
+      // The persisted instant, in ms — the basis for the injected `now`.
+      const creationMs = (row?.lastUpdated ?? 0) * 1000;
+
+      const calls: Array<{ id: string; opts: { bus?: ServerEventBus } | undefined }> = [];
+      const realDispose = runtime.disposeSession.bind(runtime);
+      runtime.disposeSession = async (
+        sid: string,
+        opts?: { bus?: ServerEventBus },
+      ): Promise<void> => {
+        calls.push({ id: sid, opts });
+        return realDispose(sid, opts);
+      };
+
+      return { creationMs, calls };
+    }
+
+    test('skips when recent (1s after creation, within the default TTL)', async () => {
+      // Unique id per run — the mock runtime's SessionDb is the persistent
+      // global DB (buildMockRuntime does not redirect dbPath), so a fixed id
+      // would collide on a second `bun test` invocation.
+      const id = `db-fallback-recent-${randomUUID()}`;
+      const { creationMs, calls } = seedContextOnlySession(id);
+
+      // 1s after creation — well within the 30-min default TTL. This only reads
+      // as "recent" if the fallback applied `* 1000`; otherwise it reads as
+      // ~55 years idle and would be evicted.
+      const supervisor = new SessionSupervisor({
+        runtime,
+        now: () => creationMs + 1_000,
+        idleSessionTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+      });
+      const result = await supervisor.sweep();
+
+      expect(result.evicted).not.toContain(id);
+      expect(calls.find((c) => c.id === id)).toBeUndefined();
+      expect(runtime.sessionContexts.has(id)).toBe(true);
+    });
+
+    test('evicts when stale (past the default TTL); disposeSession gets no bus arg', async () => {
+      const id = `db-fallback-stale-${randomUUID()}`;
+      const { creationMs, calls } = seedContextOnlySession(id);
+
+      // Well past the default TTL → stale → evicted.
+      const supervisor = new SessionSupervisor({
+        runtime,
+        now: () => creationMs + DEFAULT_IDLE_TIMEOUT_MS + 2_000,
+        idleSessionTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+      });
+      const result = await supervisor.sweep();
+
+      expect(result.evicted).toContain(id);
+      // No bus existed, so disposeSession is called with NO bus arg.
+      const call = calls.find((c) => c.id === id);
+      expect(call).toBeDefined();
+      expect(call?.opts?.bus).toBeUndefined();
+      expect(runtime.sessionContexts.has(id)).toBe(false);
+    });
   });
 });
