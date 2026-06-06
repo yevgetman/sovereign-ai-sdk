@@ -8,6 +8,71 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — Phase C reference web UI — real-browser e2e (Playwright) + reconnect-stall fix
+
+Real-browser e2e of the Phase C reference web console (`src/server/webui.html`, served by
+`sov gateway` at `GET /`), driven via Playwright against a live gateway + the real Anthropic model.
+Isolated `HARNESS_HOME` (`mktemp -d`, the real `~/.harness/config.json` copied in for the API key —
+the user's real config was NOT mutated); gateway booted on `127.0.0.1:8770` with `SOV_GATEWAY_TOKEN=webuitok`.
+Same-origin (UI served by the gateway) — no CORS involved. Gateway version `0.6.19-c365f5e`.
+
+**Connect + simple turn — PASS.** Connect screen rendered (URL pre-filled to the page origin, bearer
+field, Connect/Reset). Typed the token, clicked Connect → health probe passed, `POST /sessions`
+minted a session, the `?follow` SSE stream opened, chat view reached with the `live` dot + short
+session id + version. Sent `reply with exactly the word: pong` → the streamed assistant reply
+rendered **pong** in the bubble; status returned to "Ready."; metrics rendered (`↑2 ↓5 $0.0092`).
+On a reload the saved-token UX worked (masked placeholder + "Forget saved").
+
+**Tool-use → permission Approve → tool_result — PASS.** Note: `echo` is on the Bash read-only
+allowlist (`isReadOnlyBashCommand`), so `echo hello-webui-e2e` auto-approves and never raises a
+permission prompt regardless of mode — that is correct harness behavior, NOT a UI defect. Also the
+copied config carried the user's `permissionMode: "bypass"` (auto-approve everything); switched the
+*isolated* config to `"default"` to exercise the gate. With a writer command
+(`echo … > /tmp/webui-e2e-marker.txt && cat …`, the `>` redirect makes it ask): a **tool card**
+(`⚒ Bash`, running spinner) appeared, then a gold **PERMISSION REQUIRED** card with the full command,
+an "always allow" checkbox, and Deny/Approve. Clicked **Approve** → verdict flipped to **✓ approved**,
+the tool card went `✓ Bash · done` with output `hello-webui-e2e exit_code: 0`, and the assistant's
+final answer rendered. Confirmed the marker file was actually written on disk — the tool genuinely
+executed post-approval, not just a rendered illusion.
+
+**Reconnect — PASS (after fixing a real bug, see below).** Killed the gateway with the session idle:
+the UI flipped to the gold `reconnecting` dot with capped exponential backoff (`reconnect N/6`,
+`Reconnecting in Xs…`) — NOT a busy-loop (≤ a handful of console errors across all 6 attempts, not
+hundreds). Exhausting all 6 retries reached a clean terminal `disconnected` (dead dot) +
+"Reconnect now" notice. **Initially the auto-reconnect WEDGED** at "Reconnecting… (3/6)" forever
+after a quick kill+reboot.
+
+**Bug found + fixed (`fix(webui)` — commit `a77ed32`).** Root cause was server-side, proven in the
+browser: the SSE handler (`GET /sessions/:id/events`) wrote nothing until the first event, and Bun
+does not flush HTTP response headers until the first body write — so a browser `fetch()` opening a
+`?follow` stream on an *idle* session (no queued events, exactly the post-reconnect-to-fresh-session
+case) stayed pending on the headers **indefinitely**. An in-page probe measured the `?follow` fetch
+hanging >4s pre-fix vs **~3ms** after. The client's reader promise never resolved, its `connecting`
+flag stayed set, and the retry timer's `openStream()` no-opped (single-flight) → permanent freeze.
+Fix: write a leading `: connected` SSE comment frame on connect to flush headers (the `:` makes it a
+comment the spec + the client parser ignore); `tests/server/events.test.ts` updated to drop comment
+frames. Also hardened the client reconnect lifecycle so it can never wedge even if the server stalls
+again — single-flight `connecting` guard, `onAttemptSettled()` supersede re-arm, idempotent
+`scheduleReconnect()` (no stacked timers / no inflated attempt counter), full state reset in the
+manual "Reconnect now" handler, and stale "Reconnecting…"/"Connection lost…" status-line clearing on
+any clean (re)connect. **Re-verified in the browser post-fix:** quick kill+reboot now auto-recovers
+to `live`+"Ready."; a long outage → exhausted retries → "Reconnect now" → reboot → click recovers to
+`live`+"Ready."; post-reconnect turns stream correctly every time.
+
+**Console / CORS / escaping / layout.** No JS exceptions, no CORS, no CSP violations, no XSS/escaping
+problems, no layout breaks across the whole session. The only non-deliberate console error is a
+benign `favicon.ico 404` (browser auto-request; gateway serves no favicon). All other console errors
+were the expected `ERR_CONNECTION_REFUSED` / `ERR_INCOMPLETE_CHUNKED_ENCODING` from the deliberate
+gateway kills during the reconnect tests — each handled gracefully by the backoff machinery.
+
+**Gate.** `bun run lint` clean (644 files), `bun run typecheck` clean, full suite **2814 pass / 0
+fail / 14 skip** (run with the isolated `HARNESS_HOME`, so the 3 known env-only learning-test fails
+did not trip — no new failures from the fix). No release cut / no version bump (per the e2e brief).
+Cleanup: background gateway killed, browser closed, temp `HARNESS_HOME` + `.playwright-mcp/` artifacts
++ screenshot PNGs removed; `git status` clean except the two intended commits. The
+`[WARN] blocked context file … AGENTS.md` lines are the pre-existing harness scanner flagging the
+installer `curl … | bash` one-liner — unrelated.
+
 ## 2026-06-05 — Phase C T1 (embedded web UI shell — serving mechanism)
 
 TDD pass for **Phase C T1** — the serving mechanism for the reference web UI: embed a self-contained
