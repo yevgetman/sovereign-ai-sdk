@@ -284,10 +284,23 @@ export function setDefaultRingSize(n: number): void {
   defaultRingSize = Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_RING;
 }
 
-export function getOrCreateBus(sessionId: string, maxRing?: number): ServerEventBus {
+/**
+ * @param now Injectable clock threaded into a freshly-minted bus (Phase D T1's
+ *   liveness surface). Defaults to the bus's own `Date.now`. Ignored when the
+ *   bus already exists — the existing clock is authoritative. The SessionSupervisor
+ *   tests use this to deterministically control `getLastActivityAt()`.
+ */
+export function getOrCreateBus(
+  sessionId: string,
+  maxRing?: number,
+  now?: () => number,
+): ServerEventBus {
   let bus = buses.get(sessionId);
   if (bus === undefined) {
-    bus = new ServerEventBus(maxRing ?? defaultRingSize);
+    bus =
+      now === undefined
+        ? new ServerEventBus(maxRing ?? defaultRingSize)
+        : new ServerEventBus(maxRing ?? defaultRingSize, now);
     buses.set(sessionId, bus);
   }
   return bus;
