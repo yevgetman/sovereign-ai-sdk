@@ -119,6 +119,7 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `learning export <project-id> [--output <dir>]` | (Phase 13.4.) Emit each instinct as a `.md` file into `<dir>` (defaults to `./instincts-export`). Useful for external review or archiving. |
 | `cron <add\|list\|show\|pause\|resume\|delete\|run\|tick>` | (Phase 17.) Schedule fresh-session agent runs (cron / relative / interval / ISO timestamps). Per-job optional pre-agent script + chained skills + delivery target. The 60-second tick loop runs as long as a `sov` process (TUI / drive / dispatch / `sov serve`) is alive. See `docs/state/2026-05-22-phase-17-cron.md` for the design lock + `cron add --help` for flag detail. |
 | `serve [--port <n>] [--host <addr>] [--provider <name>] [--model <name>] [--max-tokens <n>] [--permission-mode <mode>] [--no-cron] [--no-preflight] [-b/--bundle <path>]` | (Phase 18.) Run the OpenAI-compatible HTTP API server. Long-lived; SIGINT/SIGTERM trigger graceful shutdown. Any tool speaking OpenAI's HTTP API (Open WebUI, LibreChat, AnythingLLM, official `openai` Python/JS SDKs with a custom `base_url`) can drive the harness without code changes. API key required at boot (`SOV_OPENAI_API_KEY` env > `openaiServer.apiKey` config). See [OpenAI-compatible HTTP API (`sov serve`)](#openai-compatible-http-api-sov-serve) below for the full surface. |
+| `gateway [--host <addr>] [--port <n>]` | (Run-anywhere roadmap A–F.) Run the harness's **native HTTP+SSE** protocol as a long-lived, remote-reachable, authenticated server — the rich interactive surface (turns, streaming, tool events, permission prompts, slash commands, skills) the TUI / `sov drive` speak, exposed off-loopback. Ships a built-in browser UI, persistent multi-session hosting, multi-user principals, and Slack/Telegram/webhook channels. A token is required off-loopback (refuses to boot otherwise). Long-lived; SIGINT/SIGTERM trigger graceful shutdown. All other config (host/port/token/CORS/principals/channels) lives in `config.json` + env. See [Remote gateway (`sov gateway`)](#remote-gateway-sov-gateway) below for the full surface. |
 
 ## Eval Suite
 
@@ -709,9 +710,37 @@ v0 expectation: keep `sov serve` running in a long-lived terminal pane, a launch
 
 ## Remote gateway (`sov gateway`)
 
-Run the harness's **native HTTP+SSE protocol** as a long-lived, remote-reachable, authenticated server. This is the *rich, interactive* protocol the Go TUI / `sov drive` already speak — turns, streaming output, tool events, **permission prompts**, slash commands, and skills — not the stateless OpenAI completion surface (`sov serve`, above). It's the first piece of the run-anywhere roadmap (`docs/specs/2026-06-05-run-anywhere-harness-roadmap-design.md`, Phase A); it lets any remote UI (a web app, an iOS app, a custom client) drive a full session over the network.
+Run the harness's **native HTTP+SSE protocol** as a long-lived, remote-reachable, authenticated server. This is the *rich, interactive* protocol the Go TUI / `sov drive` already speak — turns, streaming output, tool events, **permission prompts**, slash commands, and skills — not the stateless OpenAI completion surface (`sov serve`, above). It is the home of the **run-anywhere roadmap (A–F, complete)** (`docs/specs/2026-06-05-run-anywhere-harness-roadmap-design.md`); it lets any remote UI (the built-in web UI, a web app, an iOS app, a custom client) drive a full session over the network — with persistent multi-session hosting, multi-user isolation, and inbound channels.
 
 `sov gateway` is distinct from the default `sov` launch: the default forks `sov-tui` next to a per-invocation loopback server, whereas `sov gateway` is a headless, standalone, always-on server with no TUI. The TUI / `sov serve` / `sov drive` surfaces are unchanged.
+
+### What the gateway gives you (the A–F arc)
+
+The gateway grew over six dependency-ordered phases; each subsection below covers one capability:
+
+1. **`sov gateway` — secure off-loopback bind + bearer auth** (Phase A) — the entrypoint, host/port resolution, refuse-to-boot-without-a-token, and the [Security model](#security-model).
+2. **Built-in browser UI** (Phase C) — [Open the web UI](#open-the-web-ui): a self-contained chat client served by the gateway itself.
+3. **Multi-client + reconnect-safe transport** (Phase B) — [Multiple clients, reconnect, and persistent streams](#multiple-clients-reconnect-and-persistent-streams): many subscribers per session, `Last-Event-ID` replay, `?follow` persistent streams.
+4. **Run-as-a-service + persistent multi-session host** (Phase D) — [Persistent gateway & session lifecycle](#persistent-gateway--session-lifecycle) and [Run the gateway as a service](#run-the-gateway-as-a-service): idle eviction, a session cap, `GET`/`DELETE /sessions`, systemd/launchd units.
+5. **Multi-user principals** (Phase E) — [Multi-user gateway](#multi-user-gateway): named principals with isolated sessions, memory, and learning.
+6. **Slack / Telegram / webhook channels** (Phase F) — [Channels](#channels): inbound messages drive isolated, safe-by-default sessions.
+
+The capabilities compose: a service-installed gateway can be multi-user *and* expose channels *and* serve the web UI, all over the same authenticated protocol.
+
+### Surfaces at a glance
+
+How the four run modes compare:
+
+| | TUI (`sov`) | `sov drive` | `sov serve` | `sov gateway` |
+|---|---|---|---|---|
+| **Stateful?** | yes (session DB) | yes (session DB) | no (stateless; client sends full history) | yes (persistent multi-session host) |
+| **Auth** | none (local) | none (local) | bearer API key (required at boot) | bearer token / per-principal token (required off-loopback) |
+| **Streaming** | yes (SSE → TUI) | yes (plain-text events) | yes (OpenAI SSE) | yes (native HTTP+SSE) |
+| **Tool-permission policy** | interactive prompts | auto-deny on `ask` | auto-deny on `ask` | interactive prompts (channels: auto-deny) |
+| **Multi-client** | no | no | no | yes (many subscribers / session) |
+| **Multi-user** | no | no | no | yes (principals, Phase E) |
+| **Channels** | no | no | no | yes (Slack / Telegram / webhook) |
+| **Remote-bindable** | no (loopback) | no (loopback) | LAN with `--host` (put TLS in front) | yes (off-loopback, token + TLS) |
 
 ### Quick start
 
@@ -781,7 +810,7 @@ Errors are structured JSON (`{ error: "…" }`): a malformed/empty JSON body on 
 
 ### Configuration
 
-Persistent config block in `~/.harness/config.json`:
+Core gateway configuration (auth + transport) in `~/.harness/config.json`. This is the single-token shape; multi-user (`principals`) and `channels` are covered in their own sections below (and `principals` is XOR with `token`):
 
 ```json
 {
@@ -790,10 +819,15 @@ Persistent config block in `~/.harness/config.json`:
     "port": 8766,
     "token": "<bearer-token>",
     "corsOrigins": ["https://app.example.com"],
-    "eventBufferSize": 512
+    "eventBufferSize": 512,
+    "idleSessionTimeoutMs": 1800000,
+    "idleSweepIntervalMs": 300000,
+    "maxConcurrentSessions": 0
   }
 }
 ```
+
+Every `gateway.*` field is optional. The full set: `host`, `port`, `token`, `corsOrigins`, `eventBufferSize` (replay ring; below), the persistent-host knobs `idleSessionTimeoutMs` / `idleSweepIntervalMs` / `maxConcurrentSessions` (see [Persistent gateway & session lifecycle](#persistent-gateway--session-lifecycle)), `principals` (XOR with `token`; see [Multi-user gateway](#multi-user-gateway)), and `channels.{webhook,telegram,slack}` (see [Channels](#channels)). All `gateway.*` keys also appear in the master [config-fields table](#config-command).
 
 Env vars: `SOV_GATEWAY_HOST`, `SOV_GATEWAY_PORT`, `SOV_GATEWAY_TOKEN`. Resolution precedence:
 
@@ -1026,7 +1060,11 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 ### Security model
 
-Exposing the gateway exposes a **tool-running agent** — read this before binding off-loopback.
+Exposing the gateway exposes a **tool-running agent** — read this before binding off-loopback. This is the one place the gateway's trust story lives; the per-phase sections (multi-user, channels) link back here rather than re-deriving it.
+
+**Trust boundary — within-org, not hostile-multi-tenant.** The gateway's isolation model (including multi-user [principals](#multi-user-gateway)) is the **within-org / single-trust-domain** model: multiple *trusted-but-separate* users on one operator-run gateway (a team, a household, a small org), isolated from each other's *accidental* cross-access. It is **NOT hostile multi-tenant isolation** — there is no process/filesystem sandbox, no per-tenant resource limit, no defense against a *malicious* principal. **Hostile-multi-tenant / managed-multi-tenant isolation is out of scope and a founder-reserved decision — do not put mutually-distrusting tenants on one gateway.**
+
+**Every principal/token = full tool powers.** Whoever holds a valid token (the single `gateway.token`, or any per-principal token) gets the harness's **full tool powers** (Bash, file edit, web) under whatever permission policy is configured. There is no read-only or scoped-capability token. So **when you expose the gateway, run it behind a constrained permission policy** — a tightened `settings.local.json` allow/deny set, ideally a dedicated least-privileged bundle/user — not a dev machine's broad `allow Bash(*)`. The one exception is **channels**, which run under a deliberately stricter, safe-by-default posture (no local-allow inheritance, auto-deny, `bypass` forbidden) because a channel message is untrusted remote input — see [Channels › Safe-by-default permission posture](#safe-by-default-permission-posture-read-this-first).
 
 - **Loopback by default.** The default host is `127.0.0.1`, so out of the box the gateway is reachable only from the same machine, exactly like the per-invocation TUI server. On loopback, a token is optional (back-compat).
 - **Refuse-to-boot when exposed without auth.** If the resolved host is **not** loopback (anything other than `127.0.0.1` / `::1` / `localhost` / the `127/8` block) **and** no token is configured, `sov gateway` hard-exits (exit 1) with an actionable message and never binds. There is no anonymous off-loopback mode.
@@ -1128,7 +1166,7 @@ launchctl unload ~/Library/LaunchAgents/ai.sovereign.gateway.plist
 
 As of Phase E (v0.6.22) a single self-hosted `sov gateway` can serve **multiple named users**, each with **isolated sessions, memory, and learning**. You configure a list of *principals* — each with a stable `id`, its own bearer `token`, and an optional display `name` — and the gateway resolves the presented token to a principal on every request. A user can only see and act on the sessions they created; the memory and learned instincts a turn reads or writes are scoped to that user.
 
-**Trust model — read this.** This is the **within-org / single-trust-domain** model: multiple *trusted-but-separate* users on one operator-run gateway (a team, a household, a small org), isolated from each other's sessions and state. It is **NOT hostile multi-tenant isolation** — there is no process/filesystem sandbox, no per-tenant resource limit, no defense against a *malicious* user (every principal still wields the harness's full tool powers under the configured permission policy, on the same host). The threat it addresses is *accidental cross-user access or leakage among trusted users*. Hostile cross-tenant / managed-multi-tenant isolation is a separate, founder-reserved decision; the within-org model is additive to it.
+**Trust model — read this.** Multi-user isolation is the **within-org / single-trust-domain** model: trusted-but-separate users isolated from each other's *accidental* cross-access, **not** hostile multi-tenant isolation (every principal still wields the harness's full tool powers on the same host). The full trust boundary — and the founder-reserved status of hostile-multi-tenant isolation — is stated once in the [Security model](#security-model) above; the rest of this section is the *mechanics* of the within-org isolation you get.
 
 **Configure principals.** Set `gateway.principals` in `config.json`. Each `id` must be a safe path segment (`^[A-Za-z0-9_-]+$` — it becomes a directory component for per-user state), and each `token` must be non-empty and unique:
 
@@ -1186,13 +1224,15 @@ curl -s -o /dev/null -w '%{http_code}\n' "$GW/sessions"
 
 **Known v1 limitations.** Operator-side **traces and fine-tune trajectories are not per-user-partitioned** — but they are operator-only artifacts, never served over the API, so they are not a turn-surfaced cross-user leak. The **admin learning CLI** (`sov learning status|export|prune`) operates on the legacy top-level corpus, not per-user. These are noted follow-ups, not bugs.
 
-## Channels (`sov gateway`)
+### Channels
 
 As of Phase F (v0.6.23 — the final module of the run-anywhere roadmap) a self-hosted `sov gateway` can be driven from **Slack, Telegram, or a generic webhook**. An inbound channel message routes to a per-conversation harness session, runs one headless turn, and the reply is delivered back over the channel. Channels are **off unless configured** and only run on `sov gateway` (not the TUI / `sov serve` / `sov drive`).
 
-**Each channel is an isolated principal.** Every channel binds to a Phase-E principal (`principalId` ∈ `gateway.principals`), so its sessions, memory, and learning are isolated from every other principal — and never see a human user's data. A channel conversation is keyed per `(channel, sender[, thread])`, so each sender gets a continuous, coherent thread (history is hydrated into every turn).
+**Each channel is an isolated principal.** Every channel binds to a Phase-E principal (`principalId` ∈ `gateway.principals`), so its sessions, memory, and learning are isolated from every other principal — and never see a human user's data. A channel conversation is keyed per `(channel, sender[, thread])`, so each sender gets a continuous, coherent thread. Each turn fully participates in the **learning loop** under the channel principal's namespace: it injects that principal's MEMORY.md, runs recall (`<learned-context>`), and writes memory back — so a channel gets more useful over time exactly like an interactive session, isolated to its own principal.
 
-### Safe-by-default permission posture (read this first)
+**Conversation behavior.** History is a **bounded recent window** — each turn re-seeds a bounded tail (~40 messages) of the conversation, so the immediate context stays under the model's limit; older turns drop out of the in-context window while memory + learning carry the longer-term thread (it never overflows or bricks). Concurrent messages from the same `(channel, sender)` are **serialized** (processed in order, one at a time), so two near-simultaneous messages can't race the shared session. **Empty/whitespace-only** messages are ignored (no turn runs). On an internal error the channel sends a short fallback reply ("Sorry — I hit an error…") rather than going silent.
+
+#### Safe-by-default permission posture (read this first)
 
 A channel message is **untrusted remote input** — the highest-risk surface the harness exposes. Channel turns therefore run under a deliberately strict posture that is **stricter than cron**:
 
@@ -1203,7 +1243,7 @@ A channel message is **untrusted remote input** — the highest-risk surface the
 
 To let a specific channel run a specific tool you would add explicit, channel-scoped allow rules (an escape hatch in the framework) — there is no way to inherit the local dev's rules wholesale.
 
-### Configure `gateway.channels`
+#### Configure `gateway.channels`
 
 Each channel is `{ enabled, principalId, <secret(s)>, permissionMode? }`. The `principalId` must name a principal in `gateway.principals`, and the secret(s) are resolved **env-first** (see the table below) — keep them out of the config file in production. An enabled channel with a missing secret, an unknown `principalId`, or `permissionMode: 'bypass'` is a hard boot error.
 
@@ -1232,11 +1272,11 @@ Each channel is `{ enabled, principalId, <secret(s)>, permissionMode? }`. The `p
 | `telegram` | `botToken` | `SOV_TELEGRAM_BOT_TOKEN` | `getUpdates` long-poll (no public endpoint) |
 | `slack` | `signingSecret`, `botToken` | `SOV_SLACK_SIGNING_SECRET`, `SOV_SLACK_BOT_TOKEN` | `POST /channels/slack/events` (signing-secret-verified, async reply) |
 
-A config secret wins over the env var; the env var only fills an absent field. Secrets are **never logged** — the gateway prints only a one-line `channels: webhook, slack` enabled-names summary at boot. The webhook + Slack inbound routes mount **open** on the gateway (before the bearer/principal auth, like `/health`) and are gated by their own per-channel verification, not the gateway token.
+A config secret wins over the env var; the env var only fills an absent field. Secrets are **never logged** — the gateway prints only a one-line `channels: webhook, slack` enabled-names summary at boot. The webhook + Slack inbound routes mount **open** on the gateway (before the bearer/principal auth, like `/health`) and are gated by their own per-channel verification, not the gateway token. Every `/channels/*` route enforces a **1 MiB inbound body cap** (an over-cap POST is rejected with 413 before any parse, verify, or turn), and inbound ids are validated as safe segments at the source — so an untrusted channel request can neither exhaust memory nor smuggle a path separator into a session id.
 
-### Generic webhook (the keystone — no external account needed)
+#### Generic webhook (the keystone — no external account needed)
 
-The simplest channel: `POST /channels/webhook/default` with a JSON body and an `X-Signature: sha256=<hmac>` header, where the HMAC is **HMAC-SHA256 of the raw request body** keyed by your `SOV_WEBHOOK_SECRET`. The signature is verified constant-time over the raw bytes before any turn runs; a bad/missing signature is **401**, a malformed body is **400**. The reply comes back synchronously as `{ "reply": "..." }` (or `{ "silent": true }` when the model declines via a `[SILENT]` prefix / empty reply).
+The simplest channel: `POST /channels/webhook/default` with a JSON body and an `X-Signature: sha256=<hmac>` header, where the HMAC is **HMAC-SHA256 of the raw request body** keyed by your `SOV_WEBHOOK_SECRET`. The path segment `default` is the **v1 reserved channel id** (the `:id` in `POST /channels/webhook/:id` is the multi-channel addressing hook for later platforms; any other id is a 404). The signature is verified constant-time over the raw bytes before any turn runs; a bad/missing signature is **401**, a malformed body is **400**. The reply comes back synchronously as `{ "reply": "..." }` (or `{ "silent": true }` when the model declines via a `[SILENT]` prefix / empty reply).
 
 ```bash
 GW=http://127.0.0.1:8766
@@ -1260,18 +1300,20 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$GW/channels/webhook/default" 
 
 The body fields: `sender` (required), `text` (required), optional `chatId` (defaults to `sender`) and `threadId`. `sender`/`chatId`/`threadId` are validated as safe id segments (no path separators / `..`) and rejected with a 400 otherwise.
 
-### Telegram — real-credential setup
+#### Telegram — real-credential setup
 
-Telegram needs **no public endpoint**: the adapter long-polls the Bot API's `getUpdates`. Setup:
+Telegram needs **no public endpoint**: the adapter uses the Bot API's **real long-poll** — `getUpdates` with a server-side `timeout`, so Telegram holds the connection open until an update arrives (not a busy short-poll). Setup:
 
 1. In Telegram, message **@BotFather**, send `/newbot`, and follow the prompts to name the bot. BotFather returns a **bot token**.
 2. Export it as `SOV_TELEGRAM_BOT_TOKEN` on the gateway host (or set `gateway.channels.telegram.botToken` in config — env is preferred).
 3. Enable the channel: `gateway.channels.telegram = { "enabled": true, "principalId": "tg-bot" }` (the principal must exist in `gateway.principals`).
 4. Start `sov gateway`. The poll loop runs in the background; message your bot and it replies. (Webhook mode for Telegram is possible but out of scope for v1 — long-poll is the default and needs no inbound URL.)
 
-> Not provisioned here. The adapter is built + tested against an injected transport; a live bot token is the operator setup above. Telegram numeric user/chat ids are stringified into the session key, so each chat is a stable conversation.
+How it behaves: the poll loop is resilient — a `getUpdates` failure (a **bad token**, a network outage) **backs off** instead of spinning, and logs **one actionable line** naming `SOV_TELEGRAM_BOT_TOKEN` / network (never the token itself), so a misconfigured bot fails loudly rather than silently looping. The offset advances past every update in a batch (even one that throws), and each update is handled in its own try/catch, so a single poisonous update can't wedge the loop.
 
-### Slack — real-credential setup
+> Not provisioned here. The adapter is built + tested against an injected transport; a live bot token is the operator setup above. Telegram numeric user/chat ids are stringified into the session key (and validated as safe id segments at the source), so each chat is a stable conversation.
+
+#### Slack — real-credential setup
 
 Slack delivers events to a **single public endpoint** and authenticates each request with your app's signing secret. Setup:
 
@@ -1286,13 +1328,21 @@ How it behaves: the route verifies the **`v0=` signing-secret HMAC** over `v0:{t
 
 > Not provisioned here. The adapter is built + tested against an injected transport (signing-secret verify, challenge handshake, async post, retry dedupe); a live app + secrets are the operator setup above.
 
-### v1 limitations
+#### Channel UX limitations (v1)
 
-- **Auto-deny, no in-channel approval.** Channel turns auto-deny permission prompts; there is no approve-from-Slack/Telegram UI (a future enhancement). Tasks needing `Bash`/`Write`/`Edit` won't run from a channel by default.
+- **Auto-deny, no in-channel approval.** Channel turns auto-deny permission prompts; there is no approve-from-Slack/Telegram UI (a future enhancement). Tasks needing `Bash`/`Write`/`Edit` won't run from a channel by default. (This is by design — see the safe-by-default posture above — not a transient gap.)
 - **No rich channel UX.** No Slack blocks/buttons/reactions, no Telegram inline keyboards, no threads beyond the basic conversation key, no file attachments, no in-channel slash commands. Replies are plain text.
-- **Uncompacted long conversations.** A channel conversation accrues history on one session and is not microcompacted — a very long single conversation could overflow the context window (same caveat as cron). Restart the conversation (a new chat) or delete the session row to reset.
-- **Channel sessions aren't individually API-addressable.** Their ids are colon-delimited (`agent:main:{channel}:…`), so they don't match the `/sessions/:id*` routes — fail-closed and channel-managed (the Phase-D supervisor evicts idle ones; rows accrue like cron).
-- **Live operation needs real external credentials.** Slack/Telegram were built + tested against injected transports and a real-HMAC webhook e2e; provisioning real apps is the operator setup above.
+
+### Known limitations (v1)
+
+The run-anywhere gateway is feature-complete (A–F), but a few edges are documented and deliberately out of scope for v1:
+
+- **Hostile-multi-tenant isolation is out of scope (founder-reserved).** The isolation model is within-org (trusted-but-separate users), not a sandbox against a *malicious* principal — see the [Security model](#security-model). Don't co-locate mutually-distrusting tenants on one gateway.
+- **Channel conversation context is a bounded recent window — it does not overflow.** A channel conversation seeds only a bounded tail of recent history (~40 messages, ≈20 back-and-forth turns) into each turn; older turns drop out of the *immediate* model context (the conversation "forgets" beyond the window), while the **memory + learning layers carry longer-term context**. So a long conversation never bricks the session by overflowing the context window — and channels now fully participate in the learning loop: a channel turn injects MEMORY.md, runs recall (`<learned-context>`), and writes memory back, all scoped to the channel's [principal](#multi-user-gateway). On an internal error a channel replies with a short fallback ("Sorry — I hit an error…") rather than going silent.
+- **Channel sessions aren't individually API-addressable, but are auto-swept.** Their ids are colon-delimited (`agent:main:{channel}:{chatType}:{chatId}[:{threadId}]`), so they don't match the `/sessions/:id*` routes — fail-closed and channel-managed. The Phase-D supervisor reclaims their in-memory state when idle, and idle channel session **rows are swept after 30 days** automatically (`cleanupOldChannelSessions`), so they don't accrue without bound.
+- **Live Slack/Telegram need real external credentials.** The adapters were built + fully tested against injected transports (plus a real-HMAC webhook e2e); provisioning real Slack/Telegram apps + secrets is the operator setup documented above — not live-verified here.
+- **Operator traces / fine-tune trajectories are not per-user-partitioned.** They are operator-only artifacts, never served over the API, so they are not a turn-surfaced cross-user leak — a noted follow-up, not a bug.
+- **The admin learning CLI operates on the legacy top-level corpus.** `sov learning status|export|prune` reads the top-level corpus, not the per-principal corpora that per-user / per-channel turns write under `$HARNESS_HOME/users/{id}/learning/…`.
 
 ## Themes
 
@@ -1382,6 +1432,18 @@ Available config fields (top-level unless noted):
 | `learning.recall.tokenBudget` | int > 0 | `1200` | cap on the injected recall snapshot size |
 | `learning.evidenceSaturation` | num > 0 | `13` | (Learning-loop spike Phase 1.) τ for the saturating confidence curve — ~6 obs clears the 0.3 prune floor, ~20 clears the 0.7 promotion gate |
 | `learning.synthesizeOnSessionEndAfter` | int > 0 | `10` | (Learning-loop spike Phase 1.) trigger end-of-session synthesis once ≥ N new observations have accrued |
+| `gateway.host` | string | `127.0.0.1` | (`sov gateway`.) Bind host. Off-loopback requires a token. Env `SOV_GATEWAY_HOST`; flag `--host`. See [Remote gateway](#remote-gateway-sov-gateway). |
+| `gateway.port` | int 1–65535 | `8766` | Listening port (distinct from `sov serve`'s 8765). Env `SOV_GATEWAY_PORT`; flag `--port`. |
+| `gateway.token` | string (secret) | — | Bearer token clients present; REQUIRED off-loopback. Env `SOV_GATEWAY_TOKEN`. **XOR with `gateway.principals`.** Redacted in `show`. |
+| `gateway.corsOrigins` | string[] | `[]` | Allow-list of browser origins for cross-origin clients (exact-origin echo, never `*`). Empty = same-origin only. Config-only. |
+| `gateway.eventBufferSize` | int > 0 | `512` | Per-session SSE replay-ring size (events retained for `Last-Event-ID` reconnect). Config-only. |
+| `gateway.idleSessionTimeoutMs` | int > 0 | `1800000` (30 min) | Idle window before a session's in-memory state is reclaimed (durable row preserved; rebuilds lazily). |
+| `gateway.idleSweepIntervalMs` | int > 0 | `300000` (5 min) | Cadence of the background idle-session sweep. |
+| `gateway.maxConcurrentSessions` | int ≥ 0 | `0` (unlimited) | Cap on live in-memory sessions; `POST /sessions` returns 429 once at the ceiling (after an idle sweep). |
+| `gateway.principals` | array | — | Multi-user registry: `{ id, token, name? }` per principal (`id` matches `^[A-Za-z0-9_-]+$`; tokens unique). **XOR with `gateway.token`.** See [Multi-user gateway](#multi-user-gateway). |
+| `gateway.channels.webhook` | object | — | Inbound generic-webhook channel: `{ enabled?, principalId, secret?, permissionMode? }`. Secret env-first (`SOV_WEBHOOK_SECRET`). See [Channels](#channels). |
+| `gateway.channels.telegram` | object | — | Inbound Telegram channel: `{ enabled?, principalId, botToken?, permissionMode? }`. Secret env-first (`SOV_TELEGRAM_BOT_TOKEN`). |
+| `gateway.channels.slack` | object | — | Inbound Slack channel: `{ enabled?, principalId, signingSecret?, botToken?, permissionMode? }`. Secrets env-first (`SOV_SLACK_SIGNING_SECRET`, `SOV_SLACK_BOT_TOKEN`). |
 
 ## Learning recall
 
