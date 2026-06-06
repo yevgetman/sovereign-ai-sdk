@@ -134,6 +134,28 @@ export function disposeBus(sessionId: string): void {
 }
 
 /**
+ * Abort every live session bus without removing it from the map.
+ *
+ * Called by `runtime.dispose()` (shared by `sov gateway` / `sov serve`)
+ * BEFORE `sessionDb.close()` so any in-flight background turn — whose
+ * `query()` rides the bus `abortSignal` — cooperatively cancels before
+ * the DB handle goes away. Without this, a turn parked in a provider
+ * stream / tool loop keeps writing to a closed DB handle until
+ * `process.exit`.
+ *
+ * `ServerEventBus.close()` is idempotent (already-closed buses no-op),
+ * so this is safe to call repeatedly. The entries are intentionally left
+ * in the map — the per-session events route still owns removal via
+ * `disposeBus` in its `finally`; clearing the map here is a test-isolation
+ * concern handled by `__test_resetAllBuses`.
+ */
+export function abortAllBuses(): void {
+  for (const bus of buses.values()) {
+    bus.close();
+  }
+}
+
+/**
  * Test-only: reset all buses so a fresh suite starts clean.
  *
  * The `__test_` prefix is a soft fence: production code should never reach

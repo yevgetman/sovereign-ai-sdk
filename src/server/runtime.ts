@@ -77,7 +77,7 @@ import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
-import type { ServerEventBus } from './eventBus.js';
+import { type ServerEventBus, abortAllBuses } from './eventBus.js';
 import {
   type SessionContext,
   buildSessionContext,
@@ -1330,6 +1330,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       // The runner is undefined when buildRuntime was called with
       // `cronEnabled: false` (test path).
       runtime.cronRunner?.stop();
+      // Fix 3 — abort every live SSE bus FIRST so any in-flight background
+      // turn (its query() rides the bus abortSignal) cooperatively cancels
+      // before sessionDb.close() below. Without this, a turn parked in a
+      // provider stream / tool loop keeps writing to a closed DB handle
+      // until process.exit. The abort is synchronous; the per-session
+      // disposal walk + the grace tick before sessionDb.close() give the
+      // signal time to unwind the running generators. Idempotent — bus
+      // close() no-ops on already-closed buses, so double-dispose is safe.
+      abortAllBuses();
       const liveSessionIds = Array.from(sessionContexts.keys());
       for (const liveId of liveSessionIds) {
         await disposeSession(liveId);
@@ -1355,6 +1364,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
       approvalQueue.disposeAll();
+      // Fix 3 — yield one microtask tick so the bus aborts fired above
+      // have propagated through the running query() generators (their
+      // cooperative-cancel unwind happens on the next microtask after the
+      // abort event) before the DB handle goes away. Minimal + bounded —
+      // a single already-resolved Promise, never a hang.
+      await Promise.resolve();
       sessionDb.close();
     },
   };

@@ -8,6 +8,54 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-05 — Phase A gateway hardening (3 fixes from deep review + live browser test)
+
+Three Phase A gateway-hardening fixes surfaced by a deep review + a live browser test,
+each TDD with its own atomic commit. No release (cut after docs).
+
+- **Fix 1 — malformed JSON body → 400 (not 500) on turns + approvals [High].** The turns
+  route (`POST /sessions/:id/turns`) and approvals route
+  (`POST /sessions/:id/approvals/:requestId`) read the body via an unguarded
+  `await c.req.json()`, so a malformed/empty body surfaced as HTTP 500 `text/plain`. Wrapped
+  both in try/catch → structured 400 `{ error: 'invalid JSON body' }`, mirroring
+  `chatCompletions.ts` / `commands.ts` / `skills.ts`. Auth + id/session guards still run first;
+  the approvals 404-before-parse guard for unknown requestIds is unchanged. New
+  `tests/server/malformedBody.test.ts` (5 cases): malformed→400 on both routes (RED was 500),
+  well-formed still works, unknown-requestId still 404s before the parse. Commit `adba2c6`.
+- **Fix 2 — validate the resolved gateway port [Medium].** `SOV_GATEWAY_PORT` /
+  `config.gateway.port` flowed into `Bun.serve` unchecked (0 / 70000 / -1 / `8080x` silently
+  bound a random/clamped port). Extracted pure `resolveGatewayPort(flag, env, configPort)` in
+  `src/cli/gatewayCommand.ts`: precedence flag > env > config > default 8766, validates the
+  resolved value is an integer in `[1, 65535]`, throws a clear Error otherwise (top-level
+  `main()` catch → stderr + exit 1). Env parsed with `Number()` (not `parseInt`) so `8080x` is
+  rejected, not truncated to 8080. New `tests/cli/gatewayPort.test.ts` (18 cases): precedence,
+  valid bounds, and 0/70000/-1/`8080x`/`abc`/non-integer all throw. **Schema finding:**
+  `gateway.port` (line 420) AND `openaiServer.port` (line 406) in `src/config/schema.ts`
+  ALREADY carry `.int().min(1).max(65535)` — the deep review's "no upper bound" report was
+  stale; no schema change made. Commit `3cae86e`.
+- **Fix 3 — abort in-flight session buses before closing the DB on dispose [Medium].** On
+  SIGINT during an active turn, `runtime.dispose()` closed `sessionDb` but never aborted
+  in-flight background turns / their SSE buses, so a running `query()` (which rides the bus
+  `abortSignal`) kept writing to a closed DB handle until `process.exit`. Added
+  `abortAllBuses()` to `src/server/eventBus.ts` (closes every live bus without clearing the
+  map — distinct from `__test_resetAllBuses` / per-session `disposeBus`); `dispose()` calls it
+  FIRST (before the per-session disposal walk) and yields one `await Promise.resolve()` tick
+  before `sessionDb.close()` so the abort propagates through the parked generators. Idempotent
+  (bus `close()` no-ops on already-closed). Shared path → improves `sov gateway` + `sov serve`.
+  New `tests/server/disposeAbortsBuses.test.ts` (2 cases): (1) ordering — a live bus is aborted
+  before `sessionDb.close()` (spy on `close`, verify abort-fires-first); (2) behavioral — a
+  slow `MockProvider` turn (`slowMode`, set AFTER buildRuntime + `preflight: false` so only the
+  turn parks, not boot) disposed mid-flight → bus closed + abort signal fired + no unhandled
+  rejection. Both go RED without the fix (the pre-fix behavioral case TIMED OUT — the parked
+  10s turn was never cancelled), GREEN with it. **Fix 3 was safe — not racy** (the ordering
+  proof is deterministic; the behavioral test's grace ticks are bounded). Commit: this entry's
+  commit (the `fix(runtime): abort in-flight session buses…` commit on master).
+- **Full gate (run before each commit):** `bun run lint && bun run typecheck && bun run test`.
+  Final: lint (`biome check`, 640 files) clean; typecheck (`tsc --noEmit`) clean; tests
+  **2778 pass / 0 fail / 14 skip** (327 files, ~68s) — +25 from the v0.6.17 baseline of ~2753
+  (5 + 18 + 2 new), no new failures, no timeouts. The ambient `[WARN] blocked context file …
+  AGENTS.md` lines are pre-existing content-scanner noise, unrelated.
+
 ## 2026-06-05 — Phase A (secure remote gateway) close-out + release v0.6.17
 
 Close-out pass for **Phase A — Secure Remote Gateway** (the `sov gateway` long-lived
