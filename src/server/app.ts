@@ -9,7 +9,7 @@ import { type AppVariables, bearerAuth, principalAuth } from './auth.js';
 import { corsMiddleware } from './cors.js';
 import { approvalsRoute } from './routes/approvals.js';
 import { cancelRoute } from './routes/cancel.js';
-import { type ChannelsConfig, channelsRoute } from './routes/channels.js';
+import { type ChannelsConfig, type ChannelsDeps, channelsRoute } from './routes/channels.js';
 import { commandsRoute } from './routes/commands.js';
 import { compactRoute } from './routes/compact.js';
 import { eventsRoute } from './routes/events.js';
@@ -69,6 +69,7 @@ export type BuildAppOpts = {
 export function buildAppWithRuntime(
   runtime: Runtime,
   opts?: BuildAppOpts,
+  channelsDeps?: ChannelsDeps,
 ): Hono<{ Variables: AppVariables }> {
   const app = new Hono<{ Variables: AppVariables }>();
   // CORS is opt-in and mounted FIRST so it runs for every route and BEFORE
@@ -94,7 +95,7 @@ export function buildAppWithRuntime(
   // route itself 404s any unknown / disabled channel id. Absent ⇒ no route
   // mounted (byte-unchanged for TUI / `sov serve` / `sov drive`).
   if (opts?.channels !== undefined) {
-    app.route('/', channelsRoute(runtime, opts.channels));
+    app.route('/', channelsRoute(runtime, opts.channels, channelsDeps));
   }
   // Session-route auth is opt-in. `app.use` applies to every route
   // registered after this line, so /health and / + /ui above stay open
