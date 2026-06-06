@@ -803,7 +803,37 @@ Env vars: `SOV_GATEWAY_HOST`, `SOV_GATEWAY_PORT`, `SOV_GATEWAY_TOKEN`. Resolutio
 - **corsOrigins** — `gateway.corsOrigins` (default `[]` = no cross-origin / same-origin only). **Config-only — there is no CLI flag or env var for it yet**; set it in `config.json`.
 - **eventBufferSize** — `gateway.eventBufferSize` (positive integer, default **512**). The size of each session's per-session SSE **replay ring** — the bounded window of recent events retained for `Last-Event-ID` reconnect (see below). Larger values let a client recover from a longer disconnect at the cost of memory per active session. Config-only.
 
-`corsOrigins` is an allow-list of browser origins. When set, the gateway echoes `Access-Control-Allow-Origin` for a matching `Origin` (and only a matching one) and answers preflight `OPTIONS` with the methods/headers the protocol uses (incl. `Authorization`, `Content-Type`, `Last-Event-ID`). Required for browser clients (the reference web UI is Phase C of the roadmap).
+`corsOrigins` is an allow-list of browser origins. When set, the gateway echoes `Access-Control-Allow-Origin` for a matching `Origin` (and only a matching one) and answers preflight `OPTIONS` with the methods/headers the protocol uses (incl. `Authorization`, `Content-Type`, `Last-Event-ID`). Required for **external/third-party** browser clients; the **bundled web UI** (next section) is served same-origin and needs no `corsOrigins` at all.
+
+### Open the web UI
+
+The gateway ships a **built-in browser chat client** (Phase C, v0.6.20) — a single self-contained page embedded in the binary and served by the gateway itself. No build step, no separate deploy, no `corsOrigins`: just boot the gateway and open it in a browser.
+
+```bash
+# Loopback, with a token (recommended even on localhost):
+export SOV_GATEWAY_TOKEN=$(openssl rand -hex 32)
+sov gateway
+# sov gateway: listening on http://127.0.0.1:8766
+```
+
+Then browse to **`http://127.0.0.1:8766/`** (the default; also reachable at `/ui`). On the connect screen, paste the bearer token (the same `SOV_GATEWAY_TOKEN` value) and click **Connect**. On a loopback gateway started with **no** token, it connects token-less.
+
+What the UI supports:
+
+- **Live streaming** of the assistant reply (token-by-token), with status (`Ready.` / working / metrics).
+- **Thinking blocks** — extended-thinking deltas render in a collapsible block.
+- **Tool cards** — each tool call shows as a card (`⚒ <Tool>`, running spinner → `✓ done` with output).
+- **Inline permission prompts** — a `permission_request` renders an **Approve / Deny** card (tool + input + reason, with an optional "always allow"); your choice `POST`s to `/sessions/:id/approvals/:requestId`.
+- **Auto-reconnect** — a dropped connection recovers with capped exponential backoff (`Last-Event-ID` replay; no busy-loop), with a manual "Reconnect now" after retries exhaust.
+- **New chat** and **Cancel** (abort the in-flight turn).
+
+Notes for operators:
+
+- **Served same-origin → no CORS needed.** The UI is served by the gateway it calls, so `gateway.corsOrigins` is irrelevant to it. The HTML route (`GET /` + `/ui`) is **open by design** — it's a static shell containing no secret; all capability stays behind the bearer-gated `/sessions/*` API.
+- **The token stays client-side.** It's never embedded in the served HTML; the UI prompts for it, keeps it in `localStorage`, and sends it as `Authorization: Bearer …` on every API call. A "disconnect / forget saved token" control clears it.
+- **One self-contained page.** `src/server/webui.html` — inline CSS + vanilla JS, no framework, no build pipeline — compiled into the binary (text-import), so it ships and serves from the released binary with nothing else on disk.
+
+> The bundled UI is a client only — it can do nothing the token-holder couldn't already do via the API. Exposing the gateway off-loopback is governed by the **Security model** below (loopback default, refuse-to-boot-without-auth, permission policy) — unchanged by the UI.
 
 ### Driving the gateway from a browser
 

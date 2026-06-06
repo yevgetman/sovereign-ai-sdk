@@ -8,6 +8,63 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — Phase C reference web UI — close-out (build + e2e + security review + release v0.6.20)
+
+Close-out pass for **Phase C (reference web UI)** — the embedded single-file browser chat client
+served by `sov gateway`. This entry summarizes the whole run (the detailed e2e + reconnect-fix entry
+follows below); it covers the build (T1–T2), the browser e2e, the reconnect fix, the security review,
+the full-suite gate, and the v0.6.20 release.
+
+**Build (T1–T2).** T1 shipped the serving mechanism — `src/server/webui.html` embedded via
+`import … with { type: 'text' }` (`src/server/webui.ts` → `WEB_UI_HTML`, proven inlined into
+`bun build --compile` output) + two OPEN routes `GET /` + `GET /ui` mounted before the `/sessions/*`
+bearer-auth in `src/server/app.ts`; `tests/server/webui.test.ts` asserts the open HTML route (200,
+no token, `id="app"` marker) while auth/health stay unaffected. T2 replaced the placeholder with the
+polished single-file client (connect/token UX, `?follow` fetch-stream, `Last-Event-ID` reconnect,
+streaming text + collapsible thinking + tool cards + inline permission Approve/Deny + new-chat +
+cancel).
+
+**Browser e2e (Playwright, real Anthropic model) — PASS.** Three legs against a live gateway on an
+isolated `HARNESS_HOME`: connect + simple turn (`pong` streamed into the bubble); tool-use →
+**PERMISSION REQUIRED** card → **Approve** → `✓ Bash · done` with the marker file confirmed written
+on disk; reconnect with capped backoff to a clean terminal state. Full detail (incl. the isolated
+config / no-mutation-of-real-config note and the `echo` auto-approve nuance) in the entry below.
+
+**Reconnect bug found + fixed (`a77ed32`).** The auto-reconnect wedged on an idle `?follow` stream
+because Bun doesn't flush HTTP response headers until the first body write — so a `fetch()` opening a
+stream on a session with no queued events hung on the headers forever. Fixed by writing a leading
+`: connected` SSE comment frame on connect (`src/server/routes/events.ts`) to flush headers
+immediately (`tests/server/events.test.ts` updated to drop comment frames); the client reconnect
+lifecycle was additionally hardened (single-flight guard, supersede re-arm, idempotent
+`scheduleReconnect`). Re-verified live: quick kill+reboot auto-recovers; exhausted retries → manual
+"Reconnect now" → reboot → recovers.
+
+**Security + correctness review — SECURE + CORRECT.** A focused review of the client + serve route:
+**XSS-clean** (no `innerHTML` of untrusted content — dynamic text via `textContent`/safe DOM; no
+`eval`); **token-safe** (token never in the served HTML — only `localStorage` + the `Authorization`
+header; the open HTML route exposes no secret and grants no capability beyond what the bearer-gated
+API already allows); **reconnect correct** (`Last-Event-ID` replay + bounded backoff, no busy-loop).
+**Two known-minor LOW follow-ups recorded, non-blocking:** (1) a duplicate permission card can render
+on a mid-turn reconnect-replay — cosmetic, the second answer no-ops; (2) the client SSE parser splits
+on `\n\n` (LF), correct against this gateway's LF-delimited encoder but a CRLF third-party proxy would
+leave a stray `\r`. Neither blocks ship.
+
+**Gate.** `bun run lint` clean (644 files), `bun run typecheck` clean, full TS suite **~2814 pass / 0
+fail / 14 skip** (clean run; the 3 known env-only learning-observer fails do not trip on a clean
+`HARNESS_HOME` / in CI — no new failures). Go suite unchanged (no `packages/tui/` change). No bundle
+changes; the Phase-C surface is entirely `src/server/` + `tests/` + `docs/`.
+
+**Release.** Cut **v0.6.20** (CI-driven, per `docs/conventions/cutting-releases.md`): bumped
+`package.json` 0.6.19 → 0.6.20, committed + pushed, updated `sov-releases/CHANGELOG.md`, tagged
+`v0.6.20`, CI built all four artifacts, `sov upgrade` picked it up. **Binary-serves-UI verification:**
+booted the UPGRADED `~/.sov/bin/sov gateway` on a free loopback port with a token and
+`curl http://127.0.0.1:<port>/ | grep -c 'id="app"'` returned ≥1 — confirming the embedded UI ships
++ serves from the RELEASED binary (not just `bun run`); `~/.sov/bin/sov --version` → 0.6.20.
+
+**Roadmap.** Phase C is piece 3 of 6 of the run-anywhere roadmap; **A→B→C is now the first complete
+"run-anywhere from a browser" arc.** D–F remain. The learning-loop soak continued untouched in
+parallel (recall ON by default; capture on).
+
 ## 2026-06-06 — Phase C reference web UI — real-browser e2e (Playwright) + reconnect-stall fix
 
 Real-browser e2e of the Phase C reference web console (`src/server/webui.html`, served by
