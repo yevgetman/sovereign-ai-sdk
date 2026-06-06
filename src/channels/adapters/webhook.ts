@@ -62,6 +62,30 @@ export function verifyWebhook(input: VerifyWebhookInput): boolean {
   return timingSafeEqual(Buffer.from(presentedHex, 'hex'), Buffer.from(expectedHex, 'hex'));
 }
 
+/** Max length for an inbound segment id (sender / chatId / threadId). Generous
+ *  vs real platform ids; caps the session-key + trace-filename length. */
+const MAX_SEGMENT_LEN = 256;
+
+/** Safe segment-id allowlist. These fields become path-segment-shaped parts of
+ *  the session key (`agent:main:webhook:private:<chatId>[:<threadId>]`), which
+ *  in turn becomes a trace FILENAME (`<sessionId>.jsonl`). They must therefore
+ *  NOT carry path separators (`/` `\`), `..`, the `:` session-key delimiter, or
+ *  control chars. An allowlist of `[A-Za-z0-9_.-]` excludes all of those by
+ *  construction (note: `.` is allowed but `..` is rejected explicitly below, so
+ *  a lone-dots id can never traverse). `text` is NOT a path segment and stays
+ *  free-form. */
+const SAFE_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
+
+/** True when `value` is a safe inbound segment id (see {@link SAFE_SEGMENT_RE}).
+ *  Rejects empty / over-long / non-allowlisted / `..` ids. This is the SOURCE
+ *  boundary of the defense-in-depth against path traversal (TraceWriter's path
+ *  sanitizer is the SINK boundary). */
+function isSafeSegmentId(value: string): boolean {
+  if (value.length === 0 || value.length > MAX_SEGMENT_LEN) return false;
+  if (value === '..') return false;
+  return SAFE_SEGMENT_RE.test(value);
+}
+
 /** The minimal JSON body shape the generic webhook accepts. */
 type WebhookBody = {
   sender?: unknown;
@@ -76,13 +100,22 @@ type WebhookBody = {
  *  Required: `sender` (non-empty string) and `text` (string). `chatId` defaults
  *  to the sender when absent (a 1:1 webhook conversation keys on the sender).
  *  `chatType` is always 'private' for the generic webhook (v1). A null return
- *  signals a 400 to the route. */
+ *  signals a 400 to the route.
+ *
+ *  SECURITY (path-traversal defense): `sender`, `chatId`, and `threadId` become
+ *  path-segment-shaped parts of the session key, which becomes a trace FILENAME.
+ *  Each is validated against {@link isSafeSegmentId} (no `/` `\` `..` `:` /
+ *  control chars, length-capped) — a violation returns null → the route 400s
+ *  with no turn. `text` is free-form (it is never a path segment). */
 export function parseWebhook(body: unknown): InboundMessage | null {
   if (typeof body !== 'object' || body === null) return null;
   const b = body as WebhookBody;
   if (typeof b.sender !== 'string' || b.sender.length === 0) return null;
   if (typeof b.text !== 'string') return null;
+  // `sender` is both a path segment AND the chatId default — validate it first.
+  if (!isSafeSegmentId(b.sender)) return null;
   const chatId = typeof b.chatId === 'string' && b.chatId.length > 0 ? b.chatId : b.sender;
+  if (!isSafeSegmentId(chatId)) return null;
   const msg: InboundMessage = {
     channel: 'webhook',
     sender: b.sender,
@@ -92,6 +125,7 @@ export function parseWebhook(body: unknown): InboundMessage | null {
     raw: body,
   };
   if (typeof b.threadId === 'string' && b.threadId.length > 0) {
+    if (!isSafeSegmentId(b.threadId)) return null;
     msg.threadId = b.threadId;
   }
   return msg;

@@ -10,12 +10,32 @@
 
 import { existsSync, mkdirSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, dirname as pathDirname, resolve, sep } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
 import { redact } from '../trajectory/redact.js';
 import type { TraceEvent } from './types.js';
 
 const TRACES_DIR_NAME = 'traces';
+
+/** Sanitize a sessionId into a trace FILENAME stem that can never traverse the
+ *  filesystem. The channel session id is the colon-delimited conversation key
+ *  `agent:main:<channel>:<chatType>:<chatId>` — so `:` is a LEGITIMATE delimiter
+ *  and is preserved. Everything outside the safe set (notably `/`, `\`, and the
+ *  path-segment `.` runs that form `..`) is replaced with `_`. This is the SINK
+ *  boundary of the defense-in-depth against path traversal; the webhook adapter's
+ *  inbound-id allowlist is the SOURCE boundary. Defense in depth: even a future
+ *  sessionId source that skips the source guard cannot escape the traces dir. */
+function safeTraceFilenameStem(sessionId: string): string {
+  return (
+    sessionId
+      // Collapse any `..` run first so it can't survive as a parent ref. Done
+      // before the char-class pass so e.g. `..` → `__` rather than `.` + `.`.
+      .replace(/\.\.+/g, (m) => '_'.repeat(m.length))
+      // Allowlist: keep word chars, `.`, `-`, and the `:` channel-key delimiter.
+      // Replace anything else (path separators, control chars, …) with `_`.
+      .replace(/[^A-Za-z0-9_.:-]/g, '_')
+  );
+}
 
 export type TraceWriterOpts = {
   sessionId: string;
@@ -92,18 +112,36 @@ export class TraceWriter {
  */
 export function findTracePath(sessionId: string, harnessHome?: string): string | null {
   const root = harnessHome ?? resolveHarnessHome();
-  const path = join(root, TRACES_DIR_NAME, `${sessionId}.jsonl`);
+  // Resolve against the SAME sanitized + contained filename the writer uses, so
+  // a read for a colon/dirty sessionId finds the file the writer actually wrote.
+  const path = resolveTracePath(root, sessionId);
   return existsSync(path) ? path : null;
 }
 
+/** Build the contained traces-dir path for `sessionId` under `root`. Sanitizes
+ *  the filename stem ({@link safeTraceFilenameStem}) AND asserts the resolved
+ *  absolute path stays under `<root>/traces/` — throwing if it would escape (it
+ *  cannot, post-sanitize, but the assertion is a belt-and-suspenders invariant
+ *  that future refactors must preserve). */
+function resolveTracePath(root: string, sessionId: string): string {
+  const tracesDir = resolve(join(root, TRACES_DIR_NAME));
+  const candidate = resolve(join(tracesDir, `${safeTraceFilenameStem(sessionId)}.jsonl`));
+  // Containment assertion: the file must live directly under the traces dir.
+  if (candidate !== tracesDir && !candidate.startsWith(tracesDir + sep)) {
+    throw new Error(`[trace] refused to write outside traces dir: ${sessionId}`);
+  }
+  return candidate;
+}
+
 function resolvePath(opts: TraceWriterOpts): string {
+  // An explicit `path` is a trusted in-process override (test seam / internal
+  // callers), NOT untrusted input — used verbatim. The sessionId-derived path
+  // is the untrusted surface and is sanitized + containment-checked.
   if (opts.path) return opts.path;
   const root = opts.harnessHome ?? resolveHarnessHome();
-  return join(root, TRACES_DIR_NAME, `${opts.sessionId}.jsonl`);
+  return resolveTracePath(root, opts.sessionId);
 }
 
 function dirname(path: string): string {
-  const idx = path.lastIndexOf('/');
-  if (idx <= 0) return '.';
-  return path.slice(0, idx);
+  return pathDirname(path);
 }
