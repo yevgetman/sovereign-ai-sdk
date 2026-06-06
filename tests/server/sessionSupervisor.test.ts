@@ -210,7 +210,7 @@ describe('SessionSupervisor (Phase D T2)', () => {
       supervisor.start();
       expect(capturedMs).toBeUndefined();
 
-      supervisor.stop();
+      await supervisor.stop();
       expect(cleared).toBe(true);
     } finally {
       globalThis.setInterval = realSetInterval;
@@ -258,6 +258,107 @@ describe('SessionSupervisor (Phase D T2)', () => {
     expect(result.evicted).not.toContain('fails-1');
     expect(result.skipped).toBeGreaterThanOrEqual(1);
     expect(peekBus('ok-1')).toBeUndefined();
+  });
+
+  test('a second sweep() while one is in flight does not start a concurrent pass', async () => {
+    // Two idle candidates. The first eviction is held open via a deferred
+    // disposeSession so we can fire a second sweep() mid-pass.
+    getOrCreateBus('overlap-a', undefined, now);
+    getOrCreateBus('overlap-b', undefined, now);
+    clock += TTL_MS + 1;
+
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const disposeCalls: string[] = [];
+    let firstEntered!: () => void;
+    const firstEnteredSignal = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+
+    const realDispose = runtime.disposeSession.bind(runtime);
+    runtime.disposeSession = async (id: string, opts?: { bus?: ServerEventBus }): Promise<void> => {
+      disposeCalls.push(id);
+      // Hold the very first eviction open until released, signalling once we're
+      // inside the in-flight pass so the test can race a second sweep().
+      if (disposeCalls.length === 1) {
+        firstEntered();
+        await firstHeld;
+      }
+      return realDispose(id, opts);
+    };
+
+    const supervisor = makeSupervisor();
+
+    // Kick the first sweep; it parks inside the first eviction.
+    const firstSweep = supervisor.sweep();
+    await firstEnteredSignal;
+
+    // Fire a second sweep() while the first is still in flight. It must NOT
+    // start a concurrent pass — returns the empty/skipped result immediately
+    // and invokes disposeSession for NOTHING new.
+    const callsBeforeSecond = disposeCalls.length;
+    const secondResult = await supervisor.sweep();
+    expect(secondResult).toEqual({ evicted: [], skipped: 0 });
+    expect(disposeCalls.length).toBe(callsBeforeSecond);
+
+    // Release the first pass and confirm it completes normally (both idle
+    // candidates evicted exactly once each).
+    releaseFirst();
+    const firstResult = await firstSweep;
+    expect(firstResult.evicted.sort()).toEqual(['overlap-a', 'overlap-b']);
+    expect(firstResult.skipped).toBe(0);
+    // No id was disposed twice — the second sweep contributed nothing.
+    expect(disposeCalls.sort()).toEqual(['overlap-a', 'overlap-b']);
+  });
+
+  test('await stop() drains an in-flight sweep before resolving', async () => {
+    getOrCreateBus('drain-1', undefined, now);
+    clock += TTL_MS + 1;
+
+    let releaseSweep!: () => void;
+    const sweepHeld = new Promise<void>((resolve) => {
+      releaseSweep = resolve;
+    });
+    let sweepEntered!: () => void;
+    const sweepEnteredSignal = new Promise<void>((resolve) => {
+      sweepEntered = resolve;
+    });
+    let sweepFinished = false;
+
+    const realDispose = runtime.disposeSession.bind(runtime);
+    runtime.disposeSession = async (id: string, opts?: { bus?: ServerEventBus }): Promise<void> => {
+      sweepEntered();
+      await sweepHeld;
+      await realDispose(id, opts);
+      sweepFinished = true;
+    };
+
+    const supervisor = makeSupervisor();
+    const sweepPromise = supervisor.sweep();
+    await sweepEnteredSignal;
+
+    // Begin stop() while the sweep is parked; it must not resolve yet.
+    let stopResolved = false;
+    const stopPromise = supervisor.stop().then(() => {
+      stopResolved = true;
+    });
+    // Give the microtask queue a turn — stop() must still be pending because
+    // the in-flight sweep has not finished.
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(stopResolved).toBe(false);
+    expect(sweepFinished).toBe(false);
+
+    // Release the sweep; only now may stop() resolve, and only AFTER the sweep
+    // completed.
+    releaseSweep();
+    await stopPromise;
+    expect(stopResolved).toBe(true);
+    expect(sweepFinished).toBe(true);
+    // The held sweep ultimately evicted the idle session.
+    const result = await sweepPromise;
+    expect(result.evicted).toEqual(['drain-1']);
   });
 
   test('stats() reports live / turnActive / subscribed counts', () => {

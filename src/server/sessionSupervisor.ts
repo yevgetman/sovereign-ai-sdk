@@ -34,12 +34,19 @@ export class SessionSupervisor {
   private readonly now: () => number;
   private readonly idleSessionTimeoutMs: number;
   private readonly idleSweepIntervalMs: number;
-  /** Reserved for the concurrency-cap policy (a later Phase D task). Captured
-   *  here so the gateway wiring contract is stable; not yet consulted by
-   *  `sweep`. */
+  /** The concurrency-cap policy value. Consulted by `POST /sessions` for
+   *  admission control (read back via {@link getMaxConcurrentSessions}); the
+   *  background `sweep` itself does not gate on it. */
   private readonly maxConcurrentSessions: number | undefined;
   private readonly enabled: boolean;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Re-entrancy guard: the promise of an in-flight `sweep`, or null. A sweep
+   *  slower than `idleSweepIntervalMs` (default 5 min) could otherwise overlap
+   *  the next tick; we skip the overlapping invocation (mirrors the cron
+   *  runner's `inFlight`). Retained so `stop()` can await + drain it at
+   *  shutdown, closing the race where a sweep's DB reads outlive
+   *  `sessionDb.close()`. */
+  private inFlight: Promise<{ evicted: string[]; skipped: number }> | null = null;
 
   constructor(opts: SupervisorOpts) {
     this.runtime = opts.runtime;
@@ -50,9 +57,8 @@ export class SessionSupervisor {
     this.enabled = opts.enabled ?? true;
   }
 
-  /** The configured concurrency cap, if any. Surfaced so the gateway wiring
-   *  (and a later cap-enforcement task) can read it back; `sweep` does not yet
-   *  consult it. */
+  /** The configured concurrency cap, if any. Consulted by `POST /sessions`
+   *  for admission control; the background `sweep` does not gate on it. */
   getMaxConcurrentSessions(): number | undefined {
     return this.maxConcurrentSessions;
   }
@@ -84,8 +90,27 @@ export class SessionSupervisor {
    * goodbye card), then `disposeBus(id)`. Each eviction is wrapped in
    * try/catch: a failing eviction is counted as skipped and logged, never
    * thrown out of `sweep`.
+   *
+   * Re-entrant calls are serialized: if a sweep is already in flight, this
+   * invocation does NOT start a second concurrent pass — it returns
+   * `{ evicted: [], skipped: 0 }` immediately (mirrors the cron runner's
+   * `inFlight` guard). The in-flight promise is retained so {@link stop} can
+   * await + drain it at shutdown.
    */
   async sweep(): Promise<{ evicted: string[]; skipped: number }> {
+    if (this.inFlight !== null) return { evicted: [], skipped: 0 };
+    const run = this.runSweep();
+    this.inFlight = run;
+    try {
+      return await run;
+    } finally {
+      this.inFlight = null;
+    }
+  }
+
+  /** The actual sweep pass. Always invoked behind {@link sweep}'s in-flight
+   *  guard, never directly, so it never runs concurrently with itself. */
+  private async runSweep(): Promise<{ evicted: string[]; skipped: number }> {
     const candidates = new Set([...liveBusSessionIds(), ...this.runtime.sessionContexts.keys()]);
     const evicted: string[] = [];
     let skipped = 0;
@@ -135,11 +160,24 @@ export class SessionSupervisor {
     this.timer = timer;
   }
 
-  /** Disarm the background sweep. Idempotent. */
-  stop(): void {
+  /** Disarm the background sweep and drain any in-flight pass. Idempotent.
+   *  Clears the interval first (so no new sweep can be scheduled), then awaits
+   *  the in-flight sweep promise — swallowing its errors — so a sweep's DB
+   *  reads can never outlive the `sessionDb.close()` that shutdown runs next.
+   *  Mirrors the cron runner's stop-then-teardown ordering. */
+  async stop(): Promise<void> {
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.inFlight !== null) {
+      try {
+        await this.inFlight;
+      } catch {
+        // A failing in-flight sweep must not break shutdown — sweep() already
+        // logs per-eviction failures; the pass itself never throws, but guard
+        // anyway so stop() always resolves.
+      }
     }
   }
 }

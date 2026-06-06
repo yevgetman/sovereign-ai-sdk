@@ -183,9 +183,10 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     // Disarm the idle sweep BEFORE runtime.dispose() so an in-flight sweep can
     // never race sessionDb.close() (same ordering rule the cron runner follows:
     // stop the periodic worker, then tear down the DB it touches). stop() is
-    // idempotent + synchronous; this shutdown path runs once (guarded by
-    // `shuttingDown`) for whichever of SIGINT / SIGTERM fires first.
-    supervisor.stop();
+    // idempotent, awaits any in-flight sweep (draining it before the DB is
+    // closed), and swallows its errors; this shutdown path runs once (guarded
+    // by `shuttingDown`) for whichever of SIGINT / SIGTERM fires first.
+    await supervisor.stop();
     try {
       await runtime.dispose();
     } catch (err) {
