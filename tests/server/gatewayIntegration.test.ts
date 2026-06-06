@@ -239,4 +239,55 @@ describe('gateway real-socket integration (auth + CORS-on-SSE + turn + disconnec
       }
     }
   }, 20_000);
+
+  // Phase F-T7 — the gateway mounts the OPEN channel routes when `channels` is
+  // passed to startServer (the path runGateway takes). Over a REAL socket: a
+  // configured webhook channel is reachable (a bad signature is 401, NOT a
+  // 404-route-missing), and a request to an UNKNOWN channel id is 404
+  // (existence-hiding). This proves the startServer → buildAppWithRuntime
+  // channels threading, which the in-memory app.request() mount test can't show
+  // over a live Bun.serve.
+  test('startServer({ channels }) mounts the open webhook route over a real socket', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      permissionMode: 'bypass',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const server = await startServer({
+      runtime,
+      port: 0,
+      hostname: '127.0.0.1',
+      auth: AUTH_TOKEN,
+      channels: { webhook: { enabled: true, secret: 'whsec', principalId: 'wh' } },
+    });
+    const base = `http://127.0.0.1:${server.port}`;
+    try {
+      // The webhook route is OPEN (no gateway bearer needed) but verifies its own
+      // HMAC: a bad signature is 401, proving the route is MOUNTED (not 404).
+      const badSig = await fetch(`${base}/channels/webhook/default`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-signature': 'sha256=deadbeef' },
+        body: JSON.stringify({ sender: 'u1', text: 'hi' }),
+      });
+      expect(badSig.status).toBe(401);
+
+      // An unknown channel id is 404 (the route exists but hides which channels do).
+      const unknownId = await fetch(`${base}/channels/webhook/nope`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-signature': 'sha256=deadbeef' },
+        body: JSON.stringify({ sender: 'u1', text: 'hi' }),
+      });
+      expect(unknownId.status).toBe(404);
+    } finally {
+      await server.stop();
+      try {
+        await runtime.dispose();
+      } catch {
+        // already disposed.
+      }
+    }
+  }, 20_000);
 });

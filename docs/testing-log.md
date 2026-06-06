@@ -8,6 +8,58 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — Phase F-T7: wire channel routes + the Telegram listener into the gateway lifecycle (env-first secrets)
+
+Task 7 of 9 of **Phase F — channels drive harness turns**. Connects the channel adapters (F-T4
+webhook route, F-T5 Telegram listener, F-T6 Slack route) into `sov gateway`'s boot/shutdown lifecycle,
+with env-first secret resolution reconciled against the F-T3 schema.
+
+**Build (TDD, red→green).** New `src/channels/listeners.ts`:
+- `resolveChannelsConfig(rawChannels, env)` — pure, env-FIRST secret resolution over the RAW (pre-parse)
+  `gateway.channels` object. Fills any absent secret field from its env var (`SOV_TELEGRAM_BOT_TOKEN` /
+  `SOV_SLACK_SIGNING_SECRET` / `SOV_SLACK_BOT_TOKEN` / `SOV_WEBHOOK_SECRET`; names exported as
+  `CHANNEL_SECRET_ENV`); config wins over env; disabled / enabled-omitted channels left byte-identical
+  (no injection, no check). An enabled channel missing a required secret in BOTH config and env throws a
+  clear boot error naming the channel + field + env var. Immutable (never mutates input). Unknown keys
+  preserved so the schema's `.strict()` still rejects them.
+- `buildChannelListeners(runtime, channels, deps?)` → `{ start(), stop() }`, the holder for channel
+  BACKGROUND WORKERS. Today only the Telegram poll loop (webhook + Slack are HTTP routes, not workers);
+  constructs `createTelegramListener` when `telegram.enabled`, inert no-op otherwise so the gateway calls
+  start/stop unconditionally. `deps` injects a `telegramTransport` + `pollIntervalMs` for tests.
+
+**Schema↔env reconciliation (F-T3 decision honored).** The F-T3 schema requires channel secrets in
+config and stays env-free; env injection happens BEFORE parse. New `readRawConfig()` in
+`src/config/store.ts` reads the unparsed JSON; `runGateway` now calls a `readGatewayConfig()` helper:
+read raw → `resolveChannelsConfig(gw.channels, process.env)` (env-merge + boot-validate) → splice merged
+channels back → `SettingsSchema.parse`. So an env-only secret passes the schema; a missing one throws a
+friendly error before parse; the principalId∈principals binding is still enforced by the parse. All F-T3
+schema tests stay green (unchanged).
+
+**Gateway wiring (`src/cli/gatewayCommand.ts`).** Start-after-supervisor / stop-before-dispose:
+`buildChannelListeners(...).start()` after `supervisor.start()` + before `startServer`; `channels`
+forwarded to `startServer` (→ `buildAppWithRuntime`) so the OPEN webhook + Slack routes mount only when
+configured; in the shutdown handler `await listeners?.stop()` after `supervisor.stop()` and before
+`runtime.dispose()` (so an in-flight poll can't race the DB close). One-line `channels: <names>` boot
+summary — enabled channel NAMES only, never secrets.
+
+**Test matrix.** New `tests/channels/listeners.test.ts` (16 cases): Telegram start→poll→stop lifecycle
+(mock transport); no-telegram + disabled-telegram not polled; env-fill for each of the four secrets;
+config-wins precedence; missing-secret boot errors naming each env var; disabled/omitted not validated;
+undefined→undefined; immutability; app mounts `POST /channels/webhook/default` (401 bad sig, not 404)
+only when channels configured (404 when absent). Extended `tests/server/gatewayIntegration.test.ts`
+(+1): `startServer({ channels })` mounts the open webhook route over a REAL socket (401 bad sig; unknown
+id 404). A scratch end-to-end check confirmed raw→resolve→parse for env-only secret / missing secret /
+ghost principal.
+
+**Results.** New + extended suites **18 pass / 0 fail**. Full gate green: `bun run lint` clean,
+`bun run typecheck` clean, `bun test` **3042 pass / 0 fail / 14 skip** (baseline ~3025 + 29 new across
+this + sibling F tasks; no new failures; the `[WARN] blocked context file AGENTS.md` lines are the
+pre-existing benign threat-scanner match on the README curl-installer string). No bundle changes, no new
+ADRs. Security self-review: secrets never logged (boot error names the env var, not the value; boot
+summary logs channel names only; no secret in any `stdout`/`stderr` write); no-channels path
+byte-unchanged (TUI / `sov serve` / `sov drive` untouched — `channels` is only ever constructed/passed
+by `runGateway`).
+
 ## 2026-06-06 — Phase F-T4 (keystone): generic webhook adapter + open gateway route (HMAC-verified, synchronous reply)
 
 Task 4 of 9 of **Phase F — channels drive harness turns**. The keystone: the generic, dependency-free

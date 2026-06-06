@@ -22,6 +22,26 @@ export function readConfig(path?: string): Settings {
   return SettingsSchema.parse(raw);
 }
 
+/**
+ * Read the config file WITHOUT validating it. Returns the raw parsed JSON (or
+ * `{}` when the file is absent). The gateway uses this to inject env-sourced
+ * secrets into `gateway.channels` BEFORE {@link SettingsSchema} validates the
+ * merged object (the schema requires channel secrets in config and stays
+ * env-free; see `src/channels/listeners.ts`). Most callers want the validated
+ * {@link readConfig}.
+ */
+export function readRawConfig(path?: string): Record<string, unknown> {
+  const file = resolveConfigPath(path);
+  if (!existsSync(file)) return {};
+  const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    // Defer the precise structural complaint to SettingsSchema.parse; here we
+    // only need an object to merge env into.
+    return {};
+  }
+  return raw as Record<string, unknown>;
+}
+
 export function writeConfig(settings: Settings, path?: string): void {
   // Re-validate before writing so a programmatic error can't corrupt disk.
   const validated = SettingsSchema.parse(settings);
