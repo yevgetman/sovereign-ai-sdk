@@ -1,24 +1,34 @@
 // Phase 16.1 M3.4 — per-session SSE event bus.
+// Phase B T1 — multi-subscriber + bounded replay ring + markTurnStart.
 //
 // The turn handler publishes onto the bus; the SSE route subscribes and
-// pipes events to the wire. Events queued before the subscriber attaches
-// are buffered so the test pattern "POST /turns, then GET /events" works
-// without race-prone sleeps. M3 keeps this single-subscriber and in-process;
-// a ring buffer with Last-Event-ID replay lands in a future milestone
-// (spec §5 — explicitly deferred for M3).
+// pipes events to the wire. The bus is now MULTI-subscriber (fan-out to a
+// Set) and retains a bounded ring of recent events so a later transport
+// task can serve `Last-Event-ID` reconnect replay and fresh-subscriber
+// current-turn replay. The original single-client "POST /turns, then
+// GET /events" path is preserved: a fresh subscriber (no opts) synchronously
+// replays the current turn's buffered events before going live, so there is
+// still no race-prone sleep.
 //
-// Lifecycle: a bus exists for the duration of one SSE subscriber connection.
-// `getOrCreateBus(sessionId)` lazily allocates on first publish or first
-// subscribe; `disposeBus(sessionId)` is invoked by the events route's
+// Lifecycle: a bus exists for the duration of one or more SSE subscriber
+// connections. `getOrCreateBus(sessionId)` lazily allocates on first publish
+// or first subscribe; `disposeBus(sessionId)` is invoked by the events route's
 // `finally` so the per-session entry leaves the map after the stream closes
-// (turn_complete / turn_error / client disconnect). Resume across reconnects
-// (M9+) will need a different lifecycle — a buffered ring + replay window.
+// (turn_complete / turn_error / client disconnect).
 //
 // Sequence numbers are per-bus-lifetime (per-session, accumulating across
-// turns). They give SSE consumers a monotonic ordering anchor for
-// Last-Event-ID style resume. Code that assumes seq starts at 1 per turn
-// will break — that's intentional; rely on the discriminator (turn_complete
-// event) not the seq value to detect turn boundaries.
+// turns). They are CALLER-OWNED: the publisher stamps `ev.seq` via
+// `bus.nextSeq()` BEFORE calling `publish()`. `publish()` never assigns seq.
+// The ring and all replay logic key on `ev.seq`. Code that assumes seq starts
+// at 1 per turn will break — that's intentional; rely on the discriminator
+// (turn_complete event) not the seq value to detect turn boundaries.
+//
+// markTurnStart(): records the seq the turn's first event will carry (called
+// before that event is stamped, so currentTurnStartSeq = seq + 1) so a fresh
+// subscriber replays only the in-progress turn (seq >= currentTurnStartSeq).
+// currentTurnStartSeq defaults to 0, so before any turn is marked a fresh
+// subscriber replays everything still retained — exactly the pre-T1
+// drain-the-buffer behavior.
 //
 // Abort signal: every bus owns an AbortController fired on `close()`. The
 // turns route plumbs the signal into `query()` so a client disconnect or
@@ -27,9 +37,25 @@
 
 import type { ServerEvent } from './schema.js';
 
+/** Default bound on the per-bus replay ring. */
+export const DEFAULT_MAX_RING = 512;
+
 export class ServerEventBus {
-  private subscriber: ((ev: ServerEvent) => void) | null = null;
-  private buffer: ServerEvent[] = [];
+  private subscribers = new Set<(ev: ServerEvent) => void>();
+  /**
+   * Bounded ring of recently-published events, retained for reconnect /
+   * fresh-subscriber replay. Oldest events are shifted off once the ring
+   * exceeds `maxRing`. Events are kept in publish (and therefore seq) order.
+   */
+  private ring: ServerEvent[] = [];
+  private readonly maxRing: number;
+  /**
+   * seq recorded at the most recent `markTurnStart()`. A fresh subscriber
+   * (no `lastEventId`) replays events with `seq >= currentTurnStartSeq`.
+   * Defaults to 0 so, before any turn boundary is marked, a fresh subscriber
+   * replays everything still retained (pre-T1 behavior).
+   */
+  private currentTurnStartSeq = 0;
   private seq = 0;
   private closed = false;
   private readonly abortController = new AbortController();
@@ -40,6 +66,15 @@ export class ServerEventBus {
   // turns on the same session keep working. turns.ts registers it at
   // turn start and clears it in the finally block.
   private currentTurnAbort: AbortController | null = null;
+
+  /**
+   * @param maxRing Bound on the replay ring. Defaults to {@link DEFAULT_MAX_RING}.
+   *   A non-positive value is coerced to the default so the ring always retains
+   *   at least the default window.
+   */
+  constructor(maxRing: number = DEFAULT_MAX_RING) {
+    this.maxRing = maxRing > 0 ? maxRing : DEFAULT_MAX_RING;
+  }
 
   /**
    * Fires on `close()`. Wire this into long-running work that should
@@ -81,31 +116,69 @@ export class ServerEventBus {
     return ++this.seq;
   }
 
+  /**
+   * Record the seq the turn's first event will carry as the turn boundary.
+   * `markTurnStart` runs BEFORE the turn stamps its first event, so the next
+   * `nextSeq()` returns `this.seq + 1` — that is the first event of this turn.
+   * A subsequent fresh subscriber (no `lastEventId`) replays only events with
+   * `seq >= currentTurnStartSeq`, i.e. exactly the in-progress turn (events
+   * from prior turns are excluded). Called by the turns route at turn start.
+   * Idempotent in effect — just overwrites the mark.
+   */
+  markTurnStart(): void {
+    this.currentTurnStartSeq = this.seq + 1;
+  }
+
+  /**
+   * Publish an event. seq is CALLER-OWNED (stamped via `nextSeq()` before this
+   * call) — `publish` never assigns it. Retains the event in the bounded ring
+   * (evicting the oldest past `maxRing`) and fans out to every subscriber.
+   * No-op once closed.
+   */
   publish(event: ServerEvent): void {
     if (this.closed) return;
-    if (this.subscriber) {
-      this.subscriber(event);
-    } else {
-      this.buffer.push(event);
+    this.ring.push(event);
+    if (this.ring.length > this.maxRing) {
+      this.ring.shift();
+    }
+    for (const subscriber of this.subscribers) {
+      subscriber(event);
     }
   }
 
-  subscribe(fn: (ev: ServerEvent) => void): () => void {
-    this.subscriber = fn;
-    while (this.buffer.length > 0) {
-      const ev = this.buffer.shift();
-      if (ev) fn(ev);
+  /**
+   * Subscribe to events. Synchronously replays a slice of the retained ring
+   * (in seq order) BEFORE registering the subscriber — so no event published
+   * during attach is missed or duplicated — then delivers live events.
+   *
+   * Replay slice:
+   * - `opts.lastEventId` is a number → ring events with `seq > lastEventId`
+   *   (reconnect resume). A value below the retained window is best-effort:
+   *   it replays from the oldest retained event, no crash.
+   * - otherwise (fresh) → ring events with `seq >= currentTurnStartSeq`
+   *   (the in-progress turn; everything still retained before any turn mark).
+   *
+   * @returns an unsubscribe function (idempotent — safe to call repeatedly).
+   */
+  subscribe(fn: (ev: ServerEvent) => void, opts?: { lastEventId?: number }): () => void {
+    const replay =
+      typeof opts?.lastEventId === 'number'
+        ? this.ring.filter((ev) => ev.seq > (opts.lastEventId as number))
+        : this.ring.filter((ev) => ev.seq >= this.currentTurnStartSeq);
+    for (const ev of replay) {
+      fn(ev);
     }
+    this.subscribers.add(fn);
     return () => {
-      this.subscriber = null;
+      this.subscribers.delete(fn);
     };
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.subscriber = null;
-    this.buffer = [];
+    this.subscribers.clear();
+    this.ring = [];
     this.abortController.abort();
   }
 
@@ -116,10 +189,13 @@ export class ServerEventBus {
 
 const buses = new Map<string, ServerEventBus>();
 
-export function getOrCreateBus(sessionId: string): ServerEventBus {
+export function getOrCreateBus(
+  sessionId: string,
+  maxRing: number = DEFAULT_MAX_RING,
+): ServerEventBus {
   let bus = buses.get(sessionId);
   if (bus === undefined) {
-    bus = new ServerEventBus();
+    bus = new ServerEventBus(maxRing);
     buses.set(sessionId, bus);
   }
   return bus;
