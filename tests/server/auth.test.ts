@@ -81,3 +81,50 @@ describe('native protocol — no-options default is unchanged', () => {
     });
   });
 });
+
+describe('native protocol principal auth — buildAppWithRuntime({ principals })', () => {
+  const principals = [
+    { id: 'alice', token: 'tok-a' },
+    { id: 'bob', token: 'tok-b' },
+  ];
+
+  test('GET /sessions with a resolving bearer token → NOT 401', async () => {
+    await withMockRuntime('et2-ok-a', async (runtime) => {
+      const app = buildAppWithRuntime(runtime, { principals });
+      const res = await app.request('/sessions', {
+        headers: { authorization: 'Bearer tok-a' },
+      });
+      expect(res.status).not.toBe(401);
+      expect(res.status).toBe(200);
+    });
+  });
+
+  test('GET /sessions with the other principal token also passes', async () => {
+    await withMockRuntime('et2-ok-b', async (runtime) => {
+      const app = buildAppWithRuntime(runtime, { principals });
+      const res = await app.request('/sessions', {
+        headers: { authorization: 'Bearer tok-b' },
+      });
+      expect(res.status).not.toBe(401);
+      expect(res.status).toBe(200);
+    });
+  });
+
+  test('GET /sessions with no Authorization header → 401 (no anonymous bypass)', async () => {
+    await withMockRuntime('et2-noauth', async (runtime) => {
+      const app = buildAppWithRuntime(runtime, { principals });
+      const res = await app.request('/sessions');
+      expect(res.status).toBe(401);
+    });
+  });
+
+  test('GET /sessions with a wrong bearer token → 401', async () => {
+    await withMockRuntime('et2-wrong', async (runtime) => {
+      const app = buildAppWithRuntime(runtime, { principals });
+      const res = await app.request('/sessions', {
+        headers: { authorization: 'Bearer wrong' },
+      });
+      expect(res.status).toBe(401);
+    });
+  });
+});

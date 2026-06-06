@@ -105,12 +105,24 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   const trimmedToken = typeof rawToken === 'string' ? rawToken.trim() : undefined;
   const token = trimmedToken !== undefined && trimmedToken.length > 0 ? trimmedToken : undefined;
 
+  // Phase E — per-principal auth. Mutually exclusive with the single token
+  // (the config superRefine enforces it); when a non-empty registry is
+  // present the gateway runs in principals mode and `token` is not passed.
+  const principals =
+    config.gateway?.principals !== undefined && config.gateway.principals.length > 0
+      ? config.gateway.principals
+      : undefined;
+
   const corsOrigins = config.gateway?.corsOrigins;
 
-  // Refuse-to-boot guard. Off-loopback without a token is fatal; print the
-  // actionable message (never the token) and exit non-zero.
+  // Refuse-to-boot guard. Off-loopback without ANY auth is fatal; print the
+  // actionable message (never the token) and exit non-zero. A configured
+  // principals registry is auth too, so it satisfies the guard the same way a
+  // single token does — pass a non-empty sentinel (the guard only inspects
+  // presence, never the value, and the principals' tokens are never logged).
+  const authSentinel = token ?? (principals !== undefined ? 'principals' : undefined);
   try {
-    assertGatewaySafe({ host, token });
+    assertGatewaySafe({ host, token: authSentinel });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`sov gateway: ${msg}\n`);
@@ -144,12 +156,15 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   });
   supervisor.start();
 
+  // Principals and the single token are mutually exclusive (config-enforced):
+  // pass principals when present, otherwise the single token, otherwise neither
+  // (open loopback). Never pass both.
   const server = await startServer({
     runtime,
     hostname: host,
     port,
     supervisor,
-    ...(token !== undefined ? { auth: token } : {}),
+    ...(principals !== undefined ? { principals } : token !== undefined ? { auth: token } : {}),
     ...(corsOrigins !== undefined ? { corsOrigins } : {}),
   });
 
@@ -157,8 +172,14 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   process.stdout.write(
     `  provider=${runtime.resolvedProvider.transport.name}  model=${runtime.model}\n`,
   );
+  const authMode =
+    principals !== undefined
+      ? `principals(${principals.length})`
+      : token !== undefined
+        ? 'on'
+        : 'off';
   process.stdout.write(
-    `  auth=${token !== undefined ? 'on' : 'off'}  cors=${corsOrigins?.length ? 'on' : 'off'}  harnessHome=${harnessHome}\n`,
+    `  auth=${authMode}  cors=${corsOrigins?.length ? 'on' : 'off'}  harnessHome=${harnessHome}\n`,
   );
   // Summarize the session-lifecycle policy using the EFFECTIVE values (config
   // overrides falling back to the supervisor's own defaults).

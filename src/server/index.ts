@@ -32,6 +32,11 @@ export type StartServerOptions = {
    *  a concurrency cap. Forwarded to buildAppWithRuntime; unset leaves the cap
    *  disabled so the TUI / `sov serve` / `sov drive` create path is unchanged. */
   supervisor?: SessionSupervisorLike;
+  /** Phase E `sov gateway` — per-principal bearer auth registry. Forwarded to
+   *  buildAppWithRuntime; mutually exclusive with `auth`. When set, the session
+   *  routes require a token resolving to a registered principal (no anonymous
+   *  bypass); unset leaves the auth/open behavior byte-unchanged. */
+  principals?: ReadonlyArray<{ id: string; token: string; name?: string | undefined }>;
 };
 
 export type StartedServer = {
@@ -43,14 +48,18 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
   const hostname = resolveBindHost(opts.hostname);
   const port = opts.port ?? (await findFreePort(hostname));
   // Only construct the app-opts object when the gateway actually passes
-  // auth/CORS/supervisor — keeps the TUI/serve/drive paths calling
+  // auth/CORS/supervisor/principals — keeps the TUI/serve/drive paths calling
   // buildAppWithRuntime(runtime) with no second arg (byte-unchanged).
   const appOpts =
-    opts.auth !== undefined || opts.corsOrigins !== undefined || opts.supervisor !== undefined
+    opts.auth !== undefined ||
+    opts.corsOrigins !== undefined ||
+    opts.supervisor !== undefined ||
+    opts.principals !== undefined
       ? {
           ...(opts.auth !== undefined ? { auth: opts.auth } : {}),
           ...(opts.corsOrigins !== undefined ? { corsOrigins: opts.corsOrigins } : {}),
           ...(opts.supervisor !== undefined ? { supervisor: opts.supervisor } : {}),
+          ...(opts.principals !== undefined ? { principals: opts.principals } : {}),
         }
       : undefined;
   const app = opts.runtime

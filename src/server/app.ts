@@ -5,7 +5,7 @@
 // route that needs the runtime (sessions, turns) plus the SSE stream.
 
 import { Hono } from 'hono';
-import { bearerAuth } from './auth.js';
+import { type AppVariables, bearerAuth, principalAuth } from './auth.js';
 import { corsMiddleware } from './cors.js';
 import { approvalsRoute } from './routes/approvals.js';
 import { cancelRoute } from './routes/cancel.js';
@@ -43,15 +43,26 @@ export function buildApp(): Hono {
  * concrete SessionSupervisor) so app.ts stays decoupled from that module and
  * non-gateway callers (TUI / `sov serve` / `sov drive`) can omit it — absent
  * supervisor ⇒ the cap is disabled and the create path is byte-unchanged.
+ *
+ * `principals` (Phase E T2) opts the session routes into per-principal
+ * bearer auth and is mutually exclusive with `auth` (the config enforces the
+ * exclusion). When set it gates /sessions/* with principalAuth INSTEAD of
+ * bearerAuth — every request needs a token resolving to a registered
+ * principal (no anonymous bypass). When unset, the auth/open behavior is
+ * byte-unchanged.
  */
 export type BuildAppOpts = {
   auth?: string;
   corsOrigins?: string[];
   supervisor?: SessionSupervisorLike;
+  principals?: ReadonlyArray<{ id: string; token: string; name?: string | undefined }>;
 };
 
-export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono {
-  const app = new Hono();
+export function buildAppWithRuntime(
+  runtime: Runtime,
+  opts?: BuildAppOpts,
+): Hono<{ Variables: AppVariables }> {
+  const app = new Hono<{ Variables: AppVariables }>();
   // CORS is opt-in and mounted FIRST so it runs for every route and BEFORE
   // bearer auth — browsers preflight with OPTIONS (no Authorization header),
   // which auth would otherwise reject. Listed origins are echoed back; the
@@ -68,11 +79,16 @@ export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono
   // stay gated. The HTML is embedded at build time (see webui.ts).
   app.get('/', (c) => c.html(WEB_UI_HTML));
   app.get('/ui', (c) => c.html(WEB_UI_HTML));
-  // Bearer auth is opt-in: only when opts.auth is set do we gate the
-  // session routes. `app.use` applies to every route registered after
-  // this line, so /health above stays open while everything below
-  // (sessions, turns, approvals, commands, …) is protected.
-  if (opts?.auth !== undefined) {
+  // Session-route auth is opt-in. `app.use` applies to every route
+  // registered after this line, so /health and / + /ui above stay open
+  // while everything below (sessions, turns, approvals, commands, …) is
+  // gated. Precedence: principals (multi-user) > single-token > open. The
+  // two auth modes are mutually exclusive (the config enforces it); when
+  // neither is set the session routes stay open (byte-unchanged loopback
+  // path for TUI / `sov serve` / `sov drive`).
+  if (opts?.principals !== undefined) {
+    app.use('/sessions/*', principalAuth(opts.principals));
+  } else if (opts?.auth !== undefined) {
     app.use('/sessions/*', bearerAuth(opts.auth));
   }
   app.route('/', sessionsRoute(runtime, opts?.supervisor));

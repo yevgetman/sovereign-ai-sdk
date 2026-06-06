@@ -37,7 +37,7 @@ export function validatePrincipalId(id: string): void {
  *  resolver never leaks which token (or how much of it) matched via timing. */
 export function resolvePrincipal(
   token: string,
-  principals: ReadonlyArray<{ id: string; token: string; name?: string }>,
+  principals: ReadonlyArray<{ id: string; token: string; name?: string | undefined }>,
 ): Principal | null {
   let matched: { id: string; name?: string } | null = null;
   for (const p of principals) {
