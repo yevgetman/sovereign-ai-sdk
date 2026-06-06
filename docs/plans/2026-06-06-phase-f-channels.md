@@ -1,0 +1,102 @@
+# Phase F — Channel Framework + First Adapters · Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: `superpowers:subagent-driven-development`. Checkbox steps. Executes per `docs/conventions/autonomous-feature-builds.md` — no approval gates. Read the cited files first, then TDD (red → green → commit). **Channels are an untrusted remote RCE surface — the permission posture + auth verification are security-load-bearing; negative tests are mandatory.**
+
+**Goal:** A Slack / Telegram / generic-webhook message drives a real harness session and gets a reply, with each channel an isolated principal and a safe-by-default permission posture, per `docs/specs/2026-06-06-phase-f-channels-design.md`. Adapters built + tested against injected transports; live operation = documented credential setup.
+
+**Architecture:** A channel-agnostic pipeline (`runChannelTurn`) maps an `InboundMessage` → a deterministic per-(channel,sender) session owned by the channel's principal (Phase E) → a headless turn (cron pattern) under a restricted permission posture (no local-allow inheritance, auto-deny) → captured reply. Thin adapters (webhook/Telegram/Slack) only verify+parse inbound and deliver outbound, over injectable transports. Hosted in the gateway lifecycle.
+
+**Tech Stack:** TypeScript on Bun, Hono, Zod, `bun:test`, MockProvider + injected channel transports.
+
+---
+
+## Investigation findings (verified — cite while implementing)
+- **`src/channels/`**: `types.ts` (`InboundMessage { sender, channel, chatId, chatType:'private'|'channel'|'group', threadId?, text, attachments?, raw? }`, `DeliveryResult { ok, error?, silent? }`, `ChannelAdapter { id, secretTargets? }`); `sessionKey.ts` `buildSessionKey(msg)` → `agent:main:{channel}:{chatType}:{chatId}[:{threadId}]`; `delivery.ts` `send(target, content, harnessHome?, options?)` (`[SILENT]` short-circuit; `local` outbox).
+- **Cron headless turn to mirror** (`src/cron/wiring.ts`): session create (`:98-104`, `metadata.kind`), `ask = async () => 'deny'` (`:115`), `buildCanUseTool({ mode:'default', ask, alwaysAllow, ruleLayers })` (`:107-121`) — **NOTE: cron loads `loadPermissionSettings({cwd,harnessHome})` local layers; channels must NOT** (D3); `cronToolPool` excludes `SUBAGENT_EXCLUDED_TOOLS` (`:128-130`); `AgentRunner` run + drain (`:140-162`); `extractFinalText(assistant)` (`:69-82`, reuse/export it); `disposeSession` in `finally` (`:177-182`).
+- **Permission** (`src/permissions/`): `buildCanUseTool({ mode, ask, alwaysAllow, ruleLayers })`, `loadPermissionSettings({cwd,harnessHome})` (returns `{ mode, layers }`), `PermissionMode = 'default'|'ask'|'bypass'`. Channels pass `ruleLayers: []` (or a channel-scoped layer) — never the local layers.
+- **Phase E**: `gateway.principals` (`src/config/schema.ts:448`), `upsertSession({ sessionId, owner, platform, metadata, model, provider, systemPrompt })` (`src/agent/sessionDb.ts:535`), `owner_id` → isolated memory/learning (E-T5/T6).
+- **Gateway**: `src/cli/gatewayCommand.ts` (`runGateway` boot/supervisor/shutdown `:132-217`); `src/server/app.ts` `buildAppWithRuntime` mount pattern (`:61-107`; open routes like `/health` + `app.get('/')` mounted BEFORE `principalAuth`); `startServer` (`src/server/index.ts`).
+- **AgentRunner** (`src/runtime/agentRunner.ts:72-92`): `AgentRunnerResult { terminal, finalAssistant?, … }`.
+- **Existing**: Slack-token redaction (`src/permissions/secretRedactor.ts`); env-first secret precedent (`SOV_GATEWAY_TOKEN`, gatewayCommand `:104`).
+
+## File structure
+**Create:** `src/channels/adapter.ts`, `src/channels/pipeline.ts`, `src/channels/permission.ts`, `src/channels/adapters/{webhook,telegram,slack}.ts`, `src/channels/listeners.ts`, `src/server/routes/channels.ts`; tests `tests/channels/{permission,pipeline,webhook,telegram,slack,channelIsolation}.test.ts`.
+**Modify:** `src/channels/delivery.ts`, `src/config/schema.ts`, `src/server/app.ts`, `src/server/index.ts`, `src/cli/gatewayCommand.ts`, `docs/usage.md`, `docs/architecture.md`, `package.json`. (Export `extractFinalText` from a shared spot or re-implement in `pipeline.ts`.)
+
+## Conventions (every task)
+`.js` imports; no mutation; `bun:test`; explicit types; injectable transports (default real `fetch`; tests inject mocks); constant-time signature compares; **channels NEVER load local allow-rules / NEVER `bypass`**; secrets env-first, never logged. Gate (`bun run lint && bun run typecheck && bun run test`, baseline ~2957/0/14, no new failures). Atomic commits. **NO release until F-T9.**
+
+---
+
+## F-T1 — channel permission posture + adapter contract (the security core) (~25 min · Opus)
+**Files:** `src/channels/permission.ts`, `src/channels/adapter.ts`; `tests/channels/permission.test.ts`.
+- [ ] **Failing tests:** `buildChannelCanUseTool({ mode:'default', ruleLayers:[] })` → a `canUseTool` that DENIES `Bash`, `Write`, `Edit` (anything that would `ask`), and does NOT consult `~/.harness` local settings (seed a local `allow Bash(*)` rule on disk + assert the channel `canUseTool` STILL denies `Bash` — proves no local-allow inheritance); a no-permission/read tool resolves allowed. `bypass` is rejected for channels (a helper `assertChannelPermissionMode('bypass')` throws; `'default'`/`'ask'` ok — and `'ask'` is coerced to auto-deny since there's no approver).
+- [ ] Red.
+- [ ] **Implement:** `permission.ts` — `buildChannelCanUseTool(opts: { mode?: 'default'|'ask'; ruleLayers?: RuleLayer[] })`: `ask = async () => 'deny'`; `buildCanUseTool({ mode: opts.mode ?? 'default', ask, alwaysAllow: new Set(), ruleLayers: opts.ruleLayers ?? [] })` — **never** calls `loadPermissionSettings` (no local layers). `assertChannelPermissionMode(mode)` throws on `'bypass'`. `adapter.ts` — the extended `ChannelAdapter` type: `{ id: string; verify(input) => Promise<{ ok: boolean; message?: InboundMessage; challengeResponse?: unknown; status?: number }>; deliver(reply: string, msg: InboundMessage, transport: T) => Promise<DeliveryResult> }` (generic over a transport) + a simple registry (`Map<string, ChannelAdapter>`).
+- [ ] Green; gate. Commit `feat(channels): safe-by-default channel permission posture + adapter contract`.
+
+## F-T2 — the channel-agnostic pipeline (~30 min · Opus)
+**Files:** `src/channels/pipeline.ts`; `tests/channels/pipeline.test.ts`.
+- [ ] **Failing tests** (MockProvider runtime; principals `[{id:'tg-bot',token:'t'}]`): `runChannelTurn({ runtime, msg, principalId:'tg-bot', permissionMode:'default' })` → (a) creates a session whose id === `buildSessionKey(msg)` and whose `ownerId === 'tg-bot'` and `platform === msg.channel`; (b) a SECOND call with the same (channel,sender) reuses the SAME session (history persists — `loadMessages` grows, not resets); (c) returns the final assistant text (MockProvider's reply); (d) a `[SILENT]`/empty reply returns `{ silent }` / no text; (e) the turn ran under the channel posture (a `Bash` attempt in the scripted turn is denied — or assert `canUseTool` identity); (f) the in-memory session context is disposed after the turn (reclaimable) but the DB row persists.
+- [ ] Red.
+- [ ] **Implement:** `runChannelTurn(opts)`: `assertChannelPermissionMode`; `const sessionId = buildSessionKey(msg)`; `runtime.sessionDb.upsertSession({ sessionId, owner: principalId, platform: msg.channel, model, provider, systemPrompt: runtime.systemSegments, metadata: { kind:'channel', channel: msg.channel, sender: msg.sender } })`; build the tool pool (exclude `SUBAGENT_EXCLUDED_TOOLS`); `canUseTool = buildChannelCanUseTool({ mode, ruleLayers: [] })`; build the ToolContext (sessionId, the channel principal's `userId = principalId` so E-scoping applies); run `AgentRunner` (mirror cron `:140-162`), drain the generator; `extractFinalText(result.finalAssistant)`; `finally { await runtime.disposeSession(sessionId); }`. Return `{ text, silent }`. (The deterministic sessionId + `upsertSession` give continuous per-(channel,sender) conversations; `disposeSession` reclaims the in-memory context, the DB row persists for the next message, the Phase-D supervisor evicts idle ones.)
+- [ ] Green; gate. Commit `feat(channels): channel-agnostic inbound→turn→outbound pipeline (per-sender sessions, channel posture)`.
+
+## F-T3 — config: `gateway.channels` (~15 min · Opus)
+**Files:** `src/config/schema.ts`; extend `tests/config/schema.test.ts`.
+- [ ] **Failing tests:** `gateway.channels: { webhook: { enabled:true, secret:'s', principalId:'wh' }, telegram: { enabled:true, botToken:'b', principalId:'tg' }, slack: { enabled:true, signingSecret:'ss', botToken:'bt', principalId:'sl' } }` parses when those principalIds exist in `gateway.principals`; **rejects** an enabled channel whose `principalId` is NOT in `principals`; rejects an enabled channel missing its required secret; rejects `permissionMode:'bypass'` on any channel; channels absent → valid.
+- [ ] Red.
+- [ ] **Implement:** add `channels: z.object({ webhook: z.object({ enabled: z.boolean().optional(), secret: z.string().optional(), principalId: z.string(), permissionMode: z.enum(['default','ask']).optional() }).optional(), telegram: z.object({ enabled, botToken?, principalId, permissionMode? }).optional(), slack: z.object({ enabled, signingSecret?, botToken?, principalId, permissionMode? }).optional() }).optional()` to the `gateway` block. Extend the gateway `.superRefine`: for each enabled channel, require its secret(s) present (or env — accept absent here, the gateway boot resolves env + validates presence at start) and `principalId ∈ principals`; `permissionMode` enum already excludes `bypass`. Keep `.strict()`.
+- [ ] Green; gate. Commit `feat(config): gateway.channels (webhook/telegram/slack) with principal binding`.
+
+## F-T4 — generic webhook adapter + route (keystone) (~30 min · Opus)
+**Files:** `src/channels/adapters/webhook.ts`, `src/server/routes/channels.ts`, `src/server/app.ts` (mount); `tests/channels/webhook.test.ts`.
+- [ ] **Failing tests** (via `buildAppWithRuntime` with channels config + `app.request`, MockProvider): `POST /channels/webhook/:id` with a body + a valid `X-Signature: sha256=<hmac>` header (HMAC-SHA256 of the raw body with the channel secret) → 200 `{ reply: <final text> }` and a session owned by the channel principal exists; a WRONG/missing signature → **401**, no turn run (no session created, no bus); a `[SILENT]` reply → 200 with no `reply` (or `{ silent:true }`); malformed JSON body → 400.
+- [ ] Red.
+- [ ] **Implement:** `webhook.ts` — `verify({ rawBody, signatureHeader, secret })` (constant-time HMAC-SHA256 compare over the raw body) + `parse(body) → InboundMessage` (`channel:'webhook'`, `sender` + `chatId` from the body, `text`). `channels.ts` — `channelsRoute(runtime, channelsConfig)`: `POST /channels/webhook/:id` reads the RAW body, looks up the channel config by `:id`, `verify` (401 on fail), `parse` (400 on bad), `runChannelTurn(...)`, returns `{ reply }` (or silent). Mount in `app.ts` `buildAppWithRuntime` as an **open** route (BEFORE `principalAuth`, like `/health`) when `opts.channels` is set; thread `channels` through `buildAppWithRuntime`/`startServer` opts.
+- [ ] Green; gate. Commit `feat(channels): generic webhook adapter + open route (HMAC-verified, synchronous reply)`.
+
+## F-T5 — Telegram adapter (long-poll, injectable transport) (~30 min · Opus)
+**Files:** `src/channels/adapters/telegram.ts`; `tests/channels/telegram.test.ts`.
+- [ ] **Failing tests** (mock transport): a `TelegramTransport` interface (`getUpdates(offset) → Update[]`, `sendMessage(chatId, text)`); inject a mock returning canned updates → the adapter parses each → `InboundMessage` (`channel:'telegram'`, `sender`=from.id, `chatId`, `chatType`, `text`) → calls `runChannelTurn` (inject a stub/real pipeline) → `sendMessage` called with the chatId + the reply; the poll loop advances `offset` past processed updates (no reprocessing); a `[SILENT]`/empty reply → no `sendMessage`; the loop is `.unref()`'d + stops on `stop()`.
+- [ ] Red.
+- [ ] **Implement:** `telegram.ts` — `createTelegramListener({ botToken, principalId, permissionMode, runtime, transport?, pollIntervalMs? })`: a `start()`/`stop()` with a `setInterval(...).unref()` (mirror the supervisor) that calls `transport.getUpdates(offset)`, maps updates → `InboundMessage`, `runChannelTurn`, and `transport.sendMessage` the reply (skip on silent), advancing `offset`. Default transport = a real `fetch`-based client to `https://api.telegram.org/bot<token>/…`. `botToken` env-first (`SOV_TELEGRAM_BOT_TOKEN`).
+- [ ] Green; gate. Commit `feat(channels): Telegram adapter (getUpdates long-poll, injectable transport)`.
+
+## F-T6 — Slack adapter + events route (signing-secret, async reply) (~35 min · Opus)
+**Files:** `src/channels/adapters/slack.ts`, `src/server/routes/channels.ts` (add the slack route); `tests/channels/slack.test.ts`.
+- [ ] **Failing tests** (via `app.request` + a mock Slack transport for `chat.postMessage`): `POST /channels/slack/events` with a valid `X-Slack-Signature` (`v0=` HMAC over `v0:{ts}:{rawBody}`, signing secret) + fresh `X-Slack-Request-Timestamp` + an `event_callback` `message` event → **200 ack** quickly, then (await the background work) `chat.postMessage` called with the reply for the channel; the `url_verification` `{ type:'url_verification', challenge }` → 200 `{ challenge }` (handshake, no turn); a BAD signature → **403**, no turn; a STALE timestamp (> 5 min) → 403 (replay); a Slack RETRY (`X-Slack-Retry-Num`) for an already-seen event → ack without re-running.
+- [ ] Red.
+- [ ] **Implement:** `slack.ts` — `verifySlackSignature({ rawBody, timestamp, signature, signingSecret })` (constant-time `v0=` HMAC + freshness window); `parseEvent(body) → InboundMessage | { challenge }` (`channel:'slack'`, sender=event.user, chatId=event.channel, text=event.text; skip bot/self messages); a small in-memory retry-dedupe (event id/ts set). The route: read RAW body, handle `url_verification` first, verify signature (403), dedupe retries, **ack 200 immediately**, run `runChannelTurn` + `chat.postMessage` in the background (don't block the ack); inject the `SlackTransport` (`postMessage(channel, text)`). `signingSecret`/`botToken` env-first.
+- [ ] Green; gate. Commit `feat(channels): Slack Events adapter (signing-secret verify, challenge, async post)`.
+
+## F-T7 — gateway wiring (mount routes + start/stop listeners) (~25 min · Opus)
+**Files:** `src/channels/listeners.ts`, `src/cli/gatewayCommand.ts`, `src/server/app.ts`/`index.ts`; `tests/channels/listeners.test.ts` (or extend gateway tests).
+- [ ] **Failing/integration test:** `buildChannelListeners(runtime, channelsConfig)` returns `{ start(), stop() }`; with telegram configured (mock transport) `start()` begins polling and `stop()` halts it (no further `getUpdates`); the HTTP routes (webhook/slack) are mounted on the app when channels are configured (assert `POST /channels/webhook/:id` is reachable). Gateway boot wiring resolves secrets env-first + validates enabled channels have their secrets (throws/refuses with a clear error if missing).
+- [ ] Red.
+- [ ] **Implement:** `listeners.ts` — `buildChannelListeners(runtime, channelsConfig)`: constructs the Telegram listener (if enabled) + holds the config the route needs; `start()`/`stop()` manage the poll loop(s). `app.ts`: mount `channelsRoute(runtime, channelsConfig)` (open) when `opts.channels` set. `gatewayCommand.ts`: resolve `config.gateway?.channels` (+ env secrets), validate enabled channels, pass `channels` to `startServer`/`buildAppWithRuntime`, construct + `start()` the listeners after the supervisor, and `stop()` them **before** `runtime.dispose()` in the shutdown handler. Log a one-line channels-enabled summary.
+- [ ] Green; gate. Commit `feat(channels): wire channel routes + listeners into the gateway lifecycle`.
+
+## F-T8 — channel isolation + adversarial security review (HARD GATE) (~ suite + review + fixes · Opus)
+**Files:** `tests/channels/channelIsolation.test.ts`.
+- [ ] **Isolation/security suite:** two channels mapped to different principals → their sessions/memory/learning are isolated (reuse the Phase-E isolation observables); a channel turn CANNOT run `Bash`/`Write` by default (even with a local `allow Bash(*)` seeded); a webhook with a bad HMAC + a Slack event with a bad/stale signature are rejected (no turn); `bypass` config is rejected; the channel principal can't be escalated to reach another principal's sessions via the API.
+- [ ] Green; gate.
+- [ ] **Dispatch an adversarial security reviewer** over the whole Phase F surface (the D3 posture; webhook HMAC; Slack signing-secret + replay + challenge; Telegram token handling; the channel→principal isolation; inbound parse as an injection/DoS vector; no local-allow inheritance; secrets never logged). Must reach **SECURE-TO-SHIP** (no Critical/High). Fix every Critical/High (+ cheap Medium); re-review. Commit fixes.
+
+## F-T9 — docs + close-out + release (~25 min · Opus)
+**Files:** `docs/usage.md`, `docs/architecture.md`, `docs/testing-log.md`, `docs/state/2026-06-06-phase-f-channels.md`, roadmap spec (mark Phase F shipped — **run-anywhere A–F COMPLETE**), `CLAUDE.md`+`AGENTS.md` (state pointer; **DON'T touch the soak banner**; `diff` empty), `package.json`.
+- [ ] `docs/usage.md`: "Channels" — configure `gateway.channels` (each channel's principalId + secrets, env-first); the **safe-by-default permission posture** (channels can't run dangerous tools without explicit per-channel allows); and the **real-credential SETUP STEPS** (Telegram: create a bot via @BotFather → `SOV_TELEGRAM_BOT_TOKEN`; Slack: create an app → signing secret + bot token + Events API subscription URL → `SOV_SLACK_SIGNING_SECRET`/`SOV_SLACK_BOT_TOKEN`; webhook: the shared secret + the HMAC scheme + a public endpoint). Note v1 limits (auto-deny, no in-channel approval, no rich UX).
+- [ ] `docs/architecture.md`: the channel layer (pipeline + adapters + the gateway hosting + the per-channel principal/posture).
+- [ ] State snapshot `docs/state/2026-06-06-phase-f-channels.md`: what shipped (framework + 3 adapters, built against injected transports), the security posture + the SECURE-TO-SHIP review verdict, the real-credential setup as operator steps (not live-verified here), test count, version (v0.6.23), **the run-anywhere roadmap A–F now COMPLETE**, learning soak continues. Update the `CLAUDE.md`/`AGENTS.md` pointer (byte-identical; soak banner untouched; `diff` empty).
+- [ ] Testing-log entry. Mark Phase F `✅ Shipped v0.6.23 (2026-06-06)` + the roadmap **COMPLETE (A–F)**.
+- [ ] **Release** per `docs/conventions/cutting-releases.md`: 0.6.22 → **0.6.23**; push master; bump + release commit; push; `sov-releases/CHANGELOG.md` 0.6.23 entry (user-facing: "Channels: drive the harness from Slack, Telegram, or a generic webhook — each an isolated principal with a safe-by-default permission posture"); tag `v0.6.23`; CI → success; `gh release view`; `sov upgrade`; **post-upgrade smoke** (boot the upgraded gateway with a `webhook` channel + a principal; `POST /channels/webhook/:id` with a valid HMAC → a reply; bad HMAC → 401; verify `~/.sov/bin/sov --version` → 0.6.23). Commit + push.
+
+---
+
+## Self-review
+**Spec coverage:** D1 contract → F-T1; D2 pipeline → F-T2; D3 posture (security crux) → F-T1 (+ enforced in T2) + F-T8 (proof); D4 hosting → F-T4 (route mount) + F-T7 (listeners/lifecycle); D5 webhook → F-T4; D6 telegram → F-T5; D7 slack → F-T6; D8 config → F-T3; D9 security review → F-T8. Every decision maps to a task.
+**Placeholder scan:** none — concrete files, tests, auth schemes, signatures.
+**Type/name consistency:** `runChannelTurn`, `buildChannelCanUseTool`, `assertChannelPermissionMode`, `ChannelAdapter{verify,deliver}`, `buildChannelListeners`, `channelsRoute`, `gateway.channels.{webhook,telegram,slack}`, `principalId`, injectable `transport` — consistent across F-T1…F-T9. Load-bearing security points: no-local-allow-inheritance (T1), constant-time HMAC/signing-secret + Slack replay window (T4/T6), channel→principal isolation (T2/T8), bypass-rejected (T1/T3).
+
+## Execution
+Per the autonomous convention: F-T1→F-T9 subagent-driven (fresh Opus implementer per task + spec + code-quality review; **F-T8 is a hard adversarial security gate**), no approval gates; ship (release v0.6.23) at F-T9 — **completing the run-anywhere roadmap A–F**. The learning-loop soak continues untouched in parallel.
