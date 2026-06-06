@@ -9,6 +9,7 @@ import { type AppVariables, bearerAuth, principalAuth } from './auth.js';
 import { corsMiddleware } from './cors.js';
 import { approvalsRoute } from './routes/approvals.js';
 import { cancelRoute } from './routes/cancel.js';
+import { type ChannelsConfig, channelsRoute } from './routes/channels.js';
 import { commandsRoute } from './routes/commands.js';
 import { compactRoute } from './routes/compact.js';
 import { eventsRoute } from './routes/events.js';
@@ -50,12 +51,19 @@ export function buildApp(): Hono {
  * bearerAuth — every request needs a token resolving to a registered
  * principal (no anonymous bypass). When unset, the auth/open behavior is
  * byte-unchanged.
+ *
+ * `channels` (Phase F T4) opts in the inbound channel routes (webhook v1).
+ * When set, channelsRoute is mounted OPEN — before the /sessions/* auth, like
+ * /health and GET / — because a channel request authenticates via its OWN
+ * transport credential (the webhook HMAC), not the gateway bearer/principal
+ * token. When unset, no channel route is mounted (byte-unchanged).
  */
 export type BuildAppOpts = {
   auth?: string;
   corsOrigins?: string[];
   supervisor?: SessionSupervisorLike;
   principals?: ReadonlyArray<{ id: string; token: string; name?: string | undefined }>;
+  channels?: ChannelsConfig;
 };
 
 export function buildAppWithRuntime(
@@ -79,6 +87,15 @@ export function buildAppWithRuntime(
   // stay gated. The HTML is embedded at build time (see webui.ts).
   app.get('/', (c) => c.html(WEB_UI_HTML));
   app.get('/ui', (c) => c.html(WEB_UI_HTML));
+  // Phase F T4 — inbound channel routes (webhook v1). Mounted OPEN, before the
+  // /sessions/* auth below, because a channel request authenticates via its own
+  // transport credential (the webhook HMAC) rather than the gateway
+  // bearer/principal token. Only constructed when channels are configured; the
+  // route itself 404s any unknown / disabled channel id. Absent ⇒ no route
+  // mounted (byte-unchanged for TUI / `sov serve` / `sov drive`).
+  if (opts?.channels !== undefined) {
+    app.route('/', channelsRoute(runtime, opts.channels));
+  }
   // Session-route auth is opt-in. `app.use` applies to every route
   // registered after this line, so /health and / + /ui above stay open
   // while everything below (sessions, turns, approvals, commands, …) is

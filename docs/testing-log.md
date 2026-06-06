@@ -8,6 +8,39 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-06 — Phase F-T4 (keystone): generic webhook adapter + open gateway route (HMAC-verified, synchronous reply)
+
+Task 4 of 9 of **Phase F — channels drive harness turns**. The keystone: the generic, dependency-free
+webhook adapter + its gateway route, proving the whole inbound→turn→outbound arc end-to-end with no
+external transport to mock.
+
+**Build (TDD, red→green).** New `src/channels/adapters/webhook.ts`: `verifyWebhook` (HMAC-SHA256 of
+the RAW body keyed by the channel secret, parsed from `X-Signature: sha256=<hex>`, compared
+constant-time via `crypto.timingSafeEqual` with a length-guard; returns false — never throws — on a
+missing/malformed header or mismatch) + `parseWebhook` (JSON body → `InboundMessage`,
+`channel:'webhook'`, `chatType:'private'`, `chatId` defaults to `sender`; null on a non-object body
+or a missing required field). New `src/server/routes/channels.ts`: `channelsRoute(runtime, channels)`
+→ `POST /channels/webhook/:id` with the order **resolve channel (404) → read raw body + verify HMAC
+(401) → parse (400) → runChannelTurn → reply**; verify runs BEFORE any parse/turn (no side-effect on
+a forged request). Mounted OPEN in `buildAppWithRuntime` (a new `channels?` opt) BEFORE the
+`/sessions/*` auth — the channel authenticates via its own HMAC, not the gateway bearer/principal
+token — and threaded through `startServer`. The single v1 webhook channel is addressed by the
+reserved id `default`; an unknown id 404s (existence-hiding).
+
+**Test matrix (`tests/channels/webhook.test.ts`, MockProvider, temp HARNESS_HOME, 9 cases):** valid
+signed request → 200 `{ reply: 'Hello world.' }` + session created via `buildSessionKey`,
+`ownerId === principal`, `platform === 'webhook'`; bad signature → 401 + NO session row; missing
+signature header → 401; `[SILENT]`-prefixed reply → 200 `{ silent: true }`; malformed JSON (valid sig
+over the raw bytes) → 400; unknown id → 404; missing required field (text) → 400 + no session;
+disabled channel → 404; channels opt omitted → route absent (404, existing surface unaffected).
+
+**Results.** Webhook suite **9 pass / 0 fail**. Full gate green: `bun run lint` clean, `bun run
+typecheck` clean, `bun test` **3005 pass / 0 fail / 14 skip** (baseline ~2996 + 9 new; no new
+failures; the `[WARN] blocked context file AGENTS.md` lines are the pre-existing benign threat-scanner
+match on the README curl-installer string). No bundle changes, no new ADRs. Security self-review:
+HMAC over raw bytes, constant-time compare, verify-before-side-effect, correct status codes, route
+open (channel-verified not bearer), session owned by the channel principal, secret never logged.
+
 ## 2026-06-06 — Phase E close-out (multi-user identity + state scoping): 9-task build + keystone authz + adversarial security review (found 2 cross-user leaks) + gate + release v0.6.22
 
 Close-out of **Phase E — Multi-user identity + state scoping** (M4 + M5 of the run-anywhere
