@@ -13,7 +13,7 @@ import { commandsRoute } from './routes/commands.js';
 import { compactRoute } from './routes/compact.js';
 import { eventsRoute } from './routes/events.js';
 import { healthRoute } from './routes/health.js';
-import { sessionsRoute } from './routes/sessions.js';
+import { type SessionSupervisorLike, sessionsRoute } from './routes/sessions.js';
 import { skillsRoute } from './routes/skills.js';
 import { turnsRoute } from './routes/turns.js';
 import type { Runtime } from './runtime.js';
@@ -37,10 +37,17 @@ export function buildApp(): Hono {
  * browser-based web UI on another origin: the matched origin is echoed in
  * Access-Control-Allow-Origin and preflight OPTIONS short-circuits 204. When
  * unset, no CORS middleware is mounted and the app stays byte-unchanged.
+ *
+ * `supervisor` (Phase D T4) opts POST /sessions into a concurrency cap and is
+ * threaded to the sessions route. It's a minimal structural type (not the
+ * concrete SessionSupervisor) so app.ts stays decoupled from that module and
+ * non-gateway callers (TUI / `sov serve` / `sov drive`) can omit it — absent
+ * supervisor ⇒ the cap is disabled and the create path is byte-unchanged.
  */
 export type BuildAppOpts = {
   auth?: string;
   corsOrigins?: string[];
+  supervisor?: SessionSupervisorLike;
 };
 
 export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono {
@@ -68,7 +75,7 @@ export function buildAppWithRuntime(runtime: Runtime, opts?: BuildAppOpts): Hono
   if (opts?.auth !== undefined) {
     app.use('/sessions/*', bearerAuth(opts.auth));
   }
-  app.route('/', sessionsRoute(runtime));
+  app.route('/', sessionsRoute(runtime, opts?.supervisor));
   app.route('/', turnsRoute(runtime));
   app.route('/', approvalsRoute(runtime));
   app.route('/', compactRoute(runtime));

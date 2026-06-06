@@ -7,6 +7,7 @@
 
 import { buildApp, buildAppWithRuntime } from './app.js';
 import { findFreePort, resolveBindHost } from './port.js';
+import type { SessionSupervisorLike } from './routes/sessions.js';
 import type { Runtime } from './runtime.js';
 
 export type StartServerOptions = {
@@ -27,6 +28,10 @@ export type StartServerOptions = {
    *  cross-origin clients. Forwarded to buildAppWithRuntime; unset
    *  never constructs the CORS middleware (byte-unchanged). */
   corsOrigins?: string[];
+  /** Phase D `sov gateway` — SessionSupervisor that gates POST /sessions with
+   *  a concurrency cap. Forwarded to buildAppWithRuntime; unset leaves the cap
+   *  disabled so the TUI / `sov serve` / `sov drive` create path is unchanged. */
+  supervisor?: SessionSupervisorLike;
 };
 
 export type StartedServer = {
@@ -38,13 +43,14 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
   const hostname = resolveBindHost(opts.hostname);
   const port = opts.port ?? (await findFreePort(hostname));
   // Only construct the app-opts object when the gateway actually passes
-  // auth/CORS — keeps the TUI/serve/drive paths calling
+  // auth/CORS/supervisor — keeps the TUI/serve/drive paths calling
   // buildAppWithRuntime(runtime) with no second arg (byte-unchanged).
   const appOpts =
-    opts.auth !== undefined || opts.corsOrigins !== undefined
+    opts.auth !== undefined || opts.corsOrigins !== undefined || opts.supervisor !== undefined
       ? {
           ...(opts.auth !== undefined ? { auth: opts.auth } : {}),
           ...(opts.corsOrigins !== undefined ? { corsOrigins: opts.corsOrigins } : {}),
+          ...(opts.supervisor !== undefined ? { supervisor: opts.supervisor } : {}),
         }
       : undefined;
   const app = opts.runtime
