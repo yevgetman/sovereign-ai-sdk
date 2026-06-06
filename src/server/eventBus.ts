@@ -56,6 +56,16 @@ export class ServerEventBus {
    * replays everything still retained (pre-T1 behavior).
    */
   private currentTurnStartSeq = 0;
+  /**
+   * Fix 2 — whether a turn is currently in progress on this bus. Set true by
+   * `markTurnStart()`; reset to false when `publish()` sees a terminal event
+   * (`turn_complete` / `turn_error`). The events route reads this via
+   * `isTurnActive()` so a NON-follow reconnect that replays nothing AND lands
+   * with no active turn can end immediately instead of parking forever waiting
+   * for a terminal that already fired. Defaults to false (no turn before the
+   * first `markTurnStart`).
+   */
+  private turnActive = false;
   private seq = 0;
   private closed = false;
   private readonly abortController = new AbortController();
@@ -127,6 +137,19 @@ export class ServerEventBus {
    */
   markTurnStart(): void {
     this.currentTurnStartSeq = this.seq + 1;
+    // Fix 2 — a turn is now in progress. Cleared by `publish()` on the
+    // matching terminal event.
+    this.turnActive = true;
+  }
+
+  /**
+   * Fix 2 — whether a turn is currently in progress (between `markTurnStart()`
+   * and its terminal `turn_complete` / `turn_error`). The events route uses
+   * this to decide whether a NON-follow stream that replayed nothing should
+   * end immediately (no active turn → nothing to wait for) rather than park.
+   */
+  isTurnActive(): boolean {
+    return this.turnActive;
   }
 
   /**
@@ -140,6 +163,12 @@ export class ServerEventBus {
     this.ring.push(event);
     if (this.ring.length > this.maxRing) {
       this.ring.shift();
+    }
+    // Fix 2 — a terminal event ends the in-progress turn. After this, a
+    // non-follow reconnect that replays nothing knows the turn is done and
+    // can end immediately instead of parking.
+    if (event.type === 'turn_complete' || event.type === 'turn_error') {
+      this.turnActive = false;
     }
     // Fix 3 — isolate throwing subscribers. A subscriber callback (an SSE
     // route's onEvent, a future cross-process forwarder) must never let its

@@ -160,6 +160,45 @@ describe('ServerEventBus — multi-subscriber + replay ring (T1)', () => {
     expect(got.map((e) => e.seq)).toEqual([3, 4]);
   });
 
+  test('isTurnActive: markTurnStart sets active; a terminal event clears it (Fix 2)', () => {
+    const bus = new ServerEventBus();
+    const completeEvent = (): ServerEvent => ({
+      type: 'turn_complete',
+      seq: bus.nextSeq(),
+      sessionId,
+      finishReason: 'end_turn',
+    });
+
+    // Before any turn: not active.
+    expect(bus.isTurnActive()).toBe(false);
+
+    // Turn starts.
+    bus.markTurnStart();
+    expect(bus.isTurnActive()).toBe(true);
+
+    // Mid-turn events keep it active.
+    bus.publish(emit(bus, 'mid'));
+    expect(bus.isTurnActive()).toBe(true);
+
+    // The terminal event clears it.
+    bus.publish(completeEvent());
+    expect(bus.isTurnActive()).toBe(false);
+  });
+
+  test('isTurnActive: turn_error also clears the active flag (Fix 2)', () => {
+    const bus = new ServerEventBus();
+    bus.markTurnStart();
+    expect(bus.isTurnActive()).toBe(true);
+    bus.publish({
+      type: 'turn_error',
+      seq: bus.nextSeq(),
+      sessionId,
+      error: 'boom',
+      recoverable: false,
+    });
+    expect(bus.isTurnActive()).toBe(false);
+  });
+
   test('fresh, no turn yet: subscribe before any markTurnStart + before any publish gets live events', () => {
     const bus = new ServerEventBus();
     const got: ServerEvent[] = [];

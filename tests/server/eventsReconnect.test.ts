@@ -724,3 +724,149 @@ describe('events route — concurrent-subscriber fan-out (T4)', () => {
     }
   }, 20_000);
 });
+
+// Phase B transport hardening — Fix 2.
+//
+// A NON-follow stream that reconnects with Last-Event-ID >= the last seq
+// (the turn is already done, nothing left to replay, no turn running) used to
+// park forever waiting for a terminal that will never come. The bus now tracks
+// turn-active state (markTurnStart → true; terminal event → false) and the
+// events route ends a non-follow stream immediately when it replays NOTHING
+// and no turn is active. This must NOT regress the normal "POST /turns then
+// GET /events" path (a turn IS active at subscribe time) nor the existing
+// reconnect-with-older-cursor-during-an-active-turn behavior.
+describe('events route — non-follow reconnect after a completed turn ends, not parks (Fix 2)', () => {
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-fix2-'));
+    cwd = mkdtempSync(join(tmpdir(), 'sov-fix2-cwd-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    __test_resetAllBuses();
+  });
+
+  afterEach(() => {
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    __test_resetAllBuses();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+  });
+
+  test('reconnect with Last-Event-ID = last seq (empty replay, no active turn) ends promptly — no hang', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Drive + complete a turn, draining the full sequence so we know the
+      // last seq the bus assigned.
+      await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      const first = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd);
+      await first.done;
+      expect(first.events.some((e) => e.event === 'turn_complete')).toBe(true);
+
+      const lastSeq = Math.max(
+        ...first.events
+          .map((e) => (e.id !== null ? Number.parseInt(e.id, 10) : Number.NaN))
+          .filter((n) => Number.isInteger(n)),
+      );
+
+      // Reconnect non-follow with Last-Event-ID = the LAST seq. The ring slice
+      // (seq > lastSeq) is empty AND no turn is active — pre-Fix-2 this parked
+      // forever. stopWhen never matches, so the ONLY way this resolves is the
+      // server ending the stream itself. A hang here = the bug; the test times
+      // out and fails (which is the regression we are guarding against).
+      const reconnect = openSse(app, `/sessions/${sessionId}/events`, () => false, {
+        'Last-Event-ID': String(lastSeq),
+      });
+      await reconnect.done;
+
+      // The server ended the empty stream promptly with nothing replayed.
+      expect(reconnect.events.length).toBe(0);
+    } finally {
+      await runtime.dispose();
+    }
+  }, 10_000);
+
+  test('reconnect with an OLDER Last-Event-ID while a turn IS active still replays + continues (no regression)', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Slow the turn so we can demonstrably reconnect WHILE it is in flight.
+      MockProvider.slowMode = true;
+      MockProvider.slowModeDelayMs = 20;
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+
+      // First stream, live from the start. Gate on its first text_delta so we
+      // know the turn is genuinely in flight (a turn IS active) before we
+      // reconnect with an older cursor.
+      let resolveMidTurn: (() => void) | null = null;
+      const midTurn = new Promise<void>((resolve) => {
+        resolveMidTurn = resolve;
+      });
+      let firstSeqSeen: number | null = null;
+      const first = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd);
+      first.onEvent((ev) => {
+        if (firstSeqSeen === null && ev.id !== null) {
+          firstSeqSeen = Number.parseInt(ev.id, 10);
+        }
+        if (ev.event === 'text_delta' && resolveMidTurn !== null) {
+          const r = resolveMidTurn;
+          resolveMidTurn = null;
+          r();
+        }
+      });
+      await midTurn;
+
+      // Reconnect with an OLDER cursor (0 — before the turn's first seq) WHILE
+      // the turn is active. Fix 2 must NOT short-circuit this: there IS a
+      // replay (seq > 0) and the turn is active, so it streams normally and
+      // reaches turn_complete.
+      const reconnect = openSse(app, `/sessions/${sessionId}/events`, isTurnEnd, {
+        'Last-Event-ID': '0',
+      });
+      await Promise.all([first.done, reconnect.done]);
+
+      expect(reconnect.events.length).toBeGreaterThan(0);
+      expect(reconnect.events.some((e) => e.event === 'turn_complete')).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  }, 15_000);
+});

@@ -81,6 +81,21 @@ eventsRoute.get('/sessions/:id/events', (c) => {
     // byte-identical to the pre-T3 default.
     const unsubscribe =
       lastEventId !== undefined ? bus.subscribe(onEvent, { lastEventId }) : bus.subscribe(onEvent);
+    // Fix 2 — capture the synchronous replay count. `subscribe()` calls
+    // `onEvent` (which pushes onto `queue`) for each replayed ring event
+    // BEFORE returning, so right here `queue.length` is exactly how many
+    // events were replayed on attach. A NON-follow stream that replayed
+    // NOTHING and lands with no turn in progress has nothing to wait for —
+    // the turn already completed and its terminal event is past the cursor.
+    // Without this it would park forever on the empty-queue Promise (the
+    // bus closes only at session/shutdown teardown). End immediately instead.
+    // This does NOT affect `?follow` (it never auto-ends), and it does NOT
+    // affect the normal "POST /turns then GET /events" path (a turn IS active
+    // at subscribe time) nor a reconnect mid-turn (replay is non-empty there).
+    const replayedCount = queue.length;
+    if (!follow && replayedCount === 0 && !bus.isTurnActive()) {
+      stopped = true;
+    }
     // Without this listener the loop can park forever on the empty-queue
     // Promise: a client disconnect with no pending events leaves nothing
     // to invoke the resolver, so `unsubscribe()` never runs and the
