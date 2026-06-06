@@ -479,6 +479,20 @@ describe('SettingsSchema — gateway.principals', () => {
     expect(SettingsSchema.parse({ gateway: { token: 'secret' } }).gateway?.token).toBe('secret');
   });
 
+  // Fix E2 — an operator who sets `principals: []` (intending to fill it)
+  // would otherwise silently degrade to single-user/open on loopback. Reject
+  // an explicitly-present-but-empty array with an actionable message.
+  test('rejects an empty principals array', () => {
+    expect(() => SettingsSchema.parse({ gateway: { principals: [] } })).toThrow(
+      /gateway\.principals must not be empty when set/,
+    );
+  });
+
+  test('a single-entry principals array still parses', () => {
+    const p = SettingsSchema.parse({ gateway: { principals: [{ id: 'alice', token: 'tok-a' }] } });
+    expect(p.gateway?.principals).toHaveLength(1);
+  });
+
   test('rejects principals AND token both set (mutually exclusive)', () => {
     expect(() =>
       SettingsSchema.parse({

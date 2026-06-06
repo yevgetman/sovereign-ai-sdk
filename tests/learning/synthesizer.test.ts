@@ -157,6 +157,44 @@ describe('runSynthesizer', () => {
     expect(logged.some((m) => m.includes('synthesizer'))).toBe(true);
   });
 
+  // Fix E1 — for an OWNED principal the synthesizer must be told the
+  // user-scoped observations file (users/{userId}/learning/{projectId}/…),
+  // otherwise it reads the legacy corpus and synthesizes nothing.
+  test('prompt observations path is user-scoped when userId is supplied', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await runSynthesizer({
+      scheduler: fakeScheduler(calls),
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      ...emptyParent(),
+      harnessHome: '/tmp/h',
+      projectId: 'proj-abc',
+      projectName: 'sovereign',
+      recentObservationCount: 50,
+      userId: 'alice',
+    });
+    const prompt = calls[0]?.prompt as string;
+    expect(prompt).toContain('users/alice/learning/proj-abc/observations.jsonl');
+    expect(prompt).not.toContain('/h/learning/proj-abc/observations.jsonl');
+  });
+
+  test('prompt observations path is the legacy path when no userId', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await runSynthesizer({
+      scheduler: fakeScheduler(calls),
+      parentSessionId: 'p',
+      parentSignal: new AbortController().signal,
+      ...emptyParent(),
+      harnessHome: '/tmp/h',
+      projectId: 'proj-abc',
+      projectName: 'sovereign',
+      recentObservationCount: 50,
+    });
+    const prompt = calls[0]?.prompt as string;
+    expect(prompt).toContain('/h/learning/proj-abc/observations.jsonl');
+    expect(prompt).not.toContain('users/');
+  });
+
   test('reports { ok: false } when the delegation returns a non-success terminal', async () => {
     const fakeFail = {
       delegate: async (input: Record<string, unknown>) => ({

@@ -33,4 +33,13 @@ describe('assertGatewaySafe', () => {
   test('non-loopback + empty token → THROWS', () => {
     expect(() => assertGatewaySafe({ host: '0.0.0.0', token: '' })).toThrow();
   });
+
+  // Fix E3 — the refuse-to-boot message must name BOTH valid auth options
+  // (token AND principals), since a configured principals registry also
+  // satisfies the guard; an operator should learn both ways to fix it.
+  test('the refuse-to-boot message names principals as a valid auth option', () => {
+    expect(() => assertGatewaySafe({ host: '0.0.0.0', token: undefined })).toThrow(
+      /gateway\.principals/,
+    );
+  });
 });

@@ -26,7 +26,7 @@ export function assertGatewaySafe(opts: { host: string; token: string | undefine
   const hasToken = typeof opts.token === 'string' && opts.token.length > 0;
   if (!isLoopbackHost(opts.host) && !hasToken) {
     throw new Error(
-      `Refusing to start the gateway: host "${opts.host}" is not loopback and no auth token is set. Exposing the tool-running agent off-loopback without authentication is unsafe. Set a token via the SOV_GATEWAY_TOKEN environment variable or config.gateway.token, or bind to loopback (127.0.0.1) instead.`,
+      `Refusing to start the gateway: host "${opts.host}" is not loopback and no auth token is set. Exposing the tool-running agent off-loopback without authentication is unsafe. Set a token via the SOV_GATEWAY_TOKEN environment variable or config.gateway.token, or configure gateway.principals, or bind to loopback (127.0.0.1) instead.`,
     );
   }
 }

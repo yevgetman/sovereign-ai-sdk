@@ -27,6 +27,13 @@ export interface RunSynthesizerOpts {
   harnessHome: string;
   projectId: string;
   projectName: string;
+  /** Phase E — the owning principal, when this dispatch runs under one. Scopes
+   *  the observations file the synthesizer reads to the user's namespace
+   *  (`users/{userId}/learning/{projectId}/observations.jsonl`); undefined →
+   *  the legacy top-level path. MUST match the `userId` used by the read-hint
+   *  (`pathsResolver().instinctsDir`) + the write path (InstinctProposeTool's
+   *  `ctx.userId`), or the synthesizer reads one corpus and writes another. */
+  userId?: string;
   recentObservationCount: number;
   traceRecorder?: (event: TraceEvent) => void;
   /** Sink for the fail-loud warning. Defaults to stderr. A test seam +
@@ -43,7 +50,7 @@ function buildPrompt(opts: RunSynthesizerOpts): string {
   return [
     'You are operating as the instinct-synthesizer sub-agent.',
     `Project: ${opts.projectName} (${opts.projectId})`,
-    `Observations file: ${observationsPath(opts.harnessHome, opts.projectId)}`,
+    `Observations file: ${observationsPath(opts.harnessHome, opts.projectId, opts.userId)}`,
     `Recent observation count to focus on: ${opts.recentObservationCount}`,
     '',
     'Read recent observations, cluster them, and propose / reinforce / contradict instincts.',

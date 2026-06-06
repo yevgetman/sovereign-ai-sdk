@@ -372,6 +372,14 @@ export class ReviewManager {
       harnessHome: this.harnessHome,
       projectId: project.id,
       projectName: project.name,
+      // Fix E1 — when this dispatch runs under an owned principal, scope the
+      // synthesizer's observations read to the user's namespace. Same value
+      // the read-hint (pathsResolver().instinctsDir) + the write path
+      // (InstinctProposeTool's ctx.userId) use, so reads + writes share one
+      // corpus. Optional spread keeps the omitted-when-absent invariant.
+      ...(this.parentToolContext.userId !== undefined
+        ? { userId: this.parentToolContext.userId }
+        : {}),
       recentObservationCount: 50,
       ...(this.traceRecorder !== undefined ? { traceRecorder: this.traceRecorder } : {}),
     });

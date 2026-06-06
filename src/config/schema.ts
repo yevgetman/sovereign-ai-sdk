@@ -503,6 +503,17 @@ export const SettingsSchema = z
       .superRefine((gw, ctx) => {
         const { principals, token, channels } = gw;
         if (principals !== undefined) {
+          // Fix E2 — an explicitly-present-but-empty registry is almost
+          // certainly a half-finished config (operator meant to add entries).
+          // Left as `[]` it silently degrades to single-user/open on loopback,
+          // so reject it with an actionable message instead.
+          if (principals.length === 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'gateway.principals must not be empty when set',
+              path: ['principals'],
+            });
+          }
           // (a) single-token and per-principal auth are mutually exclusive.
           if (token !== undefined) {
             ctx.addIssue({
