@@ -767,7 +767,7 @@ The gateway serves the existing native session routes. Auth (when a token is con
 | GET | `/health` | none | 200 | Liveness probe (`{ ok, version }`). Exempt from auth so orchestrators can ping it. |
 | POST | `/sessions` | Bearer | **201** | Open a session → `{ sessionId, createdAt }`. |
 | GET | `/sessions/:id/messages` | Bearer | 200 | Stored message backlog → `{ messages: [{ role, content }] }`. Hydrate UI on resume. |
-| GET | `/sessions/:id/events` | Bearer | 200 | SSE event stream (`text_delta`, `tool_use_start`, `permission_request`, `turn_complete`/`turn_error`, …). Ends per turn — see "re-subscribe per turn" below. |
+| GET | `/sessions/:id/events` | Bearer | 200 | SSE event stream (`text_delta`, `tool_use_start`, `permission_request`, `turn_complete`/`turn_error`, …). Each frame carries `id: <seq>` (a session-monotonic sequence) for `Last-Event-ID` reconnect. Ends per turn by default; `?follow=true` keeps it open across turns. Multiple clients may subscribe concurrently. See "Multiple clients, reconnect, and persistent streams" below. |
 | POST | `/sessions/:id/turns` | Bearer | **202** | Submit a turn → `{ accepted: true }`. Body `{ text }` (prose) or `{ text: "/name args", kind: "skill" }` (server-side skill expansion). Fire-and-forget: events arrive on the SSE stream. |
 | POST | `/sessions/:id/approvals/:requestId` | Bearer | 200 | Answer a permission prompt → `{ ok: true }`. Body `{ approved: boolean, always?: boolean }`. `:requestId` is the `requestId` from the `permission_request` event. |
 | POST | `/sessions/:id/cancel` | Bearer | 200 | Cancel the in-flight turn → `{ cancelled }`. |
@@ -789,7 +789,8 @@ Persistent config block in `~/.harness/config.json`:
     "host": "127.0.0.1",
     "port": 8766,
     "token": "<bearer-token>",
-    "corsOrigins": ["https://app.example.com"]
+    "corsOrigins": ["https://app.example.com"],
+    "eventBufferSize": 512
   }
 }
 ```
@@ -800,6 +801,7 @@ Env vars: `SOV_GATEWAY_HOST`, `SOV_GATEWAY_PORT`, `SOV_GATEWAY_TOKEN`. Resolutio
 - **port** — `--port` > `SOV_GATEWAY_PORT` > `gateway.port` > `8766`. The resolved value is validated to an integer in `[1, 65535]`; anything else (`0`, `70000`, `8080x`) is a fatal startup error.
 - **token** — `SOV_GATEWAY_TOKEN` > `gateway.token` (trimmed; empty → no token)
 - **corsOrigins** — `gateway.corsOrigins` (default `[]` = no cross-origin / same-origin only). **Config-only — there is no CLI flag or env var for it yet**; set it in `config.json`.
+- **eventBufferSize** — `gateway.eventBufferSize` (positive integer, default **512**). The size of each session's per-session SSE **replay ring** — the bounded window of recent events retained for `Last-Event-ID` reconnect (see below). Larger values let a client recover from a longer disconnect at the cost of memory per active session. Config-only.
 
 `corsOrigins` is an allow-list of browser origins. When set, the gateway echoes `Access-Control-Allow-Origin` for a matching `Origin` (and only a matching one) and answers preflight `OPTIONS` with the methods/headers the protocol uses (incl. `Authorization`, `Content-Type`, `Last-Event-ID`). Required for browser clients (the reference web UI is Phase C of the roadmap).
 
@@ -812,7 +814,7 @@ The gateway is genuinely browser-drivable — this has been validated live, cros
 A few more realities, all confirmed live:
 
 - **Use `res.ok`, not `res.status === 200`.** `POST /sessions` returns **201**, `POST /sessions/:id/turns` returns **202**, and approvals return **200**. A client that hard-codes `=== 200` will treat session-create and turn-submit as failures.
-- **Re-subscribe per turn.** The SSE stream **ends** when `turn_complete` (or `turn_error`) arrives — the reader's `read()` returns `done`. A multi-turn client opens a fresh `fetch('/sessions/:id/events', …)` for each turn (open the stream, post the turn, read to completion, repeat). Reconnect-with-replay across a single long-lived stream is Phase B; today the lifecycle is per-turn.
+- **Default stream ends per turn; `?follow=true` keeps it open.** Without `?follow`, the SSE stream **ends** when `turn_complete` (or `turn_error`) arrives — the reader's `read()` returns `done`. That per-turn lifecycle is what `sov drive` and the simple "open stream, post turn, read to completion, repeat" client use. For a browser or any persistent client, prefer **`?follow=true`** (below): subscribe once and watch the whole session across turns. Either way, combine with `Last-Event-ID` (below) to recover from a dropped connection.
 - **CORS.** Set `gateway.corsOrigins` to your web app's exact origin(s) (e.g. `["https://app.example.com"]`, or `["http://localhost:5173"]` in dev). The gateway then handles the preflight `OPTIONS` and allows the `Authorization`, `Content-Type`, and `Last-Event-ID` request headers. It echoes the exact origin back — never `*` — so the allow-list must match the browser's `Origin` byte-for-byte (scheme + host + port).
 - **Permission modes.** Under the `default` permission mode, the read-only shell-command allow-list (`echo`, `ls`, `cat`, `pwd`, `grep`, `find`, `git status`, … — these resolve as virtual *read* operations) is auto-allowed, so **not every command prompts**. A turn like "list the files in src/" can complete with no `permission_request` at all, while a write or an arbitrary command does prompt. Operators exposing the gateway should understand the *effective* policy (mode + the rule layer in `settings.json`), not assume every action surfaces an approval.
 
@@ -872,6 +874,64 @@ const turn = await fetch(`${BASE}/sessions/${sessionId}/turns`, {
 if (!turn.ok) throw new Error(`turn: ${turn.status}`);   // 202 = accepted
 await streamDone;
 ```
+
+### Multiple clients, reconnect, and persistent streams
+
+As of Phase B (v0.6.19), the gateway's session event transport is **multi-client and reconnect-safe** — two phones can watch one session, and a connection that drops mid-turn recovers without losing events. Three capabilities:
+
+**Multiple clients per session.** Any number of clients can subscribe to one session's event stream (`GET /sessions/:id/events`) concurrently — every subscriber receives every event. Open a session on one device, attach a second device's stream to the same `sessionId`, and both render the same live turn. (Authz is still single-token in Phase B — everyone holding the token sees every session; per-principal session ownership is Phase E.)
+
+**Reconnect with `Last-Event-ID`.** Each SSE frame carries `id: <seq>`, where `<seq>` is a **session-monotonic sequence** that accumulates across turns (not reset per turn). A client that drops can reconnect and resume from where it left off by sending the last `id` it saw:
+
+- **Header (SSE standard):** `Last-Event-ID: <seq>` on the reconnect `fetch()`. (Browser `EventSource` would send this automatically — but `EventSource` still can't set the `Authorization` header, so the bearer-gated stream rejects it with 401 regardless. The documented browser path stays `fetch()` + `ReadableStream`, which sets *both* headers.)
+- **Query equivalent:** `?lastEventId=<seq>`, identical effect — convenient if you'd rather not set a custom header.
+
+On reconnect the server **replays the retained events with `seq` greater than the value you sent** (in order, no duplicates), then continues live. The replay window is **bounded** by `gateway.eventBufferSize` (default **512** events per session): a disconnect short enough that fewer than that many events were published is replayed exactly; a longer gap replays best-effort from the oldest event still retained (so a very long disconnect can leave a gap — size the ring for your worst-case reconnect latency). A reconnect with no `Last-Event-ID` replays only the **current (in-progress) turn** from its start, then goes live — so a fresh late-joiner sees the active turn whole, not the entire session history.
+
+**`?follow=true` persistent stream (recommended for browser / persistent clients).** `GET /sessions/:id/events?follow=true` keeps the stream open **across turns** — it does **not** end on `turn_complete`/`turn_error`, so you subscribe once and watch the whole session. Combine it with `Last-Event-ID` for seamless reconnect: reconnect with `?follow=true&lastEventId=<seq>` and you resume the persistent stream exactly where it dropped. Contrast the default (no `?follow`) stream, which ends per turn — the model `sov drive` and simple per-turn programmatic clients rely on.
+
+Extending the canonical client above to capture the last `id`, follow across turns, and reconnect on drop:
+
+```js
+// A persistent multi-turn watcher: one ?follow stream for the whole session,
+// reconnecting from the last seq seen if the connection drops.
+async function followSession(onEvent) {
+  let lastId = null;                                       // last `id:` (seq) seen
+  for (;;) {                                               // reconnect loop
+    const url = new URL(`${BASE}/sessions/${sessionId}/events`);
+    url.searchParams.set('follow', 'true');               // stay open across turns
+    if (lastId !== null) url.searchParams.set('lastEventId', lastId); // resume
+    const res = await fetch(url, { headers: authHeaders });
+    if (!res.ok) throw new Error(`events: ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;                                   // connection dropped → reconnect
+        buf += decoder.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const type = frame.match(/^event:\s*(.*)$/m)?.[1];
+          const id = frame.match(/^id:\s*(.*)$/m)?.[1];    // capture seq for reconnect
+          const data = frame.match(/^data:\s*(.*)$/m)?.[1];
+          if (id) lastId = id;
+          if (type && data) onEvent(type, JSON.parse(data));
+        }
+      }
+    } catch {
+      /* network error → fall through and reconnect with lastId */
+    }
+    // A ?follow stream ends only on disconnect / session disposal. Reconnecting
+    // with lastEventId replays the events missed during the gap, then resumes.
+  }
+}
+```
+
+The header form is equivalent — set `'Last-Event-ID': lastId` in the `fetch` headers instead of the `?lastEventId` query param.
 
 ### Security model
 

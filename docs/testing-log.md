@@ -8,6 +8,68 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-05 — Phase B (multi-client session transport) close-out + release v0.6.19
+
+Close-out pass for **Phase B — Multi-Client Session Transport** (the multi-subscriber event bus
++ bounded replay ring + `Last-Event-ID` reconnect + `?follow` persistent stream + per-session bus
+lifecycle; the second module of the run-anywhere roadmap). Consolidates the T1–T3 build, the
+concurrent-subscriber e2e, the deep correctness review + the 4 hardening fixes, and the full-suite
+gate ahead of cutting v0.6.19.
+
+**Build (T1–T3, all TDD).** Multi-subscriber bus (`Set` fan-out replacing the single subscriber)
++ bounded replay ring (last N, N = `gateway.eventBufferSize`, default 512, invalid clamped) +
+`markTurnStart()`/`currentTurnStartSeq` (`744be47`); configurable `gateway.eventBufferSize` wired
+through `setDefaultRingSize` at `buildRuntime` boot (`755881a`); the events route reconnect/follow/
+lifecycle change — `Last-Event-ID` (header or `?lastEventId` query) → replay `seq >` cursor then
+live, `?follow=true` keeps the stream open across turns, and `disposeBus` removed from the route
+`finally` (lifecycle moved to `runtime.disposeSession` + full-shutdown reclaim) (`0eaf4bf`). New
+suites `tests/server/eventBus.test.ts` (multi-subscriber fan-out; ring retain/evict;
+`subscribe({lastEventId})` replays seq>id then live; fresh current-turn-only replay via
+`markTurnStart`; ring-overflow best-effort) and `tests/server/eventsReconnect.test.ts`
+(`46d0b3d` — concurrent subscribers see the same events; mid-turn disconnect → reconnect with
+`Last-Event-ID` replays exactly the missed events then completes; `?follow=true` survives a
+`turn_complete`).
+
+**Deep correctness review → core robust + 4 hardening fixes (all TDD, atomic commits).** The
+multi-subscriber fan-out, ring eviction, and replay slicing came through correct; the review + the
+new tests surfaced four sharp edges:
+
+- **Fix 1 — isolate throwing subscribers in the fan-out [High].** A subscriber callback that throws
+  (an SSE route's `onEvent`, a future forwarder) must never skip later subscribers or propagate
+  back into the publisher (the turn loop / scheduler). `publish()` now wraps each
+  `subscriber(event)` in try/catch → stderr log + continue. Commit `6e9e054`.
+- **Fix 2 — non-follow reconnect after a completed turn ends, not parks [High].** A NON-follow
+  reconnect that replays nothing AND lands with no turn in progress would park forever on the
+  empty-queue Promise (the bus now closes only at session/shutdown teardown). Added
+  `turnActive`/`isTurnActive()` to the bus (set by `markTurnStart()`, cleared by `publish()` on the
+  terminal event); the events route captures the synchronous replay count and ends immediately when
+  `!follow && replayedCount === 0 && !bus.isTurnActive()`. Does not affect `?follow`, the normal
+  POST-then-GET path (a turn IS active at subscribe), or a mid-turn reconnect (replay non-empty).
+  Commit `587690a`.
+- **Fix 3 — `?follow` SSE stream closes when the bus is disposed [High].** An open `?follow` stream
+  (never auto-ends on a turn terminal) would stay parked forever after the bus closed — a dangling
+  connection outliving its session. Added the bus `abortSignal` as a SECOND stop source in the
+  events route (mirroring `requestSignal`): don't park if already aborted at attach; otherwise wake
+  + stop on its `abort`. Commit `6d8ec10`.
+- **Fix 4 — full `dispose()` reclaims subscribe-only bus map entries [Medium].** A session that only
+  opened an events stream (subscribed → minted a bus) and never ran a turn has no sessionContext, so
+  the `dispose()` walk never reached it — `abortAllBuses()` closed the bus but left the map entry,
+  accumulating across build/dispose cycles in one process. Added `clearAllBuses()` (idempotent close
+  + clear the whole map), called by `dispose()` after the per-session walk. Distinct from
+  per-session `disposeBus`, `abortAllBuses` (closes but leaves entries), and `__test_resetAllBuses`.
+  Commit `9f58fc2`.
+
+**Default contract preserved.** The no-`?follow` per-turn stream still ends on
+`turn_complete`/`turn_error` (D7) — `sov drive` + the documented per-turn programmatic client are
+byte-compatible. Existing `tests/server/*` (turns, gateway e2e, drive) still pass.
+
+**Full gate (run before each commit):** `bun run lint && bun run typecheck && bun run test`.
+Final: lint (`biome check`, 642 files) clean; typecheck (`tsc --noEmit`) clean; tests
+**2810 pass / 0 fail / 14 skip** (329 files, ~80s) — +32 from the v0.6.18 baseline of ~2778, no
+new failures, no timeouts. The ambient `[WARN] blocked context file … AGENTS.md` lines are
+pre-existing content-scanner noise (the AGENTS.md mirror carries the `curl … | bash` install
+snippet), unrelated. No `packages/tui/` change, so the Go suite is unaffected.
+
 ## 2026-06-05 — Phase A gateway hardening (3 fixes from deep review + live browser test)
 
 Three Phase A gateway-hardening fixes surfaced by a deep review + a live browser test,

@@ -77,6 +77,8 @@ Ordering rule (per your "prioritize with respect to dev effort"): do the **cheap
 **Depends on:** nothing. **Exit:** a remote client can authenticate and drive a full turn (incl. permission round-trip) over the network; loopback default + tests + a release.
 
 ### Phase B — Multi-client session transport (M2) · ~4–6 dispatches · ~200–300K
+**✅ Shipped v0.6.19 (2026-06-05).** The session event bus (`src/server/eventBus.ts`) is now **multi-subscriber** (fan-out to a `Set`) with a **bounded replay ring** (`gateway.eventBufferSize`, default 512); `GET /sessions/:id/events` serves **`Last-Event-ID` reconnect** (header or `?lastEventId` query — replays `seq >` cursor then live) + an optional **`?follow=true`** persistent stream (stays open across turns); the **bus lifecycle moved per-turn → per-session** (disposed on session disposal; full shutdown reclaims all). The default per-turn single-client contract is unchanged (`sov drive` byte-compatible). Correctness-reviewed (core robust) + 4 hardening fixes. Idle-session bus eviction deferred to Phase D. See `docs/specs/2026-06-05-phase-b-multi-client-transport-design.md` (spec) and `docs/state/2026-06-05-phase-b-transport.md` (close-out).
+
 Replace the single-subscriber, dispose-on-turn-complete event bus with a **multi-subscriber bus + a bounded ring buffer + `Last-Event-ID` reconnect-with-replay**, so multiple devices can watch one session and a dropped mobile connection recovers mid-turn.
 **Depends on:** A. **Exit:** two clients observe the same session concurrently; a client that disconnects mid-turn reconnects and replays missed events; tests + release.
 
