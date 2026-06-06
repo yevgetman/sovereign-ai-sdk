@@ -28,7 +28,6 @@
 // reply text + the silent verdict.
 
 import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
-import { repairMissingToolResults } from '../core/transcriptRepair.js';
 import type { AssistantMessage } from '../core/types.js';
 import type { LLMProvider } from '../providers/types.js';
 import { AgentRunner } from '../runtime/agentRunner.js';
@@ -36,6 +35,7 @@ import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
 import { loadHistoryAsMessages } from '../server/sessionId.js';
 import { assertChannelPermissionMode, buildChannelCanUseTool } from './permission.js';
+import { capSeededHistory } from './seedHistory.js';
 import { buildSessionKey } from './sessionKey.js';
 import type { InboundMessage } from './types.js';
 
@@ -48,6 +48,48 @@ const SILENT_PREFIX = '[silent]';
  *  built-in default but is set explicitly so a future config knob has a single
  *  place to thread through (mirrors DEFAULT_CRON_MAX_TURNS). */
 const DEFAULT_CHANNEL_MAX_TURNS = 10;
+
+/** Fix 2(b) — user-facing fallback when a turn ends on a non-completed terminal
+ *  (provider error, max_turns, interrupted, …) with no usable assistant text.
+ *  Returning this instead of `{ silent: true }` means the user never gets pure
+ *  silence on an error — they get a recoverable nudge to retry. Kept generic so
+ *  it never leaks internal error detail over an untrusted channel. */
+const ERROR_FALLBACK_TEXT = 'Sorry — I hit an error handling that. Please try again.';
+
+/** Fix 3 — per-`sessionId` serialization chain. Two messages from one sender map
+ *  to the SAME deterministic `sessionId`; Slack (fire-and-forget) + webhook
+ *  (concurrent HTTP) can drive two `runChannelTurn` on that id at once. Both
+ *  would share the cached SessionContext, and whichever's `finally` fires first
+ *  would `disposeSession` (closing the trace writer + draining the observer +
+ *  writing the trajectory) WHILE the other turn is still live — a context
+ *  disposed under a running turn + a double/lost trajectory write. We serialize
+ *  by chaining each turn onto a per-session promise so a second turn for the
+ *  same session waits for the first to FULLY complete (including its
+ *  finally/dispose) before starting. The map entry is reclaimed when its chain
+ *  drains (see `serializePerSession`) so there's no unbounded growth. Module-
+ *  level so it spans every adapter calling into this pipeline within a process. */
+const sessionTurnChains = new Map<string, Promise<unknown>>();
+
+/** Run `task` after any in-flight turn for `sessionId` completes, chaining the
+ *  next caller behind this one. Cleans up the map entry once the chain it
+ *  installed has fully drained (and no newer turn has replaced it), so the map
+ *  never grows without bound. */
+function serializePerSession<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+  const prior = sessionTurnChains.get(sessionId) ?? Promise.resolve();
+  // Chain AFTER the prior turn settles (success OR failure) so a thrown turn
+  // never wedges the queue. `.then(task, task)` runs `task` on both paths.
+  const next = prior.then(task, task);
+  sessionTurnChains.set(sessionId, next);
+  // Reclaim the map slot once this chain drains — but only if nothing newer has
+  // taken its place (a later turn may have already overwritten the entry).
+  const cleanup = (): void => {
+    if (sessionTurnChains.get(sessionId) === next) {
+      sessionTurnChains.delete(sessionId);
+    }
+  };
+  next.then(cleanup, cleanup);
+  return next;
+}
 
 export type RunChannelTurnOpts = {
   runtime: Runtime;
@@ -84,7 +126,14 @@ function extractFinalText(assistant: AssistantMessage | undefined): string {
 
 /** Run one headless channel turn end-to-end: source the per-sender session,
  *  run the turn under the safe channel posture, return the reply (or a silent
- *  verdict). See the module header for the full contract. */
+ *  verdict). See the module header for the full contract.
+ *
+ *  Two guards run BEFORE the per-session serialization (they must reject fast
+ *  and, for the empty-text guard, create NO row): the bypass-mode rejection and
+ *  the empty/whitespace short-circuit (Fix 4). The actual turn — find-or-create,
+ *  persist, run, dispose — is funneled through `serializePerSession` (Fix 3) so
+ *  two concurrent messages from one sender can't race the shared SessionContext
+ *  into a double-dispose. */
 export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChannelTurnResult> {
   const mode = opts.permissionMode ?? 'default';
   // Reject 'bypass' (and any non-'default'/'ask' value) BEFORE creating a row
@@ -94,12 +143,39 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
 
   const { runtime, msg, principalId } = opts;
 
+  // Fix 4 — empty/whitespace inbound text is a no-op. Guard centrally so all
+  // three adapters (telegram / slack / webhook) are consistent: the webhook
+  // currently accepts `""` and slack/telegram only reject length-0 (not a
+  // whitespace-only payload). Short-circuit BEFORE upsert + persist + the
+  // provider call so an empty message runs no billable turn and leaves no row.
+  if (msg.text.trim() === '') {
+    return { silent: true };
+  }
+
+  const sessionId = buildSessionKey(msg);
+  // Fix 3 — serialize per sessionId so a second concurrent turn for the same
+  // (channel, sender) waits for this one to FULLY complete (incl. dispose).
+  return serializePerSession(sessionId, () =>
+    runChannelTurnInner({ runtime, msg, principalId, mode, sessionId }),
+  );
+}
+
+/** The serialized body of a channel turn. Assumes the caller already validated
+ *  the permission mode + non-empty text and computed `sessionId`. */
+async function runChannelTurnInner(args: {
+  runtime: Runtime;
+  msg: InboundMessage;
+  principalId: string;
+  mode: 'default' | 'ask';
+  sessionId: string;
+}): Promise<RunChannelTurnResult> {
+  const { runtime, msg, principalId, mode, sessionId } = args;
+
   // Deterministic per-conversation session id. find-or-create (upsertSession):
   // the FIRST message seeds the row with its owner + platform + metadata; the
   // SECOND reuses the same row so the conversation is continuous (history is
   // never reset). The owner is the load-bearing Phase E stamp — buildSession
   // Context reads it back as `userId`.
-  const sessionId = buildSessionKey(msg);
   runtime.sessionDb.upsertSession({
     sessionId,
     owner: principalId,
@@ -137,25 +213,37 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
     // Canonical session-scoped ToolContext. It derives `userId` from the row's
     // ownerId (stamped above) so memory + learning route under the channel
     // principal's namespace (Phase E). No SSE bus / delegation recorder is
-    // threaded — a channel turn has no live UI consumer (mirrors cron).
+    // threaded — a channel turn has no live UI consumer (mirrors cron). This
+    // also builds (and caches) the SessionContext we read memoryManager + recall
+    // off of below.
     const toolContext = buildSessionToolContext(runtime, sessionId, canUseTool);
+    // Fix 1 — the SAME per-session context the ToolContext above was built from.
+    // It carries the owner-scoped memoryManager (always present) and the recall
+    // thunk (present only when recall is enabled), which we thread into the
+    // AgentRunner so a channel turn participates in the learning loop exactly
+    // like the interactive turns route does. Without this, a channel turn never
+    // injected MEMORY.md, never ran recall, and never wrote memory back.
+    const sessionCtx = runtime.getSessionContext(sessionId);
 
     // Conversational coherence: hydrate the session's PRIOR history into the
     // turn so the model can follow up + remember what was just said. We just
     // upserted the row and persisted the new user message above, so
     // `loadHistoryAsMessages` returns exactly `[...priorMessages, newUserMessage]`
     // — the same projection the interactive turns route's `hydrate()` uses.
-    // `repairMissingToolResults` synthesizes any missing tool_result for an
-    // orphaned tool_use in the persisted history (e.g. a prior turn that
-    // crashed mid-tool-call) so the next turn doesn't reject as invalid — the
-    // same M10-audit repair the turns route applies. AgentRunner never writes
-    // to the DB, so feeding the persisted history back as the seed does NOT
-    // re-persist the new user message (the pipeline saved it exactly once,
-    // above). Without `initialMessages`, AgentRunner would seed ONLY the new
-    // user message and the model would cold-start every channel message.
+    //
+    // Fix 2(a) — cap the seed to a bounded tail so a long-running conversation
+    // never overflows the model's context window (compaction isn't viable here:
+    // it would pivot to a new child session id and break the deterministic
+    // `buildSessionKey` continuity). `capSeededHistory` takes the last N
+    // messages, drops any leading orphan tool_result so the seed is provider-
+    // valid, and runs `repairMissingToolResults` over the retained window (the
+    // same M10-audit repair the turns route applies — e.g. a prior turn that
+    // crashed mid-tool-call). AgentRunner never writes to the DB, so feeding the
+    // seed back does NOT re-persist the new user message (the pipeline saved it
+    // exactly once, above). Without `initialMessages`, AgentRunner would seed
+    // ONLY the new user message and the model would cold-start every message.
     const rawHistory = loadHistoryAsMessages(runtime.sessionDb, sessionId);
-    const { messages: hydratedMessages, insertedToolResults } =
-      repairMissingToolResults(rawHistory);
+    const { messages: hydratedMessages, insertedToolResults } = capSeededHistory(rawHistory);
     if (insertedToolResults > 0) {
       process.stderr.write(
         `[repair] synthesized ${insertedToolResults} missing tool_result block(s) for channel session ${sessionId}\n`,
@@ -173,7 +261,12 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
       maxTurns: DEFAULT_CHANNEL_MAX_TURNS,
       sessionId,
       cwd: runtime.cwd,
-      // Seed the full hydrated history (prior turns + the new user message)
+      // Fix 1 — thread memory + recall (mirrors the turns route). memoryManager
+      // is always present; recall is conditionally spread so a recall-disabled
+      // session stays inert (matches `...(recall ? { recall } : {})`).
+      memoryManager: sessionCtx.memoryManager,
+      ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
+      // Seed the bounded hydrated history (prior turns + the new user message)
       // instead of a single-message prompt seed.
       initialMessages: hydratedMessages,
     });
@@ -204,6 +297,18 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
 
     const text = extractFinalText(result.finalAssistant);
 
+    // Fix 2(b) — surface a NON-silent error on a non-completed terminal. A
+    // provider error / max_turns / interrupted terminal often leaves no usable
+    // assistant text; pre-fix that fell through to `{ silent: true }`, so the
+    // user got pure silence on an error (and, combined with the now-fixed
+    // unbounded seed, a permanently bricked conversation). When the terminal is
+    // not `completed` AND there's no usable text, return the user-facing
+    // fallback so the user always gets *something* and can retry. Mirrors the
+    // cron wiring's terminal-reason inspection (src/cron/wiring.ts:165-176).
+    if (result.terminal.reason !== 'completed' && text === '') {
+      return { text: ERROR_FALLBACK_TEXT };
+    }
+
     // Silent verdict: empty reply or a `[SILENT]` prefix (case-insensitive,
     // post-trimStart — matches delivery.ts). The adapter delivers nothing.
     if (text === '' || text.trimStart().toLowerCase().startsWith(SILENT_PREFIX)) {
@@ -214,7 +319,8 @@ export async function runChannelTurn(opts: RunChannelTurnOpts): Promise<RunChann
     // Always reclaim the in-memory session context (trace writer flush,
     // trajectory write, learning drain, review dispose) — even on agent error.
     // The DB row itself stays so the next channel message resumes the
-    // conversation.
+    // conversation. Serialized by `serializePerSession` so no concurrent turn
+    // for this session is mid-flight when this dispose runs.
     await runtime.disposeSession(sessionId);
   }
 }

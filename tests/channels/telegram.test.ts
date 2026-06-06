@@ -287,8 +287,15 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
     await listener.pollOnce();
     await listener.pollOnce();
 
-    // The first update threw (no send), the second succeeded (one send).
-    expect(sent.length).toBe(1);
+    // Pipeline Fix 2(b): a provider error no longer yields pure silence — the
+    // turn returns a user-facing fallback reply, so the throwing update DOES
+    // send (a "please try again" message) rather than dropping silently. The
+    // second update succeeds normally → TWO sends total. The resilience point
+    // still holds: the throwing update didn't abort the batch.
+    expect(sent.length).toBe(2);
+    // The first send is the error fallback; the second is the real reply.
+    expect(sent[0]?.text).toContain('try again');
+    expect(sent[1]?.text).toBe('Hello world.');
     // Offset advanced past BOTH updates despite the first throwing.
     expect(getUpdatesOffsets).toEqual([0, 402]);
   });

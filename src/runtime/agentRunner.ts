@@ -28,6 +28,7 @@ import { query } from '../core/query.js';
 import type {
   AssistantMessage,
   Message,
+  RecallTurn,
   StreamEvent,
   SystemSegment,
   Terminal,
@@ -71,7 +72,20 @@ export type AgentRunnerOpts = {
   toolContext?: ToolContext;
   canUseTool?: CanUseTool;
 
+  /** Optional memory manager. When set, `query()` injects MEMORY.md (+ project
+   *  memory) into the latest user message before the model sees it AND writes
+   *  the exchange back via `memoryManager.syncTurn` on a completed turn. Omitted
+   *  by default (cron + sub-agents pass nothing), so callers that don't supply
+   *  it are byte-unchanged. Mirrors the turns route's `memoryManager` wiring so
+   *  the channel pipeline is no longer silently opted out of memory injection +
+   *  write-back. */
   memoryManager?: MemoryRuntime;
+  /** Optional per-turn recall thunk. When set, `query()` runs it after memory
+   *  injection and splices a `<learned-context>` snapshot in front of the latest
+   *  user message. Optional + conditionally spread into `query()` so callers
+   *  that omit it (and recall-disabled sessions) stay inert — matches the turns
+   *  route's `...(recall ? { recall } : {})` discipline. */
+  recall?: RecallTurn;
   hookRunner?: HookRunner;
   traceRecorder?: (event: TraceEvent) => void;
 
@@ -130,6 +144,7 @@ export class AgentRunner {
       ...(this.opts.toolContext !== undefined ? { toolContext: this.opts.toolContext } : {}),
       ...(this.opts.canUseTool !== undefined ? { canUseTool: this.opts.canUseTool } : {}),
       ...(this.opts.memoryManager !== undefined ? { memoryManager: this.opts.memoryManager } : {}),
+      ...(this.opts.recall !== undefined ? { recall: this.opts.recall } : {}),
       ...(this.opts.hookRunner !== undefined ? { hookRunner: this.opts.hookRunner } : {}),
       ...(this.opts.traceRecorder !== undefined ? { traceRecorder: this.opts.traceRecorder } : {}),
       ...(this.opts.maxTurns !== undefined ? { maxTurns: this.opts.maxTurns } : {}),
