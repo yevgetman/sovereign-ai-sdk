@@ -382,6 +382,38 @@ export class SessionDb {
     });
   }
 
+  /** Phase D — permanently remove a single session and every dependent row.
+   *  FK policy: `messages` + `session_compactions` reference sessions WITHOUT
+   *  ON DELETE CASCADE (PRAGMA foreign_keys = ON), so their rows are deleted
+   *  manually first; `tasks` CASCADEs / SET NULLs automatically (migration
+   *  3→4); child sessions (`sessions.parent_session_id` — an undeclared FK
+   *  column) are DETACHED (set NULL), never recursively deleted — they are
+   *  independent rows. Wrapped in a transaction so a partial delete can't
+   *  leave a FK violation. Returns true iff the session row existed and was
+   *  removed (idempotent: a missing or already-deleted id returns false). */
+  deleteSession(sessionId: string): boolean {
+    return this.writeWithRetry(() => {
+      const run = this.db.transaction((): boolean => {
+        // Detach child sessions first: null their parent pointer so the
+        // forthcoming parent-row delete leaves no dangling lineage.
+        this.db.run('UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = ?', [
+          sessionId,
+        ]);
+        // Dependent rows without ON DELETE CASCADE — remove before the parent.
+        // The messages AFTER DELETE trigger keeps messages_fts in sync.
+        this.db.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
+        this.db.run(
+          'DELETE FROM session_compactions WHERE parent_session_id = ? OR child_session_id = ?',
+          [sessionId, sessionId],
+        );
+        // tasks CASCADE (parent) / SET NULL (child) automatically.
+        const result = this.db.run('DELETE FROM sessions WHERE session_id = ?', [sessionId]);
+        return (result.changes ?? 0) > 0;
+      });
+      return run();
+    });
+  }
+
   /**
    * Returns the routing-atom session rows belonging to the smart-router
    * delegation that originated from `parentSessionId`. Walks: root → its
