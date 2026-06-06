@@ -5,6 +5,11 @@ import { readConfig } from '../config/store.js';
 import { assertGatewaySafe } from '../server/gatewaySafety.js';
 import { startServer } from '../server/index.js';
 import { buildRuntime } from '../server/runtime.js';
+import {
+  DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_SWEEP_INTERVAL_MS,
+  SessionSupervisor,
+} from '../server/sessionSupervisor.js';
 
 const DEFAULT_GATEWAY_HOST = '127.0.0.1';
 export const DEFAULT_GATEWAY_PORT = 8766;
@@ -117,10 +122,33 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     harnessHome,
   });
 
+  // Phase D — gateway-scoped session lifecycle. The SessionSupervisor sweeps
+  // idle in-memory session state (context + bus) on a cadence and surfaces the
+  // concurrency cap POST /sessions enforces. It is constructed ONLY here so the
+  // TUI / `sov drive` / `sov serve` paths (which never run a long-lived
+  // multi-client gateway) stay untouched. Undefined config fields fall through
+  // to the supervisor's own defaults; `maxConcurrentSessions` defaults to 0
+  // (unlimited) so an unconfigured gateway behaves as before.
+  const supervisor = new SessionSupervisor({
+    runtime,
+    // Conditional spread: under exactOptionalPropertyTypes an explicit
+    // `undefined` is not assignable to an optional `number`. Omit the key when
+    // unset so the supervisor applies its own default.
+    ...(config.gateway?.idleSessionTimeoutMs !== undefined
+      ? { idleSessionTimeoutMs: config.gateway.idleSessionTimeoutMs }
+      : {}),
+    ...(config.gateway?.idleSweepIntervalMs !== undefined
+      ? { idleSweepIntervalMs: config.gateway.idleSweepIntervalMs }
+      : {}),
+    maxConcurrentSessions: config.gateway?.maxConcurrentSessions ?? 0,
+  });
+  supervisor.start();
+
   const server = await startServer({
     runtime,
     hostname: host,
     port,
+    supervisor,
     ...(token !== undefined ? { auth: token } : {}),
     ...(corsOrigins !== undefined ? { corsOrigins } : {}),
   });
@@ -131,6 +159,14 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   );
   process.stdout.write(
     `  auth=${token !== undefined ? 'on' : 'off'}  cors=${corsOrigins?.length ? 'on' : 'off'}  harnessHome=${harnessHome}\n`,
+  );
+  // Summarize the session-lifecycle policy using the EFFECTIVE values (config
+  // overrides falling back to the supervisor's own defaults).
+  const idleMs = config.gateway?.idleSessionTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const sweepMs = config.gateway?.idleSweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
+  const maxSessions = supervisor.getMaxConcurrentSessions() ?? 0;
+  process.stdout.write(
+    `  idle-evict: reclaim sessions idle >${Math.round(idleMs / 60000)}m every ${Math.round(sweepMs / 60000)}m; max-sessions: ${maxSessions || 'unlimited'}\n`,
   );
 
   let shuttingDown = false;
@@ -144,6 +180,12 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`server.stop() failed: ${msg}\n`);
     }
+    // Disarm the idle sweep BEFORE runtime.dispose() so an in-flight sweep can
+    // never race sessionDb.close() (same ordering rule the cron runner follows:
+    // stop the periodic worker, then tear down the DB it touches). stop() is
+    // idempotent + synchronous; this shutdown path runs once (guarded by
+    // `shuttingDown`) for whichever of SIGINT / SIGTERM fires first.
+    supervisor.stop();
     try {
       await runtime.dispose();
     } catch (err) {
