@@ -449,3 +449,85 @@ describe('gateway schema', () => {
     expect(() => SettingsSchema.parse({ gateway: { maxConcurrentSessions: 1.5 } })).toThrow();
   });
 });
+
+// Phase E T1 — gateway.principals registry: a multi-user named-principal list,
+// each with a unique id (filesystem-safe, ^[A-Za-z0-9_-]+$) + a non-empty
+// bearer token (unique) + optional display name. Mutually exclusive with the
+// single-token gateway.token (one auth model at a time).
+describe('SettingsSchema — gateway.principals', () => {
+  test('accepts a valid principals list', () => {
+    const p = SettingsSchema.parse({
+      gateway: {
+        principals: [
+          { id: 'alice', token: 'tok-a' },
+          { id: 'bob', token: 'tok-b', name: 'Bob' },
+        ],
+      },
+    });
+    expect(p.gateway?.principals).toEqual([
+      { id: 'alice', token: 'tok-a' },
+      { id: 'bob', token: 'tok-b', name: 'Bob' },
+    ]);
+  });
+
+  test('absent principals stays valid', () => {
+    expect(SettingsSchema.parse({ gateway: {} }).gateway?.principals).toBeUndefined();
+    expect(SettingsSchema.parse({}).gateway?.principals).toBeUndefined();
+  });
+
+  test('token-only (no principals) stays valid', () => {
+    expect(SettingsSchema.parse({ gateway: { token: 'secret' } }).gateway?.token).toBe('secret');
+  });
+
+  test('rejects principals AND token both set (mutually exclusive)', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { token: 'secret', principals: [{ id: 'alice', token: 'tok-a' }] },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects duplicate principal ids', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals: [
+            { id: 'alice', token: 'tok-a' },
+            { id: 'alice', token: 'tok-b' },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects duplicate principal tokens', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals: [
+            { id: 'alice', token: 'tok-same' },
+            { id: 'bob', token: 'tok-same' },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an id that is not ^[A-Za-z0-9_-]+$', () => {
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals: [{ id: 'a/b', token: 'tok-a' }] } }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals: [{ id: '', token: 'tok-a' }] } }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals: [{ id: '../x', token: 'tok-a' }] } }),
+    ).toThrow();
+  });
+
+  test('rejects an empty token', () => {
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals: [{ id: 'alice', token: '' }] } }),
+    ).toThrow();
+  });
+});

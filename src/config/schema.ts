@@ -438,8 +438,67 @@ export const SettingsSchema = z
         idleSessionTimeoutMs: z.number().int().positive().optional(),
         idleSweepIntervalMs: z.number().int().positive().optional(),
         maxConcurrentSessions: z.number().int().nonnegative().optional(),
+        /** Phase E — multi-user principals registry. Each principal has a
+         *  filesystem-safe `id` (^[A-Za-z0-9_-]+$, unique), a non-empty bearer
+         *  `token` (unique), and an optional display `name`. Mutually exclusive
+         *  with the single-token `token` field above — a gateway runs one auth
+         *  model at a time. The id is security-load-bearing (it becomes a path
+         *  segment for per-principal isolation); the cross-field rules are
+         *  enforced by the superRefine below. */
+        principals: z
+          .array(
+            z.object({
+              id: z.string(),
+              token: z.string().min(1),
+              name: z.string().optional(),
+            }),
+          )
+          .optional(),
       })
       .strict()
+      .superRefine((gw, ctx) => {
+        const { principals, token } = gw;
+        if (principals === undefined) return;
+        // (a) single-token and per-principal auth are mutually exclusive.
+        if (token !== undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'gateway.principals and gateway.token are mutually exclusive',
+            path: ['principals'],
+          });
+        }
+        const seenIds = new Set<string>();
+        const seenTokens = new Set<string>();
+        const idRe = /^[A-Za-z0-9_-]+$/;
+        principals.forEach((p, i) => {
+          // (d) each id must be a filesystem-safe segment.
+          if (!idRe.test(p.id)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `gateway.principals[${i}].id ${JSON.stringify(p.id)} must match ${idRe}`,
+              path: ['principals', i, 'id'],
+            });
+          }
+          // (b) ids unique.
+          if (seenIds.has(p.id)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `gateway.principals[${i}].id ${JSON.stringify(p.id)} is duplicated`,
+              path: ['principals', i, 'id'],
+            });
+          }
+          seenIds.add(p.id);
+          // (c) tokens unique.
+          if (seenTokens.has(p.token)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `gateway.principals[${i}].token is duplicated`,
+              path: ['principals', i, 'token'],
+            });
+          }
+          seenTokens.add(p.token);
+        });
+      })
       .optional(),
   })
   .strict();
