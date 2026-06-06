@@ -36,6 +36,7 @@
 // channel is simply not routable (404).
 
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import {
   type SlackDedupe,
   type SlackTransport,
@@ -102,6 +103,13 @@ export type ChannelsDeps = {
  *  404. Reserved as the multi-channel addressing hook for later platforms. */
 const WEBHOOK_CHANNEL_ID = 'default';
 
+/** Fix carry-c — max inbound body size (bytes) for any /channels/* route. The
+ *  route reads the FULL raw body (the HMAC is over the exact bytes), so a cap is
+ *  applied BEFORE the read to stop a huge POST from being buffered into memory.
+ *  1 MiB is generous vs a real chat message + envelope; an over-cap request is
+ *  rejected 413 with no parse / verify / turn. */
+const MAX_CHANNEL_BODY_BYTES = 1_048_576;
+
 /** Build the open channels sub-app. Only ENABLED channels are routable; a
  *  request to an unknown / disabled channel id is a 404 (existence-hiding — the
  *  caller learns nothing about which channels exist). `deps` injects the Slack
@@ -113,6 +121,12 @@ export function channelsRoute(
   deps: ChannelsDeps = {},
 ): Hono {
   const r = new Hono();
+
+  // Fix carry-c — cap the inbound body on every /channels/* route BEFORE the
+  // handler reads it (each handler does `await c.req.text()` over the full body
+  // for HMAC verification). bodyLimit short-circuits an over-cap request with
+  // 413 — no parse, no verify, no turn, nothing buffered past the limit.
+  r.use('/channels/*', bodyLimit({ maxSize: MAX_CHANNEL_BODY_BYTES }));
 
   // One dedupe set lives for the route's lifetime so a Slack retry across
   // separate requests is recognised (a per-request set would never dedupe).

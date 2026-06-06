@@ -20,10 +20,30 @@
 import type { Runtime } from '../../server/runtime.js';
 import { runChannelTurn } from '../pipeline.js';
 import type { InboundMessage } from '../types.js';
+import { isSafeSegmentId } from './webhook.js';
 
-/** Default poll cadence (ms). The Bot API long-poll itself can hold the
- *  connection open server-side; this is the floor between our own ticks. */
+/** Default poll cadence (ms). The Bot API long-poll itself holds the connection
+ *  open server-side for {@link LONG_POLL_TIMEOUT_SECS}; this is the floor between
+ *  our own ticks once a long-poll returns. */
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+
+/** Server-side long-poll hold (seconds) sent as `getUpdates({ timeout })`.
+ *  WITHOUT this Telegram returns immediately (short-poll) and the 1 s interval
+ *  becomes a fixed ~1 req/s busy-poll. Telegram holds the request open up to
+ *  this long when no updates are pending, so the real request rate idles to
+ *  roughly one per this many seconds. */
+const LONG_POLL_TIMEOUT_SECS = 25;
+
+/** The default transport's own fetch abort budget (ms). It MUST exceed the
+ *  server-side long-poll hold ({@link LONG_POLL_TIMEOUT_SECS}) so the client
+ *  doesn't abort a healthy long-poll mid-hold; a few extra seconds covers
+ *  round-trip + clock skew. */
+const DEFAULT_FETCH_TIMEOUT_MS = (LONG_POLL_TIMEOUT_SECS + 10) * 1_000;
+
+/** Default number of poll ticks to skip after a getUpdates failure, so a
+ *  persistent bad token / network outage backs off instead of logging at the
+ *  full poll cadence. Reset to 0 on the next success. */
+const DEFAULT_FAILURE_BACKOFF_TICKS = 5;
 
 /** The minimal subset of the Telegram Bot API `Update` shape we consume. Only
  *  the fields the adapter reads are typed; the rest of the wire object is
@@ -62,6 +82,13 @@ export type CreateTelegramListenerOpts = {
   transport?: TelegramTransport;
   /** Override the poll cadence (ms). Defaults to {@link DEFAULT_POLL_INTERVAL_MS}. */
   pollIntervalMs?: number;
+  /** Ticks to skip after a getUpdates failure (backoff). Defaults to
+   *  {@link DEFAULT_FAILURE_BACKOFF_TICKS}. */
+  failureBackoffTicks?: number;
+  /** Sink for the actionable poll-failure warning. Defaults to stderr (a test
+   *  seam + the project's standard non-blocking logging channel). The token is
+   *  never part of the message. */
+  log?: (message: string) => void;
 };
 
 export type TelegramListener = {
@@ -101,9 +128,17 @@ function mapUpdateToInbound(update: TelegramUpdate): InboundMessage | null {
         ? 'channel'
         : 'group';
 
+  const sender = senderId !== undefined ? String(senderId) : chatId;
+  // Fix F7 — defensive source guard. Telegram ids are stringified numbers (always
+  // safe segments), so this never fires for a real update; it's a cheap symmetric
+  // backstop so the path-segment-shaped ids (sender / chatId) can never carry a
+  // separator into the session key / trace filename. Mirrors the webhook + Slack
+  // source validation.
+  if (!isSafeSegmentId(sender) || !isSafeSegmentId(chatId)) return null;
+
   return {
     channel: 'telegram',
-    sender: senderId !== undefined ? String(senderId) : chatId,
+    sender,
     chatId,
     chatType,
     text,
@@ -118,10 +153,15 @@ function createDefaultTransport(botToken: string): TelegramTransport {
   const base = `https://api.telegram.org/bot${botToken}`;
   return {
     async getUpdates(offset: number): Promise<TelegramUpdate[]> {
+      // Real long-poll: ask Telegram to hold the connection open server-side for
+      // up to LONG_POLL_TIMEOUT_SECS when no updates are pending. Our own fetch
+      // abort budget is set ABOVE that hold so we don't cancel a healthy
+      // long-poll mid-hold.
       const res = await fetch(`${base}/getUpdates`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ offset }),
+        body: JSON.stringify({ offset, timeout: LONG_POLL_TIMEOUT_SECS }),
+        signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
         // Don't leak the token-bearing URL in the error.
@@ -152,10 +192,16 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
   const permissionMode = opts.permissionMode;
   const transport = opts.transport ?? createDefaultTransport(opts.botToken);
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const failureBackoffTicks = opts.failureBackoffTicks ?? DEFAULT_FAILURE_BACKOFF_TICKS;
+  const log = opts.log ?? ((message: string): void => void process.stderr.write(`${message}\n`));
 
   // The long-poll cursor: the next getUpdates asks for update_id >= offset.
   let offset = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
+  // Backoff state: after a getUpdates failure, the periodic tick skips this many
+  // fires before retrying, so a persistent bad token / outage doesn't spam at
+  // the poll cadence. Reset to 0 on the next successful getUpdates.
+  let ticksToSkip = 0;
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
     const msg = mapUpdateToInbound(update);
@@ -178,7 +224,23 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
   }
 
   async function pollOnce(): Promise<void> {
-    const updates = await transport.getUpdates(offset);
+    // The getUpdates call is the ONLY unguarded throw site that the
+    // fire-and-forget tick (`void pollOnce()`) would turn into an unhandled
+    // rejection on a bad token / network error. Guard it: log ONE concise,
+    // actionable line (never the token) and arm the backoff so a persistent
+    // failure doesn't spam at the poll cadence. The per-update try/catch below
+    // already handles a single bad update / turn.
+    let updates: TelegramUpdate[];
+    try {
+      updates = await transport.getUpdates(offset);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      log(`telegram poll failed (check SOV_TELEGRAM_BOT_TOKEN / network): ${detail}`);
+      ticksToSkip = failureBackoffTicks;
+      return;
+    }
+    // A successful poll clears any pending backoff.
+    ticksToSkip = 0;
     let maxUpdateId = -1;
     for (const update of updates) {
       // Advance the cursor past EVERY update in the batch — even ones that
@@ -199,6 +261,12 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
   function start(): void {
     if (timer !== null) return;
     const t = setInterval(() => {
+      // Honor the post-failure backoff: skip this tick (and decrement) instead
+      // of polling, so a persistent failure doesn't retry every cadence.
+      if (ticksToSkip > 0) {
+        ticksToSkip -= 1;
+        return;
+      }
       void pollOnce();
     }, pollIntervalMs);
     // Don't hold the process open just for the poll loop — the gateway always

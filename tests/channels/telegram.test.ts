@@ -300,6 +300,117 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
     expect(getUpdatesOffsets).toEqual([0, 402]);
   });
 
+  // Fix F4(b) — a getUpdates failure (bad token / network) must NOT become an
+  // unhandled rejection on every tick. pollOnce must RESOLVE (not throw), log
+  // ONE actionable line, and keep the loop alive.
+  test('resilience — a getUpdates rejection resolves pollOnce and logs an actionable line', async () => {
+    const failing: TelegramTransport = {
+      async getUpdates(): Promise<TelegramUpdate[]> {
+        throw new Error('Unauthorized');
+      },
+      async sendMessage(): Promise<void> {},
+    };
+    const logged: string[] = [];
+    const listener = createTelegramListener({
+      runtime,
+      botToken: TOKEN,
+      principalId: PRINCIPAL,
+      transport: failing,
+      log: (m) => logged.push(m),
+    });
+
+    // Must not reject (no unhandled rejection).
+    await expect(listener.pollOnce()).resolves.toBeUndefined();
+    // One concise, actionable line that does NOT leak the token.
+    expect(logged.length).toBeGreaterThanOrEqual(1);
+    const line = logged.join('\n');
+    expect(line).toContain('telegram poll failed');
+    expect(line).toContain('Unauthorized');
+    expect(line).not.toContain(TOKEN);
+  });
+
+  // Fix F4(b) — after a failure the loop backs off (skips ticks) so a
+  // persistent bad token doesn't spam at the poll cadence.
+  test('resilience — failure triggers backoff (the tick skips getUpdates for a few ticks)', async () => {
+    let calls = 0;
+    const failing: TelegramTransport = {
+      async getUpdates(): Promise<TelegramUpdate[]> {
+        calls += 1;
+        throw new Error('network down');
+      },
+      async sendMessage(): Promise<void> {},
+    };
+    const logged: string[] = [];
+    const realSetInterval = globalThis.setInterval;
+    let capturedFn: (() => void) | undefined;
+    const fakeTimer = { unref: () => fakeTimer } as unknown as ReturnType<typeof setInterval>;
+    // biome-ignore lint/suspicious/noExplicitAny: test seam to capture scheduling.
+    (globalThis as any).setInterval = (fn: () => void): ReturnType<typeof setInterval> => {
+      capturedFn = fn;
+      return fakeTimer;
+    };
+    try {
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        transport: failing,
+        log: (m) => logged.push(m),
+        failureBackoffTicks: 3,
+      });
+      listener.start();
+      // Tick 1: fires getUpdates → fails → arms a 3-tick backoff.
+      capturedFn?.();
+      await new Promise<void>((r) => setTimeout(r, 10));
+      expect(calls).toBe(1);
+      // Ticks 2–4 are skipped by the backoff (no further getUpdates).
+      capturedFn?.();
+      capturedFn?.();
+      capturedFn?.();
+      await new Promise<void>((r) => setTimeout(r, 10));
+      expect(calls).toBe(1);
+      // Tick 5: backoff elapsed → getUpdates fires again.
+      capturedFn?.();
+      await new Promise<void>((r) => setTimeout(r, 10));
+      expect(calls).toBe(2);
+    } finally {
+      globalThis.setInterval = realSetInterval;
+    }
+  });
+
+  // Fix F4(a) — the DEFAULT fetch transport must send a real long-poll
+  // `timeout` in the getUpdates body (Telegram short-polls without it → a fixed
+  // busy-poll). No injected transport here: we stub global fetch and inspect the
+  // request the default client builds.
+  test('default transport sends a long-poll timeout in the getUpdates body', async () => {
+    const realFetch = globalThis.fetch;
+    let captured: { url: string; body: unknown } | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: test seam to capture the request.
+    (globalThis as any).fetch = async (url: string, init: any): Promise<Response> => {
+      captured = { url, body: JSON.parse(init.body as string) };
+      return new Response(JSON.stringify({ ok: true, result: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    try {
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        // no transport → the default fetch client is used.
+      });
+      await listener.pollOnce();
+      expect(captured).toBeDefined();
+      expect(captured?.url).toContain('/getUpdates');
+      const body = captured?.body as { offset?: number; timeout?: number };
+      expect(typeof body.timeout).toBe('number');
+      expect(body.timeout).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   test("start() arms an unref'd poll loop; firing the tick polls; stop() halts it", async () => {
     const realSetInterval = globalThis.setInterval;
     const realClearInterval = globalThis.clearInterval;

@@ -401,6 +401,48 @@ export class SessionDb {
     });
   }
 
+  /** Fix F6 — sweep channel sessions whose LAST ACTIVITY is older than maxAgeMs.
+   *  Channel sessions (kind:'channel') are created per-(channel,sender) with
+   *  deterministic colon-ids that are REUSED forever and are NOT REST-deletable
+   *  (a colon-id fails isValidSessionId), so without this sweep their rows +
+   *  messages + trajectories grow unbounded over months of real channel use.
+   *
+   *  Ages by `last_updated` (NOT created_at like the cron sweep): a channel
+   *  session is touched on every turn, so a long-lived chat that was active
+   *  recently must NOT be reaped — only one idle past the window is. The 30-day
+   *  default keeps a month of inactive conversations recoverable.
+   *
+   *  Strictly scoped via json_extract(metadata,'$.kind') = 'channel' (no false
+   *  positives from titles). messages + session_compactions reference sessions
+   *  WITHOUT ON DELETE CASCADE (PRAGMA foreign_keys = ON), so dependent rows are
+   *  removed first; tasks CASCADE / SET NULL via migration 3→4. Wrapped in
+   *  writeWithRetry (matching the cron sweep) so a transient SQLITE_BUSY from a
+   *  concurrent writer is retried. Returns the number of session rows deleted. */
+  cleanupOldChannelSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
+    const cutoffSec = (Date.now() - maxAgeMs) / 1000;
+    return this.writeWithRetry(() => {
+      const ids = this.db
+        .query<{ session_id: string }, [number]>(
+          `SELECT session_id FROM sessions
+           WHERE json_extract(metadata, '$.kind') = 'channel'
+             AND last_updated < ?`,
+        )
+        .all(cutoffSec)
+        .map((row) => row.session_id);
+      if (ids.length === 0) return 0;
+      const placeholders = ids.map(() => '?').join(',');
+      this.db.run(`DELETE FROM messages WHERE session_id IN (${placeholders})`, ids);
+      this.db.run(
+        `DELETE FROM session_compactions
+         WHERE parent_session_id IN (${placeholders})
+            OR child_session_id IN (${placeholders})`,
+        [...ids, ...ids],
+      );
+      const result = this.db.run(`DELETE FROM sessions WHERE session_id IN (${placeholders})`, ids);
+      return result.changes ?? 0;
+    });
+  }
+
   /** Phase D — permanently remove a single session and every dependent row.
    *  FK policy: `messages` + `session_compactions` reference sessions WITHOUT
    *  ON DELETE CASCADE (PRAGMA foreign_keys = ON), so their rows are deleted

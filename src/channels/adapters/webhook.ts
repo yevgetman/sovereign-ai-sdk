@@ -79,8 +79,10 @@ const SAFE_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
 /** True when `value` is a safe inbound segment id (see {@link SAFE_SEGMENT_RE}).
  *  Rejects empty / over-long / non-allowlisted / `..` ids. This is the SOURCE
  *  boundary of the defense-in-depth against path traversal (TraceWriter's path
- *  sanitizer is the SINK boundary). */
-function isSafeSegmentId(value: string): boolean {
+ *  sanitizer is the SINK boundary). Exported (Fix F7) so the other inbound
+ *  sources (Slack / Telegram) share ONE source-level validator rather than
+ *  duplicating the allowlist. */
+export function isSafeSegmentId(value: string): boolean {
   if (value.length === 0 || value.length > MAX_SEGMENT_LEN) return false;
   if (value === '..') return false;
   return SAFE_SEGMENT_RE.test(value);

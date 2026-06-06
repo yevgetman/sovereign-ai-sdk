@@ -250,4 +250,23 @@ describe('webhook channel — HMAC-verified open gateway route (F-T4)', () => {
     // No channels configured ⇒ no route mounted ⇒ Hono 404.
     expect(res.status).toBe(404);
   });
+
+  // Fix carry-c — an over-cap inbound body is rejected (413) BEFORE the route
+  // reads it fully into memory, so a huge POST can't exhaust memory. No turn runs.
+  test('an over-cap inbound body → 413 and no turn ran', async () => {
+    const app = buildAppWithRuntime(runtime, { channels: CHANNELS });
+    // ~1.2 MiB body — over the ~1 MiB cap. Signed correctly so the ONLY reason
+    // to reject is the size guard (proves the cap runs before verify/turn).
+    const big = 'x'.repeat(1_200_000);
+    const raw = JSON.stringify({ sender: 'u1', text: big, chatId: 'c1' });
+
+    const res = await app.request(`/channels/webhook/${CHANNEL_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Signature': sign(raw, SECRET) },
+      body: raw,
+    });
+
+    expect(res.status).toBe(413);
+    expect(runtime.sessionDb.getSession(buildSessionKey(INBOUND))).toBeNull();
+  });
 });

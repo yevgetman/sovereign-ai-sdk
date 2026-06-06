@@ -976,6 +976,16 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   if (cronSessionsCleaned > 0) {
     process.stderr.write(`[cron] cleaned up ${cronSessionsCleaned} old cron session row(s)\n`);
   }
+  // Fix F6 — sweep idle channel sessions on the same boot cadence as the cron
+  // sweep. Channel sessions reuse deterministic colon-ids forever and aren't
+  // REST-deletable, so without this their rows/messages/trajectories grow
+  // unbounded. Ages by last_updated (30-day default) so active chats survive.
+  const channelSessionsCleaned = sessionDb.cleanupOldChannelSessions();
+  if (channelSessionsCleaned > 0) {
+    process.stderr.write(
+      `[channels] cleaned up ${channelSessionsCleaned} old channel session row(s)\n`,
+    );
+  }
 
   if (opts.resumeId !== undefined) {
     const existing = sessionDb.getSession(opts.resumeId);

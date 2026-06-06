@@ -490,6 +490,24 @@ describe('slack adapter pure pieces (F-T6)', () => {
         event: { type: 'reaction_added', user: 'U1' },
       }).kind,
     ).toBe('ignore');
+
+    // Fix F7 — defense-in-depth source hardening: an event whose channel/user is
+    // not a safe path segment (separators / `..`) is ignored (no turn), matching
+    // the webhook adapter's source-level validation.
+    expect(
+      parseSlackBody({
+        type: 'event_callback',
+        event_id: 'Ev5',
+        event: { type: 'message', user: 'U1', channel: '../evil', text: 'hi', channel_type: 'im' },
+      }).kind,
+    ).toBe('ignore');
+    expect(
+      parseSlackBody({
+        type: 'event_callback',
+        event_id: 'Ev6',
+        event: { type: 'message', user: 'a/b', channel: 'C1', text: 'hi', channel_type: 'im' },
+      }).kind,
+    ).toBe('ignore');
   });
 
   test('createSlackDedupe — marks once, reports seen', async () => {

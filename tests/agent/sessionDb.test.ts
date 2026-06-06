@@ -553,3 +553,133 @@ describe('SessionDb.cleanupOldCronSessions', () => {
     db.close();
   });
 });
+
+// Fix F6 — channel sessions are created per-(channel,sender) (deterministic
+// colon-ids, reused forever) and are NOT REST-deletable (colon-ids fail
+// isValidSessionId), so without a sweep their rows + messages + trajectories
+// grow unbounded. cleanupOldChannelSessions mirrors cleanupOldCronSessions but
+// scopes by metadata.kind='channel' and ages by last_updated (channel sessions
+// are touched on every turn, so a chat active last week must NOT be reaped).
+describe('SessionDb.cleanupOldChannelSessions', () => {
+  test('deletes channel sessions whose last_updated is older than maxAgeMs', () => {
+    const db = openMem();
+    const oldId = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'agent:main:telegram:private:42',
+      metadata: { kind: 'channel' },
+    });
+    const recentId = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'agent:main:slack:private:U1',
+      metadata: { kind: 'channel' },
+    });
+    // Backdate `oldId`'s last_updated by 31 days — past the 30-day default.
+    const oldSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+    db.handle
+      .prepare('UPDATE sessions SET last_updated = ? WHERE session_id = ?')
+      .run(oldSec, oldId);
+
+    const cleaned = db.cleanupOldChannelSessions();
+    expect(cleaned).toBe(1);
+    expect(db.getSession(oldId)).toBeNull();
+    expect(db.getSession(recentId)).not.toBeNull();
+    db.close();
+  });
+
+  test('ages by last_updated, not created_at (an old-but-recently-active chat survives)', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'agent:main:telegram:private:99',
+      metadata: { kind: 'channel' },
+    });
+    // created long ago, but last_updated is RECENT (still in active use).
+    const oldSec = (Date.now() - 90 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?').run(oldSec, id);
+
+    const cleaned = db.cleanupOldChannelSessions();
+    expect(cleaned).toBe(0);
+    expect(db.getSession(id)).not.toBeNull();
+    db.close();
+  });
+
+  test('cascades to messages so the FK constraint does not block deletion', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'agent:main:webhook:private:c1',
+      metadata: { kind: 'channel' },
+    });
+    db.saveMessage(id, { role: 'user', content: [{ type: 'text', text: 'hi' }] });
+    db.saveMessage(id, { role: 'assistant', content: [{ type: 'text', text: 'hello' }] });
+    const oldSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET last_updated = ? WHERE session_id = ?').run(oldSec, id);
+
+    const cleaned = db.cleanupOldChannelSessions();
+    expect(cleaned).toBe(1);
+    expect(db.getSession(id)).toBeNull();
+    expect(
+      db.handle.prepare('SELECT count(*) AS n FROM messages WHERE session_id = ?').get(id),
+    ).toEqual({ n: 0 });
+    db.close();
+  });
+
+  test('does NOT delete non-channel sessions even when old', () => {
+    const db = openMem();
+    const cron = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'cron:job',
+      metadata: { kind: 'cron' },
+    });
+    const untagged = db.createSession({ model: 'm', provider: 'p', title: 'regular chat' });
+    const oldSec = (Date.now() - 60 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET last_updated = ?').run(oldSec);
+
+    const cleaned = db.cleanupOldChannelSessions();
+    expect(cleaned).toBe(0);
+    expect(db.getSession(cron)).not.toBeNull();
+    expect(db.getSession(untagged)).not.toBeNull();
+    db.close();
+  });
+
+  test('is idempotent and returns 0 when there are no channel sessions', () => {
+    const db = openMem();
+    expect(db.cleanupOldChannelSessions()).toBe(0);
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'agent:main:telegram:private:7',
+      metadata: { kind: 'channel' },
+    });
+    const oldSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+    db.handle.prepare('UPDATE sessions SET last_updated = ? WHERE session_id = ?').run(oldSec, id);
+    expect(db.cleanupOldChannelSessions()).toBe(1);
+    // Second sweep: nothing left to delete.
+    expect(db.cleanupOldChannelSessions()).toBe(0);
+    db.close();
+  });
+
+  test('honors a custom maxAgeMs', () => {
+    const db = openMem();
+    const id = db.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'agent:main:slack:private:U2',
+      metadata: { kind: 'channel' },
+    });
+    const twoHoursAgoSec = (Date.now() - 2 * 3_600_000) / 1000;
+    db.handle
+      .prepare('UPDATE sessions SET last_updated = ? WHERE session_id = ?')
+      .run(twoHoursAgoSec, id);
+
+    expect(db.cleanupOldChannelSessions()).toBe(0);
+    expect(db.cleanupOldChannelSessions(3_600_000)).toBe(1);
+    expect(db.getSession(id)).toBeNull();
+    db.close();
+  });
+});

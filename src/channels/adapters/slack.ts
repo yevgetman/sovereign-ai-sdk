@@ -31,6 +31,7 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { InboundMessage } from '../types.js';
+import { isSafeSegmentId } from './webhook.js';
 
 /** Replay window (seconds). A request whose `X-Slack-Request-Timestamp` is more
  *  than this far from the current clock — in either direction — is rejected.
@@ -173,6 +174,14 @@ export function parseSlackBody(body: unknown): ParsedSlackBody {
   if (typeof user !== 'string' || user.length === 0) return { kind: 'ignore' };
   if (typeof channel !== 'string' || channel.length === 0) return { kind: 'ignore' };
   if (typeof text !== 'string' || text.length === 0) return { kind: 'ignore' };
+  // Fix F7 — defense-in-depth source hardening. `user` (sender) + `channel`
+  // (chatId) become path-segment-shaped parts of the session key, which becomes
+  // a trace FILENAME. Reject any id that isn't a safe segment (separators /
+  // `..` / control chars / over-long) → ignore, no turn. This mirrors the
+  // webhook adapter's source validation; the trace-sink sanitizer is the proven
+  // backstop, this is symmetric source hardening. (Real Slack ids are
+  // `[A-Z0-9]`, so this never rejects a legitimate event.)
+  if (!isSafeSegmentId(user) || !isSafeSegmentId(channel)) return { kind: 'ignore' };
 
   const message: InboundMessage = {
     channel: 'slack',
