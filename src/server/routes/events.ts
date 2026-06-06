@@ -66,13 +66,19 @@ eventsRoute.get('/sessions/:id/events', (c) => {
     let stopped = false;
     const queue: ServerEvent[] = [];
     let resolver: (() => void) | null = null;
-    const onEvent = (ev: ServerEvent): void => {
-      queue.push(ev);
+    // Wake the loop if it is parked on the empty-queue Promise. Shared by the
+    // live-event push, the client-disconnect abort handler, and (Fix 1) the
+    // bus-abort handler so they all release a parked loop the same way.
+    const wake = (): void => {
       if (resolver !== null) {
         const r = resolver;
         resolver = null;
         r();
       }
+    };
+    const onEvent = (ev: ServerEvent): void => {
+      queue.push(ev);
+      wake();
     };
     // Pass the reconnect cursor through to the bus so it replays the right
     // ring slice (seq > lastEventId) synchronously on attach, with no
@@ -96,6 +102,22 @@ eventsRoute.get('/sessions/:id/events', (c) => {
     if (!follow && replayedCount === 0 && !bus.isTurnActive()) {
       stopped = true;
     }
+    // Fix 1 — the bus being disposed (disposeSession / dispose → bus.close())
+    // is a SECOND stop source, mirroring requestSignal below. Without it an
+    // open ?follow stream (which never auto-ends on a turn terminal) stays
+    // parked on the empty-queue Promise forever after the bus closes — a
+    // dangling connection that outlives its session. If the bus is already
+    // closed by the time we attach, don't park at all; otherwise wake + stop
+    // the loop when its abortSignal fires. (close() also clears subscribers,
+    // so onEvent won't fire after this — the loop must be woken explicitly.)
+    if (bus.abortSignal.aborted) {
+      stopped = true;
+    }
+    const onBusAbort = (): void => {
+      stopped = true;
+      wake();
+    };
+    bus.abortSignal.addEventListener('abort', onBusAbort);
     // Without this listener the loop can park forever on the empty-queue
     // Promise: a client disconnect with no pending events leaves nothing
     // to invoke the resolver, so `unsubscribe()` never runs and the
@@ -103,11 +125,7 @@ eventsRoute.get('/sessions/:id/events', (c) => {
     // here).
     const abortHandler = (): void => {
       stopped = true;
-      if (resolver !== null) {
-        const r = resolver;
-        resolver = null;
-        r();
-      }
+      wake();
     };
     requestSignal.addEventListener('abort', abortHandler);
     try {
@@ -134,6 +152,7 @@ eventsRoute.get('/sessions/:id/events', (c) => {
       }
     } finally {
       requestSignal.removeEventListener('abort', abortHandler);
+      bus.abortSignal.removeEventListener('abort', onBusAbort);
       unsubscribe();
       // Phase B T3 — the bus is intentionally NOT disposed here anymore.
       // Disposal moved to per-session teardown (runtime.disposeSession →

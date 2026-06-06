@@ -870,3 +870,128 @@ describe('events route — non-follow reconnect after a completed turn ends, not
     }
   }, 15_000);
 });
+
+// Phase B transport hardening — Fix 1.
+//
+// The events route's stop/wake only observed requestSignal (client
+// disconnect) + (non-follow) the live turn terminal. It never observed
+// bus.abortSignal, so when disposeSession / dispose() → bus.close() fired,
+// an open ?follow stream stayed parked (a dangling connection). The route
+// now wires bus.abortSignal as a SECOND wake/stop source: a follow stream
+// that survived a completed turn ENDS promptly when the bus is disposed.
+describe('events route — ?follow stream closes when the bus is disposed (Fix 1)', () => {
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-fix1-'));
+    cwd = mkdtempSync(join(tmpdir(), 'sov-fix1-cwd-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    __test_resetAllBuses();
+  });
+
+  afterEach(() => {
+    MockProvider.toolUseMode = false;
+    MockProvider.slowMode = false;
+    MockProvider.slowModeDelayMs = 0;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    __test_resetAllBuses();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+  });
+
+  test('a parked ?follow stream (turn already complete) ENDS when disposeSession closes the bus', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // A follow stream. stopWhen never matches — the stream must END only
+      // because the SERVER closes the body (here: the bus being disposed).
+      // If Fix 1 is broken, the follow stream stays parked after the turn
+      // completes and `follow.done` never resolves → this test times out.
+      const follow = openSse(app, `/sessions/${sessionId}/events?follow=true`, () => false);
+
+      // Gate the dispose on the follow stream having seen turn_complete: this
+      // proves the stream stayed OPEN past the turn terminal (the ?follow
+      // contract) and is now parked waiting for more — exactly the dangling
+      // state Fix 1 must reclaim.
+      let resolveTurnDone: (() => void) | null = null;
+      const turnDone = new Promise<void>((resolve) => {
+        resolveTurnDone = resolve;
+      });
+      follow.onEvent((ev) => {
+        if (ev.event === 'turn_complete' && resolveTurnDone !== null) {
+          const r = resolveTurnDone;
+          resolveTurnDone = null;
+          r();
+        }
+      });
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+      await turnDone;
+
+      // The follow stream is now parked open past turn_complete. Dispose the
+      // session → bus.close() fires its abortSignal. The route must observe
+      // that and end the stream. Awaiting `follow.done` is the assertion: it
+      // resolves ONLY if the server actually closed the body.
+      await runtime.disposeSession(sessionId);
+      await follow.done;
+
+      // Sanity: the stream did see the turn complete before being closed (it
+      // stayed open across the terminal, then ended on dispose).
+      expect(follow.events.some((e) => e.event === 'turn_complete')).toBe(true);
+    } finally {
+      await runtime.dispose();
+    }
+  }, 10_000);
+
+  test('?follow that has not yet started a turn also ENDS when the bus is disposed (subscribe-only)', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Open a follow stream BEFORE any turn. No turn is active and nothing is
+      // replayed; a follow stream never auto-ends, so it parks immediately.
+      // Disposing the session must still close it promptly.
+      const follow = openSse(app, `/sessions/${sessionId}/events?follow=true`, () => false);
+      // Yield so the request is in flight + the subscriber is attached + the
+      // loop has parked on the empty-queue Promise before we dispose.
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+      await runtime.disposeSession(sessionId);
+      await follow.done;
+
+      // Nothing was ever published; the stream simply ended on dispose.
+      expect(follow.events.length).toBe(0);
+    } finally {
+      await runtime.dispose();
+    }
+  }, 10_000);
+});
