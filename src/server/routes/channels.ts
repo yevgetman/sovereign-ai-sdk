@@ -53,6 +53,7 @@ import {
   createDefaultSmsTransport,
   isOptedOut,
   parseSmsBody,
+  resolveSenderPrincipal,
   verifySmsSignature,
   writeOptOut,
 } from '../../channels/adapters/sms.js';
@@ -405,9 +406,11 @@ export function channelsRoute(
     // sender is not a key, ACK 200 and return — no turn, no session, no reply by
     // default (don't confirm the number is live). This is the load-bearing SMS
     // security decision: the Twilio signature authenticated the TRANSPORT, not the
-    // SENDER; an unknown number never reaches a tool-running agent.
+    // SENDER; an unknown number never reaches a tool-running agent. The lookup is
+    // prototype-safe (`Object.hasOwn`, via resolveSenderPrincipal) so a `From`
+    // shaped like an inherited property name is never treated as allow-listed.
     const senders = cfg.senders ?? {};
-    const principalId = senders[from];
+    const principalId = resolveSenderPrincipal(senders, from);
     if (principalId === undefined) {
       return c.json({ ok: true }, 200);
     }
@@ -416,14 +419,16 @@ export function channelsRoute(
     // BEFORE the opt-out check (so START always re-opts-in, even while opted-out).
     const keyword = classifyKeyword(msg.text);
     if (keyword === 'stop') {
-      // Record the opt-out durably; never run a turn; deliver nothing.
-      writeOptOut(runtime.harnessHome, from);
+      // Record the opt-out durably (serialized + atomic; awaited so the opt-out is
+      // persisted before the ACK); never run a turn; deliver nothing.
+      await writeOptOut(runtime.harnessHome, from);
       return c.json({ ok: true }, 200);
     }
     if (keyword === 'start') {
-      // Re-opt-in durably; no turn. (A confirmation reply is a deliverability
-      // nicety left to the operator; v1 stays silent to match the no-leak posture.)
-      clearOptOut(runtime.harnessHome, from);
+      // Re-opt-in durably (serialized + atomic; awaited before the ACK); no turn.
+      // (A confirmation reply is a deliverability nicety left to the operator; v1
+      // stays silent to match the no-leak posture.)
+      await clearOptOut(runtime.harnessHome, from);
       return c.json({ ok: true }, 200);
     }
     if (keyword === 'help') {

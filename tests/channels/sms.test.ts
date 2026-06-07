@@ -446,6 +446,27 @@ describe('sms channel — Twilio-signature-verified webhook route', () => {
     const parsed = JSON.parse(readFileSync(optoutPath, 'utf-8')) as { optedOut?: string[] };
     expect(parsed.optedOut).toContain(ALLOWED);
   });
+
+  // L1 — a prototype-key `From` must never resolve to a principal even if it
+  // somehow reached the sender gate. (At the route it is already rejected by the
+  // E.164 parse — a signed `From=__proto__` 400s with no turn — but the gate's
+  // own lookup must be self-evidently prototype-safe too; see the unit test.)
+  test('prototype-key From (valid signature) → no turn, no session', async () => {
+    const { transport, sent } = makeMockTransport();
+    const { onBackgroundTask, drain } = makeBackgroundCollector();
+    const deps: ChannelsDeps = { smsTransport: transport, onBackgroundTask };
+    const app = buildAppWithRuntime(runtime, { channels: CHANNELS }, deps);
+
+    for (const proto of ['__proto__', 'constructor', 'toString']) {
+      const { raw, signature } = inboundForm({ from: proto, body: 'let me in' });
+      const res = await postSms(app, raw, signature);
+      // Rejected before any turn (400 at the E.164 source boundary).
+      expect(res.status).toBe(400);
+    }
+    await drain();
+    expect(sent).toEqual([]);
+    expect(MockProvider.streamCalls).toBe(0);
+  });
 });
 
 describe('sms adapter pure pieces', () => {
@@ -552,14 +573,52 @@ describe('sms adapter pure pieces', () => {
     try {
       // Missing file → empty set, no throw.
       expect(readOptOuts(dir).has('+1')).toBe(false);
-      writeOptOut(dir, '+15551234567');
+      await writeOptOut(dir, '+15551234567');
       expect(readOptOuts(dir).has('+15551234567')).toBe(true);
       // Idempotent.
-      writeOptOut(dir, '+15551234567');
+      await writeOptOut(dir, '+15551234567');
       expect([...readOptOuts(dir)]).toEqual(['+15551234567']);
       // Clear.
-      clearOptOut(dir, '+15551234567');
+      await clearOptOut(dir, '+15551234567');
       expect(readOptOuts(dir).has('+15551234567')).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // L1 — the sender gate's allow-list lookup is prototype-safe: a `From` equal to
+  // a prototype property name (`__proto__`/`constructor`/`toString`) is NEVER
+  // treated as allow-listed, regardless of the regex upstream. `Object.hasOwn`
+  // (not `senders[from] !== undefined`) is the self-evidently-safe gate.
+  test('resolveSenderPrincipal — prototype keys never resolve to a principal', async () => {
+    const { resolveSenderPrincipal } = await import('../../src/channels/adapters/sms.js');
+    const senders = { '+15551234567': 'owner-a' };
+    // A real allow-listed sender resolves.
+    expect(resolveSenderPrincipal(senders, '+15551234567')).toBe('owner-a');
+    // Prototype property names do NOT resolve (would be truthy with a naive
+    // `senders[from]` lookup since they exist on Object.prototype).
+    expect(resolveSenderPrincipal(senders, '__proto__')).toBeUndefined();
+    expect(resolveSenderPrincipal(senders, 'constructor')).toBeUndefined();
+    expect(resolveSenderPrincipal(senders, 'toString')).toBeUndefined();
+    expect(resolveSenderPrincipal(senders, 'hasOwnProperty')).toBeUndefined();
+    // An ordinary unlisted number does not resolve.
+    expect(resolveSenderPrincipal(senders, '+19999999999')).toBeUndefined();
+  });
+
+  // L2 — concurrent writes for DIFFERENT numbers must both persist. A naive
+  // read-modify-write last-writer-wins: each STOP reads the file before the other
+  // wrote, so one opt-out is lost. Serializing writes through a single in-process
+  // chain (+ atomic temp-file rename) guarantees both land.
+  test('writeOptOut — two concurrent writes for different numbers both persist', async () => {
+    const { writeOptOut, readOptOuts } = await import('../../src/channels/adapters/sms.js');
+    const dir = mkdtempSync(join(tmpdir(), 'sov-sms-optout-concurrent-'));
+    try {
+      // Kick off both writes WITHOUT awaiting between them — they race.
+      await Promise.all([writeOptOut(dir, '+15550000001'), writeOptOut(dir, '+15550000002')]);
+      const set = readOptOuts(dir);
+      expect(set.has('+15550000001')).toBe(true);
+      expect(set.has('+15550000002')).toBe(true);
+      expect(set.size).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

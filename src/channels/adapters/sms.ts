@@ -38,7 +38,8 @@
 // turn (in the route) so an unsigned / forged request triggers no side-effect.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { InboundMessage } from '../types.js';
 
@@ -149,6 +150,26 @@ export function parseSmsBody(form: unknown): InboundMessage | null {
   };
 }
 
+// ── sender allow-list gate ──────────────────────────────────────────────────
+
+/** Resolve an inbound `From` to its mapped principal via the sender allow-list,
+ *  or undefined when the sender is NOT allow-listed.
+ *
+ *  SECURITY (L1): uses `Object.hasOwn` rather than a bare `senders[from]` lookup
+ *  so the gate is self-evidently safe regardless of what `from` contains — a
+ *  `From` equal to an inherited prototype property name (`__proto__`,
+ *  `constructor`, `toString`, `hasOwnProperty`, …) is NEVER treated as allow-
+ *  listed, with no reliance on the E.164 regex upstream to neutralize such keys.
+ *  Only an OWN, string-valued entry resolves. */
+export function resolveSenderPrincipal(
+  senders: Record<string, string>,
+  from: string,
+): string | undefined {
+  if (!Object.hasOwn(senders, from)) return undefined;
+  const principalId = senders[from];
+  return typeof principalId === 'string' ? principalId : undefined;
+}
+
 // ── compliance keyword classification ───────────────────────────────────────
 
 /** The mandatory SMS-compliance verdict {@link classifyKeyword} returns. */
@@ -184,7 +205,10 @@ function optOutPath(harnessHome: string): string {
 }
 
 /** Read the set of opted-out numbers, robust to a missing/corrupt file (→ empty
- *  set). Never throws — a read failure must NOT block a turn or leak detail. */
+ *  set). Never throws — a read failure must NOT block a turn or leak detail.
+ *  Synchronous: reads are off the write path (the route checks isOptedOut inline)
+ *  and a stale read across a concurrent write is harmless (worst case: one extra
+ *  message before the opt-out lands; the write itself is serialized + atomic). */
 export function readOptOuts(harnessHome: string): Set<string> {
   try {
     const text = readFileSync(optOutPath(harnessHome), 'utf-8');
@@ -198,30 +222,86 @@ export function readOptOuts(harnessHome: string): Set<string> {
   }
 }
 
+/** L2 — per-harness-home opt-out write serialization chain. Two STOPs from
+ *  DIFFERENT numbers each do a read-modify-write of the SAME optouts.json; run
+ *  concurrently (the route schedules them off independent inbound requests) a
+ *  naive read-modify-write is last-writer-wins — both read the pre-write file,
+ *  so one opt-out is lost. We serialize every mutation onto a per-home promise
+ *  chain so each read-modify-write sees the prior write's result. Mirrors
+ *  `serializePerSession` in pipeline.ts. Module-level so it spans every caller in
+ *  a process. The map slot is reclaimed when its chain drains (no unbounded
+ *  growth). */
+const optOutWriteChains = new Map<string, Promise<unknown>>();
+
+/** Run `task` after any in-flight opt-out write for `harnessHome` completes,
+ *  chaining the next caller behind this one (settle-on-either-path so a thrown
+ *  write never wedges the queue). Reclaims the map slot once the chain it
+ *  installed drains and nothing newer replaced it. */
+function serializeOptOutWrite<T>(harnessHome: string, task: () => Promise<T>): Promise<T> {
+  const prior = optOutWriteChains.get(harnessHome) ?? Promise.resolve();
+  const next = prior.then(task, task);
+  optOutWriteChains.set(harnessHome, next);
+  const cleanup = (): void => {
+    if (optOutWriteChains.get(harnessHome) === next) {
+      optOutWriteChains.delete(harnessHome);
+    }
+  };
+  next.then(cleanup, cleanup);
+  return next;
+}
+
 /** Atomically persist the full opted-out set (immutable: builds a fresh array,
- *  writes the whole file). Creates the parent dir if absent. */
-function persistOptOuts(harnessHome: string, set: ReadonlySet<string>): void {
+ *  writes the whole file). Creates the parent dir if absent. Writes to a unique
+ *  temp file then renames over the final path so a crash mid-write never leaves a
+ *  half-written optouts.json (rename is atomic on the same filesystem). Mirrors
+ *  the atomic-write pattern in delivery.ts. */
+async function persistOptOuts(harnessHome: string, set: ReadonlySet<string>): Promise<void> {
   const path = optOutPath(harnessHome);
-  mkdirSync(dirname(path), { recursive: true });
+  await mkdir(dirname(path), { recursive: true });
   const payload: OptOutFile = { optedOut: [...set].sort() };
-  writeFileSync(path, JSON.stringify(payload, null, 2));
+  const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
+  await rename(tmpPath, path);
 }
 
-/** Record `number` as opted-out (idempotent). Reads the current set, adds, and
- *  rewrites. */
-export function writeOptOut(harnessHome: string, number: string): void {
-  const set = readOptOuts(harnessHome);
-  if (set.has(number)) return;
-  set.add(number);
-  persistOptOuts(harnessHome, set);
+/** Read the current opted-out set asynchronously, robust to a missing/corrupt
+ *  file (→ empty set). Used only inside the serialized write path so each
+ *  read-modify-write observes the prior write. */
+async function readOptOutsAsync(harnessHome: string): Promise<Set<string>> {
+  try {
+    const text = await readFile(optOutPath(harnessHome), 'utf-8');
+    const parsed = JSON.parse(text) as OptOutFile;
+    if (Array.isArray(parsed.optedOut)) {
+      return new Set(parsed.optedOut.filter((n): n is string => typeof n === 'string'));
+    }
+    return new Set();
+  } catch {
+    return new Set();
+  }
 }
 
-/** Clear `number`'s opt-out (re-opt-in; idempotent). */
-export function clearOptOut(harnessHome: string, number: string): void {
-  const set = readOptOuts(harnessHome);
-  if (!set.has(number)) return;
-  set.delete(number);
-  persistOptOuts(harnessHome, set);
+/** Record `number` as opted-out (idempotent). Serialized + atomic (see
+ *  {@link serializeOptOutWrite} / {@link persistOptOuts}): the read-modify-write
+ *  runs inside the per-home chain so concurrent STOPs from different numbers
+ *  never lose a write. */
+export function writeOptOut(harnessHome: string, number: string): Promise<void> {
+  return serializeOptOutWrite(harnessHome, async () => {
+    const set = await readOptOutsAsync(harnessHome);
+    if (set.has(number)) return;
+    set.add(number);
+    await persistOptOuts(harnessHome, set);
+  });
+}
+
+/** Clear `number`'s opt-out (re-opt-in; idempotent). Serialized + atomic, same
+ *  as {@link writeOptOut}. */
+export function clearOptOut(harnessHome: string, number: string): Promise<void> {
+  return serializeOptOutWrite(harnessHome, async () => {
+    const set = await readOptOutsAsync(harnessHome);
+    if (!set.has(number)) return;
+    set.delete(number);
+    await persistOptOuts(harnessHome, set);
+  });
 }
 
 /** True when `number` is currently opted-out. */
