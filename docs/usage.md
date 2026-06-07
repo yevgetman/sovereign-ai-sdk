@@ -1226,7 +1226,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$GW/sessions"
 
 ### Channels
 
-As of Phase F (v0.6.23 — the final module of the run-anywhere roadmap) a self-hosted `sov gateway` can be driven from **Slack, Telegram, or a generic webhook**. An inbound channel message routes to a per-conversation harness session, runs one headless turn, and the reply is delivered back over the channel. Channels are **off unless configured** and only run on `sov gateway` (not the TUI / `sov serve` / `sov drive`).
+As of Phase F (v0.6.23 — the final module of the run-anywhere roadmap) a self-hosted `sov gateway` can be driven from **Slack, Telegram, SMS (Twilio), or a generic webhook**. An inbound channel message routes to a per-conversation harness session, runs one headless turn, and the reply is delivered back over the channel. Channels are **off unless configured** and only run on `sov gateway` (not the TUI / `sov serve` / `sov drive`).
 
 **Each channel is an isolated principal.** Every channel binds to a Phase-E principal (`principalId` ∈ `gateway.principals`), so its sessions, memory, and learning are isolated from every other principal — and never see a human user's data. A channel conversation is keyed per `(channel, sender[, thread])`, so each sender gets a continuous, coherent thread. Each turn fully participates in the **learning loop** under the channel principal's namespace: it injects that principal's MEMORY.md, runs recall (`<learned-context>`), and writes memory back — so a channel gets more useful over time exactly like an interactive session, isolated to its own principal.
 
@@ -1255,12 +1255,20 @@ Each channel is `{ enabled, principalId, <secret(s)>, permissionMode? }`. The `p
     "principals": [
       { "id": "wh-bot", "token": "...", "name": "Webhook bot" },
       { "id": "tg-bot", "token": "...", "name": "Telegram bot" },
-      { "id": "sl-bot", "token": "...", "name": "Slack bot" }
+      { "id": "sl-bot", "token": "...", "name": "Slack bot" },
+      { "id": "sms-user", "token": "...", "name": "SMS user" }
     ],
     "channels": {
       "webhook":  { "enabled": true, "principalId": "wh-bot" },
       "telegram": { "enabled": true, "principalId": "tg-bot" },
-      "slack":    { "enabled": true, "principalId": "sl-bot" }
+      "slack":    { "enabled": true, "principalId": "sl-bot" },
+      "sms": {
+        "enabled": true,
+        "provider": "twilio",
+        "accountSid": "AC...",
+        "fromNumber": "+15550000000",
+        "senders": { "+15551234567": "sms-user" }
+      }
     }
   }
 }
@@ -1271,8 +1279,9 @@ Each channel is `{ enabled, principalId, <secret(s)>, permissionMode? }`. The `p
 | `webhook` | `secret` | `SOV_WEBHOOK_SECRET` | `POST /channels/webhook/default` (HMAC-verified, synchronous reply) |
 | `telegram` | `botToken` | `SOV_TELEGRAM_BOT_TOKEN` | `getUpdates` long-poll (no public endpoint) |
 | `slack` | `signingSecret`, `botToken` | `SOV_SLACK_SIGNING_SECRET`, `SOV_SLACK_BOT_TOKEN` | `POST /channels/slack/events` (signing-secret-verified, async reply) |
+| `sms` | `authToken`, `accountSid` | `SOV_TWILIO_AUTH_TOKEN`, `SOV_TWILIO_ACCOUNT_SID` | `POST /channels/sms` (Twilio-signature-verified + sender allow-list, async reply) |
 
-A config secret wins over the env var; the env var only fills an absent field. Secrets are **never logged** — the gateway prints only a one-line `channels: webhook, slack` enabled-names summary at boot. The webhook + Slack inbound routes mount **open** on the gateway (before the bearer/principal auth, like `/health`) and are gated by their own per-channel verification, not the gateway token. Every `/channels/*` route enforces a **1 MiB inbound body cap** (an over-cap POST is rejected with 413 before any parse, verify, or turn), and inbound ids are validated as safe segments at the source — so an untrusted channel request can neither exhaust memory nor smuggle a path separator into a session id.
+A config secret wins over the env var; the env var only fills an absent field. Secrets are **never logged** — the gateway prints only a one-line `channels: webhook, slack, sms` enabled-names summary at boot. The webhook, Slack, and SMS inbound routes mount **open** on the gateway (before the bearer/principal auth, like `/health`) and are gated by their own per-channel verification (HMAC signature; SMS additionally by the sender allow-list), not the gateway token. Every `/channels/*` route enforces a **1 MiB inbound body cap** (an over-cap POST is rejected with 413 before any parse, verify, or turn), and inbound ids are validated as safe segments at the source — so an untrusted channel request can neither exhaust memory nor smuggle a path separator into a session id.
 
 #### Generic webhook (the keystone — no external account needed)
 
@@ -1327,6 +1336,50 @@ Slack delivers events to a **single public endpoint** and authenticates each req
 How it behaves: the route verifies the **`v0=` signing-secret HMAC** over `v0:{timestamp}:{rawBody}` (constant-time) with a **300-second replay window**, then **acks within 3 s** and runs the turn + posts the reply **asynchronously** via `chat.postMessage`. Slack retries (`X-Slack-Retry-Num` / duplicate `event_id`) are deduped so a slow turn isn't run twice. A bad or stale signature is **403** with no turn.
 
 > Not provisioned here. The adapter is built + tested against an injected transport (signing-secret verify, challenge handshake, async post, retry dedupe); a live app + secrets are the operator setup above.
+
+#### SMS — real-credential setup (Twilio)
+
+Text the harness from your phone. SMS is the **most exposed channel** — a phone number is **publicly textable** and SMS sender-IDs can be **spoofed** — so it adds a second gate on top of the transport signature: an explicit **sender allow-list**. The `senders` map does double duty: it is the allow-list *and* the per-sender→principal binding. An inbound whose `From` is not a key in `senders` runs **no turn**, creates **no session**, and (by default) sends **no reply** — the number is never even confirmed to be live.
+
+Config: unlike the other channels, the `senders` map (not a single `principalId`) binds each allowed sender to its own principal:
+
+```json
+"sms": {
+  "enabled": true,
+  "provider": "twilio",
+  "accountSid": "AC...",
+  "fromNumber": "+15550000000",
+  "senders": {
+    "+15551234567": "sms-user",
+    "+15557654321": "sms-user-2"
+  },
+  "helpText": "Reply with a question. Text STOP to unsubscribe.",
+  "permissionMode": "default"
+}
+```
+
+- `provider` is the literal `"twilio"` (v1).
+- `accountSid` + `authToken` are the Twilio creds, resolved **env-first** — set `SOV_TWILIO_ACCOUNT_SID` and `SOV_TWILIO_AUTH_TOKEN` on the gateway host and keep them out of the config file. (`fromNumber` is your Twilio number — not a secret, config-only.)
+- `senders` is **required and non-empty** for an enabled SMS channel (a publicly-textable number with no allow-list is rejected at boot). Each value must name a principal in `gateway.principals` — each allowed sender is isolated to its own principal (its own sessions / memory / learning).
+- `helpText` (optional) is the static reply to an inbound `HELP`; `permissionMode` is the per-channel posture (`'default'` recommended, `'ask'` coerced to auto-deny; `'bypass'` is forbidden like every channel).
+
+Twilio setup steps:
+
+1. **Buy a number** in the Twilio console (Phone Numbers → Buy a number) with SMS capability.
+2. **Set the number's Messaging webhook** to `POST https://<your-host>/channels/sms`. This must be the **exact public URL** the gateway is reachable at — Twilio computes its request signature over that URL, and the gateway validates against it (it honors `X-Forwarded-Proto` / `X-Forwarded-Host` behind a reverse proxy, but the configured webhook URL must match the externally-visible one). Use `HTTP POST`.
+3. **Copy the credentials:** Account SID + Auth Token (Console dashboard) → `SOV_TWILIO_ACCOUNT_SID` / `SOV_TWILIO_AUTH_TOKEN`; set `fromNumber` to the number you bought.
+4. **Register for A2P 10DLC** if you'll send to US numbers — application-to-person 10-digit long-code traffic must be registered with the carriers (via Twilio) or it will be filtered/blocked. (Non-US / other number types have their own rules.)
+5. **STOP / HELP / START are handled automatically** — `STOP`/`UNSUBSCRIBE`/`CANCEL`/`END`/`QUIT` opt the sender out (durably, no turn), `START`/`UNSTOP` re-opt-in, `HELP`/`INFO` returns your `helpText`. This is the carrier-mandated compliance behavior; you don't implement it.
+
+How it behaves: the route runs **two gates before any turn** — (1) the **`X-Twilio-Signature`** HMAC-SHA1 over the public URL + sorted params (constant-time; a bad/missing signature is **403**), then (2) the **sender allow-list** (an unlisted `From` is ACKed **200** with no turn — same 200 as a handled message, so the response never reveals whether a number is allow-listed). A valid, allow-listed, non-keyword, non-opted-out message **acks fast (200)** and runs the turn + sends the reply **asynchronously** via the Twilio Messages REST API (an agent turn exceeds Twilio's ~10–15 s webhook timeout, so the reply comes back out-of-band, not in the webhook response). A non-E.164 `From` is **400**.
+
+Security model — two independent gates plus a safe-by-default backstop:
+
+- **Transport gate (signature):** the `X-Twilio-Signature` proves the request **really came from Twilio** (not a forged POST to your open webhook). It authenticates the *transport*, not the *sender*.
+- **Sender gate (allow-list):** because a phone number is publicly textable **and an SMS sender-ID can be spoofed**, the sender number is the **trust boundary** — and a spoofable trust boundary is exactly why the allow-list is a *backstop*, not the primary defense. The `senders` map is the explicit allow-list: an unlisted number never reaches a tool-running agent.
+- **Safe-by-default posture:** like every channel, an SMS turn runs with **no local-allow inheritance + auto-deny + `bypass` forbidden** (see [the posture section](#safe-by-default-permission-posture-read-this-first)). So even an allow-listed (or, in the worst case, spoofed-into-the-allow-list) sender cannot ride your dev machine's `allow: Bash(*)` — the safe posture is the backstop behind the two gates.
+
+v1 limits: **Twilio only** (the `provider` seam is reserved for other SMS providers); **no MMS / media, no group messaging** (1:1 SMS, keyed per sender number); the **allow-list is required** (there is no open-to-all SMS mode by design). A curl example is awkward for SMS (every request needs a valid Twilio signature computed over the exact public URL), so the config above plus the webhook URL is the operative setup; the signature scheme is pinned against Twilio's official test vector in the suite.
 
 #### Channel UX limitations (v1)
 
