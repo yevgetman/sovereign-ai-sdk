@@ -34,6 +34,10 @@ export const CHANNEL_SECRET_ENV = {
   telegram: { botToken: 'SOV_TELEGRAM_BOT_TOKEN' },
   slack: { signingSecret: 'SOV_SLACK_SIGNING_SECRET', botToken: 'SOV_SLACK_BOT_TOKEN' },
   webhook: { secret: 'SOV_WEBHOOK_SECRET' },
+  // SMS (Twilio) — only the two true secrets are env-backed. `fromNumber` is not
+  // a secret (and has no env var); its presence on an enabled channel is enforced
+  // by the schema superRefine, not this merge.
+  sms: { accountSid: 'SOV_TWILIO_ACCOUNT_SID', authToken: 'SOV_TWILIO_AUTH_TOKEN' },
 } as const;
 
 /** The minimal env shape this module reads. A subset of `process.env` so it's
@@ -68,6 +72,21 @@ export type ChannelListenersConfig = {
       }
     | undefined;
   telegram?: TelegramChannelConfig | undefined;
+  // SMS is a webhook route (mounted by the gateway app), NOT a poll worker — so
+  // buildChannelListeners ignores it. Accepted here for shape-compatibility with
+  // the parsed config (mirrors how webhook/slack are accepted + ignored).
+  sms?:
+    | {
+        enabled?: boolean | undefined;
+        provider?: 'twilio' | undefined;
+        accountSid?: string | undefined;
+        authToken?: string | undefined;
+        fromNumber?: string | undefined;
+        senders?: Record<string, string> | undefined;
+        helpText?: string | undefined;
+        principalId?: string;
+      }
+    | undefined;
 };
 
 /** Injectable seams for the listeners (tests). Production omits all of them and
@@ -88,7 +107,7 @@ export type ChannelListeners = {
   stop(): Promise<void> | void;
 };
 
-const CHANNEL_NAMES = ['webhook', 'telegram', 'slack'] as const;
+const CHANNEL_NAMES = ['webhook', 'telegram', 'slack', 'sms'] as const;
 type ChannelName = (typeof CHANNEL_NAMES)[number];
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

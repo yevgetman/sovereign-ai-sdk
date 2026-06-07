@@ -242,7 +242,7 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   // One-line channels summary — the ENABLED channel names only, NEVER the
   // secrets. Omitted entirely when no channel is enabled.
   if (channels !== undefined) {
-    const enabledNames = (['webhook', 'telegram', 'slack'] as const).filter(
+    const enabledNames = (['webhook', 'telegram', 'slack', 'sms'] as const).filter(
       (name) => channels[name]?.enabled === true,
     );
     if (enabledNames.length > 0) {

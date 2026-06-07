@@ -203,6 +203,47 @@ describe('resolveChannelsConfig — env-first secret resolution (pre-parse)', ()
     });
   });
 
+  test('fills missing sms creds from SOV_TWILIO_ACCOUNT_SID + SOV_TWILIO_AUTH_TOKEN', () => {
+    const resolved = resolveChannelsConfig(
+      {
+        sms: {
+          enabled: true,
+          provider: 'twilio',
+          fromNumber: '+15550001111',
+          senders: { '+15551234567': 'sms' },
+        },
+      },
+      { SOV_TWILIO_ACCOUNT_SID: 'env-sid', SOV_TWILIO_AUTH_TOKEN: 'env-tok' },
+    );
+    expect(resolved).toEqual({
+      sms: {
+        enabled: true,
+        provider: 'twilio',
+        fromNumber: '+15550001111',
+        senders: { '+15551234567': 'sms' },
+        accountSid: 'env-sid',
+        authToken: 'env-tok',
+      },
+    });
+  });
+
+  test('an enabled sms missing authToken throws naming SOV_TWILIO_AUTH_TOKEN', () => {
+    expect(() =>
+      resolveChannelsConfig(
+        {
+          sms: {
+            enabled: true,
+            provider: 'twilio',
+            accountSid: 'AC1',
+            fromNumber: '+15550001111',
+            senders: { '+1': 'sms' },
+          },
+        },
+        {},
+      ),
+    ).toThrow(/sms[\s\S]*authToken[\s\S]*SOV_TWILIO_AUTH_TOKEN/);
+  });
+
   test('config secret takes precedence over env (config wins)', () => {
     const resolved = resolveChannelsConfig(
       { telegram: { enabled: true, principalId: 'tg', botToken: 'config-token' } },

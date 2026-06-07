@@ -45,6 +45,17 @@ import {
   parseSlackBody,
   verifySlackSignature,
 } from '../../channels/adapters/slack.js';
+import {
+  type SmsTransport,
+  type TwilioTransportConfig,
+  classifyKeyword,
+  clearOptOut,
+  createDefaultSmsTransport,
+  isOptedOut,
+  parseSmsBody,
+  verifySmsSignature,
+  writeOptOut,
+} from '../../channels/adapters/sms.js';
 import { parseWebhook, verifyWebhook } from '../../channels/adapters/webhook.js';
 import { runChannelTurn } from '../../channels/pipeline.js';
 import type { Runtime } from '../runtime.js';
@@ -73,12 +84,32 @@ export type SlackChannelConfig = {
   permissionMode?: 'default' | 'ask' | undefined;
 };
 
+/** Per-channel SMS config the route needs (Twilio). Structural subset of
+ *  `Settings['gateway']['channels']['sms']`. UNLIKE the other channels, SMS
+ *  binds the SENDER to a principal via the `senders` ALLOW-LIST (a number is
+ *  publicly textable; an inbound only drives a turn if its From is a key in this
+ *  map). `accountSid`/`authToken`/`fromNumber` build the default Twilio transport
+ *  + verify signatures (the token is never logged); `helpText` answers HELP. */
+export type SmsChannelConfig = {
+  enabled?: boolean | undefined;
+  provider?: 'twilio' | undefined;
+  accountSid?: string | undefined;
+  authToken?: string | undefined;
+  fromNumber?: string | undefined;
+  /** The security gate: a map from an allowed sender E.164 number → a Phase-E
+   *  principalId. An inbound whose From is NOT a key here runs NO turn. */
+  senders?: Record<string, string> | undefined;
+  helpText?: string | undefined;
+  permissionMode?: 'default' | 'ask' | undefined;
+};
+
 /** The channels block threaded through buildAppWithRuntime / startServer. The
- *  webhook channel is wired in F-T4; the slack channel in F-T6 (telegram is a
- *  poll-loop adapter with no inbound route, so it is not addressed here). */
+ *  webhook channel is wired in F-T4; the slack channel in F-T6; the SMS channel
+ *  here (telegram is a poll-loop adapter with no inbound route). */
 export type ChannelsConfig = {
   webhook?: WebhookChannelConfig | undefined;
   slack?: SlackChannelConfig | undefined;
+  sms?: SmsChannelConfig | undefined;
 };
 
 /** Optional dependencies threaded into the channels route. All are injectable
@@ -95,6 +126,9 @@ export type ChannelsConfig = {
 export type ChannelsDeps = {
   slackTransport?: SlackTransport | undefined;
   slackDedupe?: SlackDedupe | undefined;
+  /** The SMS send seam. Default = a real Twilio Messages `fetch` client built
+   *  from the configured creds. Tests inject a mock to await the async reply. */
+  smsTransport?: SmsTransport | undefined;
   onBackgroundTask?: ((p: Promise<void>) => void) | undefined;
 };
 
@@ -109,6 +143,39 @@ const WEBHOOK_CHANNEL_ID = 'default';
  *  1 MiB is generous vs a real chat message + envelope; an over-cap request is
  *  rejected 413 with no parse / verify / turn. */
 const MAX_CHANNEL_BODY_BYTES = 1_048_576;
+
+/** Reconstruct the PUBLIC URL Twilio signed (D3). Twilio computes its signature
+ *  over the URL it POSTed to — i.e. the public-facing webhook URL. Behind a
+ *  reverse proxy / load balancer the gateway sees an INTERNAL url (`c.req.url`),
+ *  so we honor the standard `X-Forwarded-Proto` + `X-Forwarded-Host` headers when
+ *  present to rebuild the externally-visible URL (preserving the path + query),
+ *  falling back to `c.req.url` when unproxied. The operator must set the Twilio
+ *  Messaging webhook to exactly this public URL (documented in usage.md). Only
+ *  the FIRST value of a comma-joined forwarded header is used (the original
+ *  client-facing hop). */
+export function reconstructTwilioUrl(
+  requestUrl: string,
+  forwardedProto: string | undefined,
+  forwardedHost: string | undefined,
+): string {
+  const firstHop = (v: string | undefined): string | undefined => {
+    if (typeof v !== 'string' || v.length === 0) return undefined;
+    const first = v.split(',')[0]?.trim();
+    return first !== undefined && first.length > 0 ? first : undefined;
+  };
+  const host = firstHop(forwardedHost);
+  if (host === undefined) return requestUrl;
+  const proto = firstHop(forwardedProto) ?? 'https';
+  // Rebuild scheme + host from the forwarded headers; keep the path + query from
+  // the original URL. URL parsing is robust to the internal url shape.
+  let parsed: URL;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    return requestUrl;
+  }
+  return `${proto}://${host}${parsed.pathname}${parsed.search}`;
+}
 
 /** Build the open channels sub-app. Only ENABLED channels are routable; a
  *  request to an unknown / disabled channel id is a 404 (existence-hiding — the
@@ -134,11 +201,13 @@ export function channelsRoute(
   // Fire-and-forget scheduler. Tests pass a collector via deps.onBackgroundTask
   // to await the async post; in production we swallow background errors so an
   // out-of-band post failure can't crash the gateway (the ACK already returned).
-  const scheduleBackground = (work: () => Promise<void>): void => {
+  // `label` names the channel in the error line (never a secret — secrets are
+  // never part of an error `detail`).
+  const scheduleBackground = (label: string, work: () => Promise<void>): void => {
     const p = work().catch((err) => {
       const detail = err instanceof Error ? err.message : String(err);
-      // Never log the signing secret / bot token — neither is part of `detail`.
-      process.stderr.write(`[slack] background turn failed: ${detail}\n`);
+      // Never log any signing secret / bot token / auth token — none is in `detail`.
+      process.stderr.write(`[${label}] background turn failed: ${detail}\n`);
     });
     deps.onBackgroundTask?.(p);
   };
@@ -268,7 +337,7 @@ export function channelsRoute(
 
     // (6) Schedule the turn + the reply post as a background task and ACK now.
     const slackTransport = deps.slackTransport ?? createDefaultSlackTransport(cfg.botToken ?? '');
-    scheduleBackground(async () => {
+    scheduleBackground('slack', async () => {
       const result = await runChannelTurn({
         runtime,
         msg: message,
@@ -285,5 +354,133 @@ export function channelsRoute(
     return c.json({ ok: true }, 200);
   });
 
+  // SMS (Twilio) — open webhook + Twilio-signature verify + the SENDER ALLOW-LIST
+  // gate + STOP/HELP/START compliance + ack-fast-then-async reply. TWO gates run
+  // before any turn: the signature (transport — the request is really Twilio's)
+  // AND the sender allow-list (sender — the number is mapped to a principal). A
+  // phone number is publicly textable, so an unlisted/spoofed From must NEVER
+  // drive a turn. An unlisted/opted-out/keyword inbound is ACKed 200 with no turn
+  // and (by default) no reply body — never confirming whether the number is live.
+  r.post('/channels/sms', async (c) => {
+    // (1) Resolve the enabled sms channel. An absent / disabled / auth-token-less
+    // channel is not routable → 404 (existence-hiding).
+    const cfg = channels.sms;
+    if (cfg === undefined || cfg.enabled !== true || cfg.authToken === undefined) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const authToken = cfg.authToken;
+
+    // (2) Read the RAW body (the form bytes Twilio signed) + decode the params.
+    // Twilio POSTs application/x-www-form-urlencoded; the signature is over the
+    // full URL + the sorted decoded params, so decode them for verification.
+    const rawBody = await c.req.text();
+    const params: Record<string, string> = {};
+    for (const [key, value] of new URLSearchParams(rawBody)) {
+      params[key] = value;
+    }
+
+    // (3) Reconstruct the public URL Twilio signed (honoring a reverse proxy)
+    // and verify the X-Twilio-Signature over it. Verify BEFORE any parse / turn —
+    // a forged / unsigned request triggers no side-effect. Fail → 403.
+    const url = reconstructTwilioUrl(
+      c.req.url,
+      c.req.header('x-forwarded-proto'),
+      c.req.header('x-forwarded-host'),
+    );
+    const signatureHeader = c.req.header('x-twilio-signature');
+    if (!verifySmsSignature({ url, params, signatureHeader, authToken })) {
+      return c.json({ error: 'invalid signature' }, 403);
+    }
+
+    // (4) Parse the verified form into an InboundMessage. A missing/unsafe From
+    // (not E.164-ish) or a non-string Body → 400 (no turn). The From validation
+    // is the SOURCE boundary against path traversal in the session key.
+    const msg = parseSmsBody(params);
+    if (msg === null) {
+      return c.json({ error: 'invalid sms payload' }, 400);
+    }
+    const from = msg.sender;
+
+    // (5) THE SENDER GATE. Resolve From → principalId via the allow-list. If the
+    // sender is not a key, ACK 200 and return — no turn, no session, no reply by
+    // default (don't confirm the number is live). This is the load-bearing SMS
+    // security decision: the Twilio signature authenticated the TRANSPORT, not the
+    // SENDER; an unknown number never reaches a tool-running agent.
+    const senders = cfg.senders ?? {};
+    const principalId = senders[from];
+    if (principalId === undefined) {
+      return c.json({ ok: true }, 200);
+    }
+
+    // (6) Compliance keywords (STOP / START / HELP) — handled WITHOUT a turn, and
+    // BEFORE the opt-out check (so START always re-opts-in, even while opted-out).
+    const keyword = classifyKeyword(msg.text);
+    if (keyword === 'stop') {
+      // Record the opt-out durably; never run a turn; deliver nothing.
+      writeOptOut(runtime.harnessHome, from);
+      return c.json({ ok: true }, 200);
+    }
+    if (keyword === 'start') {
+      // Re-opt-in durably; no turn. (A confirmation reply is a deliverability
+      // nicety left to the operator; v1 stays silent to match the no-leak posture.)
+      clearOptOut(runtime.harnessHome, from);
+      return c.json({ ok: true }, 200);
+    }
+    if (keyword === 'help') {
+      // Static help text, no turn. Only reply if helpText is configured (an empty
+      // helpText stays silent rather than sending a blank message).
+      const helpText = cfg.helpText;
+      if (helpText !== undefined && helpText.length > 0) {
+        const transport = resolveSmsTransport(deps, cfg);
+        scheduleBackground('sms', async () => {
+          await transport.sendMessage(from, helpText);
+        });
+      }
+      return c.json({ ok: true }, 200);
+    }
+
+    // (7) Respect a standing opt-out: an opted-out sender's normal message ACKs
+    // 200 with no turn and no delivery (until they START again).
+    if (isOptedOut(runtime.harnessHome, from)) {
+      return c.json({ ok: true }, 200);
+    }
+
+    // (8) Both gates passed + not a keyword + not opted-out → schedule the turn +
+    // the async reply and ACK now. An agent turn exceeds Twilio's webhook timeout
+    // (~10–15s), so the reply is posted out of band via the Messages REST API.
+    const transport = resolveSmsTransport(deps, cfg);
+    scheduleBackground('sms', async () => {
+      const result = await runChannelTurn({
+        runtime,
+        msg,
+        principalId,
+        ...(cfg.permissionMode !== undefined ? { permissionMode: cfg.permissionMode } : {}),
+      });
+      // Silent verdict (empty reply or a [SILENT] prefix) → send nothing.
+      if (result.silent === true || result.text === undefined || result.text.length === 0) {
+        return;
+      }
+      await transport.sendMessage(from, result.text);
+    });
+
+    return c.json({ ok: true }, 200);
+  });
+
   return r;
+}
+
+/** Resolve the SMS transport: an injected one (tests) or the default Twilio
+ *  Messages client built from the configured creds. The creds are guaranteed
+ *  present for an ENABLED channel by the schema superRefine + boot-time env
+ *  resolution; defensive `?? ''` fallbacks keep a mis-wired caller failing at the
+ *  transport (a clean Twilio HTTP error) rather than with an undefined
+ *  interpolation. The auth token is never logged. */
+function resolveSmsTransport(deps: ChannelsDeps, cfg: SmsChannelConfig): SmsTransport {
+  if (deps.smsTransport !== undefined) return deps.smsTransport;
+  const twilioConfig: TwilioTransportConfig = {
+    accountSid: cfg.accountSid ?? '',
+    authToken: cfg.authToken ?? '',
+    fromNumber: cfg.fromNumber ?? '',
+  };
+  return createDefaultSmsTransport(twilioConfig);
 }
