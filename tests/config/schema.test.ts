@@ -754,3 +754,149 @@ describe('SettingsSchema — gateway.channels', () => {
     expect(p.gateway?.channels?.webhook?.principalId).toBe('ghost');
   });
 });
+
+// SMS channel (Twilio) — D1/D4/D8. Unlike the webhook/slack/telegram channels,
+// SMS binds the SENDER to a principal via a `senders` ALLOW-LIST (a number is
+// publicly textable, so an inbound only drives a turn if its From is mapped).
+// Validation for an ENABLED sms channel: provider must be literal 'twilio';
+// `senders` non-empty; every senders VALUE (a principalId) ∈ gateway.principals;
+// accountSid + authToken + fromNumber present (env merged before parse, like the
+// other channels); permissionMode excludes 'bypass' (the enum is ['default','ask'],
+// rejected at the type level — a remote channel in bypass is an RCE).
+describe('SettingsSchema — gateway.channels.sms (Twilio)', () => {
+  const principals = [
+    { id: 'sms', token: 't1' },
+    { id: 'other', token: 't2' },
+  ];
+  const valid = {
+    enabled: true,
+    provider: 'twilio',
+    accountSid: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    authToken: 'tok',
+    fromNumber: '+15550001111',
+    senders: { '+15551234567': 'sms' },
+  } as const;
+
+  test('accepts a valid enabled sms channel bound to a principal', () => {
+    const p = SettingsSchema.parse({
+      gateway: { principals, channels: { sms: { ...valid, permissionMode: 'default' } } },
+    });
+    expect(p.gateway?.channels?.sms).toEqual({
+      enabled: true,
+      provider: 'twilio',
+      accountSid: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      authToken: 'tok',
+      fromNumber: '+15550001111',
+      senders: { '+15551234567': 'sms' },
+      permissionMode: 'default',
+    });
+  });
+
+  test('senders defaults to an empty object when omitted', () => {
+    // A disabled sms channel with no senders parses; the default is {}.
+    const p = SettingsSchema.parse({
+      gateway: { principals, channels: { sms: { provider: 'twilio' } } },
+    });
+    expect(p.gateway?.channels?.sms?.senders).toEqual({});
+  });
+
+  test('absent sms channel stays valid', () => {
+    expect(
+      SettingsSchema.parse({ gateway: { principals } }).gateway?.channels?.sms,
+    ).toBeUndefined();
+  });
+
+  test('rejects unknown keys in the sms channel (strict)', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { principals, channels: { sms: { ...valid, bogus: 1 } } },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects provider other than 'twilio'", () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { principals, channels: { sms: { ...valid, provider: 'nexmo' } } },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects permissionMode 'bypass' (remote bypass = RCE)", () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { principals, channels: { sms: { ...valid, permissionMode: 'bypass' } } },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled sms channel with an empty senders map', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { principals, channels: { sms: { ...valid, senders: {} } } },
+      }),
+    ).toThrow(/senders/);
+  });
+
+  test('rejects an enabled sms channel whose sender maps to a ghost principal', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: {
+          principals,
+          channels: { sms: { ...valid, senders: { '+15551234567': 'ghost' } } },
+        },
+      }),
+    ).toThrow(/not a declared gateway\.principals id/);
+  });
+
+  test('rejects an enabled sms channel when principals is absent entirely', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        gateway: { channels: { sms: valid } },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled sms channel missing accountSid', () => {
+    const { accountSid: _omit, ...noSid } = valid;
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals, channels: { sms: noSid } } }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled sms channel missing authToken', () => {
+    const { authToken: _omit, ...noTok } = valid;
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals, channels: { sms: noTok } } }),
+    ).toThrow();
+  });
+
+  test('rejects an enabled sms channel missing fromNumber', () => {
+    const { fromNumber: _omit, ...noFrom } = valid;
+    expect(() =>
+      SettingsSchema.parse({ gateway: { principals, channels: { sms: noFrom } } }),
+    ).toThrow();
+  });
+
+  test('a disabled sms channel is NOT validated for senders/creds/principal', () => {
+    // enabled: false → no senders / cred / principal checks. provider is still
+    // required (it's the non-optional discriminator), but everything else is lax.
+    const p = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: { sms: { enabled: false, provider: 'twilio', senders: { '+1': 'ghost' } } },
+      },
+    });
+    expect(p.gateway?.channels?.sms?.enabled).toBe(false);
+  });
+
+  test('an sms channel with enabled omitted is NOT validated (disabled by default)', () => {
+    const p = SettingsSchema.parse({
+      gateway: {
+        principals,
+        channels: { sms: { provider: 'twilio', senders: { '+1': 'ghost' } } },
+      },
+    });
+    expect(p.gateway?.channels?.sms?.provider).toBe('twilio');
+  });
+});

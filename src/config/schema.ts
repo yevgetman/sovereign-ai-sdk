@@ -495,6 +495,28 @@ export const SettingsSchema = z
               })
               .strict()
               .optional(),
+            /** SMS (Twilio). UNLIKE the other channels, SMS binds the SENDER to
+             *  a principal via a `senders` ALLOW-LIST (a phone number is publicly
+             *  textable; the Twilio signature authenticates the TRANSPORT, not the
+             *  sender). `provider` is the literal 'twilio' (v1) — the extensibility
+             *  seam for other SMS providers. The Twilio creds (accountSid/authToken/
+             *  fromNumber) are secrets, env-resolvable before parse (like the other
+             *  channels). The enabled-channel cross-field rules (non-empty senders;
+             *  every senders value ∈ principals; the three creds present) are in the
+             *  superRefine. permissionMode EXCLUDES 'bypass' by construction. */
+            sms: z
+              .object({
+                enabled: z.boolean().optional(),
+                provider: z.literal('twilio'),
+                accountSid: z.string().optional(),
+                authToken: z.string().optional(),
+                fromNumber: z.string().optional(),
+                senders: z.record(z.string(), z.string()).default({}),
+                helpText: z.string().optional(),
+                permissionMode: z.enum(['default', 'ask']).optional(),
+              })
+              .strict()
+              .optional(),
           })
           .strict()
           .optional(),
@@ -564,7 +586,7 @@ export const SettingsSchema = z
         if (channels !== undefined) {
           const principalIds = new Set((principals ?? []).map((p) => p.id));
           const requireSecret = (
-            name: 'webhook' | 'telegram' | 'slack',
+            name: 'webhook' | 'telegram' | 'slack' | 'sms',
             field: string,
             value: string | undefined,
           ): void => {
@@ -588,7 +610,7 @@ export const SettingsSchema = z
               });
             }
           };
-          const { webhook, telegram, slack } = channels;
+          const { webhook, telegram, slack, sms } = channels;
           if (webhook?.enabled === true) {
             requirePrincipal('webhook', webhook.principalId);
             requireSecret('webhook', 'secret', webhook.secret);
@@ -601,6 +623,35 @@ export const SettingsSchema = z
             requirePrincipal('slack', slack.principalId);
             requireSecret('slack', 'signingSecret', slack.signingSecret);
             requireSecret('slack', 'botToken', slack.botToken);
+          }
+          // SMS — the SENDER allow-list is the security gate (D4). An enabled sms
+          // channel must (a) carry the three Twilio creds, (b) have a NON-EMPTY
+          // `senders` map, and (c) every senders VALUE (a principalId) must resolve
+          // to a declared principal — an unlisted/ghost mapping would let a sender
+          // drive a turn under a non-existent principal. (`provider` is the literal
+          // 'twilio' at the type level; 'bypass' is already impossible.)
+          if (sms?.enabled === true) {
+            requireSecret('sms', 'accountSid', sms.accountSid);
+            requireSecret('sms', 'authToken', sms.authToken);
+            requireSecret('sms', 'fromNumber', sms.fromNumber);
+            const senderEntries = Object.entries(sms.senders);
+            if (senderEntries.length === 0) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                  'gateway.channels.sms is enabled but senders is empty — an SMS number is publicly textable, so at least one sender→principal mapping is required',
+                path: ['channels', 'sms', 'senders'],
+              });
+            }
+            for (const [number, principalId] of senderEntries) {
+              if (!principalIds.has(principalId)) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  message: `gateway.channels.sms.senders[${JSON.stringify(number)}] ${JSON.stringify(principalId)} is not a declared gateway.principals id`,
+                  path: ['channels', 'sms', 'senders', number],
+                });
+              }
+            }
           }
         }
       })
