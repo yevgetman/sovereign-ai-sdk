@@ -13,14 +13,19 @@
 import { describe, expect, test } from 'bun:test';
 import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
 import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { LearningObserver, ObserveInput } from '../../src/learning/observer.js';
 import type { MemoryRuntime } from '../../src/memory/provider.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
 import { Semaphore } from '../../src/runtime/semaphore.js';
-import type { SubprocessExecutorResult } from '../../src/runtime/subprocessExecutor.js';
+import type {
+  RunSubprocessExecutorOpts,
+  SubprocessExecutorResult,
+} from '../../src/runtime/subprocessExecutor.js';
 import type { ToolContext } from '../../src/tool/types.js';
+import type { TraceEvent } from '../../src/trace/types.js';
 
 function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
@@ -212,6 +217,125 @@ describe('SubagentScheduler — subscription-executor branch', () => {
 
     expect(providerCalled.called).toBe(true);
     expect(result.summary).toBe('provider-path answer');
+  });
+
+  test('threads the child observer + trace recorder into runSubprocessExecutor', async () => {
+    // The replay must land in the SAME learning destination a native
+    // delegation uses: the child ToolContext inherits the parent's observer
+    // (sessionId-bound), and the scheduler's wrapped trace recorder tags events
+    // with the child sessionId. Assert the scheduler hands BOTH into the
+    // subprocess executor — and that they're the same observer object the
+    // native AgentRunner path would receive via childToolContext.
+    const parentObserved: ObserveInput[] = [];
+    const parentObserver = {
+      observe: (i: ObserveInput) => parentObserved.push(i),
+    } as unknown as LearningObserver;
+
+    const parentTraced: TraceEvent[] = [];
+
+    let captured: RunSubprocessExecutorOpts | undefined;
+    const subprocessResult: SubprocessExecutorResult = {
+      terminal: { reason: 'completed' },
+      finalAssistant: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      iterationsUsed: 1,
+      toolCallCount: 1,
+      distinctToolNames: ['Bash'],
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: 'ok' }] }],
+    };
+
+    const scheduler = new SubagentScheduler({
+      agents: makeRegistry([makeAgent()]),
+      laneSemaphores: new LaneSemaphores({}),
+      writeLock: new Semaphore(1),
+      resolveProvider: () => makeRecordingProvider({ called: false }),
+      createChildSession: () => 'child-obs-1',
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-haiku-4-5-20251001',
+      maxTokens: 256,
+      harnessHome: '/tmp/does-not-matter-trace-writer-best-effort',
+      subscriptionExecutor: { enabled: true, engine: 'claude-code', permissionMode: 'plan' },
+      runSubprocessExecutor: async (opts) => {
+        captured = opts;
+        // Drive the injected sinks the way the real executor would, so we can
+        // assert the observation lands on the PARENT observer (the child's
+        // corpus destination) and the trace event carries the child sessionId.
+        opts.learningObserver?.observe({
+          toolName: 'Bash',
+          toolInput: { command: 'ls' },
+          status: 'success',
+          durationMs: 0,
+          traceId: 'tu_1',
+        });
+        opts.traceRecorder?.({
+          type: 'tool_start',
+          tool: 'Bash',
+          toolUseId: 'tu_1',
+          iso: new Date().toISOString(),
+        });
+        return subprocessResult;
+      },
+    });
+
+    await scheduler.delegate({
+      agentName: 'subscription-executor',
+      prompt: 'do it',
+      parentSessionId: 'parent-obs',
+      parentToolPool: [],
+      // The parent ToolContext carries the observer — exactly as the runtime
+      // builds it; the scheduler spreads it into the child context.
+      parentToolContext: { ...baseToolContext, learningObserver: parentObserver },
+      traceRecorder: (e) => parentTraced.push(e),
+    });
+
+    // Both sinks were threaded.
+    expect(captured?.learningObserver).toBeDefined();
+    expect(captured?.traceRecorder).toBeDefined();
+    // The observer handed in IS the parent's (the child's corpus destination).
+    expect(captured?.learningObserver).toBe(parentObserver);
+    // The replayed observation landed on it.
+    expect(parentObserved).toHaveLength(1);
+    expect(parentObserved[0]).toMatchObject({ toolName: 'Bash', status: 'success' });
+    // The replayed trace event reached the parent recorder, tagged with the
+    // CHILD sessionId (parity with native child trace attribution).
+    const start = parentTraced.find((e) => e.type === 'tool_start');
+    expect(start).toBeDefined();
+    expect((start as { sessionId?: string }).sessionId).toBe('child-obs-1');
+  });
+
+  test('no learningObserver on the parent context → no observer threaded (clean)', async () => {
+    let captured: RunSubprocessExecutorOpts | undefined;
+    const scheduler = new SubagentScheduler({
+      agents: makeRegistry([makeAgent()]),
+      laneSemaphores: new LaneSemaphores({}),
+      writeLock: new Semaphore(1),
+      resolveProvider: () => makeRecordingProvider({ called: false }),
+      createChildSession: () => 'child-obs-2',
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-haiku-4-5-20251001',
+      maxTokens: 256,
+      subscriptionExecutor: { enabled: true },
+      runSubprocessExecutor: async (opts) => {
+        captured = opts;
+        return {
+          terminal: { reason: 'completed' },
+          iterationsUsed: 0,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          messages: [],
+        };
+      },
+    });
+
+    await scheduler.delegate({
+      agentName: 'subscription-executor',
+      prompt: 'do it',
+      parentSessionId: 'parent-obs-2',
+      parentToolPool: [],
+      parentToolContext: baseToolContext, // no observer
+    });
+
+    expect(captured).toBeDefined();
+    expect(captured?.learningObserver).toBeUndefined();
   });
 
   test('subprocess error terminal round-trips as a non-success result', async () => {

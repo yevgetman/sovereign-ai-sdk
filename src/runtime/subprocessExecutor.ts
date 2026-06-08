@@ -26,6 +26,9 @@
 
 import type { SubscriptionExecutorConfig } from '../config/schema.js';
 import type { AssistantMessage, ContentBlock, Message, Terminal } from '../core/types.js';
+import type { ObserveInput } from '../learning/observer.js';
+import type { ObservationStatus } from '../learning/types.js';
+import type { TraceEvent } from '../trace/types.js';
 
 /** Default cap on captured subprocess stdout — mirrors hooks/runner.ts. The
  *  stream-json transcript of a bounded task stays well under this. */
@@ -62,6 +65,20 @@ export type SpawnOpts = {
  *  fake that emits canned JSONL on stdout. */
 export type SpawnFn = (argv: string[], opts: SpawnOpts) => SpawnedProc;
 
+/** The minimal learning sink this module needs — structurally satisfied by
+ *  `LearningObserver` (its `observe(input)` method). The replay constructs an
+ *  `ObserveInput` per tool call IDENTICAL in shape to what the orchestrator
+ *  builds in `src/core/orchestrator.ts`, so the synthesizer can't tell a
+ *  replayed observation from a native one. */
+export type LearningSink = { observe: (input: ObserveInput) => void };
+
+/** The minimal trace sink this module needs — a `(event) => void` recorder.
+ *  The scheduler passes its `wrappedTraceRecorder` (the closure that tags the
+ *  event with the child sessionId and forks to BOTH the parent recorder and the
+ *  child's per-session TraceWriter), so replayed tool brackets land in the same
+ *  destination(s) a native child's would. */
+export type TraceSink = (event: TraceEvent) => void;
+
 export type RunSubprocessExecutorOpts = {
   /** The task prompt handed to `claude -p`. */
   prompt: string;
@@ -75,6 +92,16 @@ export type RunSubprocessExecutorOpts = {
   signal?: AbortSignal;
   /** Injected for tests. Defaults to the real Bun.spawn wrapper. */
   spawn?: SpawnFn;
+  /** OPTIONAL learning replay sink. When present, each `tool_use`/`tool_result`
+   *  pair parsed from the subprocess stream is replayed as a `LearningObservation`
+   *  so a delegated headless-Claude-Code turn feeds the learning loop exactly as
+   *  a native delegation does. Absent (e.g. learning disabled) ⇒ clean no-op —
+   *  the parser is byte-identical to the spike. */
+  learningObserver?: LearningSink;
+  /** OPTIONAL trace replay sink. When present, each replayed tool call records a
+   *  `tool_start` + (`tool_end` | `tool_error`) bracket, mirroring the
+   *  orchestrator's trace events. Absent ⇒ no-op. */
+  traceRecorder?: TraceSink;
 };
 
 /** The exact shape SubagentScheduler.delegate() consumes from `drainRunner`. */
@@ -204,7 +231,10 @@ export async function runSubprocessExecutor(
       );
     }
 
-    return parseStreamJson(stdout);
+    return parseStreamJson(stdout, {
+      ...(opts.learningObserver !== undefined ? { learningObserver: opts.learningObserver } : {}),
+      ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),
+    });
   } catch (err) {
     return errorResult(err instanceof Error ? err : new Error(String(err)));
   } finally {
@@ -212,11 +242,32 @@ export async function runSubprocessExecutor(
   }
 }
 
+/** A tool_use block captured from an assistant frame, in stream order — the
+ *  unit the replay walks to build observations + trace brackets. */
+type CapturedToolUse = { id: string; name: string; input: unknown };
+
+/** A tool_result block captured from a user frame, indexed by tool_use_id —
+ *  paired with its CapturedToolUse during the replay. */
+type CapturedToolResult = { content: string; isError: boolean };
+
+type ParseStreamJsonOpts = {
+  learningObserver?: LearningSink;
+  traceRecorder?: TraceSink;
+};
+
 /** Parse the `claude -p ... --output-format stream-json --verbose` JSONL into
  *  the drainRunner result shape. Unknown / noise frames (system/hook_*,
  *  rate_limit_event) are skipped. A missing terminal `result` event (truncated
- *  stream) is an error terminal. */
-function parseStreamJson(stdout: string): SubprocessExecutorResult {
+ *  stream) is an error terminal.
+ *
+ *  Learning replay: when `opts.learningObserver` / `opts.traceRecorder` are
+ *  present AND the run completed, each `tool_use` (in stream order) is paired
+ *  with its matching `tool_result` and replayed as a `LearningObservation` +
+ *  trace bracket IDENTICAL in shape to what `src/core/orchestrator.ts` builds
+ *  for a native tool call — so a delegated subprocess turn feeds the learning
+ *  loop like a native child. Absent sinks ⇒ a clean no-op (byte-identical to
+ *  the spike). */
+function parseStreamJson(stdout: string, opts: ParseStreamJsonOpts = {}): SubprocessExecutorResult {
   const lines = stdout.split('\n');
   const messages: Message[] = [];
   let finalAssistant: AssistantMessage | undefined;
@@ -224,6 +275,10 @@ function parseStreamJson(stdout: string): SubprocessExecutorResult {
   const distinctTools = new Set<string>();
   let terminal: Terminal | undefined;
   let iterationsUsed = 0;
+  // Replay accumulators — populated as we walk assistant/user frames, drained
+  // once (after we know the run completed) so a failed run replays nothing.
+  const toolUses: CapturedToolUse[] = [];
+  const toolResults = new Map<string, CapturedToolResult>();
 
   for (const raw of lines) {
     const line = raw.trim();
@@ -251,6 +306,7 @@ function parseStreamJson(stdout: string): SubprocessExecutorResult {
           if (block.type === 'tool_use') {
             toolCallCount++;
             distinctTools.add(block.name);
+            toolUses.push({ id: block.id, name: block.name, input: block.input });
           }
         }
       }
@@ -261,7 +317,17 @@ function parseStreamJson(stdout: string): SubprocessExecutorResult {
       // Tool-result-carrying user frames — reconstruct so the trajectory has
       // the full conversation (matches AgentRunner's messages[] semantics).
       const user = toUserMessage(event.message);
-      if (user !== undefined) messages.push(user);
+      if (user !== undefined) {
+        messages.push(user);
+        for (const block of user.content) {
+          if (block.type === 'tool_result') {
+            toolResults.set(block.tool_use_id, {
+              content: block.content,
+              isError: block.is_error === true,
+            });
+          }
+        }
+      }
       continue;
     }
 
@@ -295,7 +361,8 @@ function parseStreamJson(stdout: string): SubprocessExecutorResult {
 
   if (terminal === undefined) {
     // No terminal result event — the stream was truncated (subprocess died or
-    // produced nothing parseable). Surface as an error terminal.
+    // produced nothing parseable). Surface as an error terminal. No replay: a
+    // failed/garbled run is not a faithful learning signal.
     return {
       terminal: {
         reason: 'error',
@@ -308,6 +375,13 @@ function parseStreamJson(stdout: string): SubprocessExecutorResult {
     };
   }
 
+  // Learning replay — only on a completed run, so a failed delegation doesn't
+  // pollute the corpus with half-finished tool use. Mirrors how a native child
+  // that errored skips the downstream memory/review hooks.
+  if (terminal.reason === 'completed') {
+    replayToolEvents(toolUses, toolResults, opts);
+  }
+
   return {
     terminal,
     ...(finalAssistant !== undefined ? { finalAssistant } : {}),
@@ -316,6 +390,88 @@ function parseStreamJson(stdout: string): SubprocessExecutorResult {
     distinctToolNames: Array.from(distinctTools).sort(),
     messages,
   };
+}
+
+/** Replay the captured tool_use/tool_result pairs into the learning observer +
+ *  trace recorder, IDENTICAL in shape to what `src/core/orchestrator.ts` emits
+ *  for a native tool call. Called once, after the run is known to have
+ *  completed. Both sinks are optional and independent — either may be absent.
+ *
+ *  Fidelity map (vs. the orchestrator's `ctx.learningObserver.observe(...)` at
+ *  orchestrator.ts ~601-623 and its `recordTrace(...)` brackets ~521/543/552):
+ *   - `toolName`  = the tool_use `name`            (orchestrator: `tool.name`)
+ *   - `toolInput` = the tool_use `input` verbatim  (orchestrator: `callInput`)
+ *   - `status`    = `tool_result.is_error` → 'error' else 'success'
+ *                   (orchestrator's success/error branch for the non-throw
+ *                    path; 'denied'/'cancelled' are not recoverable post-hoc —
+ *                    Claude Code resolved permission/cancel internally)
+ *   - `traceId`   = the tool_use `id` = tool_use_id (orchestrator: `block.id`)
+ *   - `durationMs`= 0 — the stream-json carries NO per-tool timing (only an
+ *                   aggregate `duration_ms` on the terminal `result`); 0 is
+ *                   honest (the schema requires nonnegative). RESIDUAL GAP.
+ *   - `observationEnvelope` = omitted — the harness `ToolObservation` envelope
+ *                   is a harness-tool construct; Claude Code's tool_results
+ *                   don't carry one. The native path also omits it for tools
+ *                   that return no observation.
+ *
+ *  Trace bracket per tool: `tool_start`, then `tool_end` (success, with
+ *  `outputBytes` = byte length of the result content, mirroring the
+ *  orchestrator) XOR `tool_error` (the result content as the message). The
+ *  scheduler's wrapped recorder tags every event with the child sessionId, so
+ *  these are attributed to the delegated child exactly as native child events
+ *  are (the trace schema has no per-event "from subprocess" marker). */
+function replayToolEvents(
+  toolUses: CapturedToolUse[],
+  toolResults: Map<string, CapturedToolResult>,
+  opts: ParseStreamJsonOpts,
+): void {
+  const { learningObserver, traceRecorder } = opts;
+  if (learningObserver === undefined && traceRecorder === undefined) return;
+
+  for (const use of toolUses) {
+    const res = toolResults.get(use.id);
+    // No matching tool_result (truncated/odd stream): the orchestrator always
+    // produces one, but a subprocess stream can drop it. Treat a missing result
+    // as a non-error attempt so the corpus still sees the tool was used.
+    const isError = res?.isError === true;
+    const status: ObservationStatus = isError ? 'error' : 'success';
+    const content = res?.content ?? '';
+
+    traceRecorder?.({ type: 'tool_start', tool: use.name, toolUseId: use.id, iso: nowIso() });
+
+    learningObserver?.observe({
+      toolName: use.name,
+      toolInput: use.input,
+      status,
+      // No per-tool timing in the stream-json — see the fidelity note above.
+      durationMs: 0,
+      traceId: use.id,
+    });
+
+    if (isError) {
+      traceRecorder?.({
+        type: 'tool_error',
+        tool: use.name,
+        toolUseId: use.id,
+        durationMs: 0,
+        message: content,
+        iso: nowIso(),
+      });
+    } else {
+      traceRecorder?.({
+        type: 'tool_end',
+        tool: use.name,
+        toolUseId: use.id,
+        durationMs: 0,
+        outputBytes: Buffer.byteLength(content, 'utf8'),
+        iso: nowIso(),
+      });
+    }
+  }
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
 /** Coerce a stream-json `message` object into an AssistantMessage, keeping only

@@ -202,24 +202,82 @@ to the model, AND the scheduler branch is inert even if it were invoked.
 
 ---
 
-## NEXT increment (not in this spike): stream-json → `learningObserver` replay
+## IMPLEMENTED (2026-06-08): stream-json → `learningObserver` + trace replay
 
-This spike does **not** replay the subprocess's per-step tool use into the
-harness's learning observer. On the normal `AgentRunner` path, each tool call is
-observed in `src/core/orchestrator.ts` (~601–623: `ctx.learningObserver.observe({
-toolName, status, durationMs, … })` after PostToolUse). The subprocess path
-bypasses the orchestrator entirely — the harness only sees the final summary,
-not the intermediate `tool_use` / `tool_result` events.
+> **Status: shipped.** This was the "NEXT increment" below; it now closes the
+> per-step learning gap so delegated headless-Claude-Code turns **feed the
+> active learning-loop soak** instead of going dark.
 
-**Consequence (bears on the active learning-loop soak):** delegated turns are
-**dark to per-step learning**. The instinct corpus would accrue nothing from a
-subscription-executor delegation beyond what the parent's own turn observes.
-The captured stream-json already contains every `tool_use` / `tool_result`
-(the parser reconstructs them into `messages[]`), so the next increment is a
-**replay shim**: walk the parsed events and call `learningObserver.observe(...)`
-per tool step (mapping `is_error` → `ObservationStatus`), so a subprocess
-delegation participates in the learning loop like a native child. Deferred
-deliberately — it is additive and out of scope for proving the mechanism.
+On the normal `AgentRunner` path, each tool call is observed in
+`src/core/orchestrator.ts` (~601–623: `ctx.learningObserver.observe({ toolName,
+toolInput, status, durationMs, traceId, … })` after PostToolUse) and bracketed
+with `tool_start` + (`tool_end` | `tool_error`) trace events (~521/543/552). The
+subprocess path bypasses the orchestrator entirely — so before this increment a
+delegated task was **dark to per-step learning** (only task-boundary learning via
+`memoryManager.onDelegation` fired).
+
+**What landed.** `runSubprocessExecutor` now accepts optional `learningObserver?`
++ `traceRecorder?`. As it parses the stream-json it captures each `tool_use`
+block (in stream order) and indexes each `tool_result` by `tool_use_id`. On a
+**completed** run (a failed/garbled run replays nothing — parity with a native
+child that errored skipping its hooks) it walks the captured pairs and, per tool:
+
+- constructs a `LearningObservation` **field-for-field identical** to the
+  orchestrator's (`toolName` = the tool_use `name`; `toolInput` = the tool_use
+  `input` verbatim; `status` = `tool_result.is_error ? 'error' : 'success'`;
+  `traceId` = the tool_use `id` = tool_use_id) and calls `observe(...)`;
+- records the matching `tool_start` then `tool_end` (with `outputBytes` = byte
+  length of the result content, mirroring the orchestrator) XOR `tool_error`
+  (the result content as the message).
+
+`messages[]` was already faithful (the spike reconstructs the assistant
+`tool_use` messages + the `tool_result` user messages + the final text, not just
+the final text) — the replay reuses those same captured blocks.
+
+**Where the observations land (same destination as a native delegation).** The
+scheduler threads the **child ToolContext's `learningObserver`** (the very object
+the native `AgentRunner` reads off `toolContext` — inherited from the parent
+context, sessionId-bound) and its **`wrappedTraceRecorder`** (which tags every
+event with the child sessionId and forks to BOTH the parent recorder and the
+child's per-session `TraceWriter`) into `runSubprocessExecutor`. So a delegated
+subscription-executor task writes to the **same corpus + trace files** a native
+child would, and the synthesizer cannot tell a replayed observation from a native
+one. Both sinks are optional — learning disabled / no trace sink ⇒ a clean no-op
+(the spike's original tests stay green).
+
+**Residual fidelity gaps (what's recovered vs not).**
+- **Per-tool timing is not recoverable.** The stream-json carries only an
+  *aggregate* `duration_ms` on the terminal `result` event — no per-tool timing.
+  Replayed observations + trace brackets use `durationMs: 0` (honest; the schema
+  requires nonnegative). Native observations carry the real `tool.call()`
+  duration.
+- **No `denied` / `cancelled` status.** Claude Code resolves its own permission
+  prompts and cancellations *inside* the subprocess; the stream only surfaces a
+  tool_result that is either ok or `is_error`. So replayed status is `success` |
+  `error` only — never `denied` / `cancelled` (which the native orchestrator can
+  emit from its own gates).
+- **No harness `ToolObservation` envelope.** The structured envelope
+  (`observation_envelope`) is a harness-tool construct; Claude Code's tool
+  results don't carry one, so it is omitted (the native path also omits it for
+  tools that return no observation).
+- **Turn structure differs.** Claude Code's internal turn/iteration shape is its
+  own; we recover the per-tool sequence (the load-bearing learning signal), not a
+  one-to-one mapping of its turns onto the harness's turn loop.
+- **No per-event "from subprocess" marker.** The `TraceEvent` schema has no
+  source/origin field, so replayed brackets are indistinguishable from native
+  child brackets except by the child sessionId tag (which is exactly how native
+  child events are attributed too).
+
+**Proven (live).** Drove `SubagentScheduler.delegate()` with the **real**
+`runSubprocessExecutor` (default `Bun.spawn`) against the installed `claude`
+(v2.1.168) and a **real** `LearningObserver` pointed at a temp harness home: a
+read-only tool-using task (`"List the files … and tell me how many there are"`)
+completed, Claude chose `Bash: ls -la`, and **one observation landed in
+`<harnessHome>/learning/<projectId>/observations.jsonl`** — `tool=Bash
+status=success duration_ms=0` with the real command captured in
+`tool_input_summary`. The parent trace recorder saw `tool_start:Bash` +
+`tool_end:Bash`. Per-tool learning from a delegated headless turn now reaches the
+corpus.
 
 ---
 
@@ -266,11 +324,18 @@ Keep this an ADR-input / spike doc. No ADR; no productization; no release.
 ## Files
 
 - `src/config/schema.ts` — `subscriptionExecutor` block + `SubscriptionExecutorConfig` type.
-- `src/runtime/subprocessExecutor.ts` — `runSubprocessExecutor`, `buildSubprocessArgs`, the parser.
-- `src/runtime/scheduler.ts` — the executor branch + the two new `SubagentSchedulerOpts` fields.
+- `src/runtime/subprocessExecutor.ts` — `runSubprocessExecutor`, `buildSubprocessArgs`, the parser;
+  **+ the learning replay** (`LearningSink` / `TraceSink` opts, the `tool_use`/`tool_result` pairing,
+  and `replayToolEvents` constructing orchestrator-parity observations + trace brackets).
+- `src/runtime/scheduler.ts` — the executor branch + the two new `SubagentSchedulerOpts` fields;
+  **+ threading the child `learningObserver` + `wrappedTraceRecorder` into `runSubprocessExecutor`**
+  (same destination as a native delegation).
 - `src/server/runtime.ts` — `computeToolVisibleAgents` gating + threading the config into the scheduler.
 - `bundle-default/agents/subscription-executor.md` — the agent def (role `subscription-executor`).
-- Tests: `tests/config/subscriptionExecutor.test.ts`, `tests/runtime/subprocessExecutor.test.ts`,
-  `tests/runtime/scheduler.subscriptionExecutor.test.ts`, `tests/server/computeToolVisibleAgents.test.ts`;
+- Tests: `tests/config/subscriptionExecutor.test.ts`, `tests/runtime/subprocessExecutor.test.ts`
+  (**+ 5 replay tests** — per-tool observation parity, faithful `messages[]`, no-op without sinks,
+  orphan tool_use, no-replay-on-error), `tests/runtime/scheduler.subscriptionExecutor.test.ts`
+  (**+ 2 threading tests** — child observer/trace threaded to the same destination; none threaded
+  when the parent context has no observer), `tests/server/computeToolVisibleAgents.test.ts`;
   `tests/runtime/scheduler.test.ts` unchanged-green (the normal-path proof);
   `tests/agents/bundleDefault.test.ts` updated for the new agent def.

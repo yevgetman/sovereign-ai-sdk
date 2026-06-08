@@ -359,12 +359,33 @@ export class SubagentScheduler {
             // terminal simply skips the memory/review hooks (same as a normal
             // child that errored). cwd is constrained to the parent's tool
             // context cwd — the subprocess never roams outside the runtime root.
+            //
+            // Learning replay (2026-06-08) — hand the subprocess the SAME
+            // learning observer + trace sink a NATIVE delegation would use, so a
+            // delegated headless-Claude-Code turn's per-tool use lands in the
+            // child session's corpus identically to a native child:
+            //   - learningObserver: childToolContext.learningObserver — the
+            //     observer the native AgentRunner reads off `toolContext`
+            //     (inherited from the parent context, sessionId-bound). The same
+            //     destination, by construction.
+            //   - traceRecorder: wrappedTraceRecorder — the closure that tags
+            //     each event with the child sessionId and forks to BOTH the
+            //     parent recorder and the child's per-session TraceWriter,
+            //     exactly as the native path passes it to AgentRunner.
+            // Both are optional: when learning is disabled / no trace sink
+            // exists, the replay is a clean no-op (the spike's tests still pass).
             result = await run({
               prompt: input.prompt,
               cwd: input.parentToolContext.cwd,
               // biome-ignore lint/style/noNonNullAssertion: guarded by useSubprocessExecutor (enabled === true ⇒ config present)
               config: this.opts.subscriptionExecutor!,
               signal: composed,
+              ...(childToolContext.learningObserver !== undefined
+                ? { learningObserver: childToolContext.learningObserver }
+                : {}),
+              ...(wrappedTraceRecorder !== undefined
+                ? { traceRecorder: wrappedTraceRecorder }
+                : {}),
             });
           } else {
             const runner = new AgentRunner({

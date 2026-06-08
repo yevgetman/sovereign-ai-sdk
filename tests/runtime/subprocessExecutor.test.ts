@@ -12,11 +12,13 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { SubscriptionExecutorConfig } from '../../src/config/schema.js';
+import type { ObserveInput } from '../../src/learning/observer.js';
 import {
   type SpawnFn,
   buildSubprocessArgs,
   runSubprocessExecutor,
 } from '../../src/runtime/subprocessExecutor.js';
+import type { TraceEvent } from '../../src/trace/types.js';
 
 /** Build a fake spawn fn that emits the given JSONL lines on stdout, then
  *  exits with `exitCode`. Records the argv it was called with so tests can
@@ -282,5 +284,270 @@ describe('buildSubprocessArgs — safe posture', () => {
     // spawn command. Confirm the first arg is the headless flag, not a binary.
     const argv = buildSubprocessArgs({ prompt: 'x', config: baseConfig });
     expect(argv[0]).toBe('-p');
+  });
+});
+
+// A real-shaped TWO-tool transcript grounded on the LIVE captured stream-json
+// (claude v2.1.168: `claude -p "list files…" --output-format stream-json
+// --verbose --permission-mode plan`). The real tool_use carries id/name/input
+// (+ a `caller` field we drop); the matching tool_result rides a `type:'user'`
+// frame with `{tool_use_id, type:'tool_result', content:<string>, is_error}`.
+// Here: a successful Bash, then a Read that ERRORS — so the replay must map
+// is_error → ObservationStatus across both branches.
+const TWO_TOOL_TRANSCRIPT: string[] = [
+  JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-xyz', model: 'claude-opus' }),
+  // assistant turn 1 — a Bash tool_use (the live shape carries a `caller`).
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Listing the files.' },
+        {
+          type: 'tool_use',
+          id: 'toolu_bash_1',
+          name: 'Bash',
+          input: { command: 'ls -1A', description: 'List all files' },
+          caller: { type: 'direct' },
+        },
+      ],
+    },
+    session_id: 'sess-xyz',
+  }),
+  // tool_result for the Bash — success.
+  JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_bash_1',
+          content: 'a.txt\nb.txt\nc.txt',
+          is_error: false,
+        },
+      ],
+    },
+    session_id: 'sess-xyz',
+  }),
+  JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }),
+  // assistant turn 2 — a Read tool_use that will error.
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: 'toolu_read_1', name: 'Read', input: { path: 'nope.txt' } },
+      ],
+    },
+    session_id: 'sess-xyz',
+  }),
+  // tool_result for the Read — ERROR.
+  JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_read_1',
+          content: 'Error: file not found: nope.txt',
+          is_error: true,
+        },
+      ],
+    },
+    session_id: 'sess-xyz',
+  }),
+  // assistant final text.
+  JSON.stringify({
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'text', text: 'There are 3 files.' }] },
+    session_id: 'sess-xyz',
+  }),
+  JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    num_turns: 3,
+    result: 'There are 3 files.',
+    session_id: 'sess-xyz',
+  }),
+];
+
+describe('runSubprocessExecutor — learning replay (per-tool observations + trace)', () => {
+  test('replays each tool_use/tool_result into the observer with orchestrator-parity fields', async () => {
+    const observed: ObserveInput[] = [];
+    const traced: TraceEvent[] = [];
+
+    const result = await runSubprocessExecutor({
+      prompt: 'list files',
+      cwd: '/tmp/work',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines: TWO_TOOL_TRANSCRIPT }),
+      learningObserver: { observe: (i) => observed.push(i) },
+      traceRecorder: (e) => traced.push(e),
+    });
+
+    // Result shape is unchanged by the replay.
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.toolCallCount).toBe(2);
+    expect(result.distinctToolNames).toEqual(['Bash', 'Read']);
+
+    // One observation per tool call, in stream order.
+    expect(observed).toHaveLength(2);
+
+    // Bash — success. Fields mirror what the orchestrator builds:
+    //   toolName, toolInput (verbatim), status, durationMs, traceId=tool_use_id.
+    expect(observed[0]).toMatchObject({
+      toolName: 'Bash',
+      toolInput: { command: 'ls -1A', description: 'List all files' },
+      status: 'success',
+      traceId: 'toolu_bash_1',
+    });
+    expect(observed[0]?.durationMs).toBeGreaterThanOrEqual(0);
+    // No harness ToolObservation envelope on a subprocess tool result.
+    expect(observed[0]?.observationEnvelope).toBeUndefined();
+
+    // Read — is_error:true → status 'error'.
+    expect(observed[1]).toMatchObject({
+      toolName: 'Read',
+      toolInput: { path: 'nope.txt' },
+      status: 'error',
+      traceId: 'toolu_read_1',
+    });
+
+    // Trace bracket per tool: tool_start then tool_end (success) / tool_error.
+    const bashStart = traced.find((e) => e.type === 'tool_start' && e.toolUseId === 'toolu_bash_1');
+    const bashEnd = traced.find((e) => e.type === 'tool_end' && e.toolUseId === 'toolu_bash_1');
+    expect(bashStart).toBeDefined();
+    expect(bashEnd).toBeDefined();
+    if (bashEnd && bashEnd.type === 'tool_end') {
+      expect(bashEnd.tool).toBe('Bash');
+      // outputBytes mirrors the orchestrator (byte length of the result content).
+      expect(bashEnd.outputBytes).toBe(Buffer.byteLength('a.txt\nb.txt\nc.txt', 'utf8'));
+    }
+
+    const readStart = traced.find((e) => e.type === 'tool_start' && e.toolUseId === 'toolu_read_1');
+    const readErr = traced.find((e) => e.type === 'tool_error' && e.toolUseId === 'toolu_read_1');
+    expect(readStart).toBeDefined();
+    expect(readErr).toBeDefined();
+    if (readErr && readErr.type === 'tool_error') {
+      expect(readErr.tool).toBe('Read');
+      expect(readErr.message).toContain('file not found');
+    }
+    // The errored tool produced NO tool_end (parity with the orchestrator,
+    // which records tool_error XOR tool_end).
+    expect(
+      traced.find((e) => e.type === 'tool_end' && e.toolUseId === 'toolu_read_1'),
+    ).toBeUndefined();
+  });
+
+  test('messages[] is faithful — carries tool_use AND tool_result blocks, not just final text', async () => {
+    const result = await runSubprocessExecutor({
+      prompt: 'list files',
+      cwd: '/tmp/work',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines: TWO_TOOL_TRANSCRIPT }),
+    });
+
+    const flat = JSON.stringify(result.messages);
+    // Both tool_use blocks present.
+    expect(flat).toContain('toolu_bash_1');
+    expect(flat).toContain('toolu_read_1');
+    // Both tool_result blocks present (the is_error flag survives).
+    expect(flat).toContain('tool_result');
+    expect(flat).toContain('file not found');
+    // The final assistant text is also there.
+    expect(flat).toContain('There are 3 files.');
+
+    // Concretely: at least one assistant message carries a tool_use, and at
+    // least one user message carries a tool_result.
+    const hasToolUse = result.messages.some(
+      (m) => m.role === 'assistant' && m.content.some((b) => b.type === 'tool_use'),
+    );
+    const hasToolResult = result.messages.some(
+      (m) => m.role === 'user' && m.content.some((b) => b.type === 'tool_result'),
+    );
+    expect(hasToolUse).toBe(true);
+    expect(hasToolResult).toBe(true);
+  });
+
+  test('no observer/trace passed → clean no-op (back-compat with the spike)', async () => {
+    // The original spike tests pass no observer/trace. The replay must be inert.
+    const result = await runSubprocessExecutor({
+      prompt: 'list files',
+      cwd: '/tmp/work',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines: TWO_TOOL_TRANSCRIPT }),
+    });
+    // No throw; the result shape is exactly the pre-replay contract.
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.toolCallCount).toBe(2);
+    expect(result.messages.length).toBeGreaterThan(0);
+  });
+
+  test('a tool_use with no matching tool_result is still observed (best-effort)', async () => {
+    // Truncated/odd streams: a tool_use whose result frame never arrived.
+    // The orchestrator always produces a tool_result (even on throw), but a
+    // subprocess stream can drop one — we still observe the call so the corpus
+    // sees the tool was attempted, defaulting to success (no error signal).
+    const observed: ObserveInput[] = [];
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'tu_orphan', name: 'Grep', input: { pattern: 'x' } }],
+        },
+      }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        num_turns: 1,
+        result: 'done',
+      }),
+    ];
+    await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines }),
+      learningObserver: { observe: (i) => observed.push(i) },
+    });
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      toolName: 'Grep',
+      status: 'success',
+      traceId: 'tu_orphan',
+    });
+  });
+
+  test('error terminal → no replay (no tools observed on a failed run)', async () => {
+    const observed: ObserveInput[] = [];
+    const traced: TraceEvent[] = [];
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'error_max_turns',
+        is_error: true,
+        num_turns: 5,
+        result: 'hit the cap',
+      }),
+    ];
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines }),
+      learningObserver: { observe: (i) => observed.push(i) },
+      traceRecorder: (e) => traced.push(e),
+    });
+    expect(result.terminal.reason).toBe('error');
+    // No tool_use in the stream → nothing to replay.
+    expect(observed).toHaveLength(0);
+    expect(traced.filter((e) => e.type === 'tool_start')).toHaveLength(0);
   });
 });
