@@ -8,6 +8,16 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-08 — RELEASE v0.6.29: import Claude Code skills + enforce skill `allowedTools` on the `/skill` path
+
+Cut **v0.6.29** off `master` HEAD `ae72bd3` — the ecosystem-openness A+B increment since v0.6.28 (`9e3d611` CC-skill import + `c6cc375` enforce skill `allowedTools` on `/skill` + `ce302d4` docs + `ae72bd3` import hardening / review polish). Followed `docs/conventions/cutting-releases.md` (tag-driven CI). Only `package.json` carries the version stamp (build-time JSON import via `src/version.ts`); the CLAUDE.md/AGENTS.md "shipped" lines + ACTIVE FOCUS banner are historical doc references, left untouched.
+
+**Gate (pre-bump-commit).** `bun run lint` clean (biome, 692 files, no fixes) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3222 pass / 0 fail / 14 skip** (9030 expect() calls, 3236 tests across 362 files, ~110 s). Matches the expected baseline exactly — no new failures, no regressions; the known MockProvider/telegram env-flakes did not surface this run (fully green). The pre-existing AGENTS.md guard-scanner `[WARN]` lines (the installer `curl | bash` doc snippet) are unrelated.
+
+**Release.** Bump committed `c992885` (`chore(release): bump version 0.6.28 -> 0.6.29`), pushed `origin/master` (`ae72bd3..c992885`). Public `sov-releases` CHANGELOG v0.6.29 entry committed `d8aab55`, pushed. Tag `v0.6.29` pushed → CI run **27159933956 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27159933956). `gh release view v0.6.29 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`). CI annotations were benign only: the Node-20 action deprecation (backlog #49) + a cosmetic Go-cache-restore notice.
+
+**Binary verify.** `~/.sov/bin/sov upgrade` pulled v0.6.29 (tarball downloaded, **checksum ok**, prior install backed up). `~/.sov/bin/sov --version` → **`0.6.29`**; `~/.sov/bin/sov --help` exits 0 (boots clean). Feature correctness is covered by the test suite (loader/import/skillScope suites above); no headless `/skills import` exercise needed.
+
 ## 2026-06-08 — Skill import + tool-scope: review polish (timeout fragility, DRY, symlink hardening, tier-wording, missing tests)
 
 Applied two reviews' tighten-ups on the just-landed skill import + tool-scope change (`9e3d611`+`c6cc375`+`ce302d4`). No release (controller reviews + releases). **No NEW behavior in the loader/install happy paths** — DRY extraction + a security guard + tests + doc/comment accuracy.
