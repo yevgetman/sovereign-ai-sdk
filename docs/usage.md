@@ -453,6 +453,54 @@ Phase 2 wired through the R-D plumbing Phase 1 deferred. Each lane's `timeoutMs`
 
 The configured value is consulted in three-step precedence: lane override (via `ctx.laneRegistry.lookup(role)?.timeoutMs`) → `SubagentSchedulerOpts.perChildTimeoutMs` → `agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS`.
 
+## Subscription executor (opt-in)
+
+> ⚠️ **Personal / attended use only.** Read the [terms-of-service boundary](#terms-of-service-boundary) below before enabling this. Driving a subscription credential as an automated / unattended / multi-tenant / client-product backend is against Anthropic's (and OpenAI's) subscription terms — that use stays on the per-token API.
+
+**What it is.** An opt-in execution backend where a delegated sub-agent task is handed to a **headless Claude Code session** — a `claude -p` subprocess the harness spawns. Claude Code runs its **own** agentic loop (its own tools, its own permission system) and returns a summary, which round-trips back through the **normal sub-agent path** (the same `extractSummary` → trajectory write → `on_delegation` memory hook → review-fork → delegation SSE events the native loop produces). Because the subprocess runs under your **local `claude` install** — which can be authenticated by a Claude *subscription* (Pro/Max login) rather than an API key — heavy agentic work runs at flat-rate **subscription cost** instead of per-token API billing.
+
+It is **off by default** (`subscriptionExecutor.enabled: false`). When disabled — which includes an empty config — the harness is byte-identical to today: the lane is hidden from the model, the scheduler branch is inert, and every delegation takes the normal `AgentRunner` path.
+
+**Enable it** with the `subscriptionExecutor` config block (`~/.harness/config.json`):
+
+```json
+{
+  "subscriptionExecutor": {
+    "enabled": false,
+    "engine": "claude-code",
+    "binary": "claude",
+    "permissionMode": "plan",
+    "timeoutMs": 600000,
+    "maxTurns": 30
+  }
+}
+```
+
+All fields are optional:
+
+- `enabled` — `false` by default (and absent ⇒ disabled). Off ⇒ zero change unless explicitly enabled.
+- `engine` — `'claude-code'` (the only engine in this spike).
+- `binary` — the `claude` executable to spawn (default `'claude'`; set an absolute path if it's not on `PATH`).
+- `permissionMode` — `'plan'` (default, safest read-only-ish posture) | `'acceptEdits'` | `'default'`. **`bypassPermissions` is rejected at config-parse time** — the harness never passes a bypass / `--dangerously-skip-permissions` flag to the subprocess. The subprocess enforces its own permission system under the constrained mode.
+- `timeoutMs` — per-delegation wall-clock cap (positive milliseconds); the subprocess is killed and its stdio readers cancelled on timeout or parent-cancel.
+- `maxTurns` — caps the headless session's agentic turns (maps to `claude -p --max-turns N`).
+
+**Use it.** Once enabled, the model can delegate to the headless executor by selecting `subagent_type: "subscription-executor"` via the **Agent tool**. This requires the `claude` CLI **installed and logged in** (a subscription login or, if you choose, an API-keyed login). The `subscription-executor` agent ships in `bundle-default/agents/`; it is loaded into the registry always, but the **model-visible Agent-tool enum** only exposes the role when `subscriptionExecutor.enabled: true` (the same gating mechanism that hides the task-routing lane roles when `taskRouting` is off). The spawned `claude -p` runs constrained to the runtime cwd and never roams outside the runtime root.
+
+**Learning.** The delegated session's per-tool work is **replayed into the harness's learning corpus**, so delegated turns feed memory/learning like native ones. As the harness parses Claude Code's `stream-json`, it pairs each `tool_use` with its `tool_result` and, on a completed run, emits a `LearningObservation` field-for-field identical to the native orchestrator's plus matching trace brackets — landing in the **same corpus + trace files** a native child would. Tool names + input keys are **canonicalized to the harness's native vocabulary** at the replay boundary so cross-surface evidence co-clusters (e.g. a delegated `Read`/`{file_path}` co-identifies with the native `FileRead`/`{path}`; `Write`→`FileWrite`, `Edit`→`FileEdit`, `Bash`'s Claude-only `description` is dropped; unmapped tools like `Task`/`WebFetch`/MCP pass through unchanged). The reconstructed `messages[]` and trace stay **byte-for-byte verbatim** — only the observation and the `distinctToolNames` metric are canonicalized.
+
+Residual fidelity gaps (brief): **no per-tool timing** (the stream carries only an aggregate `duration_ms`, so replayed observations use `durationMs: 0`), and **success/error status only** (Claude Code resolves its own permission prompts/cancellations inside the subprocess — no `denied` / `cancelled` status reaches the replay). Learning disabled / no trace sink ⇒ a clean no-op.
+
+### Terms-of-service boundary
+
+**This is for personal / attended use of the official `claude` binary under your own subscription ONLY.** The defensible mode is a human at the keyboard delegating to their own logged-in Claude Code install.
+
+Driving a subscription credential as an **automated / unattended / multi-tenant / client-product** backend is against Anthropic's (and OpenAI's) subscription terms — enforced as of early 2026 against driving a consumer subscription as a programmatic backend for others. **That use stays on the per-token API** (the harness's existing `AgentRunner` + `LLMProvider`).
+
+That is why the executor is wired **only** to the interactive sub-agent delegation seam and is deliberately **NOT** available to **cron, channels, or the gateway** — those are exactly the automated / remote / multi-tenant contexts where driving the subscription binary would cross the line. The permission posture is safe-by-default (`--permission-mode`, never `bypassPermissions`), and the off-by-default gate keeps the capability invisible until an operator opts in for their own attended use.
+
+See the spike / design doc — [`docs/specs/2026-06-08-subscription-executor-spike.md`](specs/2026-06-08-subscription-executor-spike.md) — for the full rationale, the verified scheduler seam, the live `stream-json` shape, and the strategic context (ADR H-0010 "rent the engine").
+
 ## Bundleless Invocation + Default Bundle
 
 `sov` runs without requiring a bundle on disk. Bundle resolution is a four-step fallthrough:
