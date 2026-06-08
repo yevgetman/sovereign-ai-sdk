@@ -21,6 +21,7 @@
 
 import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
+import { buildToolScope } from '../../commands/toolScope.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
 import { expandContextReferences } from '../../context/references.js';
@@ -148,6 +149,11 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     // with a 400 so the TUI surfaces the mistake immediately rather than
     // letting a raw `/foo` slash leak into the model's context.
     let text = rawText;
+    // Feature B — the resolved skill's allowedTools, retained across the
+    // expansion so runTurnInBackground can scope the live tool pool to it for
+    // THIS turn only. Passed only for kind:'skill' turns with a non-empty
+    // allow-list; undefined (no restriction) otherwise.
+    let skillScope: readonly string[] | undefined;
     if (body.kind === 'skill') {
       const trimmed = rawText.trim();
       if (!trimmed.startsWith('/')) {
@@ -160,6 +166,12 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       if (!skill) {
         return c.json({ error: `unknown skill: ${skillName}` }, 400);
       }
+      // Retain the allow-list before discarding the rest of the skill object.
+      // Empty array → leave undefined so buildToolScope falls through to the
+      // identity (no narrowing) path downstream.
+      if (skill.allowedTools.length > 0) {
+        skillScope = skill.allowedTools;
+      }
       text = await expandSkillPrompt(skill, { args, cwd: runtime.cwd, sessionId });
     }
 
@@ -171,7 +183,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     // any in-route awaiting. The `void` discards the returned promise
     // intentionally; runTurnInBackground catches its own errors and
     // publishes them as turn_error events onto the bus.
-    void runTurnInBackground(runtime, sessionId, text, bus).catch((err) => {
+    void runTurnInBackground(runtime, sessionId, text, bus, skillScope).catch((err) => {
       // Defense in depth: runTurnInBackground catches errors inside its try and
       // publishes turn_error, but a throw in its pre-try setup would otherwise
       // be an unhandled rejection that crashes the process. Surface it as a
@@ -220,6 +232,17 @@ export function buildSessionToolContext(
      *  events that the closure maps onto the four delegator_* SSE events.
      *  Cron + OpenAI callers pass undefined (no SSE bus to publish to). */
     delegationLifecycleRecorder?: (event: DelegationLifecycleEvent) => void;
+    /** Feature B — the effective tool pool for THIS turn. Defaults to the
+     *  shared `runtime.toolPool` so every existing caller is byte-unchanged.
+     *  The `/skill` path passes a fresh SCOPED copy (`buildToolScope(...).tools`)
+     *  when the skill declares `allowedTools`, so a forked sub-agent inherits
+     *  the same narrowed pool (`parentToolPool === effectivePool`) and the
+     *  skill-visibility derivation tracks the tools the turn can actually use.
+     *  IMPORTANT vs the shared pool: `runtime.toolPool` is a shared array
+     *  mutated in place on reload; the scope is a FRESH filtered copy
+     *  (`buildToolScope` always returns a new array), never a mutation of —
+     *  nor an alias to — the shared pool. */
+    effectivePool?: Tool<unknown, unknown>[];
   } = {},
 ): ToolContext {
   // M7 T5/T6 — pull the per-session subsystems off the SessionContext so
@@ -227,8 +250,12 @@ export function buildSessionToolContext(
   // every tool call and (T6) `ctx.reviewManager` can guard review forks.
   // The context is lazily built (or cached) by Runtime.getSessionContext.
   const sessionCtx = runtime.getSessionContext(sessionId);
+  // Feature B — the pool this turn actually runs against. Defaults to the
+  // shared runtime pool (every existing caller); the `/skill` path overrides
+  // it with the skill-scoped copy. Read-only — never mutate runtime.toolPool.
+  const effectivePool = opts.effectivePool ?? runtime.toolPool;
   // M8 T4 — per-turn skill visibility. The active toolset is derived
-  // from `runtime.toolPool` (the same pool the turn's `query()` runs
+  // from the EFFECTIVE pool (the same pool the turn's `query()` runs
   // against) and fed into `inferActiveToolsets` + `filterSkillRegistry`
   // so any skill gated on a tool the turn lacks (or is the fallback
   // half of a primary/fallback pair whose primary is active) is dropped
@@ -237,8 +264,9 @@ export function buildSessionToolContext(
   // unfiltered for the T5 `/skillname` dispatch and the GET /skills
   // route (which projects its own filtered view per request). The
   // toolPool / activeToolNames / activeToolsets derivation happens per
-  // turn so visibility tracks any per-turn tool-pool changes.
-  const activeToolNames = runtime.toolPool.map((t) => t.name);
+  // turn so visibility tracks any per-turn tool-pool changes (incl. the
+  // skill-scope narrowing).
+  const activeToolNames = effectivePool.map((t) => t.name);
   const activeToolsets = inferActiveToolsets(activeToolNames);
   const filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
   return {
@@ -255,7 +283,10 @@ export function buildSessionToolContext(
     // Always present on Runtime (built by `buildLaneRegistry`), so this
     // is a direct passthrough rather than a conditional spread.
     laneRegistry: runtime.laneRegistry,
-    parentToolPool: runtime.toolPool,
+    // Feature B — forked sub-agents inherit the EFFECTIVE pool, so a child
+    // dispatched mid-`/skill`-turn is bounded by the skill's allowedTools
+    // (child ⊆ skill scope ⊆ runtime pool). Defaults to runtime.toolPool.
+    parentToolPool: effectivePool,
     canUseTool: sessionCanUseTool,
     // M8 T4 — filtered skill registry + active toolset/tool-name arrays
     // so skill-aware tools (SkillTool, skills_list, skill_view) all see
@@ -307,6 +338,13 @@ async function runTurnInBackground(
   sessionIdInitial: string,
   text: string,
   bus: ServerEventBus,
+  // Feature B — when this turn consumes a skill body whose frontmatter
+  // declares `allowedTools`, the route passes that allow-list here. It scopes
+  // the live tool pool (and the pool sub-agents inherit) for THIS turn only —
+  // the restriction lives entirely in a turn-local const and evaporates at
+  // turn end (no persistence, no clearing, no resume hazard). Undefined/empty
+  // → identity (no narrowing), byte-identical to a non-skill turn.
+  skillScope?: readonly string[],
 ): Promise<void> {
   // Phase B T3 — mark the turn boundary on the bus BEFORE this turn stamps
   // its first event (the status_update{streaming:true} below is the first
@@ -549,6 +587,25 @@ async function runTurnInBackground(
       redactSecretsTransformer,
     ]);
 
+    // Feature B — turn-scoped skill tool restriction. When this turn consumes
+    // a `/skill` whose frontmatter declares `allowedTools`, narrow the live
+    // tool pool (and the gate) to that allow-list for THIS turn only.
+    //   - `tools: runtime.toolPool` READS the shared pool; `buildToolScope`
+    //     returns a FRESH filtered copy — runtime.toolPool is never mutated
+    //     (the reload contract mutates it in place, so aliasing/narrowing it
+    //     would corrupt every other session).
+    //   - `skillScope` undefined/empty → identity: scope.tools === the pool
+    //     and scope.canUseTool === sessionCanUseTool, so non-skill / unscoped
+    //     turns are byte-identical to today.
+    //   - `scope.canUseTool` denies out-of-scope calls with
+    //     'tool is outside slash-command scope' as an OUTER allow-list that
+    //     only ever removes capability (composes with the permission cascade).
+    const scope = buildToolScope({
+      allowedTools: skillScope,
+      tools: runtime.toolPool,
+      canUseTool: sessionCanUseTool,
+    });
+
     // Phase 2 T4 — per-turn delegation lifecycle recorder. Bound to the
     // initial sessionId so all four delegator_* SSE events publish under
     // the root session id the SSE subscriber connected against. The
@@ -594,9 +651,13 @@ async function runTurnInBackground(
         model: runtime.model,
         messages: currentMessages,
         systemPrompt: runtime.systemSegments,
-        tools: runtime.toolPool,
-        toolContext: buildSessionToolContext(runtime, sessionId, sessionCanUseTool, {
+        // Feature B — the SKILL-SCOPED tool pool (a fresh copy; identity when
+        // unscoped). Never the shared runtime.toolPool when narrowed.
+        tools: scope.tools,
+        toolContext: buildSessionToolContext(runtime, sessionId, scope.canUseTool, {
           delegationLifecycleRecorder,
+          // Sub-agents forked mid-turn inherit the scoped pool.
+          effectivePool: scope.tools,
         }),
         // Backlog #43 (D6 fix) — the server/TUI surface previously OMITTED
         // memoryManager from query(), so MEMORY.md never injected here (only
@@ -619,8 +680,11 @@ async function runTurnInBackground(
         // Session-scoped canUseTool: the `ask` callback emits a
         // permission_request event on this session's bus and awaits the
         // matching POST /approvals/:requestId. Replaces the runtime-level
-        // deny placeholder (M3) with the live SSE bridge (M5 T5).
-        canUseTool: sessionCanUseTool,
+        // deny placeholder (M3) with the live SSE bridge (M5 T5). Feature B
+        // wraps it as `scope.canUseTool` so an out-of-scope tool call on a
+        // scoped `/skill` turn is denied BEFORE the session gate runs
+        // (identity-wrapped — i.e. === sessionCanUseTool — when unscoped).
+        canUseTool: scope.canUseTool,
         // Forward the hook runner so UserPromptSubmit fires before turn 0,
         // PreToolUse/PostToolUse fire around each tool call, and Stop fires
         // at terminal. Constructed in buildRuntime (M5 T1); always present

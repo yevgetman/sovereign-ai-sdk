@@ -65,7 +65,14 @@ export const SkillTool = buildTool<Input, Output>({
   renderResult: (out) => ({
     content: [
       `Skill '${out.skill}' activated.`,
-      out.allowedTools.length > 0 ? `Allowed tools: ${out.allowedTools.join(', ')}` : '',
+      // Feature B — the model-invoked SkillTool path is ADVISORY: the
+      // `allowedTools` list is surfaced as guidance, but (unlike the
+      // user-invoked `/skill` path, which hard-restricts the turn's tool
+      // pool) it does not narrow the live pool mid-loop. State that plainly
+      // so the model treats it as a constraint to honor, not an enforced wall.
+      out.allowedTools.length > 0
+        ? `Allowed tools (advisory — honor these; only use the listed tools): ${out.allowedTools.join(', ')}`
+        : '',
       '<skill-prompt>',
       out.prompt,
       '</skill-prompt>',

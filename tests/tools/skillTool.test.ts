@@ -75,7 +75,12 @@ describe('SkillTool', () => {
       expect(result.data.prompt).toBe('Simplify src/main.ts.');
       const rendered = SkillTool.renderResult?.(result.data);
       expect(rendered?.content).toContain("Skill 'simplify' activated");
-      expect(rendered?.content).toContain('Allowed tools: Read, Edit');
+      // Feature B — the model-invoked SkillTool path is advisory: the allowed
+      // tools are surfaced as guidance (not a hard pool restriction, unlike the
+      // user-invoked `/skill` path). The rendered line lists the tools AND
+      // states the advisory nature.
+      expect(rendered?.content).toContain('Read, Edit');
+      expect(rendered?.content.toLowerCase()).toContain('advisory');
     });
   });
 

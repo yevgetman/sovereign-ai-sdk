@@ -126,6 +126,13 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  message, defeating the persistence work). Reset in test finally. */
   static lastMessages: Message[] | undefined = undefined;
 
+  /** Snapshot of the `tools` array (as ToolSchema[]) passed to the most
+   *  recent `stream()` call. The skill-scope tests (Feature B) read the
+   *  tool names off this AFTER a `/skill` turn to assert the live tool pool
+   *  query() ran against was narrowed to the skill's allowedTools. Reset in
+   *  test finally. */
+  static lastTools: ToolSchema[] | undefined = undefined;
+
   /** Phase 18 T10 — snapshot of the AbortSignal that reached the most
    *  recent `stream()` call. The OpenAI route's abort-bridge test reads
    *  this AFTER triggering an AbortController.abort() on the client
@@ -188,6 +195,9 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     // Snapshot the messages array so resume-history regression tests can
     // assert the model saw prior turns.
     MockProvider.lastMessages = req.messages;
+    // Snapshot the tools array so the skill-scope tests (Feature B) can
+    // assert the live tool pool query() ran against was narrowed.
+    MockProvider.lastTools = req.tools;
     // Phase 18 T10 — snapshot the AbortSignal so abort-propagation tests
     // can assert `lastSignal.aborted === true` after the route bridges
     // a client disconnect through query() into provider.stream().
