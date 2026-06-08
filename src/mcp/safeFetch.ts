@@ -8,10 +8,12 @@
 // request to an attacker-controlled origin and harvest those secrets.
 //
 // `buildSafeFetch` does MANUAL redirect handling: it follows up to a small
-// cap, and on EVERY hop whose target origin differs from the ORIGINAL
-// configured server origin it strips the FULL set of auth-bearing headers
-// we attached before issuing the next request. Same-origin redirects
-// (including http→https on the same host:port) keep the headers.
+// cap, and on EVERY hop that leaves the configured HOST — or DOWNGRADES the
+// scheme (https → http) on the same host — it strips the FULL set of
+// auth-bearing headers we attached before issuing the next request.
+// Same-host, same-scheme redirects KEEP the headers, and so does a
+// same-host http → https UPGRADE: that is a security improvement, and
+// stripping there would 401 a perfectly legitimate (and safer) request.
 //
 // The threat here is secret-in-transit, not SSRF — the destination URL is
 // operator config, so there is no host allow-list (cf. WebFetchTool, where
@@ -31,12 +33,24 @@ const MAX_REDIRECTS = 5;
  *  `headers` are stripped too — they are passed in via `attachedHeaderNames`. */
 const ALWAYS_SENSITIVE = ['authorization', 'x-api-key'] as const;
 
-/** True when `target` resolves to a different origin than `original`.
- *  Same scheme + host + port ⇒ same origin (so http→https on the same
- *  host:port is treated as cross-origin only if the port actually differs —
- *  which it does for the default ports, matching browser semantics). */
-function isCrossOrigin(original: URL, target: URL): boolean {
-  return original.origin !== target.origin;
+/** Decide whether to strip the auth-bearing headers on a redirect hop.
+ *
+ *  Strip when the target's HOST differs from the original (a genuine
+ *  cross-origin hop — secrets must never reach a third party), OR on a
+ *  scheme DOWNGRADE (original `https:` → target `http:`) on the same host
+ *  (don't put secrets back on the wire in plaintext).
+ *
+ *  KEEP the headers on a same-host same-scheme redirect AND on a same-host
+ *  http → https UPGRADE — the latter is security-improving and a common
+ *  result of pointing a plaintext config at an https endpoint.
+ *
+ *  `URL.host` includes a non-default port (and default ports normalize, so
+ *  `http://h` ≡ `http://h:80`), so a different port counts as a different
+ *  host here, matching the cross-origin intent. */
+function shouldStripOnRedirect(original: URL, target: URL): boolean {
+  if (original.host !== target.host) return true;
+  const isDowngrade = original.protocol === 'https:' && target.protocol === 'http:';
+  return isDowngrade;
 }
 
 /** Remove every auth-bearing header from a header set, case-insensitively,
@@ -93,9 +107,10 @@ export function buildSafeFetch(
         throw new Error('invalid redirect Location header');
       }
 
-      // The crux: once a hop leaves the configured origin, drop every
-      // header we attached so secrets never travel to a third party.
-      if (isCrossOrigin(originUrl, nextUrl)) {
+      // The crux: once a hop leaves the configured host (or downgrades the
+      // scheme on the same host), drop every header we attached so secrets
+      // never travel to a third party or onto a plaintext wire.
+      if (shouldStripOnRedirect(originUrl, nextUrl)) {
         headers = stripSensitiveHeaders(headers, sensitive);
       }
 

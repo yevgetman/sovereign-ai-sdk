@@ -72,6 +72,46 @@ describe('buildSafeFetch', () => {
     expect(hops[1]?.headers['x-api-key']).toBeUndefined();
   });
 
+  test('keeps auth headers on a same-host http→https UPGRADE', async () => {
+    // A plaintext config that 30x-upgrades to https on the same host is a
+    // security IMPROVEMENT, not a cross-origin hop. Headers must survive so
+    // the upgraded request authenticates (origin compare would 401 here).
+    const { impl, hops } = recordingFetch([{ location: 'https://mcp.example.com/v1' }, {}]);
+    const safe = buildSafeFetch('http://mcp.example.com/v1', ['x-tenant'], impl);
+    await safe('http://mcp.example.com/v1', {
+      headers: { Authorization: 'Bearer t', 'X-API-Key': 'k', 'X-Tenant': 'acme' },
+    });
+
+    expect(hops).toHaveLength(2);
+    expect(hops[1]?.headers.authorization).toBe('Bearer t');
+    expect(hops[1]?.headers['x-api-key']).toBe('k');
+    expect(hops[1]?.headers['x-tenant']).toBe('acme');
+  });
+
+  test('strips auth headers on a same-host https→http DOWNGRADE', async () => {
+    // The reverse direction leaks secrets onto the wire in plaintext — treat
+    // a scheme downgrade as sensitive and strip.
+    const { impl, hops } = recordingFetch([{ location: 'http://mcp.example.com/v1' }, {}]);
+    const safe = buildSafeFetch('https://mcp.example.com/v1', ['x-tenant'], impl);
+    await safe('https://mcp.example.com/v1', {
+      headers: { Authorization: 'Bearer t', 'X-API-Key': 'k', 'X-Tenant': 'acme' },
+    });
+
+    expect(hops).toHaveLength(2);
+    expect(hops[1]?.headers.authorization).toBeUndefined();
+    expect(hops[1]?.headers['x-api-key']).toBeUndefined();
+    expect(hops[1]?.headers['x-tenant']).toBeUndefined();
+  });
+
+  test('keeps auth headers on a same-host same-scheme redirect (default port normalizes)', async () => {
+    // http://h ≡ http://h:80 — the default port normalizes, so an explicit
+    // :80 on the same host+scheme is still same-host and headers stay.
+    const { impl, hops } = recordingFetch([{ location: 'http://mcp.example.com:80/v2' }, {}]);
+    const safe = buildSafeFetch('http://mcp.example.com/v1', [], impl);
+    await safe('http://mcp.example.com/v1', { headers: { Authorization: 'Bearer t' } });
+    expect(hops[1]?.headers.authorization).toBe('Bearer t');
+  });
+
   test('does not re-add headers if a later hop returns same-origin', async () => {
     // origin → attacker (strip) → back to origin: headers stay stripped
     // because we never re-attach what we removed.
