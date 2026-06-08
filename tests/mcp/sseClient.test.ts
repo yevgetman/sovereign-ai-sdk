@@ -13,6 +13,17 @@ import { buildMcpClientPool } from '../../src/mcp/client.js';
 import type { McpClientPool } from '../../src/mcp/types.js';
 import { type SseEchoServer, startSseEchoServer } from './fixtures/sse-echo-server.js';
 
+// The legacy-SSE client transport drives the SDK's `EventSource` over a GET
+// stream. Against an in-process `node:http` fixture in the same event loop,
+// Bun's `EventSource`/`node:http` interop only became reliable in Bun 1.3 —
+// on the CI floor (Bun 1.2.0) the GET stream never opens and these
+// round-trips hang to the test timeout. The HTTP (Streamable) transport
+// tests in remoteClient.test.ts have no such dependency and run everywhere.
+// The shipping runtime code is the same on every Bun; this guard only gates
+// the in-process fixture round-trip to where the interop is sound. (A real
+// remote SSE server over real TCP is unaffected.)
+const SSE_FIXTURE_SUPPORTED = Bun.semver.satisfies(Bun.version, '>=1.3.0');
+
 const cleanups: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
@@ -30,7 +41,7 @@ function track(pool: McpClientPool): McpClientPool {
   return pool;
 }
 
-describe('remote MCP client pool (legacy SSE)', () => {
+describe.skipIf(!SSE_FIXTURE_SUPPORTED)('remote MCP client pool (legacy SSE)', () => {
   test('connects, lists tools, calls a tool, surfaces isError', async () => {
     const srv = await withSse();
     const pool = track(
