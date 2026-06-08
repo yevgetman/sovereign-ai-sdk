@@ -37,7 +37,7 @@ A distinct `import` verb (not folded into `install`, which stays byte-faithful).
 5. Copies the whole source tree (bundled `references/`/`scripts/`) then overwrites the target SKILL.md with the canonical normalized content.
 6. Returns `{ ok, name, installedAt, converted: string[], warnings: string[] }`.
 
-Lands in `<harnessHome>/skills/<name>/` (trusted tier, parity with `install`; the guard scanner at load is the real safety boundary regardless of tier).
+Lands in `<harnessHome>/skills/<name>/`, parity with `install`. A `<root>/<name>/SKILL.md` directory skill there is classified **`community`** by `classifyUserSkill` (`loader.ts`) — the *safer* tier (blocks medium+critical guard findings), which is the intended stricter posture for an untrusted third-party import (NOT `trusted`). The guard scanner at load is the real safety boundary regardless of tier.
 
 **Wiring (3 layers, mirror the existing `install` verb):** server route `POST /sessions/:id/skills/import` (`src/server/routes/skills.ts`); TUI transport `ImportSkill` (`packages/tui/internal/transport/skills.go`); TUI verb parser `case "import"` + result rendering of `converted`/`warnings` + usage strings (`packages/tui/internal/app/app.go`).
 

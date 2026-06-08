@@ -8,6 +8,19 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-08 — Skill import + tool-scope: review polish (timeout fragility, DRY, symlink hardening, tier-wording, missing tests)
+
+Applied two reviews' tighten-ups on the just-landed skill import + tool-scope change (`9e3d611`+`c6cc375`+`ce302d4`). No release (controller reviews + releases). **No NEW behavior in the loader/install happy paths** — DRY extraction + a security guard + tests + doc/comment accuracy.
+
+- **(MED) Test timeout fragility** — gave all four SSE-draining route-seam tests in `tests/server/skillScope.test.ts` an explicit `15000` ms timeout (was Bun's 5 s default; a timeout there leaks `MockProvider` static state into the next test). The file run already took ~4.6 s in isolation, confirming the margin was thin.
+- **(MED, DRY)** Extracted the verbatim-duplicated `splitCommaList` + the near-identical frontmatter splitter into a new `src/skills/frontmatter.ts` (`splitCommaList` + `splitFrontmatter`, one CRLF-tolerant regex). `loader.ts` `parseMarkdownFrontmatter` now delegates the raw split to it then parses the YAML (behavior identical; error message still contains "missing YAML frontmatter"); `install.ts` imports both.
+- **(LOW, security)** Out-of-tree symlinks in copied skill trees. New `src/skills/symlinkGuard.ts` exposes `copySkillTree(src,dst)` = `assertNoSymlinkEscape` (recursive realpath scan; rejects any symlink whose real path escapes the source root, and dangling links) **then** `cp(recursive)`. Both `importSkill` and `installSkill` now route their directory copy through it (the shared copy path), so a malicious `references/x -> ~/.ssh/id_rsa` is refused before anything lands on disk — this hardens the pre-existing `installSkill` too. Tests: out-of-tree symlink → refuse (import + install); in-tree symlink → allowed.
+- **(LOW, accuracy)** Corrected the wrong "trusted tier" claim: an imported `<root>/<name>/SKILL.md` directory skill classifies **`community`** (the safer tier — blocks medium+critical guard findings), verified at runtime via `classifyUserSkill`. Fixed the wording in both the `importSkill` docblock (`install.ts`) and the spec; did NOT change code to force `trusted` (would weaken the guard).
+- **(LOW) Missing import tests** — added: both `allowedTools` + `allowed-tools` present → native list survives the rewrite (no clobber); a non-predicate `description` (`A formatter`) → synthesized `whenToUse` loads with no `validateWhenToUse` warning.
+- **(LOW) CRLF** — `install.ts` `parseFrontmatter` now reuses the shared (CRLF-tolerant) splitter + `\r?`-tolerant name/description value capture.
+
+**Gate.** `bun run lint` clean (biome, 692 files) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3222 pass / 0 fail / 14 skip** (+5 from the entry below's 3217; no new failures, no regressions; the known MockProvider/telegram env-flakes did not surface this run). `tests/server/skillScope.test.ts` passes in isolation (7/0, 4.57 s). No Go changes (Go gate skipped). The pre-existing AGENTS.md guard-scanner `[WARN]` lines (installer `curl | bash` doc snippet) are unrelated. CLAUDE.md ≡ AGENTS.md verified.
+
 ## 2026-06-08 — Skill import shim (CC skills) + enforce skill `allowedTools` on the `/skill` path — TDD
 
 Two related features shipped per `docs/specs/2026-06-08-skill-import-and-tool-scope-enforcement-design.md`. **No release** (the controller reviews + releases). Both built RED→GREEN; committed atomically (A separate from B); pushed `origin/master`.

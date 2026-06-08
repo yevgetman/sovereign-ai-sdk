@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installSkill, uninstallSkill } from '../../src/skills/install.js';
@@ -163,6 +163,24 @@ body
     expect(result.ok).toBe(true);
     const installed = await readFile(join(userSkills, 'my-skill', 'SKILL.md'), 'utf8');
     expect(installed).toContain('updated');
+  });
+
+  test('refuses a directory source containing an out-of-tree symlink', async () => {
+    const dir = join(sourceDir, 'evil-pkg');
+    await mkdir(join(dir, 'references'), { recursive: true });
+    await writeFile(join(dir, 'SKILL.md'), makeSkillContent('evil-pkg'));
+    // A secret outside the source root smuggled in via a symlink. The shared
+    // copy path (copySkillTree) must reject it before anything lands on disk —
+    // this hardens the pre-existing installSkill too.
+    const secret = join(tmpHome, 'secret.txt');
+    await writeFile(secret, 'TOP SECRET');
+    await symlink(secret, join(dir, 'references', 'leak.txt'));
+
+    const result = await installSkill({ source: dir, userSkillsRoot: userSkills });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected install to refuse the out-of-tree symlink');
+    expect(result.reason.toLowerCase()).toContain('symlink');
+    expect(existsSync(join(userSkills, 'evil-pkg', 'references', 'leak.txt'))).toBe(false);
   });
 });
 

@@ -26,7 +26,9 @@ import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
+import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { SkillFrontmatterSchema as LoaderSkillFrontmatterSchema } from './loader.js';
+import { copySkillTree } from './symlinkGuard.js';
 import { validateWhenToUse } from './whenToUse.js';
 
 const SkillNameSchema = z
@@ -99,9 +101,10 @@ export async function installSkill(opts: InstallSkillOptions): Promise<InstallRe
     await mkdir(opts.userSkillsRoot, { recursive: true });
     if (isDirectory) {
       // Copy the whole source directory (including reference files
-      // like template.txt, examples/, etc.) into the target.
+      // like template.txt, examples/, etc.) into the target. copySkillTree
+      // rejects out-of-tree symlinks before anything lands on disk.
       await rm(targetDir, { recursive: true, force: true });
-      await cp(sourceAbs, targetDir, { recursive: true });
+      await copySkillTree(sourceAbs, targetDir);
     } else {
       // Single SKILL.md — wrap it in a directory of the same name.
       await mkdir(targetDir, { recursive: true });
@@ -168,8 +171,11 @@ const IGNORED_CC_KEYS = ['model', 'license', 'argument-hint'] as const;
  *   5. copies the whole source tree (bundled references/, scripts/), then
  *      overwrites the target SKILL.md with the canonical normalized content.
  *
- * Lands in `<userSkillsRoot>/<name>/` (trusted tier, parity with install; the
- * guard scanner at load is the real safety boundary regardless of tier).
+ * Lands in `<userSkillsRoot>/<name>/`. A `<root>/<name>/SKILL.md` directory
+ * skill is classified `community` by `classifyUserSkill` (loader.ts) — the
+ * SAFER tier (blocks medium+critical guard findings), which is the intended
+ * stricter posture for an untrusted third-party import. The guard scanner at
+ * load is the real safety boundary regardless of tier.
  */
 export async function importSkill(opts: ImportSkillOptions): Promise<ImportResult> {
   const resolved = await resolveSkillSource(opts.source);
@@ -223,7 +229,8 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
     // SKILL.md with the canonical normalized content.
     await rm(targetDir, { recursive: true, force: true });
     if (isDirectory) {
-      await cp(sourceAbs, targetDir, { recursive: true });
+      // copySkillTree rejects out-of-tree symlinks before anything lands on disk.
+      await copySkillTree(sourceAbs, targetDir);
     } else {
       await mkdir(targetDir, { recursive: true });
     }
@@ -320,14 +327,6 @@ function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatter {
   return { frontmatter: out, converted, warnings };
 }
 
-/** Split a comma-separated string into a trimmed, non-empty list. */
-function splitCommaList(value: string): string[] {
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-}
-
 /** Build a canonical SKILL.md string: a YAML frontmatter block followed by the
  *  original body. Mirrors the `---\n<yaml>---\n<body>` convention used by
  *  SkillProposeTool / SkillManageTool. */
@@ -339,17 +338,6 @@ function buildCanonicalSkillFile(frontmatter: Record<string, unknown>, body: str
 
 function lowerFirst(text: string): string {
   return text.length > 0 ? text[0]?.toLowerCase() + text.slice(1) : text;
-}
-
-/** Split a markdown file into its raw YAML frontmatter block and body.
- *  Mirrors the loader's frontmatter regex so import sees the same shape the
- *  loader will. */
-function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match || match[1] === undefined) {
-    throw new Error('missing YAML frontmatter (expected leading --- block)');
-  }
-  return { frontmatter: match[1], body: match[2] ?? '' };
 }
 
 type ResolvedSource =
@@ -461,19 +449,16 @@ function errorMessage(err: unknown): string {
 
 /**
  * Minimal markdown frontmatter parser sufficient for SKILL.md files.
- * Mirrors the regex used by src/skills/loader.ts so install validates
+ * Reuses the shared (CRLF-tolerant) frontmatter splitter so install validates
  * with the same shape as the loader will eventually see.
  */
 function parseFrontmatter(raw: string): unknown {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match || match[1] === undefined) {
-    throw new Error('missing YAML frontmatter (expected leading --- block)');
-  }
-  const yamlBody = match[1];
+  const { frontmatter: yamlBody } = splitFrontmatter(raw);
   // We don't pull in yaml here intentionally — the loader does the
-  // full parse. Just extract `name:` for the duplicate check.
-  const nameMatch = yamlBody.match(/^name:\s*(.+)$/m);
-  const descMatch = yamlBody.match(/^description:\s*(.+)$/m);
+  // full parse. Just extract `name:` for the duplicate check. The `\r?` keeps
+  // the value capture CRLF-tolerant (the trailing `.trim()` also strips it).
+  const nameMatch = yamlBody.match(/^name:\s*(.+?)\r?$/m);
+  const descMatch = yamlBody.match(/^description:\s*(.+?)\r?$/m);
   if (!nameMatch || nameMatch[1] === undefined) {
     throw new Error('missing required field: name');
   }

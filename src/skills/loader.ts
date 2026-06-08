@@ -7,6 +7,7 @@ import { readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
 import type {
   Skill,
@@ -61,14 +62,6 @@ function normalizeFrontmatterAliases(raw: unknown): unknown {
     next.allowedTools = splitCommaList(next.allowedTools);
   }
   return next;
-}
-
-/** Split a comma-separated string into a trimmed, non-empty list. */
-function splitCommaList(value: string): string[] {
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
 }
 
 export const SkillFrontmatterSchema = z.preprocess(
@@ -292,12 +285,11 @@ function normalizeHarnessMetadata(
 }
 
 function parseMarkdownFrontmatter(raw: string): { frontmatter: unknown; body: string } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) throw new Error('missing YAML frontmatter');
-  return {
-    frontmatter: parseYaml(match[1] ?? ''),
-    body: match[2] ?? '',
-  };
+  // Delegate the raw split to the shared splitter (identical CRLF-tolerant
+  // regex), then parse the YAML — keeps the loader and install/import on one
+  // frontmatter shape.
+  const { frontmatter, body } = splitFrontmatter(raw);
+  return { frontmatter: parseYaml(frontmatter), body };
 }
 
 async function listMarkdownFiles(root: string): Promise<string[]> {

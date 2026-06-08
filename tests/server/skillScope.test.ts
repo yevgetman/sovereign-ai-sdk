@@ -94,7 +94,10 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     } finally {
       await runtime.dispose();
     }
-  });
+    // Explicit longer timeout: draining the SSE stream under full-suite load can
+    // exceed Bun's 5s default, and a timeout here leaks MockProvider static
+    // state into the next test.
+  }, 15000);
 
   test('denies an out-of-scope Bash input with the slash-command-scope reason', async () => {
     // The skill allows Bash, but ONLY `git status` — so the Bash tool survives
@@ -135,7 +138,8 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     } finally {
       await runtime.dispose();
     }
-  });
+    // Explicit longer timeout (SSE drain under full-suite load — see above).
+  }, 15000);
 
   test('empty allowedTools runs against the full pool (no narrowing)', async () => {
     seedSkill(
@@ -167,7 +171,8 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     } finally {
       await runtime.dispose();
     }
-  });
+    // Explicit longer timeout (SSE drain under full-suite load — see above).
+  }, 15000);
 
   test('a plain (non-skill) turn runs against the full pool', async () => {
     const runtime = await buildRuntime({
@@ -194,7 +199,8 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     } finally {
       await runtime.dispose();
     }
-  });
+    // Explicit longer timeout (SSE drain under full-suite load — see above).
+  }, 15000);
 });
 
 describe('buildSessionToolContext effective pool (Feature B — context seam)', () => {
