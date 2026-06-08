@@ -166,10 +166,19 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
       return activeSessionId;
     },
   };
+  // Reconnect cursor shared across every drainSseStream call: the highest seq
+  // observed, sent as `Last-Event-ID` so a post-turn reconnect resumes AFTER
+  // the terminal instead of re-receiving (and re-rendering) the whole turn.
+  const sseCursor = { current: null as number | null };
   const onEvent = (ev: ServerEvent): void => {
     renderer.handle(ev);
     if (ev.type === 'compaction_complete' && ev.activeSessionId) {
       activeSessionId = ev.activeSessionId;
+      // The pivoted session is a NEW bus with its own seq space starting at 1.
+      // Reset the cursor so the next reconnect is a fresh subscriber (current-
+      // turn replay) rather than a stale-cursor resume that would skip the new
+      // bus's lower-numbered events.
+      sseCursor.current = null;
     }
   };
   const sseDone = (async () => {
@@ -180,6 +189,7 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
           sessionIdRef,
           signal: sseController.signal,
           onEvent,
+          cursorRef: sseCursor,
         });
       } catch {
         // ignore — drainSseStream throws when the signal aborts; the
@@ -612,9 +622,21 @@ async function drainSseStream(opts: {
   sessionIdRef: { readonly current: string };
   signal: AbortSignal;
   onEvent: (ev: ServerEvent) => void;
+  // Shared reconnect cursor. We send the highest seq seen as `Last-Event-ID`
+  // on (re)connect so the server replays only events AFTER it. Without this, a
+  // reconnect after a turn terminal is a fresh (no-cursor) subscriber and the
+  // bus replays the whole just-completed turn — INCLUDING turn_complete — which
+  // ends this stream again, so we reconnect and re-receive it forever: an
+  // infinite loop that re-streams the same assistant turn. `current` is updated
+  // to each event's seq as it arrives so the NEXT reconnect resumes correctly.
+  cursorRef: { current: number | null };
 }): Promise<void> {
   const url = `${opts.baseURL}/sessions/${opts.sessionIdRef.current}/events`;
-  const res = await fetch(url, { signal: opts.signal });
+  const headers =
+    opts.cursorRef.current !== null
+      ? { 'Last-Event-ID': String(opts.cursorRef.current) }
+      : undefined;
+  const res = await fetch(url, { signal: opts.signal, ...(headers ? { headers } : {}) });
   if (!res.ok || res.body === null) {
     throw new Error(`SSE GET ${url} returned ${res.status}`);
   }
@@ -631,7 +653,12 @@ async function drainSseStream(opts: {
         const block = buffer.slice(0, blockEnd);
         buffer = buffer.slice(blockEnd + 2);
         const ev = parseEventBlock(block);
-        if (ev !== null) opts.onEvent(ev);
+        if (ev !== null) {
+          // Advance the reconnect cursor BEFORE handling so a throw in onEvent
+          // can't make us re-request (and re-render) an event we already saw.
+          opts.cursorRef.current = ev.seq;
+          opts.onEvent(ev);
+        }
         blockEnd = buffer.indexOf('\n\n');
       }
     }

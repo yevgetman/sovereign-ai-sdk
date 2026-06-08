@@ -129,6 +129,8 @@ type Model struct {
 	errs             <-chan error
 	sseGen           int                // generation of the current SSE consumer; stale-gen sseMsg/sseDoneMsg are ignored after a session-pivot reconnect
 	sseCancel        context.CancelFunc // cancels the current SSE consumer's request; torn down + replaced on reconnect (nil until first startSSE)
+	sseCursor        int64              // highest event seq observed; sent as Last-Event-ID on reconnect so a post-turn reconnect resumes AFTER the terminal instead of re-receiving (and re-rendering) the whole completed turn — the infinite-replay loop. 0 = none yet.
+	sseCursorSession string             // the session m.sseCursor belongs to; on a session pivot the cursor resets (a new bus has its own seq space starting at 1)
 	thinkingPending  bool
 	permission       *components.Permission // M5 T9: active approval modal; nil when not visible
 	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
@@ -778,8 +780,17 @@ func (m Model) startSSE() (Model, tea.Cmd) {
 	m.sseGen++
 	cctx, cancel := context.WithCancel(m.ctx)
 	m.sseCancel = cancel
+	// A session pivot (/clear, /rollback, /compact, or a compaction_complete
+	// reconnect at turn end) reconnects against a DIFFERENT session whose bus
+	// has its own seq space starting at 1. Reset the cursor so the reconnect is
+	// a fresh subscriber (current-turn replay) rather than a stale-cursor resume
+	// that would skip the new bus's lower-numbered events.
+	if m.sessionID != m.sseCursorSession {
+		m.sseCursor = 0
+		m.sseCursorSession = m.sessionID
+	}
 	streamURL := fmt.Sprintf("%s/sessions/%s/events", m.baseURL, m.sessionID)
-	m.events, m.errs = transport.Consume(cctx, streamURL)
+	m.events, m.errs = transport.Consume(cctx, streamURL, m.sseCursor)
 	return m, m.waitEventGen(m.sseGen, m.events, m.errs)
 }
 
@@ -1376,6 +1387,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// reschedule (the current-gen waiter is already running).
 		if msg.gen != 0 && msg.gen != m.sseGen {
 			return m, m.respond(nil)
+		}
+		// Advance the reconnect cursor to the highest seq seen so the NEXT
+		// startSSE resumes after it (Last-Event-ID) instead of re-fetching the
+		// whole turn. seq is monotonic per bus, but guard with > for safety.
+		if msg.env.Seq > m.sseCursor {
+			m.sseCursor = msg.env.Seq
 		}
 		eventCmd := m.handleEvent(msg.env)
 		// ux-fixes round 5 — drain any Println output the handler queued

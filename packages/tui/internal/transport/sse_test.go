@@ -28,7 +28,7 @@ func TestConsume_streamsTextDeltaAndCompletes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	ch, errCh := Consume(ctx, srv.URL)
+	ch, errCh := Consume(ctx, srv.URL, 0)
 
 	var got []Envelope
 	for ev := range ch {
@@ -42,6 +42,44 @@ func TestConsume_streamsTextDeltaAndCompletes(t *testing.T) {
 	}
 	if got[0].Type != "text_delta" || got[2].Type != "turn_complete" {
 		t.Fatalf("types: %q ... %q", got[0].Type, got[2].Type)
+	}
+}
+
+func TestConsume_sendsLastEventIDHeaderOnReconnect(t *testing.T) {
+	// The reconnect cursor that fixes the infinite-replay loop: when lastEventID
+	// > 0 we MUST send the standard `Last-Event-ID` header so the server replays
+	// only events AFTER it (instead of re-delivering the whole completed turn on
+	// every reconnect). On the first connect (0) the header must be absent so the
+	// server treats it as a fresh subscriber (current-turn replay).
+	headerCh := make(chan string, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headerCh <- r.Header.Get("Last-Event-ID")
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "event: turn_complete\nid: 7\ndata: {\"type\":\"turn_complete\",\"seq\":7,\"sessionId\":\"s\",\"finishReason\":\"end_turn\"}\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Reconnect with a cursor → header present.
+	ch, errCh := Consume(ctx, srv.URL, 42)
+	for range ch { //nolint:revive // drain
+	}
+	<-errCh
+	if h := <-headerCh; h != "42" {
+		t.Fatalf("reconnect Last-Event-ID = %q, want \"42\"", h)
+	}
+
+	// Fresh connect (cursor 0) → header absent.
+	ch2, errCh2 := Consume(ctx, srv.URL, 0)
+	for range ch2 { //nolint:revive // drain
+	}
+	<-errCh2
+	if h := <-headerCh; h != "" {
+		t.Fatalf("fresh-connect Last-Event-ID = %q, want empty", h)
 	}
 }
 
@@ -63,7 +101,7 @@ func TestConsume_handlesLargeDataLine(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ch, errCh := Consume(ctx, srv.URL)
+	ch, errCh := Consume(ctx, srv.URL, 0)
 	var got []Envelope
 	for ev := range ch {
 		got = append(got, ev)

@@ -13,13 +13,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 // Consume opens an SSE connection at url and returns:
 //   - events: closed when stream ends or ctx cancels.
 //   - errs:   single-receive; nil if stream ended cleanly.
-func Consume(ctx context.Context, url string) (<-chan Envelope, <-chan error) {
+//
+// lastEventID is the highest event seq the caller has already seen. When > 0 it
+// is sent as the standard `Last-Event-ID` header so the server replays only
+// events AFTER it. This is what makes reconnect-after-a-turn safe: without it a
+// reconnect is a fresh (no-cursor) subscriber and the server replays the whole
+// just-completed turn — including its turn_complete — which ends the stream
+// again, so the client reconnects and re-receives it forever (an infinite loop
+// that re-streams the same assistant turn). Pass 0 for the first connection.
+func Consume(ctx context.Context, url string, lastEventID int64) (<-chan Envelope, <-chan error) {
 	events := make(chan Envelope, 16)
 	errs := make(chan error, 1)
 
@@ -33,6 +42,9 @@ func Consume(ctx context.Context, url string) (<-chan Envelope, <-chan error) {
 			return
 		}
 		req.Header.Set("Accept", "text/event-stream")
+		if lastEventID > 0 {
+			req.Header.Set("Last-Event-ID", strconv.FormatInt(lastEventID, 10))
+		}
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
