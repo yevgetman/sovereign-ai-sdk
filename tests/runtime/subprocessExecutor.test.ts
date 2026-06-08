@@ -8,7 +8,8 @@
 //   - a tool-using transcript → the exact drainRunner result shape
 //   - a non-zero exit → error terminal
 //   - a timeout (AbortSignal) → error terminal
-//   - the spawn argv carries the safe --permission-mode and NO dangerous flag
+//   - the spawn argv maps permissionMode correctly: bypass (the default) ->
+//     --dangerously-skip-permissions; plan/acceptEdits/default -> --permission-mode
 
 import { describe, expect, test } from 'bun:test';
 import type { SubscriptionExecutorConfig } from '../../src/config/schema.js';
@@ -270,8 +271,8 @@ describe('runSubprocessExecutor — parse + shape', () => {
   });
 });
 
-describe('buildSubprocessArgs — safe posture', () => {
-  test('includes -p, stream-json, verbose, and the safe --permission-mode', () => {
+describe('buildSubprocessArgs — permission-mode mapping', () => {
+  test('includes -p, stream-json, verbose, and --permission-mode for a constrained mode', () => {
     const argv = buildSubprocessArgs({
       prompt: 'hello',
       config: { ...baseConfig, permissionMode: 'plan' },
@@ -285,22 +286,34 @@ describe('buildSubprocessArgs — safe posture', () => {
     expect(argv).toContain('plan');
   });
 
-  test('defaults permissionMode to plan when unset (safest read-only default)', () => {
+  test('defaults permissionMode to bypass (--dangerously-skip-permissions) when unset', () => {
+    // A headless `claude -p` can't answer prompts, so bypass is the useful
+    // default for the attended, interactive-only executor.
     const argv = buildSubprocessArgs({ prompt: 'x', config: { enabled: true } });
-    const idx = argv.indexOf('--permission-mode');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(argv[idx + 1]).toBe('plan');
+    expect(argv).toContain('--dangerously-skip-permissions');
+    expect(argv).not.toContain('--permission-mode');
   });
 
-  test('NEVER emits a dangerous bypass flag', () => {
+  test('the constrained modes emit --permission-mode and NO dangerous flag', () => {
+    for (const mode of ['plan', 'acceptEdits', 'default'] as const) {
+      const argv = buildSubprocessArgs({
+        prompt: 'x',
+        config: { ...baseConfig, permissionMode: mode },
+      });
+      const idx = argv.indexOf('--permission-mode');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(argv[idx + 1]).toBe(mode);
+      expect(argv.join(' ')).not.toContain('--dangerously-skip-permissions');
+    }
+  });
+
+  test('bypass mode emits --dangerously-skip-permissions and omits --permission-mode', () => {
     const argv = buildSubprocessArgs({
       prompt: 'x',
-      config: { ...baseConfig, permissionMode: 'acceptEdits' },
+      config: { ...baseConfig, permissionMode: 'bypass' },
     });
-    const joined = argv.join(' ');
-    expect(joined).not.toContain('bypassPermissions');
-    expect(joined).not.toContain('--dangerously-skip-permissions');
-    expect(joined).not.toContain('--dangerously');
+    expect(argv).toContain('--dangerously-skip-permissions');
+    expect(argv).not.toContain('--permission-mode');
   });
 
   test('threads --max-turns when configured', () => {

@@ -1,8 +1,9 @@
 // Spike — `subscriptionExecutor` config block validation. Pins the
-// strict-mode behavior, the off-by-default (absent-parent) gotcha, the
-// enum coverage, and — security-load-bearing — that the `permissionMode`
-// enum REFUSES the dangerous `bypassPermissions` mode (a remote/automated
-// permission bypass of the spawned `claude` subprocess would be RCE).
+// strict-mode behavior, the off-by-default (absent-parent) gotcha, and the
+// enum coverage — including that `permissionMode` accepts `bypass` (the
+// default → `--dangerously-skip-permissions` for the attended,
+// interactive-only executor) while the Claude-CLI spelling
+// `bypassPermissions` is NOT a valid config token.
 
 import { describe, expect, test } from 'bun:test';
 import { SettingsSchema } from '../../src/config/schema.js';
@@ -38,19 +39,25 @@ describe('SettingsSchema — subscriptionExecutor block', () => {
     expect(parsed.subscriptionExecutor?.enabled).toBeUndefined();
   });
 
-  test('permissionMode accepts the three safe modes', () => {
-    for (const mode of ['plan', 'acceptEdits', 'default'] as const) {
+  test('permissionMode accepts all four modes incl. the default bypass', () => {
+    for (const mode of ['plan', 'acceptEdits', 'default', 'bypass'] as const) {
       expect(() =>
         SettingsSchema.parse({ subscriptionExecutor: { permissionMode: mode } }),
       ).not.toThrow();
     }
   });
 
-  test('permissionMode REJECTS bypassPermissions (security: no remote RCE bypass)', () => {
+  test('permissionMode rejects unknown tokens (incl. the Claude-CLI `bypassPermissions` spelling)', () => {
+    // The harness token is `bypass` (→ --dangerously-skip-permissions); the
+    // Claude-CLI spelling `bypassPermissions` is NOT a valid config value, and
+    // neither is any other unknown string.
     expect(() =>
       SettingsSchema.parse({
         subscriptionExecutor: { permissionMode: 'bypassPermissions' },
       }),
+    ).toThrow();
+    expect(() =>
+      SettingsSchema.parse({ subscriptionExecutor: { permissionMode: 'whatever' } }),
     ).toThrow();
   });
 

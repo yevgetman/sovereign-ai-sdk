@@ -473,7 +473,7 @@ It is **off by default** (`subscriptionExecutor.enabled: false`). When disabled 
     "enabled": false,
     "engine": "claude-code",
     "binary": "claude",
-    "permissionMode": "plan",
+    "permissionMode": "bypass",
     "timeoutMs": 600000,
     "maxTurns": 30
   }
@@ -485,7 +485,7 @@ All fields are optional:
 - `enabled` — `false` by default (and absent ⇒ disabled). Off ⇒ zero change unless explicitly enabled.
 - `engine` — `'claude-code'` (the only engine in this spike).
 - `binary` — the `claude` executable to spawn (default `'claude'`; set an absolute path if it's not on `PATH`).
-- `permissionMode` — `'plan'` (default, safest read-only-ish posture) | `'acceptEdits'` | `'default'`. **`bypassPermissions` is rejected at config-parse time** — the harness never passes a bypass / `--dangerously-skip-permissions` flag to the subprocess. The subprocess enforces its own permission system under the constrained mode.
+- `permissionMode` — **`'bypass'` (default)** → maps to `--dangerously-skip-permissions`: a headless `claude -p` has no interactive approver, so the constrained modes stall real work. `'plan'` | `'acceptEdits'` | `'default'` map to `--permission-mode <mode>` for a safer, constrained posture. (The Claude-CLI spelling `bypassPermissions` is **not** a valid config token — use `'bypass'`.) This bypass is bounded to the attended, interactive-only executor; cron / channels / gateway keep their own bypass rejection.
 - `timeoutMs` — per-delegation wall-clock cap (positive milliseconds); the subprocess is killed and its stdio readers cancelled on timeout or parent-cancel.
 - `maxTurns` — caps the headless session's agentic turns (maps to `claude -p --max-turns N`).
 
@@ -501,7 +501,7 @@ Residual fidelity gaps (brief): **no per-tool timing** (the stream carries only 
 
 Driving a subscription credential as an **automated / unattended / multi-tenant / client-product** backend is against Anthropic's (and OpenAI's) subscription terms — enforced as of early 2026 against driving a consumer subscription as a programmatic backend for others. **That use stays on the per-token API** (the harness's existing `AgentRunner` + `LLMProvider`).
 
-That is why the executor is wired **only** to the interactive sub-agent delegation seam and is deliberately **NOT** available to **cron, channels, or the gateway** — those are exactly the automated / remote / multi-tenant contexts where driving the subscription binary would cross the line. The permission posture is safe-by-default (`--permission-mode`, never `bypassPermissions`), and the off-by-default gate keeps the capability invisible until an operator opts in for their own attended use.
+That is why the executor is wired **only** to the interactive sub-agent delegation seam and is deliberately **NOT** available to **cron, channels, or the gateway** — those are exactly the automated / remote / multi-tenant contexts where driving the subscription binary would cross the line. Because that seam is attended, the executor **defaults to `--dangerously-skip-permissions`** (a headless subprocess has no approver) — you are delegating to your own logged-in Claude Code, not exposing a remote bypass; set `permissionMode` to `plan` / `acceptEdits` / `default` for a constrained posture. The remote channel surfaces keep their own bypass rejection, and the off-by-default gate keeps the capability invisible until an operator opts in for their own attended use.
 
 See the spike / design doc — [`docs/specs/2026-06-08-subscription-executor-spike.md`](specs/2026-06-08-subscription-executor-spike.md) — for the full rationale, the verified scheduler seam, the live `stream-json` shape, and the strategic context (ADR H-0010 "rent the engine").
 

@@ -12,9 +12,14 @@
 // The seam is gated by config `subscriptionExecutor.enabled: false` — when off,
 // the scheduler never calls this and the normal AgentRunner path is untouched.
 //
-// SECURITY: the subprocess runs its OWN permission system. We translate the
-// operator's intent to `--permission-mode <safe>` and NEVER pass a bypass /
-// dangerous flag — the config enum (plan | acceptEdits | default) is the gate.
+// PERMISSIONS: `permissionMode` translates to the subprocess's posture and
+// DEFAULTS to `bypass` → `--dangerously-skip-permissions`. A headless
+// `claude -p` has no interactive approver, so a prompt would otherwise
+// auto-deny and stall real work. This is acceptable ONLY because the executor
+// is reachable solely from the INTERACTIVE sub-agent seam (NOT cron / channels
+// / gateway — those keep their own bypass rejection): the operator is attended,
+// delegating to their own logged-in Claude Code. `plan` | `acceptEdits` |
+// `default` map to `--permission-mode <mode>` as safer opt-in alternatives.
 //
 // Spawn / capped-reader / AbortSignal-timeout pattern mirrors
 // src/hooks/runner.ts (Bun.spawn, piped stdio, AbortSignal.timeout). The
@@ -42,9 +47,12 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 /** Default headless engine binary. Overridable via `config.binary`. */
 const DEFAULT_BINARY = 'claude';
 
-/** Default permission mode — `plan` is the safest (read-only-ish) posture.
- *  NEVER widened to a bypass mode; the config enum excludes those. */
-const DEFAULT_PERMISSION_MODE: SubscriptionExecutorConfig['permissionMode'] = 'plan';
+/** Default permission mode — `bypass` (→ `--dangerously-skip-permissions`).
+ *  A headless `claude -p` can't answer permission prompts, so the safe modes
+ *  stall real agentic work; bypass is the useful default for the attended,
+ *  interactive-only executor. Override with `plan` | `acceptEdits` | `default`
+ *  for a constrained posture. */
+const DEFAULT_PERMISSION_MODE: SubscriptionExecutorConfig['permissionMode'] = 'bypass';
 
 /** The minimal subprocess handle surface this module needs. Bun.spawn's
  *  return value structurally satisfies it; tests inject a fake. */
@@ -200,11 +208,14 @@ export function canonicalizeToolForObservation(
 }
 
 /** Build the ARGS (excluding the binary) for the headless `claude` invocation.
- *  Exported so a unit test can assert the safe posture without spawning.
+ *  Exported so a unit test can assert the posture without spawning.
  *
- *  SECURITY: `--permission-mode` is always one of the three safe modes from
- *  the config enum. There is no code path that emits a bypass / dangerous
- *  flag. */
+ *  PERMISSIONS: `bypass` (the default — see DEFAULT_PERMISSION_MODE) emits
+ *  `--dangerously-skip-permissions` so the headless subprocess can act without
+ *  an interactive approver. `plan` | `acceptEdits` | `default` emit
+ *  `--permission-mode <mode>` instead. This bypass is bounded to the attended,
+ *  interactive-only executor seam; the remote channel surfaces keep their own
+ *  bypass rejection (src/channels/permission.ts). */
 export function buildSubprocessArgs(opts: {
   prompt: string;
   config: SubscriptionExecutorConfig;
@@ -218,9 +229,14 @@ export function buildSubprocessArgs(opts: {
     // `--verbose` is REQUIRED for `claude -p` to emit the full per-event
     // stream-json (without it, -p emits only the final result line).
     '--verbose',
-    '--permission-mode',
-    permissionMode as string,
   ];
+  if (permissionMode === 'bypass') {
+    // The operator's default for this attended, interactive-only executor:
+    // skip the subprocess's own permission prompts (it has no approver).
+    args.push('--dangerously-skip-permissions');
+  } else {
+    args.push('--permission-mode', permissionMode as string);
+  }
   if (opts.config.maxTurns !== undefined) {
     args.push('--max-turns', String(opts.config.maxTurns));
   }

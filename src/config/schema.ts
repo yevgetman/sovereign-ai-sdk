@@ -668,15 +668,20 @@ export const SettingsSchema = z
      *  defensible mode; automated/multi-tenant/unattended use stays on the
      *  per-token API).
      *
-     *  `permissionMode` MUST exclude `bypassPermissions` and any dangerous
-     *  mode: the subprocess runs its own permission system, and a bypass on
-     *  an automated/remote path is RCE. The enum is the security gate. */
+     *  `permissionMode` chooses the spawned subprocess's posture and DEFAULTS
+     *  to `bypass` (→ `--dangerously-skip-permissions`): a headless `claude -p`
+     *  has no interactive approver, so the safe modes stall real work. This is
+     *  acceptable ONLY because the executor is reachable solely from the
+     *  interactive sub-agent seam (NOT cron/channels/gateway) — the operator is
+     *  attended, delegating to their own logged-in Claude Code. `plan` |
+     *  `acceptEdits` | `default` are the safer opt-in alternatives. The remote
+     *  channel surfaces keep their own bypass rejection (src/channels/permission.ts). */
     subscriptionExecutor: z
       .object({
         enabled: z.boolean().optional(),
         engine: z.enum(['claude-code']).optional(),
         binary: z.string().optional(),
-        permissionMode: z.enum(['plan', 'acceptEdits', 'default']).optional(),
+        permissionMode: z.enum(['plan', 'acceptEdits', 'default', 'bypass']).optional(),
         timeoutMs: z.number().int().positive().optional(),
         maxTurns: z.number().int().positive().optional(),
       })

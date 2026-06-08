@@ -181,6 +181,20 @@ path that emits `bypassPermissions` or `--dangerously-skip-permissions`; unit
 tests assert the safe flag is present and the dangerous strings never appear.
 Default `permissionMode` is `plan` (the safest, read-only-ish posture).
 
+> **UPDATE (2026-06-08, v0.6.32) — default flipped to `bypass`.** Operator
+> decision: a headless `claude -p` has **no interactive approver**, so the
+> constrained modes auto-deny and stall real agentic work, leaving the executor
+> largely inert. The `permissionMode` enum now also admits **`bypass`**, which
+> is the **default** and maps to `--dangerously-skip-permissions`; `plan` |
+> `acceptEdits` | `default` remain available (→ `--permission-mode <mode>`) for
+> a constrained posture. This is bounded by the same containment the rest of
+> this section describes: the executor is reachable **only** from the attended,
+> interactive sub-agent seam (NOT cron/channels/gateway — those keep their own
+> bypass rejection), so the bypass is the operator delegating to their own
+> logged-in Claude Code, not a remote/automated RCE path. The Claude-CLI
+> spelling `bypassPermissions` is still **not** a valid config token (the
+> harness token is `bypass`).
+
 This mirrors the safe non-interactive posture recipe from `src/cron/wiring.ts`
 and `src/channels/pipeline.ts` (auto-deny, never inherit the dev's allow-rules),
 translated to the **subprocess's own flags** — the subprocess does not see the

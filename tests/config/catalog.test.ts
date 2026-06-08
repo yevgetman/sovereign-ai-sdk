@@ -262,12 +262,13 @@ describe('config catalog', () => {
         kind: 'enum',
         choices: ['claude-code'],
       });
-      // permissionMode uses the Claude-Code vocabulary, NOT the top-level
-      // default/ask/bypass set — and `bypass*` is deliberately absent.
+      // permissionMode maps to the spawned subprocess's posture. `bypass`
+      // (-> --dangerously-skip-permissions) is the default and leads the list.
       const pm = findItem('subscriptionExecutor.permissionMode')?.editor;
-      expect(pm).toEqual({ kind: 'enum', choices: ['plan', 'acceptEdits', 'default'] });
+      expect(pm).toEqual({ kind: 'enum', choices: ['bypass', 'plan', 'acceptEdits', 'default'] });
       if (pm?.kind === 'enum') {
-        expect(pm.choices.some((c) => c.startsWith('bypass'))).toBe(false);
+        expect(pm.choices).toContain('bypass');
+        expect(pm.choices[0]).toBe('bypass');
       }
     });
 

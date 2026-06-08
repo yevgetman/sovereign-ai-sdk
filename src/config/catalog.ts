@@ -82,12 +82,18 @@ const ROUTER_LANE_CHOICES = ['local', 'frontier'] as const;
 const ROUTER_ESCALATION_CHOICES = ['ask', 'auto', 'never'] as const;
 const WEBSEARCH_PROVIDER_CHOICES = ['tavily', 'brave'] as const;
 // Subscription-executor enums. Mirror the `subscriptionExecutor` block in
-// src/config/schema.ts. `permissionMode` is DELIBERATELY a different set
-// from the top-level `PERMISSION_MODE_CHOICES` — the subprocess maps to
-// Claude Code's own `--permission-mode` vocabulary, and `bypassPermissions`
-// is intentionally absent (the schema rejects it at parse time).
+// src/config/schema.ts. `permissionMode` is DELIBERATELY a different set from
+// the top-level `PERMISSION_MODE_CHOICES` — it maps to the spawned subprocess's
+// posture. `bypass` is the DEFAULT (→ `--dangerously-skip-permissions`) since a
+// headless `claude -p` has no interactive approver; `plan`/`acceptEdits`/
+// `default` map to `--permission-mode <mode>` as safer opt-in alternatives.
 const SUBSCRIPTION_EXECUTOR_ENGINE_CHOICES = ['claude-code'] as const;
-const SUBSCRIPTION_EXECUTOR_PERMISSION_MODE_CHOICES = ['plan', 'acceptEdits', 'default'] as const;
+const SUBSCRIPTION_EXECUTOR_PERMISSION_MODE_CHOICES = [
+  'bypass',
+  'plan',
+  'acceptEdits',
+  'default',
+] as const;
 
 // Provider-specific model lists. Mirrors src/commands/pickers.ts. Keep in
 // sync — both surfaces should suggest the same set.
@@ -388,8 +394,10 @@ const SUBSCRIPTION_EXECUTOR_GROUP: ConfigGroup = {
       description:
         'Route `subscription-executor` delegations to a headless `claude -p` subprocess (flat-rate ' +
         'subscription cost instead of per-token API). Off by default. Requires the `claude` CLI ' +
-        'installed + logged in. Personal/attended use only — deliberately NOT wired to cron / ' +
-        'channels / gateway. Mutually exclusive with taskRouting.enabled.',
+        'installed + logged in. By default the subprocess runs with ' +
+        '`--dangerously-skip-permissions` (configurable via permissionMode). Personal/attended use ' +
+        'only — deliberately NOT wired to cron / channels / gateway. Mutually exclusive with ' +
+        'taskRouting.enabled.',
       editor: { kind: 'boolean' },
     },
     {
@@ -409,9 +417,11 @@ const SUBSCRIPTION_EXECUTOR_GROUP: ConfigGroup = {
       path: 'subscriptionExecutor.permissionMode',
       label: 'permissionMode',
       description:
-        'Permission posture for the subprocess: plan (default, safest read-only-ish) | acceptEdits | ' +
-        'default. `bypassPermissions` is rejected at config-parse time — the harness never passes a ' +
-        'skip-permissions flag.',
+        'Permission posture for the spawned `claude -p`. Default `bypass` → ' +
+        '`--dangerously-skip-permissions` (a headless subprocess has no interactive approver, so the ' +
+        'safe modes stall real work). `plan` | `acceptEdits` | `default` map to ' +
+        '`--permission-mode <mode>` for a constrained posture. Bounded to this attended, ' +
+        'interactive-only executor — the remote channels keep their own bypass rejection.',
       editor: { kind: 'enum', choices: SUBSCRIPTION_EXECUTOR_PERMISSION_MODE_CHOICES },
     },
     {
