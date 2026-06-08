@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  RuntimeSettingsSchema,
   appendProjectLocalPermissionRule,
   loadHookSettings,
   loadMcpServerSettings,
@@ -126,7 +127,7 @@ describe('loadMcpServerSettings', () => {
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/fs/);
   });
 
-  test('aliases that normalize to the same SOV_MCP_* env var throw', () => {
+  test('two REMOTE aliases that normalize to the same SOV_MCP_* env var throw', () => {
     const root = tempRoot();
     const cwd = join(root, 'project');
     const harnessHome = join(root, 'home');
@@ -141,6 +142,39 @@ describe('loadMcpServerSettings', () => {
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(
       /SOV_MCP_FOO_BAR|env var|collid/i,
     );
+  });
+
+  test('a stdio alias colliding on env-fragment with a remote alias does NOT throw', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    // `foo-bar` (stdio) and `foo_bar` (http) collapse to the same env
+    // fragment, but a stdio config never reads SOV_MCP_* auth env — so there
+    // is no real collision and boot must NOT hard-fail.
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: {
+        'foo-bar': { command: 'fsd' },
+        foo_bar: { type: 'http', url: 'https://b.example.com' },
+      },
+    });
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    expect(Object.keys(loaded.servers).sort()).toEqual(['foo-bar', 'foo_bar']);
+    const stdio = loaded.servers['foo-bar'];
+    expect(stdio?.type).toBe('stdio');
+  });
+
+  test('two stdio aliases that normalize to the same env fragment do NOT throw', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: {
+        'foo-bar': { command: 'a' },
+        foo_bar: { command: 'b' },
+      },
+    });
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    expect(Object.keys(loaded.servers).sort()).toEqual(['foo-bar', 'foo_bar']);
   });
 
   test('rejects unknown keys inside server config', () => {
@@ -217,17 +251,21 @@ describe('loadMcpServerSettings', () => {
     expect(legacy.apiKey).toBe('k');
   });
 
-  test('http variant without url throws', () => {
+  test('http variant without url throws a single clear error mentioning url', () => {
     const root = tempRoot();
     const cwd = join(root, 'project');
     const harnessHome = join(root, 'home');
     writeJson(join(cwd, '.harness', 'settings.json'), {
       mcpServers: { remote: { type: 'http' } },
     });
-    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/url/i);
+    const issues = mcpServerIssues({ type: 'http' });
+    expect(issues.length).toBe(1);
+    expect(issues.some((i) => i.path.includes('url'))).toBe(true);
+    expect(issues.some((i) => i.code === 'invalid_union')).toBe(false);
   });
 
-  test('mixed command + url throws (strict, ambiguous)', () => {
+  test('mixed command + url throws an unrecognized-key error with NO double-error', () => {
     const root = tempRoot();
     const cwd = join(root, 'project');
     const harnessHome = join(root, 'home');
@@ -235,16 +273,31 @@ describe('loadMcpServerSettings', () => {
       mcpServers: { bad: { command: 'fsd', url: 'https://x.example.com' } },
     });
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+    // The preprocess injects type:'stdio' (command present, no type), so the
+    // stray `url` surfaces as a single unrecognized-key error — never the
+    // legacy custom-issue + invalid_union pair.
+    const issues = mcpServerIssues({ command: 'fsd', url: 'https://x.example.com' });
+    expect(issues.length).toBe(1);
+    expect(issues[0]?.code).toBe('unrecognized_keys');
+    expect(issues.some((i) => i.code === 'invalid_union')).toBe(false);
   });
 
-  test('url without type throws with a friendly message', () => {
+  test('url without type throws a single discriminator error (no double-error)', () => {
     const root = tempRoot();
     const cwd = join(root, 'project');
     const harnessHome = join(root, 'home');
     writeJson(join(cwd, '.harness', 'settings.json'), {
       mcpServers: { remote: { url: 'https://x.example.com' } },
     });
-    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/type.*http.*sse/i);
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+    const issues = mcpServerIssues({ url: 'https://x.example.com' });
+    expect(issues.length).toBe(1);
+    expect(issues[0]?.code).toBe('invalid_union_discriminator');
+    // The native discriminator error names the valid transports + targets the
+    // `type` field by path — clear and singular.
+    expect(issues[0]?.path).toContain('type');
+    expect(issues[0]?.message).toMatch(/http.*sse|sse.*http/i);
+    expect(issues.some((i) => i.code === 'invalid_union')).toBe(false);
   });
 
   test('http variant rejects unknown keys', () => {
@@ -255,6 +308,18 @@ describe('loadMcpServerSettings', () => {
       mcpServers: { remote: { type: 'http', url: 'https://x.example.com', bogus: 1 } },
     });
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+  });
+
+  test('sse variant without url throws a single clear error mentioning url', () => {
+    const issues = mcpServerIssues({ type: 'sse' });
+    expect(issues.length).toBe(1);
+    expect(issues.some((i) => i.path.includes('url'))).toBe(true);
+  });
+
+  test('strict still rejects an unknown key on a legacy stdio config', () => {
+    const issues = mcpServerIssues({ command: 'fsd', bogus: true });
+    expect(issues.length).toBe(1);
+    expect(issues[0]?.code).toBe('unrecognized_keys');
   });
 });
 
@@ -322,4 +387,19 @@ function writeJson(path: string, value: unknown): void {
   const dir = path.slice(0, path.lastIndexOf('/'));
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+/** Parse a single mcpServers entry through the runtime schema and return the
+ *  Zod issues (path relative to the server config, so the `mcpServers.<alias>`
+ *  prefix is stripped). Lets F8 tests assert exactly one issue of a given
+ *  code — proving the double-error is gone. */
+function mcpServerIssues(cfg: unknown): Array<{ code: string; path: string[]; message: string }> {
+  const result = RuntimeSettingsSchema.safeParse({ mcpServers: { x: cfg } });
+  if (result.success) return [];
+  return result.error.issues.map((issue) => ({
+    code: issue.code,
+    // Drop the leading `mcpServers`, `x` segments to focus on the config shape.
+    path: issue.path.slice(2).map(String),
+    message: issue.message,
+  }));
 }

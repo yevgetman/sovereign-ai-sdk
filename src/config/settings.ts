@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { HookConfig, HookEventName } from '../hooks/types.js';
 import { normalizeAliasForEnv } from '../mcp/auth.js';
-import type { McpServerConfig } from '../mcp/types.js';
+import { type McpServerConfig, isRemoteMcpConfig } from '../mcp/types.js';
 import { type PermissionRule, type PermissionRuleLayer, parsePermissionRules } from './rules.js';
 
 export const PermissionModeSchema = z.enum(['default', 'ask', 'bypass']);
@@ -46,14 +46,20 @@ const HooksSettingsSchema = z
   })
   .strict();
 
-// One MCP server config. A backward-compatible union of three transports:
-// stdio (the original — legacy `{command,...}` configs with no `type` still
-// parse and round-trip as `type:'stdio'`), plus remote `http` (Streamable
-// HTTP — the current MCP standard) and legacy `sse`. Disambiguation is by
-// the required key (`command` vs `url`) reinforced by `.strict()` and the
-// literal `type`. Union member order matters: the type-required remote
-// variants come first; the permissive stdio variant (optional `type`) is
-// last so a bare `{command}` doesn't get mis-claimed.
+// One MCP server config. A backward-compatible discriminated union over the
+// `type` discriminant across three transports: stdio (the original — legacy
+// `{command,...}` configs with no `type` still parse and round-trip as
+// `type:'stdio'`), plus remote `http` (Streamable HTTP — the current MCP
+// standard) and legacy `sse`.
+//
+// A `z.discriminatedUnion` gives native, single, per-member errors (no
+// double-error, and a missing/required field is reported against that field
+// by path). To preserve back-compat for legacy stdio configs that predate
+// the `type` discriminant, a `z.preprocess` injects `type:'stdio'` for a
+// `{command,...}` object with no `type` — and ONLY that case (it returns a
+// new object, never mutating the input, and never adds an issue). Everything
+// else (a remote `{url}` with no `type`, a `{command,url}` mix, an unknown
+// key) flows straight to the discriminated union and gets its native error.
 const McpRemoteFieldsSchema = {
   url: z.string().url(),
   /** Static headers merged onto every request to the server. */
@@ -73,9 +79,12 @@ const McpHttpConfigSchema = z
 
 const McpSseConfigSchema = z.object({ type: z.literal('sse'), ...McpRemoteFieldsSchema }).strict();
 
+// `type` is a plain literal (NOT `.default('stdio')`): the preprocess below
+// supplies it for legacy `{command}` configs, so a default here is both
+// redundant and would break the discriminator's required-key semantics.
 const McpStdioConfigSchema = z
   .object({
-    type: z.literal('stdio').default('stdio'),
+    type: z.literal('stdio'),
     command: z.string(),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -83,31 +92,19 @@ const McpStdioConfigSchema = z
   })
   .strict();
 
-const McpServerConfigUnion = z.union([
+const McpServerConfigUnion = z.discriminatedUnion('type', [
+  McpStdioConfigSchema,
   McpHttpConfigSchema,
   McpSseConfigSchema,
-  McpStdioConfigSchema,
 ]);
 
-// A remote-looking config (`url` present) that forgot `type` would
-// otherwise fail every union member with a confusing "command required"
-// error. A `z.preprocess` pre-check (it runs before the union resolves)
-// catches that case and points the operator at the fix.
-const McpServerConfigSchema = z.preprocess((raw, ctx) => {
-  if (
-    typeof raw === 'object' &&
-    raw !== null &&
-    'url' in raw &&
-    !(
-      'type' in raw &&
-      ((raw as { type: unknown }).type === 'http' || (raw as { type: unknown }).type === 'sse')
-    )
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "remote MCP server has `url` but no transport: set `type: 'http'` or `type: 'sse'`.",
-    });
-    return z.NEVER;
+const McpServerConfigSchema = z.preprocess((raw) => {
+  // Back-compat ONLY: a legacy stdio config is `{command,...}` with no
+  // `type`. Inject the discriminant so it parses as stdio. Return a NEW
+  // object (no mutation). Any other shape passes through untouched so the
+  // discriminated union produces its own native, single error.
+  if (typeof raw === 'object' && raw !== null && 'command' in raw && !('type' in raw)) {
+    return { type: 'stdio', ...raw };
   }
   return raw;
 }, McpServerConfigUnion);
@@ -224,10 +221,13 @@ export type LoadedMcpServerSettings = {
 export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedMcpServerSettings {
   const servers: Record<string, McpServerConfig> = {};
   const aliasOrigin: Record<string, string> = {};
-  // Track which alias claimed each normalized SOV_MCP_* env-var fragment, so
-  // two distinct aliases that collapse to the same env var (e.g. `foo-bar`
-  // and `foo_bar` → SOV_MCP_FOO_BAR_*) are rejected — otherwise one server's
-  // injected token would silently apply to the other host.
+  // Track which REMOTE alias claimed each normalized SOV_MCP_* env-var
+  // fragment, so two remote aliases that collapse to the same env var (e.g.
+  // `foo-bar` and `foo_bar` → SOV_MCP_FOO_BAR_*) are rejected — otherwise one
+  // server's injected token would silently apply to the other host. Stdio
+  // aliases never read SOV_MCP_* auth env (`resolveMcpHeaders` returns `{}`),
+  // so they are excluded from this check: a benign stdio+remote fragment
+  // collision must not hard-fail boot.
   const envFragmentOrigin: Record<string, string> = {};
   const sources: string[] = [];
   for (const item of getPermissionSettingsPaths(opts)) {
@@ -242,17 +242,21 @@ export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedM
           `mcp server alias "${alias}" is defined in both ${aliasOrigin[alias]} and ${item.path}; rename one.`,
         );
       }
-      const fragment = normalizeAliasForEnv(alias);
-      const collidingAlias = envFragmentOrigin[fragment];
-      if (collidingAlias !== undefined && collidingAlias !== alias) {
-        throw new Error(
-          `mcp server aliases "${collidingAlias}" and "${alias}" both map to the ` +
-            `SOV_MCP_${fragment}_* environment variables; rename one so their auth env vars don't collide.`,
-        );
+      // Only remote aliases consume SOV_MCP_<FRAG>_* auth env, so only they
+      // can suffer a real env-fragment collision. Stdio aliases skip this.
+      if (isRemoteMcpConfig(cfg)) {
+        const fragment = normalizeAliasForEnv(alias);
+        const collidingAlias = envFragmentOrigin[fragment];
+        if (collidingAlias !== undefined && collidingAlias !== alias) {
+          throw new Error(
+            `mcp server aliases "${collidingAlias}" and "${alias}" both map to the ` +
+              `SOV_MCP_${fragment}_* environment variables; rename one so their auth env vars don't collide.`,
+          );
+        }
+        envFragmentOrigin[fragment] = alias;
       }
       servers[alias] = cfg;
       aliasOrigin[alias] = item.path;
-      envFragmentOrigin[fragment] = alias;
     }
   }
   return { servers, sources };
