@@ -177,15 +177,43 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       // turn fails with turn_error. Dropping a malformed allow-entry is
       // fail-CLOSED for that entry (the tool it would have permitted stays out
       // of scope), so filtering only ever narrows — never widens — what a valid
-      // entry would have allowed. If at least one valid entry survives, the
-      // scope is built from the surviving entries. If EVERY declared entry is
-      // unparseable the list collapses to empty → skillScope stays undefined →
-      // the turn runs against the full pool, identical to a skill that declared
-      // no allowedTools at all (the established "no restriction → full pool"
-      // semantic); the dropped entries are warned so the broken skill is fixable.
+      // entry would have allowed.
+      //
+      // Three cases at this scope-build site (SWEEP-1):
+      //   1. No allowedTools declared (length 0) → skillScope stays undefined →
+      //      buildToolScope falls through to the full pool (the established
+      //      "no restriction → full pool" semantic). Unchanged.
+      //   2. Declared, ≥1 entry parses → scope to the parseable subset. The
+      //      dropped entries are warned so the broken skill is fixable.
+      //      Tolerant — unchanged.
+      //   3. Declared (length > 0) but ZERO entries parse → fail LOUD. The
+      //      author INTENDED a restriction but none of it is honorable; the
+      //      "empty list → full pool" semantic would silently WIDEN to the full
+      //      pool (fail-OPEN — the opposite of intent). Refuse to run: emit a
+      //      turn_error naming the skill + the invalid entries (rather than
+      //      running unrestricted or crashing with an opaque parse error).
       const parseableTools = filterParseableRules(skill.allowedTools, (m) =>
         process.stderr.write(`[skill:${skillName}] ${m}\n`),
       );
+      if (skill.allowedTools.length > 0 && parseableTools.length === 0) {
+        // Case 3 — all-invalid. Surface a clear turn_error onto the bus (so
+        // the SSE subscriber sees a turn-level failure and the stream ends)
+        // and return 202 without ever building a scope or running the turn.
+        // markTurnStart re-scopes the bus so a fresh subscriber replays this
+        // turn's error; publishing turn_error resets turnActive so the stream
+        // closes cleanly.
+        const errBus = getOrCreateBus(sessionId);
+        errBus.markTurnStart();
+        const invalidEntries = skill.allowedTools.map((e) => JSON.stringify(e)).join(', ');
+        errBus.publish({
+          type: 'turn_error',
+          seq: errBus.nextSeq(),
+          sessionId,
+          error: `skill "${skillName}": every allowedTools entry is invalid (${invalidEntries}) — refusing to run (would otherwise run with no restriction)`,
+          recoverable: false,
+        });
+        return c.json({ accepted: true }, 202);
+      }
       if (parseableTools.length > 0) {
         skillScope = parseableTools;
       }

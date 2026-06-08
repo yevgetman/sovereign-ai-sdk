@@ -245,6 +245,59 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     // Explicit longer timeout (SSE drain under full-suite load — see above).
   }, 15000);
 
+  test('an ALL-invalid allowedTools fails LOUD (turn_error), never runs full-pool (SWEEP-1)', async () => {
+    // SWEEP-1 — a skill that declares a NON-EMPTY allowedTools where EVERY
+    // entry is unparseable. The author INTENDED a restriction, but none of it
+    // is honorable. The partial-invalid fix (above) drops bad entries and runs
+    // the valid subset — but with ZERO valid entries the filtered list is empty,
+    // which the "no allowedTools → full pool" semantic would silently widen to
+    // the FULL pool (fail-OPEN — the opposite of the author's intent). The fix
+    // distinguishes this all-invalid case and refuses to run: it emits a
+    // turn_error naming the skill + the invalid entries, and the model/tools
+    // never run against the full pool.
+    seedSkill(
+      tmpHome,
+      'allbroken',
+      'name: allbroken\ndescription: A skill whose every rule is broken\nwhenToUse: User asks to run the all-broken skill\nallowedTools:\n  - Bash(a\n  - Write(b',
+    );
+    const runtime = await buildRuntime({
+      cwd: tmpHome,
+      harnessHome: tmpHome,
+      provider: 'mock',
+      preflight: false,
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '/allbroken', kind: 'skill' }),
+      });
+      expect(turnRes.status).toBe(202);
+      const sseText = await (await app.request(`/sessions/${sessionId}/events`)).text();
+
+      // The turn fails LOUD — a turn_error, never a turn_complete (RED today:
+      // skillScope collapses to undefined → full pool → the turn completes).
+      expect(sseText).toContain('turn_error');
+      expect(sseText).not.toContain('turn_complete');
+      // The error message names the skill + the invalid entries so the author
+      // can fix the broken declaration.
+      expect(sseText).toContain('allbroken');
+      expect(sseText).toContain('Bash(a');
+      expect(sseText).toContain('Write(b');
+
+      // The model/tools NEVER ran against the full pool. The provider must not
+      // have been invoked at all — lastTools stays undefined (fail-CLOSED).
+      expect(MockProvider.lastTools).toBeUndefined();
+    } finally {
+      await runtime.dispose();
+    }
+    // Explicit longer timeout (SSE drain under full-suite load — see above).
+  }, 15000);
+
   test('empty allowedTools runs against the full pool (no narrowing)', async () => {
     seedSkill(
       tmpHome,
