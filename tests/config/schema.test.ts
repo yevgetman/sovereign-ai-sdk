@@ -312,6 +312,78 @@ describe('taskRouting schema', () => {
   });
 });
 
+// subscriptionExecutor and taskRouting are two CONFLICTING cost strategies on
+// the same delegation path — a flat-rate subscription (offload to `claude -p`)
+// vs. API cost-tier routing (parent → delegator → cost-lanes). The delegator
+// can't even reach the subscription-executor role, and the ToS postures are
+// opposite. Enabling both is incoherent, so a top-level superRefine rejects it.
+describe('subscriptionExecutor × taskRouting mutual exclusion', () => {
+  const MUTEX_MESSAGE = 'subscriptionExecutor` and `taskRouting` are mutually exclusive';
+
+  test('both enabled → parse throws with the mutual-exclusion message', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        subscriptionExecutor: { enabled: true },
+        taskRouting: { enabled: true },
+      }),
+    ).toThrow(MUTEX_MESSAGE);
+  });
+
+  test('only subscriptionExecutor enabled → ok (the live dogfood config)', () => {
+    const parsed = SettingsSchema.parse({
+      subscriptionExecutor: { enabled: true },
+      taskRouting: { enabled: false },
+    });
+    expect(parsed.subscriptionExecutor?.enabled).toBe(true);
+    expect(parsed.taskRouting?.enabled).toBe(false);
+  });
+
+  test('only subscriptionExecutor enabled, taskRouting absent → ok', () => {
+    const parsed = SettingsSchema.parse({ subscriptionExecutor: { enabled: true } });
+    expect(parsed.subscriptionExecutor?.enabled).toBe(true);
+    expect(parsed.taskRouting).toBeUndefined();
+  });
+
+  test('only taskRouting enabled → ok', () => {
+    const parsed = SettingsSchema.parse({
+      taskRouting: { enabled: true },
+      subscriptionExecutor: { enabled: false },
+    });
+    expect(parsed.taskRouting?.enabled).toBe(true);
+    expect(parsed.subscriptionExecutor?.enabled).toBe(false);
+  });
+
+  test('only taskRouting enabled, subscriptionExecutor absent → ok', () => {
+    const parsed = SettingsSchema.parse({ taskRouting: { enabled: true } });
+    expect(parsed.taskRouting?.enabled).toBe(true);
+    expect(parsed.subscriptionExecutor).toBeUndefined();
+  });
+
+  test('neither enabled (both present, both false) → ok', () => {
+    const parsed = SettingsSchema.parse({
+      subscriptionExecutor: { enabled: false },
+      taskRouting: { enabled: false },
+    });
+    expect(parsed.subscriptionExecutor?.enabled).toBe(false);
+    expect(parsed.taskRouting?.enabled).toBe(false);
+  });
+
+  test('both blocks absent → ok', () => {
+    expect(() => SettingsSchema.parse({})).not.toThrow();
+  });
+
+  test('taskRouting present but enabled omitted (defaults false) + subscriptionExecutor on → ok', () => {
+    // taskRouting.enabled defaults to false, so a bare `taskRouting: {}` must
+    // NOT trip the mutex when subscriptionExecutor is enabled.
+    const parsed = SettingsSchema.parse({
+      subscriptionExecutor: { enabled: true },
+      taskRouting: {},
+    });
+    expect(parsed.subscriptionExecutor?.enabled).toBe(true);
+    expect(parsed.taskRouting?.enabled).toBe(false);
+  });
+});
+
 // Learning-loop spike Phase 1 Task 10 — learning.recall schema.
 // The recall block gates the per-session recall thunk that splices
 // recalled instinct lessons in front of the latest user turn. ON by

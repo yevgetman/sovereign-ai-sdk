@@ -237,6 +237,8 @@ Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt
 
 A second routing layer sits above the local-model router: instead of choosing one model per turn, the **smart router** decomposes the turn into atoms and dispatches each to the cheapest sufficient cost-lane sub-agent. The bundled `delegator` agent becomes the parent's first action on every user turn when `taskRouting.enabled: true`. The delegator dispatches one or more atoms via `AgentTool` to three cost-tier sub-agents — `cheap-task`, `moderate-task`, `frontier-task` — each backed by a configured provider/model pair.
 
+> **Mutually exclusive with the [subscription executor](#subscription-executor-opt-in).** `taskRouting` and `subscriptionExecutor` are two different cost strategies on the same delegation path — API cost-tier routing vs. a flat-rate subscription — so **enable only one**. Setting `taskRouting.enabled: true` and `subscriptionExecutor.enabled: true` together is rejected at config-parse time.
+
 **Config schema** (`~/.harness/config.json`):
 
 ```json
@@ -460,6 +462,8 @@ The configured value is consulted in three-step precedence: lane override (via `
 **What it is.** An opt-in execution backend where a delegated sub-agent task is handed to a **headless Claude Code session** — a `claude -p` subprocess the harness spawns. Claude Code runs its **own** agentic loop (its own tools, its own permission system) and returns a summary, which round-trips back through the **normal sub-agent path** (the same `extractSummary` → trajectory write → `on_delegation` memory hook → review-fork → delegation SSE events the native loop produces). Because the subprocess runs under your **local `claude` install** — which can be authenticated by a Claude *subscription* (Pro/Max login) rather than an API key — heavy agentic work runs at flat-rate **subscription cost** instead of per-token API billing.
 
 It is **off by default** (`subscriptionExecutor.enabled: false`). When disabled — which includes an empty config — the harness is byte-identical to today: the lane is hidden from the model, the scheduler branch is inert, and every delegation takes the normal `AgentRunner` path.
+
+> **Mutually exclusive with [task routing](#multi-provider-task-routing-phase-1).** `subscriptionExecutor` and `taskRouting` are two different cost strategies on the same delegation path — a flat-rate subscription vs. API cost-tier routing — so **enable only one**. Setting `subscriptionExecutor.enabled: true` and `taskRouting.enabled: true` together is rejected at config-parse time.
 
 **Enable it** with the `subscriptionExecutor` config block (`~/.harness/config.json`):
 

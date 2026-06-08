@@ -128,7 +128,15 @@ describe('config catalog', () => {
     // schema re-parse — some subschemas have required-field gates that
     // a single-key set can't satisfy on its own (e.g., router requires
     // both localProvider and frontierProvider).
-    const rootShape = SettingsSchema._def.shape();
+    // SettingsSchema is wrapped in a ZodEffects by the top-level
+    // .superRefine (the subscriptionExecutor × taskRouting mutex), so the
+    // ZodObject — and its .shape() — lives at `_def.schema`. Unwrap it.
+    const rootObject = (
+      SettingsSchema as unknown as {
+        _def: { schema: { _def: { shape: () => Record<string, unknown> } } };
+      }
+    )._def.schema;
+    const rootShape = rootObject._def.shape();
 
     function resolveSegment(schema: unknown, segment: string): unknown {
       if (schema === null || typeof schema !== 'object') return undefined;

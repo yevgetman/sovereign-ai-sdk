@@ -359,6 +359,40 @@ Keep this an ADR-input / spike doc. No ADR; no productization; no release.
 
 ---
 
+## Interaction with task routing (mutual exclusion)
+
+`subscriptionExecutor` and `taskRouting` (the multi-provider cost-lane router,
+`docs/specs/2026-05-23-multi-provider-task-routing-design.md`) are **two
+conflicting cost strategies on the same sub-agent delegation path**, so enabling
+both is incoherent:
+
+- **`taskRouting`** forces every parent turn through `delegator` →
+  cost-lane sub-agents (`cheap-task` / `moderate-task` / `frontier-task`), each
+  on the **per-token API**. The cost lever is *tier selection*.
+- **`subscriptionExecutor`** offloads a delegated task to a **flat-rate
+  `claude -p` subscription** subprocess. The cost lever is *renting the engine*.
+
+They also collide mechanically and on posture: the `delegator`'s
+`allowedSubagents` is the three cost lanes, so it **cannot even reach** the
+`subscription-executor` role; and the **ToS postures are opposite** (per-token
+API automation vs. attended personal subscription — see the ToS section above).
+
+**Decision: mutually exclusive at config-parse time.** A top-level
+`.superRefine` on `SettingsSchema` (`src/config/schema.ts`) **rejects**
+`subscriptionExecutor.enabled === true` AND `taskRouting.enabled === true`
+together, with an actionable message ("two different cost strategies … enable
+only one"). Each alone — or neither — stays valid (the live dogfood config is
+`subscriptionExecutor.enabled: true` + `taskRouting.enabled: false`). Documented
+in both sections of `docs/usage.md`.
+
+**Out of scope:** a future "subscription-as-a-routing-lane" compose (a cost lane
+whose executor is the subscription subprocess, letting the router send only the
+heaviest atoms to the flat-rate engine) is a plausible later direction but is
+**not** built or designed here; it would need its own ToS analysis (the router
+is an automated path).
+
+---
+
 ## Files
 
 - `src/config/schema.ts` — `subscriptionExecutor` block + `SubscriptionExecutorConfig` type.

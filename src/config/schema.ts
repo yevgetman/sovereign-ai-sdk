@@ -683,7 +683,28 @@ export const SettingsSchema = z
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  // subscriptionExecutor and taskRouting are two CONFLICTING cost strategies on
+  // the SAME sub-agent delegation path, so enabling both is incoherent:
+  //   - taskRouting forces parent → delegator → API cost-lane sub-agents
+  //     (cheap/moderate/frontier on the per-token API);
+  //   - subscriptionExecutor offloads delegated tasks to a flat-rate `claude -p`
+  //     subscription subprocess.
+  // The delegator can't even reach the subscription-executor role, and the ToS
+  // postures are opposite (per-token API vs. attended personal subscription).
+  // Reject the combination at parse time with an actionable message. (The
+  // future "subscription-as-a-routing-lane" compose is out of scope — see
+  // docs/specs/2026-06-08-subscription-executor-spike.md.)
+  .superRefine((settings, ctx) => {
+    if (settings.subscriptionExecutor?.enabled === true && settings.taskRouting?.enabled === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'gateway: `subscriptionExecutor` and `taskRouting` are mutually exclusive — they are two different cost strategies (a flat-rate subscription vs. API cost-tier routing); enable only one.',
+        path: ['subscriptionExecutor', 'enabled'],
+      });
+    }
+  });
 
 export type Settings = z.infer<typeof SettingsSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
