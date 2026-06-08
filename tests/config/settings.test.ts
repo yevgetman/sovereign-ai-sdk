@@ -126,6 +126,23 @@ describe('loadMcpServerSettings', () => {
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/fs/);
   });
 
+  test('aliases that normalize to the same SOV_MCP_* env var throw', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    // `foo-bar` and `foo_bar` both normalize to SOV_MCP_FOO_BAR_TOKEN, so a
+    // single env var would be applied to two different hosts — reject it.
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: {
+        'foo-bar': { type: 'http', url: 'https://a.example.com' },
+        foo_bar: { type: 'http', url: 'https://b.example.com' },
+      },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(
+      /SOV_MCP_FOO_BAR|env var|collid/i,
+    );
+  });
+
   test('rejects unknown keys inside server config', () => {
     const root = tempRoot();
     const cwd = join(root, 'project');

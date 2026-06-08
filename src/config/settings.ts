@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { HookConfig, HookEventName } from '../hooks/types.js';
+import { normalizeAliasForEnv } from '../mcp/auth.js';
 import type { McpServerConfig } from '../mcp/types.js';
 import { type PermissionRule, type PermissionRuleLayer, parsePermissionRules } from './rules.js';
 
@@ -223,6 +224,11 @@ export type LoadedMcpServerSettings = {
 export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedMcpServerSettings {
   const servers: Record<string, McpServerConfig> = {};
   const aliasOrigin: Record<string, string> = {};
+  // Track which alias claimed each normalized SOV_MCP_* env-var fragment, so
+  // two distinct aliases that collapse to the same env var (e.g. `foo-bar`
+  // and `foo_bar` → SOV_MCP_FOO_BAR_*) are rejected — otherwise one server's
+  // injected token would silently apply to the other host.
+  const envFragmentOrigin: Record<string, string> = {};
   const sources: string[] = [];
   for (const item of getPermissionSettingsPaths(opts)) {
     if (!existsSync(item.path)) continue;
@@ -236,8 +242,17 @@ export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedM
           `mcp server alias "${alias}" is defined in both ${aliasOrigin[alias]} and ${item.path}; rename one.`,
         );
       }
+      const fragment = normalizeAliasForEnv(alias);
+      const collidingAlias = envFragmentOrigin[fragment];
+      if (collidingAlias !== undefined && collidingAlias !== alias) {
+        throw new Error(
+          `mcp server aliases "${collidingAlias}" and "${alias}" both map to the ` +
+            `SOV_MCP_${fragment}_* environment variables; rename one so their auth env vars don't collide.`,
+        );
+      }
       servers[alias] = cfg;
       aliasOrigin[alias] = item.path;
+      envFragmentOrigin[fragment] = alias;
     }
   }
   return { servers, sources };
