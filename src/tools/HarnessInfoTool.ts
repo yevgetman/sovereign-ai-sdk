@@ -16,6 +16,7 @@
 
 import { z } from 'zod';
 import { type BudgetReport, formatBudgetReport } from '../context/budget.js';
+import type { SerializedMcpServerConfig } from '../mcp/auth.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { Tool } from '../tool/types.js';
 
@@ -32,10 +33,7 @@ export type HarnessInfoSnapshot = {
       status: 'connected' | 'failed' | 'not-attempted';
       toolCount: number;
       tools: string[];
-    } & (
-      | { transport: 'stdio'; command: string; args: string[] }
-      | { transport: 'http' | 'sse'; url: string }
-    )
+    } & SerializedMcpServerConfig
   >;
   tools: {
     native: string[];

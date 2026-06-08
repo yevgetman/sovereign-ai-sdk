@@ -43,7 +43,21 @@ export type McpRemoteServerFields = {
 export type McpHttpServerConfig = { type: 'http' } & McpRemoteServerFields;
 export type McpSseServerConfig = { type: 'sse' } & McpRemoteServerFields;
 
+/** Either remote (HTTP or SSE) transport. The two share `McpRemoteServerFields`
+ *  (url + auth) and the same auth/redirect handling; stdio is the only other
+ *  variant, so this is the natural discriminant for "is this a network
+ *  server?". */
+export type RemoteMcpServerConfig = McpHttpServerConfig | McpSseServerConfig;
+
 export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig;
+
+/** True for the remote (HTTP / SSE) transports — the ones that read auth env,
+ *  carry headers, and need redirect-safe fetch. Centralizes the
+ *  `type === 'http' || type === 'sse'` discrimination that was previously
+ *  hand-written at several call sites. */
+export function isRemoteMcpConfig(cfg: McpServerConfig): cfg is RemoteMcpServerConfig {
+  return cfg.type === 'http' || cfg.type === 'sse';
+}
 
 /** Discovered tool metadata. The `inputSchema` is opaque JSON Schema —
  *  passed verbatim to the LLM provider, used as-is in `Tool.inputJSONSchema`,
