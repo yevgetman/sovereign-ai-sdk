@@ -25,6 +25,7 @@ const REQUIRED_GROUP_IDS = [
   'providers-openrouter',
   'providers-ollama',
   'task-routing',
+  'subscription-executor',
   'router',
   'compaction',
   'web-search',
@@ -226,6 +227,59 @@ describe('config catalog', () => {
         }
       }
     }
+  });
+
+  describe('subscription-executor group', () => {
+    const PATHS = [
+      'subscriptionExecutor.enabled',
+      'subscriptionExecutor.engine',
+      'subscriptionExecutor.binary',
+      'subscriptionExecutor.permissionMode',
+      'subscriptionExecutor.timeoutMs',
+      'subscriptionExecutor.maxTurns',
+    ];
+
+    test('is reachable in the root menu, after task-routing', () => {
+      const ids = listRootMenuGroups().map((g) => g.id);
+      expect(ids).toContain('subscription-executor');
+      expect(ids.indexOf('subscription-executor')).toBe(ids.indexOf('task-routing') + 1);
+    });
+
+    test('exposes all six schema fields', () => {
+      const group = findGroup('subscription-executor');
+      expect(group).toBeDefined();
+      const groupPaths = (group?.items ?? []).map((i) => i.path);
+      expect(groupPaths).toEqual(PATHS);
+      for (const p of PATHS) {
+        expect(findItem(p), `path ${p} should be findable`).toBeDefined();
+        expect(findGroupForItem(p)?.id).toBe('subscription-executor');
+      }
+    });
+
+    test('editor kinds match the schema shape', () => {
+      expect(findItem('subscriptionExecutor.enabled')?.editor).toEqual({ kind: 'boolean' });
+      expect(findItem('subscriptionExecutor.engine')?.editor).toEqual({
+        kind: 'enum',
+        choices: ['claude-code'],
+      });
+      // permissionMode uses the Claude-Code vocabulary, NOT the top-level
+      // default/ask/bypass set — and `bypass*` is deliberately absent.
+      const pm = findItem('subscriptionExecutor.permissionMode')?.editor;
+      expect(pm).toEqual({ kind: 'enum', choices: ['plan', 'acceptEdits', 'default'] });
+      if (pm?.kind === 'enum') {
+        expect(pm.choices.some((c) => c.startsWith('bypass'))).toBe(false);
+      }
+    });
+
+    test('every field is next-session (no live-apply hook)', () => {
+      // The scheduler captures subscriptionExecutor config at construction
+      // (scheduler.ts) and never refreshes it, so a live-apply hook would be
+      // half-applied (enum flips, routing branch stays stale). The honest
+      // representation is the ⟳ next session badge — i.e. NO hook.
+      for (const p of PATHS) {
+        expect(getLiveApplyHook(p), `${p} must not be live-applyable`).toBeUndefined();
+      }
+    });
   });
 
   test('CONFIG_CATALOG is iterable and frozen', () => {

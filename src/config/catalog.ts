@@ -81,6 +81,13 @@ const THEME_CHOICES = ['dark', 'light', 'no-color'] as const;
 const ROUTER_LANE_CHOICES = ['local', 'frontier'] as const;
 const ROUTER_ESCALATION_CHOICES = ['ask', 'auto', 'never'] as const;
 const WEBSEARCH_PROVIDER_CHOICES = ['tavily', 'brave'] as const;
+// Subscription-executor enums. Mirror the `subscriptionExecutor` block in
+// src/config/schema.ts. `permissionMode` is DELIBERATELY a different set
+// from the top-level `PERMISSION_MODE_CHOICES` — the subprocess maps to
+// Claude Code's own `--permission-mode` vocabulary, and `bypassPermissions`
+// is intentionally absent (the schema rejects it at parse time).
+const SUBSCRIPTION_EXECUTOR_ENGINE_CHOICES = ['claude-code'] as const;
+const SUBSCRIPTION_EXECUTOR_PERMISSION_MODE_CHOICES = ['plan', 'acceptEdits', 'default'] as const;
 
 // Provider-specific model lists. Mirrors src/commands/pickers.ts. Keep in
 // sync — both surfaces should suggest the same set.
@@ -361,6 +368,66 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
       label: 'lanes.frontier-task.timeoutMs',
       description: 'Per-atom timeout for the frontier-task lane. Default 120000.',
       editor: { kind: 'number', min: 1 },
+    },
+  ],
+};
+
+// ── Subscription executor (opt-in, off by default) ───────────────────
+
+const SUBSCRIPTION_EXECUTOR_GROUP: ConfigGroup = {
+  id: 'subscription-executor',
+  label: 'Subscription executor',
+  description:
+    'Opt-in headless Claude Code executor — delegate sub-agent work to a `claude -p` subprocess ' +
+    'under your own subscription. Personal/attended use only; mutually exclusive with Task routing. ' +
+    'Effective next session.',
+  items: [
+    {
+      path: 'subscriptionExecutor.enabled',
+      label: 'enabled',
+      description:
+        'Route `subscription-executor` delegations to a headless `claude -p` subprocess (flat-rate ' +
+        'subscription cost instead of per-token API). Off by default. Requires the `claude` CLI ' +
+        'installed + logged in. Personal/attended use only — deliberately NOT wired to cron / ' +
+        'channels / gateway. Mutually exclusive with taskRouting.enabled.',
+      editor: { kind: 'boolean' },
+    },
+    {
+      path: 'subscriptionExecutor.engine',
+      label: 'engine',
+      description: 'Execution engine. Only `claude-code` is supported in this spike.',
+      editor: { kind: 'enum', choices: SUBSCRIPTION_EXECUTOR_ENGINE_CHOICES },
+    },
+    {
+      path: 'subscriptionExecutor.binary',
+      label: 'binary',
+      description:
+        'The `claude` executable to spawn. Default `claude`; set an absolute path if it is not on PATH.',
+      editor: { kind: 'string', placeholder: 'claude' },
+    },
+    {
+      path: 'subscriptionExecutor.permissionMode',
+      label: 'permissionMode',
+      description:
+        'Permission posture for the subprocess: plan (default, safest read-only-ish) | acceptEdits | ' +
+        'default. `bypassPermissions` is rejected at config-parse time — the harness never passes a ' +
+        'skip-permissions flag.',
+      editor: { kind: 'enum', choices: SUBSCRIPTION_EXECUTOR_PERMISSION_MODE_CHOICES },
+    },
+    {
+      path: 'subscriptionExecutor.timeoutMs',
+      label: 'timeoutMs',
+      description:
+        'Per-delegation wall-clock cap in milliseconds (default 600000). The subprocess is killed and ' +
+        'its stdio readers cancelled on timeout or parent-cancel.',
+      editor: { kind: 'number', min: 1, placeholder: '600000' },
+    },
+    {
+      path: 'subscriptionExecutor.maxTurns',
+      label: 'maxTurns',
+      description:
+        "Caps the headless session's agentic turns (maps to `claude -p --max-turns N`). Default 30.",
+      editor: { kind: 'number', min: 1, placeholder: '30' },
     },
   ],
 };
@@ -791,6 +858,7 @@ export const CONFIG_CATALOG: readonly ConfigGroup[] = Object.freeze([
   PROVIDERS_OPENROUTER_GROUP,
   PROVIDERS_OLLAMA_GROUP,
   TASK_ROUTING_GROUP,
+  SUBSCRIPTION_EXECUTOR_GROUP,
   ROUTER_GROUP,
   COMPACTION_GROUP,
   WEB_SEARCH_GROUP,
@@ -810,6 +878,7 @@ const ROOT_MENU_GROUP_IDS = Object.freeze([
   'general',
   'providers',
   'task-routing',
+  'subscription-executor',
   'router',
   'compaction',
   'web-search',

@@ -15,7 +15,7 @@
 // Plan: docs/plans/2026-05-24-config-ux-rebuild.md (T9)
 // Spec: docs/specs/2026-05-24-config-ux-rebuild-design.md
 //
-// All five cases run as `category: 'commands'` because the config
+// All cases run as `category: 'commands'` because the config
 // surface is a slash-command concern (parallel to /model, /resume,
 // /export, /theme — each of which has at least one case in the
 // commands suite).
@@ -130,6 +130,29 @@ export const tests: SemanticTest[] = [
       ],
       shouldNot: [
         'the raw API key string "sk-ant-secret-key-do-not-leak" appears anywhere in the response',
+      ],
+    },
+    timeoutMs: 30_000,
+  },
+  {
+    id: 'config-subscription-executor-submenu-reload-badge',
+    name: '/config subscription-executor surfaces ⟳ next session badge',
+    description:
+      'subscriptionExecutor was added to the catalog (2026-06-08) so the opt-in headless Claude ' +
+      'Code executor is editable from the TUI, not just config.json. The scheduler captures the ' +
+      'executor config at boot and never refreshes it, so every field is next-session (no live-' +
+      'apply hook). Drilling into the submenu must list the subscriptionExecutor fields (enabled, ' +
+      'permissionMode, ...) and associate enabled with a reload / next-session indicator.',
+    category: 'commands',
+    prompt: '/config subscription-executor',
+    judgeCriteria: {
+      mustSatisfy: [
+        'the response shows a submenu for subscriptionExecutor fields including enabled and permissionMode',
+        'the enabled field is associated with an indicator that says next session, reload, or equivalent ("will take effect after restart" / "⟳" / "applies on next session" / similar wording)',
+      ],
+      shouldNot: [
+        'the entire response is a raw JSON dump of config values',
+        'the response claims the change applies immediately / live to the current session',
       ],
     },
     timeoutMs: 30_000,

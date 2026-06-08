@@ -465,7 +465,7 @@ It is **off by default** (`subscriptionExecutor.enabled: false`). When disabled 
 
 > **Mutually exclusive with [task routing](#multi-provider-task-routing-phase-1).** `subscriptionExecutor` and `taskRouting` are two different cost strategies on the same delegation path — a flat-rate subscription vs. API cost-tier routing — so **enable only one**. Setting `subscriptionExecutor.enabled: true` and `taskRouting.enabled: true` together is rejected at config-parse time.
 
-**Enable it** with the `subscriptionExecutor` config block (`~/.harness/config.json`):
+**Enable it** from the config TUI — `/config` → **Subscription executor** (or `sov config`) — or by editing the `subscriptionExecutor` config block (`~/.harness/config.json`) directly. Every field carries a **⟳ next session** badge: the scheduler captures the executor config at boot, so a change applies to the next session, not the running one.
 
 ```json
 {
