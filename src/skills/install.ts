@@ -26,8 +26,11 @@ import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
-import { splitCommaList, splitFrontmatter } from './frontmatter.js';
-import { SkillFrontmatterSchema as LoaderSkillFrontmatterSchema } from './loader.js';
+import { splitFrontmatter } from './frontmatter.js';
+import {
+  SkillFrontmatterSchema as LoaderSkillFrontmatterSchema,
+  normalizeFrontmatterAliases,
+} from './loader.js';
 import { copySkillTree } from './symlinkGuard.js';
 import { validateWhenToUse } from './whenToUse.js';
 
@@ -262,8 +265,16 @@ type NormalizedFrontmatter = {
 
 /** Apply the import normalizations to a parsed frontmatter object, collecting
  *  `converted`/`warnings` notes as it goes. Pure — returns a fresh object and
- *  never mutates the input. */
-function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatter {
+ *  never mutates the input.
+ *
+ *  F9 — the `allowed-tools` → `allowedTools` alias + comma-split is delegated to
+ *  the SHARED `normalizeFrontmatterAliases` (loader.ts), the single source of
+ *  that rule. This function adds ONLY the import-specific concerns on top:
+ *  reporting the conversion (`converted`), dropping ignored CC keys, warning on
+ *  `:`-glob Bash patterns, and synthesizing `whenToUse`.
+ *
+ *  Exported so tests can pin that both surfaces single-source the alias logic. */
+export function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatter {
   const converted: string[] = [];
   const warnings: string[] = [];
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -272,25 +283,34 @@ function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatter {
     return { frontmatter: {}, converted, warnings };
   }
   const source = raw as Record<string, unknown>;
-  // Build the canonical object immutably (no `delete`): drop the hyphenated
-  // CC key + every ignored CC key by omission, then layer the normalizations
-  // on top. `ignored` collects the dropped CC keys for warning reporting.
-  const { 'allowed-tools': hyphenatedAllowedTools, ...withoutAlias } = source;
-  const ignored = IGNORED_CC_KEYS.filter((key) => key in withoutAlias);
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(withoutAlias)) {
-    if ((IGNORED_CC_KEYS as readonly string[]).includes(key)) continue;
-    out[key] = value;
-  }
 
-  // 1. allowed-tools → allowedTools (no clobber), + comma-string split.
-  if (!('allowedTools' in out) && hyphenatedAllowedTools !== undefined) {
-    out.allowedTools = hyphenatedAllowedTools;
+  // 1. Apply the SHARED alias + comma-split transform (the single source of
+  //    that rule). Detect whether each conversion fired by comparing the input
+  //    to the transformed output so the import-specific `converted` notes stay
+  //    identical to the prior hand-rolled behavior.
+  const hadHyphenatedAlias =
+    !('allowedTools' in source) && (source as Record<string, unknown>)['allowed-tools'] !== undefined;
+  const aliased = normalizeFrontmatterAliases(source) as Record<string, unknown>;
+  if (hadHyphenatedAlias && 'allowedTools' in aliased) {
     converted.push('aliased Claude Code `allowed-tools` → `allowedTools`');
   }
-  if (typeof out.allowedTools === 'string') {
-    out.allowedTools = splitCommaList(out.allowedTools);
+  // The shared transform splits a string value into an array; if the post-alias
+  // value is now an array where the pre-split value was a string, a split fired.
+  const preSplitValue = hadHyphenatedAlias
+    ? (source as Record<string, unknown>)['allowed-tools']
+    : source.allowedTools;
+  if (typeof preSplitValue === 'string' && Array.isArray(aliased.allowedTools)) {
     converted.push('split comma-separated `allowedTools` string into a list');
+  }
+
+  // 2. Drop every ignored CC key by omission (immutable; no `delete`). The
+  //    shared transform already dropped the hyphenated `allowed-tools` key.
+  //    `ignored` collects the dropped CC keys for warning reporting.
+  const ignored = IGNORED_CC_KEYS.filter((key) => key in aliased);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(aliased)) {
+    if ((IGNORED_CC_KEYS as readonly string[]).includes(key)) continue;
+    out[key] = value;
   }
 
   // Warn on CC `:`-globs in Bash(...) patterns — we do NOT auto-translate

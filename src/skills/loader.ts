@@ -47,8 +47,12 @@ const MetadataSchema = z
  *       into a trimmed, non-empty array.
  *
  *  Runs in front of SkillFrontmatterSchema so any CC SKILL.md loads natively
- *  with its tool list populated. */
-function normalizeFrontmatterAliases(raw: unknown): unknown {
+ *  with its tool list populated.
+ *
+ *  Exported so the import write path (`normalizeImportedFrontmatter` in
+ *  install.ts) applies the EXACT same field transform — the alias + comma-split
+ *  rule must live in ONE place (F9), never re-implemented. */
+export function normalizeFrontmatterAliases(raw: unknown): unknown {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw;
   const obj = raw as Record<string, unknown>;
   // Drop the hyphenated CC key by omission (immutable; no `delete`), aliasing
