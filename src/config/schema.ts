@@ -700,7 +700,7 @@ export const SettingsSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'gateway: `subscriptionExecutor` and `taskRouting` are mutually exclusive — they are two different cost strategies (a flat-rate subscription vs. API cost-tier routing); enable only one.',
+          '`subscriptionExecutor` and `taskRouting` are mutually exclusive — they are two different cost strategies (a flat-rate subscription vs. API cost-tier routing); enable only one.',
         path: ['subscriptionExecutor', 'enabled'],
       });
     }
