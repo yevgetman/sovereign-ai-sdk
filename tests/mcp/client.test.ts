@@ -80,6 +80,10 @@ describe('MCP client pool', () => {
     });
     expect(broken.servers().map((s) => s.name)).toEqual(['good']);
     expect(logs.some((m) => m.includes('bad') && m.includes('failed'))).toBe(true);
+    // The actionable spawn-failure code must survive sanitization — a stdio
+    // config carries no secret, and `ENOENT` (missing binary) is the single
+    // most useful detail for the operator to fix it.
+    expect(logs.some((m) => m.includes('bad') && m.includes('ENOENT'))).toBe(true);
     await broken.shutdown();
   });
 });

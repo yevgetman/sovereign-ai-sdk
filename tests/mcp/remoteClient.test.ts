@@ -5,8 +5,10 @@
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { buildMcpClientPool } from '../../src/mcp/client.js';
-import type { McpClientPool } from '../../src/mcp/types.js';
+import { resolveMcpHeaders } from '../../src/mcp/auth.js';
+import { buildMcpClientPool, sanitizeConnectError } from '../../src/mcp/client.js';
+import { buildSafeFetch } from '../../src/mcp/safeFetch.js';
+import type { McpClientPool, McpServerConfig } from '../../src/mcp/types.js';
 import { type HttpEchoServer, startHttpEchoServer } from './fixtures/http-echo-server.js';
 import { type RedirectFixture, startRedirectFixture } from './fixtures/redirect-server.js';
 
@@ -177,6 +179,20 @@ describe('remote MCP secret-in-transit (cross-origin redirect)', () => {
     // we only care about what crossed the origin boundary.
     expect(pool.servers()).toHaveLength(0);
 
+    // PRECONDITION: the secrets must have actually been attached to the
+    // LEGIT first hop — otherwise "absent at attacker" is trivially true and
+    // the test proves nothing. The dynamic custom header (x-tenant) proves
+    // the real wiring passes cfg.headers names through, not a hand-fed list.
+    expect(fx.configuredHits.length).toBeGreaterThan(0);
+    expect(
+      fx.configuredHits.some(
+        (h) =>
+          h.authorization === 'Bearer secret-bearer' &&
+          h['x-api-key'] === 'secret-apikey' &&
+          h['x-tenant'] === 'secret-tenant',
+      ),
+    ).toBe(true);
+
     // The redirect MUST have actually reached the attacker (proves the test
     // exercised the redirect path, not a no-op).
     expect(fx.attackerHits.length).toBeGreaterThan(0);
@@ -212,6 +228,18 @@ describe('remote MCP secret-in-transit (cross-origin redirect)', () => {
     );
     expect(pool.servers()).toHaveLength(0);
 
+    // PRECONDITION (as in the HTTP case): the secrets — including the dynamic
+    // cfg.headers custom header — reached the legit first hop.
+    expect(fx.configuredHits.length).toBeGreaterThan(0);
+    expect(
+      fx.configuredHits.some(
+        (h) =>
+          h.authorization === 'Bearer secret-bearer' &&
+          h['x-api-key'] === 'secret-apikey' &&
+          h['x-tenant'] === 'secret-tenant',
+      ),
+    ).toBe(true);
+
     expect(fx.attackerHits.length).toBeGreaterThan(0);
     for (const hit of fx.attackerHits) {
       expect(hit.authorization).toBeUndefined();
@@ -223,4 +251,125 @@ describe('remote MCP secret-in-transit (cross-origin redirect)', () => {
     expect(allValues).not.toContain('secret-apikey');
     expect(allValues).not.toContain('secret-tenant');
   }, 10_000);
+});
+
+// The real wiring composes the redirect-safe fetch as
+//   buildSafeFetch(url, Object.keys(resolveMcpHeaders(alias, cfg, env)))
+// (see buildRemoteTransport in client.ts). These tests reconstruct that exact
+// composition with a recording fetch so the DYNAMIC header names — including
+// an operator custom header from cfg.headers — flow through the genuine
+// resolver + safe-fetch plumbing, not a hand-fed allow-list.
+describe('remote client safe-fetch wiring (dynamic header names)', () => {
+  type Hop = { url: string; headers: Record<string, string> };
+
+  function recordingFetch(script: Array<{ location?: string }>) {
+    const hops: Hop[] = [];
+    let i = 0;
+    const impl = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const headers: Record<string, string> = {};
+      new Headers(init?.headers).forEach((v, k) => {
+        headers[k] = v;
+      });
+      hops.push({ url: url.toString(), headers });
+      const step = script[i] ?? {};
+      i += 1;
+      if (step.location) {
+        return new Response(null, { status: 307, headers: { location: step.location } });
+      }
+      return new Response('ok', { status: 200 });
+    };
+    return { impl, hops };
+  }
+
+  /** Build the safe fetch + headers exactly as buildRemoteTransport does. */
+  function wire(
+    cfg: Extract<McpServerConfig, { type: 'http' | 'sse' }>,
+    script: Array<{ location?: string }>,
+  ) {
+    const url = new URL(cfg.url);
+    const headers = resolveMcpHeaders('remote', cfg, {});
+    const { impl, hops } = recordingFetch(script);
+    const safe = buildSafeFetch(url, Object.keys(headers), impl);
+    return { safe, headers, hops, url };
+  }
+
+  test('strips a dynamic cfg.headers custom header on a cross-origin redirect', async () => {
+    const { safe, headers, hops } = wire(
+      {
+        type: 'http',
+        url: 'https://mcp.example.com/v1',
+        bearerToken: 'secret-bearer',
+        apiKey: 'secret-apikey',
+        headers: { 'X-Tenant': 'secret-tenant' },
+      },
+      [{ location: 'https://attacker.example.net/collect' }, {}],
+    );
+    await safe('https://mcp.example.com/v1', { headers });
+
+    expect(hops).toHaveLength(2);
+    // Legit first hop carried all three (proves they were attached).
+    expect(hops[0]?.headers.authorization).toBe('Bearer secret-bearer');
+    expect(hops[0]?.headers['x-api-key']).toBe('secret-apikey');
+    expect(hops[0]?.headers['x-tenant']).toBe('secret-tenant');
+    // Attacker hop carried NONE — the dynamic custom name was stripped via
+    // the real Object.keys(resolveMcpHeaders(...)) plumbing.
+    expect(hops[1]?.headers.authorization).toBeUndefined();
+    expect(hops[1]?.headers['x-api-key']).toBeUndefined();
+    expect(hops[1]?.headers['x-tenant']).toBeUndefined();
+  });
+
+  test('keeps headers on a same-host http→https UPGRADE through the real wiring', async () => {
+    const { safe, headers, hops } = wire(
+      {
+        type: 'http',
+        url: 'http://mcp.example.com/v1',
+        bearerToken: 'secret-bearer',
+        headers: { 'X-Tenant': 'secret-tenant' },
+      },
+      [{ location: 'https://mcp.example.com/v1' }, {}],
+    );
+    await safe('http://mcp.example.com/v1', { headers });
+
+    expect(hops).toHaveLength(2);
+    // The upgraded request still authenticates — headers survive.
+    expect(hops[1]?.headers.authorization).toBe('Bearer secret-bearer');
+    expect(hops[1]?.headers['x-tenant']).toBe('secret-tenant');
+  });
+});
+
+describe('sanitizeConnectError', () => {
+  test('surfaces a string syscall code (ENOENT) for a stdio spawn failure', () => {
+    // A missing stdio binary spawns with `code: 'ENOENT'` (a STRING) — the
+    // single most actionable detail for a local config, which carries no
+    // secret. It must survive sanitization, not collapse to a generic class.
+    const err = Object.assign(new Error('spawn fsd ENOENT'), { code: 'ENOENT' });
+    expect(sanitizeConnectError(err)).toContain('ENOENT');
+  });
+
+  test('surfaces EACCES for a non-executable stdio binary', () => {
+    const err = Object.assign(new Error('spawn EACCES'), { code: 'EACCES' });
+    expect(sanitizeConnectError(err)).toContain('EACCES');
+  });
+
+  test('still prefers a numeric HTTP status code over a message scan', () => {
+    const err = Object.assign(new Error('Unauthorized'), { code: 401 });
+    expect(sanitizeConnectError(err)).toBe('HTTP 401');
+  });
+
+  test('redacts a URL / token embedded in the raw message', () => {
+    // A remote transport error can embed the request URL + a token in its
+    // `.message`. Sanitization must NOT echo either — only a safe class.
+    const err = new Error('request to https://mcp.example.com/v1?token=super-secret-token failed');
+    const out = sanitizeConnectError(err);
+    expect(out).not.toContain('super-secret-token');
+    expect(out).not.toContain('mcp.example.com');
+    expect(out).not.toContain('https://');
+  });
+
+  test('does not surface an unrecognized string code', () => {
+    // An attacker-influenced or unknown string code is NOT on the allow-list,
+    // so it falls through to the safe class name rather than being echoed.
+    const err = Object.assign(new Error('boom'), { code: 'SOMETHING-secret-ish' });
+    expect(sanitizeConnectError(err)).not.toContain('secret');
+  });
 });

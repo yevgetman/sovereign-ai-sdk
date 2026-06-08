@@ -16,13 +16,14 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { VERSION } from '../version.js';
 import { redactUrlAuth, resolveMcpHeaders } from './auth.js';
 import { buildSafeFetch } from './safeFetch.js';
-import type {
-  McpCallResult,
-  McpClientPool,
-  McpRemoteServerFields,
-  McpServerConfig,
-  McpServerHandle,
-  McpToolMeta,
+import {
+  type McpCallResult,
+  type McpClientPool,
+  type McpRemoteServerFields,
+  type McpServerConfig,
+  type McpServerHandle,
+  type McpToolMeta,
+  isRemoteMcpConfig,
 } from './types.js';
 
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
@@ -122,6 +123,37 @@ export async function buildMcpClientPool(
   };
 }
 
+/** Injectable timer functions so the connect-timeout race is testable
+ *  without real timers. Defaults to the globals at the call boundary. */
+export type TimerFns = {
+  setTimeoutFn: typeof setTimeout;
+  clearTimeoutFn: typeof clearTimeout;
+};
+
+/** Connect a client with a hard timeout, clearing the timer on EITHER
+ *  outcome so the pending reject timer never keeps the event loop alive past
+ *  exit. (A leaked 15s timer delayed shutdown for short-lived processes:
+ *  one-shot CLI, per-request OpenAI/cron pools, and the test runner.) */
+export async function connectWithTimeout(
+  client: Pick<Client, 'connect'>,
+  transport: Transport,
+  connectTimeoutMs: number,
+  timers: TimerFns = { setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout },
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = timers.setTimeoutFn(
+      () => reject(new Error(`connect timeout after ${connectTimeoutMs}ms`)),
+      connectTimeoutMs,
+    );
+  });
+  try {
+    await Promise.race([client.connect(transport), timeout]);
+  } finally {
+    if (timer !== undefined) timers.clearTimeoutFn(timer);
+  }
+}
+
 async function connectOne(
   name: string,
   cfg: McpServerConfig,
@@ -134,15 +166,7 @@ async function connectOne(
   const client = new Client({ name: 'sovereign-ai-harness', version: VERSION });
 
   // Connect with a hard timeout — a hung subprocess must not block startup.
-  await Promise.race([
-    client.connect(transport),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`connect timeout after ${connectTimeoutMs}ms`)),
-        connectTimeoutMs,
-      ),
-    ),
-  ]);
+  await connectWithTimeout(client, transport, connectTimeoutMs);
 
   const listed = await client.listTools();
   const tools: McpToolMeta[] = listed.tools.map((t) => ({
@@ -168,7 +192,7 @@ function buildTransport(
   log: (msg: string) => void,
   env: Record<string, string | undefined>,
 ): Transport {
-  if (cfg.type === 'http' || cfg.type === 'sse') {
+  if (isRemoteMcpConfig(cfg)) {
     return buildRemoteTransport(name, cfg, log, env);
   }
   return new StdioClientTransport({
@@ -252,7 +276,16 @@ function warnInsecureRemoteUrl(name: string, url: URL, log: (msg: string) => voi
  *  e.g. `0x7f000001` or `2130706433`) — those are a rarer footgun and would
  *  bloat a warning heuristic; the dotted-quad scope below covers the common
  *  cases. `url.hostname` already strips the `[...]` brackets from an IPv6
- *  literal. */
+ *  literal.
+ *
+ *  TODO(dedupe): WebFetchTool.ts has a parallel `isPrivateHost`. The two
+ *  have intentionally DIFFERENT threat models — WebFetch's is a hard SSRF
+ *  *block* on a model-controlled URL (security-load-bearing, re-checked on
+ *  every redirect hop), this one is operator-config *warn-only* — and their
+ *  coverage has drifted accordingly (this one handles `::ffff:` mapped
+ *  addresses + `.localhost` suffixes; WebFetch's covers `0.0.0.0/8`). A
+ *  shared extraction must not weaken WebFetch's SSRF gate, so it's left
+ *  separate until a careful, test-backed unification can reconcile both. */
 export function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
@@ -291,15 +324,38 @@ function isPrivateIpv6(host: string): boolean {
   return false;
 }
 
+/** Safe, actionable error codes to surface verbatim. These are syscall /
+ *  network failure classes (never secrets), and a stdio spawn failure
+ *  reports them as a STRING `err.code` (e.g. `ENOENT` for a missing binary,
+ *  `EACCES` for a non-executable one) — the single most actionable detail
+ *  for a local stdio config, which carries no secrets at all. */
+const SAFE_ERROR_CODES = new Set([
+  'ENOENT',
+  'EACCES',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNRESET',
+  'EPIPE',
+  'ETIMEDOUT',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+]);
+
 /** Reduce a connect error to a secret-free, single-line reason. SDK
  *  transport errors can embed the full request URL (query / userinfo) or
- *  response bodies, so we only surface a recognized status code or a
- *  short generic class — never the raw message verbatim. */
-function sanitizeConnectError(err: unknown): string {
+ *  response bodies, so we never surface `err.message` verbatim. We DO
+ *  surface a recognized status code (numeric `code` → `HTTP <n>`) or a safe
+ *  syscall code (string `code` like `ENOENT` — actionable, never a secret),
+ *  falling back to a short generic class otherwise. */
+export function sanitizeConnectError(err: unknown): string {
   if (err instanceof Error) {
     // StreamableHTTPError / SseError expose a numeric `code` (HTTP status).
     const code = (err as { code?: unknown }).code;
     if (typeof code === 'number') return `HTTP ${code}`;
+    // A stdio spawn failure (and many network errors) carries a STRING code.
+    // These are safe to surface and far more actionable than a generic class.
+    if (typeof code === 'string' && SAFE_ERROR_CODES.has(code)) return code;
     const msg = err.message;
     if (/timeout/i.test(msg)) return 'connect timeout';
     if (/ECONNREFUSED|connection refused/i.test(msg)) return 'connection refused';

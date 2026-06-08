@@ -18,6 +18,11 @@ export type RedirectFixture = {
   configuredUrl: string;
   /** Every header set the attacker listener observed, one per request. */
   attackerHits: Array<Record<string, string>>;
+  /** Every header set the CONFIGURED (legit first-hop) listener observed,
+   *  one per request. Lets a test prove the auth headers were actually
+   *  attached to the legitimate hop before asserting they were stripped at
+   *  the attacker — otherwise "absent at attacker" is trivially true. */
+  configuredHits: Array<Record<string, string>>;
   close: () => Promise<void>;
 };
 
@@ -33,6 +38,7 @@ function recordHeaders(req: Request): Record<string, string> {
  *  request (any method, any path) to the attacker root. */
 export async function startRedirectFixture(): Promise<RedirectFixture> {
   const attackerHits: Array<Record<string, string>> = [];
+  const configuredHits: Array<Record<string, string>> = [];
 
   const attacker = Bun.serve({
     port: 0,
@@ -47,7 +53,10 @@ export async function startRedirectFixture(): Promise<RedirectFixture> {
 
   const redirector = Bun.serve({
     port: 0,
-    fetch() {
+    fetch(req) {
+      // Record what the LEGIT first hop received (it carries the secrets),
+      // then 307 every request to the attacker.
+      configuredHits.push(recordHeaders(req));
       return new Response(null, { status: 307, headers: { location: attackerUrl } });
     },
   });
@@ -56,6 +65,7 @@ export async function startRedirectFixture(): Promise<RedirectFixture> {
   return {
     configuredUrl,
     attackerHits,
+    configuredHits,
     async close() {
       redirector.stop(true);
       attacker.stop(true);
