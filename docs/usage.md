@@ -1885,20 +1885,53 @@ The `!` prefix runs *before* slash-command parsing so a hostile filename or skil
 
 ## MCP Servers
 
-Configure stdio MCP servers in any settings layer (`mcpServers` is concatenated across layers; duplicate names across layers is an error):
+Configure MCP servers in any settings layer (`mcpServers` is concatenated across layers; duplicate names across layers is an error). Three transports are supported — local **stdio** subprocesses, remote **Streamable HTTP** (the current MCP standard), and legacy remote **SSE**:
 
 ```json
 {
   "mcpServers": {
     "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
-    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/safe/dir"] }
+    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/safe/dir"] },
+    "hosted": { "type": "http", "url": "https://mcp.example.com/v1" },
+    "hosted-sse": { "type": "sse", "url": "https://legacy.example.com/sse" }
   }
 }
 ```
 
-Discovered tools register as `mcp__<server>__<tool>` and flow through the same `Tool` interface as native tools — same permission gating, same hooks. They default to deferred (their full schema is fetched on demand via the model's `ToolSearch` tool) so the system prompt token cost stays bounded as servers add tools.
+The `type` field selects the transport: `stdio` (the default — a config with `command` and no `type` is treated as stdio for backward compatibility), `http`, or `sse`. Remote variants take a `url` plus optional `headers` and the auth conveniences below. A `url` without a `type` is rejected with a message telling you to set `type: "http"` or `type: "sse"`.
 
-Connection failures log a one-line banner at session start and the affected tools simply don't appear; the rest of the session keeps running. Use `/context-budget` or `HarnessInfo`'s `mcp` section to inspect connection status, tool counts, and the configured invocation commands.
+### Remote authentication
+
+Remote servers accept static `headers`, plus two convenience fields and matching environment variables. Precedence is **env > config**; an empty/whitespace value is treated as absent:
+
+| Source | Result |
+|---|---|
+| `SOV_MCP_<ALIAS>_TOKEN` env var, else `bearerToken` in config | `Authorization: Bearer <token>` |
+| `SOV_MCP_<ALIAS>_API_KEY` env var, else `apiKey` in config | `X-API-Key: <key>` |
+
+`<ALIAS>` is the server's key uppercased with every non-alphanumeric character replaced by `_` (e.g. the alias `github-remote` reads `SOV_MCP_GITHUB_REMOTE_TOKEN`). An explicit `Authorization` or `X-API-Key` entry in `headers` is never overwritten. **Prefer the env vars in shared repos so secrets are never committed** — `bearerToken` / `apiKey` in config are for local convenience only.
+
+```json
+{
+  "mcpServers": {
+    "github-remote": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "X-Tenant": "acme" }
+    }
+  }
+}
+```
+
+```bash
+export SOV_MCP_GITHUB_REMOTE_TOKEN="ghp_…"   # → Authorization: Bearer ghp_…
+```
+
+Security notes: the harness warns (but does not block) when a remote URL is plaintext `http://` or targets a loopback/private host — fine for local dev, a flag for a misconfigured production endpoint. There is no insecure-TLS escape hatch. OAuth flows are not yet supported (static bearer/header auth only). Tokens and resolved headers are never logged, and status/error surfaces show only the URL's origin (never the path, query string, or `user:pass@` userinfo).
+
+Discovered tools register as `mcp__<server>__<tool>` and flow through the same `Tool` interface as native tools — same permission gating, same hooks, regardless of transport. They default to deferred (their full schema is fetched on demand via the model's `ToolSearch` tool) so the system prompt token cost stays bounded as servers add tools.
+
+Connection failures log a one-line, secret-free banner at session start and the affected tools simply don't appear; the rest of the session keeps running. Use `/context-budget` or `HarnessInfo`'s `mcp` section to inspect connection status, tool counts, and each server's transport (the invocation command for stdio, the redacted URL for remote).
 
 ## Hooks
 

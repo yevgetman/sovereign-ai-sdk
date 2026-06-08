@@ -357,11 +357,15 @@ Settings shape (under any layer's `hooks` key):
 
 ## MCP Client
 
-`src/mcp/client.ts` connects to configured stdio MCP servers via `@modelcontextprotocol/sdk` at session start, discovers each server's tools, and wraps them into the harness's `Tool` interface. Servers that fail to connect are logged and skipped — one broken server doesn't prevent the rest of the session from running.
+`src/mcp/client.ts` connects to configured MCP servers via `@modelcontextprotocol/sdk` at session start, discovers each server's tools, and wraps them into the harness's `Tool` interface. Servers that fail to connect are logged and skipped — one broken server doesn't prevent the rest of the session from running.
+
+**Transports.** `buildTransport(name, cfg)` branches on the config's `type` (defaulting to `stdio` for legacy configs): `stdio` builds a `StdioClientTransport` (a spawned subprocess); `http` builds a `StreamableHTTPClientTransport` (the current MCP standard) against `cfg.url` with resolved auth headers on `requestInit`; `sse` builds the deprecated `SSEClientTransport` (headers are injected on both the POST channel via `requestInit` and the GET event stream via an `eventSourceInit.fetch` override — setting `eventSourceInit` otherwise suppresses the SDK's automatic `Authorization` header). All three satisfy the SDK's base `Transport` interface, so the pool drives them identically through `client.connect()` / `client.close()` — `connectOne`, the connect-timeout `Promise.race`, the wrapper, and the registry are transport-agnostic. The connect-error log path is sanitized (`sanitizeConnectError`) to a secret-free reason (an HTTP status or a short class like "connection refused") so a transport error can never leak a token-bearing URL.
+
+**Remote auth** lives in `src/mcp/auth.ts` (`resolveMcpHeaders`, pure with an injectable `env`): env-first precedence (`SOV_MCP_<ALIAS>_TOKEN` → `Authorization: Bearer`, `SOV_MCP_<ALIAS>_API_KEY` → `X-API-Key`, falling back to `bearerToken`/`apiKey` in config), trimmed, empty→absent, never overwriting an explicit header, never logged. `redactUrlAuth` reduces a URL to its origin for every status/error surface; the HarnessInfo status serializer (`serializeMcpServerConfig`) projects remote servers to `{ transport, url }` (origin-only, never headers) and stdio to `{ transport, command, args }`. A remote URL that's plaintext `http://` or loopback/private warns but does not block (operator config, not end-user input); there is no insecure-TLS escape hatch, and OAuth is deferred.
 
 Each wrapped tool registers as `mcp__<server>__<tool>` with `shouldDefer: true` so its full input schema isn't in the system prompt by default — the model retrieves the schema on demand via `ToolSearch`. This bounds prompt token cost as MCP servers add tens of tools.
 
-Per Invariant #5, MCP tools flow through the same `Tool<I,O>` pipe as native tools — same orchestration, same permission gating, same hooks. The permission rule prefix (`mcp__<server>` matches every tool from that server; `mcp__<server>__<tool>` matches one) lets MCP tools participate in the existing rule engine without a new code path.
+Per Invariant #5, MCP tools flow through the same `Tool<I,O>` pipe as native tools — same orchestration, same permission gating, same hooks, regardless of transport. The permission rule prefix (`mcp__<server>` matches every tool from that server; `mcp__<server>__<tool>` matches one) lets MCP tools participate in the existing rule engine without a new code path.
 
 Settings shape:
 
@@ -369,10 +373,13 @@ Settings shape:
 {
   "mcpServers": {
     "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
-    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/safe/dir"] }
+    "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/safe/dir"] },
+    "hosted": { "type": "http", "url": "https://mcp.example.com/v1" }
   }
 }
 ```
+
+See [`usage.md`](usage.md#mcp-servers) for the full remote-config + `SOV_MCP_*` auth reference.
 
 ## OpenAI HTTP Server
 
