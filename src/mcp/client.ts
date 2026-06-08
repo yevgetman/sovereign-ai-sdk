@@ -15,6 +15,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { VERSION } from '../version.js';
 import { redactUrlAuth, resolveMcpHeaders } from './auth.js';
+import { buildSafeFetch } from './safeFetch.js';
 import type {
   McpCallResult,
   McpClientPool,
@@ -34,6 +35,10 @@ export type BuildMcpClientPoolOpts = {
   log?: (msg: string) => void;
   /** Per-server connect timeout. Defaults to 15s. */
   connectTimeoutMs?: number;
+  /** Environment map for resolving `SOV_MCP_*` auth secrets. Injected so
+   *  the resolver stays pure and tests never mutate `process.env`. Defaults
+   *  to `process.env` at the boundary. */
+  env?: Record<string, string | undefined>;
 };
 
 type ActiveConnection = {
@@ -52,12 +57,13 @@ export async function buildMcpClientPool(
   const log = opts.log ?? ((m: string) => process.stderr.write(`${m}\n`));
   const connectTimeoutMs = opts.connectTimeoutMs ?? 15_000;
   const servers = opts.servers ?? {};
+  const env = opts.env ?? process.env;
 
   const active = new Map<string, ActiveConnection>();
 
   for (const [name, cfg] of Object.entries(servers)) {
     try {
-      const conn = await connectOne(name, cfg, connectTimeoutMs, log);
+      const conn = await connectOne(name, cfg, connectTimeoutMs, log, env);
       active.set(name, conn);
       log(`[mcp] ${name}: ${conn.tools.length} tool${conn.tools.length === 1 ? '' : 's'}`);
     } catch (err) {
@@ -121,8 +127,9 @@ async function connectOne(
   cfg: McpServerConfig,
   connectTimeoutMs: number,
   log: (msg: string) => void,
+  env: Record<string, string | undefined>,
 ): Promise<ActiveConnection> {
-  const transport = buildTransport(name, cfg, log);
+  const transport = buildTransport(name, cfg, log, env);
 
   const client = new Client({ name: 'sovereign-ai-harness', version: VERSION });
 
@@ -155,9 +162,14 @@ async function connectOne(
  *  transport `type` (defaulting to stdio for legacy configs). The
  *  returned value satisfies the base `Transport` interface; the pool
  *  only ever drives it through `client.connect()` / `client.close()`. */
-function buildTransport(name: string, cfg: McpServerConfig, log: (msg: string) => void): Transport {
+function buildTransport(
+  name: string,
+  cfg: McpServerConfig,
+  log: (msg: string) => void,
+  env: Record<string, string | undefined>,
+): Transport {
   if (cfg.type === 'http' || cfg.type === 'sse') {
-    return buildRemoteTransport(name, cfg, log);
+    return buildRemoteTransport(name, cfg, log, env);
   }
   return new StdioClientTransport({
     command: cfg.command,
@@ -171,32 +183,49 @@ function buildRemoteTransport(
   name: string,
   cfg: ({ type: 'http' } | { type: 'sse' }) & McpRemoteServerFields,
   log: (msg: string) => void,
+  env: Record<string, string | undefined>,
 ): Transport {
   const url = new URL(cfg.url);
   warnInsecureRemoteUrl(name, url, log);
-  const headers = resolveMcpHeaders(name, cfg, process.env);
+  const headers = resolveMcpHeaders(name, cfg, env);
+
+  // SECURITY: the resolved headers carry secrets (Authorization / X-API-Key
+  // / operator custom headers). Wrap fetch so a cross-origin redirect from
+  // the configured server can't exfiltrate them — see safeFetch.ts. The set
+  // of header names we attached is passed so ALL of them (not just the
+  // always-sensitive pair) are stripped on a cross-origin hop.
+  const safeFetch = buildSafeFetch(url, Object.keys(headers));
 
   // The remote SDK transports declare `get sessionId(): string | undefined`,
   // which trips `exactOptionalPropertyTypes` against the base `Transport`'s
   // `sessionId?: string` — a pure typing quirk; both genuinely implement
   // `Transport`. Narrow back to the interface the pool actually drives.
   if (cfg.type === 'http') {
-    const t = new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+    const t = new StreamableHTTPClientTransport(url, {
+      requestInit: { headers },
+      fetch: safeFetch,
+    });
     return t as Transport;
   }
 
   // Legacy SSE. Setting `eventSourceInit` suppresses the SDK's automatic
   // Authorization header, so we inject our resolved headers explicitly via
   // a fetch override on the SSE (GET) stream. The POST channel carries the
-  // same headers through `requestInit`.
+  // same headers through `requestInit` (over the same safe fetch).
   const sse = new SSEClientTransport(url, {
     requestInit: { headers },
+    fetch: safeFetch,
     eventSourceInit: {
-      fetch: (sseUrl, init) =>
-        fetch(sseUrl, {
-          ...(init as RequestInit),
-          headers: { ...(init.headers as Record<string, string>), ...headers },
-        }),
+      // `init.headers` is a `Headers`-or-object whose entries are NOT
+      // own-enumerable when it's a `Headers` instance — spreading it yields
+      // `{}` and clobbers the SDK's `Accept: text/event-stream` +
+      // `mcp-protocol-version`. Merge through `new Headers(...)` so the
+      // SDK's headers survive, then layer our resolved auth on top.
+      fetch: (sseUrl, init) => {
+        const merged = new Headers(init.headers);
+        for (const [k, v] of Object.entries(headers)) merged.set(k, v);
+        return safeFetch(sseUrl, { ...init, headers: merged });
+      },
     },
   });
   return sse as Transport;
@@ -217,11 +246,21 @@ function warnInsecureRemoteUrl(name: string, url: URL, log: (msg: string) => voi
   }
 }
 
-/** Best-effort check for loopback / RFC-1918 private / link-local hosts. */
-function isPrivateHost(hostname: string): boolean {
+/** Best-effort check for loopback / RFC-1918 private / link-local hosts,
+ *  IPv4 and IPv6. Warn-only (kept cheap), so it deliberately does NOT
+ *  attempt to decode non-dotted IPv4 encodings (decimal / octal / hex,
+ *  e.g. `0x7f000001` or `2130706433`) — those are a rarer footgun and would
+ *  bloat a warning heuristic; the dotted-quad scope below covers the common
+ *  cases. `url.hostname` already strips the `[...]` brackets from an IPv6
+ *  literal. */
+export function isPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  if (host === '::1' || host === '0.0.0.0') return true;
+  if (host === '0.0.0.0') return true;
+
+  // IPv6 (the URL parser has already stripped the surrounding brackets).
+  if (host.includes(':')) return isPrivateIpv6(host);
+
   const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!v4) return false;
   const [a, b] = [Number(v4[1]), Number(v4[2])];
@@ -230,6 +269,25 @@ function isPrivateHost(hostname: string): boolean {
   if (a === 192 && b === 168) return true; // 192.168.0.0/16
   if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
   if (a === 169 && b === 254) return true; // link-local
+  return false;
+}
+
+/** IPv6 private/loopback/link-local heuristic over the lowercased,
+ *  bracket-free hostname. */
+function isPrivateIpv6(host: string): boolean {
+  if (host === '::1') return true; // loopback
+  if (host === '::') return true; // unspecified / all-zeros
+  // IPv4-mapped (::ffff:a.b.c.d) — re-check the embedded IPv4 if it's dotted;
+  // otherwise flag the mapped form conservatively.
+  if (host.startsWith('::ffff:')) {
+    const mapped = host.slice('::ffff:'.length);
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(mapped)) return isPrivateHost(mapped);
+    return true;
+  }
+  // Unique local addresses fc00::/7 (fc00:: – fdff::).
+  if (/^f[cd][0-9a-f]*:/.test(host)) return true;
+  // Link-local fe80::/10 (fe80 – febf).
+  if (/^fe[89ab][0-9a-f]*:/.test(host)) return true;
   return false;
 }
 

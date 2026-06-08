@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { buildMcpClientPool } from '../../src/mcp/client.js';
 import type { McpClientPool } from '../../src/mcp/types.js';
 import { type HttpEchoServer, startHttpEchoServer } from './fixtures/http-echo-server.js';
+import { type RedirectFixture, startRedirectFixture } from './fixtures/redirect-server.js';
 
 const STDIO_FIXTURE = join(__dirname, 'fixtures', 'echo-server.ts');
 
@@ -21,6 +22,12 @@ async function withFixture(): Promise<HttpEchoServer> {
   const srv = await startHttpEchoServer();
   cleanups.push(() => srv.close());
   return srv;
+}
+
+async function withRedirect(): Promise<RedirectFixture> {
+  const fx = await startRedirectFixture();
+  cleanups.push(() => fx.close());
+  return fx;
 }
 
 function track(pool: McpClientPool): McpClientPool {
@@ -59,6 +66,8 @@ describe('remote MCP client pool (Streamable HTTP)', () => {
       await buildMcpClientPool({
         servers: { remote: { type: 'http', url: srv.url, bearerToken: 'cfg-secret' } },
         log: () => {},
+        // Empty env so an ambient SOV_MCP_REMOTE_TOKEN can't override config.
+        env: {},
       }),
     );
     await pool.call('remote', 'echo', { text: 'x' });
@@ -67,22 +76,18 @@ describe('remote MCP client pool (Streamable HTTP)', () => {
 
   test('env SOV_MCP_<ALIAS>_TOKEN overrides config and reaches the server', async () => {
     const srv = await withFixture();
-    const prev = process.env.SOV_MCP_REMOTE_TOKEN;
-    process.env.SOV_MCP_REMOTE_TOKEN = 'env-secret';
-    try {
-      const pool = track(
-        await buildMcpClientPool({
-          servers: { remote: { type: 'http', url: srv.url, bearerToken: 'cfg-secret' } },
-          log: () => {},
-        }),
-      );
-      await pool.call('remote', 'echo', { text: 'x' });
-      expect(srv.seenAuthHeaders).toContain('Bearer env-secret');
-      expect(srv.seenAuthHeaders).not.toContain('Bearer cfg-secret');
-    } finally {
-      if (prev === undefined) Reflect.deleteProperty(process.env, 'SOV_MCP_REMOTE_TOKEN');
-      else process.env.SOV_MCP_REMOTE_TOKEN = prev;
-    }
+    // Inject the env map (no process.env mutation) — buildMcpClientPool
+    // threads it into the pure auth resolver.
+    const pool = track(
+      await buildMcpClientPool({
+        servers: { remote: { type: 'http', url: srv.url, bearerToken: 'cfg-secret' } },
+        log: () => {},
+        env: { SOV_MCP_REMOTE_TOKEN: 'env-secret' },
+      }),
+    );
+    await pool.call('remote', 'echo', { text: 'x' });
+    expect(srv.seenAuthHeaders).toContain('Bearer env-secret');
+    expect(srv.seenAuthHeaders).not.toContain('Bearer cfg-secret');
   });
 
   test('dead remote URL is logged-and-skipped, good server still connects, log has no token', async () => {
@@ -145,5 +150,77 @@ describe('remote MCP client pool (Streamable HTTP)', () => {
     );
     expect(pool.servers()).toHaveLength(0);
     expect(logs.some((m) => m.includes('hung') && m.includes('failed'))).toBe(true);
+  }, 10_000);
+});
+
+describe('remote MCP secret-in-transit (cross-origin redirect)', () => {
+  test('Streamable HTTP: a cross-origin redirect leaks NO auth headers', async () => {
+    const fx = await withRedirect();
+    const pool = track(
+      await buildMcpClientPool({
+        servers: {
+          // bearerToken → Authorization; apiKey → X-API-Key; custom header.
+          remote: {
+            type: 'http',
+            url: fx.configuredUrl,
+            bearerToken: 'secret-bearer',
+            apiKey: 'secret-apikey',
+            headers: { 'X-Tenant': 'secret-tenant' },
+          },
+        },
+        log: () => {},
+        connectTimeoutMs: 4000,
+        env: {},
+      }),
+    );
+    // The connect fails (the attacker isn't an MCP server), which is fine —
+    // we only care about what crossed the origin boundary.
+    expect(pool.servers()).toHaveLength(0);
+
+    // The redirect MUST have actually reached the attacker (proves the test
+    // exercised the redirect path, not a no-op).
+    expect(fx.attackerHits.length).toBeGreaterThan(0);
+    for (const hit of fx.attackerHits) {
+      expect(hit.authorization).toBeUndefined();
+      expect(hit['x-api-key']).toBeUndefined();
+      expect(hit['x-tenant']).toBeUndefined();
+    }
+    // Belt and suspenders: no header VALUE leaked under any name.
+    const allValues = fx.attackerHits.flatMap((h) => Object.values(h));
+    expect(allValues).not.toContain('Bearer secret-bearer');
+    expect(allValues).not.toContain('secret-apikey');
+    expect(allValues).not.toContain('secret-tenant');
+  }, 10_000);
+
+  test('SSE: a cross-origin redirect on the GET stream leaks NO auth headers', async () => {
+    const fx = await withRedirect();
+    const pool = track(
+      await buildMcpClientPool({
+        servers: {
+          remote: {
+            type: 'sse',
+            url: fx.configuredUrl,
+            bearerToken: 'secret-bearer',
+            apiKey: 'secret-apikey',
+            headers: { 'X-Tenant': 'secret-tenant' },
+          },
+        },
+        log: () => {},
+        connectTimeoutMs: 4000,
+        env: {},
+      }),
+    );
+    expect(pool.servers()).toHaveLength(0);
+
+    expect(fx.attackerHits.length).toBeGreaterThan(0);
+    for (const hit of fx.attackerHits) {
+      expect(hit.authorization).toBeUndefined();
+      expect(hit['x-api-key']).toBeUndefined();
+      expect(hit['x-tenant']).toBeUndefined();
+    }
+    const allValues = fx.attackerHits.flatMap((h) => Object.values(h));
+    expect(allValues).not.toContain('Bearer secret-bearer');
+    expect(allValues).not.toContain('secret-apikey');
+    expect(allValues).not.toContain('secret-tenant');
   }, 10_000);
 });

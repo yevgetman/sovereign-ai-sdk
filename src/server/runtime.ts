@@ -603,6 +603,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       ? await buildMcpClientPool({
           servers: mcpSettings.servers,
           log: (msg) => process.stderr.write(`${msg}\n`),
+          // Inject the process env at the boundary so the auth resolver stays
+          // pure (env-first SOV_MCP_* secret resolution lives in auth.ts).
+          env: process.env,
         })
       : undefined);
   const mcpTools = mcpClientPool
