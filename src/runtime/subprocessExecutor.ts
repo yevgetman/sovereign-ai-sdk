@@ -114,6 +114,91 @@ export type SubprocessExecutorResult = {
   messages: Message[];
 };
 
+// --- Tool-vocabulary canonicalization (corpus co-clustering) ---------------
+//
+// Claude Code's tool NAMES + input field names diverge from the harness's
+// native vocabulary. Left un-normalized, the synthesizer treats a delegated
+// (replayed) file-read and a native file-read as DIFFERENT tools, splitting
+// cross-surface learning evidence. We canonicalize the divergent ones to the
+// harness's native names/keys — but ONLY for the LearningObservation. The
+// `messages[]` and the trace stay verbatim (those are fidelity/operational
+// records of what Claude actually did).
+//
+// Grounding (claude v2.1.168, captured live):
+//   Read   name='Read'  input={ file_path, offset?, limit? }   (native: FileRead / { path, … })
+//   Write  name='Write' input={ file_path, content }           (native: FileWrite / { path, content })
+//   Edit   name='Edit'  input={ file_path, old_string, … }     (native: FileEdit / { path, … })
+//   Bash   name='Bash'  input={ command, description?, … }      (native: Bash / { command, … } — no description)
+//   Grep   name='Grep'  input={ pattern, … }                    (native: Grep — matches)
+//   Glob   name='Glob'  input={ pattern, … }                    (native: Glob — matches)
+// The native names/keys are the AUTHORITATIVE ones declared on the harness
+// tools in src/tools/ (FileReadTool has `name:'FileRead', aliases:['Read']`,
+// input key `path`; etc.). An UNMAPPED tool (Task, WebFetch, MCP tools, …)
+// has no native equivalent and passes through unchanged.
+
+/** Claude tool name → harness native name. Tools absent from this map keep
+ *  their Claude name (Bash/Grep/Glob already match; Task/WebFetch/MCP have no
+ *  native equivalent). */
+const CLAUDE_TO_NATIVE_TOOL_NAME: Readonly<Record<string, string>> = {
+  Read: 'FileRead',
+  Write: 'FileWrite',
+  Edit: 'FileEdit',
+};
+
+/** Per-canonical-tool top-level input-key renames (Claude key → native key).
+ *  Keyed by the CANONICAL (post-rename) tool name. */
+const INPUT_KEY_RENAMES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  FileRead: { file_path: 'path' },
+  FileWrite: { file_path: 'path' },
+  FileEdit: { file_path: 'path' },
+};
+
+/** Per-canonical-tool top-level input keys to DROP from the observation — a
+ *  Claude-only noise field with no native counterpart that would otherwise
+ *  split the input hash from an equivalent native call. Load-bearing values are
+ *  never dropped. Keyed by the CANONICAL tool name. */
+const INPUT_KEYS_TO_DROP: Readonly<Record<string, readonly string[]>> = {
+  // A native Bash carries no `description`; Claude adds one. Drop it so a
+  // delegated Bash co-identifies with a native Bash on the same command.
+  Bash: ['description'],
+};
+
+/** Canonicalize a replayed Claude Code tool call to the harness's native tool
+ *  vocabulary FOR OBSERVATION PURPOSES ONLY. Pure + immutable: returns a new
+ *  `{ name, input }` and never mutates the caller's input.
+ *
+ *  - Maps the divergent tool NAMES (Read→FileRead, Write→FileWrite, Edit→FileEdit).
+ *  - Renames the divergent top-level input KEYS (file_path→path) under the
+ *    mapped tool, leaving every other key verbatim.
+ *  - Drops confirmed Claude-only noise keys (Bash `description`).
+ *  - Leaves an UNMAPPED tool (and any non-object input) entirely unchanged
+ *    apart from the name lookup (which is a no-op for unmapped names). */
+export function canonicalizeToolForObservation(
+  name: string,
+  input: unknown,
+): { name: string; input: unknown } {
+  const canonicalName = CLAUDE_TO_NATIVE_TOOL_NAME[name] ?? name;
+  // Only object inputs can have keys renamed/dropped. Non-objects (null,
+  // strings, arrays) pass through — only the name is mapped.
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return { name: canonicalName, input };
+  }
+  const renames = INPUT_KEY_RENAMES[canonicalName];
+  const drops = INPUT_KEYS_TO_DROP[canonicalName];
+  if (renames === undefined && drops === undefined) {
+    // Name may have changed, but the input shape needs no rewrite.
+    return { name: canonicalName, input };
+  }
+  const dropSet = drops !== undefined ? new Set(drops) : undefined;
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (dropSet?.has(key)) continue;
+    const mappedKey = renames?.[key] ?? key;
+    next[mappedKey] = value;
+  }
+  return { name: canonicalName, input: next };
+}
+
 /** Build the ARGS (excluding the binary) for the headless `claude` invocation.
  *  Exported so a unit test can assert the safe posture without spawning.
  *
@@ -305,7 +390,11 @@ function parseStreamJson(stdout: string, opts: ParseStreamJsonOpts = {}): Subpro
         for (const block of assistant.content) {
           if (block.type === 'tool_use') {
             toolCallCount++;
-            distinctTools.add(block.name);
+            // distinctToolNames reports the CANONICAL name so a delegated Read
+            // co-counts with a native FileRead (consistent with the observation
+            // co-clustering). The captured tool_use keeps the VERBATIM name +
+            // input for the trace brackets (fidelity record of what Claude did).
+            distinctTools.add(canonicalizeToolForObservation(block.name, block.input).name);
             toolUses.push({ id: block.id, name: block.name, input: block.input });
           }
         }
@@ -399,8 +488,14 @@ function parseStreamJson(stdout: string, opts: ParseStreamJsonOpts = {}): Subpro
  *
  *  Fidelity map (vs. the orchestrator's `ctx.learningObserver.observe(...)` at
  *  orchestrator.ts ~601-623 and its `recordTrace(...)` brackets ~521/543/552):
- *   - `toolName`  = the tool_use `name`            (orchestrator: `tool.name`)
- *   - `toolInput` = the tool_use `input` verbatim  (orchestrator: `callInput`)
+ *   - `toolName`  = the CANONICALIZED tool name    (orchestrator: `tool.name`)
+ *                   Claude's name → the harness's native name (Read→FileRead,
+ *                   …) via `canonicalizeToolForObservation`, so a replayed tool
+ *                   co-clusters with the equivalent native one. Unmapped tools
+ *                   keep their name. The TRACE brackets stay VERBATIM.
+ *   - `toolInput` = the CANONICALIZED tool input   (orchestrator: `callInput`)
+ *                   divergent top-level keys renamed (file_path→path) + Claude-
+ *                   only noise dropped (Bash `description`); all else verbatim.
  *   - `status`    = `tool_result.is_error` → 'error' else 'success'
  *                   (orchestrator's success/error branch for the non-throw
  *                    path; 'denied'/'cancelled' are not recoverable post-hoc —
@@ -437,11 +532,17 @@ function replayToolEvents(
     const status: ObservationStatus = isError ? 'error' : 'success';
     const content = res?.content ?? '';
 
+    // The OBSERVATION is canonicalized to the harness's native vocabulary so a
+    // replayed Claude tool co-clusters with the equivalent native tool. The
+    // TRACE brackets below stay VERBATIM (`use.name`) — a fidelity record of
+    // what Claude actually ran. An unmapped tool canonicalizes to itself.
+    const canonical = canonicalizeToolForObservation(use.name, use.input);
+
     traceRecorder?.({ type: 'tool_start', tool: use.name, toolUseId: use.id, iso: nowIso() });
 
     learningObserver?.observe({
-      toolName: use.name,
-      toolInput: use.input,
+      toolName: canonical.name,
+      toolInput: canonical.input,
       status,
       // No per-tool timing in the stream-json — see the fidelity note above.
       durationMs: 0,

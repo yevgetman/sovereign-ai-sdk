@@ -16,6 +16,7 @@ import type { ObserveInput } from '../../src/learning/observer.js';
 import {
   type SpawnFn,
   buildSubprocessArgs,
+  canonicalizeToolForObservation,
   runSubprocessExecutor,
 } from '../../src/runtime/subprocessExecutor.js';
 import type { TraceEvent } from '../../src/trace/types.js';
@@ -132,7 +133,9 @@ describe('runSubprocessExecutor — parse + shape', () => {
     expect(result.iterationsUsed).toBe(2);
     // one tool_use across the transcript.
     expect(result.toolCallCount).toBe(1);
-    expect(result.distinctToolNames).toEqual(['Read']);
+    // distinctToolNames reports the CANONICAL name (Read→FileRead) so a
+    // delegated read co-counts with a native FileRead.
+    expect(result.distinctToolNames).toEqual(['FileRead']);
     // messages reconstructed from the event stream (assistant + tool_result-
     // carrying user). At minimum the two assistant turns + the tool_result user.
     expect(result.messages.length).toBeGreaterThanOrEqual(3);
@@ -140,6 +143,11 @@ describe('runSubprocessExecutor — parse + shape', () => {
     const flat = JSON.stringify(result.messages);
     expect(flat).toContain('tool_use');
     expect(flat).toContain('tool_result');
+    // messages[] stays VERBATIM — the assistant tool_use block keeps Claude's
+    // real 'Read' name (NOT the canonicalized FileRead). Canonicalization is
+    // applied to the OBSERVATION + the distinctToolNames metric only.
+    expect(flat).toContain('"name":"Read"');
+    expect(flat).not.toContain('FileRead');
   });
 
   test('result event with is_error:true → error terminal', async () => {
@@ -331,13 +339,14 @@ const TWO_TOOL_TRANSCRIPT: string[] = [
     session_id: 'sess-xyz',
   }),
   JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }),
-  // assistant turn 2 — a Read tool_use that will error.
+  // assistant turn 2 — a Read tool_use that will error. The LIVE Claude Code
+  // shape carries `file_path` (NOT `path`) — confirmed against claude v2.1.168.
   JSON.stringify({
     type: 'assistant',
     message: {
       role: 'assistant',
       content: [
-        { type: 'tool_use', id: 'toolu_read_1', name: 'Read', input: { path: 'nope.txt' } },
+        { type: 'tool_use', id: 'toolu_read_1', name: 'Read', input: { file_path: 'nope.txt' } },
       ],
     },
     session_id: 'sess-xyz',
@@ -388,39 +397,52 @@ describe('runSubprocessExecutor — learning replay (per-tool observations + tra
       traceRecorder: (e) => traced.push(e),
     });
 
-    // Result shape is unchanged by the replay.
+    // Result shape is unchanged by the replay EXCEPT that distinctToolNames now
+    // reports the harness's CANONICAL names (so a delegated Read co-counts with a
+    // native FileRead). The count is naming-agnostic.
     expect(result.terminal.reason).toBe('completed');
     expect(result.toolCallCount).toBe(2);
-    expect(result.distinctToolNames).toEqual(['Bash', 'Read']);
+    expect(result.distinctToolNames).toEqual(['Bash', 'FileRead']);
 
     // One observation per tool call, in stream order.
     expect(observed).toHaveLength(2);
 
-    // Bash — success. Fields mirror what the orchestrator builds:
-    //   toolName, toolInput (verbatim), status, durationMs, traceId=tool_use_id.
+    // Bash — success. The OBSERVATION is canonicalized for co-clustering:
+    // Bash's name already matches the native tool, but Claude's `description`
+    // (a Claude-only noise field a native Bash never carries) is dropped from
+    // the observation input so the input hash co-identifies with a native Bash.
+    // Load-bearing `command` is preserved.
     expect(observed[0]).toMatchObject({
       toolName: 'Bash',
-      toolInput: { command: 'ls -1A', description: 'List all files' },
+      toolInput: { command: 'ls -1A' },
       status: 'success',
       traceId: 'toolu_bash_1',
     });
+    expect((observed[0]?.toolInput as Record<string, unknown>).description).toBeUndefined();
     expect(observed[0]?.durationMs).toBeGreaterThanOrEqual(0);
     // No harness ToolObservation envelope on a subprocess tool result.
     expect(observed[0]?.observationEnvelope).toBeUndefined();
 
-    // Read — is_error:true → status 'error'.
+    // Read — is_error:true → status 'error'. The OBSERVATION is canonicalized to
+    // the harness's native name + input key: Read→FileRead, file_path→path, so
+    // it co-clusters with a native FileRead.
     expect(observed[1]).toMatchObject({
-      toolName: 'Read',
+      toolName: 'FileRead',
       toolInput: { path: 'nope.txt' },
       status: 'error',
       traceId: 'toolu_read_1',
     });
+    expect((observed[1]?.toolInput as Record<string, unknown>).file_path).toBeUndefined();
 
-    // Trace bracket per tool: tool_start then tool_end (success) / tool_error.
+    // Trace bracket per tool stays VERBATIM (Claude's real names) — the trace is
+    // a fidelity/operational record of what Claude actually did.
     const bashStart = traced.find((e) => e.type === 'tool_start' && e.toolUseId === 'toolu_bash_1');
     const bashEnd = traced.find((e) => e.type === 'tool_end' && e.toolUseId === 'toolu_bash_1');
     expect(bashStart).toBeDefined();
     expect(bashEnd).toBeDefined();
+    if (bashStart && bashStart.type === 'tool_start') {
+      expect(bashStart.tool).toBe('Bash');
+    }
     if (bashEnd && bashEnd.type === 'tool_end') {
       expect(bashEnd.tool).toBe('Bash');
       // outputBytes mirrors the orchestrator (byte length of the result content).
@@ -431,6 +453,10 @@ describe('runSubprocessExecutor — learning replay (per-tool observations + tra
     const readErr = traced.find((e) => e.type === 'tool_error' && e.toolUseId === 'toolu_read_1');
     expect(readStart).toBeDefined();
     expect(readErr).toBeDefined();
+    // The trace keeps Claude's verbatim 'Read' (NOT the canonicalized FileRead).
+    if (readStart && readStart.type === 'tool_start') {
+      expect(readStart.tool).toBe('Read');
+    }
     if (readErr && readErr.type === 'tool_error') {
       expect(readErr.tool).toBe('Read');
       expect(readErr.message).toContain('file not found');
@@ -549,5 +575,153 @@ describe('runSubprocessExecutor — learning replay (per-tool observations + tra
     // No tool_use in the stream → nothing to replay.
     expect(observed).toHaveLength(0);
     expect(traced.filter((e) => e.type === 'tool_start')).toHaveLength(0);
+  });
+
+  test('an UNMAPPED Claude tool (WebFetch) is observed VERBATIM (no native equivalent)', async () => {
+    // Claude tools with no harness-native counterpart (WebFetch, Task, MCP
+    // tools, …) must pass through the observation unchanged — there is nothing
+    // to co-cluster them with, and rewriting them would corrupt the corpus.
+    const observed: ObserveInput[] = [];
+    const lines = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu_fetch',
+              name: 'WebFetch',
+              input: { url: 'https://example.com', prompt: 'summarize' },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu_fetch', content: 'ok', is_error: false },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        num_turns: 1,
+        result: 'done',
+      }),
+    ];
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines }),
+      learningObserver: { observe: (i) => observed.push(i) },
+    });
+    // distinctToolNames also carries the verbatim unmapped name.
+    expect(result.distinctToolNames).toEqual(['WebFetch']);
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      toolName: 'WebFetch',
+      toolInput: { url: 'https://example.com', prompt: 'summarize' },
+      status: 'success',
+      traceId: 'tu_fetch',
+    });
+  });
+});
+
+describe('canonicalizeToolForObservation — pure name + input-key mapping', () => {
+  test('Read → FileRead, file_path → path (other keys preserved verbatim)', () => {
+    const { name, input } = canonicalizeToolForObservation('Read', {
+      file_path: '/a/b.ts',
+      offset: 10,
+      limit: 5,
+    });
+    expect(name).toBe('FileRead');
+    expect(input).toEqual({ path: '/a/b.ts', offset: 10, limit: 5 });
+  });
+
+  test('Write → FileWrite, file_path → path (content preserved)', () => {
+    const { name, input } = canonicalizeToolForObservation('Write', {
+      file_path: '/a/b.ts',
+      content: 'hello',
+    });
+    expect(name).toBe('FileWrite');
+    expect(input).toEqual({ path: '/a/b.ts', content: 'hello' });
+  });
+
+  test('Edit → FileEdit, file_path → path (old_string/new_string preserved)', () => {
+    const { name, input } = canonicalizeToolForObservation('Edit', {
+      file_path: '/a/b.ts',
+      old_string: 'x',
+      new_string: 'y',
+      replace_all: true,
+    });
+    expect(name).toBe('FileEdit');
+    expect(input).toEqual({ path: '/a/b.ts', old_string: 'x', new_string: 'y', replace_all: true });
+  });
+
+  test('Bash stays Bash but drops the Claude-only `description` noise field', () => {
+    const { name, input } = canonicalizeToolForObservation('Bash', {
+      command: 'ls -la',
+      description: 'list files',
+    });
+    expect(name).toBe('Bash');
+    expect(input).toEqual({ command: 'ls -la' });
+  });
+
+  test('Bash with only `command` is unchanged (no description to drop)', () => {
+    const { name, input } = canonicalizeToolForObservation('Bash', { command: 'pwd' });
+    expect(name).toBe('Bash');
+    expect(input).toEqual({ command: 'pwd' });
+  });
+
+  test('Grep / Glob already match the native vocabulary — unchanged', () => {
+    const grep = canonicalizeToolForObservation('Grep', { pattern: 'foo', path: 'src' });
+    expect(grep.name).toBe('Grep');
+    expect(grep.input).toEqual({ pattern: 'foo', path: 'src' });
+    const glob = canonicalizeToolForObservation('Glob', { pattern: '**/*.ts' });
+    expect(glob.name).toBe('Glob');
+    expect(glob.input).toEqual({ pattern: '**/*.ts' });
+  });
+
+  test('an unmapped tool (WebFetch / Task / MCP) passes through unchanged', () => {
+    const fetched = canonicalizeToolForObservation('WebFetch', { url: 'https://x', prompt: 'p' });
+    expect(fetched.name).toBe('WebFetch');
+    expect(fetched.input).toEqual({ url: 'https://x', prompt: 'p' });
+    const mcp = canonicalizeToolForObservation('mcp__server__do_thing', { arg: 1 });
+    expect(mcp.name).toBe('mcp__server__do_thing');
+    expect(mcp.input).toEqual({ arg: 1 });
+  });
+
+  test('a Read that already uses `path` (no file_path) is left intact under FileRead', () => {
+    // Defensive: if a future Claude build emits `path`, we must not clobber it.
+    const { name, input } = canonicalizeToolForObservation('Read', { path: '/a/b.ts' });
+    expect(name).toBe('FileRead');
+    expect(input).toEqual({ path: '/a/b.ts' });
+  });
+
+  test('non-object input is passed through unchanged (only the name is mapped)', () => {
+    // Robustness: tool_use.input is `unknown` from the stream.
+    const nullCase = canonicalizeToolForObservation('Read', null);
+    expect(nullCase.name).toBe('FileRead');
+    expect(nullCase.input).toBeNull();
+    const strCase = canonicalizeToolForObservation('Bash', 'not-an-object');
+    expect(strCase.name).toBe('Bash');
+    expect(strCase.input).toBe('not-an-object');
+  });
+
+  test('does not mutate the caller-provided input object (immutability)', () => {
+    const original = { file_path: '/a/b.ts', limit: 5 };
+    const { input } = canonicalizeToolForObservation('Read', original);
+    // The returned input is a new object with the renamed key.
+    expect(input).not.toBe(original);
+    expect(input).toEqual({ path: '/a/b.ts', limit: 5 });
+    // The original is untouched — still carries file_path, no path.
+    expect(original).toEqual({ file_path: '/a/b.ts', limit: 5 });
   });
 });

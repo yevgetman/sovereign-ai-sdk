@@ -223,12 +223,42 @@ block (in stream order) and indexes each `tool_result` by `tool_use_id`. On a
 child that errored skipping its hooks) it walks the captured pairs and, per tool:
 
 - constructs a `LearningObservation` **field-for-field identical** to the
-  orchestrator's (`toolName` = the tool_use `name`; `toolInput` = the tool_use
-  `input` verbatim; `status` = `tool_result.is_error ? 'error' : 'success'`;
-  `traceId` = the tool_use `id` = tool_use_id) and calls `observe(...)`;
+  orchestrator's (`toolName` = the **canonicalized** tool name — see below;
+  `toolInput` = the **canonicalized** tool input; `status` =
+  `tool_result.is_error ? 'error' : 'success'`; `traceId` = the tool_use `id` =
+  tool_use_id) and calls `observe(...)`;
 - records the matching `tool_start` then `tool_end` (with `outputBytes` = byte
   length of the result content, mirroring the orchestrator) XOR `tool_error`
-  (the result content as the message).
+  (the result content as the message). **The trace brackets carry Claude's
+  VERBATIM tool name** (not the canonicalized one) — the trace is a fidelity
+  record of what Claude actually ran.
+
+**Tool-vocabulary canonicalization (corpus co-clustering).** Claude Code's tool
+NAMES + input field names diverge from the harness's native vocabulary, so an
+un-normalized replay made the synthesizer treat a delegated file-read and a
+native file-read as *different tools*, splitting cross-surface evidence. A small
+pure function `canonicalizeToolForObservation(name, input)` at the replay
+boundary in `subprocessExecutor.ts` maps the divergences **for the observation
+ONLY** (confirmed live against `claude` v2.1.168; native names/keys are the
+authoritative ones declared on the harness tools in `src/tools/`):
+
+| Operation | Claude (replayed) | Harness native (the target) | Canonicalization |
+|---|---|---|---|
+| Read  | `Read` / `{ file_path, offset?, limit? }`  | `FileRead` / `{ path, … }`     | name `Read→FileRead`, key `file_path→path` |
+| Write | `Write` / `{ file_path, content }`         | `FileWrite` / `{ path, content }` | name `Write→FileWrite`, key `file_path→path` |
+| Edit  | `Edit` / `{ file_path, old_string, … }`    | `FileEdit` / `{ path, … }`     | name `Edit→FileEdit`, key `file_path→path` |
+| Bash  | `Bash` / `{ command, description?, … }`    | `Bash` / `{ command, … }`      | name unchanged; drop Claude-only `description` (keep `command`) |
+| Grep  | `Grep` / `{ pattern, … }`                  | `Grep` / `{ pattern, … }`      | unchanged (already matches) |
+| Glob  | `Glob` / `{ pattern, … }`                  | `Glob` / `{ pattern, … }`      | unchanged (already matches) |
+
+An **UNMAPPED** tool (Claude's `Task`, `WebFetch`, MCP tools, … — no native
+equivalent) passes through **unchanged**: rewriting it would corrupt the corpus.
+The function is immutable (returns a new `{ name, input }`, never mutates the
+input). `distinctToolNames` in the result also reports the canonical names (so a
+delegated `Read` co-counts with a native `FileRead`); `toolCallCount` is
+naming-agnostic. **`messages[]` and the trace stay byte-for-byte verbatim** —
+they record what Claude actually did; only the observation + the
+`distinctToolNames` metric are canonicalized.
 
 `messages[]` was already faithful (the spike reconstructs the assistant
 `tool_use` messages + the `tool_result` user messages + the final text, not just
@@ -244,6 +274,14 @@ subscription-executor task writes to the **same corpus + trace files** a native
 child would, and the synthesizer cannot tell a replayed observation from a native
 one. Both sinks are optional — learning disabled / no trace sink ⇒ a clean no-op
 (the spike's original tests stay green).
+
+**Tool identity now co-clusters (closed gap).** Previously a residual gap: the
+replay recorded Claude's tool names/keys verbatim, so the synthesizer split a
+delegated file-read from a native one. With `canonicalizeToolForObservation`
+(above) the **parity claim now holds for tool identity too** — a replayed
+`Read`/`Write`/`Edit`/`Bash` observation co-identifies with the native
+`FileRead`/`FileWrite`/`FileEdit`/`Bash` on both name and input hash. Unmapped
+tools (no native equivalent) stay verbatim by design.
 
 **Residual fidelity gaps (what's recovered vs not).**
 - **Per-tool timing is not recoverable.** The stream-json carries only an
@@ -326,7 +364,9 @@ Keep this an ADR-input / spike doc. No ADR; no productization; no release.
 - `src/config/schema.ts` — `subscriptionExecutor` block + `SubscriptionExecutorConfig` type.
 - `src/runtime/subprocessExecutor.ts` — `runSubprocessExecutor`, `buildSubprocessArgs`, the parser;
   **+ the learning replay** (`LearningSink` / `TraceSink` opts, the `tool_use`/`tool_result` pairing,
-  and `replayToolEvents` constructing orchestrator-parity observations + trace brackets).
+  and `replayToolEvents` constructing orchestrator-parity observations + trace brackets);
+  **+ `canonicalizeToolForObservation`** (the pure Claude→native tool-vocabulary map applied to the
+  OBSERVATION + `distinctToolNames` only — trace/messages stay verbatim).
 - `src/runtime/scheduler.ts` — the executor branch + the two new `SubagentSchedulerOpts` fields;
   **+ threading the child `learningObserver` + `wrappedTraceRecorder` into `runSubprocessExecutor`**
   (same destination as a native delegation).
@@ -334,7 +374,10 @@ Keep this an ADR-input / spike doc. No ADR; no productization; no release.
 - `bundle-default/agents/subscription-executor.md` — the agent def (role `subscription-executor`).
 - Tests: `tests/config/subscriptionExecutor.test.ts`, `tests/runtime/subprocessExecutor.test.ts`
   (**+ 5 replay tests** — per-tool observation parity, faithful `messages[]`, no-op without sinks,
-  orphan tool_use, no-replay-on-error), `tests/runtime/scheduler.subscriptionExecutor.test.ts`
+  orphan tool_use, no-replay-on-error; **+ 11 canonicalization tests** — the pure name/key map across
+  Read/Write/Edit/Bash/Grep/Glob + unmapped pass-through + immutability, an end-to-end unmapped-tool
+  replay, and the co-clustering assertions that observations canonicalize while messages/trace stay
+  verbatim), `tests/runtime/scheduler.subscriptionExecutor.test.ts`
   (**+ 2 threading tests** — child observer/trace threaded to the same destination; none threaded
   when the parent context has no observer), `tests/server/computeToolVisibleAgents.test.ts`;
   `tests/runtime/scheduler.test.ts` unchanged-green (the normal-path proof);
