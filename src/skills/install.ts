@@ -289,7 +289,8 @@ export function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatte
   //    to the transformed output so the import-specific `converted` notes stay
   //    identical to the prior hand-rolled behavior.
   const hadHyphenatedAlias =
-    !('allowedTools' in source) && (source as Record<string, unknown>)['allowed-tools'] !== undefined;
+    !('allowedTools' in source) &&
+    (source as Record<string, unknown>)['allowed-tools'] !== undefined;
   const aliased = normalizeFrontmatterAliases(source) as Record<string, unknown>;
   if (hadHyphenatedAlias && 'allowedTools' in aliased) {
     converted.push('aliased Claude Code `allowed-tools` → `allowedTools`');
