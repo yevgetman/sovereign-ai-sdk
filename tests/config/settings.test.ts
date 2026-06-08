@@ -97,7 +97,9 @@ describe('loadMcpServerSettings', () => {
 
     const loaded = loadMcpServerSettings({ cwd, harnessHome });
     expect(Object.keys(loaded.servers).sort()).toEqual(['project_db', 'user_fs']);
-    expect(loaded.servers.project_db?.args).toEqual(['--port', '5432']);
+    const projectDb = loaded.servers.project_db;
+    if (projectDb?.type !== 'stdio') throw new Error('expected stdio variant');
+    expect(projectDb.args).toEqual(['--port', '5432']);
     expect(loaded.sources).toHaveLength(2);
   });
 
@@ -130,6 +132,110 @@ describe('loadMcpServerSettings', () => {
     const harnessHome = join(root, 'home');
     writeJson(join(cwd, '.harness', 'settings.json'), {
       mcpServers: { fs: { command: 'fs', bogus: true } },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+  });
+
+  // Remote transport (HTTP/SSE) — config union back-compat + new variants.
+
+  test('legacy stdio config (no type) parses unchanged and gains type:stdio', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { fs: { command: 'fsd', args: ['--x'] } },
+    });
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    const fs = loaded.servers.fs;
+    expect(fs?.type).toBe('stdio');
+    if (fs?.type !== 'stdio') throw new Error('expected stdio variant');
+    expect(fs.command).toBe('fsd');
+    expect(fs.args).toEqual(['--x']);
+  });
+
+  test('empty config object yields no servers (defeats nested-default gotcha)', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {});
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    expect(loaded.servers).toEqual({});
+  });
+
+  test('http variant parses with url + headers + bearerToken', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: {
+        remote: {
+          type: 'http',
+          url: 'https://mcp.example.com/v1',
+          headers: { 'X-Tenant': 'acme' },
+          bearerToken: 'tok',
+        },
+      },
+    });
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    const remote = loaded.servers.remote;
+    expect(remote?.type).toBe('http');
+    if (remote?.type !== 'http') throw new Error('expected http variant');
+    expect(remote.url).toBe('https://mcp.example.com/v1');
+    expect(remote.headers).toEqual({ 'X-Tenant': 'acme' });
+    expect(remote.bearerToken).toBe('tok');
+  });
+
+  test('sse variant parses with url + apiKey', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { legacy: { type: 'sse', url: 'https://sse.example.com/v1', apiKey: 'k' } },
+    });
+    const loaded = loadMcpServerSettings({ cwd, harnessHome });
+    const legacy = loaded.servers.legacy;
+    expect(legacy?.type).toBe('sse');
+    if (legacy?.type !== 'sse') throw new Error('expected sse variant');
+    expect(legacy.url).toBe('https://sse.example.com/v1');
+    expect(legacy.apiKey).toBe('k');
+  });
+
+  test('http variant without url throws', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { remote: { type: 'http' } },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+  });
+
+  test('mixed command + url throws (strict, ambiguous)', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { bad: { command: 'fsd', url: 'https://x.example.com' } },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
+  });
+
+  test('url without type throws with a friendly message', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { remote: { url: 'https://x.example.com' } },
+    });
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/type.*http.*sse/i);
+  });
+
+  test('http variant rejects unknown keys', () => {
+    const root = tempRoot();
+    const cwd = join(root, 'project');
+    const harnessHome = join(root, 'home');
+    writeJson(join(cwd, '.harness', 'settings.json'), {
+      mcpServers: { remote: { type: 'http', url: 'https://x.example.com', bogus: 1 } },
     });
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
   });

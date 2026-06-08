@@ -1,18 +1,22 @@
-// MCP client types. The runtime spawns each configured MCP server as a
-// stdio subprocess at session start, discovers its tools, and wraps each
-// one through the existing Tool interface (Invariant #5: one capability
-// pipe). Disconnection happens at session end.
+// MCP client types. At session start the runtime connects to each
+// configured MCP server, discovers its tools, and wraps each one through
+// the existing Tool interface (Invariant #5: one capability pipe).
+// Disconnection happens at session end.
 //
-// HTTP/SSE/WebSocket transports are deferred (Phase 12 build plan: stdio
-// covers most published servers). The pool's transport abstraction is
-// the SDK's; future transports plug in without changing this file.
+// Transports: stdio (a spawned subprocess), remote Streamable HTTP, and
+// legacy remote SSE. The pool's transport abstraction is the SDK's, so
+// each transport plugs into the same connect/list/call/shutdown surface;
+// the wrapper, permission layer, and tool registry are transport-agnostic.
 //
 // Source of pattern: harness-build-plan.md §"Phase 12";
 // claude-code-reverse-engineering.md §11. SDK: @modelcontextprotocol/sdk.
 
 /** Settings.json shape for one MCP server. Keyed by a user-chosen alias
- *  that becomes the `mcp__<alias>__<tool>` prefix in tool names. */
-export type McpServerConfig = {
+ *  that becomes the `mcp__<alias>__<tool>` prefix in tool names. A
+ *  discriminated union over the transport `type`; legacy `{command,...}`
+ *  configs (no `type`) parse as `stdio`. */
+export type McpStdioServerConfig = {
+  type: 'stdio';
   command: string;
   args?: string[] | undefined;
   /** Extra env vars merged on top of the SDK's safe-inherit defaults. */
@@ -21,6 +25,25 @@ export type McpServerConfig = {
    *  when unset. */
   cwd?: string | undefined;
 };
+
+/** Fields shared by the remote (HTTP / SSE) transports. */
+export type McpRemoteServerFields = {
+  /** Full endpoint URL of the remote MCP server. */
+  url: string;
+  /** Static headers merged onto every request. */
+  headers?: Record<string, string> | undefined;
+  /** Convenience: `Authorization: Bearer <token>` unless an explicit
+   *  `Authorization` header is set. Prefer `SOV_MCP_<ALIAS>_TOKEN`. */
+  bearerToken?: string | undefined;
+  /** Convenience: `X-API-Key: <apiKey>` unless already set. Prefer
+   *  `SOV_MCP_<ALIAS>_API_KEY`. */
+  apiKey?: string | undefined;
+};
+
+export type McpHttpServerConfig = { type: 'http' } & McpRemoteServerFields;
+export type McpSseServerConfig = { type: 'sse' } & McpRemoteServerFields;
+
+export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig;
 
 /** Discovered tool metadata. The `inputSchema` is opaque JSON Schema —
  *  passed verbatim to the LLM provider, used as-is in `Tool.inputJSONSchema`,

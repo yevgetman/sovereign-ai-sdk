@@ -45,14 +45,71 @@ const HooksSettingsSchema = z
   })
   .strict();
 
-const McpServerConfigSchema = z
+// One MCP server config. A backward-compatible union of three transports:
+// stdio (the original — legacy `{command,...}` configs with no `type` still
+// parse and round-trip as `type:'stdio'`), plus remote `http` (Streamable
+// HTTP — the current MCP standard) and legacy `sse`. Disambiguation is by
+// the required key (`command` vs `url`) reinforced by `.strict()` and the
+// literal `type`. Union member order matters: the type-required remote
+// variants come first; the permissive stdio variant (optional `type`) is
+// last so a bare `{command}` doesn't get mis-claimed.
+const McpRemoteFieldsSchema = {
+  url: z.string().url(),
+  /** Static headers merged onto every request to the server. */
+  headers: z.record(z.string(), z.string()).optional(),
+  /** Convenience: becomes `Authorization: Bearer <token>` unless an
+   *  explicit `Authorization` header is already set. Prefer the
+   *  `SOV_MCP_<ALIAS>_TOKEN` env var in shared repos — never commit. */
+  bearerToken: z.string().optional(),
+  /** Convenience: becomes `X-API-Key: <apiKey>` unless already set.
+   *  Prefer `SOV_MCP_<ALIAS>_API_KEY` in shared repos. */
+  apiKey: z.string().optional(),
+} as const;
+
+const McpHttpConfigSchema = z
+  .object({ type: z.literal('http'), ...McpRemoteFieldsSchema })
+  .strict();
+
+const McpSseConfigSchema = z.object({ type: z.literal('sse'), ...McpRemoteFieldsSchema }).strict();
+
+const McpStdioConfigSchema = z
   .object({
+    type: z.literal('stdio').default('stdio'),
     command: z.string(),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
     cwd: z.string().optional(),
   })
   .strict();
+
+const McpServerConfigUnion = z.union([
+  McpHttpConfigSchema,
+  McpSseConfigSchema,
+  McpStdioConfigSchema,
+]);
+
+// A remote-looking config (`url` present) that forgot `type` would
+// otherwise fail every union member with a confusing "command required"
+// error. A `z.preprocess` pre-check (it runs before the union resolves)
+// catches that case and points the operator at the fix.
+const McpServerConfigSchema = z.preprocess((raw, ctx) => {
+  if (
+    typeof raw === 'object' &&
+    raw !== null &&
+    'url' in raw &&
+    !(
+      'type' in raw &&
+      ((raw as { type: unknown }).type === 'http' || (raw as { type: unknown }).type === 'sse')
+    )
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "remote MCP server has `url` but no transport: set `type: 'http'` or `type: 'sse'`.",
+    });
+    return z.NEVER;
+  }
+  return raw;
+}, McpServerConfigUnion);
 
 export const RuntimeSettingsSchema = z
   .object({
