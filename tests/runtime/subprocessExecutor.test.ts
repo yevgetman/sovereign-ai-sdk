@@ -150,6 +150,32 @@ describe('runSubprocessExecutor — parse + shape', () => {
     expect(flat).not.toContain('FileRead');
   });
 
+  test('finalAssistant carries the final assistant text → a non-empty extractSummary', async () => {
+    // Regression guard for the drive/TUI "(no summary)" path. The scheduler's
+    // private extractSummary(finalAssistant) joins the final assistant message's
+    // text blocks — the value that becomes DelegateResult.summary and, via
+    // AgentTool, the delegated summary the model + display see. A canned
+    // stream-json whose final assistant message is "There are 3 files." must
+    // yield exactly that, so the summary the surface renders is non-empty.
+    const result = await runSubprocessExecutor({
+      prompt: 'count the files',
+      cwd: '/tmp/work',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines: TWO_TOOL_TRANSCRIPT }),
+    });
+
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.finalAssistant).toBeDefined();
+    // Mirror scheduler.ts extractSummary: join the final assistant's text blocks.
+    const summary = (result.finalAssistant?.content ?? [])
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    expect(summary).toBe('There are 3 files.');
+    expect(summary.length).toBeGreaterThan(0);
+  });
+
   test('result event with is_error:true → error terminal', async () => {
     const lines = [
       JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }),

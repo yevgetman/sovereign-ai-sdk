@@ -20,9 +20,11 @@ import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js'
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
 import { Semaphore } from '../../src/runtime/semaphore.js';
-import type {
-  RunSubprocessExecutorOpts,
-  SubprocessExecutorResult,
+import {
+  type RunSubprocessExecutorOpts,
+  type SpawnFn,
+  type SubprocessExecutorResult,
+  runSubprocessExecutor,
 } from '../../src/runtime/subprocessExecutor.js';
 import type { ToolContext } from '../../src/tool/types.js';
 import type { TraceEvent } from '../../src/trace/types.js';
@@ -370,5 +372,97 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     // extractSummary of an undefined finalAssistant is '' — the tail still
     // produced a structured result (no throw).
     expect(result.summary).toBe('');
+  });
+
+  test('end-to-end: real runSubprocessExecutor parses canned stream-json → non-empty summary', async () => {
+    // Integration guard for the drive/TUI "(no summary)" path at the SCHEDULER
+    // boundary. Instead of a stubbed runSubprocessExecutor returning a hand-made
+    // result, this drives the REAL parser via an injected spawn that emits a
+    // canned stream-json whose final assistant message is "There are 3 files."
+    // The summary that flows out of delegate() (and thence to AgentTool ->
+    // the model + the drive/TUI display) must be exactly that non-empty text.
+    const STREAM: string[] = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-e2e', model: 'claude' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Listing the files.' },
+            { type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'ls -1A' } },
+          ],
+        },
+        session_id: 'sess-e2e',
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu_1', content: 'a\nb\nc', is_error: false },
+          ],
+        },
+        session_id: 'sess-e2e',
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'There are 3 files.' }] },
+        session_id: 'sess-e2e',
+      }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        num_turns: 2,
+        result: 'There are 3 files.',
+        session_id: 'sess-e2e',
+      }),
+    ];
+    const fakeSpawn: SpawnFn = () => {
+      const body = `${STREAM.join('\n')}\n`;
+      return {
+        stdout: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new TextEncoder().encode(body));
+            c.close();
+          },
+        }),
+        stderr: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.close();
+          },
+        }),
+        stdin: { write: () => 0, end: () => {} },
+        exited: Promise.resolve(0),
+        kill: () => {},
+      };
+    };
+
+    const scheduler = new SubagentScheduler({
+      agents: makeRegistry([makeAgent()]),
+      laneSemaphores: new LaneSemaphores({}),
+      writeLock: new Semaphore(1),
+      resolveProvider: () => makeRecordingProvider({ called: false }),
+      createChildSession: () => 'child-e2e',
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-haiku-4-5-20251001',
+      maxTokens: 256,
+      subscriptionExecutor: { enabled: true, engine: 'claude-code', permissionMode: 'plan' },
+      // The REAL executor — only the subprocess spawn is faked.
+      runSubprocessExecutor: (opts) => runSubprocessExecutor({ ...opts, spawn: fakeSpawn }),
+    });
+
+    const result = await scheduler.delegate({
+      agentName: 'subscription-executor',
+      prompt: 'count the files',
+      parentSessionId: 'parent-e2e',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+
+    expect(result.terminal.reason).toBe('completed');
+    // The bug repro: a completed delegation must NOT yield an empty summary.
+    expect(result.summary).toBe('There are 3 files.');
+    expect(result.summary.length).toBeGreaterThan(0);
   });
 });

@@ -57,6 +57,81 @@ describe('renderToolOutput', () => {
     expect(out.summary).toBe('');
     expect(out.raw).toContain('"content"');
   });
+
+  // Regression — AgentTool (native AND subscription-executor) delegations.
+  // The orchestrator renders an AgentTool tool_result as a STRING: an
+  // observation header (`status:`/`summary:` lines) followed by a
+  // `<subagent_result>…delegated text…</subagent_result>` block. The wire
+  // carries that string verbatim as `output`. Before the fix, renderToolOutput
+  // only mined a `summary` from a JSON *object*, so a string output yielded an
+  // empty summary and drive printed `[result AgentTool] (no summary)` even
+  // though the model received the full delegated answer. These pin that the
+  // delegated summary is recovered from the string shape.
+  describe('AgentTool string output (subagent_result block)', () => {
+    const agentToolOutput = [
+      'status: success',
+      'summary: subscription-executor → completed (3 turns, 1 tool calls)',
+      '',
+      '<subagent_result name="subscription-executor" session="child-1" lane="anthropic/claude" turns="3" tool_calls="1" duration_ms="100" terminal="completed">',
+      'There are 3 files.',
+      '</subagent_result>',
+    ].join('\n');
+
+    test('surfaces the delegated text (subagent_result body) as the summary', () => {
+      const out = renderToolOutput(agentToolOutput);
+      // The delegated answer — what the model saw — is now the one-line summary,
+      // NOT "(no summary)".
+      expect(out.summary).toBe('There are 3 files.');
+      // The full string remains available as raw (unchanged contract).
+      expect(out.raw).toBe(agentToolOutput);
+    });
+
+    test('multi-line delegated text is flattened to a single summary line', () => {
+      const multiline = [
+        'status: success',
+        'summary: explore → completed (5 turns, 4 tool calls)',
+        '',
+        '<subagent_result name="explore" session="c2" lane="anthropic/m" turns="5" tool_calls="4" duration_ms="9" terminal="completed">',
+        'Found the auth module.',
+        'It lives at src/auth.ts.',
+        '</subagent_result>',
+      ].join('\n');
+      const out = renderToolOutput(multiline);
+      expect(out.summary).toContain('Found the auth module.');
+      expect(out.summary).toContain('It lives at src/auth.ts.');
+      // No embedded newline — drive prints summary on one line.
+      expect(out.summary).not.toContain('\n');
+    });
+
+    test('falls back to the observation-header summary when the body is empty', () => {
+      // An errored/empty delegation: the subagent_result body is blank, but the
+      // observation header still carries a meaningful status summary.
+      const emptyBody = [
+        'status: error',
+        'summary: subscription-executor → error (0 turns, 0 tool calls)',
+        '',
+        '<subagent_result name="subscription-executor" session="c3" lane="anthropic/m" turns="0" tool_calls="0" duration_ms="5" terminal="error">',
+        '',
+        '</subagent_result>',
+      ].join('\n');
+      const out = renderToolOutput(emptyBody);
+      expect(out.summary).toBe('subscription-executor → error (0 turns, 0 tool calls)');
+    });
+
+    test('recovers the observation-header summary from a plain (non-subagent) string', () => {
+      // A tool whose result carries the observation header but no
+      // subagent_result block — the header `summary:` line is surfaced.
+      const headerOnly = ['status: success', 'summary: ok · 12 lines', '', 'the body'].join('\n');
+      const out = renderToolOutput(headerOnly);
+      expect(out.summary).toBe('ok · 12 lines');
+    });
+
+    test('a bare string with no header stays summary-less (unchanged)', () => {
+      const out = renderToolOutput('permission denied: rule deny matched');
+      expect(out.summary).toBe('');
+      expect(out.raw).toBe('permission denied: rule deny matched');
+    });
+  });
 });
 
 describe('parseEventBlock', () => {

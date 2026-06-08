@@ -415,11 +415,24 @@ export function previewInput(input: unknown): string {
 /** Extract a one-line summary + the full raw text from a tool_result
  *  Output JSON. Tool outputs are typically a JSON envelope `{ status,
  *  summary, content?, ... }` — we lift `summary` and stringify the rest
- *  as `raw`. Plain-string outputs (e.g., orchestrator's deny path
- *  "permission denied: ...") pass through as raw with no summary. */
+ *  as `raw`.
+ *
+ *  STRING outputs are the common case for tools whose `renderResult` emits
+ *  text (notably AgentTool — native AND subscription-executor delegations).
+ *  The orchestrator renders those as an observation header (`status:` /
+ *  `summary:` lines, see renderObservationHeader in core/orchestrator.ts)
+ *  followed by the tool's own body, and the wire carries that string verbatim.
+ *  We recover a one-line summary from such a string — preferring a
+ *  `<subagent_result>` body (the delegated answer the model saw) and falling
+ *  back to the observation-header `summary:` line — so a delegation surfaces
+ *  in `sov drive` instead of printing "(no summary)". A bare string with no
+ *  recognizable summary (e.g. the deny path "permission denied: ...") still
+ *  passes through as raw with no summary. */
 export function renderToolOutput(output: unknown): { summary: string; raw: string } {
   if (output === null || output === undefined) return { summary: '', raw: '' };
-  if (typeof output === 'string') return { summary: '', raw: output };
+  if (typeof output === 'string') {
+    return { summary: extractSummaryFromString(output), raw: output };
+  }
   if (typeof output === 'object') {
     const obj = output as { summary?: unknown; content?: unknown; status?: unknown };
     const summary = typeof obj.summary === 'string' ? obj.summary : '';
@@ -436,6 +449,50 @@ export function renderToolOutput(output: unknown): { summary: string; raw: strin
     return { summary, raw };
   }
   return { summary: '', raw: String(output) };
+}
+
+/** Recover a one-line summary from a STRING tool_result body. Two shapes, in
+ *  priority order:
+ *
+ *   1. A `<subagent_result …>…</subagent_result>` block (AgentTool, native +
+ *      subscription-executor) — the inner body is the delegated answer the
+ *      model saw. Whitespace-flattened to a single line.
+ *   2. An observation-header `summary: <text>` line (every tool whose result
+ *      carries the Phase-12.5 envelope header, see renderObservationHeader).
+ *
+ *  Returns '' when neither shape is present (a bare string passes through with
+ *  no summary, e.g. the orchestrator deny path). Pure + allocation-light. */
+function extractSummaryFromString(text: string): string {
+  const delegated = extractSubagentResultBody(text);
+  if (delegated !== '') return delegated;
+  return extractObservationHeaderSummary(text);
+}
+
+/** Pull the inner body of the first `<subagent_result …>…</subagent_result>`
+ *  block, whitespace-flattened to one line. '' when absent or empty-bodied. */
+function extractSubagentResultBody(text: string): string {
+  const open = text.indexOf('<subagent_result');
+  if (open < 0) return '';
+  const bodyStart = text.indexOf('>', open);
+  if (bodyStart < 0) return '';
+  const close = text.indexOf('</subagent_result>', bodyStart);
+  const body = close < 0 ? text.slice(bodyStart + 1) : text.slice(bodyStart + 1, close);
+  return body.replace(/\s+/g, ' ').trim();
+}
+
+/** Pull the value of the first `summary: <text>` observation-header line.
+ *  Header lines precede the tool body and are single-line by construction
+ *  (renderObservationHeader joins with '\n'). '' when absent. */
+function extractObservationHeaderSummary(text: string): string {
+  for (const line of text.split('\n')) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('summary:')) {
+      return trimmed.slice('summary:'.length).trim();
+    }
+    // The header is a contiguous block at the top; a blank line ends it.
+    if (trimmed === '') break;
+  }
+  return '';
 }
 
 // --- HTTP helpers ----------------------------------------------------------
