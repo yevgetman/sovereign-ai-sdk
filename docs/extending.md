@@ -116,8 +116,19 @@ Skills are markdown files loaded by `src/skills/loader.ts`. Runtime-visible skil
 - `src/skills/guard.ts` for trust-tier scanning
 - `src/tools/SkillsListTool.ts` and `src/tools/SkillsViewTool.ts` for progressive disclosure
 - `src/tools/SkillTool.ts` and `src/skills/commands.ts` for invocation
+- `src/skills/install.ts` for the `install` (byte-faithful) and `import` (normalize-on-write) verbs
 
 New skill features should preserve progressive disclosure: the system prompt should carry a reminder, not the full skill body.
+
+### `allowedTools` is enforced on the `/skill` path
+
+A skill's `allowedTools` is a **real boundary** when the skill is invoked as a slash command. At the `/skill` seam (`src/server/routes/turns.ts`), the resolved skill's `allowedTools` is threaded into `runTurnInBackground` and run through `buildToolScope` (`src/commands/toolScope.ts`): the live tool pool is narrowed to the allow-list and `canUseTool` denies any out-of-scope call (`tool is outside slash-command scope`) — turn-scoped, so the restriction evaporates at turn end. The scope feeds both the `query()` call and `buildSessionToolContext` (whose `effectivePool` param defaults to `runtime.toolPool`), so sub-agents forked mid-turn inherit the narrowed pool (child ⊆ skill scope ⊆ runtime pool). `runtime.toolPool` is **read, never mutated** (it is a shared array mutated in place on reload — `buildToolScope` returns a fresh filtered copy). An empty/absent `allowedTools` is the identity (no narrowing).
+
+The model-invoked `SkillTool` path is **advisory**: it surfaces the `allowedTools` as guidance to the model but does not hard-narrow the pool mid-loop (`query()` reads `tools` once at turn start). A clean future upgrade is for `SkillTool` to write a "pending scope" onto `SessionContext` honored at the next turn (same `/skill` seam) — flagged, not built.
+
+### Importing Claude Code skills
+
+`importSkill()` (`src/skills/install.ts`) ports a Claude Code `SKILL.md` onto the harness-native canonical shape, distinct from `installSkill()` (which copies byte-faithfully). It parses with the real YAML parser, normalizes the frontmatter — aliases `allowed-tools` → `allowedTools` (splitting a comma-string into a list), synthesizes `whenToUse` from `description` when absent, drops Claude-Code-only keys (`model`/`license`/`argument-hint`) — validates the result against the exported `SkillFrontmatterSchema` (fail loud), copies the source tree, then overwrites the target `SKILL.md` with canonical content. The loader also accepts the hyphenated `allowed-tools` key directly (via a `z.preprocess` in front of the schema), so a Claude Code skill loads natively even without import. Claude Code `:`-globs (`Bash(git status:*)`) are **not** auto-translated (lossy) — the importer warns and leaves them verbatim.
 
 ### Trigger-rigor convention for `whenToUse`
 

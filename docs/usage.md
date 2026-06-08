@@ -856,7 +856,8 @@ The gateway serves the existing native session routes. Auth (when a token is con
 | GET | `/sessions/:id/commands` | Bearer | 200 | List available slash commands. |
 | POST | `/sessions/:id/commands` | Bearer | 200 | Dispatch a slash command. |
 | GET | `/sessions/:id/skills` | Bearer | 200 | List installed skills. |
-| POST | `/sessions/:id/skills/install` | Bearer | 200 | Install a skill into the session. |
+| POST | `/sessions/:id/skills/install` | Bearer | 200 | Install a skill (byte-faithful) into the session. |
+| POST | `/sessions/:id/skills/import` | Bearer | 200 | Import a skill, normalizing its frontmatter (Claude Code porting). Returns `{ ok, name, installedAt, converted, warnings }`. |
 
 Errors are structured JSON (`{ error: "…" }`): a malformed/empty JSON body on `/turns` or `/approvals` returns **400** (not 500), an unknown session id returns 404, and a missing/invalid bearer token returns 401. (The full route set is the native protocol in `src/server/routes/`; the gateway adds auth + CORS middleware in front of it without changing the routes themselves.)
 
@@ -1955,11 +1956,21 @@ Skills are markdown files. They can live in:
 | Command | Behavior |
 |---|---|
 | `/skills` (or `/skills list`) | Lists currently-visible skills + a cheatsheet of the verbs below |
-| `/skills install <path>` | Installs from a local path. `<path>` may be a `SKILL.md` file or a directory containing one. Reads the skill's `name:` from frontmatter and installs to `$HARNESS_HOME/skills/<name>/`. Refuses to overwrite an existing skill of the same name. |
+| `/skills install <path>` | Installs **byte-faithfully** from a local path. `<path>` may be a `SKILL.md` file or a directory containing one. Reads the skill's `name:` from frontmatter and installs to `$HARNESS_HOME/skills/<name>/`. Refuses to overwrite an existing skill of the same name. |
+| `/skills import <path>` | Imports a skill, **rewriting its frontmatter** onto the harness-native canonical shape on write (see "Porting a Claude Code skill" below). Use this for skills authored for Claude Code. Lands at `$HARNESS_HOME/skills/<name>/` like install. Prints the normalizations applied (`converted:`) and any advisories (`warning:`). |
 | `/skills uninstall <name>` | Removes `$HARNESS_HOME/skills/<name>/`. Only touches user-installed skills; bundle and default-bundle skills are read-only. |
-| `/skills reload` | Re-reads the skill cache without restarting the session. Useful after dropping a file in manually or running install/uninstall in another session. |
+| `/skills reload` | Re-reads the skill cache without restarting the session. Useful after dropping a file in manually or running install/uninstall/import in another session. |
 
-Install/uninstall touch only the user skills root (`$HARNESS_HOME/skills/`). Bundle skills, agent-created skills (nested under `agent-created/`), and default-bundle skills are not affected. After install the cache auto-refreshes so the new skill is immediately available in the autocomplete popup and as a `/<name>` dispatch.
+Install/import/uninstall touch only the user skills root (`$HARNESS_HOME/skills/`). Bundle skills, agent-created skills (nested under `agent-created/`), and default-bundle skills are not affected. After install/import the cache auto-refreshes so the new skill is immediately available in the autocomplete popup and as a `/<name>` dispatch.
+
+#### Porting a Claude Code skill
+
+Claude Code skills are markdown + YAML frontmatter just like harness skills, but they use the hyphenated `allowed-tools` key (the harness uses camelCase `allowedTools`) and often write it as a single comma-separated string (`allowed-tools: Read, Grep, Bash(git status:*)`) rather than a YAML list. Two paths make them load and run faithfully:
+
+- **`/skills import <path>`** rewrites the frontmatter to canonical form on write: aliases `allowed-tools` → `allowedTools` (splitting a comma-string into a list), synthesizes a `whenToUse` from the `description` when one is absent, and drops Claude Code keys with no harness equivalent (`model`, `license`, `argument-hint`) — reporting each change. It validates the result against the loader schema before landing anything (a skill missing `description`, say, is refused rather than installed broken).
+- The **loader also accepts the hyphenated key directly**, so a Claude-Code `SKILL.md` dropped straight into `$HARNESS_HOME/skills/<name>/` (or installed byte-faithfully) still loads with its tool list populated — import is the way to get a clean, canonical, validated copy.
+
+**Claude Code `:`-glob caveat:** Claude Code writes Bash argument matchers as `Bash(git status:*)` (a `:` glob). The harness matcher uses a space plus `*`/`**` instead (`Bash(git status **)`). Import does **not** auto-translate these (the translation is lossy) — it keeps the entry verbatim and prints a `warning:` so you can adjust it by hand if you want it enforced. Most Claude Code skills list bare tool names (`Read`, `Grep`), where this delta does not apply (and the harness's `Read`/`Write`/`Edit` aliases for `FileRead`/`FileWrite`/`FileEdit` resolve automatically).
 
 Skill file format:
 
@@ -1984,6 +1995,8 @@ Visible skills register as slash commands:
 ```
 
 The model can also discover skills with `skills_list`, inspect them with `skill_view`, and invoke them through `SkillTool`.
+
+**`allowedTools` is enforced on the `/skill` path.** When you invoke a skill as a slash command (`/simplify …`), its `allowedTools` becomes a real boundary **for that turn only**: the live tool pool is narrowed to the listed tools (and the gate denies any out-of-scope call with `tool is outside slash-command scope`), so a skill that declares `allowedTools: [Read]` cannot run `Bash`/`Write`/`Edit` even mid-turn. Sub-agents the turn forks inherit the same narrowed pool. The restriction is turn-scoped — it evaporates when the turn ends. A skill with no `allowedTools` (or an empty list) runs against the full pool, exactly as before. The model-invoked `SkillTool` path stays **advisory** (it surfaces the `allowedTools` as guidance but does not hard-narrow the pool mid-loop). Enforcement applies to the interactive `/skill` path; cron, the OpenAI server, and channels expand skills through separate seams that already run a safe-by-default permission posture.
 
 Skill bodies and reference files support:
 
