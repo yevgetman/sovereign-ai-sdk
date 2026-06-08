@@ -36,6 +36,32 @@ function seedSkill(home: string, name: string, frontmatter: string, body = 'Do t
   );
 }
 
+/** Extract the stringified `output` of every `tool_result` SSE event in a
+ *  drained event stream. Used by F14(a) to assert a denied tool's OUTPUT (not
+ *  the always-echoed input) carries no command side effect. The output field
+ *  may be a string or a content-block array, so it is normalized to a string. */
+function parseSseToolResultOutputs(sseText: string): string[] {
+  const outputs: string[] = [];
+  for (const line of sseText.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line.slice('data: '.length));
+    } catch {
+      continue;
+    }
+    if (
+      typeof event === 'object' &&
+      event !== null &&
+      (event as { type?: unknown }).type === 'tool_result'
+    ) {
+      const output = (event as { output?: unknown }).output;
+      outputs.push(typeof output === 'string' ? output : JSON.stringify(output));
+    }
+  }
+  return outputs;
+}
+
 describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
   let tmpHome: string;
 
@@ -81,7 +107,14 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
         body: JSON.stringify({ text: '/readonly please', kind: 'skill' }),
       });
       expect(turnRes.status).toBe(202);
-      await (await app.request(`/sessions/${sessionId}/events`)).text();
+      const sseText = await (await app.request(`/sessions/${sessionId}/events`)).text();
+
+      // F14(b) — the turn actually reached the provider and ran to a terminal.
+      // Asserting lastTools is DEFINED (not coalescing to []) means a turn that
+      // silently no-ops the provider (e.g. skill dispatch broke) FAILS here
+      // rather than masquerading as a successful narrowing to [].
+      expect(sseText).toContain('turn_complete');
+      expect(MockProvider.lastTools).toBeDefined();
 
       // FileRead carries the `Read` alias, so an allowedTools:[Read] entry
       // keeps FileRead and drops everything else.
@@ -111,8 +144,13 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     );
     // The model (mock) tries a Bash command OUTSIDE the allowed `git status`,
     // then finishes with text once it gets the denial back as a tool_result.
+    // The command echoes a unique marker: if the deny were cosmetic (the tool
+    // ran anyway), the marker would land in the Bash tool_result output and
+    // appear in the SSE stream. F14(a) asserts it is ABSENT — i.e. the command
+    // genuinely did not execute, not merely that a deny reason was reported.
+    const leakMarker = 'SKILL_SCOPE_LEAK_a1b2c3';
     MockProvider.toolUseScript = [
-      { kind: 'tool_use', name: 'Bash', input: { command: 'echo hi' }, id: 'b1' },
+      { kind: 'tool_use', name: 'Bash', input: { command: `echo ${leakMarker}` }, id: 'b1' },
       { kind: 'text', text: 'done' },
     ];
     const runtime = await buildRuntime({
@@ -133,8 +171,27 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
       });
       expect(turnRes.status).toBe(202);
       const sseText = await (await app.request(`/sessions/${sessionId}/events`)).text();
+      // The turn actually ran to a terminal — guards against a no-op turn
+      // trivially "passing" the absence check below.
+      expect(sseText).toContain('turn_complete');
       // The denial surfaces as the Bash tool_result content.
       expect(sseText).toContain('tool is outside slash-command scope');
+      // F14(a) — the command's side EFFECT (its stdout) is ABSENT. The marker
+      // legitimately appears on the wire as the proposed tool INPUT (the model
+      // asked to run `echo <marker>`), so we cannot just scan the raw stream.
+      // We inspect each Bash tool_result's OUTPUT specifically: a denied tool's
+      // output is the permission-denied reason; had the deny been cosmetic and
+      // the command actually run, the output would carry the marker. So the
+      // marker must NOT appear in any tool_result output.
+      const toolResultOutputs = parseSseToolResultOutputs(sseText);
+      expect(toolResultOutputs.length).toBeGreaterThan(0);
+      for (const output of toolResultOutputs) {
+        expect(output).not.toContain(leakMarker);
+      }
+      // And the denial reason IS the output the model got back.
+      expect(toolResultOutputs.some((o) => o.includes('tool is outside slash-command scope'))).toBe(
+        true,
+      );
     } finally {
       await runtime.dispose();
     }
@@ -212,8 +269,13 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
         body: JSON.stringify({ text: '/unrestricted', kind: 'skill' }),
       });
       expect(turnRes.status).toBe(202);
-      await (await app.request(`/sessions/${sessionId}/events`)).text();
+      const sseText = await (await app.request(`/sessions/${sessionId}/events`)).text();
 
+      // F14(b) — the turn ran to a terminal and the provider was actually
+      // invoked; a no-op turn would leave lastTools undefined and fail here
+      // rather than coalescing to [] and quietly matching nothing.
+      expect(sseText).toContain('turn_complete');
+      expect(MockProvider.lastTools).toBeDefined();
       expect((MockProvider.lastTools ?? []).length).toBe(fullPoolSize);
     } finally {
       await runtime.dispose();
@@ -240,8 +302,13 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
         body: JSON.stringify({ text: 'just a normal message' }),
       });
       expect(turnRes.status).toBe(202);
-      await (await app.request(`/sessions/${sessionId}/events`)).text();
+      const sseText = await (await app.request(`/sessions/${sessionId}/events`)).text();
 
+      // F14(b) — the turn ran to a terminal and the provider was actually
+      // invoked; a no-op turn would leave lastTools undefined and fail here
+      // rather than coalescing to [] and quietly matching nothing.
+      expect(sseText).toContain('turn_complete');
+      expect(MockProvider.lastTools).toBeDefined();
       expect((MockProvider.lastTools ?? []).length).toBe(fullPoolSize);
     } finally {
       await runtime.dispose();
