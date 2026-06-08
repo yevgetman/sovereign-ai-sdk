@@ -21,7 +21,7 @@
 
 import { Hono } from 'hono';
 import type { SessionDb } from '../../agent/sessionDb.js';
-import { buildToolScope } from '../../commands/toolScope.js';
+import { buildToolScope, filterParseableRules } from '../../commands/toolScope.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
 import { expandContextReferences } from '../../context/references.js';
@@ -169,8 +169,25 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       // Retain the allow-list before discarding the rest of the skill object.
       // Empty array → leave undefined so buildToolScope falls through to the
       // identity (no narrowing) path downstream.
-      if (skill.allowedTools.length > 0) {
-        skillScope = skill.allowedTools;
+      //
+      // F2 — filter to entries parsePermissionRule accepts BEFORE the scope is
+      // built. A single genuinely-malformed entry (e.g. an imported Claude Code
+      // skill carrying `Bash(git log` with no closing paren) would otherwise
+      // throw inside buildToolScope → runTurnInBackground's catch → the whole
+      // turn fails with turn_error. Dropping a malformed allow-entry is
+      // fail-CLOSED for that entry (the tool it would have permitted stays out
+      // of scope), so filtering only ever narrows — never widens — what a valid
+      // entry would have allowed. If at least one valid entry survives, the
+      // scope is built from the surviving entries. If EVERY declared entry is
+      // unparseable the list collapses to empty → skillScope stays undefined →
+      // the turn runs against the full pool, identical to a skill that declared
+      // no allowedTools at all (the established "no restriction → full pool"
+      // semantic); the dropped entries are warned so the broken skill is fixable.
+      const parseableTools = filterParseableRules(skill.allowedTools, (m) =>
+        process.stderr.write(`[skill:${skillName}] ${m}\n`),
+      );
+      if (parseableTools.length > 0) {
+        skillScope = parseableTools;
       }
       text = await expandSkillPrompt(skill, { args, cwd: runtime.cwd, sessionId });
     }

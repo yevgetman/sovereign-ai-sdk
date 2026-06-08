@@ -16,6 +16,37 @@ export type ToolScope = {
   canUseTool: CanUseTool;
 };
 
+/** Filter a raw allow-list to entries `parsePermissionRule` accepts, dropping
+ *  (and warning about) any that throw. Used on the `/skill` path before
+ *  `buildToolScope` so a single genuinely-malformed entry (e.g. an imported
+ *  Claude Code skill carrying `Bash(git log` with no closing paren) degrades
+ *  to "that one rule is ignored" rather than throwing and failing the whole
+ *  turn with a turn_error.
+ *
+ *  Dropping an allow-entry is FAIL-CLOSED — the tool it would have permitted
+ *  simply stays out of scope (denied) — so this never widens capability. Kept
+ *  separate from `buildToolScope` so the agent path (which should surface a
+ *  malformed rule as a hard error) is unaffected. */
+export function filterParseableRules(
+  entries: readonly string[],
+  warn?: (message: string) => void,
+): string[] {
+  const kept: string[] = [];
+  for (const entry of entries) {
+    try {
+      parsePermissionRule(entry);
+      kept.push(entry);
+    } catch (err) {
+      warn?.(
+        `skill allowedTools: dropping unparseable rule ${JSON.stringify(entry)} (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
+  }
+  return kept;
+}
+
 export function buildToolScope(opts: {
   allowedTools: readonly string[] | undefined;
   tools: Tool<unknown, unknown>[];

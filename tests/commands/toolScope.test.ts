@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildToolScope } from '../../src/commands/toolScope.js';
+import { buildToolScope, filterParseableRules } from '../../src/commands/toolScope.js';
 import type { CanUseTool } from '../../src/permissions/types.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
 import { BashTool } from '../../src/tools/BashTool.js';
@@ -70,5 +70,46 @@ describe('buildToolScope', () => {
       ctx,
     );
     expect(chained.behavior).toBe('deny');
+  });
+});
+
+// F2 — the /skill turn path filters a skill's declared allowedTools through
+// this before buildToolScope, so a single genuinely-malformed entry degrades
+// to "that rule is ignored" instead of throwing in parsePermissionRule and
+// failing the whole turn.
+describe('filterParseableRules (F2)', () => {
+  test('keeps valid entries unchanged', () => {
+    expect(filterParseableRules(['Read', 'Bash(git status)', 'Grep'])).toEqual([
+      'Read',
+      'Bash(git status)',
+      'Grep',
+    ]);
+  });
+
+  test('drops an unparseable entry (open paren, no close) and keeps the rest', () => {
+    const warnings: string[] = [];
+    const kept = filterParseableRules(['Read', 'Bash(git log'], (m) => warnings.push(m));
+    expect(kept).toEqual(['Read']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Bash(git log');
+  });
+
+  test('drops an entry with an invalid tool selector', () => {
+    // A `(` triggers the closing-paren check; `bad name(x)` has a space in the
+    // selector → invalid tool selector throw.
+    expect(filterParseableRules(['Read', 'bad name(x)'])).toEqual(['Read']);
+  });
+
+  test('returns an empty list when every entry is unparseable', () => {
+    expect(filterParseableRules(['Bash(git log', 'also bad('])).toEqual([]);
+  });
+
+  test('returns an empty list for an empty input', () => {
+    expect(filterParseableRules([])).toEqual([]);
+  });
+
+  test('does not throw when no warn callback is supplied', () => {
+    expect(() => filterParseableRules(['Bash(oops'])).not.toThrow();
+    expect(filterParseableRules(['Bash(oops'])).toEqual([]);
   });
 });

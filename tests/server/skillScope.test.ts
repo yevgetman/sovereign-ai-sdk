@@ -141,6 +141,53 @@ describe('/skill turn enforces allowedTools (Feature B — route seam)', () => {
     // Explicit longer timeout (SSE drain under full-suite load — see above).
   }, 15000);
 
+  test('a malformed allowedTools entry is dropped, not crashing the turn (F2)', async () => {
+    // F2 — a skill whose allowedTools carries one VALID (Read) + one genuinely
+    // unparseable entry (`Bash(git log` — open paren, no close). Before F2,
+    // buildToolScope mapped every entry through parsePermissionRule, so the
+    // unparseable one threw "missing closing ')'", caught by the outer try →
+    // the turn died with turn_error. The fix filters the skill allow-list to
+    // parseable entries (fail-CLOSED: a dropped allow keeps that tool denied),
+    // so the turn RUNS, Read survives, and the malformed entry is gone.
+    seedSkill(
+      tmpHome,
+      'malformed',
+      'name: malformed\ndescription: A skill with a broken rule\nwhenToUse: User asks to run the malformed skill\nallowedTools:\n  - Read\n  - Bash(git log',
+    );
+    const runtime = await buildRuntime({
+      cwd: tmpHome,
+      harnessHome: tmpHome,
+      provider: 'mock',
+      preflight: false,
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+      const createRes = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await createRes.json()) as { sessionId: string };
+
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '/malformed', kind: 'skill' }),
+      });
+      expect(turnRes.status).toBe(202);
+      const sseText = await (await app.request(`/sessions/${sessionId}/events`)).text();
+
+      // The turn must COMPLETE, not error out (RED today — throws → turn_error).
+      expect(sseText).toContain('turn_complete');
+      expect(sseText).not.toContain('turn_error');
+
+      // The valid Read entry was applied: the pool narrowed to FileRead only,
+      // and the malformed Bash entry was dropped (so Bash is denied/absent).
+      expect(MockProvider.lastTools).toBeDefined();
+      const names = (MockProvider.lastTools ?? []).map((t) => t.name);
+      expect(names).toEqual(['FileRead']);
+    } finally {
+      await runtime.dispose();
+    }
+    // Explicit longer timeout (SSE drain under full-suite load — see above).
+  }, 15000);
+
   test('empty allowedTools runs against the full pool (no narrowing)', async () => {
     seedSkill(
       tmpHome,
