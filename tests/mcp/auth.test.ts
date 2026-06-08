@@ -61,22 +61,62 @@ describe('resolveMcpHeaders', () => {
     expect(headers.Authorization).toBe('Bearer gh-tok');
   });
 
-  test('does not overwrite an explicit Authorization header', () => {
+  test('env token beats a committed Authorization header (env > committed-header)', () => {
+    // SECURITY: env-based rotation must win over a stale committed header for
+    // the most security-relevant header — otherwise a committed token blocks
+    // the operator's env override.
+    const headers = resolveMcpHeaders(
+      'remote',
+      httpCfg({ headers: { Authorization: 'Custom committed' }, bearerToken: 'cfg-tok' }),
+      { SOV_MCP_REMOTE_TOKEN: 'env-tok' },
+    );
+    expect(headers.Authorization).toBe('Bearer env-tok');
+  });
+
+  test('keeps a committed Authorization header when no env token is set', () => {
     const headers = resolveMcpHeaders(
       'remote',
       httpCfg({ headers: { Authorization: 'Custom keep-me' }, bearerToken: 'cfg-tok' }),
-      { SOV_MCP_REMOTE_TOKEN: 'env-tok' },
+      {},
     );
     expect(headers.Authorization).toBe('Custom keep-me');
   });
 
-  test('does not overwrite an explicit X-API-Key header', () => {
+  test('env api key beats a committed X-API-Key header (env > committed-header)', () => {
+    const headers = resolveMcpHeaders(
+      'remote',
+      httpCfg({ headers: { 'X-API-Key': 'committed' }, apiKey: 'cfg-key' }),
+      { SOV_MCP_REMOTE_API_KEY: 'env-key' },
+    );
+    expect(headers['X-API-Key']).toBe('env-key');
+  });
+
+  test('keeps a committed X-API-Key header when no env api key is set', () => {
     const headers = resolveMcpHeaders(
       'remote',
       httpCfg({ headers: { 'X-API-Key': 'keep-me' }, apiKey: 'cfg-key' }),
-      { SOV_MCP_REMOTE_API_KEY: 'env-key' },
+      {},
     );
     expect(headers['X-API-Key']).toBe('keep-me');
+  });
+
+  test('falls back to bearerToken when no env and no committed header', () => {
+    const headers = resolveMcpHeaders('remote', httpCfg({ bearerToken: 'cfg-tok' }), {});
+    expect(headers.Authorization).toBe('Bearer cfg-tok');
+  });
+
+  test('env token replaces a lowercased committed authorization key (no duplicate)', () => {
+    // A committed header may use any casing; the env override must replace it
+    // in place, not leave a stale lowercase `authorization` alongside a new
+    // `Authorization` (HTTP would send both).
+    const headers = resolveMcpHeaders(
+      'remote',
+      httpCfg({ headers: { authorization: 'Custom committed' } }),
+      { SOV_MCP_REMOTE_TOKEN: 'env-tok' },
+    );
+    const authKeys = Object.keys(headers).filter((k) => k.toLowerCase() === 'authorization');
+    expect(authKeys).toHaveLength(1);
+    expect(headers[authKeys[0] as string]).toBe('Bearer env-tok');
   });
 
   test('passes through unrelated config headers', () => {

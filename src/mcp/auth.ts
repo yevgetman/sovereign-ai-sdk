@@ -20,17 +20,10 @@ export function normalizeAliasForEnv(alias: string): string {
   return alias.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 }
 
-/** Read an env value with config fallback. Both are trimmed; an empty
- *  string (after trim) is treated as absent. Precedence: env > config. */
-function resolveSecret(
-  envValue: string | undefined,
-  configValue: string | undefined,
-): string | undefined {
-  const fromEnv = envValue?.trim();
-  if (fromEnv) return fromEnv;
-  const fromConfig = configValue?.trim();
-  if (fromConfig) return fromConfig;
-  return undefined;
+/** Trim an env value; an empty string (after trim) is treated as absent. */
+function trimmedOrUndefined(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 /** Case-insensitive check for whether a header is already present. */
@@ -39,13 +32,35 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
   return Object.keys(headers).some((key) => key.toLowerCase() === lower);
 }
 
+/** Set `name: value`, replacing any existing case-variant key in place (so
+ *  an env override doesn't leave a stale lowercase `authorization` alongside
+ *  a new `Authorization` — HTTP would otherwise send both). Returns a NEW
+ *  object; never mutates the input. */
+function setHeaderReplacing(
+  headers: Record<string, string>,
+  name: string,
+  value: string,
+): Record<string, string> {
+  const lower = name.toLowerCase();
+  const next: Record<string, string> = {};
+  for (const [key, val] of Object.entries(headers)) {
+    if (key.toLowerCase() !== lower) next[key] = val;
+  }
+  next[name] = value;
+  return next;
+}
+
 /** Build the outbound HTTP headers for a remote MCP server.
  *
+ *  Precedence per auth header is env > committed-header > field, so an
+ *  operator can rotate a secret via the env var even when a (possibly
+ *  stale) header is committed in config:
  *  - Starts from `cfg.headers` (copied, never mutated).
- *  - `SOV_MCP_<ALIAS>_TOKEN` (else `cfg.bearerToken`) → `Authorization:
- *    Bearer <token>`, only when no `Authorization` header is already set.
- *  - `SOV_MCP_<ALIAS>_API_KEY` (else `cfg.apiKey`) → `X-API-Key: <key>`,
- *    only when no `X-API-Key` header is already set.
+ *  - `Authorization`: `SOV_MCP_<ALIAS>_TOKEN` wins over any committed
+ *    `Authorization` header, which wins over `cfg.bearerToken`. The env
+ *    token is emitted as `Authorization: Bearer <token>`.
+ *  - `X-API-Key`: `SOV_MCP_<ALIAS>_API_KEY` wins over any committed
+ *    `X-API-Key` header, which wins over `cfg.apiKey`.
  *
  *  Stdio configs carry no auth fields, so an empty header set is returned
  *  (the stdio transport never consumes it). */
@@ -56,17 +71,26 @@ export function resolveMcpHeaders(
 ): Record<string, string> {
   if (cfg.type === 'stdio') return {};
 
-  const headers: Record<string, string> = { ...(cfg.headers ?? {}) };
+  let headers: Record<string, string> = { ...(cfg.headers ?? {}) };
   const prefix = `SOV_MCP_${normalizeAliasForEnv(alias)}`;
 
-  const token = resolveSecret(env[`${prefix}_TOKEN`], cfg.bearerToken);
-  if (token !== undefined && !hasHeader(headers, 'Authorization')) {
-    headers.Authorization = `Bearer ${token}`;
+  // Authorization: env wins outright; else keep a committed header; else
+  // fall back to the convenience `bearerToken` field.
+  const envToken = trimmedOrUndefined(env[`${prefix}_TOKEN`]);
+  if (envToken !== undefined) {
+    headers = setHeaderReplacing(headers, 'Authorization', `Bearer ${envToken}`);
+  } else if (!hasHeader(headers, 'Authorization')) {
+    const cfgToken = trimmedOrUndefined(cfg.bearerToken);
+    if (cfgToken !== undefined) headers.Authorization = `Bearer ${cfgToken}`;
   }
 
-  const apiKey = resolveSecret(env[`${prefix}_API_KEY`], cfg.apiKey);
-  if (apiKey !== undefined && !hasHeader(headers, 'X-API-Key')) {
-    headers['X-API-Key'] = apiKey;
+  // X-API-Key: same precedence.
+  const envApiKey = trimmedOrUndefined(env[`${prefix}_API_KEY`]);
+  if (envApiKey !== undefined) {
+    headers = setHeaderReplacing(headers, 'X-API-Key', envApiKey);
+  } else if (!hasHeader(headers, 'X-API-Key')) {
+    const cfgApiKey = trimmedOrUndefined(cfg.apiKey);
+    if (cfgApiKey !== undefined) headers['X-API-Key'] = cfgApiKey;
   }
 
   return headers;
