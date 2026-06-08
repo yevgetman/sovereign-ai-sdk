@@ -8,6 +8,16 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-08 — RELEASE v0.6.28: drive delegation-summary fix + subscriptionExecutor/taskRouting mutual exclusion
+
+Cut **v0.6.28** off `master` HEAD `f38663c` (the two SPIKE-follow-up fixes from the entry below — `3f5de12` drive delegation-summary fix + `38549d2`/`f38663c` subscriptionExecutor⊕taskRouting mutual exclusion). Followed `docs/conventions/cutting-releases.md` (tag-driven CI). Only `package.json` carries the version stamp (build-time JSON import via `src/version.ts`); CLAUDE.md/AGENTS.md "shipped v0.6.27" lines are historical doc references, not stamps.
+
+**Gate (pre-bump-commit).** `bun run lint` clean (biome, 688 files) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3197 pass / 14 skip / 1 fail**. The single fail was `tests/channels/telegram.test.ts` "start() arms an unref'd poll loop…" — a pre-existing **timing flake**: the test fires a fire-and-forget poll then waits a fixed 20ms for the mock transport's async `sendMessage` before asserting `sent`; under full-suite concurrency load the send hadn't landed in time. Confirmed not bump-related: the bump is a one-line `package.json` string change (runtime-irrelevant), the test passes on clean HEAD `f38663c` (12/0) and passes **3/3 in isolation with the bump applied** (12/0 each). CI's `preflight` job (clean ubuntu runner) re-ran lint+typecheck+test and passed — independently confirming green. Meets the repo gate criterion ("no new failures beyond the known set").
+
+**Release.** Bump committed `b6594b2` (`chore(release): bump version 0.6.27 -> 0.6.28`), pushed `origin/master` (`f38663c..b6594b2`). Public `sov-releases` CHANGELOG v0.6.28 entry committed `e2d2c1b`, pushed. Tag `v0.6.28` pushed → CI run **27153774695 conclusion=success** (preflight + build-linux + build-darwin + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27153774695). `gh release view v0.6.28 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
+
+**Post-upgrade smoke.** `~/.sov/bin/sov upgrade` (latest tag v0.6.28, checksum ok) → `~/.sov/bin/sov --version` → **0.6.28**.
+
 ## 2026-06-08 — SPIKE follow-ups (subscription executor): drive/TUI delegation-summary fix + taskRouting mutual-exclusion — TDD
 
 Two related fixes on the opt-in subscription-executor path. **No release** (the controller reviews + releases). Both built RED→GREEN.
