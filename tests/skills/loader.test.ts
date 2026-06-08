@@ -286,6 +286,75 @@ Global body
   });
 });
 
+describe('loadSkills — Claude Code allowed-tools alias (A1)', () => {
+  test('aliases hyphenated list-form allowed-tools to allowedTools', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      writeSkill(
+        join(cwd, '.harness/skills/cc-list.md'),
+        `---
+name: cc-list
+description: CC skill with hyphenated list allowed-tools
+whenToUse: User asks to port a CC skill
+allowed-tools: [Read, Grep]
+---
+Body
+`,
+      );
+      const registry = await loadSkills({ cwd, harnessHome });
+      expect(registry.byName.get('cc-list')?.allowedTools).toEqual(['Read', 'Grep']);
+    });
+  });
+
+  test('splits a comma-separated allowed-tools string into a trimmed array', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      // CC's common form: a single comma-separated STRING (would otherwise
+      // be a Zod reject against `z.array(z.string())`).
+      writeSkill(
+        join(cwd, '.harness/skills/cc-string.md'),
+        `---
+name: cc-string
+description: CC skill with comma-string allowed-tools
+whenToUse: User asks to port a CC skill
+allowed-tools: Read, Bash(git status:*)
+---
+Body
+`,
+      );
+      const registry = await loadSkills({ cwd, harnessHome });
+      expect(registry.byName.get('cc-string')?.allowedTools).toEqual([
+        'Read',
+        'Bash(git status:*)',
+      ]);
+    });
+  });
+
+  test('does not clobber a present harness-native allowedTools with allowed-tools', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      writeSkill(
+        join(cwd, '.harness/skills/both-keys.md'),
+        `---
+name: both-keys
+description: Skill carrying both keys
+whenToUse: User asks to run the both-keys skill
+allowedTools: [Edit]
+allowed-tools: [Read, Grep]
+---
+Body
+`,
+      );
+      const registry = await loadSkills({ cwd, harnessHome });
+      // The harness-native camelCase key wins; the hyphenated CC key is ignored.
+      expect(registry.byName.get('both-keys')?.allowedTools).toEqual(['Edit']);
+    });
+  });
+});
+
 describe('expandSkillPrompt', () => {
   test('substitutes args and inline shell interpolation', async () => {
     await withTmp(async (dir) => {

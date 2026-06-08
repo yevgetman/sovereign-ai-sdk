@@ -32,7 +32,7 @@
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { installSkill, uninstallSkill } from '../../skills/install.js';
+import { importSkill, installSkill, uninstallSkill } from '../../skills/install.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
@@ -116,6 +116,55 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
       return c.json({ error: result.reason }, 400);
     }
     return c.json({ ok: true, name: result.name, installedAt: result.installedAt });
+  });
+
+  // Feature A2 — POST /sessions/:id/skills/import
+  // Body: { source: string, force?: boolean }
+  // Imports a (Claude Code or harness) skill from the given local path,
+  // NORMALIZING its frontmatter onto the harness-native canonical shape on
+  // write (distinct from /install, which copies byte-faithfully). Returns 200
+  // with `{ ok, name, installedAt, converted, warnings }` on success; 4xx with
+  // `{ error }` on bad input or refusal. Source paths point at files visible
+  // to the server process (TUI typically runs colocated, loopback only).
+  r.post('/sessions/:id/skills/import', async (c) => {
+    const sessionId = c.req.param('id');
+    if (!isValidSessionId(sessionId)) {
+      return c.json({ error: 'invalid session id' }, 400);
+    }
+    // Phase E T4 — owner-only access. 404 (never 403) BEFORE importSkill
+    // touches the filesystem. Implicit/null owner sees all (back-compat).
+    if (loadOwnedSession(runtime, c, sessionId) === null) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400);
+    }
+    const parsed = InstallBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.issues[0]?.message ?? 'invalid body' }, 400);
+    }
+    const userSkillsRoot = join(runtime.harnessHome, 'skills');
+    const importArgs: Parameters<typeof importSkill>[0] = {
+      source: parsed.data.source,
+      userSkillsRoot,
+    };
+    if (parsed.data.force !== undefined) {
+      importArgs.force = parsed.data.force;
+    }
+    const result = await importSkill(importArgs);
+    if (!result.ok) {
+      return c.json({ error: result.reason }, 400);
+    }
+    return c.json({
+      ok: true,
+      name: result.name,
+      installedAt: result.installedAt,
+      converted: result.converted,
+      warnings: result.warnings,
+    });
   });
 
   // M11.17 — DELETE /sessions/:id/skills/:name

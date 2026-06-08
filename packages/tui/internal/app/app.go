@@ -719,6 +719,16 @@ type skillUninstalledMsg struct {
 	err    error
 }
 
+// skillImportedMsg carries the result of a /skills import POST. On success
+// the result also carries `converted`/`warnings` notes the importer accrued
+// while normalizing a Claude Code SKILL.md. The Update handler renders them
+// and fires fetchSkillsCmd so the imported skill is immediately dispatchable.
+// Feature A2.
+type skillImportedMsg struct {
+	result *transport.ImportSkillResult
+	err    error
+}
+
 // installSkillCmd issues POST /sessions/:id/skills/install off the
 // Update goroutine. The result lands as a skillInstalledMsg. M11.17.
 func (m Model) installSkillCmd(source string) tea.Cmd {
@@ -736,6 +746,17 @@ func (m Model) uninstallSkillCmd(name string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := transport.UninstallSkill(m.ctx, m.baseURL, m.sessionID, name)
 		return skillUninstalledMsg{result: result, err: err}
+	}
+}
+
+// importSkillCmd issues POST /sessions/:id/skills/import off the Update
+// goroutine. The result lands as a skillImportedMsg. Feature A2.
+func (m Model) importSkillCmd(source string) tea.Cmd {
+	return func() tea.Msg {
+		// force:false — surface the "already installed" error so the user
+		// explicitly confirms re-import via uninstall first.
+		result, err := transport.ImportSkill(m.ctx, m.baseURL, m.sessionID, source, false)
+		return skillImportedMsg{result: result, err: err}
 	}
 }
 
@@ -1230,6 +1251,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.print(m.theme.DimStyle().Render("installing skill from " + verbArg + "…"))
 					return m, m.installSkillCmd(verbArg)
+				case "import":
+					if m.baseURL == "" {
+						m.print(m.theme.ErrorStyle().Render("skills import requires a server connection"))
+						return m, m.respond(nil)
+					}
+					if verbArg == "" {
+						m.print(m.theme.DimStyle().Render("usage: /skills import <path-to-SKILL.md-or-directory>"))
+						return m, m.respond(nil)
+					}
+					m.print(m.theme.DimStyle().Render("importing skill from " + verbArg + "…"))
+					return m, m.importSkillCmd(verbArg)
 				case "uninstall":
 					if m.baseURL == "" {
 						m.print(m.theme.ErrorStyle().Render("skills uninstall requires a server connection"))
@@ -1252,10 +1284,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					m.print("")
-					m.print(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | uninstall <name> | reload"))
+					m.print(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | import <path> | uninstall <name> | reload"))
 				default:
 					m.print(m.theme.ErrorStyle().Render("unknown /skills verb: " + verb))
-					m.print(m.theme.DimStyle().Render("verbs: list, install <path>, uninstall <name>, reload"))
+					m.print(m.theme.DimStyle().Render("verbs: list, install <path>, import <path>, uninstall <name>, reload"))
 				}
 				return m, m.respond(nil)
 			}
@@ -1544,6 +1576,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("uninstalled /%s (removed %s)", msg.result.Name, msg.result.RemovedFrom),
 		))
+		return m, m.fetchSkillsCmd()
+	case skillImportedMsg:
+		// Feature A2 — render import result (incl. the normalization notes the
+		// importer accrued) and refresh the skill cache on success so the
+		// imported skill becomes available immediately for /skillname dispatch.
+		if msg.err != nil {
+			m.print(m.theme.ErrorStyle().Render("skill import failed: " + msg.err.Error()))
+			return m, m.respond(nil)
+		}
+		if msg.result == nil {
+			m.print(m.theme.ErrorStyle().Render("skill import returned no result"))
+			return m, m.respond(nil)
+		}
+		m.print(m.theme.DimStyle().Render(
+			fmt.Sprintf("imported /%s → %s", msg.result.Name, msg.result.InstalledAt),
+		))
+		for _, c := range msg.result.Converted {
+			m.print(m.theme.DimStyle().Render("  converted: " + c))
+		}
+		warnStyle := lipgloss.NewStyle().Foreground(m.theme.Warning)
+		for _, w := range msg.result.Warnings {
+			m.print(warnStyle.Render("  warning: " + w))
+		}
 		return m, m.fetchSkillsCmd()
 	case commandDispatchedMsg:
 		// M10.5 — pop the "…running /name" placeholder; render the dispatch

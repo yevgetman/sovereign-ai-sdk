@@ -33,15 +33,56 @@ const MetadataSchema = z
   })
   .default({});
 
-const SkillFrontmatterSchema = z
-  .object({
-    name: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/, 'must be a slash-command-safe name'),
-    description: z.string().min(1),
-    allowedTools: z.array(z.string()).default([]),
-    whenToUse: z.string().default(''),
-    metadata: MetadataSchema,
-  })
-  .passthrough();
+/** Normalize Claude Code frontmatter into the harness-native shape before
+ *  validation. CC uses the hyphenated `allowed-tools` key (this harness uses
+ *  camelCase `allowedTools`) and frequently writes it as a single
+ *  comma-separated STRING (e.g. `allowed-tools: Read, Grep, Bash(git status:*)`)
+ *  rather than a YAML list — which `z.array(z.string())` would reject outright.
+ *
+ *  Two transforms, both no-ops for harness-native files:
+ *    1. alias `allowed-tools` → `allowedTools` ONLY when `allowedTools` is
+ *       absent (a file carrying both keeps its harness-native value — no clobber);
+ *    2. when the resulting `allowedTools` value is a string, split on commas
+ *       into a trimmed, non-empty array.
+ *
+ *  Runs in front of SkillFrontmatterSchema so any CC SKILL.md loads natively
+ *  with its tool list populated. */
+function normalizeFrontmatterAliases(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  // Drop the hyphenated CC key by omission (immutable; no `delete`), aliasing
+  // it onto `allowedTools` only when the harness-native key is absent.
+  const { 'allowed-tools': hyphenated, ...rest } = obj;
+  const next: Record<string, unknown> = { ...rest };
+  if (!('allowedTools' in next) && hyphenated !== undefined) {
+    next.allowedTools = hyphenated;
+  }
+  if (typeof next.allowedTools === 'string') {
+    next.allowedTools = splitCommaList(next.allowedTools);
+  }
+  return next;
+}
+
+/** Split a comma-separated string into a trimmed, non-empty list. */
+function splitCommaList(value: string): string[] {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+export const SkillFrontmatterSchema = z.preprocess(
+  normalizeFrontmatterAliases,
+  z
+    .object({
+      name: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/, 'must be a slash-command-safe name'),
+      description: z.string().min(1),
+      allowedTools: z.array(z.string()).default([]),
+      whenToUse: z.string().default(''),
+      metadata: MetadataSchema,
+    })
+    .passthrough(),
+);
 
 const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_TIMEOUT_MS = 10_000;

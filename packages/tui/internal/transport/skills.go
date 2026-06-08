@@ -123,6 +123,63 @@ func InstallSkill(ctx context.Context, baseURL, sessionID, source string, force 
 	return &result, nil
 }
 
+// ImportSkillResult is the decoded success envelope returned by
+// POST /sessions/:id/skills/import on success. Feature A2. Carries the
+// `converted`/`warnings` notes the importer accrues while normalizing a
+// Claude Code SKILL.md onto the harness-native canonical shape.
+type ImportSkillResult struct {
+	Name        string   `json:"name"`
+	InstalledAt string   `json:"installedAt"`
+	Converted   []string `json:"converted"`
+	Warnings    []string `json:"warnings"`
+}
+
+// ImportSkill issues POST <baseURL>/sessions/<sessionID>/skills/import with
+// `{ source: <path>, force?: <bool> }`. Unlike InstallSkill (byte-faithful
+// copy), the server rewrites the SKILL.md frontmatter onto the harness-native
+// canonical shape on write — aliasing Claude Code's `allowed-tools`,
+// synthesizing `whenToUse`, and dropping CC-only keys. The returned name
+// reflects the frontmatter's `name:` field, NOT the source path.
+//
+// Returns an error containing the server's `{ error: ... }` text on 4xx/5xx
+// so callers can render the reason verbatim in the transcript. Feature A2.
+func ImportSkill(ctx context.Context, baseURL, sessionID, source string, force bool) (*ImportSkillResult, error) {
+	url := fmt.Sprintf("%s/sessions/%s/skills/import", baseURL, sessionID)
+	body := map[string]any{"source": source}
+	if force {
+		body["force"] = true
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := skillsClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("import skill: %w", err)
+	}
+	defer res.Body.Close()
+	respBody, _ := io.ReadAll(res.Body)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var errEnv struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errEnv) == nil && errEnv.Error != "" {
+			return nil, fmt.Errorf("%s", errEnv.Error)
+		}
+		return nil, fmt.Errorf("import skill: status %d: %s", res.StatusCode, string(respBody))
+	}
+	var result ImportSkillResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode import response: %w", err)
+	}
+	return &result, nil
+}
+
 // UninstallSkillResult is the decoded success envelope returned by
 // DELETE /sessions/:id/skills/:name on success. M11.17.
 type UninstallSkillResult struct {
