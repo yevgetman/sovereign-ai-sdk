@@ -468,25 +468,26 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Minimal markdown frontmatter parser sufficient for SKILL.md files.
- * Reuses the shared (CRLF-tolerant) frontmatter splitter so install validates
- * with the same shape as the loader will eventually see.
+ * Parse a SKILL.md's frontmatter with the REAL YAML parser, so install's
+ * duplicate-check + landed-directory name match exactly what the loader (and
+ * import) register (F10). A bespoke line-regex disagreed with YAML on quoted
+ * values and inline comments — e.g. `name: my-skill # note` scraped to the
+ * literal `my-skill # note` (an invalid name), while YAML yields `my-skill`.
+ * Reuses the shared (CRLF-tolerant) frontmatter splitter so install sees the
+ * same shape as the loader.
  */
 function parseFrontmatter(raw: string): unknown {
   const { frontmatter: yamlBody } = splitFrontmatter(raw);
-  // We don't pull in yaml here intentionally — the loader does the
-  // full parse. Just extract `name:` for the duplicate check. The `\r?` keeps
-  // the value capture CRLF-tolerant (the trailing `.trim()` also strips it).
-  const nameMatch = yamlBody.match(/^name:\s*(.+?)\r?$/m);
-  const descMatch = yamlBody.match(/^description:\s*(.+?)\r?$/m);
-  if (!nameMatch || nameMatch[1] === undefined) {
+  const parsed = parseYaml(yamlBody);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('missing required field: name');
   }
-  if (!descMatch || descMatch[1] === undefined) {
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.name !== 'string' || obj.name.trim().length === 0) {
+    throw new Error('missing required field: name');
+  }
+  if (typeof obj.description !== 'string' || obj.description.trim().length === 0) {
     throw new Error('missing required field: description');
   }
-  return {
-    name: nameMatch[1].trim().replace(/^["']|["']$/g, ''),
-    description: descMatch[1].trim().replace(/^["']|["']$/g, ''),
-  };
+  return { name: obj.name.trim(), description: obj.description.trim() };
 }

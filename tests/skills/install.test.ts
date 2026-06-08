@@ -12,6 +12,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installSkill, uninstallSkill } from '../../src/skills/install.js';
+import { loadSkills } from '../../src/skills/loader.js';
 
 let tmpHome: string;
 let userSkills: string;
@@ -181,6 +182,74 @@ body
     if (result.ok) throw new Error('expected install to refuse the out-of-tree symlink');
     expect(result.reason.toLowerCase()).toContain('symlink');
     expect(existsSync(join(userSkills, 'evil-pkg', 'references', 'leak.txt'))).toBe(false);
+  });
+
+  // F10 — install's name extraction must use the real YAML parser, so the
+  // dup-check + landed directory name match what the loader (and import)
+  // register. A bespoke line-regex disagrees with YAML on quoted values and
+  // inline comments, so the install dir could diverge from the loaded name.
+  describe('name extraction matches the loader (F10)', () => {
+    test('lands a quoted name unquoted, matching the loader', async () => {
+      const src = join(sourceDir, 'SKILL.md');
+      await writeFile(
+        src,
+        `---
+name: "quoted-name"
+description: A test skill
+---
+body
+`,
+      );
+      const result = await installSkill({ source: src, userSkillsRoot: userSkills });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected install to succeed');
+      // Dir + result name are the UNQUOTED form.
+      expect(result.name).toBe('quoted-name');
+      expect(existsSync(join(userSkills, 'quoted-name', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(userSkills, '"quoted-name"'))).toBe(false);
+      // The loader registers the exact same name from the landed file.
+      const registry = await loadSkills({
+        cwd: join(tmpHome, 'project-empty'),
+        harnessHome: tmpHome,
+      });
+      expect(registry.byName.has('quoted-name')).toBe(true);
+    });
+
+    test('a name with an inline YAML comment lands under the bare name', async () => {
+      // The regex scrape yields `my-skill # inline comment` (which fails the
+      // name schema → install wrongly refuses); the real YAML parser yields
+      // `my-skill`, matching what the loader registers. RED before F10.
+      const src = join(sourceDir, 'SKILL.md');
+      await writeFile(
+        src,
+        `---
+name: commented-name # this is a YAML comment
+description: A test skill
+---
+body
+`,
+      );
+      const result = await installSkill({ source: src, userSkillsRoot: userSkills });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected install to succeed');
+      expect(result.name).toBe('commented-name');
+      expect(existsSync(join(userSkills, 'commented-name', 'SKILL.md'))).toBe(true);
+      const registry = await loadSkills({
+        cwd: join(tmpHome, 'project-empty'),
+        harnessHome: tmpHome,
+      });
+      expect(registry.byName.has('commented-name')).toBe(true);
+    });
+
+    test('a plain unquoted name still installs', async () => {
+      const src = join(sourceDir, 'SKILL.md');
+      await writeFile(src, makeSkillContent('plain-name'));
+      const result = await installSkill({ source: src, userSkillsRoot: userSkills });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected install to succeed');
+      expect(result.name).toBe('plain-name');
+      expect(existsSync(join(userSkills, 'plain-name', 'SKILL.md'))).toBe(true);
+    });
   });
 });
 
