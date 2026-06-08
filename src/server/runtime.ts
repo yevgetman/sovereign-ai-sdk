@@ -511,6 +511,26 @@ export function resolveSubagentArtifactsRoot(harnessHome: string, bundle: Bundle
     : harnessHome;
 }
 
+/** SPIKE — the role gated behind `subscriptionExecutor.enabled`. Hidden from
+ *  the model's AgentTool enum unless the operator opts in, so an off-by-default
+ *  install never exposes the headless-subprocess delegation surface. */
+const SUBSCRIPTION_EXECUTOR_ROLE = 'subscription-executor';
+
+/** Compute the model-visible agent registry by excluding roles the current
+ *  config does not enable. Always excludes the task-routing roles unless
+ *  taskRouting is on (the existing B-via-D behavior); additionally excludes the
+ *  subscription-executor role unless its config is enabled. The FULL registry
+ *  stays on the runtime for /agent dispatch; only the AgentTool enum narrows. */
+export function computeToolVisibleAgents(
+  agents: AgentRegistry,
+  flags: { taskRoutingEnabled: boolean; subscriptionExecutorEnabled: boolean },
+): AgentRegistry {
+  const excludeRoles = new Set<string>();
+  if (!flags.taskRoutingEnabled) for (const r of TASK_ROUTING_ROLES) excludeRoles.add(r);
+  if (!flags.subscriptionExecutorEnabled) excludeRoles.add(SUBSCRIPTION_EXECUTOR_ROLE);
+  return excludeRoles.size === 0 ? agents : filterAgentRegistry(agents, excludeRoles);
+}
+
 /** M5.1 (backlog #27) — derive per-lane semaphore caps from settings.
  *  Without this, `LaneSemaphores({})` leaves both lanes unbounded, so
  *  server-mode runs cannot configure concurrency caps via `settings.json`
@@ -596,9 +616,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     process.env.SOV_TASK_ROUTING_ENABLED,
     earlySettings.taskRouting?.enabled,
   );
-  const toolVisibleAgents = taskRoutingEnabledAtBoot
-    ? agents
-    : filterAgentRegistry(agents, TASK_ROUTING_ROLES);
+  const toolVisibleAgents = computeToolVisibleAgents(agents, {
+    taskRoutingEnabled: taskRoutingEnabledAtBoot,
+    subscriptionExecutorEnabled: earlySettings.subscriptionExecutor?.enabled === true,
+  });
 
   // Bare tool context — no memory/skills/scheduler/task manager/learning
   // observer. M3 is the "bare turn" milestone (spec §10). Those subsystems
@@ -1167,6 +1188,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // 2026-05-24 — read via holder so rebuildTaskRouting swaps the
     // registry without restarting the scheduler.
     resolveLane: (role) => laneRegistryHolder.current.lookup(role),
+    // SPIKE (off by default) — when `subscriptionExecutor.enabled`, a
+    // delegation to the `subscription-executor` role is handed to a headless
+    // `claude -p` subprocess instead of the AgentRunner loop. Absent /
+    // disabled → the branch is inert and every delegation takes the normal
+    // path (the existing scheduler tests prove that path is byte-unchanged).
+    ...(userSettings.subscriptionExecutor !== undefined
+      ? { subscriptionExecutor: userSettings.subscriptionExecutor }
+      : {}),
   });
 
   // M5 T7 — task manager. Wraps the SubagentScheduler with lifecycle
@@ -1291,10 +1320,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     });
 
     // Rebuild the tool pool's AgentTool enum so routing agents appear /
-    // disappear when the user toggles taskRouting.enabled mid-session.
-    const freshVisibleAgents = freshEnabled
-      ? agents
-      : filterAgentRegistry(agents, TASK_ROUTING_ROLES);
+    // disappear when the user toggles taskRouting.enabled mid-session. The
+    // subscription-executor role is gated the same way off its own config flag.
+    const freshVisibleAgents = computeToolVisibleAgents(agents, {
+      taskRoutingEnabled: freshEnabled,
+      subscriptionExecutorEnabled: fresh.subscriptionExecutor?.enabled === true,
+    });
     const freshToolCtx: ToolContext = {
       cwd: opts.cwd,
       ...(bundle ? { bundleRoot: bundle.root } : {}),

@@ -8,6 +8,29 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-08 — SPIKE: opt-in headless Claude Code sub-agent executor (off by default) — TDD + live smoke
+
+Built the **subscription-executor** spike — proving the harness can drive a headless `claude -p` session as an opt-in, task-delegating sub-agent executor that round-trips a summary through the UNCHANGED scheduler tail. **Off by default; not productized; NO release** (per the spike's opt-in posture). Spec: `docs/specs/2026-06-08-subscription-executor-spike.md`.
+
+**Grounded the parser on the REAL `claude` output (not memory).** `which claude` → `/Users/julie/.local/bin/claude`, v2.1.162. Captured `claude -p "What is 2+2? Answer in one word." --output-format stream-json --max-turns 1 --verbose` live: `system/init` (carries `session_id`, `model`, and **`apiKeySource:"none"` ⇒ the local install is logged in via SUBSCRIPTION, not an API key** — the ToS-relevant fact, confirmed live), `assistant` frames (`message.content[]` with `text` + `tool_use` blocks), a terminal `result` frame (`is_error`, `num_turns`, `result`, `terminal_reason`), plus noise frames (`system/hook_started`, `system/hook_response`, `rate_limit_event`, `user` tool_result). The parser skips noise + non-JSON lines; the terminal `result` is the source of truth.
+
+**TDD build (RED→GREEN), 26 new tests:**
+- `tests/config/subscriptionExecutor.test.ts` (8) — strict block; **empty config does NOT enable it** (absent-parent gotcha); the `permissionMode` enum **REJECTS `bypassPermissions`** (security: no remote RCE bypass); positive-int bounds.
+- `tests/runtime/subprocessExecutor.test.ts` (10) — canned-JSONL (real-shaped tool-using transcript) → exact `drainRunner` result shape; `is_error:true` / non-zero exit / truncated-stream (no terminal) / timeout (pre-aborted signal kills the proc) → error terminal; `buildSubprocessArgs` carries `-p`/`stream-json`/`--verbose`/safe `--permission-mode` and **never** a bypass/dangerous flag; defaults `permissionMode` to `plan`.
+- `tests/runtime/scheduler.subscriptionExecutor.test.ts` (4) — `enabled:true` + role match → routes to a MOCKED `runSubprocessExecutor` (provider NOT called), summary + memory hook fire through the unchanged tail; disabled / no-config → normal AgentRunner provider path; subprocess error terminal round-trips cleanly.
+- `tests/server/computeToolVisibleAgents.test.ts` (4) — the role is hidden from the model's AgentTool enum unless `subscriptionExecutor.enabled` (the off-by-default registration gate).
+- `tests/agents/bundleDefault.test.ts` — updated for the new agent def (added to the name list + the "declares no harness allowedTools" set; the subprocess runs its own tools).
+
+**Unchanged-path proof.** The existing `tests/runtime/scheduler.test.ts` passes **unchanged-green** — that is the proof the normal `AgentRunner` delegation path is byte-identical (the spike's single branch is the executor construction; everything downstream consumes the identical result shape).
+
+**Gate.** `bun run lint` clean (biome check, 688 files) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3164 pass / 0 fail / 14 skip** (clean run — the usual env-only learning flakes all passed this run; +26 spike tests). One transient failure during the build — `bundleDefault.test.ts`'s exact-agent-list assertion broke when I added `subscription-executor.md` — was a test that needed updating (added the new agent), NOT a runtime regression; fixed and re-confirmed 0 fail.
+
+**LIVE SMOKE (the payoff) — round-tripped through the REAL `claude` subprocess, twice.** Drove `SubagentScheduler.delegate()` with the real `runSubprocessExecutor` (default `Bun.spawn`) against the installed `claude`:
+- **Read-only text task** `"Reply with exactly: SPIKE-OK"` → terminal `completed`, `iterationsUsed:1`, `toolCallCount:0`, **summary `"SPIKE-OK"`**, 3.25s. The fake provider was NOT called (no `provider called!` throw) → the subprocess branch was taken.
+- **Read-only tool-using task** `"How many lines in package.json? Read it and answer with just the number."` → terminal `completed`, `iterationsUsed:2`, **`toolCallCount:1`, `distinctToolNames:["Bash"]`** (claude chose `wc -l`), summary `"56"`. This validates the `tool_use` parse against REAL output, not just the canned transcript.
+
+**Auth mode (ToS-relevant):** the local `claude` authenticates via **subscription** (`apiKeySource:"none"`; `~/.claude/.credentials.json` present, no API key). Personal/attended/dogfood use of the official binary on your own subscription is the only defensible mode — which is exactly why the spike is wired into the personal sub-agent delegation seam ONLY (NOT cron/channels/gateway/clients). Automated/multi-tenant/unattended use stays on the per-token API.
+
 ## 2026-06-06 — SMS channel (Twilio) build + security review + two LOW hardenings, plus iMessage feasibility spike — shipped v0.6.26
 
 A new post-Phase-F inbound channel — **SMS over Twilio** — built (config + adapter + route), security-reviewed SECURE-TO-SHIP, then hardened with two LOW fixes; plus an iMessage feasibility spike (verdict: NO-GO by default). Shipped as **v0.6.26**.

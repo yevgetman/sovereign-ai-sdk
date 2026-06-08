@@ -22,7 +22,7 @@
 
 import { buildSubagentExclusions } from '../agents/exclusions.js';
 import type { AgentDefinition, AgentRegistry } from '../agents/types.js';
-import type { LaneConfig } from '../config/schema.js';
+import type { LaneConfig, SubscriptionExecutorConfig } from '../config/schema.js';
 import type { AssistantMessage, SystemSegment, Terminal } from '../core/types.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
@@ -37,6 +37,16 @@ import { tryWriteTrajectory } from '../trajectory/writer.js';
 import { AgentRunner } from './agentRunner.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
 import type { Semaphore } from './semaphore.js';
+import {
+  type RunSubprocessExecutorOpts,
+  type SubprocessExecutorResult,
+  runSubprocessExecutor as defaultRunSubprocessExecutor,
+} from './subprocessExecutor.js';
+
+/** SPIKE — the role that, when `subscriptionExecutor.enabled`, routes a
+ *  delegation to a headless `claude -p` subprocess instead of the harness's
+ *  own AgentRunner loop. */
+const SUBSCRIPTION_EXECUTOR_ROLE = 'subscription-executor';
 
 const DEFAULT_MAX_CHILDREN = 4;
 const DEFAULT_PER_TURN_TIMEOUT_MS = 60_000;
@@ -117,6 +127,19 @@ export type SubagentSchedulerOpts = {
    *  keeping the path purely additive for unknown roles. `agent.model`
    *  still wins over both paths when explicitly pinned. */
   resolveLane?: (role: string) => LaneConfig | undefined;
+  /** SPIKE (off by default) — opt-in headless Claude Code sub-agent executor
+   *  config. When `enabled: true`, a delegation whose resolved agent has
+   *  `role === 'subscription-executor'` is handed to a spawned `claude -p`
+   *  subprocess (via `runSubprocessExecutor` below) INSTEAD of the normal
+   *  AgentRunner loop. The subprocess returns the same result shape, so the
+   *  entire downstream tail of `delegate()` (summary, trajectory, memory hook,
+   *  review, lifecycle) is byte-unchanged. Absent or `enabled !== true` →
+   *  the branch is inert and every delegation takes the normal path. */
+  subscriptionExecutor?: SubscriptionExecutorConfig;
+  /** SPIKE — injectable subprocess executor (tests feed canned JSONL). Defaults
+   *  to the real `runSubprocessExecutor`. Only consulted on the
+   *  subscription-executor branch. */
+  runSubprocessExecutor?: (opts: RunSubprocessExecutorOpts) => Promise<SubprocessExecutorResult>;
 };
 
 export type DelegateInput = {
@@ -315,27 +338,55 @@ export class SubagentScheduler {
               }
             : undefined;
 
-        const runner = new AgentRunner({
-          provider: resolved.transport as unknown as LLMProvider,
-          model: resolved.model,
-          systemPrompt,
-          maxTokens: this.opts.maxTokens,
-          tools,
-          toolContext: childToolContext,
-          ...(input.canUseTool !== undefined ? { canUseTool: input.canUseTool } : {}),
-          ...(input.memoryManager !== undefined ? { memoryManager: input.memoryManager } : {}),
-          ...(wrappedTraceRecorder !== undefined ? { traceRecorder: wrappedTraceRecorder } : {}),
-          maxTurns: agent.maxTurns,
-          sessionId: childSessionId,
-          parentSessionId: input.parentSessionId,
-          signal: composed,
-        });
+        // SPIKE — executor selection. The ONLY branch in delegate(): when the
+        // resolved agent's role is the subscription-executor AND the config
+        // enables it, hand the task to a headless `claude -p` subprocess that
+        // runs its own agentic loop. It returns the EXACT shape `drainRunner`
+        // returns, so the entire tail below (summary, trajectory, memory hook,
+        // review, lifecycle) is byte-unchanged. Off-by-default and inert for
+        // every other role / when the config is absent.
+        const useSubprocessExecutor =
+          this.opts.subscriptionExecutor?.enabled === true &&
+          agent.role === SUBSCRIPTION_EXECUTOR_ROLE;
 
         const startedAt = Date.now();
-        const gen = runner.run(input.prompt);
-        let result: Awaited<ReturnType<typeof drainRunner>>;
+        let result: SubprocessExecutorResult;
         try {
-          result = await drainRunner(gen);
+          if (useSubprocessExecutor) {
+            const run = this.opts.runSubprocessExecutor ?? defaultRunSubprocessExecutor;
+            // The subprocess executor returns an error terminal IN-BAND (never
+            // throws), so it flows through the success tail below; a non-success
+            // terminal simply skips the memory/review hooks (same as a normal
+            // child that errored). cwd is constrained to the parent's tool
+            // context cwd — the subprocess never roams outside the runtime root.
+            result = await run({
+              prompt: input.prompt,
+              cwd: input.parentToolContext.cwd,
+              // biome-ignore lint/style/noNonNullAssertion: guarded by useSubprocessExecutor (enabled === true ⇒ config present)
+              config: this.opts.subscriptionExecutor!,
+              signal: composed,
+            });
+          } else {
+            const runner = new AgentRunner({
+              provider: resolved.transport as unknown as LLMProvider,
+              model: resolved.model,
+              systemPrompt,
+              maxTokens: this.opts.maxTokens,
+              tools,
+              toolContext: childToolContext,
+              ...(input.canUseTool !== undefined ? { canUseTool: input.canUseTool } : {}),
+              ...(input.memoryManager !== undefined ? { memoryManager: input.memoryManager } : {}),
+              ...(wrappedTraceRecorder !== undefined
+                ? { traceRecorder: wrappedTraceRecorder }
+                : {}),
+              maxTurns: agent.maxTurns,
+              sessionId: childSessionId,
+              parentSessionId: input.parentSessionId,
+              signal: composed,
+            });
+            const gen = runner.run(input.prompt);
+            result = await drainRunner(gen);
+          }
         } catch (err) {
           // Timeout aborts manifest as a thrown error from query.next();
           // surface as an interrupted terminal.

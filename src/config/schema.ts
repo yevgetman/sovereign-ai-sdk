@@ -656,8 +656,35 @@ export const SettingsSchema = z
         }
       })
       .optional(),
+    /** SPIKE (off by default) — opt-in headless Claude Code sub-agent
+     *  executor. When `enabled: true`, a delegation to the
+     *  `subscription-executor` role hands the task to a spawned `claude -p`
+     *  subprocess that runs its OWN agentic loop and returns a summary,
+     *  round-tripping through the unchanged scheduler tail. Absent block =
+     *  today's behavior (the lane is unavailable + the scheduler branch is
+     *  inert). Personal/attended/dogfood use only — see the spike doc at
+     *  docs/specs/2026-06-08-subscription-executor-spike.md for the ToS
+     *  boundary (the official binary on your own subscription is the only
+     *  defensible mode; automated/multi-tenant/unattended use stays on the
+     *  per-token API).
+     *
+     *  `permissionMode` MUST exclude `bypassPermissions` and any dangerous
+     *  mode: the subprocess runs its own permission system, and a bypass on
+     *  an automated/remote path is RCE. The enum is the security gate. */
+    subscriptionExecutor: z
+      .object({
+        enabled: z.boolean().optional(),
+        engine: z.enum(['claude-code']).optional(),
+        binary: z.string().optional(),
+        permissionMode: z.enum(['plan', 'acceptEdits', 'default']).optional(),
+        timeoutMs: z.number().int().positive().optional(),
+        maxTurns: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
 export type Settings = z.infer<typeof SettingsSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+export type SubscriptionExecutorConfig = NonNullable<Settings['subscriptionExecutor']>;

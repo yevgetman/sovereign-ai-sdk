@@ -35,18 +35,23 @@ describe('bundle-default reference agents', () => {
         'review-memory',
         'review-skill',
         'scheduled-mission',
+        'subscription-executor',
         'verify',
       ]);
       // Cost-lane agents inherit the parent's tools via inheritParentTools=true,
       // so they intentionally declare no explicit allowedTools.
       const costLaneAgents = new Set(['cheap-task', 'moderate-task', 'frontier-task']);
+      // SPIKE — the subscription-executor delegates to a headless `claude -p`
+      // subprocess that runs its OWN tools, so the harness-side allowedTools is
+      // intentionally empty (no harness tool pool is handed to the subprocess).
+      const noHarnessToolsAgents = new Set(['subscription-executor']);
       for (const a of registry.agents) {
         expect(a.source).toBe('bundle');
         expect(a.trustTier).toBe('builtin');
         expect(a.systemPrompt.length).toBeGreaterThan(100);
         if (costLaneAgents.has(a.name)) {
           expect(a.inheritParentTools).toBe(true);
-        } else {
+        } else if (!noHarnessToolsAgents.has(a.name)) {
           expect(a.allowedTools.length).toBeGreaterThan(0);
         }
         // scheduled-mission is name-invoked (--agent scheduled-mission), not
