@@ -26,14 +26,17 @@ export type HarnessInfoSnapshot = {
     path: string;
     present: boolean;
   }>;
-  mcpServers: Array<{
-    name: string;
-    command: string;
-    args: string[];
-    status: 'connected' | 'failed' | 'not-attempted';
-    toolCount: number;
-    tools: string[];
-  }>;
+  mcpServers: Array<
+    {
+      name: string;
+      status: 'connected' | 'failed' | 'not-attempted';
+      toolCount: number;
+      tools: string[];
+    } & (
+      | { transport: 'stdio'; command: string; args: string[] }
+      | { transport: 'http' | 'sse'; url: string }
+    )
+  >;
   tools: {
     native: string[];
     mcp: string[];
@@ -153,11 +156,15 @@ function formatSnapshot(out: Output): string {
   if (out.mcpServers !== undefined) {
     lines.push('', `mcp servers: ${out.mcpServers.length}`);
     for (const s of out.mcpServers) {
-      const argSuffix = s.args.length > 0 ? ` ${s.args.join(' ')}` : '';
       const toolPreview =
         s.tools.length > 5 ? `${s.tools.slice(0, 5).join(', ')}, ...` : s.tools.join(', ');
       lines.push(`  ${s.name}: ${s.status}, ${s.toolCount} tools (${toolPreview})`);
-      lines.push(`    command: ${s.command}${argSuffix}`);
+      if (s.transport === 'stdio') {
+        const argSuffix = s.args.length > 0 ? ` ${s.args.join(' ')}` : '';
+        lines.push(`    transport: stdio, command: ${s.command}${argSuffix}`);
+      } else {
+        lines.push(`    transport: ${s.transport}, url: ${s.url}`);
+      }
     }
   }
   if (out.tools !== undefined) {

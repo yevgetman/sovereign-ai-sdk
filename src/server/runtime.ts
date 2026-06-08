@@ -49,6 +49,7 @@ import { createFsPersist } from '../learning-layer/adapters/harness/persistFs.js
 import { createProviderReason } from '../learning-layer/adapters/harness/reasonProvider.js';
 import { createLearningLayer } from '../learning-layer/index.js';
 import type { LearningLayer } from '../learning-layer/ports.js';
+import { serializeMcpServerConfig } from '../mcp/auth.js';
 import { buildMcpClientPool } from '../mcp/client.js';
 import { wrapMcpTool } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
@@ -668,10 +669,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
             ? 'connected'
             : 'failed'
           : 'not-attempted';
+        // Transport-aware projection: remote servers expose only
+        // { transport, url } (redacted to origin — never headers); stdio
+        // exposes { transport, command, args }.
         return {
           name,
-          command: cfg.command,
-          args: cfg.args ?? [],
+          ...serializeMcpServerConfig(cfg),
           status,
           toolCount: liveTools?.length ?? 0,
           tools: liveTools ?? [],

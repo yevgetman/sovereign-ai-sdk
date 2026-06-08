@@ -26,7 +26,7 @@ let pool: McpClientPool;
 
 beforeAll(async () => {
   pool = await buildMcpClientPool({
-    servers: { echo: { command: 'bun', args: [FIXTURE] } },
+    servers: { echo: { type: 'stdio', command: 'bun', args: [FIXTURE] } },
     log: () => {},
   });
 });

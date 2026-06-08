@@ -22,6 +22,7 @@ function fixtureSnapshot(overrides: Partial<HarnessInfoSnapshot> = {}): HarnessI
     mcpServers: [
       {
         name: 'echo',
+        transport: 'stdio',
         command: 'bun',
         args: ['/path/to/echo-server.ts'],
         status: 'connected',
@@ -249,36 +250,36 @@ describe('HarnessInfoTool', () => {
   });
 
   test('mcp server with status: failed surfaces in the rendered output', () => {
-    const tool = buildHarnessInfoTool(() =>
-      fixtureSnapshot({
-        mcpServers: [
-          {
-            name: 'broken',
-            command: 'nope',
-            args: [],
-            status: 'failed',
-            toolCount: 0,
-            tools: [],
-          },
-        ],
-      }),
-    );
-    const rendered = tool.renderResult?.(
-      fixtureSnapshot({
-        mcpServers: [
-          {
-            name: 'broken',
-            command: 'nope',
-            args: [],
-            status: 'failed',
-            toolCount: 0,
-            tools: [],
-          },
-        ],
-      }),
-    );
+    const brokenStdio = {
+      name: 'broken',
+      transport: 'stdio' as const,
+      command: 'nope',
+      args: [],
+      status: 'failed' as const,
+      toolCount: 0,
+      tools: [],
+    };
+    const tool = buildHarnessInfoTool(() => fixtureSnapshot({ mcpServers: [brokenStdio] }));
+    const rendered = tool.renderResult?.(fixtureSnapshot({ mcpServers: [brokenStdio] }));
     expect(rendered?.content).toContain('broken: failed');
     expect(rendered?.content).toContain('command: nope');
+    void tool;
+  });
+
+  test('remote mcp server renders transport + url, never a command', () => {
+    const remote = {
+      name: 'hosted',
+      transport: 'http' as const,
+      url: 'https://mcp.example.com',
+      status: 'connected' as const,
+      toolCount: 2,
+      tools: ['a', 'b'],
+    };
+    const tool = buildHarnessInfoTool(() => fixtureSnapshot({ mcpServers: [remote] }));
+    const rendered = tool.renderResult?.(fixtureSnapshot({ mcpServers: [remote] }));
+    expect(rendered?.content).toContain('hosted: connected');
+    expect(rendered?.content).toContain('transport: http, url: https://mcp.example.com');
+    expect(rendered?.content).not.toContain('command:');
     void tool;
   });
 

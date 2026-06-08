@@ -15,7 +15,7 @@ let pool: McpClientPool;
 beforeAll(async () => {
   pool = await buildMcpClientPool({
     servers: {
-      echo: { command: 'bun', args: [FIXTURE] },
+      echo: { type: 'stdio', command: 'bun', args: [FIXTURE] },
     },
     log: () => {},
   });
@@ -72,8 +72,8 @@ describe('MCP client pool', () => {
     const logs: string[] = [];
     const broken = await buildMcpClientPool({
       servers: {
-        good: { command: 'bun', args: [FIXTURE] },
-        bad: { command: '/does/not/exist', args: [] },
+        good: { type: 'stdio', command: 'bun', args: [FIXTURE] },
+        bad: { type: 'stdio', command: '/does/not/exist', args: [] },
       },
       log: (m) => logs.push(m),
       connectTimeoutMs: 2000,

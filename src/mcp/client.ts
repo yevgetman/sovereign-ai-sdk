@@ -9,11 +9,16 @@
 // The pool is session-scoped: built once, shut down on session end.
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { VERSION } from '../version.js';
+import { redactUrlAuth, resolveMcpHeaders } from './auth.js';
 import type {
   McpCallResult,
   McpClientPool,
+  McpRemoteServerFields,
   McpServerConfig,
   McpServerHandle,
   McpToolMeta,
@@ -34,7 +39,10 @@ export type BuildMcpClientPoolOpts = {
 type ActiveConnection = {
   name: string;
   client: Client;
-  transport: StdioClientTransport;
+  // The base SDK transport interface — concrete type is stdio / HTTP /
+  // SSE depending on the server config. `shutdown` only calls
+  // `client.close()`, never a transport-specific method.
+  transport: Transport;
   tools: McpToolMeta[];
 };
 
@@ -49,12 +57,17 @@ export async function buildMcpClientPool(
 
   for (const [name, cfg] of Object.entries(servers)) {
     try {
-      const conn = await connectOne(name, cfg, connectTimeoutMs);
+      const conn = await connectOne(name, cfg, connectTimeoutMs, log);
       active.set(name, conn);
       log(`[mcp] ${name}: ${conn.tools.length} tool${conn.tools.length === 1 ? '' : 's'}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log(`[mcp] ${name}: connection failed (${msg}) — disabled this session`);
+      // SECURITY: a transport error from a remote server can embed the
+      // request URL (query string / userinfo) or auth context. Sanitize
+      // before logging — surface the alias + a redacted reason only,
+      // never header values or a token-bearing URL.
+      log(
+        `[mcp] ${name}: connection failed (${sanitizeConnectError(err)}) — disabled this session`,
+      );
     }
   }
 
@@ -107,13 +120,9 @@ async function connectOne(
   name: string,
   cfg: McpServerConfig,
   connectTimeoutMs: number,
+  log: (msg: string) => void,
 ): Promise<ActiveConnection> {
-  const transport = new StdioClientTransport({
-    command: cfg.command,
-    ...(cfg.args ? { args: cfg.args } : {}),
-    ...(cfg.env ? { env: cfg.env } : {}),
-    ...(cfg.cwd ? { cwd: cfg.cwd } : {}),
-  });
+  const transport = buildTransport(name, cfg, log);
 
   const client = new Client({ name: 'sovereign-ai-harness', version: VERSION });
 
@@ -140,6 +149,109 @@ async function connectOne(
   }));
 
   return { name, client, transport, tools };
+}
+
+/** Construct the SDK transport for a server config, branching on the
+ *  transport `type` (defaulting to stdio for legacy configs). The
+ *  returned value satisfies the base `Transport` interface; the pool
+ *  only ever drives it through `client.connect()` / `client.close()`. */
+function buildTransport(name: string, cfg: McpServerConfig, log: (msg: string) => void): Transport {
+  if (cfg.type === 'http' || cfg.type === 'sse') {
+    return buildRemoteTransport(name, cfg, log);
+  }
+  return new StdioClientTransport({
+    command: cfg.command,
+    ...(cfg.args ? { args: cfg.args } : {}),
+    ...(cfg.env ? { env: cfg.env } : {}),
+    ...(cfg.cwd ? { cwd: cfg.cwd } : {}),
+  });
+}
+
+function buildRemoteTransport(
+  name: string,
+  cfg: ({ type: 'http' } | { type: 'sse' }) & McpRemoteServerFields,
+  log: (msg: string) => void,
+): Transport {
+  const url = new URL(cfg.url);
+  warnInsecureRemoteUrl(name, url, log);
+  const headers = resolveMcpHeaders(name, cfg, process.env);
+
+  // The remote SDK transports declare `get sessionId(): string | undefined`,
+  // which trips `exactOptionalPropertyTypes` against the base `Transport`'s
+  // `sessionId?: string` — a pure typing quirk; both genuinely implement
+  // `Transport`. Narrow back to the interface the pool actually drives.
+  if (cfg.type === 'http') {
+    const t = new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+    return t as Transport;
+  }
+
+  // Legacy SSE. Setting `eventSourceInit` suppresses the SDK's automatic
+  // Authorization header, so we inject our resolved headers explicitly via
+  // a fetch override on the SSE (GET) stream. The POST channel carries the
+  // same headers through `requestInit`.
+  const sse = new SSEClientTransport(url, {
+    requestInit: { headers },
+    eventSourceInit: {
+      fetch: (sseUrl, init) =>
+        fetch(sseUrl, {
+          ...(init as RequestInit),
+          headers: { ...(init.headers as Record<string, string>), ...headers },
+        }),
+    },
+  });
+  return sse as Transport;
+}
+
+/** Warn (never block) when a remote MCP URL is plaintext HTTP or points at
+ *  a loopback / private-network host. The URL is operator-supplied config,
+ *  not end-user input, so the risk is lower — but a heads-up helps catch a
+ *  misconfigured production endpoint. No insecure-TLS escape hatch exists. */
+function warnInsecureRemoteUrl(name: string, url: URL, log: (msg: string) => void): void {
+  if (url.protocol !== 'https:') {
+    log(
+      `[mcp] ${name}: WARNING remote URL is not https (${redactUrlAuth(url.href)}) — traffic is unencrypted`,
+    );
+  }
+  if (isPrivateHost(url.hostname)) {
+    log(`[mcp] ${name}: note remote URL targets a private/loopback host (${url.hostname})`);
+  }
+}
+
+/** Best-effort check for loopback / RFC-1918 private / link-local hosts. */
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::1' || host === '0.0.0.0') return true;
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!v4) return false;
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 169 && b === 254) return true; // link-local
+  return false;
+}
+
+/** Reduce a connect error to a secret-free, single-line reason. SDK
+ *  transport errors can embed the full request URL (query / userinfo) or
+ *  response bodies, so we only surface a recognized status code or a
+ *  short generic class — never the raw message verbatim. */
+function sanitizeConnectError(err: unknown): string {
+  if (err instanceof Error) {
+    // StreamableHTTPError / SseError expose a numeric `code` (HTTP status).
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'number') return `HTTP ${code}`;
+    const msg = err.message;
+    if (/timeout/i.test(msg)) return 'connect timeout';
+    if (/ECONNREFUSED|connection refused/i.test(msg)) return 'connection refused';
+    if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(msg)) return 'DNS lookup failed';
+    if (/ECONNRESET/i.test(msg)) return 'connection reset';
+    if (/unauthor/i.test(msg)) return 'unauthorized';
+    // Fall back to the error class name, which carries no secret payload.
+    return err.name || 'connect error';
+  }
+  return 'connect error';
 }
 
 type ParsedCallResult = {
