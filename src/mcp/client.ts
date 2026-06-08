@@ -245,6 +245,19 @@ function buildRemoteTransport(
       // `{}` and clobbers the SDK's `Accept: text/event-stream` +
       // `mcp-protocol-version`. Merge through `new Headers(...)` so the
       // SDK's headers survive, then layer our resolved auth on top.
+      //
+      // SECURITY INVARIANT (SWEEP-3): this override re-stamps the resolved auth
+      // headers UNCONDITIONALLY, with NO same-origin guard of its own — and
+      // that is SAFE because of WHO calls it. The SDK invokes this fetch ONCE
+      // per stream-open, always with the operator-configured `url` (this same
+      // origin) — never with a post-redirect URL. `safeFetch` (buildSafeFetch,
+      // anchored to `url`) follows and STRIPS redirects INTERNALLY, so a
+      // cross-origin hop is never re-driven back through this closure with the
+      // headers attached. The unconditional re-stamp therefore cannot leak a
+      // post-redirect cross-origin request. If that call pattern ever changes
+      // (e.g. this override is invoked per-redirect with a post-redirect URL),
+      // this re-stamp WOULD defeat safeFetch's strip — add a same-origin guard
+      // against `url.origin` here before that happens.
       fetch: (sseUrl, init) => {
         const merged = new Headers(init.headers);
         for (const [k, v] of Object.entries(headers)) merged.set(k, v);
