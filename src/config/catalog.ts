@@ -16,7 +16,7 @@
 // it.
 
 import { LIVE_APPLY_HOOKS, type LiveApplyHook } from './liveApply.js';
-import type { SettingsInput } from './schema.js';
+import type { Settings } from './schema.js';
 
 /**
  * Editor types. Drive the renderer choice in the dispatcher:
@@ -1004,7 +1004,7 @@ export function getLiveApplyHook(path: string): LiveApplyHook | undefined {
  * forward-compatibility guard. A test may also call this with a raw
  * dict to verify the function's shape independent of schema parsing.
  */
-export function listUnmanagedKeys(settings: SettingsInput): string[] {
+export function listUnmanagedKeys(settings: Settings): string[] {
   const topLevelKeys = Object.keys(settings as Record<string, unknown>);
   const managedTopLevel = new Set<string>();
   for (const group of CONFIG_CATALOG) {

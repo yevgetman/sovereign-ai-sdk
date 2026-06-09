@@ -47,6 +47,11 @@ export function buildServerCompactor(
         const prompt = `${previous}Conversation transcript to compress:\n${input.transcript}\n\nReturn a structured summary preserving concrete facts, file paths, decisions, and remaining work.`;
         const stream = runtime.resolvedProvider.transport.stream({
           model: runtime.model,
+          // NO `effort` here, deliberately: compaction is an internal
+          // summarization op, not a user turn, so it never inherits the
+          // session's reasoning-depth (mirrors the turns/cron/channel sites
+          // that DO pass `effort: runtime.effort`). Keeps the summary request
+          // byte-identical regardless of the live `/effort` level.
           system: [{ text: compressionSystemPrompt(), cacheable: false }],
           messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
           maxTokens: COMPACTION_SUMMARY_MAX_TOKENS,

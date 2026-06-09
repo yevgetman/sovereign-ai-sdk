@@ -41,10 +41,7 @@ describe('ConfigDraftManager', () => {
     // Mutate the caller's object.
     (mutable as { defaultProvider: string }).defaultProvider = 'changed';
     const draft = getDraft(SESSION);
-    // The structural snapshot equals the ORIGINAL input (no `thinking` — the
-    // draft baseline is a raw clone, not a parsed config). Asserted as
-    // `Settings` to satisfy `toEqual`'s strict overload.
-    expect(draft?.baseline).toEqual({ defaultProvider: 'anthropic' } as Settings);
+    expect(draft?.baseline).toEqual({ defaultProvider: 'anthropic' });
   });
 
   test('recordModification adds the path to the active draft', () => {

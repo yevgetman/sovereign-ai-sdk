@@ -243,15 +243,17 @@ export const SettingsSchema = z
      *  OpenAI `reasoning_effort`) at the adapter boundary, but ONLY for
      *  models that support reasoning. The `/effort` slash command mutates
      *  `runtime.effort` per session; this is the boot default it starts
-     *  from. The nested `.default('off')` is paired with a parent
-     *  `.default({ effort: 'off' })` so parsing an absent block still
-     *  yields `thinking.effort === 'off'` (absent-parent gotcha). */
+     *  from. The BLOCK is optional (absent config writes nothing); when
+     *  the block IS present its inner `effort` defaults to `'off'`. Every
+     *  read site is defensive (`settings.thinking?.effort ?? 'off'`), so an
+     *  absent block and a present `{ effort: 'off' }` are behaviorally
+     *  identical. */
     thinking: z
       .object({
         effort: z.enum(REASONING_EFFORTS).default('off'),
       })
       .strict()
-      .default({ effort: 'off' }),
+      .optional(),
     /** Maximum number of model turns inside a single user query before
      *  the runtime stops with `[max turns reached]`. One turn = one
      *  assistant message; tool_use turns count, so analysis tasks that
@@ -748,16 +750,6 @@ export const SettingsSchema = z
   });
 
 export type Settings = z.infer<typeof SettingsSchema>;
-/** The PRE-parse shape of {@link Settings}. Identical to `Settings` except that
- *  defaulted fields (currently `thinking`) are OPTIONAL — a defaulted field is
- *  optional on input but always present on the parsed output. Functions that
- *  ACCEPT a settings object to transform/write (`setAt`, `unsetAt`,
- *  `writeConfig`) take this so a partial literal like `{}` or
- *  `{ defaultProvider: 'x' }` stays valid; `readConfig` still RETURNS the
- *  output `Settings` (with `thinking` materialized). A parsed `Settings` is
- *  assignable here (required → optional widening), so `setAt(readConfig(), …)`
- *  chains cleanly. */
-export type SettingsInput = z.input<typeof SettingsSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type SubscriptionExecutorConfig = NonNullable<Settings['subscriptionExecutor']>;
 export type PluginsConfig = NonNullable<Settings['plugins']>;

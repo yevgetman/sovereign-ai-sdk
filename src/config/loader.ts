@@ -16,11 +16,10 @@ export type LoadSettingsOpts = {
 export function loadSettings(opts: LoadSettingsOpts = {}): Settings {
   const env = opts.env ?? process.env;
   const path = opts.path ?? env.HARNESS_CONFIG ?? join(resolveHarnessHome(env), 'config.json');
-  // No config file → empty settings. `thinking` is a defaulted (output-
-  // required) field, so the bare `{}` needs an assertion; the missing-file
-  // contract is unchanged. Consumers that need the default read it defensively
-  // (`settings.thinking?.effort ?? 'off'`) because this path skips the parse.
-  if (!existsSync(path)) return {} as Settings;
+  // No config file → empty settings. Every field is optional on the output
+  // `Settings`, so `{}` IS a valid Settings; consumers that need a default
+  // read it defensively (`settings.thinking?.effort ?? 'off'`).
+  if (!existsSync(path)) return {};
   const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
   return SettingsSchema.parse(raw);
 }
