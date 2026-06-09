@@ -9,6 +9,7 @@ import type {
   StreamEvent,
   SystemSegment,
 } from '../core/types.js';
+import { modelSupportsReasoning, openAiReasoningFor } from './effort.js';
 import { ProviderHttpError } from './errors.js';
 import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
@@ -46,6 +47,10 @@ type OpenAIChatBody = {
   tools?: OpenAITool[];
   tool_choice?: 'auto' | 'required' | { type: 'function'; function: { name: string } };
   stream_options?: { include_usage: boolean };
+  /** OpenAI reasoning-model effort dial (o1/o3/o4/gpt-5). */
+  reasoning_effort?: string;
+  /** sov/vLLM chat-template flag that toggles the thinking channel. */
+  chat_template_kwargs?: Record<string, unknown>;
 };
 
 export type OpenAIChatChunk = {
@@ -142,6 +147,12 @@ export class OpenAIProvider
 
   buildKwargs(req: ProviderRequest): OpenAIChatBody {
     const tools = this.toProviderTools(req.tools);
+    // Reasoning params only when an effort is set, it isn't `off`, and the model
+    // supports reasoning under this apiMode. Otherwise the body is unchanged.
+    const reasoningOn =
+      req.effort !== undefined &&
+      req.effort !== 'off' &&
+      modelSupportsReasoning(req.model, this.apiMode);
     return {
       model: req.model,
       messages: this.toProviderMessages(req.messages, req.system),
@@ -154,6 +165,12 @@ export class OpenAIProvider
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(req.toolChoice !== undefined ? { tool_choice: mapToolChoice(req.toolChoice) } : {}),
+      ...(reasoningOn && req.effort !== undefined ? openAiReasoningFor(req.effort) : {}),
+      // The sov local engine (vLLM/MLX) toggles its thinking channel via the
+      // chat-template flag rather than reasoning_effort.
+      ...(reasoningOn && this.apiMode === 'sov'
+        ? { chat_template_kwargs: { enable_thinking: true } }
+        : {}),
     };
   }
 

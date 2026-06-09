@@ -6,6 +6,7 @@
 // harness-build-plan.md § 0.4).
 
 import type { AssistantMessage, Message, StreamEvent, SystemSegment } from '../core/types.js';
+import type { ReasoningEffort } from './effort.js';
 
 /** Provider-neutral JSON-schema-ish tool description published to model APIs. */
 export type ToolSchema = {
@@ -26,7 +27,12 @@ export type ProviderRequest = {
   toolChoice?: ToolChoice;
   maxTokens: number;
   temperature?: number;
-  thinking?: { budgetTokens?: number };
+  /**
+   * Reasoning-depth level. When set and not `off`, the adapter attaches the
+   * provider-specific thinking/reasoning parameters (subject to the model's
+   * reasoning capability). Absent or `off` ⇒ a byte-identical request.
+   */
+  effort?: ReasoningEffort;
   signal?: AbortSignal;
   cacheEnabled?: boolean;
 };

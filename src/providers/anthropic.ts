@@ -28,8 +28,26 @@ import type {
   SystemSegment,
   TokenUsage,
 } from '../core/types.js';
+import { anthropicThinkingFor, modelSupportsReasoning } from './effort.js';
 import { ProviderHttpError } from './errors.js';
 import type { ProviderRequest, ToolSchema, Transport } from './types.js';
+
+/** Beta flag that keeps reasoning persistent across tool-use turns. */
+const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
+
+/**
+ * Whether extended thinking applies to this request: an effort level is set,
+ * it isn't `off`, and the model supports reasoning. Centralized so buildKwargs
+ * (which sets the params) and stream (which attaches the interleaved beta
+ * header) agree exactly.
+ */
+function thinkingApplies(req: ProviderRequest): boolean {
+  return (
+    req.effort !== undefined &&
+    req.effort !== 'off' &&
+    modelSupportsReasoning(req.model, 'anthropic')
+  );
+}
 
 /**
  * Normalize a raw @anthropic-ai/sdk error into a ProviderHttpError so the
@@ -87,10 +105,20 @@ export class AnthropicProvider
   buildKwargs(req: ProviderRequest): Anthropic.MessageCreateParams {
     const system = systemToSdk(req.system, req.cacheEnabled !== false);
     const tools = this.toProviderTools(req.tools);
+    // Resolve thinking only when it applies; otherwise leave max_tokens and
+    // temperature exactly as the caller set them (byte-identical request).
+    const thinking =
+      req.effort !== undefined && thinkingApplies(req)
+        ? anthropicThinkingFor(req.effort, req.maxTokens)
+        : undefined;
     return {
       model: req.model,
-      max_tokens: req.maxTokens,
-      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      max_tokens: thinking ? thinking.maxTokens : req.maxTokens,
+      // The API rejects temperature≠1 when thinking is enabled, so omit it.
+      ...(req.temperature !== undefined && !thinking?.dropTemperature
+        ? { temperature: req.temperature }
+        : {}),
+      ...(thinking?.thinking !== undefined ? { thinking: thinking.thinking } : {}),
       ...(system !== undefined ? { system } : {}),
       messages: messagesToSdk(req.messages, req.cacheEnabled !== false),
       ...(tools !== undefined ? { tools } : {}),
@@ -109,9 +137,19 @@ export class AnthropicProvider
     // SDK errors into ProviderHttpError so the resolver hardening wrapper and
     // preflight can classify 429 / 401 / 403 like the other providers.
     try {
+      // Attach the interleaved-thinking beta ONLY when thinking is on, so the
+      // non-thinking request is sent byte-identically (no extra header). The
+      // beta is delivered via the standard anthropic-beta request header rather
+      // than the beta.* namespace, keeping the streaming pipeline unchanged.
+      const options = {
+        ...(req.signal ? { signal: req.signal } : {}),
+        ...(thinkingApplies(req)
+          ? { headers: { 'anthropic-beta': INTERLEAVED_THINKING_BETA } }
+          : {}),
+      };
       const sdkStream = (await this.client.messages.create(
         this.buildKwargs(req),
-        req.signal ? { signal: req.signal } : {},
+        options,
       )) as unknown as AsyncIterable<RawMessageStreamEvent>;
 
       return yield* this.normalizeResponse(sdkStream);
