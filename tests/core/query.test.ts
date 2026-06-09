@@ -190,6 +190,42 @@ describe('query() — Phase 2 turn loop', () => {
     expect(seen[0]?.cacheEnabled).toBe(false);
   });
 
+  test('forwards effort into provider requests when set', async () => {
+    const seen: ProviderRequest[] = [];
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(req)),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      effort: 'high',
+    });
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+    }
+    expect(seen[0]?.effort).toBe('high');
+  });
+
+  test('omits effort from provider requests when unset (default-off byte-identical)', async () => {
+    const seen: ProviderRequest[] = [];
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(req)),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      // effort intentionally omitted — the key must NOT appear on the request.
+    });
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+    }
+    expect(seen[0]).toBeDefined();
+    expect('effort' in (seen[0] ?? {})).toBe(false);
+    expect(seen[0]?.effort).toBeUndefined();
+  });
+
   test('injects memory snapshot once into the latest user message', async () => {
     const seen: ProviderRequest[] = [];
     let prefetches = 0;

@@ -52,6 +52,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     tools,
     maxTokens,
     temperature,
+    effort,
     maxTurns = DEFAULT_MAX_TURNS,
     signal,
     cacheEnabled = true,
@@ -147,6 +148,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         ...(toolPool.length > 0 ? { tools: toToolSchemas(toolPool) } : {}),
         maxTokens,
         ...(temperature !== undefined ? { temperature } : {}),
+        ...(effort !== undefined ? { effort } : {}),
         ...(signal ? { signal } : {}),
         cacheEnabled,
       })) {

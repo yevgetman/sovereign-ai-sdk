@@ -101,6 +101,8 @@ export type QueryParams = {
   toolContext?: import('../tool/types.js').ToolContext;
   maxTokens: number;
   temperature?: number;
+  /** Reasoning-depth level for extended thinking. Default 'off' (no thinking). */
+  effort?: import('../providers/effort.js').ReasoningEffort;
   /** Maximum turns for tool-use continuation. Default 10. */
   maxTurns?: number;
   /** When set, the turn loop pauses after this many cumulative tool calls

@@ -110,6 +110,12 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  cross-test leak, then assert the value after draining SSE. */
   static lastMaxTokens: number | undefined = undefined;
 
+  /** Records the `effort` (reasoning-depth) value from the last stream()
+   *  invocation. The /effort feature's plumbing tests reset this to
+   *  `undefined` before a turn, then assert it is forwarded (when set on
+   *  the runtime) or absent (default 'off' / unset). Reset in test finally. */
+  static lastEffort: import('./effort.js').ReasoningEffort | undefined = undefined;
+
   /** Counts every `stream()` invocation. Tests use this to verify the
    *  preflight call fired at boot (>= 1 after buildRuntime) or was skipped
    *  (=== 0 when opts.preflight === false). Reset in test finally blocks. */
@@ -192,6 +198,10 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     MockProvider.streamCalls += 1;
     // Record maxTokens BEFORE any branching so every code path captures it.
     MockProvider.lastMaxTokens = req.maxTokens;
+    // Snapshot the reasoning-depth `effort` so the /effort plumbing tests can
+    // assert it was forwarded (or omitted) into provider.stream(). `undefined`
+    // when the caller omitted the field — the default-off byte-identical path.
+    MockProvider.lastEffort = req.effort;
     // Snapshot the messages array so resume-history regression tests can
     // assert the model saw prior turns.
     MockProvider.lastMessages = req.messages;
