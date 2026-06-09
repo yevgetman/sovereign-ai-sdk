@@ -30,6 +30,7 @@ import type { SystemSegment } from '../core/types.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { resolveProjectScope } from '../memory/scope.js';
 import { loadPluginRuntime } from '../plugins/runtime.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import { resolveProvider } from '../providers/resolver.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
@@ -106,6 +107,12 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
   // CommandContext getters/setters.
   const modelRef = { current: resolved.model };
   const providerNameRef = { current: String(resolved.metadata.provider ?? '') };
+  // Reasoning-depth state. Initialized from `thinking.effort` config (default
+  // 'off'); the `/effort` command (later slice) mutates it via setEffort. Read
+  // defensively (`?.`) — see the runtime initializer for the absent-parent note.
+  const effortRef: { current: ReasoningEffort } = {
+    current: userSettings.thinking?.effort ?? 'off',
+  };
 
   let exitRequested = false;
 
@@ -158,6 +165,9 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     get model() {
       return modelRef.current;
     },
+    get effort() {
+      return effortRef.current;
+    },
     bundlePath: opts.bundlePath ?? null,
     harnessHome,
     // Plugin System v1 (T8) — the TTY consent prompt for `/plugins install`.
@@ -173,6 +183,9 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
       } else {
         modelRef.current = m;
       }
+    },
+    setEffort: (level: ReasoningEffort): void => {
+      effortRef.current = level;
     },
     clearHistory: () => 'history cleared (dispatch mode — no in-memory history)',
     getCost: () => ({

@@ -153,6 +153,9 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         const runner = new AgentRunner({
           provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
           model: runtime.model,
+          // Honor the operator's configured reasoning depth on scheduled turns.
+          // 'off' (default) → AgentRunner omits it → byte-identical request.
+          effort: runtime.effort,
           systemPrompt: runtime.systemSegments,
           maxTokens: runtime.maxTokens,
           tools: cronToolPool,

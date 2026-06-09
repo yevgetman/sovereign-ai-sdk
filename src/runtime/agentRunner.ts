@@ -36,6 +36,7 @@ import type {
 import type { HookRunner } from '../hooks/types.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import type { LLMProvider } from '../providers/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
@@ -45,6 +46,12 @@ export type AgentRunnerOpts = {
   model: string;
   systemPrompt: SystemSegment[];
   maxTokens: number;
+  /** Optional reasoning-depth level forwarded to `query()`. Omitted by
+   *  default (sub-agents pass nothing → unchanged). Conditionally spread into
+   *  `query()` so an omitted / 'off' value leaves the request byte-identical;
+   *  the cron + channel surfaces thread `runtime.effort` through this so a
+   *  scheduled/channel turn honors the operator's configured depth. */
+  effort?: ReasoningEffort;
 
   /** Child session id; the caller (REPL or sub-agent scheduler) is
    *  responsible for creating the session record. AgentRunner only
@@ -140,6 +147,7 @@ export class AgentRunner {
       messages: seedMessages,
       systemPrompt: this.opts.systemPrompt,
       maxTokens: this.opts.maxTokens,
+      ...(this.opts.effort !== undefined ? { effort: this.opts.effort } : {}),
       ...(this.opts.tools !== undefined ? { tools: this.opts.tools } : {}),
       ...(this.opts.toolContext !== undefined ? { toolContext: this.opts.toolContext } : {}),
       ...(this.opts.canUseTool !== undefined ? { canUseTool: this.opts.canUseTool } : {}),

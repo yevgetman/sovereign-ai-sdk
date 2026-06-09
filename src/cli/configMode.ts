@@ -322,6 +322,9 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     systemSegments,
     provider: stubProvider,
     model: CONFIG_ONLY_MODEL,
+    // Standalone `sov config` never runs a turn — the inert default. (The
+    // /effort command isn't reachable here; this only satisfies the type.)
+    effort: 'off',
     agents: { agents: [], byName: new Map() },
     bundle: null,
     cwd: process.cwd(),

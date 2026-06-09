@@ -61,6 +61,7 @@ import type { AskResponse, AskUser, CanUseTool, PermissionMode } from '../permis
 import { loadPluginRuntime } from '../plugins/runtime.js';
 import { buildPluginSnapshots } from '../plugins/snapshot.js';
 import type { LoadedPlugin } from '../plugins/types.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider, Transport } from '../providers/types.js';
@@ -300,6 +301,12 @@ export type Runtime = {
   /** Concrete model the provider resolved to — useful for SessionDb rows
    *  and provider/model metadata in events. */
   model: string;
+  /** Per-session reasoning-depth ("effort") level. MUTABLE — parallels
+   *  `model`. Initialized from `thinking.effort` config (default 'off') and
+   *  mutated live by the `/effort` slash command via CommandContext.setEffort.
+   *  The turns route threads it into query() so the next turn's provider
+   *  request carries the level. 'off' keeps the request byte-identical. */
+  effort: ReasoningEffort;
   agents: AgentRegistry;
   bundle: Bundle | null;
   cwd: string;
@@ -1418,6 +1425,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     systemSegments,
     provider,
     model: resolved.model,
+    // Boot default for reasoning depth. Read defensively (`?.`) because the
+    // missing-config early-return hands back a bare `{}` where `thinking` is
+    // actually absent at runtime despite the Settings type marking it required
+    // (the schema default only materializes on the parse path). 'off' = no
+    // extended thinking = byte-identical provider requests.
+    effort: userSettings.thinking?.effort ?? 'off',
     agents,
     bundle,
     cwd: opts.cwd,

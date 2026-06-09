@@ -694,6 +694,9 @@ async function runTurnInBackground(
       const stream = query({
         provider: runtime.resolvedProvider.transport,
         model: runtime.model,
+        // Reasoning-depth level, mutated live by the `/effort` command. 'off'
+        // (the default) → query() omits the key → byte-identical request.
+        effort: runtime.effort,
         messages: currentMessages,
         systemPrompt: runtime.systemSegments,
         // Feature B — the SKILL-SCOPED tool pool (a fresh copy; identity when

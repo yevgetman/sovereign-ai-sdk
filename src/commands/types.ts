@@ -6,6 +6,7 @@ import type { CompactResult } from '../compact/compactor.js';
 import type { PermissionRuleLayer } from '../config/rules.js';
 import type { BudgetReport } from '../context/budget.js';
 import type { ContentBlock, Message } from '../core/types.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import type { RoutingStatsSnapshot } from '../router/stats.js';
 import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
@@ -79,9 +80,18 @@ export type CommandContext = {
   cwd: string;
   providerName: string;
   model: string;
+  /** Current reasoning-depth ("effort") level for the session. Mirrors
+   *  `model` — read here, mutated via `setEffort`. The `/effort` slash command
+   *  (a later slice) reads this to render the current level. */
+  effort: ReasoningEffort;
   /** Bundle root, when one is loaded (null = generic-agent mode). */
   bundlePath: string | null;
   setModel: (model: string) => void;
+  /** Live-apply hook for the reasoning-depth level. Mutates `runtime.effort`
+   *  so the next turn's provider request carries the level, and records the
+   *  change as a side-effect for the TUI. Mirrors `setModel`. Consumed by the
+   *  `/effort` slash command (later slice). */
+  setEffort: (level: ReasoningEffort) => void;
   /** 2026-05-24 patch — live-apply hook for `permissionMode`. Mutates
    *  runtime.permissionMode so the next turn's permission gate reads
    *  the new mode. Optional so non-server surfaces (headless dispatch,

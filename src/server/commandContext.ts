@@ -30,6 +30,7 @@ import { loadPermissionSettings } from '../config/settings.js';
 import { readConfig } from '../config/store.js';
 import { auditContextBudget } from '../context/budget.js';
 import type { Message, SystemSegment } from '../core/types.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import { computeRoutingStats } from '../router/stats.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
@@ -46,6 +47,11 @@ export type CommandSideEffects = {
   newSessionId?: string;
   exitRequested?: boolean;
   modelChanged?: string;
+  /** `/effort <level>` records the new reasoning-depth level so the TUI can
+   *  update its status display (parallels `modelChanged`). The runtime field
+   *  mutation (`runtime.effort`) IS the behavioral effect; this side-effect is
+   *  purely for the chrome. Absent when no `/effort` ran in the dispatch. */
+  effortChanged?: ReasoningEffort;
   /** M11.5 — picker-driven commands (`/model`, `/resume`, `/export`)
    *  emit this in server mode so the TUI can render an inline card
    *  instead of the broken raw-mode `pick()` overlay (`ux1.png`). The
@@ -150,10 +156,18 @@ export function buildServerCommandContext(
     cwd: runtime.cwd,
     providerName: runtime.resolvedProvider.transport.name,
     model: runtime.model,
+    effort: runtime.effort,
     bundlePath: runtime.bundle?.root ?? null,
     setModel: (model: string): void => {
       runtime.model = model;
       sideEffects.modelChanged = model;
+    },
+    // Mirror setModel — mutate the live runtime field so the next turn's
+    // query() carries the new reasoning-depth level, and record it as a
+    // side-effect for the TUI status display.
+    setEffort: (level: ReasoningEffort): void => {
+      runtime.effort = level;
+      sideEffects.effortChanged = level;
     },
     // 2026-05-24 patch — live-apply hook for `permissionMode`. The
     // turns route reads `runtime.permissionMode` per-request (see

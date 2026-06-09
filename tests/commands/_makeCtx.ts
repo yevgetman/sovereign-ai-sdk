@@ -5,9 +5,11 @@
 
 import { COMMANDS, buildCommandRegistry } from '../../src/commands/registry.js';
 import type { CommandContext } from '../../src/commands/types.js';
+import type { ReasoningEffort } from '../../src/providers/effort.js';
 
 export function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
   let model = 'claude-sonnet-4-6';
+  let effort: ReasoningEffort = 'off';
   return {
     sessionId: 'session-1',
     cwd: process.cwd(),
@@ -18,6 +20,12 @@ export function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext
     },
     setModel: (next) => {
       model = next;
+    },
+    get effort() {
+      return effort;
+    },
+    setEffort: (next) => {
+      effort = next;
     },
     clearHistory: () => 'conversation history cleared into child session session-2',
     getCost: () => ({

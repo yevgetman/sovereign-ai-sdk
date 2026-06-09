@@ -74,3 +74,54 @@ describe('buildServerCommandContext — requestPicker (M11.5 T2)', () => {
     );
   });
 });
+
+describe('buildServerCommandContext — setEffort (reasoning depth)', () => {
+  let runtime: Runtime;
+  let tmpHome: string;
+
+  beforeAll(async () => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'sov-effort-cmdctx-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    __test_resetProjectIdCache();
+    runtime = await buildRuntime({
+      cwd: tmpHome,
+      harnessHome: tmpHome,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+    });
+  });
+
+  afterAll(async () => {
+    await runtime.dispose();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+    rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  test('runtime.effort defaults to off (no thinking config)', () => {
+    expect(runtime.effort).toBe('off');
+  });
+
+  test('ctx.effort reflects the current runtime.effort', () => {
+    const sessionCtx = runtime.getSessionContext('effort-stub-1');
+    const { ctx } = buildServerCommandContext(runtime, sessionCtx, 'effort-stub-1');
+    expect(ctx.effort).toBe(runtime.effort);
+    expect(typeof ctx.setEffort).toBe('function');
+  });
+
+  test('setEffort mutates runtime.effort and records effortChanged', () => {
+    const sessionCtx = runtime.getSessionContext('effort-stub-2');
+    const { ctx, sideEffects } = buildServerCommandContext(runtime, sessionCtx, 'effort-stub-2');
+    expect(sideEffects.effortChanged).toBeUndefined();
+
+    ctx.setEffort('high');
+
+    expect(runtime.effort).toBe('high');
+    expect(sideEffects.effortChanged).toBe('high');
+
+    // Reset so this test doesn't leak the mutated level into the next.
+    ctx.setEffort('off');
+    expect(runtime.effort).toBe('off');
+  });
+});

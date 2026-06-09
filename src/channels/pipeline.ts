@@ -253,6 +253,9 @@ async function runChannelTurnInner(args: {
     const runner = new AgentRunner({
       provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
       model: runtime.model,
+      // Honor the operator's configured reasoning depth on channel turns.
+      // 'off' (default) → AgentRunner omits it → byte-identical request.
+      effort: runtime.effort,
       systemPrompt: runtime.systemSegments,
       maxTokens: runtime.maxTokens,
       tools: channelToolPool,

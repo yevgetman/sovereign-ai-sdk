@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockProvider } from '../../src/providers/mock.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
+import { buildServerCommandContext } from '../../src/server/commandContext.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 describe('POST /sessions + POST /sessions/:id/turns', () => {
@@ -319,6 +320,84 @@ describe('turns route — maxTokens propagation', () => {
       expect(captured).toBe(1234);
     } finally {
       MockProvider.lastMaxTokens = undefined;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('turns route — effort (reasoning depth) propagation', () => {
+  test('a turn after setEffort(high) forwards effort:high to the provider', async () => {
+    const home = join(tmpdir(), `effort-prop-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      // Default boot level (no thinking config) is 'off'.
+      expect(runtime.effort).toBe('off');
+      // Mutate via the SAME path the /effort command will use — the
+      // CommandContext setEffort hook — so the test exercises the real wiring.
+      const sessionCtx = runtime.getSessionContext('effort-setter');
+      const { ctx } = buildServerCommandContext(runtime, sessionCtx, 'effort-setter');
+      ctx.setEffort('high');
+      expect(runtime.effort).toBe('high');
+
+      const app = buildAppWithRuntime(runtime);
+      const created = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await created.json()) as { sessionId: string };
+      MockProvider.lastEffort = undefined; // reset before turn to avoid cross-test leak
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      await eventsRes.text();
+      const props = MockProvider as typeof MockProvider;
+      const captured: import('../../src/providers/effort.js').ReasoningEffort | undefined =
+        props.lastEffort;
+      expect(captured).toBe('high');
+    } finally {
+      MockProvider.lastEffort = undefined;
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('default-off turn forwards effort:off (adapter no-ops → byte-identical)', async () => {
+    const home = join(tmpdir(), `effort-off-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      expect(runtime.effort).toBe('off');
+      const app = buildAppWithRuntime(runtime);
+      const created = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await created.json()) as { sessionId: string };
+      MockProvider.lastEffort = undefined;
+      const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes.status).toBe(202);
+      const eventsRes = await app.request(`/sessions/${sessionId}/events`);
+      await eventsRes.text();
+      const props = MockProvider as typeof MockProvider;
+      const captured: import('../../src/providers/effort.js').ReasoningEffort | undefined =
+        props.lastEffort;
+      // runtime.effort is 'off' → query() forwards effort:'off'; the adapter
+      // treats 'off' as no thinking, so the wire request is byte-identical.
+      expect(captured).toBe('off');
+    } finally {
+      MockProvider.lastEffort = undefined;
       if (runtime !== null) await runtime.dispose();
       rmSync(home, { recursive: true, force: true });
     }
