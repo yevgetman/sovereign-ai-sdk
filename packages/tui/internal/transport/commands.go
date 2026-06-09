@@ -21,6 +21,7 @@
 //	    "newSessionId": "...",   // /clear (deferred to backlog #41)
 //	    "exitRequested": true,   // /quit
 //	    "modelChanged": "...",   // /model <m>
+//	    "effortChanged": "...",  // /effort <level>
 //	    "pickerOpen": { ... }    // /model, /resume, /export no-args (M11.5)
 //	  }
 //	}
@@ -58,6 +59,12 @@ type CommandSideEffects struct {
 	// ModelChanged set when /model <name> mutated runtime.model. The
 	// TUI updates its model display.
 	ModelChanged string `json:"modelChanged,omitempty"`
+	// EffortChanged set when /effort <level> mutated runtime.effort. The
+	// TUI updates its reasoning-depth status display. Value is one of
+	// off|low|medium|high|max. Parallels ModelChanged exactly (the
+	// runtime mutation IS the behavioral effect; this carries the level
+	// to the Go renderer for the status chrome). Slice D / T7.
+	EffortChanged string `json:"effortChanged,omitempty"`
 	// PickerOpen is set when a picker-driven command (/model, /resume,
 	// /export) was invoked with no args. The TUI renders an inline
 	// PickerCard from this payload; on Enter the selected value is

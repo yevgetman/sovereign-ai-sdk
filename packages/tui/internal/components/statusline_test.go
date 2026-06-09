@@ -124,6 +124,30 @@ func TestStatusLine_TaskRouterCustomLabel(t *testing.T) {
 	}
 }
 
+// Slice D / T7 — reasoning-depth level surfaces in the left column once
+// the /effort side-effect (effortChanged) sets it.
+
+func TestStatusLine_EffortRendersWhenSet(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(80)
+	s.Effort = "high"
+	out := s.View()
+	if !strings.Contains(out, "effort:high") {
+		t.Errorf("expected 'effort:high' in view once set, got %q", out)
+	}
+}
+
+func TestStatusLine_EffortAbsentWhenEmpty(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(80)
+	// Default (empty) — the effort field must not appear at all, so the
+	// status line is unchanged until the user first runs /effort.
+	out := s.View()
+	if strings.Contains(out, "effort:") {
+		t.Errorf("empty Effort should not render the field; got %q", out)
+	}
+}
+
 func TestStatusLineSetThemeSwapsRender(t *testing.T) {
 	s := NewStatusLine(theme.Dark())
 	s.SetWidth(80)

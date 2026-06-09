@@ -35,6 +35,15 @@ type StatusLine struct {
 	// standard `s.Profile` display. 2026-05-24 patch.
 	TaskRouter string
 
+	// Effort — reasoning-depth level for the current session
+	// (off|low|medium|high|max). Mirrors Model: set by the
+	// /effort <level> side-effect (effortChanged) so the chrome
+	// reflects the live runtime.effort. Empty until the user first
+	// sets it — the left column omits the field entirely while empty
+	// rather than showing a placeholder (unlike Model, effort isn't
+	// seeded at boot). Slice D / T7.
+	Effort string
+
 	// M9 T10 — spinner frame index, advanced by Tick events from app.go.
 	spinner int
 }
@@ -100,11 +109,19 @@ func (s StatusLine) View() string {
 	}
 
 	sep := style.S.StatusLine.FieldSeparator
-	left := dimFg.Render(fmt.Sprintf("%s"+sep+"%s"+sep+"%s",
+	leftText := fmt.Sprintf("%s"+sep+"%s"+sep+"%s",
 		s.Cwd,
 		profileColumn,
 		s.Model,
-	))
+	)
+	// Append the reasoning-depth field only once it's been set, so the
+	// status line stays unchanged until the user runs /effort (effort
+	// isn't seeded at boot like Model). Uses the same field separator
+	// token — no hardcoded layout. Slice D / T7.
+	if s.Effort != "" {
+		leftText += sep + "effort:" + s.Effort
+	}
+	left := dimFg.Render(leftText)
 
 	right := dimFg.Render(fmt.Sprintf("$%.4f"+sep+"cache %.0f%%", s.Cost, s.CacheHit*100))
 	if s.Streaming {

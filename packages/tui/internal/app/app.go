@@ -1741,6 +1741,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if se.ModelChanged != "" {
 				m.statusLine.Model = se.ModelChanged
 			}
+			// Slice D / T7 — /effort side-effect mirrors /model: the
+			// server's command response already wrote the user-visible
+			// "effort set to <level>" line into scrollback, so this just
+			// refreshes the chrome. The status line surfaces the new
+			// reasoning-depth level on the next render.
+			if se.EffortChanged != "" {
+				m.statusLine.Effort = se.EffortChanged
+			}
 			// 2026-05-24 (config UX rebuild) — verboseChanged side-effect
 			// applies the new verbose flag live. `false` flips the
 			// toolcard renderer back to compact mode (verboseRaw=false);

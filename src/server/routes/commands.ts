@@ -191,6 +191,10 @@ type SideEffectsBag = {
   newSessionId?: string;
   exitRequested?: boolean;
   modelChanged?: string;
+  // Slice D / T7 — /effort <level> records the new reasoning-depth
+  // level (off|low|medium|high|max) so the TUI updates its status
+  // chrome. Parallels modelChanged.
+  effortChanged?: import('../../providers/effort.js').ReasoningEffort;
   pickerOpen?: import('../../commands/types.js').PickerOpenConfig;
   themeChanged?: string;
   // 2026-05-24 — Config UX rebuild surfaces these in addition to pickerOpen.
@@ -235,6 +239,7 @@ function hasSideEffects(s: SideEffectsBag): boolean {
     s.newSessionId !== undefined ||
     s.exitRequested !== undefined ||
     s.modelChanged !== undefined ||
+    s.effortChanged !== undefined ||
     s.pickerOpen !== undefined ||
     s.themeChanged !== undefined ||
     s.inputOpen !== undefined ||
@@ -250,6 +255,7 @@ function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
   if (s.newSessionId !== undefined) out.newSessionId = s.newSessionId;
   if (s.exitRequested !== undefined) out.exitRequested = s.exitRequested;
   if (s.modelChanged !== undefined) out.modelChanged = s.modelChanged;
+  if (s.effortChanged !== undefined) out.effortChanged = s.effortChanged;
   if (s.pickerOpen !== undefined) out.pickerOpen = s.pickerOpen;
   if (s.themeChanged !== undefined) out.themeChanged = s.themeChanged;
   if (s.inputOpen !== undefined) out.inputOpen = s.inputOpen;

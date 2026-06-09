@@ -108,6 +108,35 @@ func TestDispatchCommand_SideEffects(t *testing.T) {
 	}
 }
 
+// TestDispatchCommand_EffortChangedSideEffect verifies the effortChanged
+// side-effect (Slice D / T7) decodes from the wire. Mirrors the
+// modelChanged branch above — /effort <level> mutates runtime.effort
+// server-side and carries the new level here so the TUI status chrome
+// updates. Hand-rolled JSON pins the wire field name (`effortChanged`,
+// matching src/server/schema.ts + src/server/commandContext.ts).
+func TestDispatchCommand_EffortChangedSideEffect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(
+			`{"output":"effort set to high (reasoning depth for this session).",` +
+				`"sideEffects":{"effortChanged":"high"}}`,
+		))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(
+		context.Background(), srv.URL, "abc-123", "effort", "high",
+	)
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.SideEffects == nil {
+		t.Fatalf("expected sideEffects, got nil")
+	}
+	if resp.SideEffects.EffortChanged != "high" {
+		t.Errorf("effortChanged = %q, want high", resp.SideEffects.EffortChanged)
+	}
+}
+
 // TestDispatchCommand_InputOpenSideEffect verifies that the new
 // inputOpen side-effect (2026-05-24 config UX rebuild) decodes
 // correctly. This is the wire branch /config edit takes for

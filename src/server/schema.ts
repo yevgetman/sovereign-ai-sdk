@@ -295,6 +295,11 @@ export const CommandSideEffectsSchema = z.object({
   exitRequested: z.boolean().optional(),
   // Set by /model. The TUI updates its model display.
   modelChanged: z.string().optional(),
+  // Set by /effort <level> (Slice D / T7). Carries the new reasoning-
+  // depth level (off|low|medium|high|max) so the TUI updates its status
+  // chrome. Parallels modelChanged. Typed as a plain string on the wire
+  // (the level union is enforced server-side before emission).
+  effortChanged: z.string().optional(),
   // Set by /model, /resume, /export when invoked with no args (M11.5).
   // The TUI renders the inline card; on Enter it re-dispatches the
   // command with the chosen value as args.
