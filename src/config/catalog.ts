@@ -16,7 +16,7 @@
 // it.
 
 import { LIVE_APPLY_HOOKS, type LiveApplyHook } from './liveApply.js';
-import type { Settings } from './schema.js';
+import type { SettingsInput } from './schema.js';
 
 /**
  * Editor types. Drive the renderer choice in the dispatcher:
@@ -77,6 +77,10 @@ export type ConfigGroup = {
 
 const PROVIDER_CHOICES = ['anthropic', 'openai', 'openrouter', 'ollama', 'sov'] as const;
 const PERMISSION_MODE_CHOICES = ['default', 'ask', 'bypass'] as const;
+// Reasoning-depth levels for `thinking.effort`. Mirrors REASONING_EFFORTS in
+// src/providers/effort.ts — keep in sync. `off` is the default (no extended
+// thinking; byte-identical request).
+const EFFORT_CHOICES = ['off', 'low', 'medium', 'high', 'max'] as const;
 const THEME_CHOICES = ['dark', 'light', 'no-color'] as const;
 const ROUTER_LANE_CHOICES = ['local', 'frontier'] as const;
 const ROUTER_ESCALATION_CHOICES = ['ask', 'auto', 'never'] as const;
@@ -170,6 +174,13 @@ const GENERAL_GROUP: ConfigGroup = {
       description:
         'default = ask on first use, then remember; ask = always ask; bypass = auto-allow.',
       editor: { kind: 'enum', choices: PERMISSION_MODE_CHOICES },
+    },
+    {
+      path: 'thinking.effort',
+      label: 'thinking.effort',
+      description:
+        'Reasoning-depth default for extended thinking. off = no thinking (default); low/medium/high/max enable it on reasoning-capable models. The /effort command overrides per session.',
+      editor: { kind: 'enum', choices: EFFORT_CHOICES },
     },
     {
       path: 'maxTurns',
@@ -993,7 +1004,7 @@ export function getLiveApplyHook(path: string): LiveApplyHook | undefined {
  * forward-compatibility guard. A test may also call this with a raw
  * dict to verify the function's shape independent of schema parsing.
  */
-export function listUnmanagedKeys(settings: Settings): string[] {
+export function listUnmanagedKeys(settings: SettingsInput): string[] {
   const topLevelKeys = Object.keys(settings as Record<string, unknown>);
   const managedTopLevel = new Set<string>();
   for (const group of CONFIG_CATALOG) {

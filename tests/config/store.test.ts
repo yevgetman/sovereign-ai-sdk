@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Settings } from '../../src/config/schema.js';
 import {
   formatValue,
   getAt,
@@ -32,14 +33,21 @@ describe('config store', () => {
   });
 
   test('readConfig returns empty when file missing', () => {
-    expect(readConfig()).toEqual({});
+    // Missing file → the bare `{}` early-return (the defaulted `thinking`
+    // block only materializes on the PARSE path, not this short-circuit).
+    // `readConfig` returns the output `Settings` type whose `thinking` is
+    // required, so the empty expected literal is asserted as `Settings`.
+    expect(readConfig()).toEqual({} as Settings);
   });
 
   test('writeConfig + readConfig round-trip and validate against schema', () => {
     writeConfig({ defaultProvider: 'ollama' });
-    expect(readConfig()).toEqual({ defaultProvider: 'ollama' });
+    // writeConfig parses through SettingsSchema, which materializes the
+    // defaulted `thinking` block; both the on-disk JSON and the re-read
+    // config carry it.
+    expect(readConfig()).toEqual({ defaultProvider: 'ollama', thinking: { effort: 'off' } });
     const onDisk = JSON.parse(readFileSync(path, 'utf8'));
-    expect(onDisk).toEqual({ defaultProvider: 'ollama' });
+    expect(onDisk).toEqual({ defaultProvider: 'ollama', thinking: { effort: 'off' } });
   });
 
   test('setAt creates intermediate objects and validates result', () => {
@@ -67,7 +75,10 @@ describe('config store', () => {
   test('unsetAt removes the leaf and prunes empty parents', () => {
     let settings = setAt({}, 'providers.ollama.model', 'qwen2.5:7b');
     settings = unsetAt(settings, 'providers.ollama.model');
-    expect(settings).toEqual({});
+    // setAt/unsetAt re-parse through the schema, so the pruned result still
+    // carries the defaulted `thinking` block (the empty-providers parent is
+    // pruned, but the defaulted leaf isn't an "empty parent").
+    expect(settings).toEqual({ thinking: { effort: 'off' } });
   });
 
   test('unsetAt is a no-op when path missing', () => {
@@ -119,7 +130,7 @@ describe('config store', () => {
       writeConfig(next);
     }).toThrow();
     const onDisk = JSON.parse(readFileSync(path, 'utf8'));
-    expect(onDisk).toEqual({ defaultProvider: 'ollama' });
+    expect(onDisk).toEqual({ defaultProvider: 'ollama', thinking: { effort: 'off' } });
   });
 
   test('refuses to traverse into arrays', () => {
@@ -163,7 +174,10 @@ describe('config store — harnessHome isolation (#55)', () => {
 
   test('readConfig({ harnessHome }) reads <harnessHome>/config.json', () => {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ defaultProvider: 'ollama' }));
-    expect(readConfig({ harnessHome: dir })).toEqual({ defaultProvider: 'ollama' });
+    expect(readConfig({ harnessHome: dir })).toEqual({
+      defaultProvider: 'ollama',
+      thinking: { effort: 'off' },
+    });
   });
 
   test('explicit HARNESS_CONFIG still wins over harnessHome', () => {
@@ -176,7 +190,10 @@ describe('config store — harnessHome isolation (#55)', () => {
     try {
       // The explicit env override takes precedence over the harnessHome fallback.
       expect(resolveConfigPath(undefined, dir)).toBe(overridePath);
-      expect(readConfig({ harnessHome: dir })).toEqual({ defaultProvider: 'anthropic' });
+      expect(readConfig({ harnessHome: dir })).toEqual({
+        defaultProvider: 'anthropic',
+        thinking: { effort: 'off' },
+      });
     } finally {
       // biome-ignore lint/performance/noDelete: unset before afterEach restores the saved value.
       delete process.env.HARNESS_CONFIG;
@@ -193,6 +210,7 @@ describe('config store — harnessHome isolation (#55)', () => {
       expect(resolveConfigPath(explicitPath, dir)).toBe(explicitPath);
       expect(readConfig({ path: explicitPath, harnessHome: dir })).toEqual({
         defaultProvider: 'openai',
+        thinking: { effort: 'off' },
       });
     } finally {
       rmSync(explicitDir, { recursive: true, force: true });

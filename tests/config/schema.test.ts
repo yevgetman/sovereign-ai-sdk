@@ -6,6 +6,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { SettingsSchema } from '../../src/config/schema.js';
+import { REASONING_EFFORTS } from '../../src/providers/effort.js';
 
 describe('SettingsSchema — strict mode', () => {
   test('rejects unknown top-level keys', () => {
@@ -32,8 +33,13 @@ describe('SettingsSchema — strict mode', () => {
     expect(() => SettingsSchema.parse({ compaction: { unknown: 1 } })).toThrow();
   });
 
-  test('empty object is valid (every field optional)', () => {
-    expect(SettingsSchema.parse({})).toEqual({});
+  test('empty object is valid; only the defaulted `thinking` block materializes', () => {
+    // Every field is optional EXCEPT `thinking`, which carries a defaulted
+    // parent (`.default({ effort: 'off' })`) so the runtime can always read
+    // `userSettings.thinking.effort`. An empty config therefore parses to
+    // exactly `{ thinking: { effort: 'off' } }` — the absent-parent default
+    // working as designed (see the `thinking.effort` block below).
+    expect(SettingsSchema.parse({})).toEqual({ thinking: { effort: 'off' } });
   });
 
   test('top-level `theme` accepts arbitrary string (M9.5 Go-TUI writeback)', () => {
@@ -93,6 +99,38 @@ describe('SettingsSchema — enum coverage', () => {
     expect(() =>
       SettingsSchema.parse({ providers: { anthropic: { strategy: 'RANDOM' } } }),
     ).toThrow();
+  });
+});
+
+describe('SettingsSchema — thinking.effort (reasoning-depth default)', () => {
+  test('absent-parent default: parse({}) yields thinking.effort === "off"', () => {
+    // The CRITICAL absent-parent gotcha — a nested `.default()` is a silent
+    // no-op unless the PARENT also defaults. Both are set here, so an empty
+    // config (the common case — no `thinking` block on disk) still surfaces a
+    // concrete `'off'` the runtime can read without null-guards.
+    const parsed = SettingsSchema.parse({});
+    expect(parsed.thinking).toEqual({ effort: 'off' });
+    expect(parsed.thinking.effort).toBe('off');
+  });
+
+  test('absent effort under a present thinking block still defaults to "off"', () => {
+    const parsed = SettingsSchema.parse({ thinking: {} });
+    expect(parsed.thinking.effort).toBe('off');
+  });
+
+  test('accepts every REASONING_EFFORTS level', () => {
+    for (const effort of REASONING_EFFORTS) {
+      const parsed = SettingsSchema.parse({ thinking: { effort } });
+      expect(parsed.thinking.effort).toBe(effort);
+    }
+  });
+
+  test('rejects an unknown effort level', () => {
+    expect(() => SettingsSchema.parse({ thinking: { effort: 'ultra' } })).toThrow();
+  });
+
+  test('rejects unknown nested keys under thinking (strict)', () => {
+    expect(() => SettingsSchema.parse({ thinking: { effort: 'off', extra: 1 } })).toThrow();
   });
 });
 
@@ -171,7 +209,9 @@ describe('SettingsSchema — wave-1 ui.* keys round-trip', () => {
         diffRender: { enabled: true },
       },
     };
-    expect(SettingsSchema.parse(input)).toEqual(input);
+    // The defaulted `thinking` block always materializes (absent-parent
+    // default); the rest of the config round-trips verbatim.
+    expect(SettingsSchema.parse(input)).toEqual({ ...input, thinking: { effort: 'off' } });
   });
 
   // ux-fixes 2026-05-22: extend ui.toolOutput with a `mode` enum that
@@ -196,7 +236,7 @@ describe('SettingsSchema — wave-1 ui.* keys round-trip', () => {
     const input = {
       ui: { toolOutput: { mode: 'detailed' as const, inlineLines: 25 } },
     };
-    expect(SettingsSchema.parse(input)).toEqual(input);
+    expect(SettingsSchema.parse(input)).toEqual({ ...input, thinking: { effort: 'off' } });
   });
 
   test('ui.toolOutput.inlineLines still validates 0..200', () => {

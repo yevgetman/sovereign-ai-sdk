@@ -4,7 +4,7 @@
 
 import { join } from 'node:path';
 import { loadSettings } from '../config/loader.js';
-import type { ProviderConfig, Settings } from '../config/schema.js';
+import type { ProviderConfig, Settings, SettingsInput } from '../config/schema.js';
 import type { AssistantMessage, Message, StreamEvent, SystemSegment } from '../core/types.js';
 import { AnthropicProvider } from './anthropic.js';
 import {
@@ -38,7 +38,11 @@ export type ResolvedProvider = {
 /** Optional inputs for resolving providers in tests, CLI, and future surfaces. */
 export type ResolveProviderOpts = {
   purpose?: ProviderPurpose;
-  settings?: Settings;
+  /** Pre-loaded settings (read-only). Typed as the PRE-parse `SettingsInput`
+   *  so callers/tests may pass a partial literal (e.g. `{}`) without supplying
+   *  the defaulted `thinking` block; resolveProvider only reads optional
+   *  fields off it. A parsed `Settings` is assignable here. */
+  settings?: SettingsInput;
   env?: NodeJS.ProcessEnv;
   harnessHome?: string;
 };

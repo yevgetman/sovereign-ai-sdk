@@ -31,7 +31,9 @@ describe('/config slash command', () => {
   test('set writes to disk and re-reads', async () => {
     await dispatchSlashCommand('/config set defaultProvider ollama', makeCtx());
     const onDisk = JSON.parse(readFileSync(path, 'utf8'));
-    expect(onDisk).toEqual({ defaultProvider: 'ollama' });
+    // writeConfig parses through SettingsSchema → the defaulted `thinking`
+    // block materializes on disk alongside the set value.
+    expect(onDisk).toEqual({ defaultProvider: 'ollama', thinking: { effort: 'off' } });
 
     const get = await dispatchSlashCommand('/config get defaultProvider', makeCtx());
     if (get.kind === 'local') expect(get.output).toBe('ollama');
@@ -47,7 +49,9 @@ describe('/config slash command', () => {
     await dispatchSlashCommand('/config set providers.ollama.model qwen2.5:7b', makeCtx());
     await dispatchSlashCommand('/config unset providers.ollama.model', makeCtx());
     const onDisk = JSON.parse(readFileSync(path, 'utf8'));
-    expect(onDisk).toEqual({});
+    // The pruned providers parent is gone; the defaulted `thinking` block
+    // (written by writeConfig's schema parse) remains.
+    expect(onDisk).toEqual({ thinking: { effort: 'off' } });
   });
 
   test('schema rejection surfaces a config error', async () => {

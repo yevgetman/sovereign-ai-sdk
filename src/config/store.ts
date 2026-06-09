@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from './paths.js';
-import { type Settings, SettingsSchema } from './schema.js';
+import { type Settings, type SettingsInput, SettingsSchema } from './schema.js';
 
 const SECRET_KEYS = new Set(['apiKey', 'token']);
 const SECRET_LIST_KEYS = new Set(['apiKeys']);
@@ -51,7 +51,11 @@ export function readConfig(pathOrOpts?: string | ReadConfigOptions): Settings {
   const opts: ReadConfigOptions =
     typeof pathOrOpts === 'string' ? { path: pathOrOpts } : (pathOrOpts ?? {});
   const file = resolveConfigPath(opts.path, opts.harnessHome);
-  if (!existsSync(file)) return {};
+  // No config file → the empty settings object. `thinking` is a defaulted
+  // (and therefore output-required) field on Settings, so the bare `{}` needs
+  // an assertion; the "missing file → empty" contract is preserved verbatim
+  // (consumers that need the default read `settings.thinking?.effort ?? 'off'`).
+  if (!existsSync(file)) return {} as Settings;
   const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown;
   return SettingsSchema.parse(raw);
 }
@@ -76,7 +80,7 @@ export function readRawConfig(path?: string): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
-export function writeConfig(settings: Settings, path?: string): void {
+export function writeConfig(settings: SettingsInput, path?: string): void {
   // Re-validate before writing so a programmatic error can't corrupt disk.
   const validated = SettingsSchema.parse(settings);
   const file = resolveConfigPath(path);
@@ -92,7 +96,13 @@ function splitPath(dotPath: string): string[] {
   return trimmed.split('.');
 }
 
-export function getAt(settings: Settings, dotPath: string): unknown {
+// Accepts the broad object type as well as Settings — getAt only walks the
+// shape generically (it never depends on Settings' field set), and several
+// callers pass a redacted / raw `Record<string, unknown>` projection. Keeping
+// the param wide avoids a forest of `as Record<string, unknown>` casts at the
+// call sites (and lets a bare `{}` through now that Settings' defaulted
+// `thinking` field makes the strict type reject plain records).
+export function getAt(settings: Settings | Record<string, unknown>, dotPath: string): unknown {
   const keys = splitPath(dotPath);
   let cur: unknown = settings;
   for (const key of keys) {
@@ -104,7 +114,7 @@ export function getAt(settings: Settings, dotPath: string): unknown {
   return cur;
 }
 
-export function setAt(settings: Settings, dotPath: string, value: unknown): Settings {
+export function setAt(settings: SettingsInput, dotPath: string, value: unknown): Settings {
   const keys = splitPath(dotPath);
   const next = structuredClone(settings) as Record<string, unknown>;
   let cur: Record<string, unknown> = next;
@@ -127,7 +137,7 @@ export function setAt(settings: Settings, dotPath: string, value: unknown): Sett
   return SettingsSchema.parse(next);
 }
 
-export function unsetAt(settings: Settings, dotPath: string): Settings {
+export function unsetAt(settings: SettingsInput, dotPath: string): Settings {
   const keys = splitPath(dotPath);
   const next = structuredClone(settings) as Record<string, unknown>;
   const trail: Array<{ obj: Record<string, unknown>; key: string }> = [];

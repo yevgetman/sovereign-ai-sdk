@@ -20,7 +20,7 @@ import type { Bundle } from '../bundle/types.js';
 import type { PromptCommand } from '../commands/types.js';
 import { type MicrocompactConfig, buildMicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
-import type { Settings } from '../config/schema.js';
+import type { SettingsInput } from '../config/schema.js';
 import {
   getPermissionSettingsPaths,
   loadHookSettings,
@@ -556,7 +556,7 @@ export function computeToolVisibleAgents(
  *  for rate-limit / cost control. Undefined values are omitted so the
  *  caller's `new LaneSemaphores(...)` interprets them as "unbounded for
  *  that lane only" (per laneSemaphores.ts:29-32). */
-export function resolveLaneSemaphoresOpts(userSettings: Settings): LaneSemaphoresOpts {
+export function resolveLaneSemaphoresOpts(userSettings: SettingsInput): LaneSemaphoresOpts {
   return {
     ...(userSettings.router?.maxConcurrentLocal !== undefined
       ? { local: userSettings.router.maxConcurrentLocal }
