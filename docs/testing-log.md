@@ -8,6 +8,70 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-08 — `sov` provider Bucket A (keyless local-engine lane + reasoning translation)
+
+**Scope.** Cross-repo co-design: a first-class `sov` provider so the harness can use our own L1
+inference engine (`~/code/sovereign-ai-inference` — a standalone OpenAI-compatible MLX server on
+`127.0.0.1:8000`) as a keyless local lane. "Bucket A" = the harness-side work that needs **zero
+engine changes** (consume what the engine already emits). Design + plan:
+`docs/specs/2026-06-08-sov-provider-design.md`, `docs/plans/2026-06-08-sov-provider-bucket-a.md`.
+Subagent-driven (`superpowers:subagent-driven-development`), Opus implementers + two-stage review
+(spec compliance, then code quality) per task.
+
+**What shipped.**
+- **T1 (`feat b5c695d` + `test 3440bb1`)** — shared OpenAI stream translator (`src/providers/openai.ts`
+  `translateOpenAIStream`) now maps `delta.reasoning_content` → the existing `thinking_delta` event +
+  a `{type:'thinking'}` content block (ordered before text, Anthropic-parity). Fixes a real break: a
+  local reasoning model's chain-of-thought previously contaminated `content`. Benefits the generic
+  `openai`/`openrouter` lanes too. Tool-call ids were already preserved (`openai.ts:186`) — locked in
+  by a regression test, logic untouched.
+- **T2+T4 (`feat eccddeb` + `feat b1f9adf`)** — keyless `SovProvider` (`src/providers/sov.ts`)
+  implemented as `OpenAIProvider` + three protected seams (`requiresApiKey`/`defaultBaseUrl`+name/
+  `requestHeaders`), so it reuses the (reasoning-aware) translator with **zero duplication** and the
+  generic `openai` lane stays behaviorally identical (verified: pure extraction). `'sov'` added to the
+  `apiMode` union (3 sites); `PROVIDER_REGISTRY.sov` (loopback default, `defaultModel:'sovereign'`, no
+  auth); resolver keyless branch + `authType:'none'`; `providers.sov` schema; `sov` selectable as
+  `router.localProvider`. Auth header omitted when keyless, sent when keyed.
+
+**Scope correction (reality-grounded at execution).** The original plan listed four passthroughs;
+an audit of the harness call sites found **thinking-budget** (`req.thinking.budgetTokens`) and
+**`response_format`** have **no caller** anywhere — the harness never sets them — so forwarding them
+would be speculative dead surface. Both **deferred** until a caller exists (a structured-output /
+thinking-budget request path); the engine already supports both (`vllm_mlx/api/models.py:175,191-195`).
+Built only the sourced items (reasoning + keyless lane). `cacheEnabled` remains a documented no-op
+(vllm-mlx prefix-caches automatically).
+
+**Environment.** Branch `master` (base `bafbde2`); Bun; engine contract verified against the pinned
+`vllm-mlx==0.3.0` source (emits `reasoning_content` on msg + delta `api/models.py:201,499`; tool ids
+`api/tool_calling.py`).
+
+**Commands / result.** `bun run lint` clean (707 files) · `bun run typecheck` (`tsc --noEmit`) clean ·
+`bun run test` **3336 pass / 14 skip / 0 fail** (3350 across 371 files, ~94 s). New coverage:
+`tests/providers/openai.test.ts` (8 pass — reasoning-as-thinking, multi-chunk concat, ordering,
+engine tool-id), new `tests/providers/sov.test.ts` (keyless header absence / keyed presence via
+injected fetch, reasoning reuse), `tests/providers/resolver.test.ts` (sov keyless resolve, authType
+none, loopback), `tests/config/schema.test.ts` + `tests/config/catalog.test.ts` (sov accepted +
+selectable). The `[synthesizer]`/`[cron]` stderr lines in the run are pre-existing test-internal
+noise, not failures.
+
+**Manual / live coverage — NOT run (documented skip).** **T4-live** (the gated end-to-end against a
+running L1 engine) was not exercised: no live engine reachable in this environment (the soak runs on
+the remote validation host). The offline injected-fetch + translator tests stand in for the
+streaming-shape assertions. **Follow-up:** a live capture is still needed to pin the engine's exact
+tool-call *streaming granularity* (whole vs incremental fragment deltas) and confirm reasoning surfaces
+end-to-end — do this against the running server during the soak.
+
+**Follow-ups (non-blocking, surfaced in review).**
+1. Export `OpenAIProviderConfig` + alias `SovProviderConfig` (DRY; configs are identical 4-field shapes).
+2. Add a `CAPABILITY_TABLE` profile for `sov`/`sovereign` (`src/router/capabilities.ts`) — currently
+   the local lane falls back to default capability hints (cost-tier/roles) rather than curated ones;
+   safe (lookups have fallbacks) but untuned. Needs judgment on cost-tier/roles.
+3. Catalog drill-in subgroup for `providers.sov.*` (UI parity with ollama) — today those fields edit
+   only via "Advanced (unmanaged)".
+
+**Release.** Not cut by this entry — code verified + committed locally on `master`; push + any release
+handled separately (active parallel release work on `master` at the time).
+
 ## 2026-06-08 — RELEASE v0.6.33: fix infinite turn re-stream (Last-Event-ID on SSE reconnect)
 
 **Bug (user-reported, CRITICAL).** Any prompt looped forever in the TUI: the assistant response streamed cleanly, then re-rendered over and over until Ctrl-C. Happened regardless of `subscriptionExecutor`/`taskRouting` (both off in the user's config), on both the binary (`0.6.32`) and source (`0.6.32-a239bdf`) builds.
