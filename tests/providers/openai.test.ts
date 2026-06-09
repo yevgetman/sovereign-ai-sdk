@@ -116,17 +116,7 @@ describe('translateOpenAIStream', () => {
         ],
       },
     ];
-    const yielded: StreamEvent[] = [];
-    let returned: AssistantMessage | undefined;
-    const gen = translateOpenAIStream(iterate(chunks));
-    for (;;) {
-      const step = await gen.next();
-      if (step.done) {
-        returned = step.value;
-        break;
-      }
-      yielded.push(step.value);
-    }
+    const { yielded, returned } = await drainStream(chunks);
 
     expect(yielded.map((e) => e.type)).toEqual([
       'message_start',
@@ -136,7 +126,7 @@ describe('translateOpenAIStream', () => {
       'message_stop',
       'assistant_message',
     ]);
-    expect(returned?.content).toEqual([
+    expect(returned.content).toEqual([
       { type: 'text', text: 'Hi ' },
       { type: 'tool_use', id: 'call_1', name: 'Echo', input: { text: 'x' } },
     ]);
@@ -204,6 +194,32 @@ describe('translateOpenAIStream', () => {
       { type: 'thinking', thinking: 'reasoning' },
       { type: 'text', text: 'reply' },
     ]);
+  });
+
+  test('concatenates reasoning fragmented across chunks (incl. a mixed chunk)', async () => {
+    // reasoning_content arrives in pieces, and one chunk carries both reasoning
+    // and content — this guards the reasoningParts.join('') assembly.
+    const chunks: OpenAIChatChunk[] = [
+      { choices: [{ delta: { reasoning_content: 'let ' } }] },
+      { choices: [{ delta: { reasoning_content: 'me think' } }] },
+      { choices: [{ delta: { reasoning_content: '!', content: 'the ' } }] },
+      { choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] },
+    ];
+    const { yielded, returned } = await drainStream(chunks);
+
+    // The joined thinking block precedes the joined text block.
+    expect(returned.content).toEqual([
+      { type: 'thinking', thinking: 'let me think!' },
+      { type: 'text', text: 'the answer' },
+    ]);
+
+    // Each reasoning fragment surfaces as an ordered thinking_delta.
+    const thinkingDeltas = yielded
+      .filter(
+        (e): e is Extract<StreamEvent, { type: 'thinking_delta' }> => e.type === 'thinking_delta',
+      )
+      .map((e) => e.thinking);
+    expect(thinkingDeltas).toEqual(['let ', 'me think', '!']);
   });
 
   test('preserves an engine-supplied tool-call id (no tool_<index> fallback)', async () => {
