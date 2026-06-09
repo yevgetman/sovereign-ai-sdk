@@ -25,11 +25,20 @@ describe('BUILTIN_PRESETS', () => {
     const sovFirst = findBuiltinPreset('sov-first');
     expect(sovCheap).toBeDefined();
     expect(sovFirst).toBeDefined();
-    // Both run cheap atoms on the local sov engine (served as "sovereign")...
-    expect(sovCheap?.shape.lanes['cheap-task']).toEqual({ provider: 'sov', model: 'mlx-community/Qwen3-4B-4bit' });
-    expect(sovFirst?.shape.lanes['cheap-task']).toEqual({ provider: 'sov', model: 'mlx-community/Qwen3-4B-4bit' });
+    // Both run cheap atoms on the local sov engine (its real model id)...
+    expect(sovCheap?.shape.lanes['cheap-task']).toEqual({
+      provider: 'sov',
+      model: 'mlx-community/Qwen3-4B-4bit',
+    });
+    expect(sovFirst?.shape.lanes['cheap-task']).toEqual({
+      provider: 'sov',
+      model: 'mlx-community/Qwen3-4B-4bit',
+    });
     // ...sov-first also runs moderate locally; both keep frontier on Anthropic for escalation.
-    expect(sovFirst?.shape.lanes['moderate-task']).toEqual({ provider: 'sov', model: 'mlx-community/Qwen3-4B-4bit' });
+    expect(sovFirst?.shape.lanes['moderate-task']).toEqual({
+      provider: 'sov',
+      model: 'mlx-community/Qwen3-4B-4bit',
+    });
     expect(sovCheap?.shape.lanes['moderate-task'].provider).toBe('anthropic');
     expect(sovCheap?.shape.lanes['frontier-task'].provider).toBe('anthropic');
     expect(sovFirst?.shape.lanes['frontier-task'].provider).toBe('anthropic');
