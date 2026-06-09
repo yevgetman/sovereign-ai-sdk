@@ -107,6 +107,10 @@ type SkillClassification = {
 export type SkillRoot = SkillClassification & {
   path: string;
   classify?: (file: string) => SkillClassification;
+  /** Plugin install dir for a `source:'plugin'` root. Propagated onto every
+   *  Skill loaded from this root so the body can resolve `${CLAUDE_PLUGIN_ROOT}`.
+   *  Absent for non-plugin roots — the substitution falls back to ''. */
+  pluginRoot?: string;
 };
 
 export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry> {
@@ -159,7 +163,7 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       seenRealpaths.add(rp);
 
       const classification = root.classify?.(file) ?? root;
-      const loaded = await loadSkillFile(file, rp, classification, opts.warn);
+      const loaded = await loadSkillFile(file, rp, classification, opts.warn, root.pluginRoot);
       if (!loaded) continue;
       if (byName.has(loaded.name)) {
         opts.warn?.(`skill skipped (${file}): duplicate skill name '${loaded.name}'`);
@@ -196,7 +200,12 @@ export async function expandSkillText(
   let withVariables = text
     .replace(/\{\{\s*args\s*\}\}/g, () => args)
     .replace(/\$\{HARNESS_SKILL_DIR\}/g, () => skill.dir)
-    .replace(/\$\{HARNESS_SESSION_ID\}/g, () => opts.sessionId ?? '');
+    .replace(/\$\{HARNESS_SESSION_ID\}/g, () => opts.sessionId ?? '')
+    // CC-compat: a plugin skill/command body names its bundled files via
+    // ${CLAUDE_PLUGIN_ROOT}. Resolves to the plugin install dir for
+    // plugin-sourced skills; '' otherwise (so the var never renders literally).
+    // A path-STRING substitution (plugin shell is disabled), not a shell arg.
+    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, () => skill.pluginRoot ?? '');
   // Skills that don't reference {{args}} would otherwise silently drop the
   // user-supplied slash arguments. Append them so the model still sees the
   // path or topic the user typed (e.g. `/review ~/code/babyboard/`).
@@ -219,6 +228,9 @@ export async function reloadSkill(skill: Skill, warn?: (message: string) => void
     skill.realpath,
     { source: skill.source, trustTier: skill.trustTier },
     warn,
+    // Preserve the plugin root across reloads so a plugin command's
+    // ${CLAUDE_PLUGIN_ROOT} still resolves when re-expanded per invocation.
+    skill.pluginRoot,
   );
   if (!loaded) throw new Error(`skill '${skill.name}' could not be reloaded`);
   return loaded;
@@ -228,9 +240,10 @@ export async function loadSkillFromPath(
   path: string,
   classification: SkillClassification,
   warn?: (message: string) => void,
+  pluginRoot?: string,
 ): Promise<Skill | null> {
   try {
-    return await loadSkillFile(path, await realpath(path), classification, warn);
+    return await loadSkillFile(path, await realpath(path), classification, warn, pluginRoot);
   } catch (err) {
     warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
     return null;
@@ -242,6 +255,7 @@ async function loadSkillFile(
   rp: string,
   classification: SkillClassification,
   warn?: (message: string) => void,
+  pluginRoot?: string,
 ): Promise<Skill | null> {
   try {
     const raw = await readFile(path, 'utf8');
@@ -273,6 +287,10 @@ async function loadSkillFile(
       // Forced by source — NOT manifest-controlled. Plugin skills never run
       // inline shell (it bypasses the permission layer); everything else does.
       allowShellInterpolation: classification.source !== 'plugin',
+      // Carried only for plugin-sourced skills; resolves ${CLAUDE_PLUGIN_ROOT}.
+      // Conditionally spread so the key is ABSENT (not `undefined`) for
+      // non-plugin skills — required under exactOptionalPropertyTypes.
+      ...(pluginRoot !== undefined ? { pluginRoot } : {}),
       metadata: {
         harness: normalizeHarnessMetadata(frontmatter.metadata.harness),
       },

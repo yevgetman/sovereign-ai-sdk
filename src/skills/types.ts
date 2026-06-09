@@ -44,6 +44,12 @@ export type Skill = {
    *  every other (trusted/user/bundle/project) source. Variable substitution is
    *  unaffected either way; only the shell-command expansion is gated. */
   allowShellInterpolation: boolean;
+  /** Plugin install dir, when this skill came from a `source:'plugin'` root.
+   *  Substituted for `${CLAUDE_PLUGIN_ROOT}` in the body on expand so a plugin
+   *  skill/command can name its own bundled files (CC-compat). Optional — only
+   *  plugin-sourced skills set it; every other source leaves it undefined and is
+   *  unaffected (the substitution falls back to an empty string). */
+  pluginRoot?: string;
   metadata: {
     harness: SkillHarnessMetadata;
   };

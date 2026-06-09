@@ -8,6 +8,45 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-09 — Plugin System v1 · Task 4 (compose: skills + commands → contributions)
+
+**Scope.** RED→GREEN TDD for `composePluginContributions` (`src/plugins/compose.ts`) — turning T3's
+gated `LoadedPlugin[]` into `PluginContributions`, plus the `${CLAUDE_PLUGIN_ROOT}` threading edit in
+the skills loader (`src/skills/loader.ts` + `src/skills/types.ts`). Pure aggregation: no consent/
+install/wiring (those are T3/T6/T8).
+
+**Commands / result.**
+- `bun test tests/plugins/compose.test.ts` → **13 pass / 0 fail** (45 expect calls). RED first
+  confirmed (module-missing), then GREEN.
+- `bun test tests/plugins tests/skills` → **196 pass / 0 fail**, stable across **3 consecutive runs**
+  (verifying the new optional `pluginRoot` field broke no existing skill test).
+- `bun run lint` clean; `bun run typecheck` clean (after fixing an `exactOptionalPropertyTypes`
+  assignment via conditional spread + an implicit-any `let`).
+- `bun run test` (full) → **3453 pass / 0 fail / 16 skip** on two consecutive runs. One earlier run
+  showed 2 transient fails in `synthesizer` + `sessionSupervisor` (the documented MockProvider-static-
+  pollution / ambient-config env flake — unrelated to plugins/skills; my touched suites were 196/0
+  across 3x isolated runs).
+
+**Findings.**
+- **Signature deviation (flagged).** The brief typed `composePluginContributions(...): PluginContributions`
+  (sync), but the same brief mandates loading commands "through the existing skill-loading machinery
+  (`loadSkillFromPath` per `.md`)", which is async. Chose to honor the reuse instruction → the function
+  is `async` and returns `Promise<PluginContributions>` (tests `await` it). T8 already composes in an
+  async boot (it awaits `loadSkills`), so this is compatible. DRY over a forced sync return.
+- **`${CLAUDE_PLUGIN_ROOT}` threading.** Added optional `pluginRoot?` to `SkillRoot` + `Skill`,
+  propagated through `loadSkillFile`/`loadSkillFromPath`, **preserved by `reloadSkill`** (load-bearing:
+  `buildSkillCommands` reloads per slash-invocation), and substituted in `expandSkillText` via a
+  function-replacer (no `$`-pattern mangling). Confirmed it resolves through a real `loadSkills`
+  + `expandSkillPrompt` round-trip, and that plugin commands still do NOT run inline shell.
+- **Containment + dedupe** behave as specified: an out-of-tree `skills`/`commands` override is rejected
+  (no root/command) + warned; same-named commands across plugins resolve first-alphabetically-wins +
+  warn; no crash on collision.
+
+**Landing note.** Committed scoped to ONLY the T4 files (`src/plugins/compose.ts`,
+`tests/plugins/compose.test.ts`, `src/skills/{loader,types}.ts`) + this entry. The unrelated
+`tests/providers/sov.live.test.ts` + the `sov`-provider testing-log entry below were already in the
+working tree from a separate workstream and were left untouched (not staged). No push.
+
 ## 2026-06-09 — `sov` provider T4-live (verified against a running L1 engine)
 
 **Scope.** The gated live integration deferred from the Bucket A build (see entry below): run the
