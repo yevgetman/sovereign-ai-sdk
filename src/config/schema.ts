@@ -691,6 +691,21 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Plugin System v1 — OPT-IN enable/disable allow-list for installed
+     *  plugins (under `<harnessHome>/plugins/*`). Both lists hold plugin names
+     *  (manifest `name`). The T3 loader consults this block: when `enabled` is
+     *  SET, only listed plugins are enabled (a consented-but-unlisted plugin is
+     *  inert); a name in `disabled` is always off (disabled wins when a name
+     *  appears in both). Absent block / absent `enabled` ⇒ every consented,
+     *  untampered plugin is active by default. The block carries NO secrets and
+     *  never names a path — only opt-in identity decisions. */
+    plugins: z
+      .object({
+        enabled: z.array(z.string()).optional(),
+        disabled: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   // subscriptionExecutor and taskRouting are two CONFLICTING cost strategies on
@@ -718,3 +733,4 @@ export const SettingsSchema = z
 export type Settings = z.infer<typeof SettingsSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type SubscriptionExecutorConfig = NonNullable<Settings['subscriptionExecutor']>;
+export type PluginsConfig = NonNullable<Settings['plugins']>;

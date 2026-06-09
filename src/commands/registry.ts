@@ -8,6 +8,7 @@ import { visibleWidth } from '../ui/box.js';
 import { dispatchConfigCommand } from './configOps.js';
 import { INFO_COMMANDS } from './info.js';
 import { PICKER_COMMANDS } from './pickers.js';
+import { PLUGIN_OPS_COMMANDS } from './pluginOps.js';
 import { REVIEW_OPS_COMMANDS } from './reviewOps.js';
 import { routingStatsCommand } from './routingStats.js';
 import { SESSION_OPS_COMMANDS } from './sessionOps.js';
@@ -41,6 +42,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   config: 'config',
   settings: 'config',
   theme: 'config',
+  plugins: 'config',
   // file/session ops
   export: 'files',
   init: 'files',
@@ -122,6 +124,7 @@ export const COMMANDS: SlashCommand[] = [
   ...SESSION_OPS_COMMANDS,
   ...TASK_OPS_COMMANDS,
   ...REVIEW_OPS_COMMANDS,
+  ...PLUGIN_OPS_COMMANDS,
   routingStatsCommand,
   {
     type: 'local',

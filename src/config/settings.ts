@@ -182,18 +182,45 @@ export type LoadedHookSettings = {
   sources: string[];
 };
 
+/** The hook events merged across layers, in fixed order. */
+const HOOK_EVENTS = ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop'] as const;
+
+/** The running accumulator of merged hook configs, keyed by event. */
+export type HookMergeState = Record<HookEventName, HookConfig[]>;
+
+/** A fresh, empty hook-merge accumulator (every event → []). */
+export function emptyHookMergeState(): HookMergeState {
+  return { PreToolUse: [], PostToolUse: [], UserPromptSubmit: [], Stop: [] };
+}
+
+/**
+ * Merge one layer's `hooks` block into the accumulator, returning a NEW state
+ * (immutable fold — the inputs are never mutated). Each event's configs are
+ * *concatenated* after the ones already accumulated; later layers do not shadow
+ * earlier ones (Claude Code semantics — settings files contribute additively;
+ * blanket denial is per-event via a hook that exits 2). Extracted from
+ * `loadHookSettings` (H3) so the concatenation contract is reusable for the
+ * plugin disclosure + future v2 plugin-hook merging without duplicating it.
+ */
+export function mergeHookEvents(
+  acc: HookMergeState,
+  layer: z.infer<typeof HooksSettingsSchema> | undefined,
+): HookMergeState {
+  const next = emptyHookMergeState();
+  for (const event of HOOK_EVENTS) {
+    const incoming = layer?.[event];
+    next[event] = incoming && incoming.length > 0 ? [...acc[event], ...incoming] : [...acc[event]];
+  }
+  return next;
+}
+
 /** Load hooks from the same layered settings.json files as permissions, in
  *  precedence order (local → project → user). All non-empty layers are
  *  *concatenated*; later layers do not shadow earlier ones (matches Claude
  *  Code semantics — multiple settings files contribute additively, and
  *  blanket denial is achieved per-event via a hook script that exits 2). */
 export function loadHookSettings(opts: LoadPermissionSettingsOpts): LoadedHookSettings {
-  const hooksByEvent: Record<HookEventName, HookConfig[]> = {
-    PreToolUse: [],
-    PostToolUse: [],
-    UserPromptSubmit: [],
-    Stop: [],
-  };
+  let hooksByEvent = emptyHookMergeState();
   const sources: string[] = [];
   for (const item of getPermissionSettingsPaths(opts)) {
     if (!existsSync(item.path)) continue;
@@ -201,10 +228,7 @@ export function loadHookSettings(opts: LoadPermissionSettingsOpts): LoadedHookSe
     const settings = RuntimeSettingsSchema.parse(raw);
     if (!settings.hooks) continue;
     sources.push(item.path);
-    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop'] as const) {
-      const layer = settings.hooks[event];
-      if (layer && layer.length > 0) hooksByEvent[event].push(...layer);
-    }
+    hooksByEvent = mergeHookEvents(hooksByEvent, settings.hooks);
   }
   return { hooksByEvent, sources };
 }
@@ -214,21 +238,75 @@ export type LoadedMcpServerSettings = {
   sources: string[];
 };
 
+/** The running accumulator of merged MCP servers + the origin-tracking maps the
+ *  collision checks consult. `aliasOrigin` records which source claimed each
+ *  alias (for the duplicate-alias error message); `envFragmentOrigin` records
+ *  which REMOTE alias claimed each normalized `SOV_MCP_*` env fragment (for the
+ *  env-fragment-collision error). */
+export type McpMergeState = {
+  readonly servers: Record<string, McpServerConfig>;
+  readonly aliasOrigin: Record<string, string>;
+  readonly envFragmentOrigin: Record<string, string>;
+};
+
+/** A fresh, empty MCP-merge accumulator. */
+export function emptyMcpMergeState(): McpMergeState {
+  return { servers: {}, aliasOrigin: {}, envFragmentOrigin: {} };
+}
+
+/**
+ * Merge one layer's `mcpServers` block (keyed by alias) into the accumulator,
+ * returning a NEW state (immutable fold — the inputs are never mutated). Servers
+ * from multiple layers are concatenated by alias. Throws — with a message naming
+ * BOTH sources — on:
+ *   - a duplicate alias across layers (rename one / pick one source);
+ *   - two REMOTE aliases that normalize to the same `SOV_MCP_<FRAG>_*` env var
+ *     (one server's injected token would silently apply to the other host).
+ * Stdio aliases never read `SOV_MCP_*` auth env, so they are excluded from the
+ * env-fragment check (a benign stdio+remote fragment collision must not
+ * hard-fail boot). Extracted from `loadMcpServerSettings` (H3) — the alias +
+ * env-fragment collision contract is byte-identical to the prior inline merge,
+ * and now reusable for the plugin disclosure + future v2 plugin-mcp merging.
+ */
+export function mergeMcpServers(
+  acc: McpMergeState,
+  layer: Record<string, McpServerConfig>,
+  source: string,
+): McpMergeState {
+  const servers = { ...acc.servers };
+  const aliasOrigin = { ...acc.aliasOrigin };
+  const envFragmentOrigin = { ...acc.envFragmentOrigin };
+  for (const [alias, cfg] of Object.entries(layer)) {
+    if (alias in servers) {
+      throw new Error(
+        `mcp server alias "${alias}" is defined in both ${aliasOrigin[alias]} and ${source}; rename one.`,
+      );
+    }
+    // Only remote aliases consume SOV_MCP_<FRAG>_* auth env, so only they
+    // can suffer a real env-fragment collision. Stdio aliases skip this.
+    if (isRemoteMcpConfig(cfg)) {
+      const fragment = normalizeAliasForEnv(alias);
+      const collidingAlias = envFragmentOrigin[fragment];
+      if (collidingAlias !== undefined && collidingAlias !== alias) {
+        throw new Error(
+          `mcp server aliases "${collidingAlias}" and "${alias}" both map to the ` +
+            `SOV_MCP_${fragment}_* environment variables; rename one so their auth env vars don't collide.`,
+        );
+      }
+      envFragmentOrigin[fragment] = alias;
+    }
+    servers[alias] = cfg;
+    aliasOrigin[alias] = source;
+  }
+  return { servers, aliasOrigin, envFragmentOrigin };
+}
+
 /** Load MCP server configs from the layered settings.json files, in
  *  precedence order (local → project → user). Servers from multiple layers
  *  are concatenated by alias. Duplicate aliases across layers are an error
  *  — the user must rename one or pick a single source. */
 export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedMcpServerSettings {
-  const servers: Record<string, McpServerConfig> = {};
-  const aliasOrigin: Record<string, string> = {};
-  // Track which REMOTE alias claimed each normalized SOV_MCP_* env-var
-  // fragment, so two remote aliases that collapse to the same env var (e.g.
-  // `foo-bar` and `foo_bar` → SOV_MCP_FOO_BAR_*) are rejected — otherwise one
-  // server's injected token would silently apply to the other host. Stdio
-  // aliases never read SOV_MCP_* auth env (`resolveMcpHeaders` returns `{}`),
-  // so they are excluded from this check: a benign stdio+remote fragment
-  // collision must not hard-fail boot.
-  const envFragmentOrigin: Record<string, string> = {};
+  let state = emptyMcpMergeState();
   const sources: string[] = [];
   for (const item of getPermissionSettingsPaths(opts)) {
     if (!existsSync(item.path)) continue;
@@ -236,30 +314,9 @@ export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedM
     const settings = RuntimeSettingsSchema.parse(raw);
     if (!settings.mcpServers) continue;
     sources.push(item.path);
-    for (const [alias, cfg] of Object.entries(settings.mcpServers)) {
-      if (alias in servers) {
-        throw new Error(
-          `mcp server alias "${alias}" is defined in both ${aliasOrigin[alias]} and ${item.path}; rename one.`,
-        );
-      }
-      // Only remote aliases consume SOV_MCP_<FRAG>_* auth env, so only they
-      // can suffer a real env-fragment collision. Stdio aliases skip this.
-      if (isRemoteMcpConfig(cfg)) {
-        const fragment = normalizeAliasForEnv(alias);
-        const collidingAlias = envFragmentOrigin[fragment];
-        if (collidingAlias !== undefined && collidingAlias !== alias) {
-          throw new Error(
-            `mcp server aliases "${collidingAlias}" and "${alias}" both map to the ` +
-              `SOV_MCP_${fragment}_* environment variables; rename one so their auth env vars don't collide.`,
-          );
-        }
-        envFragmentOrigin[fragment] = alias;
-      }
-      servers[alias] = cfg;
-      aliasOrigin[alias] = item.path;
-    }
+    state = mergeMcpServers(state, settings.mcpServers, item.path);
   }
-  return { servers, sources };
+  return { servers: state.servers, sources };
 }
 
 export function appendProjectLocalPermissionRule(opts: {

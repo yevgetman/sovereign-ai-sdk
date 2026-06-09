@@ -159,6 +159,13 @@ export type CommandContext = {
   /** Phase 13.3 — harness-home root for review/* paths. /review reads this
    *  to locate $HARNESS_HOME/review/pending|approved|rejected/. */
   harnessHome?: string;
+  /** Plugin System v1 (T7) — injected TTY yes/no consent prompt, used by
+   *  `/plugins install` for the disclose-and-consent flow (S3, TTY-only). The
+   *  CLI / `sov drive` dispatch path provides a real terminal prompt (T8); it is
+   *  ABSENT on non-TTY surfaces (server / TUI), where `/plugins install` MUST
+   *  refuse with a clear "install requires a terminal" message rather than
+   *  silently consenting. Returns true to proceed with the install. */
+  confirm?: (prompt: string) => Promise<boolean>;
   /** Phase 12.6: per-component context-window audit. Backs the
    *  `/context-budget` command. */
   getBudgetReport: () => BudgetReport;
