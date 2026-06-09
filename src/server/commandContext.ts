@@ -156,6 +156,7 @@ export function buildServerCommandContext(
     cwd: runtime.cwd,
     providerName: runtime.resolvedProvider.transport.name,
     model: runtime.model,
+    apiMode: runtime.resolvedProvider.transport.apiMode,
     effort: runtime.effort,
     bundlePath: runtime.bundle?.root ?? null,
     setModel: (model: string): void => {

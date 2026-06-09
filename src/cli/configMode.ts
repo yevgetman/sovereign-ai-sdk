@@ -232,7 +232,11 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
   };
 
   const resolvedProvider: ResolvedProvider = {
-    transport: stubProvider as unknown as Transport,
+    // Stub transport carries a harmless `apiMode` so the server CommandContext
+    // builder (which reads `resolvedProvider.transport.apiMode` for /effort)
+    // gets a valid ApiMode rather than undefined. /effort isn't reachable in
+    // config-only mode; this only keeps the typed field honest at runtime.
+    transport: { ...stubProvider, apiMode: 'anthropic' } as unknown as Transport,
     client: stubProvider,
     baseUrl: 'config-only://',
     model: CONFIG_ONLY_MODEL,

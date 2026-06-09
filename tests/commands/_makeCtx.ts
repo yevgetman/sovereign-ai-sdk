@@ -14,6 +14,7 @@ export function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext
     sessionId: 'session-1',
     cwd: process.cwd(),
     providerName: 'anthropic',
+    apiMode: 'anthropic',
     bundlePath: null,
     get model() {
       return model;

@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import { formatUsd } from '../providers/pricing.js';
 import { visibleWidth } from '../ui/box.js';
 import { dispatchConfigCommand } from './configOps.js';
+import { effortCommand } from './effortControl.js';
 import { INFO_COMMANDS } from './info.js';
 import { PICKER_COMMANDS } from './pickers.js';
 import { PLUGIN_OPS_COMMANDS } from './pluginOps.js';
@@ -39,6 +40,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   continue: 'session',
   // model + config
   model: 'config',
+  effort: 'config',
   config: 'config',
   settings: 'config',
   theme: 'config',
@@ -120,6 +122,7 @@ export const COMMANDS: SlashCommand[] = [
     },
   },
   ...PICKER_COMMANDS,
+  effortCommand,
   ...INFO_COMMANDS,
   ...SESSION_OPS_COMMANDS,
   ...TASK_OPS_COMMANDS,

@@ -32,6 +32,7 @@ import { resolveProjectScope } from '../memory/scope.js';
 import { loadPluginRuntime } from '../plugins/runtime.js';
 import type { ReasoningEffort } from '../providers/effort.js';
 import { resolveProvider } from '../providers/resolver.js';
+import type { ApiMode } from '../providers/types.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
@@ -107,6 +108,10 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
   // CommandContext getters/setters.
   const modelRef = { current: resolved.model };
   const providerNameRef = { current: String(resolved.metadata.provider ?? '') };
+  // Wire dialect of the active transport. Tracks alongside providerNameRef so
+  // /effort can ask modelSupportsReasoning(model, apiMode); re-resolved in
+  // setModel when a `provider/model` switch changes the dialect.
+  const apiModeRef: { current: ApiMode } = { current: resolved.transport.apiMode };
   // Reasoning-depth state. Initialized from `thinking.effort` config (default
   // 'off'); the `/effort` command (later slice) mutates it via setEffort. Read
   // defensively (`?.`) — see the runtime initializer for the absent-parent note.
@@ -165,6 +170,9 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     get model() {
       return modelRef.current;
     },
+    get apiMode() {
+      return apiModeRef.current;
+    },
     get effort() {
       return effortRef.current;
     },
@@ -180,6 +188,7 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
         const newResolved = resolveProvider(maybeProvider, maybeModel);
         modelRef.current = newResolved.model;
         providerNameRef.current = String(newResolved.metadata.provider ?? maybeProvider);
+        apiModeRef.current = newResolved.transport.apiMode;
       } else {
         modelRef.current = m;
       }

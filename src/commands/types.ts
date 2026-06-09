@@ -7,6 +7,7 @@ import type { PermissionRuleLayer } from '../config/rules.js';
 import type { BudgetReport } from '../context/budget.js';
 import type { ContentBlock, Message } from '../core/types.js';
 import type { ReasoningEffort } from '../providers/effort.js';
+import type { ApiMode } from '../providers/types.js';
 import type { RoutingStatsSnapshot } from '../router/stats.js';
 import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
@@ -80,6 +81,12 @@ export type CommandContext = {
   cwd: string;
   providerName: string;
   model: string;
+  /** Wire dialect of the active provider's transport (anthropic / openai /
+   *  ollama / sov). Paired with `model` so the `/effort` command can ask
+   *  `modelSupportsReasoning(model, apiMode)` whether the active model
+   *  actually honors a reasoning-depth level. Set alongside `model` in every
+   *  CommandContext constructor. */
+  apiMode: ApiMode;
   /** Current reasoning-depth ("effort") level for the session. Mirrors
    *  `model` — read here, mutated via `setEffort`. The `/effort` slash command
    *  (a later slice) reads this to render the current level. */
