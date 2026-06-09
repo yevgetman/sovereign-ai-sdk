@@ -20,6 +20,21 @@ describe('BUILTIN_PRESETS', () => {
     expect(ids).toContain('local-plus-anthropic');
   });
 
+  test('ships the sov local-engine presets (cheap-task on the local lane)', () => {
+    const sovCheap = findBuiltinPreset('sov-cheap');
+    const sovFirst = findBuiltinPreset('sov-first');
+    expect(sovCheap).toBeDefined();
+    expect(sovFirst).toBeDefined();
+    // Both run cheap atoms on the local sov engine (served as "sovereign")...
+    expect(sovCheap?.shape.lanes['cheap-task']).toEqual({ provider: 'sov', model: 'sovereign' });
+    expect(sovFirst?.shape.lanes['cheap-task']).toEqual({ provider: 'sov', model: 'sovereign' });
+    // ...sov-first also runs moderate locally; both keep frontier on Anthropic for escalation.
+    expect(sovFirst?.shape.lanes['moderate-task']).toEqual({ provider: 'sov', model: 'sovereign' });
+    expect(sovCheap?.shape.lanes['moderate-task'].provider).toBe('anthropic');
+    expect(sovCheap?.shape.lanes['frontier-task'].provider).toBe('anthropic');
+    expect(sovFirst?.shape.lanes['frontier-task'].provider).toBe('anthropic');
+  });
+
   test('every preset has all three lanes + a delegator', () => {
     for (const p of BUILTIN_PRESETS) {
       expect(p.shape.delegator.model).toBeTruthy();

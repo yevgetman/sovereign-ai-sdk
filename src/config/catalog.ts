@@ -335,8 +335,13 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
     {
       path: 'taskRouting.lanes.cheap-task.model',
       label: 'lanes.cheap-task.model',
-      description: 'Model override for the cheap-task lane.',
-      editor: { kind: 'string' },
+      description: 'Model override for the cheap-task lane. Choices scoped to the lane provider.',
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) =>
+          modelsForProvider(settings.taskRouting?.lanes?.['cheap-task']?.provider),
+        allowCustom: true,
+      },
     },
     {
       path: 'taskRouting.lanes.cheap-task.timeoutMs',
@@ -353,8 +358,14 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
     {
       path: 'taskRouting.lanes.moderate-task.model',
       label: 'lanes.moderate-task.model',
-      description: 'Model override for the moderate-task lane.',
-      editor: { kind: 'string' },
+      description:
+        'Model override for the moderate-task lane. Choices scoped to the lane provider.',
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) =>
+          modelsForProvider(settings.taskRouting?.lanes?.['moderate-task']?.provider),
+        allowCustom: true,
+      },
     },
     {
       path: 'taskRouting.lanes.moderate-task.timeoutMs',
@@ -371,8 +382,14 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
     {
       path: 'taskRouting.lanes.frontier-task.model',
       label: 'lanes.frontier-task.model',
-      description: 'Model override for the frontier-task lane.',
-      editor: { kind: 'string' },
+      description:
+        'Model override for the frontier-task lane. Choices scoped to the lane provider.',
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) =>
+          modelsForProvider(settings.taskRouting?.lanes?.['frontier-task']?.provider),
+        allowCustom: true,
+      },
     },
     {
       path: 'taskRouting.lanes.frontier-task.timeoutMs',

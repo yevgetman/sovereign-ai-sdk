@@ -74,6 +74,22 @@ describe('config catalog', () => {
     if (parent) expect(parent.id).toBe('general');
   });
 
+  test('lane model pickers scope choices to the lane provider (sov → sovereign)', () => {
+    const item = findItem('taskRouting.lanes.cheap-task.model');
+    expect(item?.editor.kind).toBe('string');
+    if (item?.editor.kind !== 'string') throw new Error('expected a string editor');
+    // sov lane → suggests the local engine's served model name.
+    const sov = SettingsSchema.parse({
+      taskRouting: { lanes: { 'cheap-task': { provider: 'sov' } } },
+    });
+    expect(item.editor.dynamicChoices?.(sov)).toContain('sovereign');
+    // a different provider → that provider's model list (proves it's lane-scoped).
+    const anthropic = SettingsSchema.parse({
+      taskRouting: { lanes: { 'cheap-task': { provider: 'anthropic' } } },
+    });
+    expect(item.editor.dynamicChoices?.(anthropic)).toContain('claude-sonnet-4-6');
+  });
+
   test('listRootMenuGroups excludes per-provider subgroups', () => {
     const roots = listRootMenuGroups();
     const ids = roots.map((g) => g.id);

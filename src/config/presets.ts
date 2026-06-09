@@ -90,6 +90,34 @@ export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
       },
     },
   },
+  {
+    id: 'sov-cheap',
+    label: 'Sov local (cheap) + Anthropic',
+    description:
+      'Cheap atoms on the local Sov engine (free + private); Sonnet/Opus on Anthropic for moderate+frontier.',
+    shape: {
+      delegator: { model: 'claude-sonnet-4-6' },
+      lanes: {
+        'cheap-task': { provider: 'sov', model: 'sovereign' },
+        'moderate-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+        'frontier-task': { provider: 'anthropic', model: 'claude-opus-4-7' },
+      },
+    },
+  },
+  {
+    id: 'sov-first',
+    label: 'Sov local-first',
+    description:
+      'Cheap + moderate atoms on the local Sov engine (Qwen-class); escalate only frontier-class work to Sonnet.',
+    shape: {
+      delegator: { model: 'claude-sonnet-4-6' },
+      lanes: {
+        'cheap-task': { provider: 'sov', model: 'sovereign' },
+        'moderate-task': { provider: 'sov', model: 'sovereign' },
+        'frontier-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+      },
+    },
+  },
 ] as const;
 
 /** Find a built-in preset by id. */
