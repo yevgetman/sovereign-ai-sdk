@@ -64,6 +64,8 @@ Do not register ad hoc tool objects. Every tool goes through `buildTool()` so de
 
 The core runtime should not know provider-specific message shapes. If a change requires editing `src/core/query.ts` for a provider quirk, isolate the quirk in the provider adapter instead.
 
+If the provider supports extended thinking, fork the provider-neutral `req.effort` (`ReasoningEffort`) in `buildKwargs` using the helpers in `src/providers/effort.ts` (`modelSupportsReasoning` to gate it, then the level → your wire shape) — see how `anthropic.ts` / `openai.ts` do it. Keep `effort: 'off'`/undefined byte-identical to a no-thinking request.
+
 ## Add A Slash Command
 
 1. Add a command object. New commands typically live in one of the topic-specific files: `src/commands/info.ts` for read-only info commands, `pickers.ts` for commands that need the raw-mode picker, `sessionOps.ts` for file/session-shaping commands. The aggregate registry in `src/commands/registry.ts` spreads these arrays.

@@ -1500,6 +1500,7 @@ Available config fields (top-level unless noted):
 | `defaultProvider` | string | `anthropic` | `anthropic` \| `openai` \| `openrouter` \| `ollama` |
 | `defaultModel` | string | provider default | scoped by `defaultProvider` in the picker |
 | `permissionMode` | enum | `default` | `default` \| `ask` \| `bypass` |
+| `thinking.effort` | enum | `off` | `off` \| `low` \| `medium` \| `high` \| `max` — boot default for reasoning depth (extended thinking). `off` ⇒ request byte-identical. Overridden per session by `/effort`. See [`/effort` — reasoning depth](#effort--reasoning-depth). |
 | `maxTurns` | int | `100` | runaway-loop circuit breaker, not a task ceiling |
 | `verbose` | bool | `false` | show full tool-result preview blocks |
 | `providers.<name>.model` | string | — | provider-specific model override |
@@ -1738,6 +1739,7 @@ Lines beginning with `/` are handled locally before normal model turns. `/help` 
 |---|---|
 | `/config [...]` | View or change durable config (`show`, `path`, `get <p>`, `set <p> <v>`, `unset <p>`). |
 | `/model [<name>]` | Picker over provider models when no arg; persists to the session DB so it survives `--resume`. |
+| `/effort [<off\|low\|medium\|high\|max>]` | Set per-session reasoning depth (extended-thinking budget). Picker over the five levels when no arg; inline arg sets it live. `/effort status` (or `/effort current`) reports the level + whether the active model supports reasoning. See [`/effort` — reasoning depth](#effort--reasoning-depth) below. |
 | `/settings` | Open the interactive settings editor (TTY only; equivalent to `sov config` with no verb). |
 | `/theme [<name>]` | Picker over built-in themes (`dark`, `light`, `tokyo-night`, `sovereign`); inline arg skips picker. Persists to config. |
 
@@ -1776,11 +1778,41 @@ Examples:
 ```text
 /cost
 /model claude-opus-4-7
+/effort high
 /theme light
 /export md
 /resume
 /quit
 ```
+
+### `/effort` — reasoning depth
+
+`/effort` dials **per-turn reasoning depth** (the model's extended-thinking budget) for the current session. It is the control half of extended thinking: the harness already *receives* thinking output (renders `thinking` blocks); `/effort` decides how hard the model thinks before replying. It is a separate knob from `maxTurns` — it does not change agentic looping, only reasoning depth within a turn.
+
+- `/effort` (no arg) — opens an inline picker over the five levels (the current one marked `(current)`). Selecting a row applies it live. Outside a TTY it falls back to the status report.
+- `/effort <off|low|medium|high|max>` — applies immediately. Reply: `effort set to <level> (reasoning depth for this session).`
+- `/effort status` (alias `/effort current`) — non-interactive report: the current level + whether the active model supports reasoning.
+- An unknown level prints the usage string (`/effort [off|low|medium|high|max]`).
+
+The level is **per-session**, mutated live (parallel to `/model`) — it is not persisted to disk by the command itself. The boot default comes from the `thinking.effort` config field (below).
+
+**Unsupported-model notice.** When the active model can't reason (e.g. a `claude-3*` model, or `gpt-4o`), `/effort <level>` still records the level but appends: `note: <model> doesn't support reasoning depth — no effect until you switch to a reasoning model.` The request is sent unchanged in that case (the level only takes effect once you switch to a reasoning model), so a thinking parameter is never sent to a model that would reject it.
+
+**Level → provider mapping.** The named level forks per provider at the adapter boundary (`src/providers/effort.ts`):
+
+| Level | Anthropic (`thinking.budget_tokens`) | OpenAI reasoning models (`reasoning_effort`) | sov / ollama (`enable_thinking`) |
+|---|---|---|---|
+| `off` | — (no `thinking`; request byte-identical) | — (omitted) | — (omitted) |
+| `low` | 4000 | `low` | `true` |
+| `medium` | 8000 | `medium` | `true` |
+| `high` | 16000 | `high` | `true` |
+| `max` | 24000 | `high` (the OpenAI scale tops out at `high`) | `true` |
+
+For Anthropic, when thinking is on the adapter also: raises `max_tokens` to fit the budget (floor `budget + 8192`, clamped to a 32000 ceiling; the budget is shaved below `max_tokens` if needed); **drops `temperature`** (the API rejects `temperature != 1` with thinking enabled); and attaches the interleaved-thinking beta (`interleaved-thinking-2025-05-14`) so reasoning persists across tool-use turns. Models that support reasoning: the Anthropic 4.x family (`claude-haiku-4-5` / `-sonnet-4` / `-opus-4` — includes the default model, so it works out of the box), OpenAI `o1`/`o3`/`o4`/`gpt-5`, and the local `sov`/`ollama` engines. Default `off` ⇒ the request is byte-identical to a no-thinking turn.
+
+**Status line.** Once you run `/effort` at least once, the TUI status line shows `effort:<level>` in its left column (after the model). It is not seeded at boot (unlike the model field), so it stays absent until the first `/effort`.
+
+Set the boot default with `thinking.effort` via `/config` (Config group) or `sov config set thinking.effort high`. Default `off`.
 
 ## Tool Permissions
 

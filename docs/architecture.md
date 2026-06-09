@@ -35,6 +35,8 @@ That shape is a load-bearing contract. It lets the TUI render partial model outp
 
 `src/providers/types.ts` defines `LLMProvider`. Core code calls only `provider.stream(req)`; SDK calls and provider-specific normalization stay under `src/providers/`.
 
+**Reasoning depth (`/effort`).** `ProviderRequest` carries a provider-neutral `effort?: ReasoningEffort` (`off | low | medium | high | max`), threaded from `QueryParams.effort` → `query()` → `provider.stream(req)`. The pure module `src/providers/effort.ts` owns the level→wire translation; each adapter forks it in `buildKwargs`: Anthropic → `thinking.budget_tokens` (+ raised `max_tokens`, dropped `temperature`, interleaved-thinking beta), OpenAI reasoning models → `reasoning_effort`, sov/ollama → `enable_thinking`. A `modelSupportsReasoning` gate means a non-reasoning model never gets a thinking parameter. The level is per-session mutable runtime state — `runtime.effort` (parallel to `runtime.model`), seeded from the `thinking.effort` config default and mutated live by the `/effort` command via `CommandContext.setEffort`. The default `off` leaves the request body byte-identical to a no-thinking turn. Spec: [`docs/specs/2026-06-09-effort-reasoning-depth-design.md`](./specs/2026-06-09-effort-reasoning-depth-design.md).
+
 ## System Prompt And Context
 
 System prompt assembly lives under `src/context/`. New sessions freeze a static-to-dynamic segmented prompt:

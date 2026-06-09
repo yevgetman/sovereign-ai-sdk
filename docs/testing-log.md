@@ -8,6 +8,28 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-09 — `/effort` reasoning-depth — Slice E (docs + semantic test) — FEATURE COMPLETE
+
+**Scope.** Slice E / Task T8 (the closing slice) for the `/effort` reasoning-depth feature: documentation, a semantic test suite, and this log entry. No feature code touched — Slices A–D shipped the implementation. Spec `docs/specs/2026-06-09-effort-reasoning-depth-design.md`.
+
+**What the feature is (verified against code this slice).** `/effort off|low|medium|high|max` sets per-session reasoning depth (extended-thinking budget). No-arg opens an inline picker; `/effort status` (alias `/effort current`) reports the level + reasoning support; an unsupported-model notice appends when the active model can't reason. The provider-neutral level (`ProviderRequest.effort` → `QueryParams.effort` → `query()` → `provider.stream`) forks per adapter in `src/providers/effort.ts`:
+- **Anthropic** → `thinking.budget_tokens` — off→(omit), low→4000, medium→8000, high→16000, max→24000 — under a raised `max_tokens` (floor `budget + 8192`, clamped to a 32000 ceiling, budget shaved below max_tokens), `temperature` dropped, interleaved-thinking beta (`interleaved-thinking-2025-05-14`) attached when on.
+- **OpenAI** reasoning models → `reasoning_effort` (low/medium/high; **max→high**, off→omit).
+- **sov / ollama** → `chat_template_kwargs.enable_thinking: true` (sov path; off→omit).
+- `modelSupportsReasoning`: Anthropic 4.x (`claude-(haiku|sonnet|opus)-4`, incl. the default `claude-haiku-4-5`), OpenAI `o1`/`o3`/`o4`/`gpt-5`, sov/ollama always; everything else false (no thinking param ⇒ no 400).
+
+Config default `thinking.effort` (`off`, optional block, settable via `/config`); default `off` ⇒ request byte-identical. The TUI status line shows `effort:<level>` in its left column only after the first `/effort` (not boot-seeded; confirmed in `packages/tui/internal/components/statusline.go`). **All numbers/strings matched the implementation — no code/summary divergence found.**
+
+**What I wrote.** `docs/usage.md` (Config-category command row + a `/effort — reasoning depth` subsection with the full level→provider mapping table + the `thinking.effort` config-fields-table row); `docs/architecture.md` (a Core-Contracts note on the provider-neutral `effort` knob + `runtime.effort`, linking the spec); `docs/extending.md` ("Add A Provider" — a new reasoning-capable provider forks `req.effort` via `effort.ts`); `tests/semantic/suites/25-effort.cases.ts` (NEXT free suite number after 24-learning-recall; auto-discovered by `loadTestsFromDir` — no central registry).
+
+**Semantic suite — 3 cases (`category: 'commands'`), NOT run here (the semantic suite runs separately; cases are well-formed + typecheck/lint-clean):**
+- `effort-high-surfaces-deeper-reasoning` (keystone, multi-turn) — `/effort high` then a hard logic puzzle; judged for visible multi-step reasoning + the correct unique solution (**solver-verified**: Ada=dog/blue, Boris=fish/red, Chen=cat/green).
+- `effort-status-reports-level-and-support` — `/effort status` reports level + support, no mutation.
+- `effort-unsupported-model-notice` — `/effort high` on a config-pinned `claude-3-5-haiku-latest` surfaces the no-effect notice, never claims thinking is on.
+Confirmed all three discovered via `bun tests/semantic/run.ts --list`.
+
+**Gate (this slice — `.ts` touched is the semantic case only).** `bun run typecheck` (`tsc --noEmit`) clean · `bun run lint` (biome) clean (746 files). The full `bun run test` suite was last green at **3624 pass / 0 fail / 16 skip** after Slice D (no runtime code changed this slice, so not re-run). `/effort` is live in the binary — `sov upgrade` ran in Slice D (`0.6.36-7a7e2f3`).
+
 ## 2026-06-09 — Plugin System v1 — FEATURE COMPLETE (whole-feature security: SECURE-TO-SHIP; RELEASE v0.6.35)
 
 **Scope.** Shipped **Plugin System v1** (the recommended v1 from the spec — founder-approved scope): the plugin *foundation* (manifest, loader, composition seams, consent + integrity infrastructure) plus the only extension types safe today — **skills + slash-commands** — installed as one consent-gated, integrity-hashed unit. CC-format skill/command packs install; a richer CC plugin's hooks/MCP/agents are **disclosed but inert** (deferred to v2/v3). Spec `docs/specs/2026-06-08-plugin-system-design.md` (§5 v1 scope, §4 security model S1–S7); plan `docs/plans/2026-06-08-plugin-system-v1.md` (T1–T9).
