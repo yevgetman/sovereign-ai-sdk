@@ -14,7 +14,7 @@ import { type Dirent, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginsConfig, Settings } from '../config/schema.js';
 import { readConfig, resolveConfigPath, writeConfig } from '../config/store.js';
-import { plural } from '../plugins/disclosure.js';
+import { countHooks, describeMcpHosts, plural } from '../plugins/disclosure.js';
 import {
   type InstallPluginResult,
   type UninstallPluginResult,
@@ -169,48 +169,21 @@ function runInfo(rest: string, ctx: CommandContext): string {
 }
 
 /** A compact "Declares (INERT…)" clause from the manifest's hooks + mcpServers,
- *  or '' when neither is declared. Mirrors the facts `buildDisclosure` surfaces
- *  (counts + hosts) without running a full guard scan. */
+ *  or '' when neither is declared. Reuses `disclosure.ts`'s count/host primitives
+ *  so this inspect surface and the install consent disclosure derive the same
+ *  facts from ONE place — only the (terser) format here is local. */
 function describeInert(
   hooks: LoadedPlugin['manifest']['hooks'],
   mcpServers: LoadedPlugin['manifest']['mcpServers'],
 ): string {
   const parts: string[] = [];
-  const hookCount = countHookCommands(hooks);
+  const hookCount = countHooks(hooks);
   if (hookCount > 0) parts.push(`${plural(hookCount, 'hook')}`);
   const mcpCount = mcpServers ? Object.keys(mcpServers).length : 0;
   if (mcpCount > 0) {
     parts.push(`${plural(mcpCount, 'MCP server')} (${describeMcpHosts(mcpServers)})`);
   }
   return parts.join('; ');
-}
-
-function countHookCommands(hooks: LoadedPlugin['manifest']['hooks']): number {
-  if (!hooks) return 0;
-  let n = 0;
-  for (const event of Object.values(hooks)) {
-    if (!Array.isArray(event)) continue;
-    for (const matcher of event) n += matcher.hooks.length;
-  }
-  return n;
-}
-
-function describeMcpHosts(mcpServers: LoadedPlugin['manifest']['mcpServers']): string {
-  if (!mcpServers) return '';
-  const hosts: string[] = [];
-  for (const server of Object.values(mcpServers)) {
-    if (server.type === 'stdio') hosts.push(`local '${server.command}'`);
-    else hosts.push(hostOf(server.url));
-  }
-  return [...new Set(hosts)].join(', ');
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
 }
 
 // ──────────────────────────────────────────────────────────────────────

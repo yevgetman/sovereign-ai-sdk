@@ -150,8 +150,11 @@ function collectHookCommands(hooks: PluginManifest['hooks']): string[] {
   return out;
 }
 
-/** Distinct hosts each declared MCP server connects to (local command for stdio). */
-function describeMcpHosts(mcpServers: PluginManifest['mcpServers']): string {
+/** Distinct hosts each declared MCP server connects to (local command for stdio).
+ *  Shared with `/plugins info` so the install consent disclosure and the inspect
+ *  surface derive hosts from ONE place (they describe the same declared-inert
+ *  servers). Returns `'(none)'` when no servers are declared. */
+export function describeMcpHosts(mcpServers: PluginManifest['mcpServers']): string {
   if (!mcpServers) return '(none)';
   const hosts: string[] = [];
   for (const server of Object.values(mcpServers)) {
@@ -173,7 +176,9 @@ function hostOf(url: string): string {
   }
 }
 
-function countHooks(hooks: PluginManifest['hooks']): number {
+/** Total declared hook commands across all hook events. Shared with `/plugins
+ *  info` so both surfaces count the same declared-inert hooks from ONE place. */
+export function countHooks(hooks: PluginManifest['hooks']): number {
   return collectHookCommands(hooks).length;
 }
 
