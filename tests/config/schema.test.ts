@@ -242,9 +242,11 @@ describe('SettingsSchema — providers config shape', () => {
   // unknown keys are still rejected under strict mode.
   test('providers.sov accepts model + baseUrl overrides', () => {
     const parsed = SettingsSchema.parse({
-      providers: { sov: { model: 'sovereign', baseUrl: 'http://127.0.0.1:8000/v1' } },
+      providers: {
+        sov: { model: 'mlx-community/Qwen3-4B-4bit', baseUrl: 'http://127.0.0.1:8000/v1' },
+      },
     });
-    expect(parsed.providers?.sov?.model).toBe('sovereign');
+    expect(parsed.providers?.sov?.model).toBe('mlx-community/Qwen3-4B-4bit');
     expect(parsed.providers?.sov?.baseUrl).toBe('http://127.0.0.1:8000/v1');
   });
 

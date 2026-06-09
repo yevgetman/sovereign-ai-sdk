@@ -98,7 +98,7 @@ export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
     shape: {
       delegator: { model: 'claude-sonnet-4-6' },
       lanes: {
-        'cheap-task': { provider: 'sov', model: 'sovereign' },
+        'cheap-task': { provider: 'sov', model: 'mlx-community/Qwen3-4B-4bit' },
         'moderate-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
         'frontier-task': { provider: 'anthropic', model: 'claude-opus-4-7' },
       },
@@ -112,8 +112,8 @@ export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
     shape: {
       delegator: { model: 'claude-sonnet-4-6' },
       lanes: {
-        'cheap-task': { provider: 'sov', model: 'sovereign' },
-        'moderate-task': { provider: 'sov', model: 'sovereign' },
+        'cheap-task': { provider: 'sov', model: 'mlx-community/Qwen3-4B-4bit' },
+        'moderate-task': { provider: 'sov', model: 'mlx-community/Qwen3-4B-4bit' },
         'frontier-task': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
       },
     },

@@ -50,7 +50,7 @@ describe('resolveProvider', () => {
     // The local Sovereign engine lane: no API key in env/config, must NOT
     // throw `unknown provider` or `CredentialUnavailableError`, and binds
     // to the loopback default with authType 'none'.
-    const resolved = resolveProvider('sov', 'sovereign', {
+    const resolved = resolveProvider('sov', 'mlx-community/Qwen3-4B-4bit', {
       env: {},
       harnessHome: tempHome(),
       settings: {},
@@ -59,7 +59,7 @@ describe('resolveProvider', () => {
     expect(resolved.transport.apiMode).toBe('sov');
     expect(resolved.authType).toBe('none');
     expect(resolved.baseUrl).toBe('http://127.0.0.1:8000/v1');
-    expect(resolved.model).toBe('sovereign');
+    expect(resolved.model).toBe('mlx-community/Qwen3-4B-4bit');
   });
 
   test('sov uses its registered default model when none is supplied', () => {
@@ -68,7 +68,7 @@ describe('resolveProvider', () => {
       harnessHome: tempHome(),
       settings: {},
     });
-    expect(resolved.model).toBe('sovereign');
+    expect(resolved.model).toBe('mlx-community/Qwen3-4B-4bit');
     expect(resolved.authType).toBe('none');
   });
 
@@ -90,7 +90,7 @@ describe('resolveProvider', () => {
     const settings = {
       router: {
         localProvider: 'sov',
-        localModel: 'sovereign',
+        localModel: 'mlx-community/Qwen3-4B-4bit',
         frontierProvider: 'anthropic',
       },
     } as const;
@@ -103,7 +103,7 @@ describe('resolveProvider', () => {
     expect(resolved.transport.apiMode).toBe('sov');
     expect(resolved.authType).toBe('none');
     expect(resolved.baseUrl).toBe('http://127.0.0.1:8000/v1');
-    expect(resolved.model).toBe('sovereign');
+    expect(resolved.model).toBe('mlx-community/Qwen3-4B-4bit');
   });
 
   test('ollama transport receives num_ctx from registered model context length', () => {

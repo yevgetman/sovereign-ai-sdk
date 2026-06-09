@@ -36,7 +36,7 @@ async function drain(
 }
 
 const REQ = {
-  model: 'sovereign',
+  model: 'mlx-community/Qwen3-4B-4bit',
   system: [],
   messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }],
   maxTokens: 64,

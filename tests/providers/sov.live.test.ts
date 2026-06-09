@@ -2,7 +2,7 @@
 //
 // Gated on SOV_ENGINE_URL — skipped unless it points at a live OpenAI-compatible
 // Sovereign engine (e.g. `http://127.0.0.1:8000/v1`). Optionally SOV_ENGINE_MODEL
-// (default the engine's served name, `sovereign`).
+// (default the engine's real served model id, `mlx-community/Qwen3-4B-4bit`).
 //
 //   SOV_ENGINE_URL=http://127.0.0.1:8000/v1 bun test tests/providers/sov.live.test.ts
 //
@@ -17,7 +17,7 @@ import type { AssistantMessage, ContentBlock, StreamEvent } from '../../src/core
 import { SovProvider } from '../../src/providers/sov.js';
 
 const ENGINE = process.env.SOV_ENGINE_URL;
-const MODEL = process.env.SOV_ENGINE_MODEL ?? 'sovereign';
+const MODEL = process.env.SOV_ENGINE_MODEL ?? 'mlx-community/Qwen3-4B-4bit';
 const live = ENGINE ? test : test.skip;
 
 async function drain(

@@ -74,15 +74,15 @@ describe('config catalog', () => {
     if (parent) expect(parent.id).toBe('general');
   });
 
-  test('lane model pickers scope choices to the lane provider (sov → sovereign)', () => {
+  test('lane model pickers scope choices to the lane provider (sov → real model id)', () => {
     const item = findItem('taskRouting.lanes.cheap-task.model');
     expect(item?.editor.kind).toBe('string');
     if (item?.editor.kind !== 'string') throw new Error('expected a string editor');
-    // sov lane → suggests the local engine's served model name.
+    // sov lane → suggests the local engine's real model id.
     const sov = SettingsSchema.parse({
       taskRouting: { lanes: { 'cheap-task': { provider: 'sov' } } },
     });
-    expect(item.editor.dynamicChoices?.(sov)).toContain('sovereign');
+    expect(item.editor.dynamicChoices?.(sov)).toContain('mlx-community/Qwen3-4B-4bit');
     // a different provider → that provider's model list (proves it's lane-scoped).
     const anthropic = SettingsSchema.parse({
       taskRouting: { lanes: { 'cheap-task': { provider: 'anthropic' } } },

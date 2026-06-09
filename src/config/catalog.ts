@@ -105,9 +105,11 @@ const ANTHROPIC_MODELS = [
 const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o'] as const;
 const OPENROUTER_MODELS = ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'] as const;
 const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'] as const;
-// The local Sovereign engine serves a single model under its served_model_name
-// (default "sovereign"); the picker suggests that name.
-const SOV_MODELS = ['sovereign'] as const;
+// The local Sovereign engine advertises models under their real model id (the
+// served-model-name defaults to the model id itself — no alias), so you always
+// know exactly what you're running. List the installed/served model(s) here.
+// (Future: discover these live from the engine's /v1/models — Bucket B.)
+const SOV_MODELS = ['mlx-community/Qwen3-4B-4bit'] as const;
 
 /**
  * Map a provider name to its known model list. Used by `defaultModel`'s

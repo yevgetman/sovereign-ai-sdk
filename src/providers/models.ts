@@ -43,13 +43,13 @@ export const PROVIDER_REGISTRY: Record<string, ProviderRegistryEntry> = {
     contextLength: 32_768,
   },
   // The local Sovereign L1 engine: a standalone OpenAI-compatible MLX server
-  // on loopback. Keyless (no authEnvVar) — mirrors ollama's posture. A
-  // single-model engine serves under its served_model_name (default
-  // "sovereign"), so defaultModel reflects that, not an HF id.
+  // on loopback. Keyless (no authEnvVar) — mirrors ollama's posture. The
+  // engine advertises models under their real id (served-model-name defaults
+  // to the model id itself, no alias), so defaultModel is the real model id.
   sov: {
     provider: 'sov',
     apiMode: 'sov',
-    defaultModel: 'sovereign',
+    defaultModel: 'mlx-community/Qwen3-4B-4bit',
     defaultBaseUrl: 'http://127.0.0.1:8000/v1',
     contextLength: 32_768,
   },
