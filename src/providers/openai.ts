@@ -52,6 +52,10 @@ export type OpenAIChatChunk = {
   choices?: Array<{
     delta?: {
       content?: string | null;
+      // Chain-of-thought channel emitted by reasoning models (e.g. vLLM/SGLang
+      // serving DeepSeek-R1-style models). Kept separate from `content` so it
+      // surfaces as a `thinking` stream rather than contaminating the answer.
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -162,6 +166,7 @@ export async function* translateOpenAIStream(
   yield { type: 'message_start' };
 
   const textParts: string[] = [];
+  const reasoningParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; args: string }>();
   let stopReason: StopReason = 'end_turn';
   let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
@@ -170,6 +175,12 @@ export async function* translateOpenAIStream(
     if (chunk.usage) lastUsage = chunk.usage;
     const choice = chunk.choices?.[0];
     if (!choice) continue;
+
+    const reasoning = choice.delta?.reasoning_content;
+    if (reasoning) {
+      reasoningParts.push(reasoning);
+      yield { type: 'thinking_delta', thinking: reasoning };
+    }
 
     const content = choice.delta?.content;
     if (content) {
@@ -196,6 +207,9 @@ export async function* translateOpenAIStream(
   }
 
   const content: ContentBlock[] = [];
+  const reasoning = reasoningParts.join('');
+  // Thinking precedes text, matching the Anthropic block ordering.
+  if (reasoning.length > 0) content.push({ type: 'thinking', thinking: reasoning });
   const text = textParts.join('');
   if (text.length > 0) content.push({ type: 'text', text });
   for (const [, call] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {

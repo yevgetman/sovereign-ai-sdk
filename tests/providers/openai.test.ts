@@ -14,6 +14,20 @@ async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;
 }
 
+// Drains translateOpenAIStream into its yielded events plus the returned
+// AssistantMessage, so tests can assert on both the stream and the final shape.
+async function drainStream(
+  chunks: OpenAIChatChunk[],
+): Promise<{ yielded: StreamEvent[]; returned: AssistantMessage }> {
+  const yielded: StreamEvent[] = [];
+  const gen = translateOpenAIStream(iterate(chunks));
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) return { yielded, returned: step.value };
+    yielded.push(step.value);
+  }
+}
+
 describe('OpenAIProvider conversion', () => {
   test('flattens system segments and maps tool_use/tool_result blocks', () => {
     const messages = messagesToOpenAI(
@@ -148,5 +162,76 @@ describe('translateOpenAIStream', () => {
     );
     expect(usage?.usage.inputTokens).toBe(11);
     expect(usage?.usage.outputTokens).toBe(7);
+  });
+
+  test('emits reasoning_content as a thinking stream, not text', async () => {
+    const chunks: OpenAIChatChunk[] = [
+      { choices: [{ delta: { reasoning_content: 'let me think' } }] },
+      { choices: [{ delta: { content: 'the answer is 42' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+    ];
+    const { yielded, returned } = await drainStream(chunks);
+
+    // Reasoning surfaces as a distinct thinking_delta carrying that text.
+    const thinkingDelta = yielded.find(
+      (e): e is Extract<StreamEvent, { type: 'thinking_delta' }> => e.type === 'thinking_delta',
+    );
+    expect(thinkingDelta?.thinking).toBe('let me think');
+
+    // The final message carries a thinking block with the reasoning text...
+    const thinkingBlocks = returned.content.filter(
+      (b): b is Extract<typeof b, { type: 'thinking' }> => b.type === 'thinking',
+    );
+    expect(thinkingBlocks).toEqual([{ type: 'thinking', thinking: 'let me think' }]);
+
+    // ...and the reasoning text never contaminates the content/text channel.
+    const textBlocks = returned.content.filter(
+      (b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text',
+    );
+    expect(textBlocks).toEqual([{ type: 'text', text: 'the answer is 42' }]);
+    for (const block of textBlocks) expect(block.text).not.toContain('let me think');
+  });
+
+  test('orders the thinking block before the text block', async () => {
+    const chunks: OpenAIChatChunk[] = [
+      { choices: [{ delta: { reasoning_content: 'reasoning' } }] },
+      { choices: [{ delta: { content: 'reply' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+    ];
+    const { returned } = await drainStream(chunks);
+
+    expect(returned.content).toEqual([
+      { type: 'thinking', thinking: 'reasoning' },
+      { type: 'text', text: 'reply' },
+    ]);
+  });
+
+  test('preserves an engine-supplied tool-call id (no tool_<index> fallback)', async () => {
+    const chunks: OpenAIChatChunk[] = [
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_abc123',
+                  type: 'function',
+                  function: { name: 'Echo', arguments: '{"text":"x"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ];
+    const { returned } = await drainStream(chunks);
+
+    const toolUse = returned.content.find(
+      (b): b is Extract<typeof b, { type: 'tool_use' }> => b.type === 'tool_use',
+    );
+    expect(toolUse?.id).toBe('call_abc123');
+    expect(toolUse?.id).not.toBe('tool_0');
   });
 });
