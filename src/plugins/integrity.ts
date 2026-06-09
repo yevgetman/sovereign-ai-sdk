@@ -68,6 +68,16 @@ function walk(current: string, root: string, out: TreeFile[]): void {
       walk(absPath, root, out);
       continue;
     }
+    // Only REGULAR files contribute to the hash. `withFileTypes` returns
+    // lstat-style Dirents, so a symlink reports isSymbolicLink() (NOT isFile()),
+    // and sockets/FIFOs/devices report neither — `isFile()` cleanly excludes
+    // them all. Critical: a symlink-to-a-directory has isDirectory()===false, so
+    // without this guard it would be pushed as a "file" and readFileSync'd →
+    // EISDIR, sinking the whole hash (a hostile-tree DoS). A legitimately
+    // installed plugin carries no symlinks (T6 install copies trees + rejects
+    // symlink-escape), so any symlink here is an attack artifact, correctly
+    // excluded — and its target bytes never sneak in.
+    if (!entry.isFile()) continue;
     // Skip the consent record itself; hash everything else.
     if (entry.name === CONSENT_FILENAME) continue;
     out.push({ relPath: toPosix(relative(root, absPath)), absPath });

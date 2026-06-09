@@ -10,7 +10,7 @@
 // policy, deterministic ordering, and the absent-dir no-crash case.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildConsentRecord, writeConsent } from '../../src/plugins/consent.js';
@@ -321,6 +321,75 @@ describe('loadPlugins — malformed / missing manifest skip-with-warn', () => {
   });
 });
 
+describe('loadPlugins — hostile-tree DoS guard (never-crash-the-scan contract)', () => {
+  test('a symlink-to-directory in ONE consented plugin does not sink the scan; the healthy sibling still loads', () => {
+    // Hostile plugin: a symlink-to-dir dropped into its tree. Pre-fix, the
+    // integrity walk readFileSync'd the symlink-to-dir → EISDIR propagated out
+    // of loadPlugins entirely, taking down every healthy sibling (a boot-time
+    // DoS once T8 wires this into buildRuntime).
+    const hostileDir = seedPlugin('hostile');
+    const realSub = join(hostileDir, 'skills', 'hostile');
+    symlinkSync(realSub, join(hostileDir, 'skills', 'loop'), 'dir');
+    consent(hostileDir, 'hostile');
+
+    // A healthy, properly-consented sibling that MUST survive.
+    const healthyDir = seedPlugin('healthy');
+    consent(healthyDir, 'healthy');
+
+    const { warn } = collectWarnings();
+    let result: LoadedPlugin[] = [];
+    expect(() => {
+      result = loadPlugins({ harnessHome: home, config: {}, warn });
+    }).not.toThrow();
+
+    // The headline assertion: the healthy sibling still loads and is active.
+    const healthy = result.find((p) => p.id === 'healthy');
+    expect(healthy).toBeDefined();
+    if (!healthy) throw new Error('healthy plugin missing from scan');
+    expect(isPluginActive(healthy)).toBe(true);
+  });
+
+  test('a symlink-to-directory in a self-consented plugin degrades to skip/inert without throwing', () => {
+    // Even when the hostile tree is the ONLY plugin, the scan must not throw.
+    const hostileDir = seedPlugin('lonely-hostile');
+    const realSub = join(hostileDir, 'skills', 'lonely-hostile');
+    symlinkSync(realSub, join(hostileDir, 'skills', 'loop'), 'dir');
+    consent(hostileDir, 'lonely-hostile');
+
+    const { warn } = collectWarnings();
+    expect(() => loadPlugins({ harnessHome: home, config: {}, warn })).not.toThrow();
+  });
+});
+
+describe('loadPlugins — out-of-tree liveness scope (strong rec)', () => {
+  test('a consented manifest pointing skills at out-of-tree content is NOT active', () => {
+    // Out-of-tree content must not satisfy the liveness probe: the probe and
+    // the tree hash must agree on the install-tree boundary.
+    const escapeContent = join(home, 'plugins', 'escape');
+    mkdirSync(escapeContent, { recursive: true });
+    writeFileSync(join(escapeContent, 'SKILL.md'), '# out of tree', 'utf8');
+
+    // A manifest-only install dir (no in-tree skills/commands) whose `skills`
+    // override points UP and OUT to the sibling content above.
+    const installDir = installDirOf('escaper');
+    writeManifest(installDir, {
+      name: 'escaper',
+      version: '1.0.0',
+      description: 'points skills out of tree',
+      skills: '../escape',
+    });
+    consent(installDir, 'escaper');
+
+    const result = loadPlugins({ harnessHome: home, config: {} });
+    const plugin = result.find((p) => p.id === 'escaper');
+    expect(plugin).toBeDefined();
+    if (!plugin) throw new Error('escaper plugin missing from scan');
+    // Out-of-tree content does not satisfy liveness → inert (empty-tree guard).
+    expect(plugin.needsConsent).toBe(true);
+    expect(isPluginActive(plugin)).toBe(false);
+  });
+});
+
 describe('loadPlugins — deterministic order', () => {
   test('returns plugins sorted alphabetically by name', () => {
     for (const name of ['zebra', 'alpha', 'mike']) {
@@ -329,5 +398,21 @@ describe('loadPlugins — deterministic order', () => {
     }
     const result = loadPlugins({ harnessHome: home, config: {} });
     expect(result.map((p) => p.id)).toEqual(['alpha', 'mike', 'zebra']);
+  });
+
+  test('ties on name fall back to a stable secondary key (installDir), not readdir order', () => {
+    // Two manifests declaring the SAME name must still sort deterministically.
+    // (Duplicate-id dedupe is T4's job; this only pins the ORDER is stable.)
+    for (const seg of ['b-dir', 'a-dir']) {
+      const installDir = installDirOf(seg);
+      writeManifest(installDir, { name: 'dup', version: '1.0.0', description: 'x' });
+      const skillsDir = join(installDir, 'skills', seg);
+      mkdirSync(skillsDir, { recursive: true });
+      writeFileSync(join(skillsDir, 'SKILL.md'), '# dup', 'utf8');
+      consent(installDir, 'dup');
+    }
+    const result = loadPlugins({ harnessHome: home, config: {} });
+    // Both share id 'dup'; the secondary installDir key orders a-dir before b-dir.
+    expect(result.map((p) => p.installDir)).toEqual([installDirOf('a-dir'), installDirOf('b-dir')]);
   });
 });

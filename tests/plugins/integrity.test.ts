@@ -9,7 +9,7 @@
 // exclusion.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hashPluginTree } from '../../src/plugins/integrity.js';
@@ -109,6 +109,54 @@ describe('hashPluginTree — nested directories', () => {
     const before = hashPluginTree(dir);
     writeFileSync(join(dir, 'commands', 'nested', 'deep', 'c.md'), 'deep file', 'utf8');
     expect(hashPluginTree(dir)).not.toBe(before);
+  });
+});
+
+describe('hashPluginTree — non-regular entries (symlink DoS guard)', () => {
+  test('does not throw EISDIR when the tree contains a symlink-to-directory', () => {
+    // The DoS: a symlink whose target is a directory reports isDirectory()===false
+    // on its lstat Dirent, so the pre-fix walk treated it as a file and
+    // readFileSync(<symlink-to-dir>) threw EISDIR — sinking the whole hash.
+    seedSimpleTree(dir);
+    const realDir = join(dir, 'commands');
+    mkdirSync(realDir, { recursive: true });
+    writeFileSync(join(realDir, 'cmd.md'), '# cmd', 'utf8');
+    symlinkSync(realDir, join(dir, 'link-to-dir'), 'dir');
+
+    expect(() => hashPluginTree(dir)).not.toThrow();
+  });
+
+  test('a symlink-to-directory does not break determinism (stable across calls)', () => {
+    seedSimpleTree(dir);
+    const realDir = join(dir, 'commands');
+    mkdirSync(realDir, { recursive: true });
+    writeFileSync(join(realDir, 'cmd.md'), '# cmd', 'utf8');
+    symlinkSync(realDir, join(dir, 'link-to-dir'), 'dir');
+
+    expect(hashPluginTree(dir)).toBe(hashPluginTree(dir));
+  });
+
+  test('does not throw on a broken/dangling symlink and stays deterministic', () => {
+    seedSimpleTree(dir);
+    symlinkSync(join(dir, 'does-not-exist'), join(dir, 'dangling'), 'file');
+
+    expect(() => hashPluginTree(dir)).not.toThrow();
+    expect(hashPluginTree(dir)).toBe(hashPluginTree(dir));
+  });
+
+  test('a symlink-to-file is excluded — its target bytes do not contribute to the hash', () => {
+    // Only regular files contribute; a symlink (even to a regular file) is an
+    // attack artifact for a legitimately-installed plugin and is skipped.
+    seedSimpleTree(dir);
+    const before = hashPluginTree(dir);
+
+    writeFileSync(join(dir, 'target.txt'), 'payload', 'utf8');
+    const withRealFile = hashPluginTree(dir);
+    expect(withRealFile).not.toBe(before); // the real file does contribute
+
+    symlinkSync(join(dir, 'target.txt'), join(dir, 'alias.txt'), 'file');
+    // Adding the symlink must NOT change the hash again — it is not hashed.
+    expect(hashPluginTree(dir)).toBe(withRealFile);
   });
 });
 

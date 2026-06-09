@@ -24,7 +24,7 @@
 // Pure aside from reads: this module reads the filesystem and mutates no input.
 
 import { type Dirent, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { readConsent, verifyConsent } from './consent.js';
 import { type PluginManifest, parsePluginManifest } from './manifest.js';
 import type { LoadedPlugin } from './types.js';
@@ -33,8 +33,8 @@ import type { LoadedPlugin } from './types.js';
  *  names (manifest `name`). Sourced from settings in a later task; passed in
  *  here so the loader stays decoupled from the config schema. */
 export type PluginLoaderConfig = {
-  readonly enabled?: string[];
-  readonly disabled?: string[];
+  readonly enabled?: readonly string[];
+  readonly disabled?: readonly string[];
 };
 
 export type LoadPluginsOptions = {
@@ -72,8 +72,11 @@ export function loadPlugins(opts: LoadPluginsOptions): LoadedPlugin[] {
     if (plugin) loaded.push(plugin);
   }
 
-  // Deterministic, platform-independent ordering by identity.
-  loaded.sort((a, b) => a.id.localeCompare(b.id));
+  // Deterministic, platform-independent ordering by identity, with installDir as
+  // a secondary key so two manifests declaring the same `name` still sort
+  // stably (rather than falling back to platform readdir order). Duplicate-id
+  // dedupe / collision handling is T4's job — this only pins a stable order.
+  loaded.sort((a, b) => a.id.localeCompare(b.id) || a.installDir.localeCompare(b.installDir));
   return loaded;
 }
 
@@ -104,7 +107,7 @@ function loadOne(
   if (!manifest) return null;
 
   const id = manifest.name;
-  const gate = evaluateGate(installDir, manifest, warn);
+  const gate = evaluateGateSafe(installDir, manifest, warn);
   const enabled = isEnabled(id, config);
 
   return {
@@ -115,6 +118,28 @@ function loadOne(
     tampered: gate.tampered,
     enabled,
   };
+}
+
+/**
+ * Defense-in-depth wrapper around `evaluateGate` (layer 2 of the never-crash
+ * contract). ANY unexpected error — a file turning unreadable mid-scan, a
+ * permission error, an exotic FS entry layer 1 (the integrity walk) didn't
+ * anticipate — degrades THIS plugin to a flagged-inert verdict
+ * (`needsConsent`), never propagating out of `loadPlugins` to sink healthy
+ * siblings. The plugin stays discoverable (so it's listed + actionable) but
+ * contributes nothing — fail-closed.
+ */
+function evaluateGateSafe(
+  installDir: string,
+  manifest: PluginManifest,
+  warn?: (m: string) => void,
+): GateVerdict {
+  try {
+    return evaluateGate(installDir, manifest, warn);
+  } catch (err) {
+    warn?.(`plugin ${manifest.name} could not be evaluated — inert: ${errorMessage(err)}`);
+    return { needsConsent: true, tampered: false };
+  }
 }
 
 /** Read + parse `<installDir>/.claude-plugin/plugin.json`. Returns null (skip)
@@ -177,14 +202,34 @@ function evaluateGate(
 }
 
 /** True when the plugin carries at least one component dir (`skills`/`commands`,
- *  honouring the manifest's overrides) that contains at least one file. Guards
- *  against the empty-tree / manifest-only "active but contributes nothing" case. */
+ *  honouring the manifest's overrides) that is WITHIN the install tree and
+ *  contains at least one file. Guards against the empty-tree / manifest-only
+ *  "active but contributes nothing" case.
+ *
+ *  Containment (strong-rec fix): the liveness probe MUST agree with the tree
+ *  hash on the install-tree boundary. `hashPluginTree` only ever hashes the real
+ *  install tree, so a manifest override pointing OUT of the tree (e.g.
+ *  `skills: '../sibling'`) is neither hash-covered nor content-bounded and must
+ *  NOT satisfy liveness — otherwise a manifest-only plugin redirected at
+ *  out-of-tree content would falsely count as active. Each candidate dir is
+ *  resolved and required to stay under the install root before probing. */
 function hasRealContent(installDir: string, manifest: PluginManifest): boolean {
   const dirs = new Set<string>([manifest.skills, manifest.commands, ...COMPONENT_DIRS]);
   for (const rel of dirs) {
-    if (dirHasFile(join(installDir, rel))) return true;
+    const candidate = join(installDir, rel);
+    if (!isWithin(installDir, candidate)) continue; // out-of-tree ⇒ not liveness content
+    if (dirHasFile(candidate)) return true;
   }
   return false;
+}
+
+/** True when `candidate` resolves to a path at or under `root`. The trailing
+ *  separator on the prefix avoids the `/foo` vs `/foobar` sibling-prefix bug. */
+function isWithin(root: string, candidate: string): boolean {
+  const resolvedRoot = resolve(root);
+  const resolvedCandidate = resolve(candidate);
+  if (resolvedCandidate === resolvedRoot) return true;
+  return resolvedCandidate.startsWith(resolvedRoot + sep);
 }
 
 /** True when `dir` exists and contains at least one regular file anywhere
