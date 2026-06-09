@@ -1,7 +1,8 @@
 // Reasoning-depth ("effort") control. Pure, provider-agnostic translation of a
 // named effort level into the per-provider wire parameters that turn extended
 // thinking / reasoning on (Anthropic `thinking.budget_tokens`, OpenAI
-// `reasoning_effort`, sov/ollama `enable_thinking`).
+// `reasoning_effort`, sov `enable_thinking`). ollama is gated off for v1 (see
+// modelSupportsReasoning) — its native thinking switch differs from sov's.
 //
 // This module imports ONLY the ApiMode type — no provider classes — so it stays
 // a leaf the adapters depend on, never the reverse. The adapters (anthropic.ts /
@@ -46,7 +47,14 @@ export const MAX_TOKENS_CEILING = 32000;
  *  - anthropic: the 4.x hybrid family (haiku/sonnet/opus -4) supports thinking;
  *    pre-4 (claude-3*, claude-2*) does not.
  *  - openai: o1/o3/o4/gpt-5 reasoning families do; gpt-4x/gpt-3x do not.
- *  - sov / ollama: always (the local engines gate it themselves).
+ *  - sov: always (our own local reasoning engine — the lane exists to think,
+ *    and it gates depth itself via the `enable_thinking` chat-template flag).
+ *  - ollama: gated OFF for v1. ollama's native thinking is a top-level
+ *    `think: true` on /api/chat (model-dependent), NOT the `enable_thinking`
+ *    chat-template flag sov uses, and wiring it safely needs per-model
+ *    capability data we don't have yet — so `/effort` is a no-op on ollama
+ *    until that lands (documented fast-follow). Returning false here keeps the
+ *    capability gate honest (no thinking param is ever attached for ollama).
  *  - unknown apiMode: never.
  */
 export function modelSupportsReasoning(model: string, apiMode: ApiMode): boolean {
@@ -57,8 +65,10 @@ export function modelSupportsReasoning(model: string, apiMode: ApiMode): boolean
     case 'openai':
       return /(^|[^a-z])(o1|o3|o4)([^a-z]|$)/.test(id) || /gpt-5/.test(id);
     case 'sov':
-    case 'ollama':
       return true;
+    case 'ollama':
+      // Gated off for v1 — per-model `think` support not yet wired.
+      return false;
     default:
       return false;
   }
@@ -91,6 +101,9 @@ export function anthropicThinkingFor(
   }
   let budget = Math.max(MIN_THINKING_BUDGET, EFFORT_BUDGET_TOKENS[effort]);
   const newMax = Math.min(MAX_TOKENS_CEILING, Math.max(maxTokens, budget + RESPONSE_HEADROOM));
+  // Unreachable with the present constants (every level's budget + headroom
+  // stays under the ceiling), but guards the budget < max_tokens invariant if a
+  // budget is ever raised to ≥ ceiling − headroom.
   if (budget >= newMax) {
     budget = newMax - 1;
   }

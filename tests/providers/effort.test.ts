@@ -83,11 +83,18 @@ describe('modelSupportsReasoning', () => {
     expect(modelSupportsReasoning('info3-model', 'openai')).toBe(false);
   });
 
-  test('sov and ollama always supported; unknown apiMode never', () => {
+  test('sov always supported; unknown apiMode never', () => {
     expect(modelSupportsReasoning('anything', 'sov')).toBe(true);
-    expect(modelSupportsReasoning('whatever', 'ollama')).toBe(true);
     // ApiMode is a closed union, but guard the default branch defensively.
     expect(modelSupportsReasoning('x', 'mystery' as never)).toBe(false);
+  });
+
+  test('ollama is gated OFF for v1 (per-model `think` not yet wired)', () => {
+    // /effort is a no-op on ollama models — the capability gate stays honest so
+    // no thinking param is ever attached. (Reasoning support is a fast-follow.)
+    expect(modelSupportsReasoning('qwen3', 'ollama')).toBe(false);
+    expect(modelSupportsReasoning('llama3', 'ollama')).toBe(false);
+    expect(modelSupportsReasoning('qwen2.5:7b', 'ollama')).toBe(false);
   });
 });
 

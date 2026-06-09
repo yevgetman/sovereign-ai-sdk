@@ -36,20 +36,22 @@ Claude Code's newest path uses a private server-side `effort` beta unavailable o
 - **D5 — Per-session sticky + config default, mirroring `/model`.** `/effort <level>` mutates live `runtime.effort` (like `setModel` mutates `runtime.model`) and emits a TUI side-effect. The default comes from a new `thinking.effort` config field (settable via `/config`). Per-session, not persisted to disk by the command itself (matches `/model`'s live-mutation model; persistence is via `/config`).
 - **D6 — Capability-gated, fail-soft.** If `effort != off` but the active model doesn't support reasoning, the request is sent **unchanged** (no `thinking`/`reasoning_effort`) and the command surfaces a one-line notice. Never send a thinking param to a model that will 400 on it. Mirrors OpenCode's `model.capabilities.reasoning` gate.
 - **D7 — Anthropic API constraints handled at the adapter.** When thinking is enabled for an Anthropic request: (a) `budget_tokens ≥ 1024`; (b) `budget_tokens < max_tokens` — raise the request's `max_tokens` floor to `budget_tokens + RESPONSE_HEADROOM` when needed; (c) **drop `temperature`** (the API rejects `temperature != 1` with thinking enabled); (d) attach the **interleaved-thinking beta** (`interleaved-thinking-2025-05-14`) so reasoning persists across tool-use turns in this agentic harness.
-- **D8 — OpenAI-wire mapping.** For `apiMode: 'openai'` reasoning models, map level → `reasoning_effort: 'low'|'medium'|'high'` (`max`→`high`, `off`→omit). For local OpenAI-wire engines (`sov`, `ollama`), additionally pass a best-effort `chat_template_kwargs: { enable_thinking: true }` when effort != off (these already surface `reasoning_content` on the receive side). Non-reasoning OpenAI models are caught by the D6 gate.
+- **D8 — OpenAI-wire mapping.** For `apiMode: 'openai'` reasoning models, map level → `reasoning_effort: 'low'|'medium'|'high'` (`max`→`high`, `off`→omit). For the local `sov` OpenAI-wire engine, additionally pass `chat_template_kwargs: { enable_thinking: true }` when effort != off (it already surfaces `reasoning_content` on the receive side). Non-reasoning OpenAI models are caught by the D6 gate. **ollama is gated OFF in v1** (its native `think: true` switch differs from sov's `enable_thinking` flag and needs per-model capability data not yet wired — deferred, see §9).
 - **D9 — No Gemini path.** This harness has no Google/Gemini provider (`apiMode ∈ anthropic | openai | ollama | sov`), so the Gemini `thinkingConfig` branch the reference tools carry is out of scope.
 
 ## 4. Level → wire mapping (the core table)
 
 Constants live in a new pure module `src/providers/effort.ts`.
 
-| Level | Anthropic `budget_tokens` | OpenAI `reasoning_effort` | sov/ollama `enable_thinking` |
+| Level | Anthropic `budget_tokens` | OpenAI `reasoning_effort` | sov `enable_thinking` |
 |---|---|---|---|
 | `off` | — (omit `thinking`) | — (omit) | `false` / omit |
 | `low` | 4_000 | `low` | `true` |
 | `medium` | 8_000 | `medium` | `true` |
 | `high` | 16_000 | `high` | `true` |
 | `max` | 24_000 (clamped `< maxTokens` ceiling) | `high` | `true` |
+
+> **ollama is gated off in v1** (deferred — see §9): `/effort` is a no-op on ollama models. Its native `think: true` switch differs from sov's `enable_thinking` chat-template flag and needs per-model capability data not yet wired.
 
 - `RESPONSE_HEADROOM = 8_192`. Anthropic `max_tokens` floor when thinking on: `min(MAX_TOKENS_CEILING, max(currentMaxTokens, budgetTokens + RESPONSE_HEADROOM))`.
 - `MAX_TOKENS_CEILING = 32_000` — a conservative output ceiling so the raised `max_tokens` never exceeds a 4.x model's output cap and 400s. **Implementer note (T2):** verify the actual per-model output ceilings for the harness's Anthropic models (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-*`) and clamp to the real value where known; fall back to `MAX_TOKENS_CEILING` when unknown. The ladder above is sized so `budget + headroom ≤ 32k` at every level.
@@ -76,7 +78,7 @@ export function openAiReasoningFor(effort): { reasoning_effort?: 'low'|'medium'|
 - `anthropic`: the **4.x hybrid family supports extended thinking** — `claude-(haiku|sonnet|opus)-4` ⇒ true (this includes the harness's **default model `claude-haiku-4-5`**, so the feature works out of the box). Pre-4 families (`claude-3*`, `claude-2*`) ⇒ false.
 - `openai`: `o1`/`o3`/`o4`/`gpt-5` families ⇒ true; `gpt-4*` / `gpt-3*` ⇒ false.
 - `sov`: true (local reasoning engine — the lane exists to think).
-- `ollama`: true (best-effort; reasoning models surface `reasoning_content`).
+- `ollama`: **false (gated off in v1).** ollama's native thinking is a top-level `think: true` on `/api/chat` (model-dependent), NOT the `enable_thinking` chat-template flag sov uses; wiring it safely needs per-model capability data we don't have, so `/effort` is a no-op on ollama until that lands (deferred — see §9). The capability gate returns false so no thinking param is ever attached.
 - **Implementer note (T1):** confirm `claude-haiku-4-5` accepts the `thinking` param against the live API during T2 adapter testing; if it rejects it, demote `haiku-4` to `false` and document. Sonnet/Opus 4.x are known-good.
 
 ## 6. Integration anchors (file:line as of HEAD)
@@ -109,6 +111,7 @@ export function openAiReasoningFor(effort): { reasoning_effort?: 'low'|'medium'|
 
 ## 9. Out of scope (v1)
 
+- **ollama reasoning — gated OFF in v1 (deferred fast-follow).** `modelSupportsReasoning('…', 'ollama')` returns `false`, so `/effort` is a no-op on ollama models and no thinking param is ever attached. ollama's native thinking is a top-level `think: true` on `/api/chat` (model-dependent), NOT the `enable_thinking` chat-template flag sov uses; wiring it safely needs per-model capability data we don't have yet. Lighting it up is a documented fast-follow.
 - Agentic-looping control (`maxTurns`) — separate knob, already config-settable.
 - Numeric / raw-token-budget argument (user chose named levels only).
 - A `--effort` startup CLI flag and an env override (Claude Code has both) — deferrable; the slash command + config default cover the ask. Noted as a fast-follow.

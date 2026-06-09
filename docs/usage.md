@@ -1800,7 +1800,7 @@ The level is **per-session**, mutated live (parallel to `/model`) — it is not 
 
 **Level → provider mapping.** The named level forks per provider at the adapter boundary (`src/providers/effort.ts`):
 
-| Level | Anthropic (`thinking.budget_tokens`) | OpenAI reasoning models (`reasoning_effort`) | sov / ollama (`enable_thinking`) |
+| Level | Anthropic (`thinking.budget_tokens`) | OpenAI reasoning models (`reasoning_effort`) | sov (`enable_thinking`) |
 |---|---|---|---|
 | `off` | — (no `thinking`; request byte-identical) | — (omitted) | — (omitted) |
 | `low` | 4000 | `low` | `true` |
@@ -1808,7 +1808,9 @@ The level is **per-session**, mutated live (parallel to `/model`) — it is not 
 | `high` | 16000 | `high` | `true` |
 | `max` | 24000 | `high` (the OpenAI scale tops out at `high`) | `true` |
 
-For Anthropic, when thinking is on the adapter also: raises `max_tokens` to fit the budget (floor `budget + 8192`, clamped to a 32000 ceiling; the budget is shaved below `max_tokens` if needed); **drops `temperature`** (the API rejects `temperature != 1` with thinking enabled); and attaches the interleaved-thinking beta (`interleaved-thinking-2025-05-14`) so reasoning persists across tool-use turns. Models that support reasoning: the Anthropic 4.x family (`claude-haiku-4-5` / `-sonnet-4` / `-opus-4` — includes the default model, so it works out of the box), OpenAI `o1`/`o3`/`o4`/`gpt-5`, and the local `sov`/`ollama` engines. Default `off` ⇒ the request is byte-identical to a no-thinking turn.
+For Anthropic, when thinking is on the adapter also: raises `max_tokens` to fit the budget (floor `budget + 8192`, clamped to a 32000 ceiling; the budget is shaved below `max_tokens` if needed); **drops `temperature`** (the API rejects `temperature != 1` with thinking enabled); and attaches the interleaved-thinking beta (`interleaved-thinking-2025-05-14`) so reasoning persists across tool-use turns. Models that support reasoning: the Anthropic 4.x family (`claude-haiku-4-5` / `-sonnet-4` / `-opus-4` — includes the default model, so it works out of the box), OpenAI `o1`/`o3`/`o4`/`gpt-5`, and the local `sov` engine. Default `off` ⇒ the request is byte-identical to a no-thinking turn.
+
+> **ollama reasoning is not yet supported** (planned fast-follow). `/effort` is a **no-op on ollama models**: ollama's native thinking switch (a top-level `think: true` on `/api/chat`) differs from the `enable_thinking` chat-template flag `sov` uses and needs per-model capability data that isn't wired yet, so the capability gate reports ollama models as non-reasoning and no thinking parameter is attached.
 
 **Status line.** Once you run `/effort` at least once, the TUI status line shows `effort:<level>` in its left column (after the model). It is not seeded at boot (unlike the model field), so it stays absent until the first `/effort`.
 

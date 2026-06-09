@@ -234,8 +234,9 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
   const resolvedProvider: ResolvedProvider = {
     // Stub transport carries a harmless `apiMode` so the server CommandContext
     // builder (which reads `resolvedProvider.transport.apiMode` for /effort)
-    // gets a valid ApiMode rather than undefined. /effort isn't reachable in
-    // config-only mode; this only keeps the typed field honest at runtime.
+    // gets a valid ApiMode rather than undefined. /effort is reachable but
+    // harmless in config-only mode (the stub runtime makes it report a sane
+    // no-op); this keeps the typed field honest so that report is coherent.
     transport: { ...stubProvider, apiMode: 'anthropic' } as unknown as Transport,
     client: stubProvider,
     baseUrl: 'config-only://',
@@ -327,7 +328,8 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     provider: stubProvider,
     model: CONFIG_ONLY_MODEL,
     // Standalone `sov config` never runs a turn — the inert default. (The
-    // /effort command isn't reachable here; this only satisfies the type.)
+    // /effort command is reachable but harmless here: with no active session it
+    // reports a sane no-op against this stub state.)
     effort: 'off',
     agents: { agents: [], byName: new Map() },
     bundle: null,

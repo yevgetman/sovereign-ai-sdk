@@ -15,8 +15,11 @@
 // records the change as a side-effect for the TUI status display. This file is
 // purely the user-facing surface; it never touches the provider wire.
 
-import { REASONING_EFFORTS, type ReasoningEffort } from '../providers/effort.js';
-import { modelSupportsReasoning } from '../providers/effort.js';
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+  modelSupportsReasoning,
+} from '../providers/effort.js';
 import type { CommandContext, LocalCommand } from './types.js';
 
 const USAGE = '/effort [off|low|medium|high|max]';

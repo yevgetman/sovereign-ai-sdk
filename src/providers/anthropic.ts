@@ -108,6 +108,7 @@ export class AnthropicProvider
     // Resolve thinking only when it applies; otherwise leave max_tokens and
     // temperature exactly as the caller set them (byte-identical request).
     const thinking =
+      // narrows req.effort for the call below
       req.effort !== undefined && thinkingApplies(req)
         ? anthropicThinkingFor(req.effort, req.maxTokens)
         : undefined;

@@ -165,6 +165,7 @@ export class OpenAIProvider
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(req.toolChoice !== undefined ? { tool_choice: mapToolChoice(req.toolChoice) } : {}),
+      // narrows req.effort for the call below
       ...(reasoningOn && req.effort !== undefined ? openAiReasoningFor(req.effort) : {}),
       // The sov local engine (vLLM/MLX) toggles its thinking channel via the
       // chat-template flag rather than reasoning_effort.
