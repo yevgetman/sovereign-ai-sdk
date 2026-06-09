@@ -11,12 +11,46 @@ import { type Settings, SettingsSchema } from './schema.js';
 const SECRET_KEYS = new Set(['apiKey', 'token']);
 const SECRET_LIST_KEYS = new Set(['apiKeys']);
 
-export function resolveConfigPath(envOverride?: string): string {
-  return envOverride ?? process.env.HARNESS_CONFIG ?? join(resolveHarnessHome(), 'config.json');
+/**
+ * Resolve the config file path. Precedence: an explicit `envOverride` path →
+ * `HARNESS_CONFIG` env → `<harnessHome>/config.json`.
+ *
+ * `harnessHome` (backlog #55) lets a caller that already resolved its own
+ * state root (e.g. `buildRuntime`, which accepts a `harnessHome` option) point
+ * the FALLBACK at THAT home rather than the process-global `resolveHarnessHome()`
+ * (which reads `$HARNESS_HOME` / `homedir()`). When omitted the fallback is the
+ * global home — byte-identical to the prior behavior. The two explicit
+ * overrides still win, so this only changes where an otherwise-default lookup
+ * lands.
+ */
+export function resolveConfigPath(envOverride?: string, harnessHome?: string): string {
+  return (
+    envOverride ??
+    process.env.HARNESS_CONFIG ??
+    join(harnessHome ?? resolveHarnessHome(), 'config.json')
+  );
 }
 
-export function readConfig(path?: string): Settings {
-  const file = resolveConfigPath(path);
+export interface ReadConfigOptions {
+  /** Explicit config file path. Highest precedence (matches the historical
+   *  positional `path` argument). */
+  path?: string;
+  /** Backlog #55 — fall back to `<harnessHome>/config.json` instead of the
+   *  process-global home when neither an explicit path nor `HARNESS_CONFIG`
+   *  is set. */
+  harnessHome?: string;
+}
+
+/**
+ * Read + validate the config file. Accepts either the legacy positional
+ * `path` string or a {@link ReadConfigOptions} object (which adds the
+ * `harnessHome` fallback for #55). Returns `{}` when the resolved file is
+ * absent.
+ */
+export function readConfig(pathOrOpts?: string | ReadConfigOptions): Settings {
+  const opts: ReadConfigOptions =
+    typeof pathOrOpts === 'string' ? { path: pathOrOpts } : (pathOrOpts ?? {});
+  const file = resolveConfigPath(opts.path, opts.harnessHome);
   if (!existsSync(file)) return {};
   const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown;
   return SettingsSchema.parse(raw);

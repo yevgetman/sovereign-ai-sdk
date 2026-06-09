@@ -615,7 +615,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // Pre-read taskRouting.enabled so we can filter routing agents from the
   // tool pool's AgentTool enum. The full registry stays on the runtime for
   // /agent slash-command dispatch; only the model-visible enum is narrowed.
-  const earlySettings = readConfig();
+  // Backlog #55 — read config from the runtime's resolved harnessHome (not
+  // the process-global home) so a runtime built with an explicit harnessHome
+  // (while $HARNESS_HOME is unset) reads ITS config, not ~/.harness/config.json.
+  const earlySettings = readConfig({ harnessHome });
   const taskRoutingEnabledAtBoot = resolveTaskRoutingEnabled(
     process.env.SOV_TASK_ROUTING_ENABLED,
     earlySettings.taskRouting?.enabled,
@@ -726,7 +729,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // Phase 1 — pulled BEFORE the buildSystemSegments call so the
   // smart-router prompt body can flow into the parent system prompt when
   // `userSettings.taskRouting?.enabled === true`.
-  const userSettings = readConfig();
+  // Backlog #55 — scoped to the runtime's harnessHome (see earlySettings above).
+  const userSettings = readConfig({ harnessHome });
 
   // Phase B T2 — set the per-session SSE replay-ring default from
   // gateway.eventBufferSize so every bus minted at runtime (turns / events /
@@ -993,8 +997,16 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // On-disk session DB. Opens at <harnessHome>/sessions.db by default;
   // the --db CLI flag overrides the path. cleanupPhantomReviews sweeps
   // stale review-fork rows from prior session crashes.
-  const sessionDb =
-    opts.dbPath !== undefined ? SessionDb.open({ path: opts.dbPath }) : SessionDb.open({});
+  //
+  // Backlog #55 — derive the default path from the runtime's resolved
+  // `harnessHome`, NOT SessionDb.open's own resolveHarnessHome() fallback.
+  // The two diverge when a caller passes `harnessHome` while $HARNESS_HOME is
+  // unset (a real dev machine / any embedder), which silently opened the
+  // GLOBAL ~/.harness/sessions.db. Threading `harnessHome` here makes the DB
+  // land under the home the runtime was actually built with.
+  const sessionDb = SessionDb.open({
+    path: opts.dbPath ?? join(harnessHome, 'sessions.db'),
+  });
   const phantomsCleaned = sessionDb.cleanupPhantomReviews();
   if (phantomsCleaned > 0) {
     process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
@@ -1313,7 +1325,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // who chose to hot-toggle.
   const cacheEnabled = opts.cacheEnabled !== false;
   const rebuildTaskRouting = async (): Promise<void> => {
-    const fresh = readConfig();
+    // Backlog #55 — hot-reload from the runtime's harnessHome, not the global.
+    const fresh = readConfig({ harnessHome });
     const freshEnabled = resolveTaskRoutingEnabled(
       process.env.SOV_TASK_ROUTING_ENABLED,
       fresh.taskRouting?.enabled,

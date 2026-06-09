@@ -365,6 +365,64 @@ describe('buildRuntime — preflight execution', () => {
   });
 });
 
+describe('buildRuntime — harnessHome isolation (#55)', () => {
+  // Regression guard for backlog #55: buildRuntime accepted `harnessHome` but
+  // did not thread it into SessionDb.open() (defaulted to
+  // resolveHarnessHome()/sessions.db) or readConfig() (defaulted to
+  // resolveHarnessHome()/config.json). With $HARNESS_HOME unset — a real
+  // developer machine — both silently leaked to the GLOBAL ~/.harness, so a
+  // runtime built with an explicit harnessHome read the wrong DB + config.
+  // These tests clear HARNESS_HOME / HARNESS_CONFIG so they assert the
+  // threading, NOT the env fallback (which masked the bug in CI's clean home).
+
+  test('opens sessionDb under the passed harnessHome (not the global home)', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-runtime-home-'));
+    const prevHome = process.env.HARNESS_HOME;
+    const prevConfig = process.env.HARNESS_CONFIG;
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    // biome-ignore lint/performance/noDelete: must truly unset so the fallback can't accidentally match.
+    delete process.env.HARNESS_HOME;
+    // biome-ignore lint/performance/noDelete: same — no explicit config override.
+    delete process.env.HARNESS_CONFIG;
+    try {
+      const rt = await buildRuntime({
+        harnessHome: home,
+        cwd: home,
+        provider: 'mock',
+        model: 'mock-haiku',
+        preflight: false,
+      });
+      try {
+        expect(rt.sessionDb.handle.filename).toBe(join(home, 'sessions.db'));
+        expect(existsSync(join(home, 'sessions.db'))).toBe(true);
+      } finally {
+        await rt.dispose();
+      }
+    } finally {
+      // biome-ignore lint/performance/noDelete: restore process.env to its prior state.
+      delete process.env.SOV_TEST_MOCK_PROVIDER;
+      if (prevHome === undefined) {
+        // biome-ignore lint/performance/noDelete: restore absence.
+        delete process.env.HARNESS_HOME;
+      } else {
+        process.env.HARNESS_HOME = prevHome;
+      }
+      if (prevConfig === undefined) {
+        // biome-ignore lint/performance/noDelete: restore absence.
+        delete process.env.HARNESS_CONFIG;
+      } else {
+        process.env.HARNESS_CONFIG = prevConfig;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // NOTE: the config-leak half of #55 (readConfig defaulting to the global
+  // home) is covered deterministically in tests/config/store.test.ts —
+  // 'readConfig({ harnessHome }) ...' — which doesn't depend on the dev's
+  // global config contents the way a runtime.permissionMode assertion would.
+});
+
 describe('PreflightError — cause chaining', () => {
   test('PreflightError preserves cause when supplied', async () => {
     const { PreflightError } = await import('../../src/server/errors.js');

@@ -151,7 +151,13 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // session without a restart. Both T5 (learning) and T6 (review) consume
   // the result — keeping the read singular avoids the duplicate-disk-hit
   // smell the T5 reviewer flagged as a watch item for T6.
-  const userSettings = readConfig();
+  //
+  // Backlog #55 — read from the runtime's resolved harnessHome (not the
+  // process-global home). Otherwise a runtime built with an explicit
+  // harnessHome (while $HARNESS_HOME is unset) would resolve learning/review
+  // settings from ~/.harness/config.json — diverging from the home the
+  // observer/recall/synthesizer actually write under (runtime.harnessHome).
+  const userSettings = readConfig({ harnessHome: runtime.harnessHome });
 
   // Phase E T6 — the owning principal for this session. Read ONCE from the
   // SESSION ROW's ownerId (stamped at session creation by the authenticated

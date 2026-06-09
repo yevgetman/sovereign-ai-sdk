@@ -8,6 +8,7 @@ import {
   parseValueLiteral,
   readConfig,
   redactSecrets,
+  resolveConfigPath,
   setAt,
   unsetAt,
   writeConfig,
@@ -127,5 +128,74 @@ describe('config store', () => {
       JSON.stringify({ providers: { anthropic: { credentials: [{ apiKey: 'x' }] } } }),
     );
     expect(() => setAt(readConfig(), 'providers.anthropic.credentials.0.apiKey', 'y')).toThrow();
+  });
+});
+
+// Backlog #55 — config home isolation. resolveConfigPath / readConfig must
+// honor a caller-supplied harnessHome for the FALLBACK location (when no
+// explicit path and no HARNESS_CONFIG env), instead of always defaulting to
+// the global resolveHarnessHome(). These tests clear HARNESS_HOME +
+// HARNESS_CONFIG so they assert the threading, not the env fallback.
+describe('config store — harnessHome isolation (#55)', () => {
+  let dir: string;
+  const prevHome = process.env.HARNESS_HOME;
+  const prevConfig = process.env.HARNESS_CONFIG;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'harness-cfg-home-'));
+    // biome-ignore lint/performance/noDelete: must truly unset so the fallback can't accidentally match.
+    delete process.env.HARNESS_HOME;
+    // biome-ignore lint/performance/noDelete: same — no explicit config override.
+    delete process.env.HARNESS_CONFIG;
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    if (prevHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = prevHome;
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+  });
+
+  test('resolveConfigPath falls back to <harnessHome>/config.json', () => {
+    expect(resolveConfigPath(undefined, dir)).toBe(join(dir, 'config.json'));
+  });
+
+  test('readConfig({ harnessHome }) reads <harnessHome>/config.json', () => {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ defaultProvider: 'ollama' }));
+    expect(readConfig({ harnessHome: dir })).toEqual({ defaultProvider: 'ollama' });
+  });
+
+  test('explicit HARNESS_CONFIG still wins over harnessHome', () => {
+    // The home config says ollama; the explicit override says anthropic.
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ defaultProvider: 'ollama' }));
+    const overrideDir = mkdtempSync(join(tmpdir(), 'harness-cfg-ovr-'));
+    const overridePath = join(overrideDir, 'config.json');
+    writeFileSync(overridePath, JSON.stringify({ defaultProvider: 'anthropic' }));
+    process.env.HARNESS_CONFIG = overridePath;
+    try {
+      // The explicit env override takes precedence over the harnessHome fallback.
+      expect(resolveConfigPath(undefined, dir)).toBe(overridePath);
+      expect(readConfig({ harnessHome: dir })).toEqual({ defaultProvider: 'anthropic' });
+    } finally {
+      // biome-ignore lint/performance/noDelete: unset before afterEach restores the saved value.
+      delete process.env.HARNESS_CONFIG;
+      rmSync(overrideDir, { recursive: true, force: true });
+    }
+  });
+
+  test('explicit path arg still wins over harnessHome', () => {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ defaultProvider: 'ollama' }));
+    const explicitDir = mkdtempSync(join(tmpdir(), 'harness-cfg-exp-'));
+    const explicitPath = join(explicitDir, 'config.json');
+    writeFileSync(explicitPath, JSON.stringify({ defaultProvider: 'openai' }));
+    try {
+      expect(resolveConfigPath(explicitPath, dir)).toBe(explicitPath);
+      expect(readConfig({ path: explicitPath, harnessHome: dir })).toEqual({
+        defaultProvider: 'openai',
+      });
+    } finally {
+      rmSync(explicitDir, { recursive: true, force: true });
+    }
   });
 });
