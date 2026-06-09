@@ -88,6 +88,42 @@ export type PluginManifest = {
   ignored: string[];
 };
 
+/** The validated known-subset shape Zod infers (BEFORE the `ignored[]`
+ *  transform), restricted to the consumed `KNOWN_KEYS` (the `.passthrough()`
+ *  index signature is dropped so only the declared fields are compared). */
+type InferredKnownManifest = Pick<
+  z.infer<typeof PluginManifestKnownSchema>,
+  (typeof KNOWN_KEYS)[number]
+>;
+
+/** The hand-declared shape minus the transform's own `ignored[]` addition. */
+type DeclaredKnownManifest = Omit<PluginManifest, 'ignored'>;
+
+/** Strict structural equality at the type level: `true` only when A and B are
+ *  mutually identical (catches an extra key, a missing key, AND a field-type or
+ *  optionality mismatch — unlike a one-way `extends`). */
+type TypesEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+  ? true
+  : false;
+
+/** Forces a compile error unless its argument is exactly `true` (the constraint
+ *  `T extends true` is violated by `false`, erroring AT this alias). */
+type Expect<T extends true> = T;
+
+/** Compile-time drift guard (T9): the hand-declared `PluginManifest` can
+ *  silently diverge from `PluginManifestKnownSchema` (the `as PluginManifest`
+ *  cast in the transform above erases any mismatch at runtime). If the schema's
+ *  inferred known fields stop matching `PluginManifest`'s declared ones — a
+ *  missing key, a renamed/extra key, a changed field type, or an
+ *  optional/required flip — `TypesEqual` becomes `false` and `Expect<false>`
+ *  fails `typecheck` here. `ignored[]` is excluded (the runtime transform
+ *  supplies it). Type-only — no runtime cost. Exported solely so it counts as
+ *  used under `noUnusedLocals`; it carries no value and is not meant to be
+ *  imported. */
+export type PluginManifestSchemaDriftGuard = Expect<
+  TypesEqual<InferredKnownManifest, DeclaredKnownManifest>
+>;
+
 /** Parse untrusted manifest JSON into a `PluginManifest`. Throws a `ZodError`
  *  on any validation failure (bad name, malformed hooks/mcpServers, …). Pure —
  *  Zod returns a new object; the input is never mutated. */

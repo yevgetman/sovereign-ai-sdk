@@ -79,6 +79,12 @@ export function buildPluginSnapshots(plugins: readonly LoadedPlugin[]): PluginSn
   });
 }
 
+// NOTE: this walk mirrors the skill loader's `listMarkdownFiles`/`walk`
+// semantics (`src/skills/loader.ts`): a dir holding `SKILL.md` is ONE component
+// (no descent), otherwise recurse and count each loose `.md`. The sibling
+// `walkComponentFiles` in `src/plugins/install.ts` implements the same rule but
+// async + collecting file paths (vs this sync count); the sync/async + shape
+// split is why they are not a single shared helper. Keep all three in sync.
 function countComponentDir(dir: string): number {
   if (!existsSync(dir)) return 0;
   let count = 0;

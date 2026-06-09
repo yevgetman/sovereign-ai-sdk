@@ -24,9 +24,10 @@
 // Pure aside from reads: this module reads the filesystem and mutates no input.
 
 import { type Dirent, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import { readConsent, verifyConsent } from './consent.js';
 import { type PluginManifest, parsePluginManifest } from './manifest.js';
+import { isWithin } from './pathContainment.js';
 import type { LoadedPlugin } from './types.js';
 
 /** The opt-in enable/disable config the loader consults. Both lists hold plugin
@@ -221,15 +222,6 @@ function hasRealContent(installDir: string, manifest: PluginManifest): boolean {
     if (dirHasFile(candidate)) return true;
   }
   return false;
-}
-
-/** True when `candidate` resolves to a path at or under `root`. The trailing
- *  separator on the prefix avoids the `/foo` vs `/foobar` sibling-prefix bug. */
-function isWithin(root: string, candidate: string): boolean {
-  const resolvedRoot = resolve(root);
-  const resolvedCandidate = resolve(candidate);
-  if (resolvedCandidate === resolvedRoot) return true;
-  return resolvedCandidate.startsWith(resolvedRoot + sep);
 }
 
 /** True when `dir` exists and contains at least one regular file anywhere

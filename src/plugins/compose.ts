@@ -24,13 +24,14 @@
 
 import { type Dirent, existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { extname, join, resolve, sep } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import type { PromptCommand } from '../commands/types.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkillFromPath } from '../skills/loader.js';
 import type { SkillRoot } from '../skills/loader.js';
 import type { Skill } from '../skills/types.js';
 import { isPluginActive } from './loader.js';
+import { isWithin } from './pathContainment.js';
 import type { DisclosedComponent, LoadedPlugin, PluginContributions } from './types.js';
 
 export type ComposeOptions = {
@@ -180,17 +181,6 @@ function collectDisclosures(
   if (manifest.ignored.length > 0) {
     ignored.push({ pluginId: plugin.id, value: manifest.ignored });
   }
-}
-
-/** True when `candidate` resolves to a path at or under `root`. The trailing
- *  separator on the prefix avoids the `/foo` vs `/foobar` sibling-prefix bug.
- *  Mirrors the identical guard in the T3 loader (kept local — no cross-module
- *  coupling for a four-line predicate). */
-function isWithin(root: string, candidate: string): boolean {
-  const resolvedRoot = resolve(root);
-  const resolvedCandidate = resolve(candidate);
-  if (resolvedCandidate === resolvedRoot) return true;
-  return resolvedCandidate.startsWith(resolvedRoot + sep);
 }
 
 /** The immediate `.md` files under `dir`, sorted for deterministic load order.

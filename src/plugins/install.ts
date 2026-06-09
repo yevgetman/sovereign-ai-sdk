@@ -17,7 +17,7 @@
 
 import { type Dirent, existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { guardSkillLoad, guardSkillText } from '../skills/guard.js';
 import { assertNoSymlinkEscape, copySkillTree } from '../skills/symlinkGuard.js';
 import { buildConsentRecord, writeConsent } from './consent.js';
@@ -29,6 +29,7 @@ import {
 } from './disclosure.js';
 import { hashPluginTree } from './integrity.js';
 import { type PluginManifest, parsePluginManifest } from './manifest.js';
+import { isOneLevelUnder, isWithin } from './pathContainment.js';
 import { scanObjectForSecrets } from './secretScan.js';
 
 /** Per-component consent recorded at mint time: skills + commands are ACCEPTED;
@@ -244,7 +245,7 @@ export async function uninstallPlugin(
   // Defense in depth: confirm targetDir is exactly one level under pluginsRoot.
   const rootAbs = resolve(opts.pluginsRoot);
   const targetAbs = resolve(targetDir);
-  if (!isContainedOneLevel(rootAbs, targetAbs)) {
+  if (!isOneLevelUnder(rootAbs, targetAbs)) {
     return { ok: false, reason: `refusing to remove path outside plugins root: ${targetAbs}` };
   }
 
@@ -336,7 +337,7 @@ function pathContainmentReject(label: string, value: string, sourceAbs: string):
       return `refusing to install: manifest path '${label}' = '${value}' is absolute; declared paths must stay under the plugin root.`;
     }
     const resolved = resolve(sourceAbs, variant.raw);
-    if (!isContainedUnder(sourceAbs, resolved)) {
+    if (!isWithin(sourceAbs, resolved)) {
       return `refusing to install: manifest path '${label}' = '${value}' escapes the plugin root.`;
     }
   }
@@ -497,6 +498,12 @@ async function listComponentFiles(dir: string): Promise<string[]> {
   return out.sort();
 }
 
+// NOTE: same per-component rule as the skill loader's `walk`
+// (`src/skills/loader.ts`) and the sync `countComponentDir` in
+// `src/plugins/snapshot.ts` — a `SKILL.md` dir is one component (no descent),
+// else recurse and emit loose `.md`s. This copy is async + collects paths (vs
+// snapshot's sync count); the sync/async + shape split is why they are not one
+// shared helper. Keep all three in sync.
 async function walkComponentFiles(dir: string, out: string[]): Promise<void> {
   let entries: Dirent[];
   try {
@@ -529,23 +536,6 @@ function isDirectorySkillFile(file: string): boolean {
 }
 
 // ----- shared helpers -----
-
-/** True when `childAbs` is the same as, or nested under, `rootAbs`. Trailing
- *  separator avoids the `/foo` vs `/foobar` sibling-prefix bug. Both inputs are
- *  resolved by the caller. */
-function isContainedUnder(rootAbs: string, childAbs: string): boolean {
-  const root = resolve(rootAbs);
-  const child = resolve(childAbs);
-  if (child === root) return true;
-  return child.startsWith(root + sep);
-}
-
-/** True when `targetAbs` is contained under `rootAbs` AND exactly one level
- *  deep (its parent IS the root). The uninstall containment guard. */
-function isContainedOneLevel(rootAbs: string, targetAbs: string): boolean {
-  if (!isContainedUnder(rootAbs, targetAbs) || targetAbs === rootAbs) return false;
-  return dirname(targetAbs) === rootAbs;
-}
 
 function isMarkdown(file: string): boolean {
   return file.toLowerCase().endsWith('.md');
