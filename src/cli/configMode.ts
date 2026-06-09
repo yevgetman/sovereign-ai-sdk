@@ -349,6 +349,10 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     taskManager,
     daemonEventBus,
     skills: { skills: [], byName: new Map() },
+    // Config-only mode loads no plugins (no bundle, no agent loop) — empty so
+    // the Runtime shape is satisfied; the command seam spreads nothing.
+    plugins: [],
+    pluginCommands: [],
     // Learning-loop spike Phase 1 — inert learning layer. Config-only mode
     // runs no turns (no session ever calls recall) and Observe is a Phase 1
     // no-op everywhere, so a stub that returns an empty recall result is

@@ -121,10 +121,20 @@ export function buildServerCommandContext(
   const activeToolsets = inferActiveToolsets(activeToolNames);
   const filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
 
-  // Build registry: built-in commands + skill-as-slash commands the
-  // way REPL does. dispatchSlashCommand reads ctx.registry, so this
-  // must reflect skills the session can use.
-  const allCommands = [...COMMANDS, ...buildSkillCommands(filteredSkills)];
+  // Build registry: built-in commands + plugin commands + skill-as-slash
+  // commands the way REPL does. dispatchSlashCommand reads ctx.registry, so
+  // this must reflect skills the session can use.
+  //
+  // Plugin System v1 (T8) — ORDER IS THE CONTRACT. Built-in COMMANDS come
+  // FIRST so they ALWAYS win a name collision (buildCommandRegistry is
+  // first-wins) — a plugin can never shadow `/help`, `/compact`, etc. Plugin
+  // commands come next; skill-derived commands last. (H4: only skills/commands
+  // flow into the command seam — no plugin hook/mcp wiring here.)
+  const allCommands = [
+    ...COMMANDS,
+    ...runtime.pluginCommands,
+    ...buildSkillCommands(filteredSkills),
+  ];
   const registry = buildCommandRegistry(allCommands);
 
   // Read permission settings ONCE for this request. The cascade is

@@ -70,9 +70,48 @@ export type HarnessInfoSnapshot = {
    *  when the snapshot getter has access to the system-prompt segments
    *  and tool pool. */
   budget?: BudgetReport;
+  /** Plugin System v1 (T8): every DISCOVERED plugin under
+   *  `<harnessHome>/plugins/*`, with its load verdict + what it contributes /
+   *  discloses. The model reads this to answer "what plugins are installed",
+   *  "why isn't plugin X active", or "what does plugin X declare". Distinct
+   *  from skills (markdown procedures), MCP servers (external tool sources),
+   *  and sub-agents. Optional — present only when the snapshot getter has
+   *  plugin state (i.e. the server-mode runtime). An empty array means the
+   *  getter has plugin state but no plugins are installed. */
+  plugins?: Array<{
+    name: string;
+    version: string;
+    /** Disclosure-precedence verdict: a tampered tree is most urgent, then
+     *  needs-consent, then opt-out (disabled), then active. Only `active`
+     *  plugins contribute skills/commands. */
+    status: 'active' | 'needs-consent' | 'tampered' | 'disabled';
+    /** Skill-component count under the plugin's `skills/` dir (a directory-skill
+     *  counts as ONE; loose `.md` files count individually). */
+    skillCount: number;
+    /** Slash-command count under the plugin's `commands/` dir. */
+    commandCount: number;
+    /** Declared-but-INERT in v1 (disclosed, never run): the count of hook
+     *  commands the manifest declares. */
+    disclosedHookCount: number;
+    /** Declared-but-INERT in v1 (disclosed, never connected): the count of MCP
+     *  servers the manifest declares. */
+    disclosedMcpCount: number;
+    /** Unknown / CC-only top-level manifest keys the harness ignores (e.g.
+     *  `agents`, `keywords`). Disclosed, never silently dropped. */
+    ignoredKeys: string[];
+  }>;
 };
 
-const SECTIONS = ['all', 'settings', 'mcp', 'tools', 'commands', 'agents', 'budget'] as const;
+const SECTIONS = [
+  'all',
+  'settings',
+  'mcp',
+  'tools',
+  'commands',
+  'agents',
+  'budget',
+  'plugins',
+] as const;
 type Section = (typeof SECTIONS)[number];
 
 const inputSchema = z.object({
@@ -135,6 +174,8 @@ function filterSnapshot(snap: HarnessInfoSnapshot, section: Section): Output {
       return { agents: snap.agents };
     case 'budget':
       return snap.budget !== undefined ? { budget: snap.budget } : {};
+    case 'plugins':
+      return snap.plugins !== undefined ? { plugins: snap.plugins } : {};
     default:
       return snap;
   }
@@ -197,6 +238,23 @@ function formatSnapshot(out: Output): string {
     lines.push('', `slash commands (${out.slashCommands.length}):`);
     for (const c of out.slashCommands) {
       lines.push(`  /${c.name} — ${c.description}`);
+    }
+  }
+  if (out.plugins !== undefined) {
+    lines.push('', `plugins (${out.plugins.length}):`);
+    for (const p of out.plugins) {
+      lines.push(
+        `  ${p.name} v${p.version} [${p.status}] — ${p.skillCount} skill(s), ${p.commandCount} command(s)`,
+      );
+      const disclosures: string[] = [];
+      if (p.disclosedHookCount > 0) disclosures.push(`${p.disclosedHookCount} hook(s)`);
+      if (p.disclosedMcpCount > 0) disclosures.push(`${p.disclosedMcpCount} MCP server(s)`);
+      if (disclosures.length > 0) {
+        lines.push(`    declares (INERT — disclosed, never run): ${disclosures.join(', ')}`);
+      }
+      if (p.ignoredKeys.length > 0) {
+        lines.push(`    ignores CC-only key(s): ${p.ignoredKeys.join(', ')}`);
+      }
     }
   }
   return lines.join('\n').trim();

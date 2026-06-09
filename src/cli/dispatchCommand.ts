@@ -29,12 +29,14 @@ import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { SystemSegment } from '../core/types.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { resolveProjectScope } from '../memory/scope.js';
+import { loadPluginRuntime } from '../plugins/runtime.js';
 import { resolveProvider } from '../providers/resolver.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { loadSkills } from '../skills/loader.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import { buildDispatchConfirm } from './dispatchConfirm.js';
 
 export const READY_MARKER = '--- ready ---';
 export const TURN_SEPARATOR = '--- end-of-turn ---';
@@ -60,10 +62,22 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     cwd: process.cwd(),
     ...(bundle ? { bundleRoot: bundle.root } : {}),
   });
+  // Plugin System v1 (T8) — discover + gate plugins, compose contributions
+  // BEFORE loadSkills so plugin skillRoots splice into the registry. The SAME
+  // shared helper buildRuntime uses, so the surfaces can't drift. Backlog #55 —
+  // config from the resolved harnessHome, not the global. H4 — only skills +
+  // commands are consumed; disclosed hooks/mcp are never wired.
+  const { contributions: pluginContributions } = await loadPluginRuntime({
+    harnessHome,
+    config: userSettings.plugins ?? {},
+    warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
+  });
+
   const loadedSkills = await loadSkills({
     harnessHome,
     cwd: process.cwd(),
     ...(bundle ? { bundleRoot: bundle.root } : {}),
+    extraRoots: pluginContributions.skillRoots,
   });
 
   const resolved = resolveProvider(userSettings.defaultProvider, userSettings.defaultModel);
@@ -109,7 +123,31 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
   const activeToolsets = inferActiveToolsets(activeToolNames);
   const skillRegistry = filterSkillRegistry(loadedSkills, activeToolsets, activeToolNames);
 
-  const commandRegistry = buildCommandRegistry([...COMMANDS, ...buildSkillCommands(skillRegistry)]);
+  // Plugin System v1 (T8) — built-in COMMANDS first (they ALWAYS win a name
+  // collision — buildCommandRegistry is first-wins), then plugin commands, then
+  // skill-derived. Mirrors the server command seam's order exactly.
+  const commandRegistry = buildCommandRegistry([
+    ...COMMANDS,
+    ...pluginContributions.commands,
+    ...buildSkillCommands(skillRegistry),
+  ]);
+
+  // Create the readline interface + a SINGLE stdin consumer (the async
+  // iterator) BEFORE the CommandContext. The dispatch loop below and
+  // `/plugins install`'s TTY consent prompt (S3) BOTH read through this one
+  // `readLine` — sharing one consumer avoids the stdin-contention bug where a
+  // second readline (or a concurrent `rl.question()` against an actively-
+  // iterated interface) fights for / closes the input. On a non-TTY stdin
+  // (scripted / piped), buildDispatchConfirm returns undefined and `/plugins
+  // install` refuses with its "requires a terminal" message rather than
+  // silently consenting.
+  const rl = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+  const lineIterator = rl[Symbol.asyncIterator]();
+  const readLine = async (): Promise<string | null> => {
+    const next = await lineIterator.next();
+    return next.done ? null : next.value;
+  };
+  const confirm = buildDispatchConfirm(readLine, process.stdin.isTTY === true);
 
   const commandContext: CommandContext = {
     sessionId,
@@ -122,6 +160,10 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     },
     bundlePath: opts.bundlePath ?? null,
     harnessHome,
+    // Plugin System v1 (T8) — the TTY consent prompt for `/plugins install`.
+    // Conditionally spread so the key is ABSENT (not `undefined`) on a non-TTY
+    // stdin — install then refuses. exactOptionalPropertyTypes-safe.
+    ...(confirm ? { confirm } : {}),
     setModel: (m: string): void => {
       if (m.includes('/')) {
         const [maybeProvider, maybeModel] = m.split('/', 2) as [string, string];
@@ -197,11 +239,17 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
 
   process.stdout.write(`${READY_MARKER}\n`);
 
-  const rl = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
-
   try {
-    for await (const line of rl) {
+    // Pull each command line through the shared `readLine` (the SAME consumer
+    // `confirm` reads from). A `null` return is EOF — exit cleanly. A command
+    // handler may itself call `readLine` (via `ctx.confirm`) to read its own
+    // follow-up line (e.g. the `/plugins install` y/N answer); because there is
+    // exactly one iterator, that nested read simply consumes the next line and
+    // the loop resumes with the line after it — no contention.
+    for (;;) {
       if (exitRequested) break;
+      const line = await readLine();
+      if (line === null) break;
       const trimmed = line.trim();
       if (!trimmed) {
         process.stdout.write(`${TURN_SEPARATOR}\n`);

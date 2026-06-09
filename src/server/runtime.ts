@@ -17,6 +17,7 @@ import { type AgentRegistry, filterAgentRegistry } from '../agents/types.js';
 import { getDefaultBundlePath, isDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import type { Bundle } from '../bundle/types.js';
+import type { PromptCommand } from '../commands/types.js';
 import { type MicrocompactConfig, buildMicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import type { Settings } from '../config/schema.js';
@@ -57,6 +58,9 @@ import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../permissions/redactSecretsTransformer.js';
 import type { AskResponse, AskUser, CanUseTool, PermissionMode } from '../permissions/types.js';
+import { loadPluginRuntime } from '../plugins/runtime.js';
+import { buildPluginSnapshots } from '../plugins/snapshot.js';
+import type { LoadedPlugin } from '../plugins/types.js';
 import { preflightProvider, preflightToolCalling } from '../providers/preflight.js';
 import { type ResolvedProvider, resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider, Transport } from '../providers/types.js';
@@ -423,6 +427,20 @@ export type Runtime = {
    *  registry; visibility filtering is rendering-only.
    *  Closes phase-16 prereq row 20. */
   skills: SkillRegistry;
+  /** Plugin System v1 (T8) — every DISCOVERED plugin under
+   *  `<harnessHome>/plugins/*` with its load verdict (active / needs-consent /
+   *  tampered / disabled). The disclosure surface (HarnessInfo, `/plugins`)
+   *  lists ALL of these; only the active ones contribute. Empty when no
+   *  plugins are installed (or the dir is absent). */
+  plugins: LoadedPlugin[];
+  /** Plugin System v1 (T8) — slash commands contributed by the ACTIVE plugins'
+   *  `commands/` dirs (built via the skill machinery, never added to
+   *  `runtime.skills`). The command seams (server `buildServerCommandContext`,
+   *  CLI dispatch) spread these AFTER the built-in COMMANDS (built-ins always
+   *  win) and BEFORE skill-derived commands. Empty when no active plugin
+   *  contributes a command. Plugin SKILLS are NOT here — they enter the skill
+   *  registry via `loadSkills` extraRoots. */
+  pluginCommands: PromptCommand[];
   /** Learning-loop spike Phase 1 — the learning layer (Recall + Observe
    *  ports) constructed once at boot over a filesystem Persist adapter
    *  ($HARNESS_HOME) and a provider-backed Reason adapter. The turns route
@@ -572,22 +590,40 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(bundle ? { bundleRoot: bundle.root } : {}),
   });
 
+  // Plugin System v1 (T8) — discover + gate plugins, then compose their
+  // contributions, BEFORE loadSkills so plugin skillRoots can splice into the
+  // skill registry. The shared helper (loadPluginRuntime) is the SAME path the
+  // CLI dispatch surface uses so the two can't drift. Fail-soft: a bad plugin
+  // is skipped with a warn (loader contract) and an absent plugins/ dir yields
+  // empty plugins + empty contributions — buildRuntime never throws on it.
+  // Backlog #55 — the plugins config is read from the runtime's resolved
+  // harnessHome (not the process-global home), matching every other config
+  // read in this function. H4 — only skills + commands are consumed here;
+  // disclosed hooks/mcp are surfaced (HarnessInfo) but NEVER wired.
+  const { plugins, contributions: pluginContributions } = await loadPluginRuntime({
+    harnessHome,
+    config: readConfig({ harnessHome }).plugins ?? {},
+    warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
+  });
+
   // M8 T4 — load the skill registry once at boot. Roots scanned (in order)
   // are project-local .harness/skills/, the user's $HARNESS_HOME/skills/,
-  // and (when a bundle is loaded) the bundle's three skill trees. The
-  // result is stored UNFILTERED on Runtime; per-call filtering via
-  // `inferActiveToolsets` + `filterSkillRegistry` happens at the call site
-  // (buildSessionToolContext for turns, the /skills route for TUI
-  // discovery) so visibility narrows with the active toolset without
-  // re-walking disk on every turn. Server sessions are independent
-  // requests rather than a single stable tool surface, so the registry
-  // stays unfiltered up here and the filter step lives at the consumers.
-  // Warnings (parse failures, duplicate names) route to stderr —
+  // plugin skill roots (T8 — after user, before bundle, so a plugin skill can
+  // override a bundle skill but never shadow a user/project one), and (when a
+  // bundle is loaded) the bundle's three skill trees. The result is stored
+  // UNFILTERED on Runtime; per-call filtering via `inferActiveToolsets` +
+  // `filterSkillRegistry` happens at the call site (buildSessionToolContext
+  // for turns, the /skills route for TUI discovery) so visibility narrows with
+  // the active toolset without re-walking disk on every turn. Server sessions
+  // are independent requests rather than a single stable tool surface, so the
+  // registry stays unfiltered up here and the filter step lives at the
+  // consumers. Warnings (parse failures, duplicate names) route to stderr —
   // identical policy to the agents loader above.
   const skills = await loadSkills({
     cwd: opts.cwd,
     harnessHome,
     ...(bundle ? { bundleRoot: bundle.root } : {}),
+    extraRoots: pluginContributions.skillRoots,
     warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
   });
 
@@ -714,6 +750,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         skills: skills.skills,
         ...(bundle ? { bundle } : {}),
       }),
+      // Plugin System v1 (T8) — list EVERY discovered plugin (active AND inert)
+      // with its verdict + disclosed/ignored components, so the model can
+      // answer "what plugins are installed / why isn't X active". Empty array
+      // when none are installed (honest: the runtime has plugin state).
+      plugins: buildPluginSnapshots(plugins),
     };
   };
 
@@ -1404,6 +1445,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     taskManager,
     daemonEventBus,
     skills,
+    plugins,
+    pluginCommands: pluginContributions.commands,
     learningLayer,
     microcompactConfig,
     compact,

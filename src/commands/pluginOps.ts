@@ -10,7 +10,6 @@
 // requires an injected TTY `confirm` (S3) — absent on server/TUI surfaces, where
 // it refuses with a clear "install requires a terminal" message.
 
-import { type Dirent, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginsConfig, Settings } from '../config/schema.js';
 import { readConfig, resolveConfigPath, writeConfig } from '../config/store.js';
@@ -22,6 +21,7 @@ import {
   uninstallPlugin,
 } from '../plugins/install.js';
 import { type PluginLoaderConfig, loadPlugins } from '../plugins/loader.js';
+import { countPluginComponents, statusOfPlugin } from '../plugins/snapshot.js';
 import type { LoadedPlugin } from '../plugins/types.js';
 import type { CommandContext, LocalCommand, SlashCommand } from './types.js';
 
@@ -29,10 +29,6 @@ import type { CommandContext, LocalCommand, SlashCommand } from './types.js';
  *  manifest regex + the install/uninstall path-traversal guard. Used here to
  *  reject an unsafe `<name>` argument before it reaches the filesystem. */
 const PLUGIN_NAME_RE = /^[a-z][a-z0-9-]*$/;
-
-/** One discovered plugin's status, in disclosure precedence: a tampered tree is
- *  the most urgent, then needs-consent, then opt-out (disabled), then active. */
-type PluginStatus = 'active' | 'needs-consent' | 'tampered' | 'disabled';
 
 const USAGE = [
   'usage: /plugins <subcommand>',
@@ -92,11 +88,11 @@ function runList(ctx: CommandContext): string {
   }
 
   const rows = plugins.map((p) => {
-    const counts = countComponents(p);
+    const counts = countPluginComponents(p);
     return {
       name: p.id,
       version: p.manifest.version,
-      status: statusOf(p),
+      status: statusOfPlugin(p),
       skills: counts.skills,
       commands: counts.commands,
     };
@@ -140,10 +136,10 @@ function runInfo(rest: string, ctx: CommandContext): string {
     `${manifest.name} v${manifest.version}${manifest.author ? ` by ${manifest.author}` : ''}`,
   );
   lines.push(manifest.description);
-  lines.push(`status: ${statusOf(plugin)}`);
+  lines.push(`status: ${statusOfPlugin(plugin)}`);
   lines.push(`installed at: ${plugin.installDir}`);
 
-  const counts = countComponents(plugin);
+  const counts = countPluginComponents(plugin);
   lines.push(
     `contributes: ${plural(counts.skills, 'skill')}, ${plural(counts.commands, 'command')}`,
   );
@@ -331,51 +327,6 @@ function readPluginsConfig(home: string): PluginLoaderConfig {
     ...(block.enabled ? { enabled: block.enabled } : {}),
     ...(block.disabled ? { disabled: block.disabled } : {}),
   };
-}
-
-/** The disclosure-precedence status for a discovered plugin. */
-function statusOf(plugin: LoadedPlugin): PluginStatus {
-  if (plugin.tampered) return 'tampered';
-  if (plugin.needsConsent) return 'needs-consent';
-  if (!plugin.enabled) return 'disabled';
-  return 'active';
-}
-
-/** Light component count: the `.md` files under the plugin's (manifest-declared)
- *  `skills/` and `commands/` dirs. A directory-skill (a dir holding `SKILL.md`)
- *  counts as ONE; loose `.md` files count individually — mirroring the loader's
- *  per-component view. Best-effort: an unreadable dir contributes 0. */
-function countComponents(plugin: LoadedPlugin): { skills: number; commands: number } {
-  return {
-    skills: countComponentDir(join(plugin.installDir, plugin.manifest.skills)),
-    commands: countComponentDir(join(plugin.installDir, plugin.manifest.commands)),
-  };
-}
-
-function countComponentDir(dir: string): number {
-  if (!existsSync(dir)) return 0;
-  let count = 0;
-  const walk = (d: string): void => {
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    const skillMd = entries.find((e) => e.isFile() && e.name.toLowerCase() === 'skill.md');
-    if (skillMd) {
-      // Directory-skill: one component; do not descend.
-      count += 1;
-      return;
-    }
-    for (const entry of entries) {
-      const p = join(d, entry.name);
-      if (entry.isDirectory()) walk(p);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) count += 1;
-    }
-  };
-  walk(dir);
-  return count;
 }
 
 function splitVerb(args: string): { verb: string; rest: string } {
