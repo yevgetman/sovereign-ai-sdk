@@ -75,7 +75,7 @@ export type ConfigGroup = {
 // Reusable choice lists
 // ──────────────────────────────────────────────────────────────────────
 
-const PROVIDER_CHOICES = ['anthropic', 'openai', 'openrouter', 'ollama'] as const;
+const PROVIDER_CHOICES = ['anthropic', 'openai', 'openrouter', 'ollama', 'sov'] as const;
 const PERMISSION_MODE_CHOICES = ['default', 'ask', 'bypass'] as const;
 const THEME_CHOICES = ['dark', 'light', 'no-color'] as const;
 const ROUTER_LANE_CHOICES = ['local', 'frontier'] as const;
@@ -105,6 +105,9 @@ const ANTHROPIC_MODELS = [
 const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o'] as const;
 const OPENROUTER_MODELS = ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'] as const;
 const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'] as const;
+// The local Sovereign engine serves a single model under its served_model_name
+// (default "sovereign"); the picker suggests that name.
+const SOV_MODELS = ['sovereign'] as const;
 
 /**
  * Map a provider name to its known model list. Used by `defaultModel`'s
@@ -123,6 +126,8 @@ function modelsForProvider(provider: string | undefined): readonly string[] {
       return OPENROUTER_MODELS;
     case 'ollama':
       return OLLAMA_MODELS;
+    case 'sov':
+      return SOV_MODELS;
     default:
       return ANTHROPIC_MODELS;
   }

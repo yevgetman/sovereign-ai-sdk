@@ -283,6 +283,17 @@ describe('config catalog', () => {
     });
   });
 
+  test('router.localProvider offers sov as a selectable choice', () => {
+    // sov is the keyless local lane — it must be pickable as the router's
+    // local provider from the config editor.
+    const item = findItem('router.localProvider');
+    expect(item).toBeDefined();
+    expect(item?.editor.kind).toBe('enum');
+    if (item?.editor.kind === 'enum') {
+      expect(item.editor.choices).toContain('sov');
+    }
+  });
+
   test('CONFIG_CATALOG is iterable and frozen', () => {
     expect(CONFIG_CATALOG.length).toBeGreaterThan(10);
     // Defensive: the catalog should be readonly. We don't enforce
