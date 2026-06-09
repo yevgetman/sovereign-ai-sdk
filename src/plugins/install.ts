@@ -17,8 +17,8 @@
 
 import { type Dirent, existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
-import { guardSkillText } from '../skills/guard.js';
+import { basename, dirname, join, resolve, sep } from 'node:path';
+import { guardSkillLoad, guardSkillText } from '../skills/guard.js';
 import { assertNoSymlinkEscape, copySkillTree } from '../skills/symlinkGuard.js';
 import { buildConsentRecord, writeConsent } from './consent.js';
 import {
@@ -360,24 +360,43 @@ function isAbsolutePath(value: string): boolean {
 
 // ----- gate 7: guard-scan + bundled-script detection (S5/M2) -----
 
-/** Guard-scan every `skills/` + `commands/` `.md` body (community tier) and
- *  detect bundled scripts. A guard `block` disables that component by policy
- *  (disclosed, not installed-as-active); scripts are disclosed with any guard
- *  escalation, never blocked. */
+/**
+ * Guard-scan the plugin's prompt-bearing content the way the LOADER will, then
+ * detect bundled scripts + reference files.
+ *
+ * Disclosure-fidelity (T6 review #1): the loader enumerates a `skills/`/
+ * `commands/` tree per-COMPONENT — a directory-skill (a dir holding `SKILL.md`)
+ * is ONE skill whose guard verdict AGGREGATES its `SKILL.md` + every sibling
+ * reference file (incl. non-`.md`, e.g. `payload.txt`); loose `.md` files are
+ * single-file components. We mirror that exactly so the disclosure's per-skill
+ * count + block/allow verdict match what the loader actually enforces: a
+ * dir-skill with a clean `SKILL.md` but a guard-tripping sibling is disclosed as
+ * ⛔ disabled-by-policy (not a clean active contribution).
+ *
+ * A guard `block` disables that component by policy (disclosed, not installed-
+ * as-active); scripts + reference files are disclosed, never blocked.
+ */
 async function scanComponents(sourceAbs: string, manifest: PluginManifest): Promise<ComponentScan> {
   const skillsDir = join(sourceAbs, manifest.skills);
   const commandsDir = join(sourceAbs, manifest.commands);
 
-  const skillFiles = await listFiles(skillsDir);
-  const commandFiles = await listFiles(commandsDir);
-  const skillMd = skillFiles.filter(isMarkdown);
-  const commandMd = commandFiles.filter(isMarkdown);
-
   const disabled: GuardedComponent[] = [];
   const advisories: GuardAdvisory[] = [];
 
-  await guardScan(skillMd, 'skill', sourceAbs, disabled, advisories);
-  await guardScan(commandMd, 'command', sourceAbs, disabled, advisories);
+  const skillCount = await guardScanComponentTree(
+    skillsDir,
+    'skill',
+    sourceAbs,
+    disabled,
+    advisories,
+  );
+  const commandCount = await guardScanComponentTree(
+    commandsDir,
+    'command',
+    sourceAbs,
+    disabled,
+    advisories,
+  );
 
   // Bundled scripts anywhere under the source tree (incl. inside components).
   const allFiles = await listFiles(sourceAbs);
@@ -399,29 +418,52 @@ async function scanComponents(sourceAbs: string, manifest: PluginManifest): Prom
     }
   }
 
+  // Bundled reference files: non-`.md`, non-script files under skills/ +
+  // commands/ (incl. siblings inside a directory-skill, e.g. `payload.txt`).
+  // Disclosed so the operator sees content that the per-`.md` view hid; their
+  // guard relevance is already folded into the owning skill's aggregated verdict.
+  const referenceFiles = [...(await listFiles(skillsDir)), ...(await listFiles(commandsDir))]
+    .filter((f) => !isMarkdown(f) && !isScript(f))
+    .map((f) => relPosix(sourceAbs, f))
+    .sort();
+
   return {
-    skillCount: skillMd.length,
-    commandCount: commandMd.length,
-    totalComponents: skillMd.length + commandMd.length,
+    skillCount,
+    commandCount,
+    totalComponents: skillCount + commandCount,
     disabled,
     advisories,
     scripts,
+    referenceFiles,
   };
 }
 
-/** Guard-scan a set of `.md` files. A `block` decision disables that component;
- *  non-blocking medium/critical findings become advisories. */
-async function guardScan(
-  files: string[],
+/**
+ * Enumerate + guard-scan one component dir (`skills/` or `commands/`) the way
+ * the loader's `listMarkdownFiles` walk does, returning the per-component count.
+ * For each component file:
+ *  - a `SKILL.md` (a directory-skill) → `guardSkillLoad` (AGGREGATES the dir's
+ *    `SKILL.md` + sibling reference files, matching the loader at community tier);
+ *  - a loose `.md` (a single-file skill/command) → `guardSkillText` on its body.
+ * A `block` verdict pushes a disabled component (counted, NOT active); other
+ * medium/critical findings become advisories.
+ */
+async function guardScanComponentTree(
+  dir: string,
   kind: 'skill' | 'command',
   sourceAbs: string,
   disabled: GuardedComponent[],
   advisories: GuardAdvisory[],
-): Promise<void> {
-  for (const file of files) {
+): Promise<number> {
+  const componentFiles = await listComponentFiles(dir);
+  for (const file of componentFiles) {
     const text = await readFileSafe(file);
     if (text === null) continue;
-    const decision = guardSkillText(text, 'community');
+    // Mirror the loader: a SKILL.md is guarded with its whole directory
+    // (sibling reference files included); a loose .md is guarded alone.
+    const decision = isDirectorySkillFile(file)
+      ? await guardSkillLoad({ path: file, raw: text, trustTier: 'community' })
+      : guardSkillText(text, 'community');
     const name = relPosix(sourceAbs, file);
     if (decision.action === 'block') {
       const first = decision.findings[0];
@@ -438,6 +480,52 @@ async function guardScan(
       }
     }
   }
+  return componentFiles.length;
+}
+
+/**
+ * List the component FILES under a `skills/`/`commands/` dir with the loader's
+ * exact per-component semantics (mirrors `listMarkdownFiles` in
+ * `src/skills/loader.ts`): a directory containing `SKILL.md` is a directory-
+ * skill — emit ONLY its `SKILL.md` and do NOT descend (siblings are reference
+ * files, folded into that skill's aggregated guard); otherwise recurse and emit
+ * each loose `.md` file as a single-file component. Absent dir ⇒ []. */
+async function listComponentFiles(dir: string): Promise<string[]> {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  await walkComponentFiles(dir, out);
+  return out.sort();
+}
+
+async function walkComponentFiles(dir: string, out: string[]): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const skillMd = entries.find(
+    (entry) => entry.isFile() && entry.name.toLowerCase() === 'skill.md',
+  );
+  if (skillMd) {
+    // Directory-skill: one component, guarded with its whole dir; stop here.
+    out.push(join(dir, skillMd.name));
+    return;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await walkComponentFiles(path, out);
+      continue;
+    }
+    if (entry.isFile() && isMarkdown(entry.name)) out.push(path);
+  }
+}
+
+/** True for a `SKILL.md` file (case-insensitive) — a directory-skill's entry
+ *  point, guarded with its whole directory by the loader. */
+function isDirectorySkillFile(file: string): boolean {
+  return basename(file).toLowerCase() === 'skill.md';
 }
 
 // ----- shared helpers -----

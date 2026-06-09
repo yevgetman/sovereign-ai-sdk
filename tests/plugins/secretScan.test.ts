@@ -137,3 +137,70 @@ describe('scanObjectForSecrets (object string leaves)', () => {
     expect(scanObjectForSecrets('a string')).toEqual([]);
   });
 });
+
+describe('scanObjectForSecrets — field-targeting (T6 review #2)', () => {
+  // Below the entropy bar, a hex blob looks like a readable identifier, so the
+  // content scan misses it. The field-targeting branch flags it by LOCATION when
+  // the terminal key names a credential field — and ONLY then.
+  test('a sub-32-char low-entropy hex literal in a credential-named field IS flagged by location', () => {
+    const findings = scanObjectForSecrets({ apiKey: 'deadbeefcafe1234deadbeef' });
+    expect(findings.length).toBe(1);
+    expect(findings[0]?.path).toBe('apiKey');
+    expect(findings[0]?.reason.toLowerCase()).toContain('credential field');
+  });
+
+  test('the SAME value in a NON-credential field is NOT flagged by the field-targeting branch', () => {
+    expect(scanObjectForSecrets({ description: 'deadbeefcafe1234deadbeef' })).toEqual([]);
+  });
+
+  test('a ${VAR} env-placeholder in a credential field is EXEMPT (the safe pattern)', () => {
+    expect(scanObjectForSecrets({ apiKey: '${MY_KEY}' })).toEqual([]);
+  });
+
+  test('a $VAR env-placeholder in a credential field is EXEMPT', () => {
+    expect(scanObjectForSecrets({ apiKey: '$MY_KEY' })).toEqual([]);
+  });
+
+  test('an env map with a credential-hinting NAME + a literal value IS flagged', () => {
+    const findings = scanObjectForSecrets({ env: { MY_TOKEN: 'abcdef1234567890' } });
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.path === 'env.MY_TOKEN')).toBe(true);
+  });
+
+  test('an env map with a credential-hinting NAME + a ${placeholder} is EXEMPT', () => {
+    expect(scanObjectForSecrets({ env: { MY_TOKEN: '${MY_TOKEN}' } })).toEqual([]);
+  });
+
+  test('an Authorization header with a literal value IS flagged by header convention', () => {
+    const findings = scanObjectForSecrets({ headers: { Authorization: 'abcdef1234567890xyz' } });
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.path === 'headers.Authorization')).toBe(true);
+  });
+
+  test('an X-Api-Key header with a literal value IS flagged by header convention', () => {
+    const findings = scanObjectForSecrets({ headers: { 'X-Api-Key': 'abcdef1234567890xyz' } });
+    expect(findings.some((f) => f.path === 'headers.X-Api-Key')).toBe(true);
+  });
+
+  test('a *-token suffixed header with a literal value IS flagged by header convention', () => {
+    const findings = scanObjectForSecrets({
+      headers: { 'X-Session-Token': 'abcdef1234567890xyz' },
+    });
+    expect(findings.some((f) => f.path === 'headers.X-Session-Token')).toBe(true);
+  });
+
+  test('a trivial sub-min-length value in a credential field is NOT flagged (the floor)', () => {
+    expect(scanObjectForSecrets({ password: 'abc' })).toEqual([]);
+  });
+
+  test('a value matching BOTH a known prefix AND a credential field yields exactly ONE finding (no double-listing)', () => {
+    // `sk_live_0000…` hits the Stripe prefix (a content-scan finding) but stays
+    // low-entropy (no entropy finding), so it isolates the field-targeting
+    // double-listing guard: the prefix finding is present, the field-targeting
+    // branch must NOT add a second one (`findings.length === 0` gate).
+    const findings = scanObjectForSecrets({ apiKey: 'sk_live_0000000000000000' });
+    expect(findings.length).toBe(1);
+    expect(findings[0]?.path).toBe('apiKey');
+    expect(findings[0]?.reason.toLowerCase()).toContain('prefix');
+  });
+});

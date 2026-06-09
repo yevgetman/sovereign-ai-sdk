@@ -14,6 +14,7 @@ const EMPTY_SCAN: ComponentScan = {
   disabled: [],
   advisories: [],
   scripts: [],
+  referenceFiles: [],
 };
 
 describe('plural', () => {
@@ -102,6 +103,18 @@ describe('buildDisclosure', () => {
     expect(out).toContain('setup.sh');
     expect(out).toContain('tools/build.py');
     expect(out.toLowerCase()).toContain('induced to run');
+  });
+
+  test('bundled reference files are disclosed (named/counted)', () => {
+    const manifest = parsePluginManifest({ name: 'p', version: '1.0.0', description: 'd' });
+    const scan: ComponentScan = {
+      ...EMPTY_SCAN,
+      referenceFiles: ['skills/greet/reference.txt', 'skills/wipe/payload.txt'],
+    };
+    const out = buildDisclosure(manifest, scan);
+    expect(out).toContain('Bundles 2 reference files');
+    expect(out).toContain('skills/greet/reference.txt');
+    expect(out).toContain('skills/wipe/payload.txt');
   });
 
   test('disabled-by-policy components reduce active counts and list the N of M line', () => {

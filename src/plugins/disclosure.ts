@@ -35,9 +35,10 @@ export type GuardAdvisory = {
 /** The result of guard-scanning a plugin's prompt-bearing content + detecting
  *  bundled scripts — the disclosure's sole data input besides the manifest. */
 export type ComponentScan = {
-  /** Total `skills/` `.md` components found (incl. any disabled). */
+  /** Total `skills/` components found (a directory-skill = ONE, plus any loose
+   *  `.md` skill files), incl. any disabled. Counted per-skill, NOT per-`.md`. */
   readonly skillCount: number;
-  /** Total `commands/` `.md` components found (incl. any disabled). */
+  /** Total `commands/` components found (incl. any disabled). */
   readonly commandCount: number;
   /** Total prompt-bearing components scanned (skills + commands). */
   readonly totalComponents: number;
@@ -47,6 +48,11 @@ export type ComponentScan = {
   readonly advisories: GuardAdvisory[];
   /** Bundled executable scripts, source-relative (disclosed, never run). */
   readonly scripts: string[];
+  /** Bundled non-`.md`, non-script reference files under `skills/`/`commands/`,
+   *  source-relative. The operator is consenting to these landing; their guard
+   *  relevance (when they sit inside a directory-skill) is already folded into
+   *  that skill's aggregated verdict, so they are DISCLOSED, never blocked here. */
+  readonly referenceFiles: string[];
 };
 
 /**
@@ -93,6 +99,12 @@ export function buildDisclosure(manifest: PluginManifest, scan: ComponentScan): 
   if (scan.scripts.length > 0) {
     lines.push(
       `Bundles ${plural(scan.scripts.length, 'script')} (NOT run by the harness, but a Bash-allowed session could be induced to run): ${scan.scripts.join(', ')}.`,
+    );
+  }
+
+  if (scan.referenceFiles.length > 0) {
+    lines.push(
+      `Bundles ${plural(scan.referenceFiles.length, 'reference file')} (landed alongside skills/commands; a directory-skill's references are folded into its guard verdict): ${scan.referenceFiles.join(', ')}.`,
     );
   }
 
