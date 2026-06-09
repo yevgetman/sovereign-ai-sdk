@@ -20,6 +20,18 @@ describe('scanForSecrets (string)', () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
+  test('flags a Stripe secret key (sk_)', () => {
+    const findings = scanForSecrets('sk_live_1234567890abcdefghijklmnop');
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.reason.includes('prefix'))).toBe(true);
+  });
+
+  test('flags a Stripe publishable key (pk_)', () => {
+    const findings = scanForSecrets('pk_live_1234567890abcdefghijklmnop');
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.reason.includes('prefix'))).toBe(true);
+  });
+
   test('flags a GitHub OAuth token (gho_)', () => {
     const findings = scanForSecrets('gho_abcdefghijklmnopqrstuvwxyz0123456789');
     expect(findings.length).toBeGreaterThan(0);

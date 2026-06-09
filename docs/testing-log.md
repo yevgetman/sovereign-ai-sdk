@@ -8,6 +8,72 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-09 — Plugin System v1 · Task 6 (install/uninstall: TTY disclose-and-consent + secret-scan polish)
+
+**Scope.** RED→GREEN TDD for the consent-MINTING surface (the only legitimate `writeConsent` caller):
+new `src/plugins/install.ts` (`installPlugin`/`uninstallPlugin`) + `src/plugins/disclosure.ts` (extracted
+pure capability-framed disclosure builder) + the four carry-forward `src/plugins/secretScan.ts` polish
+items from T1's review. Pure install/uninstall + disclosure logic with the `confirm` prompt INJECTED
+(no runtime wiring — that's T7/T8).
+
+**Commands / result.**
+- `bun test tests/plugins/install.test.ts` → **19 pass / 0 fail** (RED first confirmed: module-missing).
+- `bun test tests/plugins/disclosure.test.ts` → **9 pass / 0 fail** (pure builder format pinned directly).
+- `bun test tests/plugins/secretScan.test.ts` → **21 pass / 0 fail** (2 new Stripe `sk_`/`pk_` cases +
+  all pre-existing T1 cases as a regression guard).
+- `bun test tests/plugins tests/skills` → **226 pass / 0 fail** (493 expect calls), **deterministic across
+  3 consecutive runs** — verifying the secretScan change broke no skill/plugin test and the install/
+  disclosure split is stable.
+- `bun run lint` clean (726 files); `bun run typecheck` clean (after annotating `readdir`'s `Dirent[]`
+  explicitly to dodge a Bun/Node overload-typing mismatch).
+- `bun run test` (full) → ranged **3480–3483 pass / 0 fail / 16 skip** across 4 runs; **0 fail on the
+  final two runs**. Transient 2–3 fails on two earlier runs were the documented MockProvider-static-
+  pollution / ambient-`learning.disabled`-config env flake in `synthesizer` + `sessionSupervisor` —
+  **never my touched files** (proven by the 3× deterministic isolated plugins/skills runs). Gate
+  criterion "no new failures beyond the known set" met.
+
+**Findings.**
+- **Every reject path fires BEFORE `confirm`** (the security crux — proven by tests asserting `confirm`
+  is never called on: a baked `bearerToken`/header secret; an `mcpServers`-block header secret; a `../`
+  skills override; an absolute commands path; an out-of-tree symlink; and a refuse-overwrite). Gate
+  order: resolve → manifest-validate → **secret-scan (H2)** → **M1 path containment** → **symlink-escape**
+  → refuse-overwrite → guard-scan/script-detect → build disclosure → `confirm` → (accept) copy → **hash
+  the COPIED tree** → mint+write consent. So a hostile package is refused/flagged up front and consent is
+  only ever minted for the exact tree that landed.
+- **Happy-path consent verifies against the copied tree** — the minted `treeHash = hashPluginTree(target)`
+  (computed AFTER `copySkillTree`, `.consent.json` excluded by T2) makes `verifyConsent(installedDir,
+  readConsent(installedDir)) === true`, proving the T3 loader would accept the install. `decisions =
+  {skills:true, commands:true, hooks:false, mcpServers:false}`.
+- **Guard-blocked component** (`rm -rf /` skill → `block` at community tier) is DISCLOSED as "N of M
+  components disabled by policy" (and excluded from the active `Contributes:` counts), NOT
+  installed-as-active — the actual enforcement is the loader's community-tier `guardSkillLoad` re-block
+  (T4 sets `trustTier:'community'` on plugin skill roots), so the disclosure is accurate downstream.
+- **Bundled scripts** (`.sh/.py/.js/.ts/.rb/.pl`) are disclosed (a Bash-allowed session could be induced
+  to run them), with any guard escalation surfaced as a ⚠ advisory — never blocked.
+- **secretScan polish (4 items):** dropped the wrong `pk-` (hyphen) prefix + added Stripe `sk_`/`pk_`
+  (underscore); added a `{32,}`↔`ENTROPY_MIN_LENGTH` sync comment; trimmed the unreachable `typeof`
+  guard half; **added field-targeting** — `scanObjectForSecrets` now also flags a baked literal in a
+  credential-NAMED field (`bearerToken`/`apiKey`/`token`/`password`/`secret`, `Authorization`/`*-api-key`/
+  `*-token` headers, credential-named `env` values) below the entropy bar (the documented hex blind-spot;
+  location is the signal), while EXEMPTING `${VAR}`/`$VAR` env placeholders (the safe pattern).
+
+**Self-review / flagged for the adversarial security review.**
+- **Scan-then-copy TOCTOU (LOW, accepted, matches `installSkill`):** the disclosure + guard-scan read the
+  SOURCE tree, then `copySkillTree` copies it; a process racing the operator's own install could swap
+  source files between scan and copy so the disclosure describes content X while content Y lands. Mitigated
+  by: the source is operator-chosen (not the package's threat surface), `copySkillTree` re-runs
+  `assertNoSymlinkEscape` at copy, the consent hash covers exactly what landed, and the loader's load-time
+  guard re-scans regardless. Same posture as the shipped skills installer. No consent is minted for content
+  the user didn't see EXCEPT under this narrow concurrent-source-swap race.
+- M1 applies the strict absolute/`../` reject to the skills/commands overrides, mcp-stdio
+  command/args/cwd, and any string carrying `${CLAUDE_PLUGIN_ROOT}` (both raw + substituted forms
+  containment-checked); a bare hook `command` like `echo audit` is NOT treated as a path (correct — that's
+  the guard scanner's domain, and it's disclosed verbatim).
+
+**Landing note.** Committed scoped to ONLY the T6 files (`src/plugins/{install,disclosure,secretScan}.ts`,
+`tests/plugins/{install,disclosure,secretScan}.test.ts`) + this entry. No push, no `sov upgrade`, no release
+(per the task brief).
+
 ## 2026-06-09 — Plugin System v1 · Task 4 (compose: skills + commands → contributions)
 
 **Scope.** RED→GREEN TDD for `composePluginContributions` (`src/plugins/compose.ts`) — turning T3's
