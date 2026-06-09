@@ -127,7 +127,10 @@ describe('runTuiLauncher — end-to-end smoke', () => {
 
     // Poll for the spawned-args capture (signals the server is up).
     await new Promise<void>((resolve, reject) => {
-      const deadline = Date.now() + 5000;
+      // 30s (not 5s): building the real runtime + binding the in-process server
+      // can run slow on a loaded machine / busy CI runner. The bind still happens
+      // in <50ms when idle; the headroom only matters under contention.
+      const deadline = Date.now() + 30000;
       const t = setInterval(() => {
         if (serverPort !== null && spawnedArgs !== null) {
           clearInterval(t);
@@ -355,7 +358,10 @@ describe('tuiLauncher integration smoke — M5 subsystems', () => {
     getServerPort: () => number | null,
   ): Promise<{ args: string[]; port: number; sessionId: string }> {
     await new Promise<void>((resolve, reject) => {
-      const deadline = Date.now() + 5000;
+      // 30s (not 5s): building the real runtime + binding the in-process server
+      // can run slow on a loaded machine / busy CI runner. The bind still happens
+      // in <50ms when idle; the headroom only matters under contention.
+      const deadline = Date.now() + 30000;
       const t = setInterval(() => {
         if (getServerPort() !== null && getSpawnedArgs() !== null) {
           clearInterval(t);
@@ -752,7 +758,10 @@ describe('tuiLauncher integration smoke — M6 long-session survival', () => {
     getServerPort: () => number | null,
   ): Promise<{ args: string[]; port: number; sessionId: string }> {
     await new Promise<void>((resolve, reject) => {
-      const deadline = Date.now() + 5000;
+      // 30s (not 5s): building the real runtime + binding the in-process server
+      // can run slow on a loaded machine / busy CI runner. The bind still happens
+      // in <50ms when idle; the headroom only matters under contention.
+      const deadline = Date.now() + 30000;
       const t = setInterval(() => {
         if (getServerPort() !== null && getSpawnedArgs() !== null) {
           clearInterval(t);
