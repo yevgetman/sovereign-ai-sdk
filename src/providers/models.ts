@@ -3,7 +3,7 @@
 
 export type ProviderRegistryEntry = {
   provider: string;
-  apiMode: 'anthropic' | 'openai' | 'ollama';
+  apiMode: 'anthropic' | 'openai' | 'ollama' | 'sov';
   defaultModel: string;
   defaultBaseUrl: string;
   authEnvVar?: string;
@@ -40,6 +40,17 @@ export const PROVIDER_REGISTRY: Record<string, ProviderRegistryEntry> = {
     apiMode: 'ollama',
     defaultModel: 'qwen2.5:3b',
     defaultBaseUrl: 'http://localhost:11434',
+    contextLength: 32_768,
+  },
+  // The local Sovereign L1 engine: a standalone OpenAI-compatible MLX server
+  // on loopback. Keyless (no authEnvVar) — mirrors ollama's posture. A
+  // single-model engine serves under its served_model_name (default
+  // "sovereign"), so defaultModel reflects that, not an HF id.
+  sov: {
+    provider: 'sov',
+    apiMode: 'sov',
+    defaultModel: 'sovereign',
+    defaultBaseUrl: 'http://127.0.0.1:8000/v1',
     contextLength: 32_768,
   },
 };

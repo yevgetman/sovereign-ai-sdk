@@ -265,6 +265,10 @@ export const SettingsSchema = z
         openai: ProviderConfigSchema.optional(),
         openrouter: ProviderConfigSchema.optional(),
         ollama: ProviderConfigSchema.optional(),
+        /** The keyless local Sovereign-engine lane (OpenAI-compatible MLX
+         *  server on loopback). Reuses ProviderConfigSchema — only baseUrl
+         *  and model are typically set; no apiKey is required. */
+        sov: ProviderConfigSchema.optional(),
       })
       .strict()
       .optional(),

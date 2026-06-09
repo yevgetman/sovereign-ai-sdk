@@ -236,6 +236,25 @@ describe('SettingsSchema — providers config shape', () => {
       SettingsSchema.parse({ providers: { ollama: { baseUrl: 'http://localhost:11434' } } }),
     ).not.toThrow();
   });
+
+  // sov is the keyless local lane (the Sovereign L1 engine). Its config block
+  // reuses ProviderConfigSchema, so a baseUrl/model override round-trips and
+  // unknown keys are still rejected under strict mode.
+  test('providers.sov accepts model + baseUrl overrides', () => {
+    const parsed = SettingsSchema.parse({
+      providers: { sov: { model: 'sovereign', baseUrl: 'http://127.0.0.1:8000/v1' } },
+    });
+    expect(parsed.providers?.sov?.model).toBe('sovereign');
+    expect(parsed.providers?.sov?.baseUrl).toBe('http://127.0.0.1:8000/v1');
+  });
+
+  test('providers.sov is optional / absent by default', () => {
+    expect(SettingsSchema.parse({ providers: {} }).providers?.sov).toBeUndefined();
+  });
+
+  test('rejects unknown keys under providers.sov (strict mode)', () => {
+    expect(() => SettingsSchema.parse({ providers: { sov: { unknown: 'x' } } })).toThrow();
+  });
 });
 
 describe('SettingsSchema — debugMode', () => {

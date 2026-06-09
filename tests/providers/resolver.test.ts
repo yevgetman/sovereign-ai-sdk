@@ -46,6 +46,66 @@ describe('resolveProvider', () => {
     expect(resolved.model).toBe('qwen2.5:3b');
   });
 
+  test('sov resolves keyless against the loopback default', () => {
+    // The local Sovereign engine lane: no API key in env/config, must NOT
+    // throw `unknown provider` or `CredentialUnavailableError`, and binds
+    // to the loopback default with authType 'none'.
+    const resolved = resolveProvider('sov', 'sovereign', {
+      env: {},
+      harnessHome: tempHome(),
+      settings: {},
+    });
+    expect(resolved.transport.name).toBe('sov');
+    expect(resolved.transport.apiMode).toBe('sov');
+    expect(resolved.authType).toBe('none');
+    expect(resolved.baseUrl).toBe('http://127.0.0.1:8000/v1');
+    expect(resolved.model).toBe('sovereign');
+  });
+
+  test('sov uses its registered default model when none is supplied', () => {
+    const resolved = resolveProvider('sov', undefined, {
+      env: {},
+      harnessHome: tempHome(),
+      settings: {},
+    });
+    expect(resolved.model).toBe('sovereign');
+    expect(resolved.authType).toBe('none');
+  });
+
+  test('sov honors a config baseUrl override', () => {
+    const resolved = resolveProvider('sov', undefined, {
+      env: {},
+      harnessHome: tempHome(),
+      settings: { providers: { sov: { baseUrl: 'http://127.0.0.1:9001/v1' } } },
+    });
+    expect(resolved.baseUrl).toBe('http://127.0.0.1:9001/v1');
+    expect(resolved.authType).toBe('none');
+  });
+
+  test('router local lane resolves keyless when router.localProvider is sov', () => {
+    // Mirrors src/server/runtime.ts: the router resolves its local lane via
+    // resolveProvider(router.localProvider, router.localModel). With sov as
+    // the local lane and no credentials anywhere, this must succeed keyless —
+    // the lane preflight (src/router/preflight.ts) drives the same call.
+    const settings = {
+      router: {
+        localProvider: 'sov',
+        localModel: 'sovereign',
+        frontierProvider: 'anthropic',
+      },
+    } as const;
+    const resolved = resolveProvider(settings.router.localProvider, settings.router.localModel, {
+      env: {},
+      harnessHome: tempHome(),
+      settings,
+    });
+    expect(resolved.transport.name).toBe('sov');
+    expect(resolved.transport.apiMode).toBe('sov');
+    expect(resolved.authType).toBe('none');
+    expect(resolved.baseUrl).toBe('http://127.0.0.1:8000/v1');
+    expect(resolved.model).toBe('sovereign');
+  });
+
   test('ollama transport receives num_ctx from registered model context length', () => {
     const resolved = resolveProvider('ollama', 'qwen2.5:7b', {
       env: {},

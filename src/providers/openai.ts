@@ -10,7 +10,7 @@ import type {
   SystemSegment,
 } from '../core/types.js';
 import { ProviderHttpError } from './errors.js';
-import type { ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
+import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
 type OpenAIMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -75,7 +75,7 @@ export type OpenAIChatChunk = {
 };
 
 type OpenAIProviderConfig = {
-  apiKey: string;
+  apiKey?: string;
   baseURL?: string;
   name?: string;
   fetchImpl?: typeof fetch;
@@ -85,15 +85,43 @@ export class OpenAIProvider
   implements Transport<OpenAIMessage, OpenAITool, OpenAIChatBody, OpenAIChatChunk>
 {
   readonly name: string;
-  readonly apiMode = 'openai';
-  private readonly baseURL: string;
-  private readonly fetchImpl: typeof fetch;
+  readonly apiMode: ApiMode = 'openai';
+  protected readonly baseURL: string;
+  protected readonly fetchImpl: typeof fetch;
 
-  constructor(private readonly config: OpenAIProviderConfig) {
-    if (!config.apiKey) throw new Error('OpenAIProvider requires apiKey');
-    this.name = config.name ?? 'openai';
-    this.baseURL = (config.baseURL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
+  constructor(protected readonly config: OpenAIProviderConfig) {
+    // The official OpenAI lane requires a key; keyless OpenAI-compatible
+    // backends (e.g. the local `sov` engine) subclass this and relax the
+    // gate by overriding `requiresApiKey()` + the default base URL.
+    if (this.requiresApiKey() && !config.apiKey) throw new Error('OpenAIProvider requires apiKey');
+    this.name = config.name ?? this.defaultName();
+    this.baseURL = (config.baseURL ?? this.defaultBaseUrl()).replace(/\/$/, '');
     this.fetchImpl = config.fetchImpl ?? fetch;
+  }
+
+  /** Whether a missing apiKey is a hard error. Subclasses serving keyless
+   *  loopback backends override to `false`. */
+  protected requiresApiKey(): boolean {
+    return true;
+  }
+
+  /** Provider name used when config.name is unset. */
+  protected defaultName(): string {
+    return 'openai';
+  }
+
+  /** Base URL used when config.baseURL is unset. */
+  protected defaultBaseUrl(): string {
+    return 'https://api.openai.com/v1';
+  }
+
+  /** Request headers for the chat-completions call. The Authorization
+   *  header is only attached when a key is present, so a keyless subclass
+   *  transparently omits it. */
+  protected requestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (this.config.apiKey) headers.authorization = `Bearer ${this.config.apiKey}`;
+    return headers;
   }
 
   toProviderMessages(messages: Message[], system: SystemSegment[] = []): OpenAIMessage[] {
@@ -138,10 +166,7 @@ export class OpenAIProvider
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
     const response = await this.fetchImpl(`${this.baseURL}/chat/completions`, {
       method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.config.apiKey}`,
-        'content-type': 'application/json',
-      },
+      headers: this.requestHeaders(),
       body: JSON.stringify(this.buildKwargs(req)),
       ...(req.signal ? { signal: req.signal } : {}),
     });

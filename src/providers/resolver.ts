@@ -18,6 +18,7 @@ import { MockProvider } from './mock.js';
 import { PROVIDER_REGISTRY, contextLengthFor } from './models.js';
 import { OllamaProvider } from './ollama.js';
 import { OpenAIProvider } from './openai.js';
+import { SovProvider } from './sov.js';
 import type { AuthType, ProviderRequest, ToolSchema, Transport } from './types.js';
 
 /** Call-site purpose used for auxiliary fallback and provider metadata. */
@@ -111,7 +112,7 @@ export function resolveProvider(
     baseUrl,
     model: resolvedModel,
     contextLength: contextLengthFor(providerName, resolvedModel),
-    authType: selected?.authType ?? (providerName === 'ollama' ? 'none' : 'api_key'),
+    authType: selected?.authType ?? (isKeylessProvider(providerName) ? 'none' : 'api_key'),
     metadata: {
       provider: providerName,
       apiMode: registry.apiMode,
@@ -128,6 +129,12 @@ function normalizeProviderName(name: string): string {
   return lower;
 }
 
+/** Providers that resolve without any credential (local loopback engines).
+ *  These default to authType 'none' and never throw when a key is absent. */
+function isKeylessProvider(providerName: string): boolean {
+  return providerName === 'ollama' || providerName === 'sov';
+}
+
 function providerConfigFor(
   providers: ProviderConfigMap | undefined,
   providerName: string,
@@ -137,6 +144,7 @@ function providerConfigFor(
   if (providerName === 'openai') return providers.openai;
   if (providerName === 'openrouter') return providers.openrouter;
   if (providerName === 'ollama') return providers.ollama;
+  if (providerName === 'sov') return providers.sov;
   return undefined;
 }
 
@@ -148,7 +156,7 @@ function selectCredential(
   opts: ResolveProviderOpts,
 ): SelectedCredential | undefined {
   const inputs = credentialInputs(providerName, config, envVar, env);
-  if (providerName === 'ollama' && inputs.length === 0) return undefined;
+  if (isKeylessProvider(providerName) && inputs.length === 0) return undefined;
   if (inputs.length === 0) throw new CredentialUnavailableError(providerName);
 
   const harnessHome = opts.harnessHome;
@@ -199,7 +207,7 @@ function credentialInputs(
 
 function instantiateTransport(
   providerName: string,
-  apiMode: 'anthropic' | 'openai' | 'ollama',
+  apiMode: 'anthropic' | 'openai' | 'ollama' | 'sov',
   baseUrl: string,
   apiKey: string | undefined,
   numCtx: number | undefined,
@@ -211,6 +219,15 @@ function instantiateTransport(
   if (apiMode === 'openai') {
     if (!apiKey) throw new CredentialUnavailableError(providerName);
     return new OpenAIProvider({ apiKey, baseURL: baseUrl, name: providerName }) as Transport;
+  }
+  if (apiMode === 'sov') {
+    // Keyless local lane — never throws on a missing key; only attaches the
+    // Authorization header when a key is explicitly configured.
+    return new SovProvider({
+      baseURL: baseUrl,
+      name: providerName,
+      ...(apiKey ? { apiKey } : {}),
+    }) as Transport;
   }
   return new OllamaProvider({
     baseURL: baseUrl,
