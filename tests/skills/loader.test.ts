@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { expandSkillPrompt, loadSkills, reloadSkill } from '../../src/skills/loader.js';
+import {
+  type SkillRoot,
+  expandSkillPrompt,
+  loadSkills,
+  reloadSkill,
+} from '../../src/skills/loader.js';
 import type { Skill } from '../../src/skills/types.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../../src/skills/visibility.js';
 
@@ -32,6 +37,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     dir: dirname(path),
     source: 'project',
     trustTier: 'trusted',
+    allowShellInterpolation: true,
     metadata: {
       harness: {
         requiresToolsets: [],
@@ -509,6 +515,178 @@ New {{args}}
 
       const reloaded = await reloadSkill(loaded);
       expect(await expandSkillPrompt(reloaded, { args: 'body', cwd: dir })).toBe('New body');
+    });
+  });
+});
+
+describe('loadSkills — extraRoots precedence (T5 / S2)', () => {
+  function pluginRoot(path: string): SkillRoot {
+    return { source: 'plugin', trustTier: 'community', path };
+  }
+
+  test('an extraRoots (plugin) skill overrides a same-named BUNDLE skill (spliced before bundle)', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      const bundleRoot = join(dir, 'bundle');
+      const pluginSkills = join(dir, 'plugin/skills');
+      writeSkill(
+        join(bundleRoot, 'skills/bar.md'),
+        `---
+name: bar
+description: Bundle bar
+whenToUse: User asks for bar
+---
+Bundle body
+`,
+      );
+      writeSkill(
+        join(pluginSkills, 'bar.md'),
+        `---
+name: bar
+description: Plugin bar
+whenToUse: User asks for bar
+---
+Plugin body
+`,
+      );
+
+      const registry = await loadSkills({
+        cwd,
+        harnessHome,
+        bundleRoot,
+        extraRoots: [pluginRoot(pluginSkills)],
+      });
+
+      // extraRoots is spliced BEFORE bundle, and dedupe is first-wins by name,
+      // so the plugin skill wins over the bundle one.
+      expect(registry.byName.get('bar')?.source).toBe('plugin');
+      expect(registry.byName.get('bar')?.description).toBe('Plugin bar');
+    });
+  });
+
+  test('H2 no-shadow: an extraRoots (plugin) skill CANNOT shadow a same-named USER skill', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      const pluginSkills = join(dir, 'plugin/skills');
+      writeSkill(
+        join(harnessHome, 'skills/foo.md'),
+        `---
+name: foo
+description: User foo
+whenToUse: User asks for foo
+---
+User body
+`,
+      );
+      writeSkill(
+        join(pluginSkills, 'foo.md'),
+        `---
+name: foo
+description: Plugin foo
+whenToUse: User asks for foo
+---
+Plugin body
+`,
+      );
+
+      const warnings: string[] = [];
+      const registry = await loadSkills({
+        cwd,
+        harnessHome,
+        extraRoots: [pluginRoot(pluginSkills)],
+        warn: (m) => warnings.push(m),
+      });
+
+      // The user skill ranks above extraRoots → user wins; the plugin one is the
+      // skipped duplicate.
+      expect(registry.byName.get('foo')?.source).toBe('user');
+      expect(registry.byName.get('foo')?.description).toBe('User foo');
+      expect(warnings.some((m) => m.includes("duplicate skill name 'foo'"))).toBe(true);
+    });
+  });
+
+  test('H2 no-shadow: an extraRoots (plugin) skill CANNOT shadow a same-named PROJECT skill', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      const pluginSkills = join(dir, 'plugin/skills');
+      writeSkill(
+        join(cwd, '.harness/skills/baz.md'),
+        `---
+name: baz
+description: Project baz
+whenToUse: User asks for baz
+---
+Project body
+`,
+      );
+      writeSkill(
+        join(pluginSkills, 'baz.md'),
+        `---
+name: baz
+description: Plugin baz
+whenToUse: User asks for baz
+---
+Plugin body
+`,
+      );
+
+      const registry = await loadSkills({
+        cwd,
+        harnessHome,
+        extraRoots: [pluginRoot(pluginSkills)],
+      });
+
+      expect(registry.byName.get('baz')?.source).toBe('project');
+      expect(registry.byName.get('baz')?.description).toBe('Project baz');
+    });
+  });
+
+  test('a loader-loaded plugin skill carries allowShellInterpolation:false', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      const pluginSkills = join(dir, 'plugin/skills');
+      writeSkill(
+        join(pluginSkills, 'qux.md'),
+        `---
+name: qux
+description: Plugin qux
+whenToUse: User asks for qux
+---
+Body
+`,
+      );
+
+      const registry = await loadSkills({
+        cwd,
+        harnessHome,
+        extraRoots: [pluginRoot(pluginSkills)],
+      });
+
+      expect(registry.byName.get('qux')?.allowShellInterpolation).toBe(false);
+    });
+  });
+
+  test('a loader-loaded non-plugin skill carries allowShellInterpolation:true', async () => {
+    await withTmp(async (dir) => {
+      const cwd = join(dir, 'project');
+      const harnessHome = join(dir, 'home');
+      writeSkill(
+        join(cwd, '.harness/skills/native.md'),
+        `---
+name: native
+description: Project native
+whenToUse: User asks for native
+---
+Body
+`,
+      );
+
+      const registry = await loadSkills({ cwd, harnessHome });
+      expect(registry.byName.get('native')?.allowShellInterpolation).toBe(true);
     });
   });
 });

@@ -17,6 +17,7 @@ const fakeSkill = (name: string, description: string, source: Skill['source']): 
   dir: '/tmp',
   source,
   trustTier: 'trusted',
+  allowShellInterpolation: source !== 'plugin',
   metadata: {
     harness: {
       requiresToolsets: [],

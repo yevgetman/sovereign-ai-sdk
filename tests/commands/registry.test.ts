@@ -189,6 +189,7 @@ Simplify {{args}}.
         dir: dirname(skillPath),
         source: 'project',
         trustTier: 'trusted',
+        allowShellInterpolation: true,
         metadata: {
           harness: {
             requiresToolsets: [],

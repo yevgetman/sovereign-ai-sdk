@@ -26,6 +26,7 @@ function makeSkill(path: string): Skill {
     dir: dirname(path),
     source: 'project',
     trustTier: 'trusted',
+    allowShellInterpolation: true,
     metadata: {
       harness: {
         requiresToolsets: [],

@@ -2,7 +2,7 @@
 // and SkillTool. Phase 9 keeps skills as markdown files with frontmatter;
 // Phase 9.5 adds progressive disclosure and third-party guard rails.
 
-export type SkillSource = 'project' | 'user' | 'bundle' | 'community' | 'agent-created';
+export type SkillSource = 'project' | 'user' | 'bundle' | 'community' | 'agent-created' | 'plugin';
 
 export type SkillTrustTier = 'builtin' | 'trusted' | 'community' | 'agent-created';
 
@@ -37,6 +37,13 @@ export type Skill = {
   dir: string;
   source: SkillSource;
   trustTier: SkillTrustTier;
+  /** Whether the body's inline-shell interpolation (`` `!cmd` `` / `` !`cmd` ``)
+   *  is allowed to execute on expand. Forced FALSE for `source:'plugin'` skills
+   *  at the loader chokepoint (NOT manifest-controlled) — inline shell runs
+   *  OUTSIDE the permission layer, so a plugin must never reach it. TRUE for
+   *  every other (trusted/user/bundle/project) source. Variable substitution is
+   *  unaffected either way; only the shell-command expansion is gated. */
+  allowShellInterpolation: boolean;
   metadata: {
     harness: SkillHarnessMetadata;
   };

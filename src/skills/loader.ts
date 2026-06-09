@@ -90,6 +90,12 @@ export type LoadSkillsOptions = {
   cwd: string;
   /** When set, scans bundle-relative skill roots; absent in generic-agent mode. */
   bundleRoot?: string;
+  /** Extra skill roots spliced in AFTER project+user, BEFORE bundle roots —
+   *  precedence `project > user > extraRoots > bundle`. T4/compose passes the
+   *  plugin SkillRoots here. Because dedupe is first-wins by name, an extraRoot
+   *  skill can override a bundle skill but can NEVER shadow a user/project skill
+   *  of the same name (the H2 no-shadow property). */
+  extraRoots?: SkillRoot[];
   warn?: (message: string) => void;
 };
 
@@ -116,6 +122,9 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       path: join(opts.harnessHome, 'skills'),
       classify: (file) => classifyUserSkill(file, join(opts.harnessHome, 'skills')),
     },
+    // Plugin (and any caller-supplied) roots rank below user/project but above
+    // bundle. First-wins-by-name dedupe makes this the H2 no-shadow boundary.
+    ...(opts.extraRoots ?? []),
   ];
   if (opts.bundleRoot !== undefined) {
     roots.push(
@@ -194,6 +203,13 @@ export async function expandSkillText(
   if (argsTrimmed && !hasPlaceholder) {
     withVariables += `\n\nUser arguments: ${argsTrimmed}`;
   }
+  // Defense in depth: gate on the field AND re-check the source. Even a
+  // mis-constructed plugin Skill with `allowShellInterpolation: true` must NOT
+  // run shell — the `source !== 'plugin'` clause is the backstop. When shell is
+  // disallowed, return the variable-substituted text WITHOUT shell expansion:
+  // the `` `!cmd` `` literal stays as inert text, never executed.
+  const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
+  if (!shellAllowed) return withVariables;
   return interpolateShellCommands(withVariables, skill.dir);
 }
 
@@ -254,6 +270,9 @@ async function loadSkillFile(
       dir: dirname(path),
       source: classification.source,
       trustTier: classification.trustTier,
+      // Forced by source — NOT manifest-controlled. Plugin skills never run
+      // inline shell (it bypasses the permission layer); everything else does.
+      allowShellInterpolation: classification.source !== 'plugin',
       metadata: {
         harness: normalizeHarnessMetadata(frontmatter.metadata.harness),
       },

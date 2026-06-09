@@ -57,6 +57,7 @@ function makeSkill(): Skill {
     dir: dirname('/tmp/simplify.md'),
     source: 'project',
     trustTier: 'trusted',
+    allowShellInterpolation: true,
     metadata: {
       harness: {
         requiresToolsets: [],

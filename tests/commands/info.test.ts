@@ -24,6 +24,7 @@ const fakeSkill = (name: string, description: string): Skill => ({
   dir: '/tmp',
   source: 'project',
   trustTier: 'trusted',
+  allowShellInterpolation: true,
   metadata: {
     harness: {
       requiresToolsets: [],

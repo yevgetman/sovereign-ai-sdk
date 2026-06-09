@@ -38,6 +38,7 @@ function makeSkill(name: string, body: string, requires: string[] = []): Skill {
     dir: '/tmp',
     source: 'project',
     trustTier: 'trusted',
+    allowShellInterpolation: true,
     metadata: {
       harness: {
         requiresToolsets: [],
