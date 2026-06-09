@@ -8,6 +8,41 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-09 — `sov` provider T4-live (verified against a running L1 engine)
+
+**Scope.** The gated live integration deferred from the Bucket A build (see entry below): run the
+`sov` lane end-to-end through `SovProvider` against a **real** running L1 engine, confirm reasoning
+and tool-calling flow correctly, and **pin the tool-call streaming shape** (the open question).
+
+**Environment.** L1 engine `~/code/sovereign-ai-inference` started locally
+(`.venv/bin/sov-infer serve mlx-community/Qwen3-4B-4bit`) — `vllm-mlx 0.3.0` serving Qwen3-4B-4bit
+under the served name `sovereign` on `127.0.0.1:8000`, this host (Apple Silicon, 16 GB). Reasoning
+parser auto-detected `qwen3` (Phase-2 CLI behavior, confirmed live).
+
+**Commands / result.** `SOV_ENGINE_URL=http://127.0.0.1:8000/v1 bun test
+tests/providers/sov.live.test.ts` → **2 pass / 0 fail** (8 expect calls, ~6 s). Skips cleanly (2
+skip) when `SOV_ENGINE_URL` is unset, so the default suite is unaffected. New artifact:
+`tests/providers/sov.live.test.ts` (gated; optional `SOV_ENGINE_MODEL`, default `sovereign`).
+
+**Findings (captured from the live engine).**
+- **Reasoning streams as the thinking channel.** A completed reasoning turn emitted **63 incremental
+  `reasoning_content` deltas** then **5 `content` deltas** — no chunk mixed both. `SovProvider`
+  (via `translateOpenAIStream`) maps these to `thinking_delta` + a `thinking` block, answer separate.
+  Matches the offline model in `sov.test.ts`/`openai.test.ts`.
+- **Tool-call streaming shape PINNED — whole, not fragmented.** The engine emits a tool call as **one
+  complete `tool_calls` delta** (`{index:0, id:"call_<hex>", function:{name, arguments:<full JSON>}}`),
+  *not* incremental OpenAI-style argument fragments. The translator handles it and preserves the
+  engine's `call_…` id end-to-end. This resolves the Bucket-A open question; the offline regression
+  test already modeled exactly this whole-delta shape.
+- **Edge / known limitation.** If thinking is **truncated by `max_tokens`** before `</think>` closes
+  (`finish_reason: length`), the raw `<think>…` stays in `content` and `reasoning_content` is empty —
+  reasoning separation only happens on a *completed* think block. Not a harness bug (engine
+  reasoning-parser behavior); worth knowing for short `max_tokens` on reasoning models.
+
+**Landing note.** Committed scoped to only the test + this entry (no push) because master had
+unrelated in-progress work (a plugins feature, uncommitted + unpushed) at the time. No runtime/`src`
+changes — tests-only, so no release implication (`cutting-releases.md` skip rule).
+
 ## 2026-06-08 — `sov` provider Bucket A (keyless local-engine lane + reasoning translation)
 
 **Scope.** Cross-repo co-design: a first-class `sov` provider so the harness can use our own L1
