@@ -2054,6 +2054,50 @@ The shipped `bundle-default/` provides three starter skills, all auto-discovered
 
 Override any of these in your own bundle by placing a same-named skill file in `<bundle>/skills/` — bundle skills shadow defaults. Override globally for all bundleless sessions by placing it under `<harness-home>/default-bundle/skills/`.
 
+## Plugins
+
+A **plugin** is one installable unit that bundles **skills + slash-commands** together — a capability pack you can install, inspect, and toggle as a whole. Plugins install under `$HARNESS_HOME/plugins/<name>/` (one dir per plugin; survives `sov upgrade`) and carry a manifest at `<name>/.claude-plugin/plugin.json` (the Claude-Code-compatible location). They load at **boot** — install/enable/disable take effect on the next session (restart to apply).
+
+A plugin contributes **nothing** until you consent to it: installing is a deliberate, terminal-only disclose-and-consent step (below), and the harness re-verifies that consent against a fresh content hash of the install tree on every boot. An un-consented, tampered, or disabled plugin is still listed (so you can see why it's inert) but adds no skills or commands.
+
+### Security posture (read this first)
+
+- **Consent + integrity gate.** A plugin activates only when a valid `.consent.json` exists in its install dir **and** its recorded tree-hash still matches a fresh recompute. Dropping a plugin dir in by hand (no `install`) loads nothing; editing a plugin's files after consent flips it to `tampered` (inert) until you reinstall.
+- **No inline shell from plugin skills.** A plugin skill's body can render prompts and templates, but the `` `!cmd` `` inline-shell syntax is **disabled** for plugin-sourced skills — it never executes at expansion time. (Your own user/bundle skills keep inline shell; only third-party plugin skills are declarative-only.)
+- **Install-time safety.** The installer secret-scans the manifest (refuses a baked credential), contains every declared path to the install tree, rejects symlink escapes, and guard-scans skill/command content + any bundled scripts. A guard-blocked component is disclosed as disabled-by-policy rather than silently loaded; bundled scripts are disclosed (the harness never runs them, but a Bash-allowed session could be induced to).
+
+### `/plugins` command
+
+| Subcommand | Behavior |
+|---|---|
+| `/plugins list` | Lists installed plugins with version, status (`active` / `needs-consent` / `tampered` / `disabled`), and component counts. |
+| `/plugins info <name>` | Shows a plugin's manifest, what it contributes, any declared-but-inert hooks/MCP servers, ignored CC-only keys, and — if inert — why. |
+| `/plugins install <dir>` | Installs from a local source dir. **Requires a terminal** — it prints a capability disclosure, then asks for `y/N` consent. Refuses on the server / TUI (no consent prompt). |
+| `/plugins uninstall <name>` | Removes the plugin dir, including its consent record. |
+| `/plugins enable <name>` | Adds the plugin to the opt-in allow-list (restart to apply). |
+| `/plugins disable <name>` | Turns the plugin off (restart to apply). |
+
+The install flow is **disclose → consent → restart**: every safety gate runs *before* you're asked, so a baked-secret / path-escaping / guard-blocked package never reaches the prompt looking clean. On a clean package you see a single capability-framed disclosure — "Contributes N skills, M commands; Declares (INERT in v1) K hooks / J MCP servers; Ignores CC-only feature Z; Bundles script X" — answer `y` to land the tree and mint consent, anything else to install nothing.
+
+### Config
+
+Plugins are **opt-in**, configured under a `plugins` block (no secrets, no paths — only identity decisions):
+
+```json
+{
+  "plugins": {
+    "enabled": ["my-pack"],
+    "disabled": ["risky-pack"]
+  }
+}
+```
+
+Precedence: when `enabled` is **set**, only listed plugins are active (a consented-but-unlisted plugin is inert); a name in `disabled` is always off, and **`disabled` wins** if a name is in both. With no `plugins` block (or no `enabled` list), every consented, untampered plugin is active by default. `/plugins enable` / `disable` edit this block for you.
+
+### Claude Code plugins (honest note)
+
+v1 imports Claude-Code-format **skills + commands**. A CC plugin's richer components — **hooks, MCP servers, and agents** — are **disclosed but inert**: the manifest is parsed and the components are listed in the install disclosure and `/plugins info`, but they never run or connect in v1 (deferred to later versions). So you can install a Claude-Code skill/command pack and it works; a plugin whose value lives in hooks/MCP installs with those parts disclosed and deferred, not silently dropped. In a plugin skill/command body, `${CLAUDE_PLUGIN_ROOT}` resolves to the plugin's install dir so bundled files can be referenced portably.
+
 ## Trajectory Capture
 
 Every completed session writes a ShareGPT-shaped JSONL record (Phase 13.1). Storage location:

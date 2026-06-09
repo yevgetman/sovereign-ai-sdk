@@ -180,6 +180,48 @@ End with: Finding (1-2 sentences), Evidence (3-6 bullet points each `path:line`)
 
 **Review agents have a special role.** The three `review-*` agents are invoked exclusively by `runReviewFork()` in `src/review/fork.ts`, never by the main agent directly. They receive an augmented tool pool that includes `REVIEW_ONLY_TOOLS` (`memory_propose` and `skill_propose`) — tools that are deliberately excluded from the main agent's pool via `src/tool/registry.ts`'s `REVIEW_ONLY_TOOLS` export. If you add a tool that should only be callable from review forks (not from main agent turns), add it to `REVIEW_ONLY_TOOLS` rather than `REGISTERED_TOOLS`, and declare it in the review agents' `allowedTools` frontmatter.
 
+## Authoring A Plugin
+
+A **plugin** (Plugin System v1, `src/plugins/`) bundles **skills + slash-commands** into one installable, consentable unit. You don't author plugins under `src/` — a plugin is a self-contained directory with a manifest plus `skills/` and `commands/` dirs, installed by the operator via `/plugins install <dir>`. v1 contributes skills + commands only; a manifest may *declare* `hooks` / `mcpServers` (and CC-only keys like `agents`), but those are disclosed-and-inert — validated, listed at install time, never run.
+
+**Layout** (the manifest path is the Claude-Code-compatible location):
+
+```text
+my-pack/
+  .claude-plugin/
+    plugin.json          # the manifest
+  skills/                # markdown skills → spliced into the skill registry (prompt-injected + dispatchable)
+    greet.md
+  commands/              # markdown → slash-commands ONLY (not prompt-injected)
+    deploy.md
+```
+
+**Manifest** (`.claude-plugin/plugin.json`) — `parsePluginManifest` (`src/plugins/manifest.ts`) validates a strict known subset; unknown / CC-only top-level keys are collected into `ignored[]` and disclosed, not dropped:
+
+```json
+{
+  "name": "my-pack",
+  "version": "1.0.0",
+  "description": "A tiny greeting pack.",
+  "author": "you"
+}
+```
+
+`name` must be a lowercase hyphen-separated slug (`^[a-z][a-z0-9-]*$`) — it's the install-dir segment and the inter-plugin sort key. `skills` / `commands` default to those dir names; override them with a relative path (it must stay **under** the plugin root — an absolute or `../`-escaping value is rejected at install). `hooks` / `mcpServers` are optional and inert in v1.
+
+**A skill** (`skills/greet.md`) is an ordinary harness skill (frontmatter + body). The only difference: a plugin skill is **declarative-only** — inline shell (`` `!cmd` ``) is disabled and never executes at expansion, so the body emits prompts/templates, not shell. Reference bundled files via `${CLAUDE_PLUGIN_ROOT}`, which resolves to the plugin's install dir (in both skill *and* command bodies); `{{args}}`, `${HARNESS_SKILL_DIR}`, and `${HARNESS_SESSION_ID}` work as usual:
+
+```md
+---
+name: greet
+description: Greet someone by name.
+whenToUse: When the user asks to greet a person.
+---
+Greet {{args}} warmly. Use the template at ${CLAUDE_PLUGIN_ROOT}/skills/template.txt.
+```
+
+**Install + consent.** `/plugins install <dir>` is **terminal-only** and the only path that mints consent. It runs every safety gate first (`installPlugin`, `src/plugins/install.ts`) — manifest secret-scan, path-containment, symlink-escape rejection, guard-scan of content + bundled scripts — then shows a capability disclosure (`buildDisclosure`, `src/plugins/disclosure.ts`) and asks for `y/N`. On accept it copies the tree, hashes the **copied** tree, and writes `.consent.json` (`src/plugins/consent.ts`). At every boot the loader (`src/plugins/loader.ts`) re-verifies that record against a fresh tree-hash: no record, an identity mismatch, or a post-consent edit makes the plugin inert (`needsConsent` / `tampered`). Plugins are opt-in via the `plugins: { enabled?, disabled? }` config block and load at boot, so install/enable/disable are restart-to-apply. See [`usage.md`](usage.md#plugins) for the operator-facing reference and [`architecture.md`](architecture.md#plugins) for the composition + consent internals.
+
 ## Add A Shell Hook
 
 Hooks live in any settings layer's `hooks` key (`<cwd>/.harness/settings.local.json`, `<cwd>/.harness/settings.json`, or `$HARNESS_HOME/settings.json`). They're not authored under `src/`; they're external shell commands or scripts the user owns. The harness runtime is in `src/hooks/` (`runner.ts`, `consent.ts`, `types.ts`); changes there should preserve:
