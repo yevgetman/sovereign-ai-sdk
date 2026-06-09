@@ -98,7 +98,7 @@ type SkillClassification = {
   trustTier: SkillTrustTier;
 };
 
-type SkillRoot = SkillClassification & {
+export type SkillRoot = SkillClassification & {
   path: string;
   classify?: (file: string) => SkillClassification;
 };

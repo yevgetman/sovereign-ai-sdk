@@ -37,7 +37,7 @@ const HookConfigSchema = z
   })
   .strict();
 
-const HooksSettingsSchema = z
+export const HooksSettingsSchema = z
   .object({
     PreToolUse: z.array(HookConfigSchema).optional(),
     PostToolUse: z.array(HookConfigSchema).optional(),
@@ -98,7 +98,7 @@ const McpServerConfigUnion = z.discriminatedUnion('type', [
   McpSseConfigSchema,
 ]);
 
-const McpServerConfigSchema = z.preprocess((raw) => {
+export const McpServerConfigSchema = z.preprocess((raw) => {
   // Back-compat ONLY: a legacy stdio config is `{command,...}` with no
   // `type`. Inject the discriminant so it parses as stdio. Return a NEW
   // object (no mutation). Any other shape passes through untouched so the
