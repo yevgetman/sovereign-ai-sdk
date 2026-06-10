@@ -47,14 +47,26 @@ describe('classify — frontier triggers', () => {
     expect(decision.classifierLane).toBe('local-with-escalation');
   });
 
-  test('context overflow (byteCount > 4 * localContextLength) trips escalation', () => {
+  test('context overflow (byteCount > 4 * localContextLength) is a HARD frontier trigger', () => {
+    // Local is structurally unable to fit the prompt — escalate directly to
+    // frontier, not local-with-escalation (which would defer to escalationMode).
     const decision = classify(baseConfig, {
       prompt: 'x',
       contextByteCount: 4001,
       localContextLength: 1000,
     });
-    expect(decision.classifierLane).toBe('local-with-escalation');
+    expect(decision.classifierLane).toBe('frontier');
+    expect(decision.lane).toBe('frontier');
     expect(decision.reason).toContain('context overflow');
+  });
+
+  test('context overflow escalates even when escalationMode is never', () => {
+    // The hard trigger must override escalation mode — local cannot continue.
+    const decision = classify(
+      { ...baseConfig, escalationMode: 'never' },
+      { prompt: 'x', contextByteCount: 4001, localContextLength: 1000 },
+    );
+    expect(decision.lane).toBe('frontier');
   });
 
   test('within local context capacity stays local', () => {

@@ -15,7 +15,14 @@ export type RecallTurn = (latestUserText: string | undefined) => Promise<RecallR
 
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  // `signature` is the opaque token Anthropic returns alongside an extended-
+  // thinking block; it must be replayed verbatim on the tool-use continuation
+  // call (the API verifies it with interleaved thinking on). Optional so non-
+  // Anthropic providers and pre-signature history stay valid.
+  | { type: 'thinking'; thinking: string; signature?: string }
+  // Anthropic-encrypted thinking. `data` is opaque and replayed verbatim on the
+  // continuation call to preserve reasoning continuity across tool-use turns.
+  | { type: 'redacted_thinking'; data: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
   | {

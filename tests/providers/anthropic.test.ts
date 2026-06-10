@@ -32,6 +32,20 @@ async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const it of items) yield it;
 }
 
+/** Drain translateAnthropicStream to its returned AssistantMessage. */
+async function drainToAssistant(events: RawMessageStreamEvent[]): Promise<AssistantMessage> {
+  const gen = translateAnthropicStream(iterate(events));
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) return step.value;
+  }
+}
+
+/** Minimal message_start payload — only the fields the translator reads. */
+function anthropicMessageStub(): { usage: { input_tokens: number; output_tokens: number } } {
+  return { usage: { input_tokens: 7, output_tokens: 0 } };
+}
+
 describe('translateAnthropicStream', () => {
   test('hello fixture → matching StreamEvents + assembled AssistantMessage', async () => {
     const rawEvents = await loadFixture('anthropic-stream-hello.jsonl');
@@ -97,6 +111,118 @@ describe('translateAnthropicStream', () => {
     // message_stop + assistant_message with whatever blocks finalized.
     expect(collected.map((e) => e.type)).toEqual(['message_stop', 'assistant_message']);
     expect(returned?.content).toEqual([]);
+  });
+});
+
+describe('Anthropic interleaved-thinking signature round-trip', () => {
+  // A thinking block emitted by a Claude 4.x model with interleaved thinking on
+  // carries a `signature` the API verifies on the tool-result continuation call.
+  // The signature must survive stream → internal ContentBlock → SDK replay, or
+  // the SECOND provider call of every tool-using turn 400s.
+  const thinkingThenToolUse: RawMessageStreamEvent[] = [
+    { type: 'message_start', message: anthropicMessageStub() } as RawMessageStreamEvent,
+    {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'thinking', thinking: '', signature: '' },
+    } as RawMessageStreamEvent,
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: 'let me reason' },
+    } as RawMessageStreamEvent,
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'signature_delta', signature: 'SIG-ABC-' },
+    } as RawMessageStreamEvent,
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'signature_delta', signature: 'XYZ' },
+    } as RawMessageStreamEvent,
+    { type: 'content_block_stop', index: 0 } as RawMessageStreamEvent,
+    {
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'tool_use', id: 'tu_1', name: 'Echo', input: {} },
+    } as RawMessageStreamEvent,
+    {
+      type: 'content_block_delta',
+      index: 1,
+      delta: { type: 'input_json_delta', partial_json: '{"x":1}' },
+    } as RawMessageStreamEvent,
+    { type: 'content_block_stop', index: 1 } as RawMessageStreamEvent,
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'tool_use', stop_sequence: null },
+      usage: { output_tokens: 5 },
+    } as RawMessageStreamEvent,
+    { type: 'message_stop' } as RawMessageStreamEvent,
+  ];
+
+  test('finalizeBlock carries the accumulated signature onto the thinking ContentBlock', async () => {
+    const returned = await drainToAssistant(thinkingThenToolUse);
+    const thinking = returned.content.find(
+      (b): b is Extract<typeof b, { type: 'thinking' }> => b.type === 'thinking',
+    );
+    expect(thinking).toBeDefined();
+    expect(thinking?.thinking).toBe('let me reason');
+    // The two signature_delta fragments concatenate.
+    expect(thinking?.signature).toBe('SIG-ABC-XYZ');
+  });
+
+  test('blockToSdk replays the thinking signature verbatim (not the empty string)', async () => {
+    const returned = await drainToAssistant(thinkingThenToolUse);
+    // Re-send the assistant turn as prior history on the continuation call.
+    const sdk = messagesToSdk([returned], false) as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    const thinkingParam = sdk[0]?.content.find((b) => b.type === 'thinking');
+    expect(thinkingParam).toBeDefined();
+    expect(thinkingParam?.signature).toBe('SIG-ABC-XYZ');
+    expect(thinkingParam?.signature).not.toBe('');
+  });
+
+  test('redacted_thinking blocks survive stream → ContentBlock → SDK replay', async () => {
+    const events: RawMessageStreamEvent[] = [
+      { type: 'message_start', message: anthropicMessageStub() } as RawMessageStreamEvent,
+      {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'redacted_thinking', data: 'ENCRYPTED-BLOB' },
+      } as RawMessageStreamEvent,
+      { type: 'content_block_stop', index: 0 } as RawMessageStreamEvent,
+      {
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'tool_use', id: 'tu_2', name: 'Echo', input: {} },
+      } as RawMessageStreamEvent,
+      {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'input_json_delta', partial_json: '{}' },
+      } as RawMessageStreamEvent,
+      { type: 'content_block_stop', index: 1 } as RawMessageStreamEvent,
+      {
+        type: 'message_delta',
+        delta: { stop_reason: 'tool_use', stop_sequence: null },
+        usage: { output_tokens: 3 },
+      } as RawMessageStreamEvent,
+      { type: 'message_stop' } as RawMessageStreamEvent,
+    ];
+    const returned = await drainToAssistant(events);
+    const redacted = returned.content.find(
+      (b): b is Extract<typeof b, { type: 'redacted_thinking' }> => b.type === 'redacted_thinking',
+    );
+    expect(redacted).toBeDefined();
+    expect(redacted?.data).toBe('ENCRYPTED-BLOB');
+
+    const sdk = messagesToSdk([returned], false) as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    const redactedParam = sdk[0]?.content.find((b) => b.type === 'redacted_thinking');
+    expect(redactedParam).toEqual({ type: 'redacted_thinking', data: 'ENCRYPTED-BLOB' });
   });
 });
 

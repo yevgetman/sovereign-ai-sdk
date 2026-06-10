@@ -72,6 +72,7 @@ export function normalizeAnthropicError(err: unknown): unknown {
 type WipBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; thinking: string; signature: string }
+  | { kind: 'redacted_thinking'; data: string }
   | { kind: 'tool_use'; id: string; name: string; json: string };
 
 export class AnthropicProvider
@@ -244,17 +245,33 @@ function initWipFromStart(event: RawContentBlockStartEvent): WipBlock | null {
       signature: cb.signature ?? '',
     };
   }
+  if (cb.type === 'redacted_thinking') {
+    // Encrypted thinking arrives whole on the start event (no deltas). Capture
+    // its opaque `data` so it can be replayed verbatim on the continuation call;
+    // dropping it breaks reasoning continuity across a tool-use turn.
+    return { kind: 'redacted_thinking', data: cb.data };
+  }
   if (cb.type === 'tool_use') {
     return { kind: 'tool_use', id: cb.id, name: cb.name, json: '' };
   }
-  // Other block kinds (server tools, web-search results, redacted thinking, etc.)
-  // are not yet modelled in our internal shape. Phase 1 only exercises text.
+  // Other block kinds (server tools, web-search results, etc.) are not yet
+  // modelled in our internal shape.
   return null;
 }
 
 function finalizeBlock(w: WipBlock): ContentBlock {
   if (w.kind === 'text') return { type: 'text', text: w.text };
-  if (w.kind === 'thinking') return { type: 'thinking', thinking: w.thinking };
+  if (w.kind === 'thinking') {
+    // Carry the accumulated signature so blockToSdk can replay it on the
+    // continuation call. Omit the key when empty (pre-signature / non-Anthropic
+    // history stays byte-identical).
+    return {
+      type: 'thinking',
+      thinking: w.thinking,
+      ...(w.signature ? { signature: w.signature } : {}),
+    };
+  }
+  if (w.kind === 'redacted_thinking') return { type: 'redacted_thinking', data: w.data };
   let input: unknown = {};
   try {
     input = w.json ? JSON.parse(w.json) : {};
@@ -345,7 +362,12 @@ function blockToSdk(block: ContentBlock): ContentBlockParam {
     case 'text':
       return { type: 'text', text: block.text };
     case 'thinking':
-      return { type: 'thinking', thinking: block.thinking, signature: '' };
+      // Replay the signature verbatim — Anthropic verifies it on the tool-use
+      // continuation call when interleaved thinking is on. Empty string only
+      // when none was captured (non-Anthropic-origin or pre-signature history).
+      return { type: 'thinking', thinking: block.thinking, signature: block.signature ?? '' };
+    case 'redacted_thinking':
+      return { type: 'redacted_thinking', data: block.data };
     case 'tool_use':
       return {
         type: 'tool_use',

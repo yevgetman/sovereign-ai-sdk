@@ -172,9 +172,20 @@ describe('OpenAI buildKwargs — effort wiring', () => {
     expect(provider.buildKwargs(openaiReq({ effort: 'max' })).reasoning_effort).toBe('high');
   });
 
-  test('reasoning model leaves max_tokens + temperature untouched (no anthropic-style clamp)', () => {
+  test('reasoning model emits max_completion_tokens (not max_tokens) and drops temperature', () => {
+    // o1/o3/o4/gpt-5 reject `max_tokens` (require `max_completion_tokens`) and
+    // reject a non-default temperature. The body must mirror the Anthropic
+    // thinking path: swap the token cap key + drop temperature.
     const body = provider.buildKwargs(openaiReq({ effort: 'high' }));
+    expect('max_tokens' in body).toBe(false);
+    expect(body.max_completion_tokens).toBe(4096);
+    expect('temperature' in body).toBe(false);
+  });
+
+  test('non-reasoning model still uses max_tokens + keeps temperature', () => {
+    const body = provider.buildKwargs(openaiReq({ model: 'gpt-4o', effort: 'high' }));
     expect(body.max_tokens).toBe(4096);
+    expect('max_completion_tokens' in body).toBe(false);
     expect(body.temperature).toBe(0.7);
   });
 

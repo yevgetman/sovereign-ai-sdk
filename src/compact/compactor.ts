@@ -471,6 +471,7 @@ function renderBlock(block: ContentBlock): string {
     return `[tool_use ${block.name} id=${block.id}] ${safeJson(block.input)}`;
   }
   if (block.type === 'tool_result') return `[tool_result id=${block.tool_use_id}] ${block.content}`;
+  if (block.type === 'redacted_thinking') return '[redacted_thinking]';
   return `[image ${block.source.media_type}, ${block.source.data.length} base64 chars]`;
 }
 

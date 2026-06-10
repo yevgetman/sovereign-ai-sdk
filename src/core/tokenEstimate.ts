@@ -43,6 +43,9 @@ export function estimateBlockTokens(block: ContentBlock): number {
       estimateTextTokens(block.content)
     );
   }
+  if (block.type === 'redacted_thinking') {
+    return BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.data);
+  }
   return (
     BLOCK_OVERHEAD_TOKENS +
     estimateTextTokens(block.source.media_type) +

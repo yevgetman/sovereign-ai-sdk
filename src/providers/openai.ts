@@ -42,7 +42,11 @@ type OpenAIChatBody = {
   model: string;
   messages: OpenAIMessage[];
   stream: true;
-  max_tokens: number;
+  /** Token cap for non-reasoning models. Mutually exclusive with
+   *  `max_completion_tokens` — reasoning models (o1/o3/o4/gpt-5) reject this key. */
+  max_tokens?: number;
+  /** Token cap reasoning models require in place of `max_tokens`. */
+  max_completion_tokens?: number;
   temperature?: number;
   tools?: OpenAITool[];
   tool_choice?: 'auto' | 'required' | { type: 'function'; function: { name: string } };
@@ -153,6 +157,13 @@ export class OpenAIProvider
       req.effort !== undefined &&
       req.effort !== 'off' &&
       modelSupportsReasoning(req.model, this.apiMode);
+    // OpenAI's hosted reasoning models (o1/o3/o4/gpt-5) reject `max_tokens` (they
+    // require `max_completion_tokens`) and reject a non-default temperature —
+    // mirror the Anthropic thinking path: swap the token-cap key + drop
+    // temperature. This is OpenAI-specific: the `sov` local engine (vLLM/MLX) is
+    // reasoning-capable but speaks standard `max_tokens` + `enable_thinking`, so
+    // it keeps the normal body.
+    const openAiReasoningModel = reasoningOn && this.apiMode === 'openai';
     return {
       model: req.model,
       messages: this.toProviderMessages(req.messages, req.system),
@@ -161,8 +172,14 @@ export class OpenAIProvider
       // zero for openai/openrouter (the chat-completions stream omits usage by
       // default). Mirrors ollama's num_eval reporting.
       stream_options: { include_usage: true },
-      max_tokens: req.maxTokens,
-      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      ...(openAiReasoningModel
+        ? { max_completion_tokens: req.maxTokens }
+        : { max_tokens: req.maxTokens }),
+      // Reasoning models reject temperature≠default; omit it (matches the
+      // Anthropic thinking-on path).
+      ...(req.temperature !== undefined && !openAiReasoningModel
+        ? { temperature: req.temperature }
+        : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(req.toolChoice !== undefined ? { tool_choice: mapToolChoice(req.toolChoice) } : {}),
       // narrows req.effort for the call below

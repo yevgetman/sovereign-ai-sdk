@@ -111,10 +111,15 @@ export class RouterProvider implements LLMProvider {
       decision.lane === 'local'
         ? this.opts.config.localProvider
         : this.opts.config.frontierProvider;
-    const delegatedModel =
-      decision.lane === 'local'
-        ? (this.opts.config.localModel ?? '')
-        : (this.opts.config.frontierModel ?? '');
+    // Resolve the concrete model for the chosen lane. Prefer the configured
+    // per-lane override; when unset, recover the lane's real resolved model from
+    // the synthetic `"<local> | <frontier>"` display string the runtime builds
+    // for `req.model` (it embeds both resolved models even when config omits the
+    // per-lane override). Falling through to req.model would hand the child the
+    // bogus synthetic string and the provider API would reject it.
+    const configuredModel =
+      decision.lane === 'local' ? this.opts.config.localModel : this.opts.config.frontierModel;
+    const delegatedModel = configuredModel ?? recoverLaneModel(req.model, decision.lane);
 
     if (this.opts.auditLogger) {
       const now = Date.now();
@@ -145,16 +150,32 @@ export class RouterProvider implements LLMProvider {
     } as StreamEvent;
 
     const child = decision.lane === 'local' ? this.opts.localProvider : this.opts.frontierProvider;
-    // The caller (query.ts) doesn't know which lane will run, so it
-    // passes a synthetic model string ("local | frontier"). Swap that
-    // for the configured lane model before delegating, otherwise the
-    // child provider receives a bogus model name and the API rejects
-    // it. When the config didn't specify a per-lane model, the child's
-    // own default applies — pass empty to let the provider fill it in.
+    // The caller (query.ts) doesn't know which lane will run, so it passes the
+    // synthetic "<local> | <frontier>" model string. Swap in the chosen lane's
+    // resolved model before delegating — `delegatedModel` is the configured
+    // override or the model recovered from that synthetic string, so it's always
+    // a real model id (never the bogus display string). Only the pathological
+    // case of an unparseable model with no override leaves it empty, in which
+    // case we pass req through and let the child apply its own default.
     const childReq: ProviderRequest = delegatedModel ? { ...req, model: delegatedModel } : req;
     // delegate; preserve final return value for the caller's `for await of`.
     return yield* child.stream(childReq);
   }
+}
+
+/** Separator the runtime uses to join the two lane models into the synthetic
+ *  display model string (`"<local> | <frontier>"`). Mirrors runtime.ts. */
+const SYNTHETIC_MODEL_SEPARATOR = ' | ';
+
+/** Recover a lane's concrete model id from the synthetic `"<local> | <frontier>"`
+ *  display string the runtime builds for `req.model`. Returns the empty string
+ *  when the model isn't in that synthetic form (e.g. a test passing a single
+ *  plain model id) so the caller can fall through to the request as-is. */
+function recoverLaneModel(syntheticModel: string, lane: 'local' | 'frontier'): string {
+  const parts = syntheticModel.split(SYNTHETIC_MODEL_SEPARATOR);
+  if (parts.length !== 2) return '';
+  const recovered = (lane === 'local' ? parts[0] : parts[1])?.trim() ?? '';
+  return recovered;
 }
 
 /** Pull the latest user text from a ProviderRequest. Returns the empty

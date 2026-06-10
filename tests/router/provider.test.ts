@@ -40,6 +40,20 @@ function fakeProvider(name: string): LLMProvider {
   };
 }
 
+/** A child provider that records the model id of the request it receives. */
+function capturingProvider(name: string, sink: { model?: string }): LLMProvider {
+  return {
+    name,
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      sink.model = req.model;
+      yield { type: 'message_start' };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      yield { type: 'assistant_message', message: COMPLETED };
+      return COMPLETED;
+    },
+  };
+}
+
 const baseConfig: RouterConfig = {
   localProvider: 'ollama',
   localModel: 'qwen2.5:14b',
@@ -154,6 +168,47 @@ describe('RouterProvider', () => {
     const { final } = await consume(router, baseReq);
     expect(final.role).toBe('assistant');
     expect(final.content[0]?.type).toBe('text');
+  });
+
+  test('unconfigured lane model: child gets the resolved model, not the synthetic string', async () => {
+    // The runtime passes req.model as "<localResolved> | <frontierResolved>"
+    // (it builds that even when config omits per-lane models). When config's
+    // localModel is unset, the child must still receive the real resolved local
+    // model — never the whole synthetic display string.
+    const localSink: { model?: string } = {};
+    const router = new RouterProvider({
+      // No localModel / frontierModel configured.
+      config: { localProvider: 'ollama', frontierProvider: 'anthropic' },
+      localProvider: capturingProvider('ollama', localSink),
+      frontierProvider: fakeProvider('anthropic'),
+    });
+    await consume(router, { ...baseReq, model: 'qwen-real | claude-real' });
+    expect(localSink.model).toBe('qwen-real');
+    expect(localSink.model).not.toContain('|');
+  });
+
+  test('unconfigured frontier model: child gets the resolved frontier model', async () => {
+    const frontierSink: { model?: string } = {};
+    const router = new RouterProvider({
+      config: { localProvider: 'ollama', frontierProvider: 'anthropic', escalationMode: 'auto' },
+      localProvider: fakeProvider('ollama'),
+      frontierProvider: capturingProvider('anthropic', frontierSink),
+      getNextOverride: () => 'frontier',
+    });
+    await consume(router, { ...baseReq, model: 'qwen-real | claude-real' });
+    expect(frontierSink.model).toBe('claude-real');
+    expect(frontierSink.model).not.toContain('|');
+  });
+
+  test('configured lane model still wins over the synthetic string', async () => {
+    const localSink: { model?: string } = {};
+    const router = new RouterProvider({
+      config: baseConfig, // localModel: 'qwen2.5:14b'
+      localProvider: capturingProvider('ollama', localSink),
+      frontierProvider: fakeProvider('anthropic'),
+    });
+    await consume(router, { ...baseReq, model: 'qwen-real | claude-real' });
+    expect(localSink.model).toBe('qwen2.5:14b');
   });
 
   test('getNextOverride consumed once per stream() call', async () => {
