@@ -31,6 +31,7 @@
 package components
 
 import (
+	"hash/fnv"
 	"strings"
 
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
@@ -50,6 +51,82 @@ type LiveRegion struct {
 	// AppendLine("…running") + RemoveLastLine pattern that worked in
 	// the alt-screen viewport era.
 	runningCommand string
+
+	// FIX 6 (audit) — memoized markdown render of the streaming buffer.
+	// View() ran the full glamour + post-process pipeline over the
+	// ENTIRE accumulated buffer on every call, including the pure
+	// spinnerTick frames (every 80ms) where the buffer is unchanged.
+	//
+	// The render is now computed lazily on demand and cached, keyed on
+	// (buffer length, FNV hash of the buffer, width, theme name). View()
+	// is a value receiver (Bubble Tea contract) so it cannot persist a
+	// cache across calls; instead it reads through a pointer-aware helper
+	// whose cache lives on the Model-owned LiveRegion value. The cache
+	// survives because Update returns the mutated Model each cycle:
+	// AppendAssistantDelta / SetWidth / SetTheme (all pointer receivers
+	// invoked during Update) refresh or invalidate it, and a spinner-only
+	// tick — which mutates neither the buffer, width, nor theme — leaves
+	// the cache valid so View() reuses it.
+	mdCache     string
+	mdCacheLen  int
+	mdCacheHash uint64
+	mdCacheW    int
+	mdCacheName string
+	mdCacheOK   bool
+}
+
+// streamRenderKey returns the cache-key triple for the current buffer
+// content + width + theme. FIX 6 (audit).
+func (l LiveRegion) streamRenderKey(body string) (length int, hash uint64, name string) {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(body))
+	return len(body), h.Sum64(), l.theme.Name
+}
+
+// refreshStreamRender recomputes the markdown render of the streaming
+// buffer and stores it in the cache. Called from the pointer-receiver
+// mutators (AppendAssistantDelta, SetWidth, SetTheme) so the cache is
+// always warm for View(). No-op when there is no active stream. FIX 6.
+func (l *LiveRegion) refreshStreamRender() {
+	if l.stream == nil || l.stream.Len() == 0 {
+		l.invalidateMdCache()
+		return
+	}
+	body := l.stream.String()
+	length, hash, name := l.streamRenderKey(body)
+	l.mdCache = render.Markdown(body, l.theme, l.width)
+	l.mdCacheLen = length
+	l.mdCacheHash = hash
+	l.mdCacheW = l.width
+	l.mdCacheName = name
+	l.mdCacheOK = true
+}
+
+// cachedStreamRender returns the rendered streaming buffer. It reuses
+// the warm cache when the buffer content, width, and theme all match the
+// cached key; otherwise it falls back to a fresh render (without storing,
+// since View() is a value receiver). The warm path is the common case —
+// spinner ticks don't change the key. FIX 6 (audit).
+func (l LiveRegion) cachedStreamRender() string {
+	body := l.stream.String()
+	length, hash, name := l.streamRenderKey(body)
+	if l.mdCacheOK &&
+		l.mdCacheLen == length &&
+		l.mdCacheHash == hash &&
+		l.mdCacheW == l.width &&
+		l.mdCacheName == name {
+		return l.mdCache
+	}
+	return render.Markdown(body, l.theme, l.width)
+}
+
+// invalidateMdCache clears the memoized render so the next refresh
+// recomputes. Called whenever the streaming buffer is reset. FIX 6.
+func (l *LiveRegion) invalidateMdCache() {
+	l.mdCacheOK = false
+	l.mdCache = ""
+	l.mdCacheLen = 0
+	l.mdCacheHash = 0
 }
 
 // NewLiveRegion constructs a LiveRegion with the given starting theme.
@@ -58,26 +135,33 @@ func NewLiveRegion(t theme.Theme) LiveRegion {
 }
 
 // SetWidth records the wrap width used by the markdown renderer on the
-// streaming card. App.go's WindowSizeMsg handler calls this.
+// streaming card. App.go's WindowSizeMsg handler calls this. FIX 6 —
+// width is part of the render-cache key, so refresh after changing it.
 func (l *LiveRegion) SetWidth(w int) {
 	l.width = w
+	l.refreshStreamRender()
 }
 
 // SetTheme swaps the theme used for in-flight rendering. Mid-session
 // /theme changes call this; already-committed scrollback retains its
 // prior styling (the terminal owns it, can't be re-styled retroactively).
+// FIX 6 — theme name is part of the render-cache key; refresh after.
 func (l *LiveRegion) SetTheme(t theme.Theme) {
 	l.theme = t
+	l.refreshStreamRender()
 }
 
 // AppendAssistantDelta accumulates text into the streaming buffer.
 // The first call after a successful EndAssistantCard (or the initial
 // nil-stream state) opens a fresh buffer; subsequent calls append.
+// FIX 6 — a delta changes the buffer, so refresh the render cache so
+// View() (and the subsequent spinner ticks) serve the warm value.
 func (l *LiveRegion) AppendAssistantDelta(delta string) {
 	if l.stream == nil {
 		l.stream = &strings.Builder{}
 	}
 	l.stream.WriteString(delta)
+	l.refreshStreamRender()
 }
 
 // HasStreaming reports whether an open streaming card exists. Used by
@@ -94,11 +178,14 @@ func (l LiveRegion) HasStreaming() bool {
 func (l *LiveRegion) EndAssistantCard() (string, bool) {
 	if l.stream == nil || l.stream.Len() == 0 {
 		l.stream = nil
+		l.invalidateMdCache()
 		return "", false
 	}
-	body := l.stream.String()
+	// FIX 6 — reuse the warm cache when it matches (the common case: the
+	// last delta already rendered this exact buffer); else render fresh.
+	rendered := l.cachedStreamRender()
 	l.stream = nil
-	rendered := render.Markdown(body, l.theme, l.width)
+	l.invalidateMdCache()
 	trimmed := strings.TrimRight(rendered, "\n")
 	return trimmed + "\n", true
 }
@@ -134,7 +221,10 @@ func (l *LiveRegion) SetRunningCommand(line string) {
 func (l LiveRegion) View() string {
 	var parts []string
 	if l.stream != nil && l.stream.Len() > 0 {
-		parts = append(parts, render.Markdown(l.stream.String(), l.theme, l.width))
+		// FIX 6 (audit) — serve the memoized render; a spinner-only tick
+		// leaves the cache key unchanged so this is a map-free reuse, not
+		// a full glamour re-render.
+		parts = append(parts, l.cachedStreamRender())
 	}
 	if l.runningCommand != "" {
 		parts = append(parts, l.runningCommand)

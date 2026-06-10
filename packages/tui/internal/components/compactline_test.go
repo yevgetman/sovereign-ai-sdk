@@ -608,3 +608,103 @@ func TestFormatCompactToolLine_ChevronAlwaysPresent(t *testing.T) {
 		}
 	}
 }
+
+// --- FIX 3 (audit): DecodeOutputText shared decoder ---
+
+// TestDecodeOutputText_JSONStringDecodesToRealNewlines pins the shared
+// decoder: a JSON-quoted multi-line string must decode to real newlines
+// with no surrounding quotes (so detailed ToolCard / verbose-raw /
+// /expand / DiffView all render readable text instead of one quoted
+// mega-line).
+func TestDecodeOutputText_JSONStringDecodesToRealNewlines(t *testing.T) {
+	// The wire output is a JSON-encoded string carrying two lines.
+	raw := json.RawMessage(`"line1\nline2"`)
+	got := DecodeOutputText(raw)
+	want := "line1\nline2"
+	if got != want {
+		t.Fatalf("DecodeOutputText = %q, want %q", got, want)
+	}
+	if strings.Contains(got, `\n`) {
+		t.Errorf("decoded text still has escaped newline: %q", got)
+	}
+	if strings.HasPrefix(got, `"`) || strings.HasSuffix(got, `"`) {
+		t.Errorf("decoded text still has surrounding quotes: %q", got)
+	}
+	if n := strings.Count(got, "\n"); n != 1 {
+		t.Errorf("expected exactly 1 real newline, got %d in %q", n, got)
+	}
+}
+
+// TestDecodeOutputText_FallsBackToRawOnNonString proves a non-string
+// payload (e.g., a JSON object) falls back to the raw bytes rather than
+// returning empty.
+func TestDecodeOutputText_FallsBackToRawOnNonString(t *testing.T) {
+	raw := json.RawMessage(`{"status":"ok"}`)
+	got := DecodeOutputText(raw)
+	if got != `{"status":"ok"}` {
+		t.Errorf("expected raw passthrough for object, got %q", got)
+	}
+	// Empty input → empty string.
+	if DecodeOutputText(nil) != "" {
+		t.Errorf("expected empty for nil input")
+	}
+}
+
+// --- FIX 4 (audit): plain-text "status: error" header → error glyph ---
+
+// TestDetectToolStatus_PlainTextErrorHeader is the core FIX 4 regression:
+// since Phase 12.5 the wire output is a JSON-QUOTED plain-text payload
+// whose first line is "status: error" for a failed tool (Bash nonzero
+// exit, FileEdit no-match, hook-denied). The legacy
+// json.Unmarshal-into-envelope check could never see it because the
+// payload is a JSON string, not an object — so the ✗ glyph never showed.
+func TestDetectToolStatus_PlainTextErrorHeader(t *testing.T) {
+	// A Bash exit-1 payload as it arrives on the wire: a JSON string.
+	raw := mkJSON(t, "status: error\nsummary: command exited with code 1\nexit_code: 1")
+	isError, isDenied := DetectToolStatus(raw)
+	if !isError {
+		t.Errorf("expected isError=true for plain-text 'status: error' header")
+	}
+	if isDenied {
+		t.Errorf("expected isDenied=false for a runtime error (not a denial)")
+	}
+}
+
+// TestDetectToolStatus_PlainTextSuccessHeaderIsNotError guards against a
+// false positive: a successful plain-text payload must NOT trip the error
+// glyph.
+func TestDetectToolStatus_PlainTextSuccessHeaderIsNotError(t *testing.T) {
+	raw := mkJSON(t, "status: success\nsummary: ok · 3 lines")
+	isError, isDenied := DetectToolStatus(raw)
+	if isError || isDenied {
+		t.Errorf("expected (false,false) for success header; got (%v,%v)", isError, isDenied)
+	}
+}
+
+// TestDetectToolStatus_ErrorPhraseOnlyOnFirstLine ensures a later
+// occurrence of "status: error" in the body (not the header) does not
+// produce a false positive — only the leading header line counts.
+func TestDetectToolStatus_ErrorPhraseOnlyOnFirstLine(t *testing.T) {
+	raw := mkJSON(t, "ok output here\nstatus: error mentioned in passing")
+	isError, _ := DetectToolStatus(raw)
+	if isError {
+		t.Errorf("expected isError=false when 'status: error' is not the header line")
+	}
+}
+
+// TestFormatCompactToolLine_BashExit1RendersErrorGlyph is the end-to-end
+// FIX 4 assertion: a Bash exit-1 plain-text payload renders the ✗ error
+// glyph on the compact line.
+func TestFormatCompactToolLine_BashExit1RendersErrorGlyph(t *testing.T) {
+	out := FormatCompactToolLine(
+		"Bash",
+		mkJSON(t, map[string]any{"command": "git push"}),
+		mkJSON(t, "status: error\nsummary: exited 1\nstderr: rejected"),
+		theme.Dark(),
+		80,
+	)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, style.S.Glyph.Error) {
+		t.Errorf("expected ✗ error glyph for Bash exit-1 plain-text payload, got: %q", plain)
+	}
+}

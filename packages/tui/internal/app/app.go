@@ -179,12 +179,55 @@ type Model struct {
 	// history (and lets wheel scroll + text selection work without
 	// the TUI capturing mouse events). ux-fixes round 5.
 	pendingPrintln []string
-	// emittedPrintln retains every line drainPrintln has ever drained.
-	// Production code never reads it; test helpers walk this slice so
-	// assertions can inspect what was committed to terminal scrollback
+	// emittedPrintln retains lines drainPrintln has drained, as a bounded
+	// ring. Production code never reads it; test helpers walk this slice
+	// so assertions can inspect what was committed to terminal scrollback
 	// (tea.Println output isn't visible via m.View()). ux-fixes round 5.
+	//
+	// FIX 7 (audit) — previously every drained line was appended forever,
+	// growing unbounded on long sessions. It is now capped at
+	// emittedPrintlnCap (oldest lines evicted). The cap is far larger
+	// than any test's emission, so test assertions are unaffected while
+	// production memory stays bounded.
 	emittedPrintln []string
+	// pendingSubmission holds ONE turn the user submitted while a prior
+	// turn was still streaming. Enter during an active turn queues here
+	// instead of firing a second concurrent POST /turns (FIX 8, audit —
+	// interleaved output). It is drained + submitted on turn_complete.
+	// Empty string means nothing queued. Only the most-recent queued
+	// submission is kept (Claude-Code single-pending semantics).
+	pendingSubmission string
+	// sseBackoff is the current reconnect backoff delay after an SSE
+	// stream ended WITH an error (server unreachable / persistent 4xx).
+	// It grows exponentially (capped) per consecutive failure and resets
+	// to zero on any clean stream end (a normal per-turn close). Zero
+	// means "no backoff in effect" — the next failed reconnect starts at
+	// sseBackoffInitial. FIX 2 (audit) — prevents the tight reconnect
+	// busy-loop on a dead server.
+	sseBackoff time.Duration
 }
+
+// SSE reconnect backoff bounds (FIX 2, audit). A failed reconnect waits
+// sseBackoffInitial, then doubles each consecutive failure up to
+// sseBackoffMax. A clean (errorless) stream end resets the backoff.
+const (
+	sseBackoffInitial = 200 * time.Millisecond
+	sseBackoffMax     = 5 * time.Second
+)
+
+// sseReconnectMsg is dispatched by the backoff tea.Tick scheduled in the
+// sseDoneMsg error path. The captured gen lets the handler drop the
+// reconnect if the consumer generation has since advanced (e.g., a
+// session pivot reconnected in the meantime). FIX 2 (audit).
+type sseReconnectMsg struct {
+	gen int
+}
+
+// emittedPrintlnCap bounds the test-inspection scrollback ring. Chosen
+// well above any test's line emission (tests assert on a handful of
+// lines) so the cap is invisible to assertions, while keeping memory
+// bounded on a long production session. FIX 7 (audit).
+const emittedPrintlnCap = 2048
 
 // print queues a line for emission into the terminal scrollback at the
 // end of the current Update. Multiple calls accumulate and are emitted
@@ -256,7 +299,13 @@ func (m *Model) drainPrintln() tea.Cmd {
 		return nil
 	}
 	combined := strings.Join(m.pendingPrintln, "\n")
+	// FIX 7 (audit) — append into a bounded ring. Once the slice exceeds
+	// emittedPrintlnCap, evict the oldest lines so a long-running session
+	// can't grow this unboundedly (it was previously appended forever).
 	m.emittedPrintln = append(m.emittedPrintln, m.pendingPrintln...)
+	if over := len(m.emittedPrintln) - emittedPrintlnCap; over > 0 {
+		m.emittedPrintln = append([]string(nil), m.emittedPrintln[over:]...)
+	}
 	m.pendingPrintln = nil
 	return tea.Println(combined)
 }
@@ -1180,6 +1229,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" {
 				return m, m.respond(nil)
 			}
+			// FIX 8 (audit) — a turn is in flight (Streaming covers the
+			// active stream; thinkingPending covers the pre-content wait).
+			// Firing a second POST /turns now interleaves two turns'
+			// output. Queue ONE plain-text submission instead and send it
+			// after turn_complete (Claude-Code single-pending semantics).
+			// Slash commands (leading "/") are client-side or quick command
+			// dispatches and fall through unchanged — the interleave hazard
+			// is specifically a second model turn. A newer queued
+			// submission overwrites an older un-sent one.
+			if (m.statusLine.Streaming || m.thinkingPending) && !strings.HasPrefix(text, "/") {
+				m.pendingSubmission = text
+				m.prompt.Clear()
+				m.recomputeLayout()
+				m.autocomplete.Dismiss()
+				m.live.SetRunningCommand(
+					m.theme.DimStyle().Render("queued — sending after this turn…"),
+				)
+				return m, m.respond(nil)
+			}
 			// M9 T8 — dismiss the autocomplete popup on any ENTER submission
 			// so the suggestion overlay doesn't linger above the prompt.
 			m.autocomplete.Dismiss()
@@ -1462,9 +1530,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ctx.Err() != nil || m.baseURL == "" {
 			return m, m.respond(nil)
 		}
-		var c tea.Cmd
-		m, c = m.startSSE()
-		return m, c
+		// FIX 2 (audit) — distinguish a clean per-turn close from a real
+		// transport failure. A clean close (err == nil: the server
+		// disposed the bus after turn_complete) reconnects IMMEDIATELY and
+		// resets the backoff. An errored close (server down / persistent
+		// non-2xx) would, if reconnected immediately, busy-loop on
+		// loopback (Consume fails in microseconds) — spinning CPU with a
+		// dead-looking UI. Instead delay the reconnect with capped
+		// exponential backoff and print one dim "connection lost" marker.
+		if msg.err == nil {
+			m.sseBackoff = 0
+			var c tea.Cmd
+			m, c = m.startSSE()
+			return m, m.respond(c)
+		}
+		// Errored close — advance the backoff and schedule a delayed
+		// reconnect rather than reconnecting now. Print the marker only on
+		// the FIRST failure of a streak (backoff was zero) so a long
+		// outage doesn't spam a line every retry.
+		firstFailure := m.sseBackoff == 0
+		if m.sseBackoff == 0 {
+			m.sseBackoff = sseBackoffInitial
+		} else {
+			m.sseBackoff *= 2
+			if m.sseBackoff > sseBackoffMax {
+				m.sseBackoff = sseBackoffMax
+			}
+		}
+		if firstFailure {
+			m.print(m.theme.DimStyle().Render("connection lost, retrying…"))
+		}
+		delay := m.sseBackoff
+		capturedGen := m.sseGen
+		return m, m.respond(tea.Tick(delay, func(time.Time) tea.Msg {
+			return sseReconnectMsg{gen: capturedGen}
+		}))
+	case sseReconnectMsg:
+		// FIX 2 (audit) — the backoff timer fired. Drop the reconnect if a
+		// newer consumer generation took over in the meantime (a session
+		// pivot reconnected on its own), or if the app is shutting down /
+		// has no server. Otherwise re-open the stream; a fresh failure
+		// re-enters the sseDoneMsg error path and grows the backoff again,
+		// while a success will reset it on its next clean close.
+		if msg.gen != m.sseGen || m.ctx.Err() != nil || m.baseURL == "" {
+			return m, m.respond(nil)
+		}
+		var rc tea.Cmd
+		m, rc = m.startSSE()
+		return m, m.respond(rc)
 	case turnSubmitErrMsg:
 		m.print(
 			lipgloss.NewStyle().
@@ -1896,14 +2009,24 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if hint == "" {
 			hint = "text"
 		}
+		// FIX 3 (audit) — the wire `output` is a JSON-encoded string
+		// (escaped \n, surrounding quotes). Decode it ONCE here so every
+		// downstream consumer (detailed ToolCard, verbose-raw print,
+		// /expand ring, DiffView) renders real text with real newlines
+		// instead of a single quoted mega-line. Compact mode decodes
+		// internally via FormatCompactToolLine, so it keeps the raw blob.
+		outputText := components.DecodeOutputText(tr.Output)
 		// M9 T5 — detect FileEdit / FileWrite and parse the output as a
 		// unified diff. If hunks are present, the DiffView is kept on
 		// hand for detailed-mode rendering and for Ctrl+] focus routing.
 		// (Compact mode uses its own diff-stat extractor in
-		// components.FormatCompactToolLine.)
+		// components.FormatCompactToolLine.) The decoded text is required
+		// here — ParseDiff only finds hunks once the escaped \n become
+		// real newlines, otherwise HasHunks is always false and Ctrl+]
+		// diff focus is dead.
 		var diff *components.DiffView
 		if tr.Tool == "FileEdit" || tr.Tool == "FileWrite" {
-			dv := components.NewDiffView(string(tr.Output), m.theme)
+			dv := components.NewDiffView(outputText, m.theme)
 			if dv.HasHunks() {
 				diff = &dv
 				m.mostRecentDiff = diff
@@ -1923,7 +2046,7 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 				RenderHint:  hint,
 				Summary:     fmt.Sprintf("rendered as %s", hint),
 				Input:       string(tr.Input),
-				Output:      string(tr.Output),
+				Output:      outputText,
 				Language:    tr.Language,
 				Theme:       m.theme,
 				Expanded:    true,
@@ -1939,24 +2062,24 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 
 		// Orthogonal raw escape hatch — print full untruncated output
 		// below either mode's rendering. Dim/italic so the eye reads it
-		// as appended debug rather than primary content.
-		if m.verboseRaw && len(tr.Output) > 0 {
+		// as appended debug rather than primary content. Decoded text
+		// (FIX 3) so newlines render as line breaks, not literal "\n".
+		if m.verboseRaw && outputText != "" {
 			raw := lipgloss.NewStyle().
 				Foreground(m.theme.Dim).
 				Italic(true).
-				Render(string(tr.Output))
+				Render(outputText)
 			m.print(raw)
 		}
 
 		// M8 T6 — record the block onto the local ring for /expand [N]
-		// re-render. The wire `output` is json.RawMessage so we render
-		// it as a string verbatim; the expand path treats it as plain
-		// text (multi-line splits on \n) which matches how the user
-		// would read raw tool output in a debug log.
+		// re-render. Store the DECODED text (FIX 3) so /expand splits it
+		// on real newlines into multiple lines the way the user reads raw
+		// tool output in a debug log — not a single quoted mega-line.
 		m.appendCompletedBlock(CompletedBlock{
 			Seq:    env.Seq,
 			Tool:   tr.Tool,
-			Output: string(tr.Output),
+			Output: outputText,
 		})
 		// ux-fixes — after a tool_result, the model often pauses to
 		// compose its next block (another tool call, follow-up text,
@@ -1987,16 +2110,29 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			return nil
 		}
 		m.clearThinkingIfPending()
+		// FIX 1 (audit) — finalize the in-flight streaming card before
+		// returning, exactly like turn_complete. Without this the partial
+		// assistant text stays in the LiveRegion buffer and the NEXT
+		// turn's text_deltas append onto it (LiveRegion.AppendAssistantDelta
+		// appends to the surviving buffer) — stale text bleeds into the
+		// new turn. Both exit paths below (the ESC-cancel early return AND
+		// the normal error render) must run this first.
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
 		// ux-fixes round 4 — when the user triggered the abort via ESC
 		// (POST /cancel), the server's catch block emits a turn_error
 		// carrying the AbortError message. We already displayed
 		// "(interrupted by user)" inline before firing the cancel —
 		// stack a red "⚠ turn error: AbortError" on top would be
 		// misleading. Swallow this one turn_error and reset the flag so
-		// the next genuine error (next turn) renders normally.
+		// the next genuine error (next turn) renders normally. The card
+		// was already finalized above, so no bleed into the next turn.
 		if m.userCancelledTurn {
 			m.userCancelledTurn = false
-			return nil
+			// FIX 8 (audit) — the cancelled turn is over; fire any turn
+			// the user queued mid-stream. No-op when nothing queued.
+			return m.submitQueuedTurn()
 		}
 		errStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#f7768e")).
@@ -2005,6 +2141,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if !te.Recoverable {
 			m.print(errStyle.Render("  (non-recoverable)"))
 		}
+		// FIX 8 (audit) — the errored turn is over; dispatch a queued
+		// submission so it isn't silently dropped. No-op when none queued.
+		return m.submitQueuedTurn()
 	case "turn_complete":
 		// ux-fixes round 4 — clear any pending userCancelledTurn flag.
 		// If the user pressed ESC but the turn completed normally
@@ -2021,7 +2160,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 				m.print(rendered)
 			}
 			m.print(turnSeparator(m.theme, m.width))
-			return nil
+			// FIX 8 (audit) — drain a queued submission even on the
+			// degraded path so a turn the user lined up still fires.
+			return m.submitQueuedTurn()
 		}
 		m.clearThinkingIfPending()
 		if rendered, ok := m.live.EndAssistantCard(); ok {
@@ -2042,6 +2183,10 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		for range style.S.Separator.TrailingGap {
 			m.print("")
 		}
+		// FIX 8 (audit) — turn fully ended; now (and only now) dispatch a
+		// submission the user queued mid-stream, so the two turns run
+		// sequentially instead of concurrently. No-op when nothing queued.
+		return m.submitQueuedTurn()
 	case "compaction_complete":
 		// M6 T6: T3 (proactive) and T4 (overflow recovery) publish this
 		// event mid-turn when the session id hops to a new child. The
@@ -2243,6 +2388,36 @@ func (m *Model) startSpinner(label string) tea.Cmd {
 	return tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
 		return spinnerTickMsg{gen: capturedGen}
 	})
+}
+
+// submitQueuedTurn drains a pending submission queued while a prior turn
+// was streaming (FIX 8, audit) and dispatches it exactly like a fresh
+// plain-text turn: leading gap, echoed user line, trailing gap, branded
+// thinking spinner, and the POST /turns Cmd. Returns nil when nothing is
+// queued or there is no server. Called from the turn_complete handler so
+// the queued turn fires only after the prior one fully ends — never
+// concurrently. The running-command "queued…" indicator is cleared here
+// (the spinner replaces it).
+func (m *Model) submitQueuedTurn() tea.Cmd {
+	if m.pendingSubmission == "" {
+		return nil
+	}
+	text := m.pendingSubmission
+	m.pendingSubmission = ""
+	m.live.SetRunningCommand("")
+	if m.baseURL == "" {
+		return nil
+	}
+	for range style.S.Echo.LeadingGap {
+		m.print("")
+	}
+	m.printUser(text)
+	for range style.S.Echo.TrailingGap {
+		m.print("")
+	}
+	m.thinkingPending = true
+	spinCmd := m.startSpinner("thinking")
+	return tea.Batch(m.submitTurn(text), spinCmd)
 }
 
 // turnSeparator renders a subtle horizontal rule between conversational

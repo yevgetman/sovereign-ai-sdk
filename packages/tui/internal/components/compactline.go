@@ -32,6 +32,30 @@ import (
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
+// DecodeOutputText unwraps a tool_result `output` blob into displayable
+// text. The wire `output` is a JSON value: most commonly a JSON-encoded
+// string (escaped \n, surrounding quotes) carrying the tool's plain-text
+// result, but occasionally a structured envelope or raw bytes. This
+// helper unmarshals a JSON string into its decoded form (real newlines,
+// no surrounding quotes); on any failure it returns the raw bytes
+// verbatim so a non-string payload still renders something.
+//
+// Shared by compact-line rendering AND app.go's detailed ToolCard /
+// verbose-raw / /expand ring / DiffView paths so all consumers see the
+// same decoded text — otherwise users would see one mega-line
+// `"line1\nline2"` with quotes, and diff parsing would never find real
+// newlines. FIX 3 (audit).
+func DecodeOutputText(output json.RawMessage) string {
+	if len(output) == 0 {
+		return ""
+	}
+	var asString string
+	if err := json.Unmarshal(output, &asString); err == nil {
+		return asString
+	}
+	return string(output)
+}
+
 func FormatCompactToolLine(
 	tool string,
 	input json.RawMessage,
@@ -150,17 +174,24 @@ func FormatCompactToolLine(
 // tool errored at runtime (isError) and whether the error was a
 // permission denial (isDenied).
 //
-// Two on-wire shapes are recognized:
+// Three on-wire shapes are recognized (FIX 4, audit):
 //
-//  1. Tool-emitted JSON envelope `{status:'error', summary, ...}` —
-//     e.g., FileRead on missing file, Bash on nonzero exit.
-//  2. Orchestrator deny path: bare text content "permission denied:
-//     <reason>" (Anthropic content-block format, surfaced into Output
-//     as a quoted JSON string).
+//  1. Phase 12.5+ plain-text result: the tool's text payload is
+//     JSON-encoded into the wire `output` string. A failed tool emits a
+//     "status: error\nsummary: ..." header as the FIRST line of that
+//     text (Bash nonzero exit, FileEdit no-match, hook-denied). We
+//     decode the JSON string (via DecodeOutputText) then test the
+//     leading "status: error" header.
+//  2. Legacy tool-emitted JSON envelope `{status:'error', summary, ...}`
+//     — kept for any surface still emitting the structured shape.
+//  3. Orchestrator deny path: text content "permission denied: <reason>"
+//     (surfaced into Output as a quoted JSON string or raw text).
 //
 // Unknown shapes fall through to success.
 func DetectToolStatus(output json.RawMessage) (isError, isDenied bool) {
-	// Try parsing as an envelope.
+	// Legacy structured envelope: try parsing the RAW bytes as an object
+	// with a status field. Decoding into a string (shape 1) would fail
+	// for an object, so this is only hit by a genuine JSON envelope.
 	var env struct {
 		Status  string `json:"status"`
 		Summary string `json:"summary"`
@@ -168,13 +199,23 @@ func DetectToolStatus(output json.RawMessage) (isError, isDenied bool) {
 	if err := json.Unmarshal(output, &env); err == nil && env.Status == "error" {
 		return true, false
 	}
-	// Permission denial path — bare text "permission denied: ...".
-	// Output may be a JSON-string literal (with surrounding quotes)
-	// or raw text; tolerate both.
-	raw := strings.TrimSpace(string(output))
-	raw = strings.TrimPrefix(raw, `"`)
-	if strings.HasPrefix(raw, "permission denied") {
+	// Decode the JSON-string payload (Phase 12.5+) so the plain-text
+	// header checks below run against real, unquoted text.
+	text := strings.TrimSpace(DecodeOutputText(output))
+	// Permission denial path takes precedence over the generic error
+	// glyph so the ⚠ (denied) shows instead of ✗ (runtime error).
+	if strings.HasPrefix(text, "permission denied") {
 		return true, true
+	}
+	// Plain-text error header: the failed-tool payload leads with a
+	// "status: error" line. Match the first line so a later occurrence
+	// of the phrase in tool output doesn't trigger a false positive.
+	firstLine := text
+	if i := strings.IndexByte(firstLine, '\n'); i >= 0 {
+		firstLine = firstLine[:i]
+	}
+	if strings.HasPrefix(strings.TrimSpace(firstLine), "status: error") {
+		return true, false
 	}
 	return false, false
 }
@@ -342,7 +383,7 @@ func extractDiffStats(output json.RawMessage) string {
 	text := string(output)
 	// Try unmarshaling as a JSON string envelope; if it works, use the
 	// decoded form (which strips surrounding quotes + un-escapes
-	// embedded newlines).
+	// embedded newlines). Shares DecodeOutputText with the other consumers.
 	var asString string
 	if err := json.Unmarshal(output, &asString); err == nil {
 		text = asString

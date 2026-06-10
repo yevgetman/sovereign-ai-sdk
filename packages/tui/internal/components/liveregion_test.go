@@ -127,3 +127,72 @@ func TestLiveRegion_SetThemeAffectsFutureRender(t *testing.T) {
 		t.Errorf("content should survive SetTheme; got %q", l.View())
 	}
 }
+
+// --- FIX 6 (audit): render memoization across spinner ticks ---
+
+// TestLiveRegion_RenderCacheWarmAfterDelta proves the markdown render is
+// memoized once a delta lands: the cache key (length, hash, width, theme)
+// matches the current buffer so a subsequent unchanged View() reuses it.
+func TestLiveRegion_RenderCacheWarmAfterDelta(t *testing.T) {
+	l := NewLiveRegion(theme.Dark())
+	l.SetWidth(80)
+	l.AppendAssistantDelta("**bold** body text")
+	if !l.mdCacheOK {
+		t.Fatal("expected render cache to be warm after a delta")
+	}
+	body := l.stream.String()
+	wantLen, wantHash, wantName := l.streamRenderKey(body)
+	if l.mdCacheLen != wantLen || l.mdCacheHash != wantHash || l.mdCacheW != 80 || l.mdCacheName != wantName {
+		t.Errorf("cache key mismatch after delta: len=%d/%d hash=%d/%d w=%d/80 name=%q/%q",
+			l.mdCacheLen, wantLen, l.mdCacheHash, wantHash, l.mdCacheW, l.mdCacheName, wantName)
+	}
+}
+
+// TestLiveRegion_SpinnerTickReusesCachedRender is the central FIX 6
+// assertion: a spinner-only update (SetSpinner — no buffer/width/theme
+// change) must NOT invalidate the render cache, and View() must return
+// the cached string verbatim. We prove the cache is consulted by mutating
+// the stored cache string to a sentinel and confirming View() echoes it
+// (it would NOT if View re-ran the markdown pipeline).
+func TestLiveRegion_SpinnerTickReusesCachedRender(t *testing.T) {
+	l := NewLiveRegion(theme.Dark())
+	l.SetWidth(80)
+	l.AppendAssistantDelta("streaming partial")
+	if !l.mdCacheOK {
+		t.Fatal("expected warm cache after delta")
+	}
+	// Poison the cached render with a sentinel that the real markdown
+	// pipeline would never produce. A cache HIT serves this verbatim;
+	// a re-render would replace it with the actual rendered text.
+	const sentinel = "SENTINEL-CACHED-RENDER-XYZ"
+	l.mdCache = sentinel
+	// A spinner-only tick: buffer, width, theme all unchanged.
+	l.SetSpinner("⢀ thinking")
+	view := l.View()
+	if !strings.Contains(view, sentinel) {
+		t.Errorf("spinner-only tick should reuse cached render (sentinel expected); got %q", view)
+	}
+	if strings.Contains(view, "streaming partial") {
+		t.Errorf("View re-rendered the buffer instead of using the cache; got %q", view)
+	}
+}
+
+// TestLiveRegion_DeltaInvalidatesCache proves a real delta forces a
+// recompute (the cache must NOT serve a stale render after the buffer
+// changes). After poisoning the cache, a new delta should refresh it so
+// View() shows the actual content, not the sentinel.
+func TestLiveRegion_DeltaInvalidatesCache(t *testing.T) {
+	l := NewLiveRegion(theme.Dark())
+	l.SetWidth(80)
+	l.AppendAssistantDelta("first")
+	l.mdCache = "STALE-SENTINEL"
+	// A genuine new delta changes the buffer → cache refreshes.
+	l.AppendAssistantDelta(" second")
+	view := l.View()
+	if strings.Contains(view, "STALE-SENTINEL") {
+		t.Errorf("stale cache served after a real delta; got %q", view)
+	}
+	if !strings.Contains(view, "first second") {
+		t.Errorf("expected refreshed render with new content; got %q", view)
+	}
+}

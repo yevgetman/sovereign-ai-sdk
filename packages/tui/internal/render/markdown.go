@@ -24,6 +24,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
@@ -58,7 +59,7 @@ func Markdown(text string, t theme.Theme, width int) string {
 		return Plain(text, t, width)
 	}
 	out = splitSmashedTableHeader(out)
-	return foldOrphanLines(out)
+	return foldOrphanLines(out, width)
 }
 
 // splitSmashedTableHeader undoes a glamour v1.0.0 bug where a markdown
@@ -208,7 +209,14 @@ func splitSmashedLine(line string) (header, separator string, ok bool) {
 // Conservative: skips lines containing structural markdown chrome.
 // Worst case it leaves an orphan in place — no false-positive
 // merges.
-func foldOrphanLines(rendered string) string {
+//
+// FIX 5 (audit) — width is the render (wrap) column. A fold is only
+// performed when the merged line still fits within width; otherwise the
+// merge would produce a line wider than the terminal, which the terminal
+// then re-wraps (visual overflow artifacts). width <= 0 disables the
+// fit check (treat as unbounded) so callers without a known width keep
+// the prior fold-always behavior.
+func foldOrphanLines(rendered string, width int) string {
 	lines := strings.Split(rendered, "\n")
 	if len(lines) < 2 {
 		return rendered
@@ -262,12 +270,56 @@ func foldOrphanLines(rendered string) string {
 		// adding the orphan content before any padding.
 		orphanWord := strings.TrimSpace(line)
 		prevRightTrimmed := strings.TrimRight(prev, " \t")
-		lines[j] = prevRightTrimmed + " " + strings.TrimSpace(orphanWord)
-		// Remove the orphan line.
-		lines = append(lines[:i], lines[i+1:]...)
-		i-- // re-check this index in case the new line is now orphaned
+		// FIX 5 (audit) — only fold into the previous line when the merged
+		// line still fits the render width. lipgloss.Width measures
+		// visible columns (ANSI stripped). When the previous-line merge
+		// would exceed width, try folding into the NEXT content line
+		// instead (prepend the word) — that removes the orphan WITHOUT
+		// producing an over-width line. If neither fits, leave the orphan
+		// in place rather than overflow.
+		fitsPrev := width <= 0 ||
+			lipgloss.Width(prevRightTrimmed)+1+lipgloss.Width(orphanWord) <= width
+		if fitsPrev {
+			lines[j] = prevRightTrimmed + " " + orphanWord
+			// Remove the orphan line.
+			lines = append(lines[:i], lines[i+1:]...)
+			i-- // re-check this index in case the new line is now orphaned
+			continue
+		}
+		// Previous-line merge overflows — attempt the next content line.
+		if foldedIntoNext := tryFoldIntoNextLine(lines, i, orphanWord, width); foldedIntoNext {
+			lines = append(lines[:i], lines[i+1:]...)
+			i-- // the removed orphan shifts indices; re-check this slot
+			continue
+		}
+		// No fold possible without overflow — leave the orphan as-is.
 	}
 	return strings.Join(lines, "\n")
+}
+
+// tryFoldIntoNextLine prepends orphanWord to the first following content
+// line (the line after the orphan at index i) when that line exists, is
+// non-structural, is not separated by a blank line (same paragraph), and
+// the prepended result still fits within width. Returns true when it
+// folded (mutating lines in place). FIX 5 (audit) — the next-line escape
+// hatch so an orphan that can't fold UP without overflowing still folds
+// DOWN, eliminating the orphan without producing an over-width line.
+func tryFoldIntoNextLine(lines []string, i int, orphanWord string, width int) bool {
+	if i+1 >= len(lines) {
+		return false
+	}
+	next := lines[i+1]
+	nextTrim := strings.TrimLeft(strings.TrimRight(stripAnsiForFold(next), " \t"), " \t")
+	if nextTrim == "" || isStructuralLine(nextTrim) {
+		return false
+	}
+	nextLeftTrimmed := strings.TrimLeft(next, " \t")
+	if width > 0 &&
+		lipgloss.Width(orphanWord)+1+lipgloss.Width(strings.TrimRight(nextLeftTrimmed, " \t")) > width {
+		return false
+	}
+	lines[i+1] = orphanWord + " " + nextLeftTrimmed
+	return true
 }
 
 // stripAnsiForFold removes ANSI CSI/OSC escape sequences for the

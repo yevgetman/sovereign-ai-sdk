@@ -2157,3 +2157,338 @@ func TestApp_InitialCommandNoOpWithoutBaseURL(t *testing.T) {
 		t.Errorf("expected nil cmd when no server; got non-nil")
 	}
 }
+
+// --- FIX 1 (audit): turn_error finalizes the streaming card ---
+
+// TestApp_TurnErrorFinalizesStreamingCard proves a turn_error commits the
+// in-flight assistant text to scrollback (via EndAssistantCard) and
+// clears the LiveRegion streaming buffer — pre-fix it left the partial
+// text in the buffer, which then bled into the next turn.
+func TestApp_TurnErrorFinalizesStreamingCard(t *testing.T) {
+	m := New("s-te-fin", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Stream a partial assistant block.
+	dEnv := newTestEnvelope("text_delta", "s-te-fin", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-te-fin","block":0,"text":"partial answer so far"}`)
+	_ = m.handleEvent(dEnv)
+	if !m.live.HasStreaming() {
+		t.Fatal("precondition: expected an active streaming card after text_delta")
+	}
+	// Clear the queue so the assertion sees only the turn_error path.
+	m.pendingPrintln = nil
+	// A provider failure ends the turn.
+	teEnv := newTestEnvelope("turn_error", "s-te-fin", 2,
+		`{"type":"turn_error","seq":2,"sessionId":"s-te-fin","error":"boom","recoverable":true}`)
+	_ = m.handleEvent(teEnv)
+	// The streaming buffer must be finalized (committed + cleared).
+	if m.live.HasStreaming() {
+		t.Errorf("turn_error did not finalize the streaming card; buffer still active")
+	}
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "partial answer so far") {
+		t.Errorf("partial assistant text was not committed to scrollback on turn_error: %q", joined)
+	}
+	if !strings.Contains(joined, "boom") {
+		t.Errorf("turn_error message not rendered: %q", joined)
+	}
+}
+
+// TestApp_TurnErrorNoTextBleedIntoNextTurn is the central FIX 1
+// regression: after a turn_error, the NEXT turn's text_deltas must start
+// a fresh card — the prior partial must not survive in the LiveRegion
+// buffer and get appended onto.
+func TestApp_TurnErrorNoTextBleedIntoNextTurn(t *testing.T) {
+	m := New("s-te-bleed", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Turn 1: stream a partial, then error out.
+	_ = m.handleEvent(newTestEnvelope("text_delta", "s-te-bleed", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-te-bleed","block":0,"text":"STALE-FROM-TURN-1"}`))
+	_ = m.handleEvent(newTestEnvelope("turn_error", "s-te-bleed", 2,
+		`{"type":"turn_error","seq":2,"sessionId":"s-te-bleed","error":"oops","recoverable":true}`))
+	// Turn 2: a fresh delta.
+	_ = m.handleEvent(newTestEnvelope("text_delta", "s-te-bleed", 3,
+		`{"type":"text_delta","seq":3,"sessionId":"s-te-bleed","block":0,"text":"fresh turn 2 text"}`))
+	live := m.live.View()
+	if strings.Contains(live, "STALE-FROM-TURN-1") {
+		t.Errorf("stale turn-1 text bled into the turn-2 streaming card: %q", live)
+	}
+	if !strings.Contains(live, "fresh turn 2 text") {
+		t.Errorf("turn-2 text missing from the fresh card: %q", live)
+	}
+}
+
+// TestApp_ESCCancelTurnErrorFinalizesCard covers the userCancelledTurn
+// early-return path: an ESC-cancel's swallowed turn_error must STILL
+// finalize the streaming card (no bleed), even though it suppresses the
+// red error line.
+func TestApp_ESCCancelTurnErrorFinalizesCard(t *testing.T) {
+	m := New("s-te-esc", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	_ = m.handleEvent(newTestEnvelope("text_delta", "s-te-esc", 1,
+		`{"type":"text_delta","seq":1,"sessionId":"s-te-esc","block":0,"text":"partial before ESC"}`))
+	// Simulate the ESC-cancel flag the KeyEsc handler sets.
+	m.userCancelledTurn = true
+	m.pendingPrintln = nil
+	_ = m.handleEvent(newTestEnvelope("turn_error", "s-te-esc", 2,
+		`{"type":"turn_error","seq":2,"sessionId":"s-te-esc","error":"AbortError","recoverable":true}`))
+	if m.live.HasStreaming() {
+		t.Errorf("ESC-cancel turn_error did not finalize the streaming card")
+	}
+	joined := strings.Join(m.pendingPrintln, "\n")
+	if !strings.Contains(joined, "partial before ESC") {
+		t.Errorf("partial text not committed on ESC-cancel turn_error: %q", joined)
+	}
+	// The red "turn error" line is intentionally suppressed for ESC.
+	if strings.Contains(joined, "turn error: AbortError") {
+		t.Errorf("ESC-cancel should suppress the red turn-error line: %q", joined)
+	}
+	if m.userCancelledTurn {
+		t.Errorf("userCancelledTurn flag should reset after the swallowed turn_error")
+	}
+}
+
+// --- FIX 3 (audit): decoded tool output for detailed / expand / diff ---
+
+// TestApp_DiffViewParsesHunksFromJSONQuotedOutput is the load-bearing
+// FIX 3 behavioral assertion: a FileEdit tool_result whose `output` is a
+// JSON-quoted unified diff (escaped \n) must decode to real newlines so
+// ParseDiff finds the @@ hunk header. Pre-fix the raw bytes were a single
+// line, HasHunks was always false, and Ctrl+] diff focus was dead.
+func TestApp_DiffViewParsesHunksFromJSONQuotedOutput(t *testing.T) {
+	m := New("s-diff", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// A unified diff, JSON-encoded as the wire delivers it (escaped \n,
+	// surrounding quotes). json.Marshal produces exactly this shape.
+	diffText := "@@ -1,2 +1,3 @@\n context line\n+added line\n-removed line"
+	quoted, err := json.Marshal(diffText)
+	if err != nil {
+		t.Fatalf("marshal diff: %v", err)
+	}
+	raw := fmt.Sprintf(
+		`{"type":"tool_result","seq":1,"sessionId":"s-diff","block":0,"tool":"FileEdit","input":{"path":"x.go"},"output":%s,"renderHint":"diff"}`,
+		string(quoted),
+	)
+	_ = m.handleEvent(newTestEnvelope("tool_result", "s-diff", 1, raw))
+	if m.mostRecentDiff == nil {
+		t.Fatal("expected a DiffView to be parsed from the FileEdit tool_result")
+	}
+	if !m.mostRecentDiff.HasHunks() {
+		t.Errorf("expected ParseDiff to find hunks in the decoded diff (Ctrl+] focus would be dead otherwise)")
+	}
+}
+
+// TestApp_ExpandRingStoresDecodedOutput proves the /expand ring stores the
+// DECODED text (real newlines) rather than the JSON-quoted blob, so
+// /expand splits it into multiple readable lines.
+func TestApp_ExpandRingStoresDecodedOutput(t *testing.T) {
+	m := New("s-expand", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	quoted, _ := json.Marshal("first line\nsecond line\nthird line")
+	raw := fmt.Sprintf(
+		`{"type":"tool_result","seq":7,"sessionId":"s-expand","block":0,"tool":"Bash","input":{"command":"ls"},"output":%s,"renderHint":"text"}`,
+		string(quoted),
+	)
+	_ = m.handleEvent(newTestEnvelope("tool_result", "s-expand", 7, raw))
+	if len(m.completedBlocks) == 0 {
+		t.Fatal("expected a completed block recorded for /expand")
+	}
+	stored := m.completedBlocks[len(m.completedBlocks)-1].Output
+	if strings.Contains(stored, `\n`) {
+		t.Errorf("expand ring stored escaped newlines (not decoded): %q", stored)
+	}
+	if n := strings.Count(stored, "\n"); n != 2 {
+		t.Errorf("expected 2 real newlines in decoded expand output, got %d: %q", n, stored)
+	}
+	if strings.HasPrefix(stored, `"`) {
+		t.Errorf("expand ring stored a quoted blob: %q", stored)
+	}
+}
+
+// --- FIX 7 (audit): emittedPrintln is a bounded ring ---
+
+// TestApp_EmittedPrintlnBounded proves the test-inspection scrollback
+// ring does not grow without bound: after draining far more than the cap,
+// the retained slice is clamped to emittedPrintlnCap (oldest evicted).
+func TestApp_EmittedPrintlnBounded(t *testing.T) {
+	m := New("s-ring", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	// Drain well past the cap, a chunk at a time (mirrors many Updates).
+	total := emittedPrintlnCap + 500
+	for i := 0; i < total; i++ {
+		m.print(fmt.Sprintf("line-%d", i))
+		m.drainPrintln()
+	}
+	if len(m.emittedPrintln) > emittedPrintlnCap {
+		t.Errorf("emittedPrintln exceeded cap: got %d, cap %d", len(m.emittedPrintln), emittedPrintlnCap)
+	}
+	// The most-recent line must still be retained (ring keeps the tail).
+	last := m.emittedPrintln[len(m.emittedPrintln)-1]
+	if last != fmt.Sprintf("line-%d", total-1) {
+		t.Errorf("ring should retain the newest line; got tail %q", last)
+	}
+	// The oldest line must have been evicted.
+	for _, ln := range m.emittedPrintln {
+		if ln == "line-0" {
+			t.Errorf("oldest line-0 should have been evicted from the ring")
+		}
+	}
+}
+
+// --- FIX 8 (audit): Enter during a streaming turn queues, not fires ---
+
+// TestApp_EnterDuringStreamingQueuesSubmission proves a second Enter while
+// a turn is in flight does NOT immediately submit; it queues the text and
+// clears the prompt. Then turn_complete drains + dispatches the queued
+// turn (spinner re-armed). Driven via direct Update so the queue state is
+// observable on the returned Model.
+func TestApp_EnterDuringStreamingQueuesSubmission(t *testing.T) {
+	// baseURL non-empty so the submit path is live; the dead socket means
+	// any actually-fired POST errors cleanly without hanging.
+	m := New("s-queue", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Simulate a turn in flight.
+	m.statusLine.Streaming = true
+	// Type a message and press Enter.
+	for _, r := range "second message" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	// It must be QUEUED, not fired: pendingSubmission set, prompt cleared,
+	// no second spinner started (still the same turn streaming).
+	if m.pendingSubmission != "second message" {
+		t.Fatalf("expected the submission to be queued; pendingSubmission=%q", m.pendingSubmission)
+	}
+	if strings.TrimSpace(m.prompt.Value()) != "" {
+		t.Errorf("prompt should be cleared after queueing; got %q", m.prompt.Value())
+	}
+	// Now the turn ends. turn_complete must drain + dispatch the queued
+	// turn (and re-arm the thinking spinner).
+	m.statusLine.Streaming = false
+	tcEnv := newTestEnvelope("turn_complete", "s-queue", 9,
+		`{"type":"turn_complete","seq":9,"sessionId":"s-queue","finishReason":"end_turn"}`)
+	model, _ = m.Update(sseMsg{env: tcEnv})
+	m = model.(Model)
+	if m.pendingSubmission != "" {
+		t.Errorf("queued submission should be drained on turn_complete; still %q", m.pendingSubmission)
+	}
+	if !m.thinkingPending {
+		t.Errorf("draining the queued turn should re-arm the thinking spinner")
+	}
+	// The queued text should have been echoed into scrollback.
+	if !strings.Contains(scrollbackContent(m), "second message") {
+		t.Errorf("queued turn text not echoed on dispatch: %q", scrollbackContent(m))
+	}
+}
+
+// TestApp_SlashCommandDuringStreamingNotQueued proves the queueing guard
+// is scoped to plain turns: a leading-slash command typed during
+// streaming falls through unchanged (it is NOT captured as a pending
+// plain-turn submission).
+func TestApp_SlashCommandDuringStreamingNotQueued(t *testing.T) {
+	m := New("s-slash-stream", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.statusLine.Streaming = true
+	for _, r := range "/help" {
+		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = model.(Model)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = model.(Model)
+	if m.pendingSubmission != "" {
+		t.Errorf("a slash command during streaming should not be queued as a plain turn; got %q", m.pendingSubmission)
+	}
+}
+
+// --- FIX 2 (audit): SSE reconnect backoff on error ---
+
+// TestApp_SSEErrorClosesScheduleBackoff proves an errored stream end does
+// NOT reconnect immediately (no consumer-generation bump) — it advances
+// the backoff and schedules a delayed reconnect, and prints the dim
+// "connection lost" marker on the first failure of a streak.
+func TestApp_SSEErrorClosesScheduleBackoff(t *testing.T) {
+	// baseURL non-empty so the reconnect path is active; ctx not cancelled.
+	m := New("s-backoff", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	genBefore := m.sseGen
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	// An errored stream end (server unreachable).
+	model, cmd := m.Update(sseDoneMsg{gen: m.sseGen, err: fmt.Errorf("connection refused")})
+	m = model.(Model)
+	// startSSE was NOT called (it would bump sseGen), so the reconnect is
+	// deferred behind the tick, not immediate.
+	if m.sseGen != genBefore {
+		t.Errorf("errored close should NOT immediately reconnect (gen bumped %d->%d)", genBefore, m.sseGen)
+	}
+	if m.sseBackoff != sseBackoffInitial {
+		t.Errorf("first failure should set backoff to %v; got %v", sseBackoffInitial, m.sseBackoff)
+	}
+	if cmd == nil {
+		t.Errorf("expected a delayed-reconnect tick Cmd on errored close")
+	}
+	if !strings.Contains(scrollbackContent(m), "connection lost") {
+		t.Errorf("expected a 'connection lost' marker on first failure; got %q", scrollbackContent(m))
+	}
+	// A SECOND consecutive failure doubles the backoff.
+	model, _ = m.Update(sseDoneMsg{gen: m.sseGen, err: fmt.Errorf("still refused")})
+	m = model.(Model)
+	if m.sseBackoff != 2*sseBackoffInitial {
+		t.Errorf("second consecutive failure should double backoff to %v; got %v", 2*sseBackoffInitial, m.sseBackoff)
+	}
+}
+
+// TestApp_SSECleanCloseResetsBackoff proves a CLEAN stream end (the normal
+// per-turn close, err == nil) reconnects immediately (gen bumps) and
+// resets any accumulated backoff to zero — so a normal turn boundary is
+// never delayed.
+func TestApp_SSECleanCloseResetsBackoff(t *testing.T) {
+	m := New("s-clean-close", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Pretend a prior failure left a backoff in effect.
+	m.sseBackoff = sseBackoffMax
+	genBefore := m.sseGen
+	model, cmd := m.Update(sseDoneMsg{gen: m.sseGen, err: nil})
+	m = model.(Model)
+	if m.sseBackoff != 0 {
+		t.Errorf("clean close should reset backoff to 0; got %v", m.sseBackoff)
+	}
+	if m.sseGen == genBefore {
+		t.Errorf("clean close should reconnect immediately (gen should bump); stayed %d", genBefore)
+	}
+	if cmd == nil {
+		t.Errorf("expected the immediate-reconnect waiter Cmd on clean close")
+	}
+}
+
+// TestApp_SSEReconnectMsgDroppedOnStaleGen proves a backoff tick that
+// fires after a newer consumer generation took over is dropped (no
+// reconnect), preventing a stale reconnect from stealing the live bus.
+func TestApp_SSEReconnectMsgDroppedOnStaleGen(t *testing.T) {
+	m := New("s-stale-recon", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	staleGen := m.sseGen - 1 // a generation older than the current consumer
+	genBefore := m.sseGen
+	model, cmd := m.Update(sseReconnectMsg{gen: staleGen})
+	m = model.(Model)
+	if m.sseGen != genBefore {
+		t.Errorf("stale reconnect tick should be dropped (no gen bump); %d->%d", genBefore, m.sseGen)
+	}
+	if cmd != nil {
+		t.Errorf("stale reconnect tick should produce no Cmd; got non-nil")
+	}
+}

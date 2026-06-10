@@ -72,7 +72,7 @@ func TestSplitSmashedTableHeader_FoldOrphanLinesLeavesSeparatorAlone(t *testing.
 		"─────────────┼──────",
 		" data        │ row",
 	}, "\n")
-	out := foldOrphanLines(in)
+	out := foldOrphanLines(in, 0)
 	if !strings.Contains(out, "─────────────┼──────") {
 		t.Errorf("separator row was folded away: %q", out)
 	}
