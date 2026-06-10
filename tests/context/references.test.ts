@@ -99,6 +99,29 @@ describe('expandContextReferences', () => {
     expect(out).toContain('hello from url');
   });
 
+  // Audit 2026-06-10 — @url had no SSRF gate; on a hosted gateway it could be
+  // pointed at cloud metadata. Now refused before any fetch.
+  test('@url refuses a private/loopback/metadata host (SSRF) without fetching', async () => {
+    let fetched = false;
+    const out = await expandContextReferences('@url:http://169.254.169.254/latest/meta-data', {
+      fetchImpl: (async () => {
+        fetched = true;
+        return new Response('SECRET', { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    expect(fetched).toBe(false);
+    expect(out).toContain('[ERROR');
+    expect(out).not.toContain('SECRET');
+  });
+
+  test('@url refuses the IPv4-mapped IPv6 metadata bypass', async () => {
+    const out = await expandContextReferences('@url:http://[::ffff:a9fe:a9fe]/latest/meta-data', {
+      fetchImpl: (async () => new Response('SECRET', { status: 200 })) as unknown as typeof fetch,
+    });
+    expect(out).toContain('[ERROR');
+    expect(out).not.toContain('SECRET');
+  });
+
   test('an unreadable @file: resolves to an [ERROR] marker, never rejects', async () => {
     await withTmp(async (dir) => {
       const f = join(dir, 'locked.txt');

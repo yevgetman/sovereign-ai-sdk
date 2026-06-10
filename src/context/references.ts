@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { type LookupImpl, assertResolvedHostPublic, checkUrlAllowed } from '../tools/ssrfGuard.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 
 const MAX_FILE_BYTES = 256 * 1024;
@@ -15,6 +16,8 @@ export type ReferenceOptions = {
   cwd?: string;
   homeDir?: string;
   fetchImpl?: typeof fetch;
+  /** Injectable DNS resolver for the @url SSRF guard (tests). */
+  lookupImpl?: LookupImpl;
 };
 
 type Match =
@@ -120,11 +123,45 @@ function folderReference(raw: string, options: ReferenceOptions & { cwd: string 
 
 async function urlReference(raw: string, options: ReferenceOptions): Promise<string> {
   if (!/^https?:\/\//i.test(raw)) return `[ERROR: unsupported URL ${raw}]`;
-  const fetchImpl = options.fetchImpl ?? fetch;
+  // @url is expanded on the server for whatever turn text arrives — incl. an
+  // authenticated gateway principal's. Apply the same SSRF gate as WebFetch:
+  // refuse private/loopback/metadata hosts and re-validate every redirect hop
+  // (audit 2026-06-10). DNS guard runs on the real-fetch path.
+  const injectedFetch = options.fetchImpl;
+  const fetchImpl = injectedFetch ?? fetch;
+  const lookupImpl = options.lookupImpl;
+  const dnsGuardEnabled = !injectedFetch || lookupImpl !== undefined;
+
+  const guard = checkUrlAllowed(raw);
+  if (!guard.ok) return `[ERROR: URL fetch refused ${raw}: ${guard.reason}]`;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetchImpl(raw, { signal: controller.signal });
+    let currentUrl = raw;
+    let response: Response;
+    let redirects = 0;
+    while (true) {
+      if (dnsGuardEnabled) {
+        const dnsBlock = await assertResolvedHostPublic(new URL(currentUrl).hostname, lookupImpl);
+        if (dnsBlock) return `[ERROR: URL fetch refused ${raw}: ${dnsBlock}]`;
+      }
+      response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' });
+      const isRedirect = response.status >= 300 && response.status < 400;
+      const location = response.headers.get('location');
+      if (!isRedirect || !location) break;
+      if (redirects >= 5) return `[ERROR: URL fetch failed ${raw}: too many redirects]`;
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        return `[ERROR: URL fetch failed ${raw}: invalid redirect Location]`;
+      }
+      const hop = checkUrlAllowed(nextUrl);
+      if (!hop.ok) return `[ERROR: URL fetch refused ${raw}: redirect ${hop.reason}]`;
+      currentUrl = nextUrl;
+      redirects += 1;
+    }
     if (!response.ok) return `[ERROR: URL fetch failed ${raw} status=${response.status}]`;
     const text = (await response.text()).slice(0, MAX_URL_BYTES);
     return fence(`referenced-url url="${escapeAttr(raw)}"`, text, 'text');

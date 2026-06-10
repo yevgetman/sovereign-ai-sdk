@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { type LookupImpl, assertResolvedHostPublic, checkUrlAllowed } from './ssrfGuard.js';
 
 const DEFAULT_MAX_CHARS = 50_000;
 const ABSOLUTE_MAX_CHARS = 200_000;
@@ -38,45 +39,7 @@ type Output = {
   text: string;
 };
 
-const PRIVATE_HOST_PATTERNS: RegExp[] = [
-  /^localhost$/i,
-  /^127\./,
-  /^0\./, // 0.0.0.0/8 — "this host"; some stacks route 0.0.0.0 to loopback
-  /^10\./,
-  /^169\.254\./, // link-local incl. cloud instance-metadata (169.254.169.254)
-  /^192\.168\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^::1$/,
-  /^fe80::/i,
-  /^fc00::/i,
-  /^fd00::/i,
-];
-
-function isPrivateHost(hostname: string): boolean {
-  // WHATWG URL keeps IPv6 hosts bracketed (`[::1]`); strip so the patterns match.
-  const host = hostname.replace(/^\[/, '').replace(/\]$/, '');
-  return PRIVATE_HOST_PATTERNS.some((re) => re.test(host));
-}
-
 type Blocked = { data: Output; observation: { status: 'error'; summary: string } };
-
-/** Scheme + private-host gate, shared by validateInput (dispatch-time) and
- *  call() (initial request + every redirect hop — defense in depth). */
-function checkUrlAllowed(rawUrl: string): { ok: true; url: URL } | { ok: false; reason: string } {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return { ok: false, reason: 'Invalid URL.' };
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { ok: false, reason: 'Only http and https URLs are supported.' };
-  }
-  if (isPrivateHost(parsed.hostname)) {
-    return { ok: false, reason: 'Refusing to fetch from private/loopback host.' };
-  }
-  return { ok: true, url: parsed };
-}
 
 function blockedResult(url: string, finalUrl: string, reason: string): Blocked {
   return {
@@ -169,7 +132,13 @@ export const WebFetchTool = buildTool<Input, Output>({
     return guard.ok ? { ok: true } : { ok: false, reason: guard.reason };
   },
   async call(input, ctx) {
-    const fetchImpl = (ctx as { fetchImpl?: typeof fetch }).fetchImpl ?? globalThis.fetch;
+    const injectedFetch = (ctx as { fetchImpl?: typeof fetch }).fetchImpl;
+    const fetchImpl = injectedFetch ?? globalThis.fetch;
+    const lookupImpl = (ctx as { lookupImpl?: LookupImpl }).lookupImpl;
+    // DNS-resolution guard runs on the real-fetch path (or whenever a lookup is
+    // injected). With an injected fetch double, the caller controls the target,
+    // so the sync literal-IP check alone suffices and tests stay hermetic.
+    const dnsGuardEnabled = !injectedFetch || lookupImpl !== undefined;
 
     // Defense in depth: the dispatcher runs validateInput before call(), but
     // direct/programmatic callers must be guarded here too.
@@ -189,6 +158,13 @@ export const WebFetchTool = buildTool<Input, Output>({
       let response: Response;
       let redirects = 0;
       while (true) {
+        // Block hostnames that resolve to private/loopback/metadata space
+        // (DNS-rebinding / *.nip.io). Re-checked every hop alongside the sync
+        // scheme/literal gate.
+        if (dnsGuardEnabled) {
+          const dnsBlock = await assertResolvedHostPublic(new URL(currentUrl).hostname, lookupImpl);
+          if (dnsBlock) return blockedResult(input.url, currentUrl, dnsBlock);
+        }
         response = await fetchImpl(currentUrl, {
           signal: controller.signal,
           redirect: 'manual',
