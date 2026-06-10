@@ -16,6 +16,10 @@ export type PooledCredential = {
   lastErrorAt: number | null;
   cooldownUntil: number | null;
   usageCount: number;
+  /** Non-reversible fingerprint of the secret the status was last recorded
+   *  against. Lets a rotated key (same slot id, new secret) clear a stale
+   *  `auth_failed`. Optional on disk for backward compat with pre-hash rows. */
+  secretHash?: string;
 };
 
 export type CredentialStrategy = 'ROUND_ROBIN' | 'LEAST_USED' | 'FILL_FIRST';
@@ -54,6 +58,10 @@ export function getDefaultCredentialStatePath(): string {
  *  `getDefaultCredentialStatePath()`. Retained for backward compat. */
 export const DEFAULT_CREDENTIAL_STATE_PATH = getDefaultCredentialStatePath();
 const DEFAULT_COOLDOWN_SECONDS = 60 * 60;
+/** A 401/403 is auto-deny-worthy but not necessarily permanent (transient
+ *  proxy/org 403, or a key the user is about to rotate). Lock out for a bounded
+ *  window so the credential self-heals instead of bricking the provider. */
+const DEFAULT_AUTH_FAILED_COOLDOWN_SECONDS = 10 * 60;
 
 export class CredentialPool {
   private readonly state: StateFile;
@@ -77,20 +85,29 @@ export class CredentialPool {
     this.state.credentials[this.provider] = providerState;
 
     for (const input of inputs) {
-      const id = input.id ?? `${input.provider}-${hashSecret(input.secret ?? '')}`;
+      const secretHash = hashSecret(input.secret ?? '');
+      const id = input.id ?? `${input.provider}-${secretHash}`;
       this.activeIds.add(id);
       const existing = providerState[id];
       this.secrets.set(id, input.secret);
+      // A rotated secret under the same slot id (env-var / config key) must
+      // clear a stale auth_failed/exhausted lockout. We only reset when the
+      // stored hash is known AND differs — a pre-hash row (undefined) is left
+      // untouched and simply gets its hash stamped going forward.
+      const secretChanged =
+        existing?.secretHash !== undefined && existing.secretHash !== secretHash;
+      const carry = secretChanged ? undefined : existing;
       providerState[id] = {
         id,
         provider: input.provider,
         authType: input.authType,
         priority: input.priority ?? existing?.priority ?? 0,
-        status: existing?.status ?? 'ok',
-        lastError: existing?.lastError ?? null,
-        lastErrorAt: existing?.lastErrorAt ?? null,
-        cooldownUntil: existing?.cooldownUntil ?? null,
+        status: carry?.status ?? 'ok',
+        lastError: carry?.lastError ?? null,
+        lastErrorAt: carry?.lastErrorAt ?? null,
+        cooldownUntil: carry?.cooldownUntil ?? null,
         usageCount: existing?.usageCount ?? 0,
+        secretHash,
       };
     }
     this.persist();
@@ -138,7 +155,10 @@ export class CredentialPool {
     cred.status = 'auth_failed';
     cred.lastError = reason;
     cred.lastErrorAt = this.now();
-    cred.cooldownUntil = null;
+    // Bounded cooldown rather than a permanent lockout: a transient 403 must
+    // self-heal, and a rotated key (detected by secret-hash change at
+    // construction) clears it immediately on the next boot regardless.
+    cred.cooldownUntil = this.now() + DEFAULT_AUTH_FAILED_COOLDOWN_SECONDS;
     this.persist();
   }
 
@@ -147,13 +167,28 @@ export class CredentialPool {
   }
 
   private isUsable(cred: PooledCredential): boolean {
-    if (cred.status === 'auth_failed') return false;
-    if (cred.status === 'exhausted' && (cred.cooldownUntil ?? 0) > this.now()) return false;
+    // Both auth_failed and exhausted are temporary: usable again once the
+    // cooldown elapses. A legacy auth_failed row written before cooldowns
+    // existed (cooldownUntil null) is treated as already-elapsed → retried.
+    if (
+      (cred.status === 'exhausted' || cred.status === 'auth_failed') &&
+      (cred.cooldownUntil ?? 0) > this.now()
+    ) {
+      return false;
+    }
     return true;
   }
 
   private persist(): void {
-    writeStateAtomic(this.path, this.state);
+    // Last-writer-wins at the file level would clobber other providers' rows
+    // that a concurrent process (gateway + cron tick, two gateways, ...) wrote
+    // since our boot snapshot. Re-read the current file and merge in ONLY this
+    // pool's provider sub-map, then write atomically.
+    const disk = readState(this.path);
+    const merged: StateFile = { credentials: { ...(disk.credentials ?? {}) } };
+    const ours = this.state.credentials?.[this.provider] ?? {};
+    if (merged.credentials) merged.credentials[this.provider] = ours;
+    writeStateAtomic(this.path, merged);
   }
 }
 
