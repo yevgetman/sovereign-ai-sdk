@@ -118,6 +118,20 @@ const GIT_WRITE_SUBCOMMANDS = new Set([
 
 const PATTERN_FIRST_COMMANDS = new Set(['grep', 'rg', 'ag', 'ack']);
 
+/** `find` primaries that execute commands or mutate the filesystem. Their
+ *  presence demotes `find` from read to exec (audit C3). */
+const FIND_DESTRUCTIVE_PRIMARIES = new Set([
+  '-delete',
+  '-exec',
+  '-execdir',
+  '-ok',
+  '-okdir',
+  '-fprint',
+  '-fprintf',
+  '-fprint0',
+  '-fls',
+]);
+
 const TRANSPARENT_PREFIXES = new Set([
   'sudo',
   'timeout',
@@ -187,6 +201,13 @@ function analyzeSegment(segment: string): VirtualOperation {
     return analyzeGitCommand(args);
   }
 
+  // `find` is a read tool ONLY without an action primary. `-delete` mutates;
+  // `-exec`/`-execdir`/`-ok`/`-okdir` run an arbitrary command; `-fprint*`/`-fls`
+  // write files. Any of these makes the segment non-read (audit C3).
+  if (cmd === 'find' && args.some((a) => FIND_DESTRUCTIVE_PRIMARIES.has(a))) {
+    return { kind: 'exec', command: 'find' };
+  }
+
   if (READ_COMMANDS.has(cmd)) {
     const paths = PATTERN_FIRST_COMMANDS.has(cmd)
       ? extractPathsSkipFirst(args)
@@ -208,12 +229,38 @@ function analyzeGitCommand(args: string[]): VirtualOperation {
   return { kind: 'exec', command: `git ${sub}` };
 }
 
-export function splitShellSegments(command: string): string[] {
+export type SplitShellSegmentsOptions = {
+  /** Break on a single `|` pipe too. Default true — a pipeline's every stage is
+   *  its own operation for read-only analysis. Set false where a pipe should
+   *  stay inside one segment (Bash(pattern) rule matching keeps its historical
+   *  behavior of not splitting pipes). `||`, `&&`, `;`, newline and a control
+   *  `&` are ALWAYS separators regardless. */
+  splitPipes?: boolean;
+};
+
+/**
+ * Split a shell command into top-level segments on control operators, honoring
+ * single/double quotes and backslash escapes so a separator inside a quoted
+ * string is not a boundary.
+ *
+ * Separators: `;`, newline (`\n`/`\r`), `&&`, `||`, a control `&`
+ * (background/sequence), and — when `splitPipes` — a single `|`. A `&` that is
+ * part of `&&`, a `&>file` redirect, or an fd-duplication (`2>&1`, `>&2`) is
+ * NOT a separator. Missing newline + control-`&` here was an auth-bypass: a
+ * read command followed by `\n`/`&` + a writer classified read-only (audit C2).
+ */
+export function splitShellSegments(command: string, opts?: SplitShellSegmentsOptions): string[] {
+  const splitPipes = opts?.splitPipes ?? true;
   const segments: string[] = [];
   let current = '';
   let inSingle = false;
   let inDouble = false;
   let escaped = false;
+
+  const flush = () => {
+    if (current.trim()) segments.push(current.trim());
+    current = '';
+  };
 
   for (let i = 0; i < command.length; i++) {
     const ch = command.charAt(i);
@@ -243,26 +290,35 @@ export function splitShellSegments(command: string): string[] {
     }
 
     if (!inSingle && !inDouble) {
-      if (ch === ';') {
-        if (current.trim()) segments.push(current.trim());
-        current = '';
+      if (ch === ';' || ch === '\n' || ch === '\r') {
+        flush();
         continue;
       }
       if (ch === '&' && command[i + 1] === '&') {
-        if (current.trim()) segments.push(current.trim());
-        current = '';
+        flush();
         i++;
+        continue;
+      }
+      if (ch === '&') {
+        // Single `&`. A control operator (background / sequencing) UNLESS it is
+        // part of a redirect: `&>file` (next char `>`) or an fd-duplication
+        // such as `2>&1` / `>&2` (the char just appended to `current` was `>`).
+        const next = command[i + 1];
+        const prevNonSpace = current.replace(/\s+$/, '').slice(-1);
+        if (next === '>' || prevNonSpace === '>') {
+          current += ch;
+          continue;
+        }
+        flush();
         continue;
       }
       if (ch === '|' && command[i + 1] === '|') {
-        if (current.trim()) segments.push(current.trim());
-        current = '';
+        flush();
         i++;
         continue;
       }
-      if (ch === '|') {
-        if (current.trim()) segments.push(current.trim());
-        current = '';
+      if (ch === '|' && splitPipes) {
+        flush();
         continue;
       }
     }
@@ -270,7 +326,7 @@ export function splitShellSegments(command: string): string[] {
     current += ch;
   }
 
-  if (current.trim()) segments.push(current.trim());
+  flush();
   return segments;
 }
 

@@ -33,6 +33,32 @@ describe('splitShellSegments', () => {
   test('single command', () => {
     expect(splitShellSegments('cat file.txt')).toEqual(['cat file.txt']);
   });
+
+  // Audit 2026-06-10 C2 — newline and a control `&` are command separators.
+  test('splits on newline', () => {
+    expect(splitShellSegments('cat foo\nrm bar')).toEqual(['cat foo', 'rm bar']);
+    expect(splitShellSegments('cat foo\r\nrm bar')).toEqual(['cat foo', 'rm bar']);
+  });
+
+  test('splits on a control & (background/sequence)', () => {
+    expect(splitShellSegments('cat foo & rm bar')).toEqual(['cat foo', 'rm bar']);
+  });
+
+  test('does NOT split fd-duplication or &> redirect (not a control &)', () => {
+    expect(splitShellSegments('grep x file 2>&1')).toEqual(['grep x file 2>&1']);
+    expect(splitShellSegments('cat a >&2')).toEqual(['cat a >&2']);
+    expect(splitShellSegments('echo hi &> out')).toEqual(['echo hi &> out']);
+  });
+
+  test('splitPipes:false keeps a single | inside the segment but still splits || && ; & newline', () => {
+    expect(splitShellSegments('cat foo | grep bar', { splitPipes: false })).toEqual([
+      'cat foo | grep bar',
+    ]);
+    expect(splitShellSegments('cat foo\nrm bar', { splitPipes: false })).toEqual([
+      'cat foo',
+      'rm bar',
+    ]);
+  });
 });
 
 describe('analyzeShellCommand', () => {
@@ -240,5 +266,18 @@ describe('isShellCommandReadOnly', () => {
   test('redirect on read command returns false', () => {
     expect(isShellCommandReadOnly('grep pattern file > out')).toBe(false);
     expect(isShellCommandReadOnly('grep pattern file >out')).toBe(false); // no space
+  });
+
+  // Audit 2026-06-10 C2/C3 — these feed the Bash→virtual-Read rule path; a
+  // smuggled writer or a destructive `find` must not classify read-only.
+  test('writer smuggled after newline / control-& is not read-only', () => {
+    expect(isShellCommandReadOnly('cat foo\nrm bar')).toBe(false);
+    expect(isShellCommandReadOnly('cat foo & rm bar')).toBe(false);
+  });
+
+  test('find with a destructive primary is not read-only', () => {
+    expect(isShellCommandReadOnly('find . -delete')).toBe(false);
+    expect(isShellCommandReadOnly('find . -exec rm {} +')).toBe(false);
+    expect(isShellCommandReadOnly('find . -name "*.ts"')).toBe(true); // benign find still read
   });
 });

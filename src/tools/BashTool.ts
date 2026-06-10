@@ -21,7 +21,11 @@
 
 import { z } from 'zod';
 import { wildcardMatches } from '../config/rules.js';
-import { type VirtualOperation, analyzeShellCommand } from '../permissions/shellSemantics.js';
+import {
+  type VirtualOperation,
+  analyzeShellCommand,
+  splitShellSegments,
+} from '../permissions/shellSemantics.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext, ToolObservation } from '../tool/types.js';
 
@@ -43,7 +47,6 @@ const BASH_READ_COMMANDS = new Set<string>([
   'pwd',
   'which',
   'date',
-  'env',
   'true',
   'false',
   'whoami',
@@ -53,6 +56,29 @@ const BASH_READ_COMMANDS = new Set<string>([
   'tree',
   'rg',
 ]);
+
+/** Command launchers that run an arbitrary FOLLOWING command. They must never
+ *  classify read-only on their own — the real command after them decides. The
+ *  classifier skips past the launcher (and its flags / env-assignments) to that
+ *  command. A launcher with no following command (bare `env`) fails closed.
+ *  (Audit C3: `env bash -c '…'` previously auto-allowed.) */
+const COMMAND_LAUNCHERS = new Set<string>([
+  'env',
+  'command',
+  'exec',
+  'builtin',
+  'nice',
+  'nohup',
+  'time',
+  'timeout',
+  'stdbuf',
+  'xargs',
+]);
+
+/** `find` primaries that execute commands or mutate the filesystem — they make
+ *  an otherwise read-only `find` unsafe (audit C3). */
+const FIND_DESTRUCTIVE_RE =
+  /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fprint0|fls)(?:\s|$)/;
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -121,20 +147,48 @@ export function isReadOnlyBashCommand(command: string): boolean {
   // treated as a redirect (asks rather than silently auto-allowing a write).
   if (/(?:\d*|&)>>?\s*[^&\s]/.test(command)) return false;
 
-  const segments = command.split(/\|\||&&|;|\|/);
-  for (const raw of segments) {
-    const seg = raw.trim();
-    if (seg.length === 0) return false;
-    const tokens = seg.split(/\s+/);
-    let cursor = 0;
-    while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
-      cursor++;
-    }
-    const cmd = tokens[cursor];
-    if (!cmd) return false;
-    if (cmd.startsWith('-') || cmd.includes('/')) return false;
-    if (!BASH_READ_COMMANDS.has(cmd)) return false;
+  // Quote-aware split on every control operator incl. newline and a control
+  // `&` — a regex split previously missed those, so a writer smuggled after a
+  // read classified read-only (audit C2).
+  const segments = splitShellSegments(command);
+  if (segments.length === 0) return false;
+  for (const seg of segments) {
+    if (!isReadOnlySegment(seg)) return false;
   }
+  return true;
+}
+
+/** Resolve a single shell segment's effective leading command, skipping leading
+ *  env-var assignments and any command launchers (env/nice/timeout/…), then
+ *  decide whether that command is read-only. Fail-closed on anything opaque. */
+function isReadOnlySegment(segment: string): boolean {
+  const seg = segment.trim();
+  if (seg.length === 0) return false;
+  const tokens = seg.split(/\s+/).filter(Boolean);
+  let cursor = 0;
+  // Skip leading `VAR=val` assignments.
+  while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
+    cursor++;
+  }
+  // Skip command launchers and their own flags/assignments to reach the real
+  // command they would run.
+  while (cursor < tokens.length && COMMAND_LAUNCHERS.has(tokens[cursor] ?? '')) {
+    cursor++;
+    while (cursor < tokens.length) {
+      const t = tokens[cursor] ?? '';
+      if (t.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
+        cursor++;
+        continue;
+      }
+      break;
+    }
+  }
+  const cmd = tokens[cursor];
+  if (!cmd) return false; // launcher with no real command (e.g. bare `env`)
+  if (cmd.startsWith('-') || cmd.includes('/')) return false;
+  if (!BASH_READ_COMMANDS.has(cmd)) return false;
+  // `find` is read-only only without a destructive/exec primary.
+  if (cmd === 'find' && FIND_DESTRUCTIVE_RE.test(seg)) return false;
   return true;
 }
 
@@ -146,7 +200,10 @@ export function isReadOnlyBashCommand(command: string): boolean {
  */
 export function matchesBashPermissionPattern(command: string, pattern: string): boolean {
   if (/\$\(|`|<\(|>\(/.test(command)) return false;
-  const segments = command.split(/\|\||&&|;/);
+  // Split on control operators incl. newline + control `&` (a smuggled command
+  // after those must also match the pattern — audit C2), but keep a single `|`
+  // inside its segment (historical Bash(pattern) behavior).
+  const segments = splitShellSegments(command, { splitPipes: false });
   if (segments.length === 0) return false;
   for (const raw of segments) {
     const segment = normalizeShellSegment(raw);
@@ -179,14 +236,26 @@ function normalizeShellSegment(raw: string): string {
 const PRIV_ESCALATION_COMMANDS = new Set<string>(['sudo', 'pkexec', 'doas', 'su']);
 
 export function detectPrivilegeEscalation(command: string): string | null {
-  const segments = command.split(/\|\||&&|;|\|/);
-  for (const raw of segments) {
-    const seg = raw.trim();
-    if (seg.length === 0) continue;
+  // Quote-aware split on every control operator incl. newline + control `&`
+  // (a regex split missed those, so `cat a\nsudo …` evaded the guard — C2).
+  const segments = splitShellSegments(command);
+  for (const seg of segments) {
     const tokens = seg.split(/\s+/).filter(Boolean);
     let cursor = 0;
     while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
       cursor++;
+    }
+    // Skip command launchers (env/nice/…) so `env sudo …` is still caught.
+    while (cursor < tokens.length && COMMAND_LAUNCHERS.has(tokens[cursor] ?? '')) {
+      cursor++;
+      while (cursor < tokens.length) {
+        const t = tokens[cursor] ?? '';
+        if (t.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
+          cursor++;
+          continue;
+        }
+        break;
+      }
     }
     const cmd = tokens[cursor];
     if (!cmd) continue;

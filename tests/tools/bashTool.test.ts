@@ -175,6 +175,39 @@ describe('isReadOnlyBashCommand', () => {
     expect(isReadOnlyBashCommand('/usr/bin/cat foo.txt')).toBe(false);
     expect(isReadOnlyBashCommand('./script.sh')).toBe(false);
   });
+
+  // Audit 2026-06-10 C2/C3 — the read-only classifier gates the no-prompt
+  // auto-allow that the channel gateway's safe posture relies on. A smuggled
+  // writer (newline / single & separator) or a command launcher (env/find)
+  // must NOT classify read-only.
+  test('newline is a hard separator — no smuggling a writer after a read (C2)', () => {
+    expect(isReadOnlyBashCommand('cat README.md\nrm -rf /tmp/x')).toBe(false);
+    expect(isReadOnlyBashCommand('cat README.md\r\nrm -rf /tmp/x')).toBe(false);
+    expect(isReadOnlyBashCommand('ls\nwhoami')).toBe(true); // both read → still read
+  });
+
+  test('a single & (background/sequence) is a hard separator (C2)', () => {
+    expect(isReadOnlyBashCommand('cat x & rm -rf /tmp/x')).toBe(false);
+    expect(isReadOnlyBashCommand('ls & pwd')).toBe(true); // both read → still read
+  });
+
+  test('fd-duplication is NOT a separator — stays read-only (regression guard)', () => {
+    expect(isReadOnlyBashCommand('grep x file 2>&1')).toBe(true);
+    expect(isReadOnlyBashCommand('cat a >&2')).toBe(true);
+  });
+
+  test('env launcher cannot smuggle an arbitrary command as read-only (C3)', () => {
+    expect(isReadOnlyBashCommand('env bash -c "rm -rf /"')).toBe(false);
+    expect(isReadOnlyBashCommand('env rm -rf /tmp/x')).toBe(false);
+    expect(isReadOnlyBashCommand('env LC_ALL=C grep foo bar')).toBe(true); // env→grep, read
+  });
+
+  test('find with a destructive primary is not read-only (C3)', () => {
+    expect(isReadOnlyBashCommand('find . -delete')).toBe(false);
+    expect(isReadOnlyBashCommand('find . -exec rm {} +')).toBe(false);
+    expect(isReadOnlyBashCommand('find . -execdir rm {} +')).toBe(false);
+    expect(isReadOnlyBashCommand('find . -name "*.ts"')).toBe(true); // benign find still read
+  });
 });
 
 describe('matchesBashPermissionPattern', () => {
@@ -187,6 +220,13 @@ describe('matchesBashPermissionPattern', () => {
   test('skips leading env assignments and rejects command substitution', () => {
     expect(matchesBashPermissionPattern('LC_ALL=C grep foo file.txt', 'grep * *')).toBe(true);
     expect(matchesBashPermissionPattern('echo $(rm -rf /)', 'echo *')).toBe(false);
+  });
+
+  // Audit 2026-06-10 C2 — a smuggled command after a newline / control-& must
+  // not be auto-allowed by a Bash(pattern) rule that only covers the prefix.
+  test('newline / control-& smuggled command is not covered by a prefix pattern', () => {
+    expect(matchesBashPermissionPattern('git status\nrm -rf /', 'git *')).toBe(false);
+    expect(matchesBashPermissionPattern('git status & rm -rf /', 'git *')).toBe(false);
   });
 });
 
@@ -220,6 +260,17 @@ describe('detectPrivilegeEscalation', () => {
 
   test('flags sudo after env-var assignment', () => {
     expect(detectPrivilegeEscalation('LC_ALL=C sudo grep foo /etc/passwd')).toBe('sudo');
+  });
+
+  // Audit 2026-06-10 C2 — sudo smuggled past the read classifier via newline /
+  // control-& would otherwise hang on the TTY prompt (and evade the guard).
+  test('flags sudo after a newline / control-& separator', () => {
+    expect(detectPrivilegeEscalation('cat a\nsudo rm -rf /')).toBe('sudo');
+    expect(detectPrivilegeEscalation('ls & sudo reboot')).toBe('sudo');
+  });
+
+  test('flags sudo behind an env launcher', () => {
+    expect(detectPrivilegeEscalation('env sudo rm')).toBe('sudo');
   });
 
   test('returns null for benign commands containing the substring "sudo"', () => {
