@@ -8,8 +8,8 @@
 //
 // Scope deliberately narrow:
 //   - Child runs through AgentRunner (Phase 13.3).
-//   - Tool filtering: parent pool ∩ agent.allowedTools (name-only) −
-//     SUBAGENT_EXCLUDED_TOOLS. Pattern constraints inside allowedTools
+//   - Tool filtering: parent pool ∩ agent.allowedTools (matched by tool
+//     name OR alias) − SUBAGENT_EXCLUDED_TOOLS. Pattern constraints inside allowedTools
 //     entries (e.g. `Bash(git log *)`) are NOT enforced at this layer
 //     in v0 — the parent's canUseTool still applies. Tightening this is
 //     a follow-up: layer agent-defined rules into the canUseTool stack.
@@ -203,6 +203,15 @@ export class SubagentScheduler {
       throw new Error(`unknown subagent: '${input.agentName}'`);
     }
 
+    // FIX 2 — reserve the per-parent slot ATOMICALLY at entry, BEFORE the first
+    // `await`. AgentTool/task_create are concurrency-safe, so an orchestrator
+    // can Promise.all() many delegate() calls; JS runs each synchronously up to
+    // its first await, so a check-then-increment that straddles an await lets
+    // every parallel call read the same pre-increment count → the cap never
+    // fires and the counter lost-updates. Doing read→compare→set with no await
+    // in between makes the reservation race-free, and rejecting here (before
+    // acquiring any semaphore) means an over-cap call never holds a lane/write
+    // slot. The reservation is released exactly once in the outer finally.
     const maxChildren = this.opts.maxChildrenPerParent ?? DEFAULT_MAX_CHILDREN;
     const current = this.childCounts.get(input.parentSessionId) ?? 0;
     if (current >= maxChildren) {
@@ -210,13 +219,19 @@ export class SubagentScheduler {
         `subagent cap reached for parent '${input.parentSessionId}' (max=${maxChildren})`,
       );
     }
+    this.childCounts.set(input.parentSessionId, current + 1);
 
     const { providerName, modelName } = this.resolveProviderModel(agent);
-    const lane = laneFor(providerName);
+    // The concurrency lane (local|frontier) the child's provider runs in —
+    // distinct from the `lane` attribution object computed inside the try.
+    const concurrencyLane = laneFor(providerName);
 
-    const laneRelease = await this.opts.laneSemaphores.acquire(lane, input.parentSignal);
+    // The lane acquire lives INSIDE the outer try so a rejected acquire (e.g. a
+    // parent abort while queued) still releases the reservation in the finally.
+    let laneRelease: (() => void) | undefined;
     let writeLockRelease: (() => void) | undefined;
     try {
+      laneRelease = await this.opts.laneSemaphores.acquire(concurrencyLane, input.parentSignal);
       if (!agent.readOnly) {
         writeLockRelease = await this.opts.writeLock.acquire(input.parentSignal);
       }
@@ -248,7 +263,8 @@ export class SubagentScheduler {
         isDelegator,
       });
 
-      this.childCounts.set(input.parentSessionId, current + 1);
+      // FIX 2 — the per-parent slot was already reserved synchronously at entry
+      // (see the atomic check-and-increment above); no second increment here.
 
       // Phase 2 T4 — fire the delegation lifecycle "started" event.
       // Captured here so the matching "completed" event below can compute
@@ -558,17 +574,24 @@ export class SubagentScheduler {
           durationMs: Date.now() - startedAt,
         };
       } finally {
-        const after = this.childCounts.get(input.parentSessionId) ?? 1;
-        if (after <= 1) this.childCounts.delete(input.parentSessionId);
-        else this.childCounts.set(input.parentSessionId, after - 1);
         // Backlog Item 8 — drain the per-child trace writer so every queued
         // append lands on disk before delegate() returns. Best-effort: the
         // writer swallows fs errors internally so this never throws.
         await childTraceWriter?.close();
       }
     } finally {
+      // FIX 2 — release the per-parent reservation exactly once, here in the
+      // OUTER finally so it covers EVERY post-reservation path: a rejected
+      // lane/write acquire, a throw inside the body, or normal completion.
+      // Re-read the current count (never a captured stale value, since siblings
+      // mutate it concurrently) and clamp at 0; delete the entry only when it
+      // reaches 0 so a long-running sibling's slot is never dropped early.
+      const after = this.childCounts.get(input.parentSessionId) ?? 1;
+      const next = Math.max(0, after - 1);
+      if (next === 0) this.childCounts.delete(input.parentSessionId);
+      else this.childCounts.set(input.parentSessionId, next);
       writeLockRelease?.();
-      laneRelease();
+      laneRelease?.();
     }
   }
 
@@ -668,7 +691,18 @@ function buildChildToolPool(
     const name = parenIdx > 0 ? entry.slice(0, parenIdx) : entry;
     allowed.add(name.trim());
   }
-  return parentPool.filter((tool) => allowed.has(tool.name) && !exclusions.has(tool.name));
+  // Match an allowedTools entry against the tool's canonical NAME or any of its
+  // ALIASES — mirrors ruleMatchesTool in src/config/rules.ts. Shipped strict-
+  // allowlist agents (explore, plan, verify, review-*, instinct-synthesizer,
+  // scheduled-mission) declare the alias spelling (Read/Edit/Write), while the
+  // real tools are named FileRead/FileEdit/FileWrite; a name-only match would
+  // silently strip every file tool from those children. The exclusion check
+  // stays on the canonical name (SUBAGENT_EXCLUDED_TOOLS lists canonical names).
+  return parentPool.filter((tool) => {
+    const matchesAllow =
+      allowed.has(tool.name) || (tool.aliases ?? []).some((alias) => allowed.has(alias));
+    return matchesAllow && !exclusions.has(tool.name);
+  });
 }
 
 function extractSummary(assistant: AssistantMessage | undefined): string {

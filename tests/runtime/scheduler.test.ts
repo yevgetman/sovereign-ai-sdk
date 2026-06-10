@@ -14,6 +14,7 @@ import { SubagentScheduler } from '../../src/runtime/scheduler.js';
 import { Semaphore } from '../../src/runtime/semaphore.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
+import { FileReadTool } from '../../src/tools/FileReadTool.js';
 
 function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
@@ -95,6 +96,28 @@ function makeAgentToolPlaceholder(): Tool<unknown, unknown> {
       return { data: { ignored: true } };
     },
   }) as unknown as Tool<unknown, unknown>;
+}
+
+/** A provider whose stream() records the tool names that arrived in the
+ *  request — i.e. exactly what the child sub-agent would have seen. Used to
+ *  assert child tool-pool composition (alias resolution, exclusions). */
+function makeToolRecordingProvider(sink: string[][]): () => ResolvedProvider {
+  return () => ({
+    transport: {
+      name: 'recorder',
+      async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+        sink.push((req.tools ?? []).map((t) => t.name));
+        for (const ev of completedTurnEvents()) yield ev;
+        return completedAnswer;
+      },
+    } as unknown as ResolvedProvider['transport'],
+    client: {},
+    baseUrl: 'fake://',
+    model: 'm',
+    contextLength: 32_000,
+    authType: 'none',
+    metadata: { provider: 'anthropic' },
+  });
 }
 
 const baseToolContext: ToolContext = {
@@ -470,6 +493,77 @@ describe('SubagentScheduler', () => {
     await new Promise((r) => setTimeout(r, 5));
     expect(scheduler.activeChildren('parent')).toBe(1);
     await p;
+    expect(scheduler.activeChildren('parent')).toBe(0);
+  });
+
+  // FIX 1 — strict-allowlist agents declare the ALIAS spelling (Read/Edit/
+  // Write) but the real tools are named FileRead/FileEdit/FileWrite. The pool
+  // builder must match an allowedTools entry against tool.name OR tool.aliases,
+  // or every shipped strict agent silently gets no file tools. The existing
+  // suite missed this because its mock tool is literally named 'Read'; this
+  // test uses the REAL FileReadTool (name:'FileRead', aliases:['Read']).
+  test('child allowlist matches a tool by its alias (Read → FileRead)', async () => {
+    const recordedToolNames: string[][] = [];
+    const scheduler = new SubagentScheduler({
+      agents: makeAgentRegistry([
+        // The agent declares the ALIAS 'Read', not the canonical 'FileRead'.
+        makeAgent({ name: 'explore', allowedTools: ['Read'] }),
+      ]),
+      laneSemaphores: new LaneSemaphores({}),
+      writeLock: new Semaphore(1),
+      resolveProvider: makeToolRecordingProvider(recordedToolNames),
+      createChildSession: makeCreateChildSession([]),
+      defaultProvider: 'anthropic',
+      defaultModel: 'm',
+      maxTokens: 256,
+    });
+    await scheduler.delegate({
+      agentName: 'explore',
+      prompt: 'find auth',
+      parentSessionId: 'parent',
+      // The parent pool carries the REAL FileReadTool (name 'FileRead').
+      parentToolPool: [FileReadTool as unknown as Tool<unknown, unknown>],
+      parentToolContext: baseToolContext,
+    });
+    // The child must SEE FileRead even though the agent spelled it 'Read'.
+    expect(recordedToolNames[0]).toContain('FileRead');
+  });
+
+  // FIX 2 — per-parent child cap must be atomic under parallel delegation.
+  // AgentTool/task_create are concurrency-safe, so an orchestrator can
+  // Promise.all() many delegate() calls. If the check-and-increment isn't
+  // synchronous at entry, every parallel call reads count=0 → the cap never
+  // fires and the counter lost-updates. Fire 6 in parallel with cap=2.
+  test('per-parent child cap is atomic under parallel delegations', async () => {
+    const scheduler = new SubagentScheduler({
+      agents: makeAgentRegistry([makeAgent()]),
+      laneSemaphores: new LaneSemaphores({}),
+      writeLock: new Semaphore(1),
+      // Hold each child a beat so all 6 are in-flight together.
+      resolveProvider: () => makeFakeResolved('m', 30),
+      createChildSession: makeCreateChildSession([]),
+      defaultProvider: 'anthropic',
+      defaultModel: 'm',
+      maxChildrenPerParent: 2,
+      maxTokens: 256,
+    });
+    const attempts = Array.from({ length: 6 }, (_v, i) =>
+      scheduler.delegate({
+        agentName: 'explore',
+        prompt: `p${i}`,
+        parentSessionId: 'parent',
+        parentToolPool: [makeReadTool()],
+        parentToolContext: baseToolContext,
+      }),
+    );
+    const settled = await Promise.allSettled(attempts);
+    const admitted = settled.filter((s) => s.status === 'fulfilled');
+    const rejected = settled.filter(
+      (s) => s.status === 'rejected' && /cap reached/.test(String(s.reason)),
+    );
+    expect(admitted).toHaveLength(2);
+    expect(rejected).toHaveLength(4);
+    // Counter returns to a clean zero (entry deleted) after all settle.
     expect(scheduler.activeChildren('parent')).toBe(0);
   });
 });

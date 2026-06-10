@@ -35,14 +35,10 @@ import type { ObserveInput } from '../learning/observer.js';
 import type { ObservationStatus } from '../learning/types.js';
 import type { TraceEvent } from '../trace/types.js';
 
-/** Default cap on captured subprocess stdout — mirrors hooks/runner.ts. The
- *  stream-json transcript of a bounded task stays well under this. */
+/** Cap on the RETAINED subprocess stdout — we keep the most recent
+ *  ≤ MAX_STDOUT_BYTES (the TAIL, see readCapped) so the terminal stream-json
+ *  `result` frame always survives even for a verbose multi-MB transcript. */
 const MAX_STDOUT_BYTES = 4 * 1024 * 1024;
-
-/** Default per-call wall-clock timeout. The config's `timeoutMs` (or the
- *  scheduler's per-child timeout) wins; this is the fallback when neither
- *  is set. */
-const DEFAULT_TIMEOUT_MS = 120_000;
 
 /** Default headless engine binary. Overridable via `config.binary`. */
 const DEFAULT_BINARY = 'claude';
@@ -266,16 +262,28 @@ export async function runSubprocessExecutor(
 ): Promise<SubprocessExecutorResult> {
   const spawn = opts.spawn ?? defaultSpawn;
   const binary = opts.config.binary ?? DEFAULT_BINARY;
-  const timeoutMs = opts.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const args = buildSubprocessArgs({ prompt: opts.prompt, config: opts.config });
   const argv = [binary, ...args];
 
-  // Compose the caller's signal with a per-call timeout — mirrors the
-  // hooks/runner.ts pattern. Either firing kills the subprocess.
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  // FIX 3a — the SCHEDULER's per-child timeout is the authoritative deadline
+  // (it composes parentSignal ∧ AbortSignal.timeout(perChildTimeout) before
+  // calling us). We therefore build our OWN internal timeout ONLY when
+  // `config.timeoutMs` is explicitly set — an operator opt-in to a tighter,
+  // executor-local bound. When it's unset we rely solely on `opts.signal`, so
+  // the scheduler's timeout actually wins instead of being shadowed by a
+  // hard-coded 120 s floor (the old always-on `AbortSignal.timeout(120000)`
+  // took the MIN of the two, contradicting the contract). We also track WHICH
+  // source aborted so the error distinguishes a self-timeout from a cancel.
+  const timeoutMs = opts.config.timeoutMs;
+  const timeoutSignal = timeoutMs !== undefined ? AbortSignal.timeout(timeoutMs) : undefined;
   const composed: AbortSignal =
-    opts.signal !== undefined ? AbortSignal.any([opts.signal, timeoutSignal]) : timeoutSignal;
+    opts.signal !== undefined && timeoutSignal !== undefined
+      ? AbortSignal.any([opts.signal, timeoutSignal])
+      : (opts.signal ?? timeoutSignal ?? new AbortController().signal);
+  // True when the abort originated from OUR internal timeout (vs. the
+  // scheduler's signal). Read in the abort-result branch below.
+  const timedOut = (): boolean => timeoutSignal?.aborted === true;
 
   let proc: SpawnedProc;
   try {
@@ -322,7 +330,14 @@ export async function runSubprocessExecutor(
     ]);
 
     if (aborted) {
-      return errorResult(new Error(`subscription-executor timed out after ${timeoutMs}ms`));
+      // FIX 3a — distinguish a self-timeout (our internal AbortSignal.timeout)
+      // from a scheduler-initiated cancellation (opts.signal). When no internal
+      // timeout was configured, an abort is always a scheduler cancel.
+      return errorResult(
+        timedOut()
+          ? new Error(`subscription-executor timed out after ${timeoutMs}ms`)
+          : new Error('subscription-executor cancelled by scheduler signal'),
+      );
     }
 
     if (exitCode !== 0) {
@@ -663,10 +678,16 @@ type StreamReader = {
 };
 
 async function readCapped(reader: StreamReader): Promise<string> {
-  const decoder = new TextDecoder();
+  // FIX 3b — retain a bounded TAIL (the most recent ≤ MAX_STDOUT_BYTES) rather
+  // than the head. The stream-json terminal `result` frame is the LAST line, so
+  // a long run (e.g. `claude -p --verbose` echoing full tool_result payloads)
+  // must keep its end to be parsed as success — the old head-only truncation
+  // dropped the result frame and turned an exit-0 success into a parse 'error'.
+  // A leading partial line introduced by trimming is harmless: parseStreamJson
+  // skips any non-JSON line. Memory stays bounded: we keep at most one cap's
+  // worth of chunk bytes, evicting the oldest as new data arrives.
+  const chunks: Uint8Array[] = [];
   let total = 0;
-  let text = '';
-  let truncated = false;
   for (;;) {
     let chunk: { done: boolean; value?: Uint8Array | undefined };
     try {
@@ -677,16 +698,30 @@ async function readCapped(reader: StreamReader): Promise<string> {
     }
     const { done, value } = chunk;
     if (done) break;
-    if (truncated || value === undefined) continue;
+    if (value === undefined || value.byteLength === 0) continue;
+    chunks.push(value);
     total += value.byteLength;
-    if (total > MAX_STDOUT_BYTES) {
-      const room = MAX_STDOUT_BYTES - (total - value.byteLength);
-      if (room > 0) text += decoder.decode(value.subarray(0, room), { stream: false });
-      truncated = true;
-    } else {
-      text += decoder.decode(value, { stream: true });
+    // Evict whole chunks from the front while the buffered tail exceeds the cap.
+    while (total > MAX_STDOUT_BYTES && chunks.length > 1) {
+      const dropped = chunks.shift();
+      if (dropped !== undefined) total -= dropped.byteLength;
+    }
+    // A single chunk larger than the cap: keep only its trailing cap bytes so
+    // memory stays bounded regardless of chunk size. The terminal `result`
+    // frame is at the very end, so the tail always retains it.
+    if (total > MAX_STDOUT_BYTES && chunks.length === 1) {
+      const only = chunks[0];
+      if (only !== undefined && only.byteLength > MAX_STDOUT_BYTES) {
+        chunks[0] = only.subarray(only.byteLength - MAX_STDOUT_BYTES);
+        total = MAX_STDOUT_BYTES;
+      }
     }
   }
+  // Decode the retained tail in one pass (no streaming state needed since we
+  // have all retained bytes). A partial first line is skipped by the parser.
+  const decoder = new TextDecoder();
+  let text = '';
+  for (const c of chunks) text += decoder.decode(c, { stream: true });
   text += decoder.decode();
   return text;
 }

@@ -9,6 +9,7 @@ import type { Terminal } from '../../src/core/types.js';
 import type { DelegateInput, DelegateResult } from '../../src/runtime/scheduler.js';
 import { TaskManager } from '../../src/tasks/manager.js';
 import { TaskStore } from '../../src/tasks/store.js';
+import type { TaskRecord } from '../../src/tasks/types.js';
 import type { ToolContext } from '../../src/tool/types.js';
 
 type StubSchedulerStub = {
@@ -292,6 +293,140 @@ describe('TaskManager.output', () => {
     seedChildSession(db, 'child');
     deferred.resolve(makeCompletedResult('child', { reason: 'completed' }));
     await new Promise((r) => setTimeout(r, 0));
+    db.close();
+  });
+});
+
+// FIX 4 — tasks.parent_session_id is ON DELETE CASCADE; a DELETE /sessions/:id
+// during a running background task removes the task row. When the task then
+// completes (or errors), updateOnComplete throws (changes===0 / SQLITE_BUSY).
+// runDelegation is fire-and-forget (void), so an escaping throw becomes an
+// UNHANDLED REJECTION and the AbortController/entry leaks. The terminal-write
+// must be wrapped: log-don't-rethrow, and STILL clean up the controller +
+// emit. A missing row is benign (mirrors updateState's has-row guard).
+describe('TaskManager terminal-write resilience (row deleted mid-flight)', () => {
+  /** A TaskStore stub whose updateOnComplete throws (the deleted-row /
+   *  SQLITE_BUSY case) while get() still returns a row, so we can observe the
+   *  controller cleanup via output() after the failed terminal write. */
+  function makeThrowingStore(opts: {
+    onComplete: () => never;
+  }): ConstructorParameters<typeof TaskManager>[0]['store'] {
+    const rows = new Map<string, TaskRecord>();
+    const stub = {
+      insert: (input: { id: string; parentSessionId: string; agent: string; prompt: string }) => {
+        const rec: TaskRecord = {
+          id: input.id,
+          parentSessionId: input.parentSessionId,
+          agent: input.agent,
+          prompt: input.prompt,
+          state: 'queued',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        rows.set(input.id, rec);
+        return rec;
+      },
+      updateState: (id: string, state: TaskRecord['state']) => {
+        const rec = rows.get(id);
+        if (rec) rows.set(id, { ...rec, state });
+      },
+      updateOnComplete: () => opts.onComplete(),
+      get: (id: string) => rows.get(id) ?? null,
+      listByParent: () => [...rows.values()],
+    };
+    return stub as unknown as ConstructorParameters<typeof TaskManager>[0]['store'];
+  }
+
+  test('success path: terminal-write throw does not escape; controller cleaned up', async () => {
+    const deferred = makeDeferred<DelegateResult>();
+    const store = makeThrowingStore({
+      onComplete: () => {
+        throw new Error('no task with id (row deleted)');
+      },
+    });
+    const manager = new TaskManager({
+      store,
+      scheduler: { delegate: () => deferred.promise } as unknown as ConstructorParameters<
+        typeof TaskManager
+      >[0]['scheduler'],
+    });
+    const created = await manager.create({
+      parentSessionId: 'parent',
+      agentName: 'explore',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    // While running, the controller is present → output exposes counters.
+    await Promise.resolve();
+    expect(manager.output(created.id)?.iterationsUsed).toBe(0);
+
+    // Resolve with a normal completion → runDelegation's updateOnComplete throws.
+    // The throw MUST NOT escape the void fire-and-forget; drain and assert the
+    // controller was still dropped (output no longer exposes controller fields).
+    deferred.resolve(makeCompletedResult('child', { reason: 'completed' }));
+    await new Promise((r) => setTimeout(r, 0));
+    const out = manager.output(created.id);
+    // Row still exists in the stub; controller is gone → no live counters.
+    expect(out).not.toBeNull();
+    expect(out?.iterationsUsed).toBeUndefined();
+    expect(out?.toolCallCount).toBeUndefined();
+  });
+
+  test('error path: terminal-write throw in the catch does not escape; controller cleaned up', async () => {
+    const store = makeThrowingStore({
+      onComplete: () => {
+        throw new Error('no task with id (row deleted)');
+      },
+    });
+    const manager = new TaskManager({
+      store,
+      // The scheduler itself rejects → runDelegation enters its catch, whose
+      // updateOnComplete ALSO throws (deleted row). That second throw must not
+      // escape either.
+      scheduler: {
+        delegate: async () => {
+          throw new Error('scheduler refused');
+        },
+      } as unknown as ConstructorParameters<typeof TaskManager>[0]['scheduler'],
+    });
+    const created = await manager.create({
+      parentSessionId: 'parent',
+      agentName: 'explore',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    const out = manager.output(created.id);
+    expect(out).not.toBeNull();
+    // Controller dropped despite the catch-path write failing.
+    expect(out?.iterationsUsed).toBeUndefined();
+  });
+
+  test('real DB: deleting the task row mid-flight does not throw on completion', async () => {
+    // Faithful CASCADE scenario against the real store: insert via the manager,
+    // delete the tasks row out from under it, then resolve delegate. The real
+    // updateOnComplete sees changes===0 and would throw pre-fix.
+    const deferred = makeDeferred<DelegateResult>();
+    const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
+    const created = await manager.create({
+      parentSessionId: sessionId,
+      agentName: 'explore',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    await Promise.resolve();
+    // Simulate DELETE /sessions/:id cascading to the task row.
+    db.handle.run('DELETE FROM tasks WHERE task_id = ?', [created.id]);
+    seedChildSession(db, 'child-cascade');
+    // Resolve — runDelegation's updateOnComplete now hits changes===0. The fix
+    // swallows it (benign missing row); the test passing without an unhandled
+    // rejection is the assertion. get() now returns null (row gone).
+    deferred.resolve(makeCompletedResult('child-cascade', { reason: 'completed' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(manager.get(created.id)).toBeNull();
     db.close();
   });
 });

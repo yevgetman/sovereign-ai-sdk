@@ -34,7 +34,7 @@ import type { Terminal } from '../core/types.js';
 import type { DaemonEventBus } from '../daemon/eventBus.js';
 import type { DaemonEvent } from '../daemon/types.js';
 import type { SubagentScheduler } from '../runtime/scheduler.js';
-import type { TaskStore } from './store.js';
+import type { TaskStore, UpdateOnCompleteInput } from './store.js';
 import type { CreateTaskInput, TaskController, TaskRecord, TaskState } from './types.js';
 
 const PREVIEW_MAX_CHARS = 1024;
@@ -161,25 +161,48 @@ export class TaskManager {
       controller.terminalReason = result.terminal.reason;
       controller.summary = result.summary;
       const finalState = mapTerminalToState(result.terminal, controller.userAborted);
-      this.opts.store.updateOnComplete(id, {
+      this.finalize(id, finalState, {
         state: finalState,
         childSessionId: result.childSessionId,
         traceId: result.childSessionId,
         resultPreview: bound(result.summary, PREVIEW_MAX_CHARS),
       });
-      this.safeEmit({ type: 'task_update', taskId: id, state: finalState });
-      this.controllers.delete(id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const finalState: TaskState = controller.userAborted ? 'cancelled' : 'failed';
       controller.terminalReason = finalState;
-      this.opts.store.updateOnComplete(id, {
+      this.finalize(id, finalState, {
         state: finalState,
         resultPreview: bound(message, PREVIEW_MAX_CHARS),
       });
-      this.safeEmit({ type: 'task_update', taskId: id, state: finalState });
-      this.controllers.delete(id);
     }
+  }
+
+  /** FIX 4 — terminal finalization that NEVER throws. The task row is
+   *  `ON DELETE CASCADE` off the parent session, so a `DELETE /sessions/:id`
+   *  while a background task runs removes the row out from under us; the
+   *  terminal `updateOnComplete` then throws (changes===0) or, under load,
+   *  SQLITE_BUSY. `runDelegation` is fire-and-forget (void), so an escaping
+   *  throw becomes an unhandled rejection AND skips the controller/emit
+   *  cleanup, leaking the AbortController. We therefore persist best-effort
+   *  (a missing row is benign — mirrors `updateState`'s has-row guard), then
+   *  ALWAYS emit + drop the controller regardless of the write outcome. */
+  private finalize(id: string, finalState: TaskState, update: UpdateOnCompleteInput): void {
+    try {
+      this.opts.store.updateOnComplete(id, update);
+    } catch (err) {
+      // Benign when the row was deleted mid-flight; logged (not rethrown) so a
+      // genuine write fault (e.g. SQLITE_BUSY) is still diagnosable without
+      // breaking the lifecycle. console.warn is the harness's stderr channel
+      // for non-fatal background faults.
+      console.warn(
+        `[tasks] terminal write failed for '${id}' (row likely deleted): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    this.safeEmit({ type: 'task_update', taskId: id, state: finalState });
+    this.controllers.delete(id);
   }
 
   /** Emit a daemon event without disturbing the task lifecycle. Mirrors the

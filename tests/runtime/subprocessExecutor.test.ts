@@ -269,6 +269,141 @@ describe('runSubprocessExecutor — parse + shape', () => {
     expect(result.terminal.reason).toBe('error');
     expect(killed).toBe(true);
   });
+
+  // FIX 3a — when config.timeoutMs is UNSET, the executor must NOT compose its
+  // own internal timeout; the scheduler's per-child signal is the sole deadline
+  // (the comment claims "the scheduler's per-child timeout wins", but the old
+  // code always AND'd in AbortSignal.timeout(120000) → the MIN of the two won).
+  // A scheduler-signal abort must be reported as a cancellation, distinctly
+  // from a self-timeout.
+  test('no internal timeout when config.timeoutMs is unset — scheduler signal wins', async () => {
+    let killed = false;
+    const spawn: SpawnFn = () => {
+      const stdout = new ReadableStream<Uint8Array>({ start() {} }); // never closes on its own
+      const stderr = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.close();
+        },
+      });
+      return {
+        stdout,
+        stderr,
+        stdin: { write: () => 0, end: () => {} },
+        exited: new Promise<number>((resolve) => {
+          const iv = setInterval(() => {
+            if (killed) {
+              clearInterval(iv);
+              resolve(143);
+            }
+          }, 1);
+        }),
+        kill: () => {
+          killed = true;
+        },
+      };
+    };
+    const ctl = new AbortController();
+    // The scheduler aborts shortly; with NO config.timeoutMs the only deadline
+    // is this signal, so the abort reason must read as a cancellation.
+    setTimeout(() => ctl.abort(), 10);
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: { ...baseConfig }, // no timeoutMs
+      spawn,
+      signal: ctl.signal,
+    });
+    expect(result.terminal.reason).toBe('error');
+    expect(killed).toBe(true);
+    // Distinguished from a self-timeout: the message names the scheduler abort,
+    // NOT "timed out after <n>ms".
+    const msg = result.terminal.error?.message ?? '';
+    expect(msg).not.toMatch(/timed out after/);
+    expect(msg.toLowerCase()).toContain('cancel');
+  });
+
+  // FIX 3a (precedence) — when BOTH config.timeoutMs and a scheduler signal are
+  // set, the config timeout still applies (its own bound) and reports a timeout.
+  test('config.timeoutMs still fires when set, reported as a timeout', async () => {
+    let killed = false;
+    const spawn: SpawnFn = () => ({
+      stdout: new ReadableStream<Uint8Array>({ start() {} }),
+      stderr: new ReadableStream<Uint8Array>({
+        start(c) {
+          c.close();
+        },
+      }),
+      stdin: { write: () => 0, end: () => {} },
+      exited: new Promise<number>((resolve) => {
+        const iv = setInterval(() => {
+          if (killed) {
+            clearInterval(iv);
+            resolve(143);
+          }
+        }, 1);
+      }),
+      kill: () => {
+        killed = true;
+      },
+    });
+    const ctl = new AbortController(); // never aborted — the config timeout wins
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: { ...baseConfig, timeoutMs: 10 },
+      spawn,
+      signal: ctl.signal,
+    });
+    expect(result.terminal.reason).toBe('error');
+    expect(killed).toBe(true);
+    expect(result.terminal.error?.message ?? '').toMatch(/timed out after 10ms/);
+  });
+
+  // FIX 3b — a long `claude -p --verbose stream-json` run can emit > 4 MB of
+  // stdout (full tool_result payloads). The old reader kept only the HEAD 4 MB
+  // and dropped the rest, so the trailing `result` frame was lost → the parser
+  // saw a truncated stream → terminal 'error' even though the process exited 0
+  // and DID finish. The reader must retain the final `result` frame; a large
+  // successful run stays 'completed'.
+  test('large stdout (> 4 MB) still succeeds — final result frame is retained', async () => {
+    // Pad past the 4 MB cap with many assistant text frames, then the terminal
+    // result frame LAST. ~6000 lines × ~1 KB each ≈ 6 MB > 4 MB.
+    const pad = 'x'.repeat(1000);
+    const lines: string[] = [JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' })];
+    for (let i = 0; i < 6000; i++) {
+      lines.push(
+        JSON.stringify({
+          type: 'assistant',
+          message: { role: 'assistant', content: [{ type: 'text', text: `${pad}-${i}` }] },
+        }),
+      );
+    }
+    lines.push(
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'all done' }] },
+      }),
+    );
+    lines.push(
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        num_turns: 3,
+        result: 'all done',
+        session_id: 's',
+      }),
+    );
+    const result = await runSubprocessExecutor({
+      prompt: 'big task',
+      cwd: '/tmp',
+      config: baseConfig,
+      spawn: makeFakeSpawn({ lines, exitCode: 0 }),
+    });
+    // The trailing result frame survived the cap → completed, not error.
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.iterationsUsed).toBe(3);
+  });
 });
 
 describe('buildSubprocessArgs — permission-mode mapping', () => {
