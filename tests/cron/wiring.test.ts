@@ -18,6 +18,7 @@ import {
   createProductionCronRunner,
   inferInterpreter,
   resolveScriptPath,
+  runCronScript,
 } from '../../src/cron/wiring.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
@@ -56,6 +57,59 @@ describe('inferInterpreter', () => {
 
   test('no recognized suffix → direct exec', () => {
     expect(inferInterpreter('/x/foo')).toEqual(['/x/foo']);
+  });
+});
+
+describe('runCronScript — async, bounded, capped', () => {
+  let scriptHome: string;
+  beforeEach(() => {
+    scriptHome = mkdtempSync(join(tmpdir(), 'sov-cron-script-'));
+  });
+  afterEach(() => {
+    rmSync(scriptHome, { recursive: true, force: true });
+  });
+
+  function writeScript(name: string, body: string): string {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const dir = join(scriptHome, 'cron', 'scripts');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(join(dir, name), body, { encoding: 'utf8', mode: 0o755 });
+    return name;
+  }
+
+  test('returns stdout on a zero-exit script', async () => {
+    const name = writeScript('ok.sh', '#!/bin/bash\necho "hello from script"\n');
+    const out = await runCronScript(scriptHome, name, scriptHome, 5000);
+    expect(out).toContain('hello from script');
+  });
+
+  test('throws on a non-zero exit, surfacing the status + stderr', async () => {
+    const name = writeScript('fail.sh', '#!/bin/bash\necho "boom" 1>&2\nexit 3\n');
+    await expect(runCronScript(scriptHome, name, scriptHome, 5000)).rejects.toThrow(/exited 3/);
+  });
+
+  test('caps oversized stdout by truncation rather than throwing ENOBUFS', async () => {
+    // Emit ~64 KiB — well over the 16 KiB cap. spawnSync's maxBuffer would
+    // throw ENOBUFS here; the async path must truncate instead.
+    const name = writeScript(
+      'big.sh',
+      '#!/bin/bash\nfor i in $(seq 1 65536); do printf "x"; done\n',
+    );
+    const out = await runCronScript(scriptHome, name, scriptHome, 10_000);
+    // Capped at MAX_SCRIPT_STDOUT (16 KiB); never the full 64 KiB.
+    expect(out.length).toBe(16 * 1024);
+    expect(out).not.toContain('ENOBUFS');
+  });
+
+  test('bounds a long-running script at the timeout and hard-kills it', async () => {
+    // A script that ignores SIGTERM and sleeps far past the timeout. The
+    // timeout must hard-kill (SIGKILL) and reject — the call must not hang.
+    const name = writeScript('hang.sh', '#!/bin/bash\ntrap "" TERM\nsleep 30\n');
+    const started = Date.now();
+    await expect(runCronScript(scriptHome, name, scriptHome, 400)).rejects.toThrow(/timed out/i);
+    const elapsed = Date.now() - started;
+    // Must return well before the script's 30s sleep — proves the kill landed.
+    expect(elapsed).toBeLessThan(5000);
   });
 });
 

@@ -43,10 +43,40 @@ describe('computeNextRun', () => {
     const sched = { kind: 'interval' as const, intervalMs: 60_000 };
     expect(computeNextRun(sched, now, now + 30_000)).toBe(now + 60_000);
   });
-  test('cron: returns next fire after now', () => {
+  test('cron: returns next fire after now, in LOCAL time', () => {
+    // Cron expressions are evaluated in the host's local timezone (matching
+    // cron-parser's default and user expectation — a user adding "0 9 * * *"
+    // means 09:00 their time, not 09:00 UTC). We assert the fire is the next
+    // local 09:00 strictly after `now`, computed the same way to stay
+    // robust across whatever TZ the test host runs in.
     const sched = { kind: 'cron' as const, expression: '0 9 * * *' };
     const result = computeNextRun(sched, null, now);
-    expect(result).toBe(Date.parse('2026-05-23T09:00:00Z'));
+    expect(result).not.toBeNull();
+    const fire = new Date(result as number);
+    // Wall-clock 09:00:00 local.
+    expect(fire.getHours()).toBe(9);
+    expect(fire.getMinutes()).toBe(0);
+    expect(fire.getSeconds()).toBe(0);
+    // Strictly in the future relative to `now`.
+    expect(result as number).toBeGreaterThan(now);
+    // And it's the FIRST such 09:00 — no more than 24h out.
+    expect((result as number) - now).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 1000);
+  });
+
+  test('cron: a UTC-fixed expression no longer pins to 09:00Z (local, not UTC)', () => {
+    // Regression pin for FIX 4: under the old `tz: 'UTC'` this equalled
+    // 2026-05-23T09:00:00Z exactly. With local evaluation it only equals
+    // that when the host happens to be UTC; everywhere else it differs.
+    // We assert the local wall-clock contract instead of a fixed instant.
+    const sched = { kind: 'cron' as const, expression: '0 9 * * *' };
+    const result = computeNextRun(sched, null, now) as number;
+    const offsetMin = new Date(result).getTimezoneOffset();
+    // The UTC instant equals local-09:00 only when offset is 0 (host is UTC).
+    if (offsetMin === 0) {
+      expect(result).toBe(Date.parse('2026-05-23T09:00:00Z'));
+    } else {
+      expect(result).not.toBe(Date.parse('2026-05-23T09:00:00Z'));
+    }
   });
   test('iso: returns runAt on first run', () => {
     const target = Date.parse('2026-05-22T17:00:00Z');

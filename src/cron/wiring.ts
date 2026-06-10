@@ -17,12 +17,13 @@
 //     Throws on unknown skill name (caught by the executor's try/catch).
 //   - runScript: spawns the resolved interpreter under `cwd` with a timeout,
 //     throws on non-zero exit, returns stdout capped at MAX_SCRIPT_STDOUT.
+//     Uses async `spawn` (NOT `spawnSync`) so a slow script never blocks the
+//     long-lived gateway/serve/TUI event loop the cron tick runs inside.
 //
 // Path resolution: absolute script paths pass through; relative paths resolve
 // under `<harnessHome>/cron/scripts/`. Interpreter inference is suffix-based
 // (.py/.ts/.js/.sh) with direct exec as the fallback.
 
-import { spawnSync } from 'node:child_process';
 import { isAbsolute, join, resolve } from 'node:path';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
 import { loadPermissionSettings } from '../config/settings.js';
@@ -40,6 +41,10 @@ import type { Job } from './types.js';
 /** Hard cap on captured script stdout. Larger captures truncate at this
  *  boundary before being interpolated into the user prompt (T6 sketch). */
 const MAX_SCRIPT_STDOUT = 16 * 1024;
+
+/** Cap on the stderr fragment surfaced in a non-zero-exit error message
+ *  (matches the prior `spawnSync` path's `.slice(0, 1024)`). */
+const SCRIPT_STDERR_CAP = 1024;
 
 /** Default cap on per-cron-job agent iterations. Matches the AgentRunner
  *  built-in default but is set explicitly so a future config knob has a
@@ -64,6 +69,103 @@ export function inferInterpreter(scriptPath: string): readonly [string, ...strin
   if (scriptPath.endsWith('.ts') || scriptPath.endsWith('.js')) return ['bun', scriptPath];
   if (scriptPath.endsWith('.sh')) return ['bash', scriptPath];
   return [scriptPath];
+}
+
+/** Run a pre-agent cron script asynchronously and return its captured
+ *  stdout (truncated at MAX_SCRIPT_STDOUT). Replaces the previous
+ *  `spawnSync` so a slow script can't block the event loop of a long-lived
+ *  gateway/serve/TUI process the cron tick runs inside.
+ *
+ *  Contract (identical to the prior `spawnSync` path):
+ *   - resolves `scriptPath` under `<harnessHome>/cron/scripts/` (relative)
+ *     or passes an absolute path through;
+ *   - infers the interpreter by suffix (.py/.ts/.js/.sh), else direct exec;
+ *   - throws on a non-zero exit, surfacing the status + capped stderr;
+ *   - throws on a spawn error (e.g. interpreter not found);
+ *   - returns stdout capped at MAX_SCRIPT_STDOUT.
+ *
+ *  Hardening beyond the old path:
+ *   - stdout is TRUNCATED at the cap as it streams (the process keeps
+ *     running, its later output is dropped) rather than letting a buffer
+ *     grow unbounded or throwing ENOBUFS the way `spawnSync({ maxBuffer })`
+ *     would;
+ *   - on timeout the child is HARD-killed with SIGKILL so a script that
+ *     traps SIGTERM can't hang the tick, and the call rejects with a
+ *     "timed out" error. */
+export async function runCronScript(
+  harnessHome: string,
+  scriptPath: string,
+  cwd: string,
+  timeoutMs: number,
+): Promise<string> {
+  const resolved = resolveScriptPath(harnessHome, scriptPath);
+  const argv = inferInterpreter(resolved);
+
+  // Use Bun.spawn — the same primitive BashTool and the skill-interpolation
+  // path use. It is native (not `node:child_process`), so it is immune to a
+  // sibling test's process-global `mock.module('node:child_process', …)`
+  // leak, and it matches the codebase's spawn convention. Output is read off
+  // the streams and capped; the timeout is a race so a SIGTERM-trapping script
+  // (or a grandchild holding the stdout pipe) can never hang the cron tick.
+  const proc = Bun.spawn([...argv], { cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>((res) => {
+    timer = setTimeout(() => res('timeout'), timeoutMs);
+    timer.unref?.();
+  });
+
+  const work = (async () => {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      readStreamCapped(proc.stdout, MAX_SCRIPT_STDOUT),
+      readStreamCapped(proc.stderr, SCRIPT_STDERR_CAP),
+      proc.exited,
+    ]);
+    return { stdout, stderr, exitCode };
+  })();
+
+  try {
+    const outcome = await Promise.race([work, timeout]);
+    if (outcome === 'timeout') {
+      // Hard-kill and reject immediately — do NOT await `work` (a
+      // SIGTERM-trapping script or a grandchild holding the pipe could keep it
+      // pending; the orphaned grandchild exits on its own). SIGKILL is untrappable.
+      proc.kill('SIGKILL');
+      throw new Error(`script timed out after ${timeoutMs}ms`);
+    }
+    if (outcome.exitCode !== 0) {
+      throw new Error(
+        `script exited ${outcome.exitCode}: ${outcome.stderr.slice(0, SCRIPT_STDERR_CAP)}`,
+      );
+    }
+    return outcome.stdout;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** Read a Bun subprocess stream to text, retaining at most `cap` bytes. Once
+ *  the cap is hit we KEEP draining the stream (discarding the rest) rather than
+ *  cancelling the reader: cancelling closes the read end mid-write, so a script
+ *  still printing gets SIGPIPE and exits non-zero. Draining lets it finish
+ *  cleanly while bounding memory (the spawnSync analogue would ENOBUFS). */
+async function readStreamCapped(stream: ReadableStream<Uint8Array>, cap: number): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let out = '';
+  let truncated = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (truncated || !value) continue; // keep draining, but stop appending
+    out += decoder.decode(value, { stream: true });
+    if (out.length >= cap) {
+      out = out.slice(0, cap);
+      truncated = true;
+    }
+  }
+  if (!truncated) out += decoder.decode();
+  return out;
 }
 
 /** Extract the final assistant text from an AgentRunner result. Mirrors the
@@ -230,26 +332,11 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
       }
       return expansions.join('\n\n---\n\n');
     },
-    runScript: async (scriptPath, cwd, timeoutMs) => {
-      const resolved = resolveScriptPath(harnessHome, scriptPath);
-      const argv = inferInterpreter(resolved);
-      // `argv[0]` is statically known to be a string by inferInterpreter's
-      // return type, but spawnSync requires (command, args[]) so destructure
-      // for type clarity (noUncheckedIndexedAccess in tsconfig would warn
-      // on `argv[0]` otherwise).
-      const [cmd, ...args] = argv;
-      const result = spawnSync(cmd, args, {
-        cwd,
-        timeout: timeoutMs,
-        encoding: 'utf8',
-      });
-      if (result.error) throw result.error;
-      if (result.status !== 0) {
-        const stderr = (result.stderr ?? '').slice(0, 1024);
-        throw new Error(`script exited ${result.status}: ${stderr}`);
-      }
-      return (result.stdout ?? '').slice(0, MAX_SCRIPT_STDOUT);
-    },
+    runScript: (scriptPath, cwd, timeoutMs) =>
+      // Async spawn — never blocks the long-lived process's event loop.
+      // All path resolution / interpreter inference / cap / kill semantics
+      // live in runCronScript (directly unit-tested).
+      runCronScript(harnessHome, scriptPath, cwd, timeoutMs),
   });
 
   return new CronRunner({

@@ -67,10 +67,16 @@ export function computeNextRun(
     case 'interval':
       return (lastRun ?? now) + schedule.intervalMs;
     case 'cron': {
+      // Evaluate cron expressions in the host's LOCAL timezone (cron-parser's
+      // default when no `tz` is given). A user adding "0 9 * * *" means 09:00
+      // their time — the least-surprising convention and the one that matches
+      // a system crontab. (Previously pinned to `tz: 'UTC'`, which silently
+      // shifted every fire to UTC.) The relative/interval/iso kinds are all
+      // absolute-millisecond math and so are inherently tz-agnostic, keeping
+      // every schedule kind consistent.
       const baseTime = lastRun ?? now - 1;
       const it = cronParser.parseExpression(schedule.expression, {
         currentDate: new Date(baseTime),
-        tz: 'UTC',
       });
       return it.next().getTime();
     }
