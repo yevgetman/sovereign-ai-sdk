@@ -520,3 +520,22 @@ Config schema (src/config/schema.ts:109) and WithToolOutput's comment document u
 **L33. truncatePreview byte-slices UTF-8 in tool-card and MCP/unknown-tool previews** — `packages/tui/internal/components/toolcard.go:119` · edge · conf 0.85  
 truncatePreview compares and slices by bytes (`len(flat) <= max`, `flat[:max-3]+"..."`); it feeds the detailed-mode ToolCard header and the compact line's unknown-tool and MCP input previews (raw JSON often containing user text). Non-ASCII content at the cut point yields an invalid UTF-8 tail rendered as replacement characters; CJK previews truncate at roughly a third of the intended width.  
 *Fix:* Convert to rune-based slicing or delegate to truncateTail with "..." suffix.
+
+---
+
+## Resolution (shipped 2026-06-10)
+
+All confirmed Critical/High findings and the great majority of Medium/Low findings were fixed the same day, across **17 atomic commits** (`07cb166`/audit-report → `eb827c8`/runtime-integration) after the `f661f24` baseline. Gate at ship: `lint` clean, `typecheck` clean, **3857 pass / 0 fail / 16 skip** (fresh `HARNESS_HOME`, +232 tests over the 3625 baseline — every fix landed with a regression test). Built by an 11-way parallel subagent fan-out over disjoint file sets (Opus implementers, TDD per fix), with the security-critical permission/SSRF/redaction cluster hand-implemented and the integration seams (`runtime.ts`, `main.ts`) reconciled centrally.
+
+**Shipped by theme** (commit → area):
+- `34b3fd6` release staging exclusion (C1) — plus the 25 dirty public releases purged and the leaked (already-dead) token confirmed revoked.
+- `6e55c57` Bash read-only → channel RCE (C2/C3); `cbba0fa` WebFetch/@url SSRF; `5cc4868` config prototype-pollution + channel-secret redaction + skill-args shell injection; `4d6c815` learning-corpus + escaped-auth-header redaction.
+- `b7a745a` multi-user isolation; `4a5902b` scheduler; `30e788b`/`4e09883` providers + router (incl. the `/effort` thinking-signature HIGH); `554d1b4` core engine; `d0c7369` OpenAI API; `1cbae27` cron; `91a3dd8` mission/eval/channels; `cd9b205` extensions; `039db06` cli/server; `3143126` TUI; `eb827c8` runtime integration.
+
+**Notable depth during integration:** the new cron real-`bash`-spawn tests hung under the full suite — root-caused to `tuiLauncherIntegration`'s process-global `node:child_process` mock leaking across files (a Bun limitation the repo already TODO-tracks). Fixed by moving `runCronScript` to **`Bun.spawn`** (native, mock-immune, matches `BashTool`), with a race-based timeout and drain-don't-cancel truncation — a strictly more robust implementation.
+
+### Consciously deferred
+
+- **`runtime.effort` is process-global (MEDIUM, conf 0.55).** `/effort` (the just-shipped feature) stores reasoning depth on the shared `Runtime`, so on a multi-user gateway one principal's `/effort` changes it for others. Fixing it well is a cross-cutting refactor (per-session effort threaded through turns/cron/channels/commandContext) touching the newest feature; doing it amid this large integration was judged imprudent. It is a within-org UX inconsistency, not a data-leak or correctness bug (effort never crosses a trust boundary). Tracked as a follow-up. Single-user surfaces (TUI / `sov drive` / `sov serve`) are unaffected.
+
+The full per-finding inventory above stands as the record; low-severity cosmetic items not individually called out were folded into their owning commits or left as documented non-issues.

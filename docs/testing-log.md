@@ -8,6 +8,33 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-10 — Full-codebase audit + remediation (17 fix commits)
+
+**Scope:** whole-repo audit (21 subsystem auditors + holistic data-leakage / lifecycle / consistency passes, all Opus) → triage → fixes across every region. Report: `docs/audits/2026-06-10-full-codebase-audit.md`.
+
+**Environment:** Bun on darwin, master, `f661f24` baseline → `eb827c8` (+ docs). Fixes built by an 11-way parallel subagent fan-out over disjoint file sets (TDD per fix); security cluster hand-implemented; `runtime.ts`/`main.ts` integration reconciled centrally.
+
+**Commands run (each, real exit code — no `| tail` masking):**
+- `bun run lint` — clean (753 files).
+- `bun run typecheck` — clean (exit 0).
+- `bun run test` (fresh `HARNESS_HOME`) — **3857 pass / 0 fail / 16 skip** (was 3625/0/16 at baseline; +232 regression tests).
+- `cd packages/tui && go build ./... && go test ./... && go vet ./...` — all green (TUI fixes).
+
+**Baseline check:** clean-HEAD gate recorded 3625 pass / 0 fail / 16 skip before any change.
+
+**Manual / live coverage:**
+- Channel RCE closed — drove the real `buildChannelCanUseTool` decider: `find . -delete`, `env bash -c "rm -rf /"`, `cat x⏎rm`, `cat x & rm` all **DENY**; `ls -la`, `grep x f 2>&1`, `find . -name '*.ts'` still **ALLOW**.
+- WebFetch/@url SSRF — empirically confirmed `::ffff:127.0.0.1` / `::ffff:a9fe:a9fe` (metadata) now refused; `@url` to `169.254.169.254` refused without fetching.
+- `sov mission run` reachable (was dead code) — `mission --help` lists `run`; end-to-end mock wake advanced `wakeCount` 0→1.
+- `sov cron` 8-char id prefix — `cron list` prints `d64e39d8`; `cron show d64e39d8` now resolves it (was "no job"); non-matching prefix errors.
+- Public release leak — verified samples.jsonl/failed.jsonl present in v0.2.0–v0.5.11 tarballs (with a real, **already-revoked** `gho_` token, HTTP 401); **purged all 25 dirty releases** from yevgetman/sov-releases; staging filter + test added; local files quarantined out of the tree.
+
+**Result:** PASS. All confirmed Critical/High + most Medium/Low fixed.
+
+**Notable debugging:** the new cron real-`bash`-spawn tests hung under the full suite — root-caused to `tuiLauncherIntegration`'s process-global `node:child_process` mock leaking across files (a Bun limitation the repo TODO-tracks). Resolved by moving `runCronScript` to `Bun.spawn` (native, mock-immune, matches `BashTool`), race-based timeout, drain-don't-cancel truncation.
+
+**Regressions / follow-ups:** none introduced. One finding consciously deferred — backlog **#57** (`runtime.effort` process-global; multi-user UX consistency, not a leak). v0.6.38 release follows.
+
 ## 2026-06-09 — `/effort` reasoning-depth — Slice E (docs + semantic test) — FEATURE COMPLETE
 
 **Scope.** Slice E / Task T8 (the closing slice) for the `/effort` reasoning-depth feature: documentation, a semantic test suite, and this log entry. No feature code touched — Slices A–D shipped the implementation. Spec `docs/specs/2026-06-09-effort-reasoning-depth-design.md`.
