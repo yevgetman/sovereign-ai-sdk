@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveTarget, validateBuildInputs } from '../../scripts/release-build-target';
+import {
+  resolveTarget,
+  shouldStageBundlePath,
+  validateBuildInputs,
+} from '../../scripts/release-build-target';
 
 describe('release-build-target — resolveTarget', () => {
   test('returns the target spec for a known name', () => {
@@ -69,6 +73,67 @@ describe('release-build-target — validateBuildInputs', () => {
       expect(r.ok === false && r.error).toContain('LICENSE.txt');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('release-build-target — shouldStageBundlePath (audit C1: no state leak)', () => {
+  const bundleRoot = '/repo/bundle-default';
+
+  test('stages content outside state/', () => {
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/index.yaml')).toBe(true);
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/agents/explore.md')).toBe(true);
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/business/x.md')).toBe(true);
+  });
+
+  test('keeps the state/ dir shell and its tracked .gitkeep', () => {
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/state')).toBe(true);
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/state/.gitkeep')).toBe(true);
+  });
+
+  test('DROPS captured runtime state (the leak vector)', () => {
+    expect(
+      shouldStageBundlePath(
+        bundleRoot,
+        '/repo/bundle-default/state/artifacts/trajectories/failed.jsonl',
+      ),
+    ).toBe(false);
+    expect(
+      shouldStageBundlePath(
+        bundleRoot,
+        '/repo/bundle-default/state/artifacts/trajectories/samples.jsonl',
+      ),
+    ).toBe(false);
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/state/sessions.db')).toBe(false);
+    expect(shouldStageBundlePath(bundleRoot, '/repo/bundle-default/state/secret.env')).toBe(false);
+  });
+
+  test('end-to-end: cpSync with the filter excludes state trajectories but keeps .gitkeep', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'sov-stage-'));
+    try {
+      const src = join(tmp, 'bundle-default');
+      mkdirSync(join(src, 'state', 'artifacts', 'trajectories'), { recursive: true });
+      mkdirSync(join(src, 'agents'), { recursive: true });
+      writeFileSync(join(src, 'index.yaml'), 'projectId: x\n');
+      writeFileSync(join(src, 'agents', 'explore.md'), 'agent');
+      writeFileSync(join(src, 'state', '.gitkeep'), '');
+      writeFileSync(
+        join(src, 'state', 'artifacts', 'trajectories', 'failed.jsonl'),
+        'SECRET gho_xxx',
+      );
+
+      const dest = join(tmp, 'stage', 'bundle-default');
+      cpSync(src, dest, { recursive: true, filter: (s) => shouldStageBundlePath(src, s) });
+
+      expect(existsSync(join(dest, 'index.yaml'))).toBe(true);
+      expect(existsSync(join(dest, 'agents', 'explore.md'))).toBe(true);
+      expect(existsSync(join(dest, 'state', '.gitkeep'))).toBe(true);
+      expect(existsSync(join(dest, 'state', 'artifacts', 'trajectories', 'failed.jsonl'))).toBe(
+        false,
+      );
+      expect(existsSync(join(dest, 'state', 'artifacts'))).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
   });
 });

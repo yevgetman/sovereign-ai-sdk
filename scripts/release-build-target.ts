@@ -10,19 +10,32 @@
 //   SOV_RELEASES_PATH — path to a sov-releases checkout (for LICENSE.txt)
 
 import { cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { exit } from 'node:process';
-import {
-  type Target,
-  TARGETS,
-  die,
-  note,
-  repoRoot,
-  run,
-} from './release-shared';
+import { TARGETS, type Target, die, note, repoRoot, run } from './release-shared';
 
 export function resolveTarget(name: string): Target | null {
   return TARGETS.find((t) => t.name === name) ?? null;
+}
+
+/**
+ * Decide whether a path under `bundle-default/` may be copied into a release
+ * tarball. The runtime working state (`bundle-default/state/**`) is gitignored
+ * and can accrue captured session trajectories — which may contain secrets and
+ * private project data. The local `cpSync` previously copied the whole working
+ * tree, so untracked state leaked into v0.2.0–v0.5.11 public tarballs (audit
+ * C1, docs/audits/2026-06-10-full-codebase-audit.md). Stage only the tracked
+ * `.gitkeep` marker from `state/`; everything else under `state/` is dropped.
+ * Everything outside `state/` stages normally.
+ */
+export function shouldStageBundlePath(bundleRoot: string, srcPath: string): boolean {
+  const stateRoot = resolve(bundleRoot, 'state');
+  const resolved = resolve(srcPath);
+  if (resolved === stateRoot) return true; // keep the state/ dir shell for .gitkeep
+  const rel = relative(stateRoot, resolved);
+  const underState = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  if (!underState) return true; // outside state/ → always stage
+  return rel === '.gitkeep'; // inside state/: only the tracked marker survives
 }
 
 export type ValidateResult = { ok: true } | { ok: false; error: string };
@@ -71,17 +84,18 @@ function buildOne(target: Target, version: string, publicRepoPath: string): stri
   ]);
 
   note(`[${target.name}] go build sov-tui (${target.goos}/${target.goarch})...`);
-  run(
-    'go',
-    ['build', '-o', join(stageDir, 'bin', 'sov-tui'), './cmd/sov-tui'],
-    {
-      cwd: join(root, 'packages', 'tui'),
-      env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
-    },
-  );
+  run('go', ['build', '-o', join(stageDir, 'bin', 'sov-tui'), './cmd/sov-tui'], {
+    cwd: join(root, 'packages', 'tui'),
+    env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
+  });
 
-  note(`[${target.name}] copying bundle-default/...`);
-  cpSync(join(root, 'bundle-default'), join(stageDir, 'bundle-default'), { recursive: true });
+  note(`[${target.name}] copying bundle-default/ (excluding runtime state/)...`);
+  const bundleRoot = join(root, 'bundle-default');
+  cpSync(bundleRoot, join(stageDir, 'bundle-default'), {
+    recursive: true,
+    // Never stage gitignored runtime state — it can carry captured secrets.
+    filter: (src) => shouldStageBundlePath(bundleRoot, src),
+  });
 
   cpSync(join(publicRepoPath, 'LICENSE.txt'), join(stageDir, 'LICENSE.txt'));
   cpSync(join(root, 'README.binary.md'), join(stageDir, 'README.md'));
