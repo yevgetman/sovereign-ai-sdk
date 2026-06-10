@@ -95,4 +95,59 @@ describe('eventsRoute (M3 bus-driven)', () => {
       await runtime.dispose();
     }
   });
+
+  // FIX 4 — a request whose signal is ALREADY aborted when the SSE handler
+  // attaches must not leave a lingering subscriber pinning the session, and the
+  // stream must end promptly rather than parking forever. The route pre-checks
+  // the bus abort signal but had no symmetric request-signal pre-check, so an
+  // early client disconnect (during the leading `await stream.write`, before the
+  // abort handler registers) added the subscriber and never removed it.
+  //
+  // A `?follow` stream is the deterministic proxy: it never auto-ends on a turn
+  // terminal and (with no replayed events) is not short-circuited by the
+  // replay-count check, so without the pre-check the loop parks on the empty
+  // queue forever — the leaked subscriber. We Promise.race against a timeout to
+  // prove the stream actually completes, then assert no subscriber lingers.
+  test('an already-aborted request signal (follow) ends promptly with no lingering subscriber', async () => {
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    const app = buildAppWithRuntime(runtime);
+    try {
+      const create = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await create.json()) as { sessionId: string };
+
+      // Pre-create the bus so we can inspect its subscriber count afterwards
+      // (the route uses getOrCreateBus, so this is the same instance).
+      const bus = getOrCreateBus(sessionId);
+      expect(bus.getSubscriberCount()).toBe(0);
+
+      const ac = new AbortController();
+      ac.abort();
+
+      const work = (async (): Promise<'completed'> => {
+        const res = await app.request(`/sessions/${sessionId}/events?follow=true`, {
+          signal: ac.signal,
+        });
+        await res.text().catch(() => '');
+        return 'completed';
+      })();
+      const outcome = await Promise.race<'completed' | 'timeout'>([
+        work,
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2000)),
+      ]);
+
+      // Without the fix this races to 'timeout' (the loop parks forever) and the
+      // subscriber stays at 1.
+      expect(outcome).toBe('completed');
+      expect(bus.getSubscriberCount()).toBe(0);
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });

@@ -16,6 +16,12 @@ import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
+// Self-timeout so a runaway ripgrep (e.g. a pathological regex over a huge tree)
+// is bounded on headless surfaces where there's no human to Ctrl-C. Mirrors
+// BashTool's DEFAULT_TIMEOUT_MS. Composed with ctx.signal so an upstream cancel
+// (turn abort) still wins immediately.
+const DEFAULT_TIMEOUT_MS = 120_000;
+
 const inputSchema = z.object({
   pattern: z.string().describe('Regular expression to search for (ripgrep syntax).'),
   path: z
@@ -96,15 +102,21 @@ async function runGrep(
   args.push('--', input.pattern);
   if (input.path) args.push(resolveToolPath(input.path, ctx.cwd));
 
+  // Self-timeout composed with the upstream cancel signal (BashTool pattern).
+  const timeoutCtl = new AbortController();
+  const timer = setTimeout(() => timeoutCtl.abort(), DEFAULT_TIMEOUT_MS);
+  const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeoutCtl.signal]) : timeoutCtl.signal;
+
   let proc: ReturnType<typeof Bun.spawn>;
   try {
     proc = Bun.spawn(['rg', ...args], {
       cwd: ctx.cwd,
       stdout: 'pipe',
       stderr: 'pipe',
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
+      signal,
     });
   } catch (err) {
+    clearTimeout(timer);
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
       `failed to spawn ripgrep: ${msg}. Install with: brew install ripgrep (macOS) or apt install ripgrep (Debian/Ubuntu).`,
@@ -116,20 +128,38 @@ async function runGrep(
   // because the same overload covers FD-redirect modes. Narrow at the call site.
   const stdoutStream = proc.stdout as ReadableStream<Uint8Array>;
   const stderrStream = proc.stderr as ReadableStream<Uint8Array>;
-  const [stdoutText, stderrText, exitCode] = await Promise.all([
-    readStream(stdoutStream),
-    readStream(stderrStream),
-    proc.exited,
-  ]);
+  let stdout: { text: string; truncated: boolean };
+  let stderr: { text: string; truncated: boolean };
+  let exitCode: number;
+  try {
+    [stdout, stderr, exitCode] = await Promise.all([
+      readStream(stdoutStream),
+      readStream(stderrStream),
+      proc.exited,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  // Surface a self-timeout as a clear error so the model can narrow the query
+  // rather than puzzling over a generic non-zero exit.
+  if (timeoutCtl.signal.aborted) {
+    throw new Error(
+      `ripgrep timed out after ${DEFAULT_TIMEOUT_MS}ms — narrow the regex or scope (path/glob).`,
+    );
+  }
 
   // ripgrep exits 1 when there are no matches — that's not an error.
   if (exitCode !== 0 && exitCode !== 1) {
-    const msg = stderrText.trim() || `ripgrep exited with code ${exitCode}`;
+    const msg = stderr.text.trim() || `ripgrep exited with code ${exitCode}`;
     throw new Error(msg);
   }
 
-  let lines = stdoutText.split('\n').filter((l) => l.length > 0);
-  let truncated = false;
+  let lines = stdout.text.split('\n').filter((l) => l.length > 0);
+  // The byte cap (readStream, >256 KiB) is one truncation source; head_limit is
+  // the other. OR them so a byte-capped result is honestly reported as
+  // truncated instead of silently cut with truncated:false.
+  let truncated = stdout.truncated;
   if (input.head_limit !== undefined && lines.length > input.head_limit) {
     lines = lines.slice(0, input.head_limit);
     truncated = true;
@@ -158,7 +188,13 @@ async function runGrep(
   return { data: { matches: lines, truncated }, observation };
 }
 
-async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
+/** Drain a ripgrep stream, capping at MAX_OUTPUT_BYTES. Returns the kept text
+ *  plus whether the byte cap fired. When capped, the text is trimmed back to
+ *  the last complete newline so the final line isn't split mid-way (a half a
+ *  match line would otherwise survive `split('\n')` as a bogus result). */
+async function readStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<{ text: string; truncated: boolean }> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let total = 0;
@@ -178,5 +214,12 @@ async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
     }
   }
   text += decoder.decode();
-  return text;
+  if (truncated) {
+    // Trim the dangling partial line left by the byte cap. Keep everything up
+    // to and including the last newline; if there's no newline at all, keep the
+    // single (truncated) line as-is rather than dropping all output.
+    const lastNewline = text.lastIndexOf('\n');
+    if (lastNewline !== -1) text = text.slice(0, lastNewline + 1);
+  }
+  return { text, truncated };
 }

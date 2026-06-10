@@ -2102,6 +2102,17 @@
         if (ev.activeSessionId && ev.activeSessionId !== S.sessionId) {
           S.sessionId = ev.activeSessionId;
           if (UI.sidLabel) UI.sidLabel.textContent = shortId(S.sessionId);
+          // FIX 5 — re-point the follow stream at the CHILD bus. The
+          // compaction_complete event arrives on the parent bus, but every
+          // subsequent POST /turns now targets the child session — a different
+          // bus. Without reopening the stream here it stays subscribed to the
+          // parent and renders nothing for later turns: the conversation appears
+          // frozen. Reset lastEventId (the child bus has its own seq space
+          // starting at 1, so a stale parent cursor would skip the child's
+          // low-seq events) then reconnect, mirroring the manual-reconnect path.
+          S.lastEventId = null;
+          stopStream();
+          openStream();
         }
         inlineNotice('◆ compacted context (~' + fmtNum(ev.estimatedAfterTokens) + ' tokens)');
       }

@@ -134,6 +134,33 @@ dscribe('GrepTool', () => {
     });
   });
 
+  // FIX 3 — output exceeding MAX_OUTPUT_BYTES (256 KiB) is truncated by the
+  // stream reader. Before the fix the reader's local `truncated` flag was dead
+  // (never returned), so byte-capped output was silently cut with
+  // `truncated: false`. Generate >256 KiB of matching content and assert the
+  // tool reports `truncated: true` (with no head_limit set, so the only source
+  // of truncation is the byte cap), and that the kept text ends on a complete
+  // line (no half-line at the cap boundary).
+  test('byte-cap truncation reports truncated:true and keeps whole lines', async () => {
+    await withTmp(async (dir) => {
+      // Each line is ~100 bytes; 4000 lines ≈ 400 KiB > the 256 KiB cap.
+      const line = `match ${'x'.repeat(90)}`;
+      const lines = Array.from({ length: 4000 }, () => line).join('\n');
+      writeFileSync(join(dir, 'big.txt'), `${lines}\n`);
+      const result = await GrepTool.call({ pattern: 'match' }, makeCtx(dir));
+      // No head_limit → the ONLY truncation source is the byte cap.
+      expect(result.data.truncated).toBe(true);
+      // Every returned match is a complete line (the cap trimmed to the last
+      // newline, so no match is split mid-way).
+      for (const m of result.data.matches) {
+        expect(m).toContain('match ');
+      }
+      // The rendered result advertises truncation to the model.
+      const rendered = GrepTool.renderResult?.(result.data);
+      expect(rendered?.content).toContain('[truncated]');
+    });
+  });
+
   test('searches under an explicit subdirectory', async () => {
     await withTmp(async (dir) => {
       mkdirSync(join(dir, 'sub'));

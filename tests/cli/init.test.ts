@@ -4,9 +4,10 @@
 //   - refuses to overwrite an existing index.yaml unless --force.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { loadBundle } from '../../src/bundle/loader.js';
 import { formatInitResult, runInit } from '../../src/cli/init.js';
 
 let cwd: string;
@@ -83,6 +84,40 @@ describe('runInit', () => {
     const result = runInit({ cwd });
     expect(result.ok).toBe(true);
     expect(existsSync(join(cwd, 'index.yaml'))).toBe(true);
+  });
+
+  // FIX 6 — the directory name is interpolated into the manifest. A dirname
+  // with YAML-special characters (`: `, `[`, `#`, …) must be safely escaped so
+  // the manifest still parses and `repo` round-trips to the literal name. The
+  // bug was raw string templates (`repo: ${projectName}`) producing invalid
+  // YAML for such names.
+  describe('YAML-special directory names produce a parseable manifest', () => {
+    async function runInDir(name: string): Promise<string> {
+      const base = mkdtempSync(join(tmpdir(), 'sov-init-special-'));
+      const dir = join(base, name);
+      mkdirSync(dir, { recursive: true });
+      try {
+        const result = runInit({ cwd: dir });
+        expect(result.ok).toBe(true);
+        const bundle = await loadBundle(dir);
+        // The loader parses index.yaml without throwing; repo round-trips.
+        return bundle.index.repo ?? '';
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    }
+
+    test("a name containing ': ' parses with repo === the literal name", async () => {
+      expect(await runInDir('a: b')).toBe('a: b');
+    });
+
+    test("a name starting with '[' is not parsed as a YAML array", async () => {
+      expect(await runInDir('[x] project')).toBe('[x] project');
+    });
+
+    test("a name containing '#' is not truncated as a comment", async () => {
+      expect(await runInDir('proj #1')).toBe('proj #1');
+    });
   });
 });
 

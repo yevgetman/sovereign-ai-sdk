@@ -143,6 +143,18 @@ export function eventsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
       if (bus.abortSignal.aborted) {
         stopped = true;
       }
+      // Fix 4 — symmetric to the bus pre-check above. If the client already
+      // disconnected by the time we attach (the request signal aborted during
+      // the leading `await stream.write` above, BEFORE abortHandler is
+      // registered below), don't park: a `?follow` stream never auto-ends on a
+      // turn terminal and isn't short-circuited by the replay-count check, so
+      // without this it would loop on the empty-queue Promise forever — a leaked
+      // subscriber pinning the session. `addEventListener` does NOT fire for an
+      // already-aborted signal, so this pre-check is the only thing that catches
+      // the already-aborted case.
+      if (requestSignal.aborted) {
+        stopped = true;
+      }
       const onBusAbort = (): void => {
         stopped = true;
         wake();

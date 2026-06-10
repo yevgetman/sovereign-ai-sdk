@@ -149,59 +149,32 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
 
   const baseURL = `http://127.0.0.1:${server.port}`;
 
-  // SSE connection lifecycle: the server closes the per-session stream
-  // after every turn_complete / turn_error (src/server/routes/events.ts
-  // drops the subscriber + disposes the bus). The TUI reconnects on
-  // each sseDoneMsg (packages/tui/internal/app/app.go:1052-1053); we do
-  // the same here via a loop that re-calls drainSseStream after every
-  // natural close. Between connections we briefly pause so the new
-  // connection finishes opening before the next POST /turns fires
-  // (events that arrive during the gap are buffered on the per-session
-  // bus and delivered when the new consumer subscribes).
-  let activeSessionId = sessionId;
-  const sseController = new AbortController();
-  const renderer = new EventRenderer(verboseRaw, baseURL);
-  const sessionIdRef = {
-    get current(): string {
-      return activeSessionId;
-    },
-  };
-  // Reconnect cursor shared across every drainSseStream call: the highest seq
-  // observed, sent as `Last-Event-ID` so a post-turn reconnect resumes AFTER
-  // the terminal instead of re-receiving (and re-rendering) the whole turn.
-  const sseCursor = { current: null as number | null };
-  const onEvent = (ev: ServerEvent): void => {
-    renderer.handle(ev);
-    if (ev.type === 'compaction_complete' && ev.activeSessionId) {
-      activeSessionId = ev.activeSessionId;
-      // The pivoted session is a NEW bus with its own seq space starting at 1.
-      // Reset the cursor so the next reconnect is a fresh subscriber (current-
-      // turn replay) rather than a stale-cursor resume that would skip the new
-      // bus's lower-numbered events.
-      sseCursor.current = null;
-    }
-  };
-  const sseDone = (async () => {
-    while (!sseController.signal.aborted) {
-      try {
-        await drainSseStream({
-          baseURL,
-          sessionIdRef,
-          signal: sseController.signal,
-          onEvent,
-          cursorRef: sseCursor,
-        });
-      } catch {
-        // ignore — drainSseStream throws when the signal aborts; the
-        // loop's outer while-guard catches that. Other errors are also
-        // recoverable (next POST /turns will trigger a reconnect).
-      }
-      if (sseController.signal.aborted) break;
-      // Yield the event loop briefly so the next iteration's fetch()
-      // doesn't race the just-closed connection's cleanup.
-      await new Promise((r) => setTimeout(r, 20));
-    }
-  })();
+  // SSE connection lifecycle (mirrors the TUI's Go client, app.go):
+  //
+  //   - We open ONE persistent `?follow=true` stream that stays open across
+  //     turn boundaries (src/server/routes/events.ts). The pre-`?follow`
+  //     behaviour reconnected after every turn_complete; a non-follow stream now
+  //     ends immediately when nothing replays and no turn is active (Phase B),
+  //     so the old "reconnect, briefly pause, reconnect" loop busy-spun ~45
+  //     HTTP reconnects/sec at boot and between turns. `?follow` is built for
+  //     exactly this — it parks server-side until the next event instead.
+  //   - We reconnect ONLY on a session pivot (a `/clear` or `/rollback` command
+  //     returning sideEffects.newSessionId, or a mid-turn compaction_complete)
+  //     or on a real disconnect. The pivot path mirrors app.go's startSSE: tear
+  //     down the current connection, then reopen against the new session id.
+  //   - Cursor/session pairing (FIX 1b, mirrors app.go's sseCursor /
+  //     sseCursorSession): the reconnect cursor (Last-Event-ID) belongs to a
+  //     specific session's bus. On a pivot the new bus has its own seq space
+  //     starting at 1, so the cursor must reset to null — otherwise a stale high
+  //     cursor from the old bus would make the new fresh subscriber skip the new
+  //     bus's lower-numbered events.
+  const sse = new DriveSseManager({
+    baseURL,
+    initialSessionId: sessionId,
+    renderer: new EventRenderer(verboseRaw, baseURL),
+  });
+  const renderer = sse.renderer;
+  sse.start();
 
   process.stdout.write(`${READY_MARKER}\n`);
 
@@ -222,12 +195,22 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
       }
 
       if (line.startsWith('/')) {
-        await runSlashCommand({ baseURL, sessionId: activeSessionId, line, renderer });
+        await runSlashCommand({
+          baseURL,
+          sessionId: sse.activeSessionId,
+          line,
+          renderer,
+          // FIX 1 — a /clear or /rollback returns sideEffects.newSessionId; the
+          // active session must hop AND the SSE stream must re-point to the new
+          // bus or subsequent turns POST to the new session while the stream
+          // stays on the old one (no events render). pivot() does both.
+          onPivot: (newSessionId) => sse.pivot(newSessionId),
+        });
       } else {
         // POST a turn, then await the renderer's per-turn promise that
         // resolves on turn_complete OR turn_error.
         const turnDone = renderer.awaitTurnTerminal();
-        const ok = await postTurn({ baseURL, sessionId: activeSessionId, text: line });
+        const ok = await postTurn({ baseURL, sessionId: sse.activeSessionId, text: line });
         if (!ok) {
           renderer.cancelAwait();
         } else {
@@ -239,14 +222,155 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
     return 0;
   } finally {
     rl.close();
-    sseController.abort();
-    try {
-      await sseDone;
-    } catch {
-      // ignore — abort triggers a reader error we don't surface
-    }
+    await sse.stop();
     if (server !== null) await server.stop();
     await runtime.dispose();
+  }
+}
+
+// --- SSE session manager ---------------------------------------------------
+
+/** Owns drive's single persistent `?follow` SSE connection plus the
+ *  active-session-id + reconnect-cursor state, and the pivot logic that
+ *  re-points the stream at a new session's bus. Mirrors the cursor/session
+ *  pairing in packages/tui/internal/app/app.go (sseCursor / sseCursorSession /
+ *  startSSE) so a between-turns pivot (/clear, /rollback) and a mid-turn
+ *  compaction pivot both reconnect correctly. */
+export class DriveSseManager {
+  readonly renderer: EventRenderer;
+  private readonly baseURL: string;
+  /** Aborts the whole loop on shutdown. */
+  private readonly stopController = new AbortController();
+  /** The active session id — where turns + commands POST, and which bus the
+   *  stream follows. */
+  activeSessionId: string;
+  /** Highest seq observed on the CURRENT session's bus; sent as Last-Event-ID
+   *  on reconnect. null = fresh subscriber (current-turn replay). */
+  private cursor: number | null = null;
+  /** The session id `cursor` belongs to. On a pivot to a different session the
+   *  cursor resets (the new bus has its own seq space). */
+  private cursorSession: string;
+  /** Per-connection abort: a pivot aborts the in-flight stream so the loop
+   *  reopens immediately against the new session id. Replaced each connection. */
+  private connController: AbortController | null = null;
+  private loop: Promise<void> | null = null;
+  /** Number of times the loop opened an SSE connection. With `?follow` an idle
+   *  drive should hold ONE long-lived connection — this counter lets a test
+   *  assert there's no per-turn / idle reconnect busy-loop (the Phase-B
+   *  regression FIX 2 closes). Reconnections happen only on a pivot or a real
+   *  disconnect. */
+  connectionCount = 0;
+
+  constructor(opts: { baseURL: string; initialSessionId: string; renderer: EventRenderer }) {
+    this.baseURL = opts.baseURL;
+    this.activeSessionId = opts.initialSessionId;
+    this.cursorSession = opts.initialSessionId;
+    this.renderer = opts.renderer;
+  }
+
+  /** Begin the persistent follow loop. */
+  start(): void {
+    if (this.loop !== null) return;
+    this.loop = this.run();
+  }
+
+  /** The reconnect cursor (highest seq seen on the current bus), for tests +
+   *  observability. null = fresh subscriber. */
+  get currentCursor(): number | null {
+    return this.cursor;
+  }
+
+  /** The session id the cursor belongs to, for tests + observability. */
+  get currentCursorSession(): string {
+    return this.cursorSession;
+  }
+
+  /** Pivot the active session to `newSessionId` (a /clear, /rollback, or
+   *  compaction_complete). Resets the cursor (new bus, new seq space) and aborts
+   *  the in-flight connection so the loop reopens against the new bus at once. */
+  pivot(newSessionId: string): void {
+    if (newSessionId === '' || newSessionId === this.activeSessionId) return;
+    this.activeSessionId = newSessionId;
+    // Reset the cursor: the cursor belongs to the OLD bus's seq space.
+    this.cursor = null;
+    this.cursorSession = newSessionId;
+    // Force the in-flight follow stream to end so the loop reconnects to the new
+    // session immediately (rather than staying parked on the old bus).
+    this.connController?.abort();
+  }
+
+  /** Tear down the loop on shutdown. */
+  async stop(): Promise<void> {
+    this.stopController.abort();
+    this.connController?.abort();
+    if (this.loop !== null) {
+      try {
+        await this.loop;
+      } catch {
+        // ignore — abort triggers a reader error we don't surface
+      }
+    }
+  }
+
+  private onEvent = (ev: ServerEvent): void => {
+    this.renderer.handle(ev);
+    // FIX 1b — a mid-turn compaction pivots the session id. The event arrives on
+    // the OLD (parent) bus, which keeps streaming until turn end; pivot() resets
+    // the cursor + aborts the connection so the loop reconnects to the child.
+    // Crucially the cursor reset is paired with the session change so the same
+    // old-bus connection delivering further events before it ends can't re-poison
+    // the cursor with high old-bus seqs (advanceCursor only advances within the
+    // current session).
+    if (ev.type === 'compaction_complete' && ev.activeSessionId) {
+      this.pivot(ev.activeSessionId);
+    }
+  };
+
+  /** Advance the reconnect cursor — but ONLY for events on the session the
+   *  cursor currently belongs to. After a pivot, residual events draining from
+   *  the old bus must NOT bump the cursor (they'd re-poison it with stale
+   *  old-bus seqs); the cursor stays null so the reconnect to the new bus is a
+   *  fresh subscriber. Mirrors app.go: the cursor is reset on session change in
+   *  startSSE, and only advanced for current-session events. */
+  private advanceCursor(ev: ServerEvent): void {
+    if (this.activeSessionId !== this.cursorSession) return;
+    this.cursor = ev.seq;
+  }
+
+  private async run(): Promise<void> {
+    while (!this.stopController.signal.aborted) {
+      const conn = new AbortController();
+      this.connController = conn;
+      // The connection ends when: the loop is shutting down, OR this connection
+      // was superseded by a pivot (conn.abort()), OR the server closed it.
+      const signal = AbortSignal.any([this.stopController.signal, conn.signal]);
+      // Snapshot the session id for this connection; a pivot mid-connection
+      // aborts `conn` and the next iteration reads the updated activeSessionId.
+      const connSessionId = this.activeSessionId;
+      this.connectionCount += 1;
+      try {
+        await drainSseStream({
+          baseURL: this.baseURL,
+          sessionIdRef: { current: connSessionId },
+          signal,
+          follow: true,
+          onEvent: this.onEvent,
+          getCursor: () => this.cursor,
+          onCursorAdvance: (ev) => this.advanceCursor(ev),
+        });
+      } catch {
+        // drainSseStream throws when the signal aborts (shutdown or pivot) or on
+        // a transient network error; both are recoverable — the outer while
+        // re-opens against the (possibly pivoted) active session id.
+      }
+      if (this.stopController.signal.aborted) break;
+      // Reconnect. A pivot already updated activeSessionId + reset the cursor;
+      // a plain server-close keeps both. Yield briefly so the new fetch() does
+      // not race the just-closed connection's cleanup. (No tight busy-loop: the
+      // `?follow` stream parks server-side, so this only fires on a real pivot
+      // or disconnect — not every turn.)
+      await new Promise((r) => setTimeout(r, 20));
+    }
   }
 }
 
@@ -532,17 +656,25 @@ async function postTurn(opts: {
   }
 }
 
-async function runSlashCommand(opts: {
+export async function runSlashCommand(opts: {
   baseURL: string;
   sessionId: string;
   line: string;
   renderer: EventRenderer;
+  // FIX 1 — invoked with sideEffects.newSessionId when a command (e.g. /clear,
+  // /rollback) pivots the session. The caller hops the active session id AND
+  // re-points the SSE stream so subsequent turns reach the new bus. Returns the
+  // (possibly new) session id any follow-up promptToSend must POST to.
+  onPivot?: (newSessionId: string) => void;
 }): Promise<void> {
   // Parse `/name args...` — split on first whitespace.
   const trimmed = opts.line.startsWith('/') ? opts.line.slice(1) : opts.line;
   const spaceAt = trimmed.search(/\s/);
   const name = spaceAt === -1 ? trimmed : trimmed.slice(0, spaceAt);
   const args = spaceAt === -1 ? '' : trimmed.slice(spaceAt + 1).trim();
+  // The session id a follow-up promptToSend posts to. A pivot (below) updates it
+  // so an expanded prompt lands on the new session rather than the old one.
+  let postSessionId = opts.sessionId;
 
   try {
     const res = await fetch(`${opts.baseURL}/sessions/${opts.sessionId}/commands`, {
@@ -559,6 +691,7 @@ async function runSlashCommand(opts: {
       output?: string;
       error?: string;
       promptToSend?: string;
+      sideEffects?: { newSessionId?: string };
     };
     if (body.error) {
       process.stdout.write(`${ERROR_MARKER}\n${body.error}\n`);
@@ -566,6 +699,15 @@ async function runSlashCommand(opts: {
     }
     if (body.output) {
       process.stdout.write(`${body.output}\n`);
+    }
+    // FIX 1 — apply the session pivot BEFORE any promptToSend so the expanded
+    // prompt (and all subsequent turns) reach the new bus, not the old one.
+    // /clear + /rollback return newSessionId here; previously drive ignored it
+    // and kept POSTing turns to the old session — the conversation forked.
+    const newSessionId = body.sideEffects?.newSessionId;
+    if (newSessionId !== undefined && newSessionId !== '' && newSessionId !== postSessionId) {
+      postSessionId = newSessionId;
+      opts.onPivot?.(newSessionId);
     }
     // Prompt-type slash commands (/init, /commit, every skill-sourced
     // command, etc.) come back with a `promptToSend` field — the
@@ -578,7 +720,9 @@ async function runSlashCommand(opts: {
       const turnDone = opts.renderer.awaitTurnTerminal();
       const ok = await postTurn({
         baseURL: opts.baseURL,
-        sessionId: opts.sessionId,
+        // postSessionId reflects any pivot applied above so the expanded prompt
+        // lands on the new session, not the stale one.
+        sessionId: postSessionId,
         text: body.promptToSend,
       });
       if (!ok) {
@@ -621,21 +765,26 @@ async function drainSseStream(opts: {
   baseURL: string;
   sessionIdRef: { readonly current: string };
   signal: AbortSignal;
+  // When true, request the persistent `?follow=true` stream so the connection
+  // stays open across turn boundaries (no per-turn reconnect busy-loop). When
+  // false (or omitted) the server's default per-turn contract applies.
+  follow?: boolean;
   onEvent: (ev: ServerEvent) => void;
-  // Shared reconnect cursor. We send the highest seq seen as `Last-Event-ID`
-  // on (re)connect so the server replays only events AFTER it. Without this, a
-  // reconnect after a turn terminal is a fresh (no-cursor) subscriber and the
-  // bus replays the whole just-completed turn — INCLUDING turn_complete — which
-  // ends this stream again, so we reconnect and re-receive it forever: an
-  // infinite loop that re-streams the same assistant turn. `current` is updated
-  // to each event's seq as it arrives so the NEXT reconnect resumes correctly.
-  cursorRef: { current: number | null };
+  // The reconnect cursor (highest seq seen on the CURRENT bus). Read at connect
+  // time and sent as `Last-Event-ID` so the server replays only events AFTER it
+  // — without it a reconnect re-receives (and re-renders) the whole completed
+  // turn, including turn_complete, an infinite re-stream loop.
+  getCursor: () => number | null;
+  // Called for each parsed event so the owner can advance the cursor under its
+  // own session-pairing guard (a residual old-bus event after a pivot must NOT
+  // bump the cursor). Invoked BEFORE onEvent so a throw in onEvent can't make us
+  // re-request an event we already accounted for.
+  onCursorAdvance: (ev: ServerEvent) => void;
 }): Promise<void> {
-  const url = `${opts.baseURL}/sessions/${opts.sessionIdRef.current}/events`;
-  const headers =
-    opts.cursorRef.current !== null
-      ? { 'Last-Event-ID': String(opts.cursorRef.current) }
-      : undefined;
+  const base = `${opts.baseURL}/sessions/${opts.sessionIdRef.current}/events`;
+  const url = opts.follow ? `${base}?follow=true` : base;
+  const cursor = opts.getCursor();
+  const headers = cursor !== null ? { 'Last-Event-ID': String(cursor) } : undefined;
   const res = await fetch(url, { signal: opts.signal, ...(headers ? { headers } : {}) });
   if (!res.ok || res.body === null) {
     throw new Error(`SSE GET ${url} returned ${res.status}`);
@@ -654,9 +803,7 @@ async function drainSseStream(opts: {
         buffer = buffer.slice(blockEnd + 2);
         const ev = parseEventBlock(block);
         if (ev !== null) {
-          // Advance the reconnect cursor BEFORE handling so a throw in onEvent
-          // can't make us re-request (and re-render) an event we already saw.
-          opts.cursorRef.current = ev.seq;
+          opts.onCursorAdvance(ev);
           opts.onEvent(ev);
         }
         blockEnd = buffer.indexOf('\n\n');
