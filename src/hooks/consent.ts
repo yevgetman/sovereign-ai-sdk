@@ -13,7 +13,17 @@ import { dirname } from 'node:path';
 import type { AskUser } from '../permissions/types.js';
 import type { HookEventName } from './types.js';
 
+/** A decision that is PERSISTED to the on-disk allowlist. Only genuine user
+ *  answers (allow/deny chosen by a human) are ever recorded here. */
 export type HookConsentDecision = 'allow' | 'deny';
+
+/** Runtime outcome of a consent check. `'skip'` is a TRANSIENT state — the hook
+ *  has no recorded user decision AND there's no interactive prompt available to
+ *  ask for one (the runtime wires a non-interactive `ask: () => 'deny'` on every
+ *  surface). It is NOT persisted: the runner skips the hook this turn and the
+ *  check re-evaluates next time. This keeps an environment auto-deny from being
+ *  silently written to disk as if the user had chosen it. */
+export type HookConsentOutcome = HookConsentDecision | 'skip';
 
 type AllowlistFile = {
   version: 1;
@@ -77,26 +87,43 @@ export function consentKey(event: HookEventName, command: string): string {
   return `${event}:${command}`;
 }
 
-/** Wraps a HookConsentStore + AskUser into a single async check. Cached
- *  decisions short-circuit the prompt; new (event, command) pairs trigger
- *  the first-use modal once and then persist. */
+/** Wraps a HookConsentStore + AskUser into a single async check. A previously
+ *  persisted user decision short-circuits the prompt; a new (event, command)
+ *  pair triggers the first-use prompt. Returns `'skip'` (transient, not
+ *  persisted) when there is no recorded decision and no interactive prompt to
+ *  obtain one — see {@link HookConsentOutcome}. */
 export type HookConsentChecker = (
   event: HookEventName,
   command: string,
   signal?: AbortSignal,
-) => Promise<HookConsentDecision>;
+) => Promise<HookConsentOutcome>;
 
 export function buildConsentChecker(opts: {
   store: HookConsentStore;
   ask: AskUser;
+  /** Whether `ask` is a real interactive prompt that can obtain a genuine user
+   *  decision. Defaults to FALSE: the runtime wires a non-interactive
+   *  `ask: () => 'deny'` on every surface, and an environment auto-deny must
+   *  never be persisted as a user choice. When false, a hook with no recorded
+   *  decision resolves to `'skip'` (transient) and nothing is written. Set true
+   *  only for a TTY caller that actually prompts a human. */
+  interactive?: boolean;
   /** Path shown in the prompt's reason text. Cosmetic; defaults to the
    *  Invariant-#13 path for transparency. */
   allowlistPath?: string;
 }): HookConsentChecker {
   const allowlistPath = opts.allowlistPath ?? '~/.harness/shell-hooks-allowlist.json';
+  const interactive = opts.interactive ?? false;
   return async (event, command, signal) => {
     const stored = opts.store.read(event, command);
     if (stored !== undefined) return stored;
+
+    // No recorded user decision. Without an interactive prompt we cannot obtain
+    // one — treat as transient `'skip'` and persist NOTHING. (Persisting the
+    // environment's auto-deny would silently kill the hook forever as if the
+    // user had chosen it.)
+    if (!interactive) return 'skip';
+
     const answer = await opts.ask({
       toolName: 'hook',
       preview: `${event}: ${command}`,
@@ -104,7 +131,8 @@ export function buildConsentChecker(opts: {
       ...(signal ? { signal } : {}),
     });
     // 'allow' and 'always' both grant — the file itself is the "always"
-    // record. 'deny' (or anything else) is recorded as deny.
+    // record. 'deny' is recorded as deny. Only a genuine user answer reaches
+    // here, so it is safe to persist.
     const decision: HookConsentDecision = answer === 'deny' ? 'deny' : 'allow';
     opts.store.write(event, command, decision);
     return decision;

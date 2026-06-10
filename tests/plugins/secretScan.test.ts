@@ -204,3 +204,45 @@ describe('scanObjectForSecrets — field-targeting (T6 review #2)', () => {
     expect(findings[0]?.reason.toLowerCase()).toContain('prefix');
   });
 });
+
+describe('scanObjectForSecrets — path-shaped credential values (FIX 7)', () => {
+  // A credential-named field that points at a credential FILE references a
+  // secret rather than embedding one — it is the safe pattern and must not
+  // hard-reject a legit plugin install.
+  test('GOOGLE_APPLICATION_CREDENTIALS=${HOME}/key.json (env, path with placeholder) is NOT flagged', () => {
+    const findings = scanObjectForSecrets({
+      env: { GOOGLE_APPLICATION_CREDENTIALS: '${HOME}/key.json' },
+    });
+    expect(findings).toEqual([]);
+  });
+
+  test('API_KEY_PATH=/home/u/k (env, absolute path) is NOT flagged', () => {
+    const findings = scanObjectForSecrets({ env: { API_KEY_PATH: '/home/u/k' } });
+    expect(findings).toEqual([]);
+  });
+
+  test('a credentials field with a ~ home-relative path is NOT flagged', () => {
+    const findings = scanObjectForSecrets({ env: { AWS_CREDENTIALS: '~/.aws/credentials' } });
+    expect(findings).toEqual([]);
+  });
+
+  test('a credentials field with a ./ relative path is NOT flagged', () => {
+    const findings = scanObjectForSecrets({ apiKey: './secrets/key.pem' });
+    expect(findings).toEqual([]);
+  });
+
+  test('a credential field with an ACTUAL embedded key still flags (no regression)', () => {
+    const findings = scanObjectForSecrets({ env: { MY_TOKEN: 'abcdef1234567890ghijkl' } });
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.path === 'env.MY_TOKEN')).toBe(true);
+  });
+
+  test('a known-prefix key whose value happens to be path-shaped still flags by CONTENT', () => {
+    // The path exemption only suppresses the LOCATION (field-targeting) signal;
+    // a real key prefix is a content finding and must survive even in a path.
+    const findings = scanObjectForSecrets({
+      env: { CRED_PATH: '/etc/ghp_abcdefghijklmnopqrstuvwxyz0123456789' },
+    });
+    expect(findings.length).toBeGreaterThan(0);
+  });
+});

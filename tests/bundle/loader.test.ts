@@ -51,4 +51,47 @@ describe('loadBundle', () => {
       await expect(loadBundle(dir)).rejects.toThrow(/index\.yaml/);
     });
   });
+
+  // FIX 6 — a malformed index.yaml that parses to null / scalar / array must
+  // NOT crash session boot. resolveProjectScope reads `bundle.index.projectId`,
+  // which would TypeError on a null index. The loader normalizes to a safe
+  // object instead.
+  test('returns a safe (empty) index when index.yaml is empty (parses to null)', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'index.yaml'), '');
+      const bundle = await loadBundle(dir);
+      // A plain object, not null — so `bundle.index.projectId` is safe.
+      expect(bundle.index).toBeInstanceOf(Object);
+      expect(Array.isArray(bundle.index)).toBe(false);
+      expect(bundle.index.projectId).toBeUndefined();
+    });
+  });
+
+  test('returns a safe index when index.yaml is a bare scalar', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'index.yaml'), 'just a string');
+      const bundle = await loadBundle(dir);
+      expect(bundle.index).toBeInstanceOf(Object);
+      expect(Array.isArray(bundle.index)).toBe(false);
+      expect(bundle.index.repo).toBeUndefined();
+    });
+  });
+
+  test('returns a safe index when index.yaml is a top-level array', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'index.yaml'), '- one\n- two\n');
+      const bundle = await loadBundle(dir);
+      expect(bundle.index).toBeInstanceOf(Object);
+      expect(Array.isArray(bundle.index)).toBe(false);
+    });
+  });
+
+  test('a valid index.yaml still loads its fields', async () => {
+    await withTmp(async (dir) => {
+      writeMinimalBundle(dir);
+      const bundle = await loadBundle(dir);
+      expect(bundle.index.repo).toBe('test');
+      expect(bundle.index.description).toBe('test bundle');
+    });
+  });
 });

@@ -274,6 +274,53 @@ describe('hook runner', () => {
     expect(result.block).toBe(false);
   });
 
+  // FIX 1 — a transient `'skip'` (no recorded consent, no interactive prompt)
+  // must NOT spawn the hook and MUST emit a one-line awaiting-consent notice.
+  test('consent skip: hook is inert, awaiting-consent notice logged, no block', async () => {
+    const path = writeHook('would-skip.sh', 'exit 2');
+    const skipAll: HookConsentChecker = async () => 'skip';
+    const logged: string[] = [];
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('PreToolUse', [{ hooks: [{ type: 'command', command: path }] }]),
+      consent: skipAll,
+      logStderr: (m) => logged.push(m),
+    });
+    const result = await run('PreToolUse', {
+      hookEventName: 'PreToolUse',
+      session_id: 's',
+      cwd: workDir,
+      tool_name: 'X',
+      tool_input: {},
+    });
+    expect(result.block).toBe(false);
+    expect(logged.length).toBe(1);
+    expect(logged[0]).toContain('awaiting consent');
+    expect(logged[0]).toContain(path);
+    expect(logged[0]).toContain('shell-hooks-allowlist.json');
+  });
+
+  // FIX 3 — a hook that exits 2 with NO output must still surface a reason that
+  // names the command (the empty-string stderr must not become the reason).
+  test('exit code 2 with no output yields a reason naming the command', async () => {
+    const path = writeHook('silent-block.sh', 'exit 2');
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('PreToolUse', [{ hooks: [{ type: 'command', command: path }] }]),
+      consent: allowAll,
+      logStderr: () => {},
+    });
+    const result = await run('PreToolUse', {
+      hookEventName: 'PreToolUse',
+      session_id: 's',
+      cwd: workDir,
+      tool_name: 'X',
+      tool_input: {},
+    });
+    expect(result.block).toBe(true);
+    expect(result.reason).toBeTruthy();
+    expect(result.reason).toContain('hook exit 2');
+    expect(result.reason).toContain(path);
+  });
+
   test('matcher: literal tool name only fires for that tool', async () => {
     const path = writeHook('only-bash.sh', 'echo \'{"updatedInput":"matched"}\'');
     const run = buildHookRunner({

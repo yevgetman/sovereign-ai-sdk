@@ -154,6 +154,49 @@ export async function connectWithTimeout(
   }
 }
 
+/** Minimal structural views of the SDK Client / Transport so `connectAndList`
+ *  is unit-testable with a mock pair. */
+type ConnectableClient = {
+  connect: (transport: Transport) => Promise<void>;
+  listTools: () => Promise<ListedTools>;
+  close: () => Promise<void>;
+};
+type ListedTools = {
+  tools: Array<{ name: string; description?: string; inputSchema: unknown }>;
+};
+
+/** Connect a client with a hard timeout, then list its tools — closing the
+ *  transport (and, when the connect succeeded, the client) on ANY failure so a
+ *  timed-out connect or a throwing listTools never leaks the transport and its
+ *  stdio subprocess. A healthy connection is left untouched.
+ *
+ *  On TIMEOUT the connect may still be in-flight (it lost the race but the
+ *  child is live), so we close the TRANSPORT directly to tear it down. On a
+ *  post-connect listTools failure the client is wired, so we close the CLIENT
+ *  (which closes the transport in turn). Cleanup errors are swallowed — the
+ *  original failure is what the caller must see. */
+export async function connectAndList(
+  client: ConnectableClient,
+  transport: Transport,
+  connectTimeoutMs: number,
+  timers?: TimerFns,
+): Promise<ListedTools> {
+  let connected = false;
+  try {
+    await connectWithTimeout(client, transport, connectTimeoutMs, timers);
+    connected = true;
+    return await client.listTools();
+  } catch (err) {
+    try {
+      if (connected) await client.close();
+      else await transport.close();
+    } catch {
+      // Best-effort teardown — never mask the original connect/list failure.
+    }
+    throw err;
+  }
+}
+
 async function connectOne(
   name: string,
   cfg: McpServerConfig,
@@ -165,10 +208,13 @@ async function connectOne(
 
   const client = new Client({ name: 'sovereign-ai-harness', version: VERSION });
 
-  // Connect with a hard timeout — a hung subprocess must not block startup.
-  await connectWithTimeout(client, transport, connectTimeoutMs);
-
-  const listed = await client.listTools();
+  // Connect (hard timeout) + list tools, tearing down the transport/child on
+  // any failure so a hung or broken server never leaks a subprocess.
+  const listed = await connectAndList(
+    client as unknown as ConnectableClient,
+    transport,
+    connectTimeoutMs,
+  );
   const tools: McpToolMeta[] = listed.tools.map((t) => ({
     serverName: name,
     toolName: t.name,

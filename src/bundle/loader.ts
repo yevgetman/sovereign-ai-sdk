@@ -18,6 +18,29 @@ const READ_IF_EXISTS = async (p: string): Promise<string | null> => {
 };
 
 /**
+ * Validate the parsed `index.yaml` is a plain object. A malformed index — empty
+ * (parses to `null`), a bare scalar, or a top-level array — would otherwise be
+ * cast to `BundleIndex` and crash the first session: `resolveProjectScope`
+ * reads `bundle.index.projectId`, which TypeErrors on `null`. Normalize any
+ * non-object to an empty index and warn, so boot survives a typo'd bundle.
+ */
+function normalizeBundleIndex(parsed: unknown, indexPath: string): BundleIndex {
+  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as BundleIndex;
+  }
+  process.stderr.write(
+    `[bundle] WARNING ${indexPath} is not a YAML mapping (got ${describeYamlShape(parsed)}); using an empty index\n`,
+  );
+  return {};
+}
+
+function describeYamlShape(value: unknown): string {
+  if (value === null) return 'null/empty';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+/**
  * Load a harness bundle from disk. Eagerly loads manifest and tier-3 state
  * (memory + CONTEXT); leaves tier-1 business content unloaded until a
  * specific doc is requested.
@@ -32,7 +55,7 @@ export async function loadBundle(rootPath: string): Promise<Bundle> {
     throw new Error(`No index.yaml at ${indexPath} — is this a harness bundle root?`);
   }
   const indexText = await readFile(indexPath, 'utf8');
-  const index = parseYaml(indexText) as BundleIndex;
+  const index = normalizeBundleIndex(parseYaml(indexText), indexPath);
 
   const state = {
     context: await READ_IF_EXISTS(join(root, 'state/CONTEXT.md')),

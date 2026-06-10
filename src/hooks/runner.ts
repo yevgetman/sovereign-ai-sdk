@@ -9,6 +9,8 @@
 //   exit other:  soft-fail (log stderr, do not block)
 //   spawn error / timeout: soft-fail
 //   denied by consent allowlist: hook is inert (this is intentional, not a fail)
+//   awaiting consent ('skip'): hook is inert this turn + a one-line notice is
+//     logged telling the user how to allow it (nothing is persisted)
 //
 // "Soft-fail" means the runtime proceeds as if the hook hadn't fired. This
 // keeps a misconfigured hook from breaking the harness — the user sees the
@@ -67,6 +69,16 @@ export function buildHookRunner(opts: BuildHookRunnerOpts): HookRunner {
     for (const { spec } of matching) {
       if (signal?.aborted) break;
       const decision = await opts.consent(event, spec.command, signal);
+      if (decision === 'skip') {
+        // Transient: no recorded consent and no interactive prompt to obtain
+        // one. Skip the hook this turn (never persisted as a deny) and tell the
+        // user how to enable it. A bare auto-deny would leave the hook silently
+        // dead with no signal — this is that signal.
+        log(
+          `[hook ${event}] awaiting consent: ${spec.command} (allow it in ~/.harness/shell-hooks-allowlist.json to enable this hook)`,
+        );
+        continue;
+      }
       if (decision === 'deny') continue; // user-denied hook is inert
 
       const result = await runOne(spec, payload as HookEvent, { home, signal });
@@ -83,7 +95,10 @@ export function buildHookRunner(opts: BuildHookRunnerOpts): HookRunner {
         aggregate.block = true;
         aggregate.reason = combineReasons(
           aggregate.reason,
-          result.parsed?.reason ?? result.stderr ?? `hook exit 2: ${spec.command}`,
+          // `result.stderr` is always a string (defaulted ''), so a `??` chain
+          // would never reach the final fallback. Use `||` so an empty stderr
+          // still surfaces a reason that names the command.
+          result.parsed?.reason ?? (result.stderr || `hook exit 2: ${spec.command}`),
         );
         // Block short-circuits remaining hooks for this event.
         return aggregate;

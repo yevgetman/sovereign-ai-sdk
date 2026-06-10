@@ -153,6 +153,28 @@ function isEnvPlaceholder(value: string): boolean {
   return /^\$\{[^}]+\}$/.test(trimmed) || /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed);
 }
 
+/** True for a value that looks like a FILE PATH (absolute, `~`-home, `./`-rel,
+ *  `${VAR}`-rooted, or any value containing a `/`). A credential-named field
+ *  holding a path (e.g. `GOOGLE_APPLICATION_CREDENTIALS=${HOME}/key.json`,
+ *  `API_KEY_PATH=/home/u/k`) REFERENCES a credential file rather than embedding
+ *  a secret — the safe pattern — so it is exempt from the location-based
+ *  field-targeting signal. (The CONTENT scan still runs, so a real key prefix
+ *  embedded inside a path is still caught.) */
+function isPathShaped(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return false;
+  if (
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('~') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../') ||
+    trimmed.startsWith('${')
+  ) {
+    return true;
+  }
+  return trimmed.includes('/');
+}
+
 /** True when `key` (the leaf's terminal field name) signals a credential field
  *  in the manifest credential surface. `underHeaders`/`underEnv` widen the set
  *  to header names / env-var names when the leaf sits in those maps. */
@@ -167,6 +189,10 @@ function isCredentialField(key: string, underHeaders: boolean, underEnv: boolean
 /** Field-targeted finding for a credential-named leaf holding a baked literal. */
 function fieldTargetFinding(value: string): SecretFinding | null {
   if (isEnvPlaceholder(value)) return null;
+  // A path value references a credential FILE — the safe pattern — so it is
+  // exempt from the location signal. Content findings (real key prefixes) still
+  // fire via `scanForSecrets`; this only suppresses the field-targeting branch.
+  if (isPathShaped(value)) return null;
   const trimmed = value.trim();
   // Pull the opaque-looking part: the longest token, or a `Scheme <token>`
   // header value's token tail. Require enough opaque chars to be a real secret.
