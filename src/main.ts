@@ -705,6 +705,29 @@ async function main(argv: string[]): Promise<void> {
       }
     });
 
+  missionCmd
+    .command('run')
+    .description('Execute one non-interactive scheduled-mission wake against a mission directory')
+    .requiredOption('--state-dir <path>', 'path to the mission directory')
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .action(async (opts) => {
+      const { runMissionWake } = await import('./cli/missionRun.js');
+      const result = await runMissionWake({
+        stateDir: opts.stateDir,
+        ...(opts.bundle !== undefined ? { bundlePath: opts.bundle } : {}),
+      });
+      if (result.lockHeld === true) {
+        process.stderr.write('lock held — another wake in progress\n');
+        process.exit(0);
+      }
+      if (result.exitedEarly === true) {
+        process.stderr.write(`exited early: ${result.reason ?? 'unknown'}\n`);
+        process.exit(0);
+      }
+      process.stdout.write(`transitioned to: ${result.transitionedTo ?? '<unchanged>'}\n`);
+      process.exit(0);
+    });
+
   const cronCmd = program.command('cron').description('Manage scheduled jobs (Phase 17)');
 
   cronCmd
@@ -807,22 +830,31 @@ async function main(argv: string[]): Promise<void> {
     .description('Manually fire this specific cron job once (bypasses schedule + enabled checks)')
     .action(async (id: string) => {
       // Strict single-fire: forceRunJob runs ONLY the named job, regardless
-      // of its nextRunAt or enabled flag. The id arg is validated by
-      // forceRunJob itself (returns ok:false on missing id).
+      // of its nextRunAt or enabled flag. Accept an 8-char id prefix (the form
+      // `sov cron list` prints) by resolving it to the full id first, matching
+      // show/pause/resume/delete (audit 2026-06-10).
       const { resolveHarnessHome } = await import('./config/paths.js');
       const home = resolveHarnessHome();
+      const { resolveCronJobId } = await import('./cli/cronCommand.js');
+      let fullId: string;
+      try {
+        fullId = resolveCronJobId(home, id);
+      } catch (err) {
+        process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+      }
       const { buildRuntime } = await import('./server/runtime.js');
       const { createProductionCronRunner } = await import('./cron/wiring.js');
       const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
       try {
         const runner = createProductionCronRunner(runtime, home);
-        const result = await runner.forceRunJob(id);
+        const result = await runner.forceRunJob(fullId);
         if (!result.ok) {
           process.stderr.write(`run failed: ${result.error ?? 'unknown error'}\n`);
           process.exit(1);
         }
         process.stdout.write(
-          `fired job ${id.slice(0, 8)}; check 'sov cron show ${id.slice(0, 8)}' for the result\n`,
+          `fired job ${fullId.slice(0, 8)}; check 'sov cron show ${fullId.slice(0, 8)}' for the result\n`,
         );
       } finally {
         await runtime.dispose();

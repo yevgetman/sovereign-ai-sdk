@@ -85,6 +85,11 @@ function resetMockProviderStatics(): void {
   MockProvider.resetScriptCursor();
   MockProvider.lastMessages = undefined;
   MockProvider.streamCalls = 0;
+  // FIX 4 tests toggle slowMode to keep a turn observably in flight; reset it
+  // so it can't leak into the other tests in this shared Bun process.
+  MockProvider.slowMode = false;
+  MockProvider.slowModeDelayMs = 0;
+  MockProvider.throwOnNext = undefined;
 }
 
 async function buildTestRuntime(home: string): Promise<Runtime> {
@@ -475,5 +480,95 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
       globalThis.setInterval = realSetInterval;
       globalThis.clearInterval = realClearInterval;
     }
+  });
+
+  // FIX 4 — the poll loop had no in-flight guard and advanced the offset only
+  // AFTER awaiting the (slow) model turn. While a turn ran, every 1 s tick
+  // re-getUpdates with the STALE offset → Telegram re-served the unconfirmed
+  // update → a duplicate turn + reply (+ duplicate billed calls) per second.
+  describe('FIX 4 — in-flight guard + offset-before-await', () => {
+    test('advances the offset per-update BEFORE awaiting the turn (offset confirmed even if the turn throws)', async () => {
+      // The offset must advance as each update is consumed, BEFORE its (awaited)
+      // turn — so a processed update is never re-served even if the turn fails.
+      // Two updates in one batch; the FIRST turn throws. Per-update advancement
+      // must carry the offset past BOTH, and the second update still runs.
+      MockProvider.throwOnNext = new Error('provider boom');
+
+      const { transport, getUpdatesOffsets, sent } = makeMockTransport([
+        [privateUpdate(100, 'boom'), privateUpdate(101, 'ok')],
+        [],
+      ]);
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        transport,
+      });
+
+      await listener.pollOnce();
+      await listener.pollOnce();
+
+      // Offset advanced past BOTH updates (max(100,101)+1 = 102) — neither is
+      // re-served on the second poll. The throwing first update did not stall
+      // the offset at 100.
+      expect(getUpdatesOffsets).toEqual([0, 102]);
+      // The second (good) update still produced a reply; the first surfaced the
+      // error-fallback reply (pipeline behavior) — both processed exactly once.
+      expect(sent.length).toBe(2);
+      expect(sent[1]?.text).toBe('Hello world.');
+    });
+
+    test('overlapping polls do not double-process the same update (in-flight guard)', async () => {
+      // Two concurrent pollOnce calls: the second begins while the first is
+      // still mid-turn. Without the guard both would fetch the SAME stale
+      // offset 0 and re-serve update 100 twice → two sends + two getUpdates.
+      // The in-flight guard must make the overlapping call a no-op → ONE send,
+      // ONE getUpdates. (We await both promises so the slow turn finishes before
+      // afterEach disposes the runtime — no closed-DB race.)
+      MockProvider.slowMode = true;
+      MockProvider.slowModeDelayMs = 15;
+
+      const { transport, sent, getUpdatesOffsets } = makeMockTransport([
+        [privateUpdate(100)],
+        [privateUpdate(100)], // a second fetch at the same offset re-serves it
+      ]);
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        transport,
+      });
+
+      // Poll 1 starts (fetches batch, begins the slow turn) but isn't awaited.
+      const poll1 = listener.pollOnce();
+      await new Promise<void>((r) => setTimeout(r, 5));
+      // Poll 2 fires WHILE poll 1's turn is in flight — the guard skips it.
+      const poll2 = listener.pollOnce();
+      await Promise.all([poll1, poll2]);
+
+      // Exactly one update processed → exactly one send. No duplicate turn.
+      expect(sent.length).toBe(1);
+      expect(sent[0]).toEqual({ chatId: 42, text: 'Hello world.' });
+      // The guard meant only ONE getUpdates fired during the overlap window.
+      expect(getUpdatesOffsets).toEqual([0]);
+    });
+
+    test('a processed update is not re-served on the next (post-turn) poll', async () => {
+      // Sequential polls (no overlap): after processing update 100, the next
+      // getUpdates must use offset 101 so Telegram never re-serves 100.
+      const { transport, getUpdatesOffsets, sent } = makeMockTransport([[privateUpdate(100)], []]);
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        transport,
+      });
+
+      await listener.pollOnce();
+      await listener.pollOnce();
+
+      expect(getUpdatesOffsets).toEqual([0, 101]);
+      expect(sent.length).toBe(1);
+    });
   });
 });

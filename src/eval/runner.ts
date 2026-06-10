@@ -1,8 +1,17 @@
-// Phase 10.5 part 2 — eval runner. Spawn `sov chat` in a sandbox, pipe
+// Phase 10.5 part 2 — eval runner. Spawn `sov drive` in a sandbox, pipe
 // the golden's prompt(s) into stdin, capture stdout/stderr, parse the
 // session-summary footer for cost + tool-call totals, evaluate
 // assertions, return a GoldenResult. Sequential execution; one
 // subprocess per golden.
+//
+// FIX 3 (2026-06): the runner used to spawn `sov chat`, but since M13
+// (2026-05-20) `chat` boots the Go TUI, which exits 1 on non-TTY (piped)
+// stdin — so every golden / --compare / --capture / --replay run failed. The
+// headless surface is `sov drive` (the same one the semantic suite migrated
+// to): one prompt per stdin line, slash commands routed through the session
+// commands route. drive's `/quit` does NOT print the session-summary card the
+// cost/tool-call parsers read, so we inject `/stats` (which renders that card)
+// immediately before `/quit`.
 
 import { spawn } from 'node:child_process';
 import { evaluateAll } from './assertions.js';
@@ -35,7 +44,7 @@ export type RunGoldenOpts = {
   keepSandbox?: boolean;
 };
 
-/** Spawn `sov chat` against one golden, pipe the prompt(s), wait for
+/** Spawn `sov drive` against one golden, pipe the prompt(s), wait for
  *  exit, run the assertions, return the GoldenResult. The sandbox is
  *  always cleaned up unless `keepSandbox: true`. */
 export async function runGolden(
@@ -103,10 +112,27 @@ type SpawnOutcome = {
   abortReason?: string;
 };
 
+/** Build the `sov drive` argv for a golden run: the `drive` subcommand, the
+ *  per-sandbox session DB, `--no-preflight` (the sandbox has no credentials to
+ *  preflight), then the golden's extra args. FIX 3 — was `chat` (the dead TUI
+ *  surface on non-TTY stdin). Pure + exported so the args contract is unit-
+ *  tested without spawning a subprocess. */
+export function buildDriveArgs(dbPath: string, extraArgs: string[]): string[] {
+  return ['drive', '--db', dbPath, '--no-preflight', ...extraArgs];
+}
+
+/** Build the stdin payload piped into `sov drive`: one prompt per line (drive
+ *  drives one turn per non-slash line), then `/stats` to emit the session-
+ *  summary card (drive's `/quit` does NOT print it — only `/stats`/`/cost`
+ *  do), then `/quit` to exit cleanly. FIX 3. Pure + exported for unit tests. */
+export function buildDriveStdin(prompt: string | string[]): string {
+  const prompts = Array.isArray(prompt) ? prompt : [prompt];
+  return `${prompts.join('\n')}\n/stats\n/quit\n`;
+}
+
 async function spawnAgent(opts: SpawnOpts): Promise<SpawnOutcome> {
-  const prompts = Array.isArray(opts.prompt) ? opts.prompt : [opts.prompt];
-  const stdinPayload = `${prompts.join('\n')}\n/quit\n`;
-  const args = ['chat', '--db', opts.sandbox.dbPath, '--no-preflight', ...opts.extraArgs];
+  const stdinPayload = buildDriveStdin(opts.prompt);
+  const args = buildDriveArgs(opts.sandbox.dbPath, opts.extraArgs);
 
   const startedAt = Date.now();
   return await new Promise<SpawnOutcome>((resolve) => {

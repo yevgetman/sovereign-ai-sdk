@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -204,8 +204,10 @@ describe('lock', () => {
     releaseLock(dir);
   });
 
-  test('acquireLock returns false when already locked', () => {
+  test('acquireLock returns false when already locked by a live process', () => {
     const dir = makeTestDir();
+    // The first acquire writes THIS (live) process's PID into the lock dir, so
+    // the second acquire sees a live owner and refuses.
     acquireLock(dir);
     expect(acquireLock(dir)).toBe(false);
     releaseLock(dir);
@@ -216,5 +218,39 @@ describe('lock', () => {
     acquireLock(dir);
     releaseLock(dir);
     expect(() => releaseLock(dir)).not.toThrow();
+  });
+
+  // FIX 2 — stale-lock recovery. A crashed/SIGKILLed wake leaves the lock dir
+  // (and possibly its PID file) behind. Without recovery every future wake
+  // aborts "already locked" forever.
+  test('reclaims a stale lock whose owner PID is dead', () => {
+    const dir = makeTestDir();
+    // Simulate a crashed wake: a lock dir with a PID file pointing at a PID
+    // that is certainly not running (the kernel never assigns PID 2^31-1).
+    mkdirSync(lockPath(dir), { recursive: true });
+    writeFileSync(join(lockPath(dir), 'pid'), String(2147483646), 'utf8');
+
+    // The new acquire must detect the dead owner, reclaim the dir, and succeed.
+    expect(acquireLock(dir)).toBe(true);
+    releaseLock(dir);
+  });
+
+  test('reclaims a half-created lock with no PID file', () => {
+    const dir = makeTestDir();
+    // A lock dir with no PID file (mkdir succeeded, PID write never happened —
+    // or a legacy bare-mkdir lock from before stale recovery existed). Treat
+    // it as stale and reclaim.
+    mkdirSync(lockPath(dir), { recursive: true });
+
+    expect(acquireLock(dir)).toBe(true);
+    releaseLock(dir);
+  });
+
+  test('records the acquiring process PID inside the lock dir', () => {
+    const dir = makeTestDir();
+    expect(acquireLock(dir)).toBe(true);
+    const recorded = Number.parseInt(readFileSync(join(lockPath(dir), 'pid'), 'utf8').trim(), 10);
+    expect(recorded).toBe(process.pid);
+    releaseLock(dir);
   });
 });

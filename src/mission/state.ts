@@ -4,13 +4,12 @@
 import {
   appendFileSync,
   existsSync,
-  mkdirSync,
   readFileSync,
   renameSync,
-  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { releaseLock as releaseLockDir, tryAcquireOnce } from '../cron/lockUtil.js';
 import {
   lockPath,
   missionMdPath,
@@ -72,22 +71,21 @@ export function appendWakeLog(dir: string, entry: WakeLogEntry): void {
   appendFileSync(wakeLogPath(dir), `${JSON.stringify(entry)}\n`, 'utf8');
 }
 
+// Overlap guard for the scheduled-mission wake. Delegates to the shared
+// PID-stamped lock primitive (src/cron/lockUtil.ts) so a wake that crashes /
+// is SIGKILLed / loses power leaves a *stale* lock that the next wake can
+// reclaim — a bare mkdir-only lock (the pre-FIX-2 behavior) halted the mission
+// forever. Returns true when the lock was acquired (fresh or reclaimed from a
+// dead owner), false when a *live* process still holds it.
 export function acquireLock(dir: string): boolean {
-  try {
-    mkdirSync(lockPath(dir));
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
-    throw err;
-  }
+  return tryAcquireOnce(lockPath(dir));
 }
 
+// Removes the lock dir + its PID file. Tolerant of the dir not existing
+// (already released or never acquired); never throws so callers can release in
+// a finally block.
 export function releaseLock(dir: string): void {
-  try {
-    rmdirSync(lockPath(dir));
-  } catch {
-    // ignore — already released or never acquired
-  }
+  releaseLockDir(lockPath(dir));
 }
 
 function atomicWrite(path: string, content: string): void {

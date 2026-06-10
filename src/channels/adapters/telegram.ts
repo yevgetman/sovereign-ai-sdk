@@ -202,6 +202,14 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
   // fires before retrying, so a persistent bad token / outage doesn't spam at
   // the poll cadence. Reset to 0 on the next successful getUpdates.
   let ticksToSkip = 0;
+  // Fix F4 — in-flight guard. pollOnce awaits the full model turn before
+  // returning, but the 1 s tick (and any other caller) would otherwise start a
+  // SECOND pollOnce while the first is mid-turn. With the stale offset that
+  // re-getUpdates re-serves the unconfirmed update → a duplicate turn + reply
+  // (and duplicate billed calls) every tick; at idle it also overlaps the 25 s
+  // long-poll and Telegram 409-terminates the bot's own poll. While a poll is
+  // running, further pollOnce calls are a no-op.
+  let inFlight = false;
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
     const msg = mapUpdateToInbound(update);
@@ -224,38 +232,51 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
   }
 
   async function pollOnce(): Promise<void> {
-    // The getUpdates call is the ONLY unguarded throw site that the
-    // fire-and-forget tick (`void pollOnce()`) would turn into an unhandled
-    // rejection on a bad token / network error. Guard it: log ONE concise,
-    // actionable line (never the token) and arm the backoff so a persistent
-    // failure doesn't spam at the poll cadence. The per-update try/catch below
-    // already handles a single bad update / turn.
-    let updates: TelegramUpdate[];
+    // Fix F4 — in-flight guard. If a previous pollOnce is still awaiting its
+    // model turn, do nothing: starting a second poll now would re-getUpdates
+    // and re-serve the in-flight (unconfirmed) update. The flag is cleared in
+    // `finally` so a thrown turn / getUpdates failure can't wedge the loop.
+    if (inFlight) return;
+    inFlight = true;
     try {
-      updates = await transport.getUpdates(offset);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      log(`telegram poll failed (check SOV_TELEGRAM_BOT_TOKEN / network): ${detail}`);
-      ticksToSkip = failureBackoffTicks;
-      return;
-    }
-    // A successful poll clears any pending backoff.
-    ticksToSkip = 0;
-    let maxUpdateId = -1;
-    for (const update of updates) {
-      // Advance the cursor past EVERY update in the batch — even ones that
-      // throw or are skipped — so a poisonous update isn't reprocessed forever.
-      if (update.update_id > maxUpdateId) maxUpdateId = update.update_id;
+      // The getUpdates call is the ONLY unguarded throw site that the
+      // fire-and-forget tick (`void pollOnce()`) would turn into an unhandled
+      // rejection on a bad token / network error. Guard it: log ONE concise,
+      // actionable line (never the token) and arm the backoff so a persistent
+      // failure doesn't spam at the poll cadence. The per-update try/catch below
+      // already handles a single bad update / turn.
+      let updates: TelegramUpdate[];
       try {
-        await handleUpdate(update);
+        updates = await transport.getUpdates(offset);
       } catch (err) {
-        // One bad update must not kill the batch or the loop. Log without the
-        // bot token (it's never part of the message anyway).
         const detail = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[telegram] update ${update.update_id} failed: ${detail}\n`);
+        log(`telegram poll failed (check SOV_TELEGRAM_BOT_TOKEN / network): ${detail}`);
+        ticksToSkip = failureBackoffTicks;
+        return;
       }
+      // A successful poll clears any pending backoff.
+      ticksToSkip = 0;
+      for (const update of updates) {
+        // Fix F4 — advance + CONFIRM the cursor past this update BEFORE awaiting
+        // its (slow) turn. Telegram treats a getUpdates(offset) as an ack of
+        // everything below `offset`, so confirming first means a re-poll (after
+        // the in-flight guard clears, or from a crashed/restarted process) never
+        // re-serves an update we've already consumed — even one whose turn
+        // throws or is still running. Updates can arrive out of order, so take
+        // the max rather than blindly trusting the last id.
+        if (update.update_id + 1 > offset) offset = update.update_id + 1;
+        try {
+          await handleUpdate(update);
+        } catch (err) {
+          // One bad update must not kill the batch or the loop. Log without the
+          // bot token (it's never part of the message anyway).
+          const detail = err instanceof Error ? err.message : String(err);
+          process.stderr.write(`[telegram] update ${update.update_id} failed: ${detail}\n`);
+        }
+      }
+    } finally {
+      inFlight = false;
     }
-    if (maxUpdateId >= 0) offset = maxUpdateId + 1;
   }
 
   function start(): void {

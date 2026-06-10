@@ -23,14 +23,14 @@ export type GoldenSpec = {
    *  relative to the sandbox root. */
   seed?: FileSeedMap;
   /** Single prompt or array of prompts (one per turn). The runner pipes
-   *  these into `sov chat`'s stdin and follows with `/quit`. */
+   *  these into `sov drive`'s stdin and follows with `/stats` then `/quit`. */
   prompt: string | string[];
   /** Assertions to evaluate after the agent quits. All must pass for the
    *  golden to pass. */
   assertions: Assertion[];
   /** Optional per-test override for the spawn timeout. Default 60s. */
   timeoutMs?: number;
-  /** Extra args appended to the `sov chat` command line (e.g.
+  /** Extra args appended to the `sov drive` command line (e.g.
    *  `['--permission-mode', 'bypass']`). */
   extraArgs?: string[];
   /** Optional: skip in CI / require explicit --include-slow. */

@@ -1,12 +1,21 @@
 // Phase 16.0b — verifies runMissionWake() is callable headlessly given a
 // pre-initialized mission directory and that it respects the overlap lock.
+//
+// FIX 1 (HIGH) — also asserts the `sov mission run --state-dir <dir>`
+// subcommand is registered in the CLI (it was lost in the Phase-16 revert,
+// orphaning runMissionWake as dead code) and FIX 1b — that the per-wake turn
+// budget bounds the wake's query() maxTurns.
 
 import { describe, expect, it } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runMissionInit } from '../../src/cli/missionInit.js';
-import { runMissionWake } from '../../src/cli/missionRun.js';
+import { resolveWakeMaxTurns, runMissionWake } from '../../src/cli/missionRun.js';
+
+const MAIN_TS = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/main.ts');
 
 describe('runMissionWake', () => {
   it('exits early without error when the FSM is in a terminal state', async () => {
@@ -39,8 +48,12 @@ describe('runMissionWake', () => {
       const init = runMissionInit({ dir, goal: 'test mission' });
       expect(init.ok).toBe(true);
 
-      // Create the lock directory manually to simulate an in-flight wake.
+      // Create the lock directory manually to simulate an in-flight wake. It
+      // must carry a LIVE owner PID — a bare/no-PID lock is now treated as
+      // stale and reclaimed (FIX 2), so to exercise the lockHeld path we stamp
+      // this (alive) test process as the holder.
       mkdirSync(join(dir, '.lock'));
+      writeFileSync(join(dir, '.lock', 'pid'), String(process.pid), 'utf8');
 
       const result = await runMissionWake({ stateDir: dir });
       expect(result.lockHeld).toBe(true);
@@ -50,5 +63,52 @@ describe('runMissionWake', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('resolveWakeMaxTurns (FIX 1b)', () => {
+  it('uses the per-wake turn budget when it is below the agent ceiling', () => {
+    // Budget 10, agent maxTurns 50 → the budget wins (the bug: query() ignored
+    // the budget and defaulted to 100 turns).
+    expect(resolveWakeMaxTurns(10, 50)).toBe(10);
+  });
+
+  it('caps at the agent ceiling when the budget exceeds it', () => {
+    expect(resolveWakeMaxTurns(80, 50)).toBe(50);
+  });
+
+  it('falls back to the budget when no agent ceiling is given', () => {
+    expect(resolveWakeMaxTurns(10, undefined)).toBe(10);
+  });
+
+  it('never returns the 100-turn query default for a default budget', () => {
+    // The whole point: a default per-wake budget (10) must bound the wake.
+    expect(resolveWakeMaxTurns(10, 50)).not.toBe(100);
+    expect(resolveWakeMaxTurns(10, 50)).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('sov mission run — CLI registration (FIX 1)', () => {
+  it('registers the `run` subcommand under `mission` (so the wake path is reachable)', () => {
+    const res = spawnSync('bun', [MAIN_TS, 'mission', '--help'], { encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    const out = `${res.stdout}${res.stderr}`;
+    // The command group must list `run` alongside `init`.
+    expect(out).toMatch(/\brun\b/);
+    expect(out).toContain('init');
+  });
+
+  it('`mission run --help` documents the required --state-dir option', () => {
+    const res = spawnSync('bun', [MAIN_TS, 'mission', 'run', '--help'], { encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    const out = `${res.stdout}${res.stderr}`;
+    expect(out).toContain('--state-dir');
+  });
+
+  it('`mission run` without --state-dir fails (required option enforced)', () => {
+    const res = spawnSync('bun', [MAIN_TS, 'mission', 'run'], { encoding: 'utf8' });
+    // Commander exits non-zero on a missing required option.
+    expect(res.status).not.toBe(0);
+    expect(`${res.stdout}${res.stderr}`).toContain('state-dir');
   });
 });

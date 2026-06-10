@@ -82,4 +82,16 @@ describe('formatMissionInitResult', () => {
     expect(output).toContain('bootstrapped');
     expect(output).toContain(missionDir);
   });
+
+  // FIX 1c — the next-steps blurb must point at the real `sov mission run
+  // --state-dir` command, not the deprecated `sov chat --agent ...` form that
+  // was removed in the Phase-16 revert.
+  test('next-steps references `sov mission run --state-dir`, not the retired `sov chat`', () => {
+    const parent = makeTmpDir();
+    const missionDir = join(parent, 'next-steps-mission');
+    const result = runMissionInit({ dir: missionDir, goal: 'A goal.' });
+    const output = formatMissionInitResult(result);
+    expect(output).toContain(`sov mission run --state-dir ${missionDir}`);
+    expect(output).not.toContain('sov chat');
+  });
 });

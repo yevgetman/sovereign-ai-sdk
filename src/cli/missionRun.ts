@@ -36,6 +36,24 @@ import type { Tool, ToolContext } from '../tool/types.js';
 const MISSION_AGENT_NAME = 'scheduled-mission';
 const DEFAULT_MAX_TOKENS = 4096;
 
+/** Resolve the wake's `query()` turn ceiling.
+ *
+ *  FIX 1b — the wake is a *bounded* unit of work: the mission's
+ *  `perWakeTurnBudget` (default 10, set at `mission init`) caps how many
+ *  tool-use continuation turns one wake may take. Previously the wake passed
+ *  only `userSettings.maxTurns`; when that was unset, `query()` fell back to its
+ *  100-turn default and the per-wake budget was silently ignored — a wake could
+ *  run 100 turns instead of the intended 10.
+ *
+ *  The agent definition's own `maxTurns` is an additional ceiling: if the agent
+ *  declares a lower bound than the budget, honor the lower one. (`agentMaxTurns`
+ *  is always set in practice — the loader defaults it — but it's optional here
+ *  so the helper is independently testable.) */
+export function resolveWakeMaxTurns(perWakeTurnBudget: number, agentMaxTurns?: number): number {
+  if (agentMaxTurns === undefined) return perWakeTurnBudget;
+  return Math.min(perWakeTurnBudget, agentMaxTurns);
+}
+
 export type MissionWakeOpts = {
   readonly stateDir: string;
   /** Optional bundle override. Defaults to the standard bundle lookup
@@ -191,7 +209,13 @@ async function runMissionWakeLocked(
           }
         : {}),
       maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-      ...(userSettings.maxTurns !== undefined ? { maxTurns: userSettings.maxTurns } : {}),
+      // FIX 1b — bound the wake by the mission's per-wake turn budget (capped by
+      // the agent's own maxTurns), NOT query()'s 100-turn default. A user-level
+      // maxTurns, when set lower, tightens it further.
+      maxTurns: Math.min(
+        resolveWakeMaxTurns(missionFiles.state.perWakeTurnBudget, agentDef.maxTurns),
+        userSettings.maxTurns ?? Number.POSITIVE_INFINITY,
+      ),
       cacheEnabled,
       memoryManager,
       sessionId: 'mission-wake',
