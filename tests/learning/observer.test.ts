@@ -52,6 +52,31 @@ describe('LearningObserver', () => {
     expect(records[0].tool_input_hash).toMatch(/^sha256:/);
   });
 
+  test('redacts secrets in tool_input_summary and envelope summary (audit 2026-06-10)', async () => {
+    const obs = new LearningObserver({ harnessHome: home, cwd, sessionId: 'sess-r' });
+    obs.observe({
+      toolName: 'Bash',
+      toolInput: {
+        command: 'curl -H "authorization: Bearer sk-ant-deadbeef0123456789abcd" https://x',
+      },
+      status: 'error',
+      durationMs: 5,
+      observationEnvelope: {
+        status: 'error',
+        summary: 'failed with token sk-ant-deadbeef0123456789abcd in the URL',
+      },
+    });
+    await obs.drain();
+    const project = getProjectId(cwd);
+    const raw = readFileSync(observationsPath(home, project.id), 'utf-8');
+    expect(raw).not.toContain('sk-ant-deadbeef0123456789abcd');
+    expect(raw).toContain('[REDACTED]');
+    // The hash is over the RAW input (stable identity), so it still differs from
+    // the redacted summary — provenance preserved.
+    const rec = JSON.parse(raw.trim());
+    expect(rec.tool_input_hash).toMatch(/^sha256:/);
+  });
+
   test('disabled observer is a no-op', async () => {
     const obs = new LearningObserver({
       harnessHome: home,

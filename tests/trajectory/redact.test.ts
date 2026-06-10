@@ -53,6 +53,19 @@ describe('redactForce', () => {
     expect(out).not.toContain('secrettoken123');
   });
 
+  // Audit 2026-06-10 — the common production shape is a tool result carrying
+  // JSON as a STRING, re-stringified before redaction, so the quotes are
+  // escaped. The Basic-auth value has no Bearer/api-key shape, so only the
+  // auth-header pattern can catch it.
+  test('redacts escaped-quote authorization headers (Basic auth in stringified JSON)', () => {
+    const record = JSON.stringify({
+      output: JSON.stringify({ authorization: 'Basic dXNlcjpwdw==' }),
+    });
+    expect(record).toContain('\\"authorization\\"'); // confirm the escaped shape
+    const out = redactForce(record);
+    expect(out).not.toContain('dXNlcjpwdw==');
+  });
+
   test('redacts PEM private key blocks', () => {
     const pem =
       '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...lots\n-----END RSA PRIVATE KEY-----';

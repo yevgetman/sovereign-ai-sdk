@@ -51,8 +51,14 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
     name: 'jwt',
     regex: /\beyJ[a-zA-Z0-9_\-=]{10,}\.eyJ[a-zA-Z0-9_\-=]{10,}\.[a-zA-Z0-9_\-=]{10,}\b/g,
   },
-  // Authorization headers in serialized JSON / curl.
+  // Authorization headers in serialized JSON / curl. Two forms: a plain JSON
+  // key (`"authorization":"…"`) and an escaped key inside a stringified-JSON
+  // value (`\"authorization\":\"…\"`) — the latter is the common case when a
+  // tool result carries JSON as a string and the whole record is stringified
+  // again before redaction (audit 2026-06-10). The bearer/api-key patterns
+  // already catch token VALUES; this also masks Basic-auth and other schemes.
   { name: 'auth-header', regex: /"authorization"\s*:\s*"[^"]+"/gi },
+  { name: 'auth-header-escaped', regex: /\\"authorization\\"\s*:\s*\\"[^"\\]+\\"/gi },
   // Common credential file paths (we don't read them; we redact references to them).
   { name: 'aws-creds-path', regex: /\B~\/\.aws\/credentials\b/g },
   { name: 'ssh-private', regex: /\B~\/\.ssh\/id_(rsa|ed25519|ecdsa|dsa)(\.pub)?\b/g },

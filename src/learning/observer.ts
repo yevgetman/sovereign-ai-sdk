@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { redact } from '../trajectory/redact.js';
 import { ensureLearningDirs, observationsPath } from './paths.js';
 import { getProjectId } from './project.js';
 import type { Observation, ObservationStatus } from './types.js';
@@ -110,9 +111,21 @@ export class LearningObserver {
     if (inputJson === null) return null;
     const project = getProjectId(this.cwd);
     const id = `obs-${new Date().toISOString().slice(0, 10)}-${randomBytes(4).toString('hex')}`;
+    // Hash the raw input (stable identity), but redact anything that reaches the
+    // corpus on disk: the summary is read back verbatim into the synthesizer's
+    // LLM request, so an inline token / URL key / credential in a tool input or
+    // its envelope summary would otherwise be sent to a provider (audit 2026-06-10;
+    // matches the trace/trajectory/audit writers per Invariant #15).
     const tool_input_hash = `sha256:${createHash('sha256').update(inputJson).digest('hex')}`;
+    const redactedJson = redact(inputJson);
     const tool_input_summary =
-      inputJson.length > SUMMARY_MAX ? `${inputJson.slice(0, SUMMARY_MAX - 3)}...` : inputJson;
+      redactedJson.length > SUMMARY_MAX
+        ? `${redactedJson.slice(0, SUMMARY_MAX - 3)}...`
+        : redactedJson;
+    const observation_envelope =
+      input.observationEnvelope !== undefined
+        ? { ...input.observationEnvelope, summary: redact(input.observationEnvelope.summary) }
+        : undefined;
     return {
       id,
       ts: new Date().toISOString(),
@@ -124,9 +137,7 @@ export class LearningObserver {
       tool_input_summary,
       status: input.status,
       duration_ms: input.durationMs,
-      ...(input.observationEnvelope !== undefined
-        ? { observation_envelope: input.observationEnvelope }
-        : {}),
+      ...(observation_envelope !== undefined ? { observation_envelope } : {}),
       ...(input.traceId !== undefined ? { trace_id: input.traceId } : {}),
     };
   }
