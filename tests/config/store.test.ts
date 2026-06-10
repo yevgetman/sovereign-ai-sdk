@@ -113,6 +113,44 @@ describe('config store', () => {
     expect(formatValue({ a: 1 })).toContain('"a": 1');
   });
 
+  // Audit 2026-06-10 — channel secrets were schema-valid but unredacted, so
+  // `sov config show` / any config dump printed them in clear.
+  test('redactSecrets masks channel secrets (botToken/signingSecret/authToken/secret)', () => {
+    const settings = {
+      gateway: {
+        channels: {
+          slack: { botToken: 'xoxb-real', signingSecret: 'sign-real' },
+          telegram: { botToken: 'tg-real' },
+          webhook: { secret: 'hook-real' },
+          sms: { accountSid: 'AC123', authToken: 'auth-real' },
+        },
+      },
+    } as Record<string, unknown>;
+    const out = redactSecrets(settings);
+    const pick = (...path: string[]): unknown => getAt(out, path.join('.'));
+    expect(pick('gateway', 'channels', 'slack', 'botToken')).toBe('***');
+    expect(pick('gateway', 'channels', 'slack', 'signingSecret')).toBe('***');
+    expect(pick('gateway', 'channels', 'telegram', 'botToken')).toBe('***');
+    expect(pick('gateway', 'channels', 'webhook', 'secret')).toBe('***');
+    expect(pick('gateway', 'channels', 'sms', 'authToken')).toBe('***');
+  });
+
+  // Audit 2026-06-10 — a __proto__/constructor/prototype dotpath segment must
+  // never traverse into Object.prototype (prototype pollution).
+  test('setAt rejects prototype-pollution dotpaths', () => {
+    expect(() => setAt({}, '__proto__.polluted', 'PWNED')).toThrow();
+    expect(() => setAt({}, 'a.constructor.x', 1)).toThrow();
+    expect(() => setAt({}, 'prototype.x', 1)).toThrow();
+    // Pollution did NOT happen.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  test('unsetAt rejects prototype-pollution dotpaths', () => {
+    expect(() => unsetAt({}, '__proto__.hasOwnProperty')).toThrow();
+    // hasOwnProperty still works on a fresh object.
+    expect(Object.prototype.hasOwnProperty.call({ a: 1 }, 'a')).toBe(true);
+  });
+
   test('writeConfig is atomic — failure leaves no partial file', () => {
     expect(() => writeConfig({ permissionMode: 'loud' as never })).toThrow();
     expect(existsSync(path)).toBe(false);

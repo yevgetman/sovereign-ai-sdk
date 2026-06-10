@@ -8,8 +8,22 @@ import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from './paths.js';
 import { type Settings, SettingsSchema } from './schema.js';
 
-const SECRET_KEYS = new Set(['apiKey', 'token']);
+const SECRET_KEYS = new Set([
+  'apiKey',
+  'token',
+  // Channel secrets (gateway.channels.*) — schema-valid config that must not
+  // print in clear from `sov config show` or any dump (audit 2026-06-10).
+  'botToken',
+  'signingSecret',
+  'authToken',
+  'secret',
+]);
 const SECRET_LIST_KEYS = new Set(['apiKeys']);
+
+/** Dotpath segments that would traverse into the prototype chain. Rejected
+ *  before any walk so `set __proto__.x` / `unset constructor.y` can't pollute
+ *  Object.prototype (audit 2026-06-10). */
+const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /**
  * Resolve the config file path. Precedence: an explicit `envOverride` path →
@@ -92,7 +106,13 @@ export function writeConfig(settings: Settings, path?: string): void {
 function splitPath(dotPath: string): string[] {
   const trimmed = dotPath.trim();
   if (!trimmed) throw new Error('config path must not be empty');
-  return trimmed.split('.');
+  const keys = trimmed.split('.');
+  for (const key of keys) {
+    if (FORBIDDEN_PATH_SEGMENTS.has(key)) {
+      throw new Error(`config path segment "${key}" is not allowed`);
+    }
+  }
+  return keys;
 }
 
 // Accepts the broad object type as well as Settings — getAt only walks the

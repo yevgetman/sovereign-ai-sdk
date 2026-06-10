@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -477,6 +477,61 @@ describe('expandSkillPrompt', () => {
       });
       const expanded = await expandSkillPrompt(skill, { cwd: dir });
       expect(expanded).toContain('a $& b $$ c');
+    });
+  });
+
+  // Audit 2026-06-10 — model/user args must be inert text, never shell. Args
+  // were merged BEFORE interpolation, so `` `!cmd` `` in args executed.
+  test('does NOT run shell embedded in args (via {{args}})', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'pwned-args.txt');
+      const skill = makeSkill({
+        path: join(dir, 'echo.md'),
+        realpath: join(dir, 'echo.md'),
+        dir, // real, existing cwd — so the shell COULD run if the bug were present
+        allowShellInterpolation: true,
+        body: 'Topic: {{args}}',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        args: `x !\`touch ${marker}\``,
+        cwd: dir,
+      });
+      expect(existsSync(marker)).toBe(false); // shell did NOT run
+      expect(expanded).toContain('Topic: x'); // args still substituted as text
+    });
+  });
+
+  test('does NOT run shell embedded in appended args (no placeholder)', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'pwned-append.txt');
+      const skill = makeSkill({
+        path: join(dir, 'plain.md'),
+        realpath: join(dir, 'plain.md'),
+        dir,
+        allowShellInterpolation: true,
+        body: 'A plain skill with no placeholder.',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        args: `!\`touch ${marker}\``,
+        cwd: dir,
+      });
+      expect(existsSync(marker)).toBe(false); // shell did NOT run
+      expect(expanded).toContain('User arguments:');
+    });
+  });
+
+  test('still runs the skill AUTHOR’s intentional inline shell in the body', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'author.md'),
+        realpath: join(dir, 'author.md'),
+        dir,
+        allowShellInterpolation: true,
+        body: "VAL=!`printf '%s' ready` {{args}}",
+      });
+      const expanded = await expandSkillPrompt(skill, { args: 'go', cwd: dir });
+      expect(expanded).toContain('VAL=ready');
+      expect(expanded).toContain('go');
     });
   });
 });

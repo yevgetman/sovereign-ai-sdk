@@ -195,31 +195,38 @@ export async function expandSkillText(
   const hasPlaceholder = /\{\{\s*args\s*\}\}/.test(text);
   // Function replacers insert the value VERBATIM. A plain-string replacement
   // would interpret `$&`, `$$`, `` $` ``, `$'`, `$<n>` in the value as special
-  // patterns — so user args (or a skill dir path) containing a `$` sequence
-  // would be mangled instead of substituted literally.
-  let withVariables = text
-    .replace(/\{\{\s*args\s*\}\}/g, () => args)
+  // patterns — so a value containing a `$` sequence would be mangled instead of
+  // substituted literally.
+  //
+  // Trusted environment variables (skill dir, session id, plugin root) are
+  // substituted first. Model/user `args` are merged LAST and are NEVER passed
+  // through shell interpolation — substituting them before interpolation let a
+  // `` `!cmd` `` in args execute via Bun.spawn(bash) with no permission prompt,
+  // bypassing the load-time guard (audit 2026-06-10). Interpolating the body
+  // BEFORE merging args keeps the skill author's intentional inline shell while
+  // making args inert text.
+  const withEnv = text
     .replace(/\$\{HARNESS_SKILL_DIR\}/g, () => skill.dir)
     .replace(/\$\{HARNESS_SESSION_ID\}/g, () => opts.sessionId ?? '')
     // CC-compat: a plugin skill/command body names its bundled files via
     // ${CLAUDE_PLUGIN_ROOT}. Resolves to the plugin install dir for
     // plugin-sourced skills; '' otherwise (so the var never renders literally).
-    // A path-STRING substitution (plugin shell is disabled), not a shell arg.
     .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, () => skill.pluginRoot ?? '');
-  // Skills that don't reference {{args}} would otherwise silently drop the
-  // user-supplied slash arguments. Append them so the model still sees the
-  // path or topic the user typed (e.g. `/review ~/code/babyboard/`).
-  if (argsTrimmed && !hasPlaceholder) {
-    withVariables += `\n\nUser arguments: ${argsTrimmed}`;
-  }
+
   // Defense in depth: gate on the field AND re-check the source. Even a
   // mis-constructed plugin Skill with `allowShellInterpolation: true` must NOT
-  // run shell — the `source !== 'plugin'` clause is the backstop. When shell is
-  // disallowed, return the variable-substituted text WITHOUT shell expansion:
-  // the `` `!cmd` `` literal stays as inert text, never executed.
+  // run shell — the `source !== 'plugin'` clause is the backstop.
   const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
-  if (!shellAllowed) return withVariables;
-  return interpolateShellCommands(withVariables, skill.dir);
+  const body = shellAllowed ? await interpolateShellCommands(withEnv, skill.dir) : withEnv;
+
+  // Merge args as INERT text: substitute {{args}} and/or append them. Skills
+  // that don't reference {{args}} would otherwise silently drop the user's slash
+  // arguments, so append them (e.g. `/review ~/code/babyboard/`).
+  let result = body.replace(/\{\{\s*args\s*\}\}/g, () => args);
+  if (argsTrimmed && !hasPlaceholder) {
+    result += `\n\nUser arguments: ${argsTrimmed}`;
+  }
+  return result;
 }
 
 export async function reloadSkill(skill: Skill, warn?: (message: string) => void): Promise<Skill> {
