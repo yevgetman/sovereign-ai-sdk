@@ -259,3 +259,73 @@ describe('POST /v1/chat/completions with tool calls', () => {
     expect(body.choices?.[0]?.finish_reason).toBe('stop');
   });
 });
+
+// FIX 4 — query() emits usage_delta per provider call (cumulative within a
+// call, reset at each new call). The non-streaming drain previously kept
+// only the LAST event, so an N-call tool loop reported only the final
+// call's tokens. The drain must ACCUMULATE: sum each provider call's final
+// input/output tokens into the response usage.
+describe('POST /v1/chat/completions (non-streaming) usage accumulation across a tool loop', () => {
+  let home: string;
+  let runtime: Runtime;
+
+  beforeEach(async () => {
+    home = mkdtempSync(join(tmpdir(), 'openai-usage-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    // Script a 2-provider-call tool loop:
+    //   call 1: tool_use(Bash echo)  → usage_delta { outputTokens: 1 }
+    //   call 2: text("done.")        → usage_delta { outputTokens: 1 }
+    // Each scripted entry emits exactly one usage_delta carrying that
+    // call's tokens. The correct accumulated total is the SUM across both
+    // calls (2), not the last call's value (1).
+    MockProvider.toolUseScript = [
+      { kind: 'tool_use', name: 'Bash', input: { command: 'echo hello-usage' } },
+      { kind: 'text', text: 'done.' },
+    ];
+    // preflight: false so the boot preflight stream() call doesn't consume
+    // the first scripted entry; the request below must drive both calls.
+    runtime = await buildRuntime({
+      harnessHome: home,
+      cwd: process.cwd(),
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+      cronEnabled: false,
+    });
+    MockProvider.resetScriptCursor();
+  });
+
+  afterEach(async () => {
+    await runtime.dispose();
+    MockProvider.toolUseScript = undefined;
+    MockProvider.resetScriptCursor();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('reported usage equals the sum of both provider calls (not just the last)', async () => {
+    const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'harness-default',
+        messages: [{ role: 'user', content: 'run something' }],
+        stream: false,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>;
+    };
+    // Two calls ran (the loop reached the "done." continuation).
+    expect(body.choices?.[0]?.message?.content).toBe('done.');
+    // Each call emitted outputTokens: 1 → the accumulated completion_tokens
+    // is 2. Before FIX 4 the drain kept only the last call → it would be 1.
+    expect(body.usage?.completion_tokens).toBe(2);
+    expect(body.usage?.prompt_tokens).toBe(0);
+    expect(body.usage?.total_tokens).toBe(2);
+  });
+});

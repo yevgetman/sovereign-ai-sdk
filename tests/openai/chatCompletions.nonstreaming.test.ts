@@ -234,4 +234,46 @@ describe('POST /v1/chat/completions (non-streaming)', () => {
       MockProvider.throwOnNext = undefined;
     }
   });
+
+  // FIX 2 — a valid-but-unconfigured model name (in SUPPORTED_MODELS, but no
+  // provider credential available) makes resolveModelForRequest →
+  // resolveProvider throw CredentialUnavailableError SYNCHRONOUSLY in the
+  // resolution step. Previously the catch only special-cased
+  // InvalidModelError and re-threw everything else → Hono's default 500
+  // plain-text. The fix routes non-InvalidModelError through the same
+  // buildProviderErrorResponse classifier the drain path uses, so a missing
+  // credential surfaces as a 401 invalid_api_key envelope.
+  test('returns 401 OpenAI envelope (not a 500 plain text) for a valid-but-unconfigured model', async () => {
+    // Clear provider key env vars so the openai-family credential is
+    // guaranteed absent regardless of the ambient CI/local environment.
+    // The runtime's harnessHome is a fresh temp dir with no pool/keychain
+    // credentials, so resolveProvider('openai', 'gpt-4o-mini') throws
+    // CredentialUnavailableError.
+    const savedOpenai = process.env.OPENAI_API_KEY;
+    const savedAnthropic = process.env.ANTHROPIC_API_KEY;
+    // biome-ignore lint/performance/noDelete: must truly unset so the resolver finds no credential.
+    delete process.env.OPENAI_API_KEY;
+    // biome-ignore lint/performance/noDelete: must truly unset so the resolver finds no credential.
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(401);
+      expect(res.headers.get('content-type')).toMatch(/application\/json/);
+      const body = (await res.json()) as { error?: { message?: string; type?: string } };
+      expect(body.error?.type).toBe('invalid_api_key');
+      expect(body.error?.message).toBeTruthy();
+    } finally {
+      if (savedOpenai !== undefined) process.env.OPENAI_API_KEY = savedOpenai;
+      if (savedAnthropic !== undefined) process.env.ANTHROPIC_API_KEY = savedAnthropic;
+    }
+  });
 });

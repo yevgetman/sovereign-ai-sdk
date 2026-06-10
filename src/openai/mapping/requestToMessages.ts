@@ -15,7 +15,19 @@
 // (see src/core/types.ts — Message is a discriminated union of
 // UserMessage | AssistantMessage; tool_result is only valid on the user
 // side of the conversation).
+//
+// FIX 1 — Anthropic requires that ALL tool_result blocks answering one
+// assistant turn live in the SINGLE user message immediately following it.
+// OpenAI clients answer parallel tool_calls with one `tool` message per
+// call, so the naive 1:1 mapping yields assistant[A,B] → user[result A] →
+// user[result B], which upstream rejects with a 400 (wedging the
+// conversation). After the per-message mapping we therefore (a) merge
+// consecutive tool-result-only user messages into one and (b) run the
+// repo's repairMissingToolResults() so any orphaned tool_use (e.g. a
+// client replaying the harness's own streamed tool_calls without results)
+// gets a synthetic result rather than a 400.
 
+import { repairMissingToolResults } from '../../core/transcriptRepair.js';
 import type { ContentBlock, Message } from '../../core/types.js';
 import type { ChatMessage, ChatRequest, ToolCall } from './schema.js';
 
@@ -37,7 +49,49 @@ export function requestToMessages(req: ChatRequest): RequestToMessagesResult {
     messages.push(mapped);
   }
 
-  return { messages, extraSystemSegments };
+  // FIX 1 — collapse consecutive tool-result-only user messages (one per
+  // OpenAI `tool` message) into a single user message, then synthesize
+  // results for any orphaned tool_use so the sequence is Anthropic-valid.
+  const merged = mergeConsecutiveToolResultMessages(messages);
+  const { messages: repaired } = repairMissingToolResults(merged);
+
+  return { messages: repaired, extraSystemSegments };
+}
+
+/** True iff every block in a user message is a tool_result. Such messages
+ *  come from OpenAI `tool` role entries; consecutive runs of them answer
+ *  one assistant turn's parallel tool_calls and MUST be merged into a
+ *  single user message (Anthropic requires all results for an assistant
+ *  turn in the immediately-next message). A user message carrying any text
+ *  block is a real prompt turn and is left untouched. */
+function isToolResultOnlyUser(msg: Message): boolean {
+  return (
+    msg.role === 'user' &&
+    msg.content.length > 0 &&
+    msg.content.every((block) => block.type === 'tool_result')
+  );
+}
+
+/** Merge runs of consecutive tool-result-only user messages into one user
+ *  message that concatenates their tool_result blocks, preserving order.
+ *  Immutable: returns a fresh array; never mutates the input messages. */
+function mergeConsecutiveToolResultMessages(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  for (const msg of messages) {
+    const prev = out[out.length - 1];
+    if (
+      prev !== undefined &&
+      isToolResultOnlyUser(prev) &&
+      isToolResultOnlyUser(msg) &&
+      prev.role === 'user' &&
+      msg.role === 'user'
+    ) {
+      out[out.length - 1] = { role: 'user', content: [...prev.content, ...msg.content] };
+      continue;
+    }
+    out.push(msg);
+  }
+  return out;
 }
 
 function mapNonSystemMessage(msg: Exclude<ChatMessage, { role: 'system' }>): Message {

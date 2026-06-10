@@ -35,25 +35,19 @@ import type {
   Message,
   SystemSegment,
   Terminal,
-  TokenUsage,
 } from '../../core/types.js';
 import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { AskResponse } from '../../permissions/types.js';
 import { isCredentialUnavailable } from '../../providers/errors.js';
-import { disposeBus, getOrCreateBus } from '../../server/eventBus.js';
 import { buildSessionToolContext } from '../../server/routes/turns.js';
 import type { Runtime } from '../../server/runtime.js';
 import { blocksToOpenAI } from '../mapping/blocksToOpenAI.js';
 import { requestToMessages } from '../mapping/requestToMessages.js';
 import { ChatRequestSchema } from '../mapping/schema.js';
 import { InvalidModelError, resolveModelForRequest } from '../modelResolution.js';
-import {
-  DONE_MARKER,
-  buildDelegatorProgressPayload,
-  buildFinalChunk,
-} from '../streaming/chunks.js';
+import { DONE_MARKER, buildFinalChunk } from '../streaming/chunks.js';
 import { translateStream } from '../streaming/sseTranslator.js';
 
 /** OpenAI-shaped error envelope. The route returns 400/401/501 with this
@@ -116,7 +110,15 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       if (err instanceof InvalidModelError) {
         return c.json(errorBody(err.message, 'invalid_request_error', 'model_not_found'), 400);
       }
-      throw err;
+      // FIX 2 — GET /v1/models advertises every SUPPORTED_MODELS entry, but
+      // a client may pick one whose provider key isn't configured. In that
+      // case resolveProvider throws synchronously here (e.g.
+      // CredentialUnavailableError, ProviderHttpError). Route it through the
+      // same classifier the drain path uses so it surfaces as the proper
+      // OpenAI error envelope (CredentialUnavailableError → 401
+      // invalid_api_key, ProviderHttpError → mirrored status) instead of
+      // escaping as Hono's default 500 plain-text.
+      return buildProviderErrorResponse(c, err);
     }
 
     // 3) Map the OpenAI messages[] onto internal Message[] + lift any
@@ -309,7 +311,38 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // streamSSE callback and emit a final-stop chunk + [DONE] so the
     // client sees a well-formed (if truncated) wire instead of a
     // half-finished stream. `runtime.disposeSession` always runs.
+    //
+    // FIX 3 — a provider failure BEFORE the first token is caught by
+    // query() into Terminal{reason:'error'}; translateStream collapses
+    // that to a clean finish_reason 'stop' + [DONE], so the client would
+    // see an empty but HTTP-200 "successful" stream and never learn it
+    // failed. To surface it as a real non-200, we pull the FIRST generator
+    // step BEFORE opening the SSE stream: if the generator terminates
+    // immediately with reason:'error', return the structured OpenAI error
+    // envelope (a real non-200) instead of streaming. If the first step is
+    // real content (or a non-error terminal), we re-feed it into the
+    // stream so nothing is dropped, and proceed exactly as before.
     if (parsed.stream === true) {
+      const gen = buildQuery();
+      let firstStep: IteratorResult<unknown, Terminal>;
+      try {
+        firstStep = (await gen.next()) as IteratorResult<unknown, Terminal>;
+      } catch (err) {
+        // Defense-in-depth: an exception that escapes query() before the
+        // first event (rather than being caught into a Terminal). Surface
+        // the same structured envelope. Tear down the session first — we
+        // never opened the stream, so this returns a normal JSON response.
+        console.error('[openai] streaming /v1/chat/completions pre-stream error:', err);
+        await runtime.disposeSession(sessionId);
+        return buildProviderErrorResponse(c, err);
+      }
+      if (firstStep.done === true && firstStep.value.reason === 'error') {
+        // Provider failed before emitting any event. Return a real non-200
+        // OpenAI error envelope rather than a 200 empty [DONE] stream.
+        await runtime.disposeSession(sessionId);
+        return buildProviderErrorResponse(c, firstStep.value.error);
+      }
+
       return streamSSE(c, async (stream) => {
         // T8 — capture the final assistant_message as it passes through
         // the stream so we can persist after the wire flush. We wrap
@@ -317,62 +350,43 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         // observes every yield without modifying it. The translator
         // sees the same shape; we just intercept assistant_message
         // events.
+        //
+        // FIX 3 — the generator has already had its first step consumed
+        // by the peek above. `feedFromFirstStep` re-yields that buffered
+        // first step (when it was a real event) and then drains the rest,
+        // so the translator sees the identical event sequence it would
+        // have without the peek.
         let capturedAssistant: AssistantMessage | undefined;
-        const tee = async function* (
-          inner: ReturnType<typeof query>,
-        ): AsyncGenerator<unknown, unknown, void> {
+        const captureAssistant = (ev: unknown): void => {
+          if (
+            ev !== null &&
+            typeof ev === 'object' &&
+            (ev as { type?: unknown }).type === 'assistant_message'
+          ) {
+            const maybe = (ev as { message?: AssistantMessage }).message;
+            if (maybe !== undefined) capturedAssistant = maybe;
+          }
+        };
+        const feedFromFirstStep = async function* (): AsyncGenerator<unknown, unknown, void> {
+          if (firstStep.done === true) {
+            // Non-error terminal with no events (defensive — the mock and
+            // real providers always emit at least message_start). Return
+            // the terminal so translateStream finalizes cleanly.
+            return firstStep.value;
+          }
+          captureAssistant(firstStep.value);
+          yield firstStep.value;
           for (;;) {
-            const step = await inner.next();
+            const step = await gen.next();
             if (step.done) return step.value;
-            const ev = step.value;
-            if (
-              ev !== null &&
-              typeof ev === 'object' &&
-              (ev as { type?: unknown }).type === 'assistant_message'
-            ) {
-              const maybe = (ev as { message?: AssistantMessage }).message;
-              if (maybe !== undefined) capturedAssistant = maybe;
-            }
-            yield ev;
+            captureAssistant(step.value);
+            yield step.value;
           }
         };
 
-        // Phase 2 T7 — subscribe a side-channel writer to the per-session
-        // event bus that emits the four delegator_* events as
-        // `event: hermes.delegator.progress\ndata: <json>\n\n` SSE frames
-        // interleaved with the OpenAI-shaped main stream. The synthesis
-        // closure (router/progressEvents.ts) publishes onto the bus when
-        // the scheduler dispatches a delegator + its atoms; this subscriber
-        // is purely additive and forwards them to the wire.
-        //
-        // The bus drains its buffer immediately on subscribe, so any
-        // delegator events published before this point (e.g., from a
-        // recompaction hop's lifecycle) still flow out. Errors from
-        // `stream.write` (closed client connection) are swallowed — the
-        // main stream's error path owns recovery; the side-channel is
-        // best-effort.
-        const bus = getOrCreateBus(sessionId);
-        const DELEGATOR_EVENT_TYPES = new Set<string>([
-          'delegator_plan',
-          'delegator_atom_started',
-          'delegator_atom_complete',
-          'delegator_complete',
-        ]);
-        const unsubscribe = bus.subscribe((event) => {
-          if (!DELEGATOR_EVENT_TYPES.has(event.type)) return;
-          const payload = buildDelegatorProgressPayload(
-            event as Parameters<typeof buildDelegatorProgressPayload>[0],
-          );
-          // Fire-and-forget — stream.write returns Promise<void>; we void
-          // it so the bus subscriber callback stays synchronous (publish
-          // is synchronous on the bus side).
-          void stream.write(`event: hermes.delegator.progress\ndata: ${payload}\n\n`);
-        });
-
         try {
-          const gen = buildQuery();
           await translateStream(
-            tee(gen),
+            feedFromFirstStep(),
             { id: responseId, model: parsed.model, created },
             async (line) => {
               await stream.write(line);
@@ -383,7 +397,9 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           // doesn't hang waiting for a terminator. We don't have a
           // structured way to surface the error inside the OpenAI
           // chunk shape (no `error` field on chat.completion.chunk),
-          // so we close clean and log server-side.
+          // so we close clean and log server-side. (A pre-first-token
+          // failure is already handled above as a non-200; this catch
+          // covers a failure AFTER streaming has started.)
           console.error('[openai] streaming /v1/chat/completions error:', err);
           try {
             const finalChunk = buildFinalChunk('stop', {
@@ -398,10 +414,6 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             // Nothing more to do.
           }
         } finally {
-          // T7 — drop the bus subscriber FIRST so any delegator events
-          // published during disposeSession (or a late publish from a
-          // background hop) don't try to write to a closed stream.
-          unsubscribe();
           // T8 — persist the final assistant message AFTER the wire
           // has flushed. Best-effort: a persistence failure should not
           // affect the response the client already received.
@@ -416,11 +428,6 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             }
           }
           await runtime.disposeSession(sessionId);
-          // This bus was created by getOrCreateBus() above. OpenAI-API sessions
-          // never go through the /sessions/:id/events route, so nothing else
-          // ever removes the entry — dispose it here or `sov serve` leaks one
-          // ServerEventBus per streaming request, unbounded.
-          disposeBus(sessionId);
         }
       });
     }
@@ -455,11 +462,33 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       const gen = buildQuery();
 
       let finalAssistant: AssistantMessage | undefined;
-      let latestUsage: TokenUsage | undefined;
       let terminal: Terminal = {
         reason: 'error',
         error: new Error('query() never terminated'),
       };
+
+      // FIX 4 — accumulate usage across every provider call in the tool
+      // loop. query() emits usage_delta per provider call: for Anthropic,
+      // one at message_start (carrying inputTokens) and one at message_delta
+      // (carrying the call's FINAL cumulative outputTokens). Both deltas
+      // within a single call are cumulative-from-zero FOR THAT CALL, so we
+      // must NOT sum the two within-call deltas — we keep the last-seen
+      // value per field within a call, then SUM those per-call finals across
+      // calls. A new provider call begins at each `message_start`, so we
+      // flush the prior call's accumulator into the running total there (and
+      // once more after the generator terminates for the last call).
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      let callInputTokens: number | undefined;
+      let callOutputTokens: number | undefined;
+      let sawAnyCall = false;
+      const flushCallUsage = (): void => {
+        if (callInputTokens !== undefined) totalInputTokens += callInputTokens;
+        if (callOutputTokens !== undefined) totalOutputTokens += callOutputTokens;
+        callInputTokens = undefined;
+        callOutputTokens = undefined;
+      };
+
       for (;;) {
         const step = await gen.next();
         if (step.done) {
@@ -468,13 +497,24 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         }
         const ev = step.value;
         if (ev && typeof ev === 'object' && 'type' in ev) {
-          if (ev.type === 'assistant_message') {
+          if (ev.type === 'message_start') {
+            // A new provider call has begun. Flush the previous call's
+            // accumulated usage before resetting the per-call tracker.
+            if (sawAnyCall) flushCallUsage();
+            sawAnyCall = true;
+          } else if (ev.type === 'assistant_message') {
             finalAssistant = ev.message;
           } else if (ev.type === 'usage_delta') {
-            latestUsage = ev.usage;
+            // Overwrite (not add) within a call — each field's latest value
+            // is the cumulative-for-this-call figure.
+            if (ev.usage.inputTokens !== undefined) callInputTokens = ev.usage.inputTokens;
+            if (ev.usage.outputTokens !== undefined) callOutputTokens = ev.usage.outputTokens;
           }
         }
       }
+      // Flush the final provider call's usage (no trailing message_start
+      // closes it). Guard on sawAnyCall so a zero-call run stays at 0.
+      if (sawAnyCall) flushCallUsage();
 
       // H2(a) — terminal-level error path. query() caught a provider
       // exception and surfaced a Terminal with reason='error'. Return
@@ -509,10 +549,12 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       const finishReason = mapTerminalToFinishReason(terminal);
 
       // OpenAI's `usage` object uses prompt/completion/total tokens; our
-      // internal TokenUsage uses input/output. Map directly; missing
-      // fields default to 0 (some providers don't emit one or the other).
-      const promptTokens = latestUsage?.inputTokens ?? 0;
-      const completionTokens = latestUsage?.outputTokens ?? 0;
+      // internal TokenUsage uses input/output. FIX 4 — these are the
+      // accumulated per-call totals across the whole tool loop (not just
+      // the final provider call). Missing fields default to 0 (some
+      // providers don't emit one or the other).
+      const promptTokens = totalInputTokens;
+      const completionTokens = totalOutputTokens;
 
       return c.json({
         id: responseId,

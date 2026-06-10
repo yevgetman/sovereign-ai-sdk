@@ -37,6 +37,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildOpenAIApp } from '../../src/openai/app.js';
+import { ProviderHttpError } from '../../src/providers/errors.js';
+import { MockProvider } from '../../src/providers/mock.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 describe('POST /v1/chat/completions (streaming)', () => {
@@ -192,5 +194,90 @@ describe('POST /v1/chat/completions (streaming)', () => {
       }),
     });
     expect(res.status).toBe(401);
+  });
+
+  // FIX 3 — a provider failure BEFORE the first token is caught by query()
+  // into Terminal{reason:'error'}; the SSE translator collapses it to a
+  // clean finish_reason 'stop' + [DONE], so the client used to see an empty
+  // but HTTP-200 "successful" stream and never learns it failed. The route
+  // now pulls the FIRST generator event before opening the SSE stream: if
+  // the generator terminates immediately with reason:'error', it returns a
+  // real non-200 OpenAI error envelope instead.
+  test('provider error before the first token returns a non-200 envelope, not a 200 [DONE]', async () => {
+    MockProvider.throwOnNext = new Error('Invalid API key provided');
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: true,
+        }),
+      });
+      // Non-200 (the credential heuristic maps to 401) + a JSON error
+      // envelope — NOT a text/event-stream that ends in [DONE].
+      expect(res.status).toBe(401);
+      expect(res.headers.get('content-type')).toMatch(/application\/json/);
+      const body = (await res.json()) as { error?: { type?: string; message?: string } };
+      expect(body.error?.type).toBe('invalid_api_key');
+      expect(body.error?.message).toContain('Invalid API key');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
+  test('provider error (HTTP 429) before the first token mirrors the upstream status', async () => {
+    MockProvider.throwOnNext = new ProviderHttpError('mock', 429, 'rate limited');
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: true,
+        }),
+      });
+      expect(res.status).toBe(429);
+      const body = (await res.json()) as { error?: { type?: string; message?: string } };
+      expect(body.error?.type).toBe('upstream_error');
+      expect(body.error?.message).toContain('rate limited');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
+  test('successful stream still emits the first content delta (no event dropped by the peek)', async () => {
+    // FIX 3 must not swallow the first real event. The mock emits
+    // message_start then text_delta("Hello"); after peeking the first
+    // event the route must re-feed it so "Hello world." still streams.
+    const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'harness-default',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: true,
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
+    const body = await res.text();
+    const concatenated = body
+      .split('\n')
+      .filter((l) => l.startsWith('data: ') && l.includes('"content":'))
+      .map((l) => {
+        const payload = JSON.parse(l.replace(/^data: /, '')) as {
+          choices?: Array<{ delta?: { content?: string } }>;
+        };
+        return payload.choices?.[0]?.delta?.content ?? '';
+      })
+      .join('');
+    expect(concatenated).toBe('Hello world.');
+    expect(body).toContain('data: [DONE]');
   });
 });
