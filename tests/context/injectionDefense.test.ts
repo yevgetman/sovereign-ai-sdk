@@ -20,6 +20,32 @@ describe('screenContextFile', () => {
     if (!result.ok) expect(result.reason).toContain('U+202E');
   });
 
+  test('strips a single leading UTF-8 BOM and keeps the content', () => {
+    // A benign UTF-8 BOM at position 0 (common from some editors) must NOT
+    // block the whole file. The BOM is stripped; the rest is screened intact.
+    const result = screenContextFile('AGENTS.md', '\uFEFF# Title\nuse tabs not spaces\n');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.text).toBe('# Title\nuse tabs not spaces\n');
+      expect(result.text.startsWith('\uFEFF')).toBe(false);
+    }
+  });
+
+  test('still blocks an interior zero-width char after stripping a leading BOM', () => {
+    // Stripping the leading BOM must not weaken detection of mid-file
+    // invisibles: an interior U+200B (zero-width space) is still a block.
+    const result = screenContextFile('CONTEXT.md', '\uFEFF# Title\nsafe\u200Bevil\n');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('U+200B');
+  });
+
+  test('still blocks an interior BOM (U+FEFF not at position 0)', () => {
+    // Only a position-0 BOM is benign; a U+FEFF anywhere else stays a block.
+    const result = screenContextFile('CONTEXT.md', 'visible\uFEFFhidden');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('U+FEFF');
+  });
+
   test('truncates oversized files with a marker', () => {
     const result = screenContextFile('CONTEXT.md', 'x'.repeat(CONTEXT_SIZE_LIMIT + 10));
     expect(result.ok).toBe(true);

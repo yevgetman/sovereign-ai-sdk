@@ -263,6 +263,91 @@ describe('query() — Phase 2 turn loop', () => {
     expect(secondTurn?.messages.filter((message) => message.role === 'user')).toHaveLength(2);
   });
 
+  test('preserves injected recall context when a UserPromptSubmit hook rewrites the prompt', async () => {
+    // Regression: the UserPromptSubmit hook receives only the ORIGINAL prompt
+    // text, but its rewrittenPrompt replaced the WHOLE latest-user text block —
+    // silently wiping the <learned-context> recall block (and MEMORY.md) that
+    // injection had already spliced in. The provider request must still carry
+    // BOTH the injected recall marker AND the hook-rewritten user text.
+    const seen: ProviderRequest[] = [];
+    const RECALL_MARKER = '<learned-context>prefer ripgrep</learned-context>';
+    const REWRITTEN = 'rewritten by hook';
+    const ORIGINAL = 'original prompt';
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(req)),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: ORIGINAL }] }],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      sessionId: 'hook-recall-test',
+      cwd: process.cwd(),
+      recall: async () => ({ injectionText: RECALL_MARKER, lessons: [] }),
+      hookRunner: async (event) => {
+        if (event === 'UserPromptSubmit') return { block: false, rewrittenPrompt: REWRITTEN };
+        return { block: false };
+      },
+    });
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+    }
+    const firstUser = seen[0]?.messages.find((m) => m.role === 'user');
+    expect(firstUser).toBeDefined();
+    const firstText = firstUser?.content.find((b) => b.type === 'text');
+    expect(firstText?.type).toBe('text');
+    if (firstText?.type === 'text') {
+      // Both the injected recall context AND the rewritten user text survive.
+      expect(firstText.text).toContain(RECALL_MARKER);
+      expect(firstText.text).toContain(REWRITTEN);
+      // The original prompt was replaced by the rewrite (not appended alongside).
+      expect(firstText.text).not.toContain(ORIGINAL);
+      // No double-injection of the recall marker.
+      expect(firstText.text.split(RECALL_MARKER)).toHaveLength(2);
+    }
+  });
+
+  test('preserves injected memory snapshot when a UserPromptSubmit hook rewrites the prompt', async () => {
+    // Same regression via the MEMORY.md injection path (memoryManager) rather
+    // than the recall thunk: a hook rewrite must not wipe the memory snapshot.
+    const seen: ProviderRequest[] = [];
+    const MEMORY_MARKER = 'prefers terse output';
+    const REWRITTEN = 'hook-rewritten prompt';
+    const ORIGINAL = 'remember this';
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(req)),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: ORIGINAL }] }],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      sessionId: 'hook-memory-test',
+      cwd: process.cwd(),
+      memoryManager: {
+        async prefetchSnapshot() {
+          return `<memory-context>${MEMORY_MARKER}</memory-context>`;
+        },
+        async syncTurn() {},
+        async onMemoryWrite() {},
+        async onDelegation() {},
+      },
+      hookRunner: async (event) => {
+        if (event === 'UserPromptSubmit') return { block: false, rewrittenPrompt: REWRITTEN };
+        return { block: false };
+      },
+    });
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) break;
+    }
+    const firstUser = seen[0]?.messages.find((m) => m.role === 'user');
+    const firstText = firstUser?.content.find((b) => b.type === 'text');
+    expect(firstText?.type).toBe('text');
+    if (firstText?.type === 'text') {
+      expect(firstText.text).toContain(MEMORY_MARKER);
+      expect(firstText.text).toContain(REWRITTEN);
+      expect(firstText.text).not.toContain(ORIGINAL);
+    }
+  });
+
   test('tool_use turn dispatches runTools and continues to completion', async () => {
     const provider = scriptedTurns(toolUseThenFinishTurns);
     const gen = query({

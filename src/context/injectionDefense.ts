@@ -19,7 +19,13 @@ export type ContextScreenResult =
   | { ok: false; reason: string };
 
 export function screenContextFile(filename: string, text: string): ContextScreenResult {
-  const invisible = text.match(INVISIBLE_UNICODE);
+  // A single leading UTF-8 BOM (U+FEFF at position 0) is benign — many
+  // editors prepend one. Strip it before screening so it doesn't block the
+  // whole file. Interior zero-width/bidi controls (including a non-leading
+  // U+FEFF) are still flagged below.
+  const screened = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+
+  const invisible = screened.match(INVISIBLE_UNICODE);
   if (invisible) {
     return {
       ok: false,
@@ -28,18 +34,18 @@ export function screenContextFile(filename: string, text: string): ContextScreen
   }
 
   for (const pattern of THREAT_PATTERNS) {
-    if (pattern.test(text)) {
+    if (pattern.test(screened)) {
       return { ok: false, reason: `matched threat pattern ${pattern.source}` };
     }
   }
 
-  if (text.length <= CONTEXT_SIZE_LIMIT) {
-    return { ok: true, text, truncated: false };
+  if (screened.length <= CONTEXT_SIZE_LIMIT) {
+    return { ok: true, text: screened, truncated: false };
   }
 
   return {
     ok: true,
-    text: `${text.slice(0, CONTEXT_SIZE_LIMIT)}\n[TRUNCATED ${filename}: size > ${CONTEXT_SIZE_LIMIT} chars]`,
+    text: `${screened.slice(0, CONTEXT_SIZE_LIMIT)}\n[TRUNCATED ${filename}: size > ${CONTEXT_SIZE_LIMIT} chars]`,
     truncated: true,
   };
 }

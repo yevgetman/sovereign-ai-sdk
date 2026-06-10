@@ -83,6 +83,15 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     history = injectRecallIntoLatestUserMessage(history, recalled.injectionText);
   }
 
+  // Both memory + recall injection PREPEND their blocks to the latest user
+  // message's first text block, keeping `originalUserText` as the trailing
+  // suffix. Capture the injected prefix now so that if a UserPromptSubmit hook
+  // rewrites the prompt below, we can preserve the injected context instead of
+  // letting the whole-block rewrite silently wipe MEMORY.md / <learned-context>.
+  // Empty when nothing was injected.
+  const injectedPrefix =
+    originalUserText !== undefined ? extractInjectedPrefix(history, originalUserText) : '';
+
   // UserPromptSubmit: runs once before turn 0. A hook can deny (terminating
   // immediately) or rewrite the prompt text in the latest user message.
   if (hookRunner && sessionId && cwd && originalUserText !== undefined) {
@@ -105,7 +114,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       return terminal;
     }
     if (typeof result.rewrittenPrompt === 'string') {
-      history = rewriteLatestUserText(history, result.rewrittenPrompt);
+      // Re-apply the injected memory/recall prefix in front of the hook's
+      // rewritten text. The hook only ever sees + returns the user prompt, so
+      // without this the whole-block rewrite would drop that turn's injected
+      // context. `injectedPrefix` is '' when nothing was injected → identical
+      // to the plain rewrite.
+      history = rewriteLatestUserText(history, `${injectedPrefix}${result.rewrittenPrompt}`);
     }
   }
 
@@ -242,19 +256,23 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         iso: nowIso(),
       });
       if (loopDetectionCount === 1) {
-        pendingGuidanceText =
-          'It looks like the same action is repeating. Stop and try a different approach: ' +
-          'check whether the prior step actually achieved the goal, change your tool, change ' +
-          'your inputs, or ask for clarification before continuing.';
-        if (toolUseBlocks.length === 0) {
-          // No tool_use to orphan — emit guidance as a standalone user message.
-          const guidance: Message = {
-            role: 'user',
-            content: [{ type: 'text', text: pendingGuidanceText }],
-          };
-          history.push(guidance);
-          yield guidance;
-          pendingGuidanceText = undefined;
+        // First strike: carry guidance into THIS turn's next user message
+        // (the tool_result emitted after dispatch), so the loop continues
+        // with a course-correction nudge. On a content-only turn there are
+        // no tool_use blocks to dispatch — so this turn TERMINATES below at
+        // the `toolUseBlocks.length === 0` branch (a content-only turn never
+        // continues). Pushing a standalone guidance user message here would
+        // leave history ending on a user message that can never be acted on;
+        // the NEXT user turn would then append a second consecutive user
+        // message → Anthropic 400 "roles must alternate" → session broken.
+        // So we only set pendingGuidanceText when there IS a continuation
+        // (tool_use present); the loop_detected event + trace above still
+        // fire either way, preserving the telemetry.
+        if (toolUseBlocks.length > 0) {
+          pendingGuidanceText =
+            'It looks like the same action is repeating. Stop and try a different approach: ' +
+            'check whether the prior step actually achieved the goal, change your tool, change ' +
+            'your inputs, or ask for clarification before continuing.';
         }
       } else {
         // Second-strike abort: if this turn's assistant message contained
@@ -506,6 +524,26 @@ function rewriteLatestUserText(messages: Message[], next: string): Message[] {
     return out;
   }
   return messages;
+}
+
+/** Return the memory/recall context prepended to the latest user message's
+ *  first text block. Both injectors prepend their block and keep
+ *  `originalUserText` as the trailing suffix, so the prefix is everything
+ *  before that suffix. Returns '' when no injection happened (the block equals
+ *  the original text) or the block no longer ends with the original text. */
+function extractInjectedPrefix(messages: Message[], originalUserText: string): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== 'user') continue;
+    const block = message.content.find((b) => b.type === 'text');
+    if (!block || block.type !== 'text') return '';
+    if (block.text === originalUserText) return '';
+    if (block.text.endsWith(originalUserText)) {
+      return block.text.slice(0, block.text.length - originalUserText.length);
+    }
+    return '';
+  }
+  return '';
 }
 
 function latestUserText(messages: Message[]): string | undefined {

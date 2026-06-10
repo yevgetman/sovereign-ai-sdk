@@ -165,6 +165,86 @@ describe('query() ⊕ loop detector', () => {
     }
   });
 
+  test('content-only first-strike loop does not orphan a trailing user message', async () => {
+    // Regression: a content-loop detector firing its FIRST strike on a turn
+    // with NO tool_use must NOT leave history ending on a standalone user
+    // guidance message. A content-only turn always terminates (there is no
+    // continuation), so a trailing user message can never be acted on — and
+    // the NEXT user turn appended after it produces two consecutive user
+    // messages → Anthropic 400 "roles must alternate". See
+    // docs/postmortems/loop-detector-orphaned-tool-use.md (alternation invariant).
+    //
+    // We trip the content-loop detector on turn 0 with a single content-only
+    // assistant message whose text is one 200-char chunk repeated 8 times
+    // (>= contentRepeatThreshold), then the provider would complete.
+    const chunk = 'A'.repeat(200);
+    const loopText = chunk.repeat(8);
+    const contentLoopOnce: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: loopText }],
+    };
+    const contentLoopProvider: LLMProvider = {
+      name: 'content-loop',
+      async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+        yield { type: 'message_start' };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        yield { type: 'assistant_message', message: contentLoopOnce };
+        return contentLoopOnce;
+      },
+    };
+    const gen = query({
+      provider: contentLoopProvider,
+      model: 'm',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      canUseTool: async () => ({ behavior: 'allow' }),
+      maxTokens: 256,
+      maxTurns: 20,
+    });
+    const { events, terminal } = await drainCollecting(gen);
+    // The content-loop fired (first strike) and the content-only turn ends.
+    expect(terminal.reason).toBe('completed');
+    const loopEvents = events.filter(
+      (e) => 'type' in e && (e as StreamEvent).type === 'loop_detected',
+    );
+    expect(loopEvents).toHaveLength(1);
+
+    // Reconstruct the history a caller (REPL) would persist: user seed +
+    // every assistant_message + every yielded user message.
+    const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'go' }] }];
+    for (const e of events) {
+      if ('type' in e && (e as StreamEvent).type === 'assistant_message') {
+        messages.push((e as Extract<StreamEvent, { type: 'assistant_message' }>).message);
+      } else if ('role' in e) {
+        messages.push(e);
+      }
+    }
+
+    // The persisted history must NOT end on a trailing standalone user
+    // message — it must end on the assistant content-only reply.
+    const last = messages[messages.length - 1];
+    expect(last?.role).toBe('assistant');
+
+    // No two consecutive user messages anywhere in the persisted timeline.
+    for (let i = 1; i < messages.length; i++) {
+      expect(
+        !(messages[i - 1]?.role === 'user' && messages[i]?.role === 'user'),
+        `messages ${i - 1} and ${i} must not both be user (alternation invariant)`,
+      ).toBe(true);
+    }
+
+    // And a following user turn alternates correctly: appending the next
+    // user message keeps the last two roles as user → assistant on the wire.
+    const nextTurn: Message[] = [
+      ...messages,
+      { role: 'user', content: [{ type: 'text', text: 'what happened?' }] },
+    ];
+    expect(nextTurn[nextTurn.length - 2]?.role).toBe('assistant');
+    expect(nextTurn[nextTurn.length - 1]?.role).toBe('user');
+  });
+
   test('terminates with reason: error after the second detection', async () => {
     // Model never breaks out — same tool call forever. After the first
     // detection we inject guidance, but the next turn keeps repeating, so
