@@ -52,7 +52,7 @@ import { createLearningLayer } from '../learning-layer/index.js';
 import type { LearningLayer } from '../learning-layer/ports.js';
 import { serializeMcpServerConfig } from '../mcp/auth.js';
 import { buildMcpClientPool } from '../mcp/client.js';
-import { wrapMcpTool } from '../mcp/toolWrapper.js';
+import { wrapMcpTools } from '../mcp/toolWrapper.js';
 import type { McpClientPool } from '../mcp/types.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../permissions/inputTransformer.js';
@@ -652,7 +652,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         })
       : undefined);
   const mcpTools = mcpClientPool
-    ? mcpClientPool.tools().map((meta) => wrapMcpTool(meta, mcpClientPool))
+    ? wrapMcpTools(mcpClientPool.tools(), mcpClientPool, (msg) => process.stderr.write(`${msg}\n`))
     : [];
 
   // Pre-read taskRouting.enabled so we can filter routing agents from the
@@ -947,6 +947,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // informational only (replay creates fresh ids), so leaving it as
   // `'pending'` is acceptable; future M9 work can plumb a real id in
   // when capture is gated to a single session.
+  // Keep a handle on the UNWRAPPED transport for preflight. The preflight
+  // probe is an internal health check, not a conversation turn — capturing it
+  // would record it as fixture turn 0 and desync every replay by one turn
+  // (audit 2026-06-10). So preflight always runs against the raw transport;
+  // only real turns flow through the CapturingProvider.
+  const preflightTransport = resolved.transport;
   if (opts.captureFixturePath !== undefined) {
     captureSink = createCaptureSink({
       sessionId: 'pending',
@@ -979,7 +985,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // or actively misleading.
   if (opts.preflight !== false && opts.replayFixturePath === undefined) {
     const result = await preflightProvider({
-      provider,
+      provider: preflightTransport,
       providerName: resolved.transport.name,
       model: resolved.model,
     });
@@ -989,9 +995,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // Ollama needs the tool-calling smoke check too — other providers
     // are tool-call-capable by schema; only Ollama can return a model
     // that silently ignores tools.
-    if (provider.name === 'ollama' && toolPool.length > 0) {
+    if (preflightTransport.name === 'ollama' && toolPool.length > 0) {
       const toolResult = await preflightToolCalling({
-        provider,
+        provider: preflightTransport,
         providerName: resolved.transport.name,
         model: resolved.model,
       });
@@ -1131,20 +1137,22 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
 
   // Hook runner — loads the `hooks` block from layered settings and wires
   // the consent checker against the server-mode policy (M5-01). The server
-  // doesn't own a TTY, so the consent gate's `ask` callback returns 'deny'
-  // immediately for any (event, command) pair not already in the on-disk
-  // allowlist. The ~/.harness/shell-hooks-allowlist.json file must be
-  // populated out of band; from then on the hook fires through the cached
-  // decision. The runner is always built — its first-call cost when no
-  // hooks are configured is one map lookup.
+  // doesn't own a TTY, so the checker runs NON-INTERACTIVELY: a hook with no
+  // prior on-disk decision returns a transient 'skip' (the runner treats it as
+  // inert — not a block — so a misconfigured hook never breaks the turn) and
+  // NOTHING is persisted (an environment auto-deny must not masquerade as a
+  // user decision — audit 2026-06-10). The runner logs a one-line "awaiting
+  // consent" notice as the user-visible signal to pre-populate
+  // ~/.harness/shell-hooks-allowlist.json; once a genuine allow is recorded
+  // there, the hook fires through that cached decision. Always built — first-
+  // call cost with no hooks configured is one map lookup.
   const hookSettings = loadHookSettings({ cwd: opts.cwd, harnessHome });
   const hookConsentStore = buildFileConsentStore(join(harnessHome, 'shell-hooks-allowlist.json'));
   const hookConsent = buildConsentChecker({
     store: hookConsentStore,
-    // Non-interactive: deny by default. The runner treats a denied hook
-    // as inert (not a block), so misconfigured hooks won't break the
-    // turn; the stderr log line is the user-visible signal that they
-    // need to pre-consent.
+    // No interactive flag → non-interactive: unrecorded hooks skip (transient),
+    // never persisted. `ask` is only consulted in interactive mode, which the
+    // server never enables; kept for the (event, command) signature contract.
     ask: async (): Promise<AskResponse> => 'deny',
   });
   const hookRunner = buildHookRunner({
