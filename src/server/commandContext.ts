@@ -116,6 +116,16 @@ export function buildServerCommandContext(
   const sideEffects: CommandSideEffects = {};
   const systemSegmentsRef: SystemSegment[] = runtime.systemSegments;
 
+  // Phase E — the owning principal for this session, sourced from the
+  // SessionContext (which reads it from the session row's ownerId, never caller
+  // input). Undefined for the implicit single principal (legacy / open /
+  // loopback-no-token). SECURITY-LOAD-BEARING: every cross-session listing must
+  // scope to this owner so a principal can't enumerate another principal's
+  // sessions / routing stats (mirrors GET /sessions' ownerIdOf scoping), and
+  // the /clear child must inherit it so the owner isn't 404'd out of their own
+  // conversation.
+  const ownerId = sessionCtx.userId;
+
   // Filter the skill registry per the session's active toolsets — the
   // /help output should mention only skills the user can actually
   // invoke right now. inferActiveToolsets takes the active tool names;
@@ -208,6 +218,10 @@ export function buildServerCommandContext(
         model: runtime.model,
         provider: runtime.resolvedProvider.transport.name,
         systemPrompt: systemSegmentsRef,
+        // Phase E — stamp the cleared child with the owning principal so the
+        // owner's next /turns isn't 404'd by loadOwnedSession. Omitted when
+        // unowned (single-user / legacy), keeping the child unowned.
+        ...(ownerId !== undefined ? { owner: ownerId } : {}),
         metadata: {
           bundleRoot: runtime.bundle?.root ?? null,
         },
@@ -264,7 +278,12 @@ export function buildServerCommandContext(
     },
     tools: runtime.toolPool,
     registry,
-    listSessions: (limit?: number) => runtime.sessionDb.listSessions(limit),
+    // Phase E — owner-scope the listing so picker-driven commands (`/resume`)
+    // and `/review activity` never surface another principal's sessions. The
+    // owner arg is undefined in legacy / single-principal mode →
+    // listSessions(limit, undefined) returns the unscoped list (byte-identical
+    // to pre-Phase-E behavior). Mirrors GET /sessions' ownerIdOf scoping.
+    listSessions: (limit?: number) => runtime.sessionDb.listSessions(limit, ownerId),
     cleanupPhantomReviews: () => runtime.sessionDb.cleanupPhantomReviews(),
     getMetrics: () => {
       // SessionMetricsSnapshot (returned by sessionDb.getSessionMetrics)
@@ -369,8 +388,16 @@ export function buildServerCommandContext(
     // unconstrained --all query) and aggregates via computeRoutingStats.
     getRoutingStats: (opts) => {
       const all = opts?.all === true;
+      // Phase E — `--all` must aggregate only THIS principal's routing atoms,
+      // not every principal's. With an owner, use the owner-scoped query; with
+      // none (legacy / single-principal) fall back to the unscoped cross-session
+      // query (byte-identical to pre-Phase-E behavior). The per-session path is
+      // already owner-safe — it walks the current (owner-verified) session's
+      // delegator children.
       const rows = all
-        ? runtime.sessionDb.listRoutingAtomsAll()
+        ? ownerId !== undefined
+          ? runtime.sessionDb.listRoutingAtomsAllByOwner(ownerId)
+          : runtime.sessionDb.listRoutingAtomsAll()
         : runtime.sessionDb.listRoutingAtomsByParent(sessionId);
       return computeRoutingStats(rows, all ? 'all' : 'session');
     },

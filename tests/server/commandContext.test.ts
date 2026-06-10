@@ -125,3 +125,107 @@ describe('buildServerCommandContext — setEffort (reasoning depth)', () => {
     expect(runtime.effort).toBe('off');
   });
 });
+
+describe('buildServerCommandContext — per-principal scoping (Phase E)', () => {
+  let runtime: Runtime;
+  let tmpHome: string;
+
+  beforeAll(async () => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'sov-phasee-cmdctx-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    __test_resetProjectIdCache();
+    runtime = await buildRuntime({
+      cwd: tmpHome,
+      harnessHome: tmpHome,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+    });
+  });
+
+  afterAll(async () => {
+    await runtime.dispose();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+    rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  test('listSessions returns ONLY the calling principal sessions (no cross-principal leak)', () => {
+    // Alice + Bob each own a session; a third session is unowned. The context
+    // built for one of Alice's sessions must list ONLY Alice's rows.
+    const aliceA = runtime.sessionDb.createSession({
+      model: 'mock-haiku',
+      provider: 'mock',
+      owner: 'alice',
+    });
+    const aliceB = runtime.sessionDb.createSession({
+      model: 'mock-haiku',
+      provider: 'mock',
+      owner: 'alice',
+    });
+    runtime.sessionDb.createSession({ model: 'mock-haiku', provider: 'mock', owner: 'bob' });
+    runtime.sessionDb.createSession({ model: 'mock-haiku', provider: 'mock' });
+
+    const sessionCtx = runtime.getSessionContext(aliceA);
+    const { ctx } = buildServerCommandContext(runtime, sessionCtx, aliceA);
+    const ids = ctx.listSessions(50).map((s) => s.sessionId);
+
+    expect(ids).toContain(aliceA);
+    expect(ids).toContain(aliceB);
+    expect(ids.every((id) => id === aliceA || id === aliceB)).toBe(true);
+  });
+
+  test('listSessions returns the full unscoped list in single-principal mode', () => {
+    // An unowned session's context (userId undefined) must see ALL rows —
+    // byte-identical to pre-Phase-E behavior.
+    const unowned = runtime.sessionDb.createSession({ model: 'mock-haiku', provider: 'mock' });
+    const sessionCtx = runtime.getSessionContext(unowned);
+    const { ctx } = buildServerCommandContext(runtime, sessionCtx, unowned);
+    const ids = ctx.listSessions(50).map((s) => s.sessionId);
+
+    // The Alice + Bob rows from the prior test live in the same DB; the
+    // unscoped list must include at least one of them.
+    expect(ids.length).toBeGreaterThan(1);
+    expect(ids).toContain(unowned);
+  });
+
+  test('getRoutingStats --all aggregates ONLY the calling principal atoms', () => {
+    // Seed routing-atom rows for two principals; --all for Alice must count
+    // only Alice's atom.
+    const aliceParent = runtime.sessionDb.createSession({
+      model: 'mock-haiku',
+      provider: 'mock',
+      owner: 'alice',
+    });
+    runtime.sessionDb.createSession({
+      model: 'mock-haiku',
+      provider: 'mock',
+      owner: 'alice',
+      metadata: {
+        kind: 'routing-atom',
+        laneName: 'cheap-task',
+        laneProvider: 'mock',
+        laneModel: 'mock-haiku',
+        parentDelegatorSessionId: aliceParent,
+      },
+    });
+    runtime.sessionDb.createSession({
+      model: 'mock-haiku',
+      provider: 'mock',
+      owner: 'bob',
+      metadata: {
+        kind: 'routing-atom',
+        laneName: 'cheap-task',
+        laneProvider: 'mock',
+        laneModel: 'mock-haiku',
+        parentDelegatorSessionId: 'bob-parent',
+      },
+    });
+
+    const sessionCtx = runtime.getSessionContext(aliceParent);
+    const { ctx } = buildServerCommandContext(runtime, sessionCtx, aliceParent);
+    const stats = ctx.getRoutingStats?.({ all: true });
+
+    expect(stats?.totalAtoms).toBe(1);
+  });
+});

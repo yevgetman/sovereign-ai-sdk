@@ -7,6 +7,25 @@ import { validatePrincipalId } from '../server/principals.js';
 
 export const GLOBAL_PROJECT_ID = '_global';
 
+/** Safe project-id segment: ASCII alphanumerics + `-` and `_`. `.` is
+ *  intentionally excluded so `.`, `..`, `a.b` all fail alongside separators
+ *  (`/`, `\`) and whitespace. The `_global` sentinel passes. */
+const PROJECT_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/** Validate a project id before it is joined into a filesystem path.
+ *  SECURITY-LOAD-BEARING (FIX 4, defense-in-depth): an instinct's `project_id`
+ *  is synthesizer-LLM-supplied and validated only as a string upstream, so a
+ *  traversal value like `../../x` would escape the learning dir. Mirrors
+ *  validatePrincipalId in src/server/principals.ts. Legitimate ids (a 16-char
+ *  SHA-256 hex slice from getProjectId, or a `name-hash` style id) all pass. */
+function validateProjectId(projectId: string): void {
+  if (!PROJECT_ID_RE.test(projectId)) {
+    throw new Error(
+      `invalid project id ${JSON.stringify(projectId)}: must match ${PROJECT_ID_RE} (ASCII alphanumerics, '-', '_', at least one char)`,
+    );
+  }
+}
+
 /** Phase E T6 — the learning root for a given principal. When `userId` is
  *  provided the corpus is namespaced under `<harnessHome>/users/{userId}/learning`;
  *  when undefined it is the legacy top-level `<harnessHome>/learning` (BYTE-
@@ -21,6 +40,10 @@ export function learningRoot(harnessHome: string, userId?: string): string {
 }
 
 export function projectRoot(harnessHome: string, projectId: string, userId?: string): string {
+  // FIX 4 — the single chokepoint every learning path builder (observationsPath,
+  // instinctsDir, instinctPath, ensureLearningDirs) flows through. Validate the
+  // project id here so a traversal value can never reach `join`.
+  validateProjectId(projectId);
   return join(learningRoot(harnessHome, userId), projectId);
 }
 
@@ -56,6 +79,9 @@ export function ensureGlobalLearningDirs(harnessHome: string, userId?: string): 
  *  none it is the legacy `learning/{projectId}/instincts`. SECURITY-LOAD-BEARING:
  *  `userId` is validated here too (defense-in-depth at the key boundary). */
 export function instinctsKeyPrefix(projectId: string, userId?: string): string {
+  // FIX 4 — `projectId` is a path/key segment here too (defense-in-depth at the
+  // Persist key boundary, mirroring the userId validation below).
+  validateProjectId(projectId);
   if (userId === undefined) return `learning/${projectId}/instincts`;
   validatePrincipalId(userId);
   return `users/${userId}/learning/${projectId}/instincts`;

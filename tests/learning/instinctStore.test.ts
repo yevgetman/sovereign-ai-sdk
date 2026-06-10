@@ -66,6 +66,15 @@ describe('InstinctStore', () => {
     expect(() => store.write(bad, 'body')).toThrow();
   });
 
+  // FIX 4 (defense-in-depth) — a synthesizer-supplied project_id that contains
+  // a path traversal must be rejected at the path boundary, never written
+  // outside the project's learning dir.
+  test('write rejects a path-traversal project_id', () => {
+    const store = new InstinctStore(home);
+    const bad = makeInstinct({ project_id: '../../escape' });
+    expect(() => store.write(bad, 'body')).toThrow();
+  });
+
   test('list returns empty array on missing project dir', () => {
     const store = new InstinctStore(home);
     expect(store.list('does-not-exist')).toEqual([]);

@@ -718,3 +718,48 @@ describe('/review unknown verb', () => {
     expect(out).toContain('/review');
   });
 });
+
+describe('/review id validation (path-traversal defense)', () => {
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'sov-rv-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  // The proposal id flows into proposalPath(home, state, kind, id) =
+  // join(reviewDir, `${id}.md`) and skillProposalDir(home, state, id). Without
+  // sanitization, an id like `../../x` escapes the review dir. Every verb that
+  // consumes an id must reject a non-safe-segment id with a clear error before
+  // building any path.
+  const traversalIds = ['../../secret', '..', 'a/b', 'foo/../bar', './x'];
+
+  for (const verb of ['show', 'approve', 'reject', 'revoke'] as const) {
+    for (const bad of traversalIds) {
+      test(`${verb} rejects traversal id ${JSON.stringify(bad)}`, async () => {
+        const out = strip(await reviewCmd.call(`${verb} ${bad}`, makeCtx(home)));
+        expect(out.toLowerCase()).toContain('invalid proposal id');
+        // The error must NOT be a "not found" / "approved" success — i.e. the id
+        // was rejected up front, not routed into a path build.
+        expect(out.toLowerCase()).not.toContain('not found');
+      });
+    }
+  }
+
+  test('show cannot read a file outside the review dir via traversal', async () => {
+    // Plant a secret two levels up from the memory-pending review dir
+    // (home/review/pending/memory/<id>.md → ../../../secret.md lands at home/).
+    writeFileSync(join(home, 'secret.md'), 'TOP SECRET');
+    const out = strip(await reviewCmd.call('show ../../../secret', makeCtx(home)));
+    expect(out).not.toContain('TOP SECRET');
+    expect(out.toLowerCase()).toContain('invalid proposal id');
+  });
+
+  test('a legitimate id is still accepted (not over-rejected)', async () => {
+    seedMemoryProposal(home, '2026-05-06-good-id', 'legit body');
+    const out = strip(await reviewCmd.call('show 2026-05-06-good-id', makeCtx(home)));
+    expect(out).toContain('legit body');
+    expect(out.toLowerCase()).not.toContain('invalid proposal id');
+  });
+});

@@ -532,6 +532,32 @@ export class SessionDb {
     return rows.map((r) => rowToSession(r));
   }
 
+  /**
+   * Returns routing-atom rows whose OWNING principal is `owner`, in created_at
+   * ascending order. Phase E owner-scoped variant of {@link listRoutingAtomsAll}:
+   * `/routing-stats --all` on the multi-user gateway must aggregate only the
+   * calling principal's atoms, never every principal's. Single-user / legacy
+   * callers keep using {@link listRoutingAtomsAll} (no owner to scope by).
+   */
+  listRoutingAtomsAllByOwner(owner: string): Session[] {
+    const rows = this.db
+      .query<SessionRow, [string]>(
+        `SELECT session_id, parent_session_id, model, provider, platform,
+                created_at, last_updated, title, system_prompt,
+                schema_version, metadata, owner_id,
+                input_tokens, output_tokens, cache_creation_input_tokens,
+                cache_read_input_tokens, estimated_cost_usd,
+                compaction_input_tokens, compaction_output_tokens,
+                estimated_compaction_cost_usd
+         FROM sessions
+         WHERE json_extract(metadata, '$.kind') = 'routing-atom'
+           AND owner_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(owner);
+    return rows.map((r) => rowToSession(r));
+  }
+
   createSession(input: CreateSessionInput): string {
     const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;

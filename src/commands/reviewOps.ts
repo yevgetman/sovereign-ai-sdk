@@ -268,6 +268,22 @@ function removeProposalBlock(fileContent: string, proposalId: string): string | 
 const USAGE =
   'usage: /review [list|show <id>|approve <id>|reject <id>|revoke <id>|consolidate|activity]';
 
+/** Safe proposal-id segment: ASCII alphanumerics + `-` and `_`. `.` is
+ *  intentionally excluded so `.`, `..`, `a.b` all fail alongside separators
+ *  (`/`, `\`) and whitespace. SECURITY-LOAD-BEARING: the id is joined into a
+ *  filesystem path (proposalPath / skillProposalDir), so a non-safe id would
+ *  traverse out of the review dir. Mirrors validatePrincipalId in
+ *  src/server/principals.ts. */
+const PROPOSAL_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/** Returns an error message when `id` is not a safe path segment, or null when
+ *  it is safe to build a path from. Callers reject up front BEFORE any
+ *  findProposal / path construction. */
+function invalidProposalId(id: string): string | null {
+  if (PROPOSAL_ID_RE.test(id)) return null;
+  return `invalid proposal id ${JSON.stringify(id)}: ids may contain only letters, digits, '-', and '_'`;
+}
+
 /** Phase 13.3 follow-up (Item 16) — phantom rows above this threshold
  *  trigger an opportunistic `cleanupPhantomReviews()` when the user runs
  *  `/review activity`. Hand-tuned default; ties cleanup cost to user-
@@ -299,6 +315,8 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
 
   if (verb === 'show') {
     if (!rest) return 'usage: /review show <id>';
+    const idErr = invalidProposalId(rest);
+    if (idErr !== null) return chalk.red(idErr);
     const found = findProposal(home, 'pending', rest);
     if (!found) return chalk.red(`proposal ${rest} not found`);
     if (found.kind === 'skills') {
@@ -311,6 +329,8 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
 
   if (verb === 'approve') {
     if (!rest) return 'usage: /review approve <id>';
+    const idErr = invalidProposalId(rest);
+    if (idErr !== null) return chalk.red(idErr);
     const found = findProposal(home, 'pending', rest);
     if (!found) return chalk.red(`proposal ${rest} not found`);
     let mergedNote = '';
@@ -336,6 +356,8 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
 
   if (verb === 'reject') {
     if (!rest) return 'usage: /review reject <id>';
+    const idErr = invalidProposalId(rest);
+    if (idErr !== null) return chalk.red(idErr);
     const found = findProposal(home, 'pending', rest);
     if (!found) return chalk.red(`proposal ${rest} not found`);
     moveTo('rejected', home, found);
@@ -344,6 +366,8 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
 
   if (verb === 'revoke') {
     if (!rest) return 'usage: /review revoke <id>';
+    const idErr = invalidProposalId(rest);
+    if (idErr !== null) return chalk.red(idErr);
     // Only approved entries can be revoked — pending ones use /review reject.
     const found = findProposal(home, 'approved', rest);
     if (!found) return chalk.red(`approved proposal ${rest} not found`);
