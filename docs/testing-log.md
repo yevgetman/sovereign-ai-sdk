@@ -8,6 +8,32 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-10 — Local (sov/MLX) reasoning UX fix — broken render + "model exits"
+
+**Scope.** Two symptoms reported running the sov lane against a live `vllm-mlx` server (`mlx-community/Qwen3-4B-4bit`): (1) reasoning rendered as a broken 1–3-word vertical sliver; (2) the model "eventually exits" without answering. Anthropic was unaffected. Investigated with the systematic-debugging skill + **live probes against the running server** (`127.0.0.1:8000`).
+
+**Root causes (both confirmed against the live wire):**
+- **Render (TUI):** `thinking_delta` was printed **per-delta** via `tea.Println` with no buffering/width; `text_delta` is buffered + `glamour`-wrapped at full width. The sov engine streams `reasoning_content` **one token per chunk** (captured: 75 chunks for ~150 tokens, leading-space BPE subwords) → one line per token → the sliver. Anthropic sends large thinking chunks, so it never showed.
+- **"Exits" (behavior):** Qwen3-4B thinking-mode reasoning is so verbose it exhausts `max_tokens` before closing `</think>` to emit an answer/tool-call. Live probe with the Bash tool + 2000-token budget: **1000 reasoning chunks, 0 `content`, 0 `tool_calls`, `finish_reason:length`** — reasoning text matched the screenshots verbatim. And the off-switch was broken: `/effort off` **omits** `enable_thinking`, but the Qwen3 template defaults it **ON**, so reasoning ran anyway. With `enable_thinking:false`, the engine routes the whole answer onto `reasoning_content` (empty `content`) — so naively disabling thinking would have hidden the answer.
+
+**Fixes (TDD, RED→GREEN each):**
+- **A** `packages/tui` — buffer `thinking_delta` into one full-width word-wrapped italic block, flushed at every non-thinking event; keep the "thinking" spinner live during accumulation. (`app.go`, 2 new tests reproduce the sliver then prove the wrapped block.)
+- **B1** `src/providers/openai.ts` — sov **always** sends `chat_template_kwargs.enable_thinking` (`= reasoningOn`): `false` for `off`/default (real off-switch), `true` for `low`–`max`. Lane now defaults to direct answers; reasoning is opt-in via `/effort`.
+- **B2** `openai.ts` — when sov + thinking off, route `reasoning_content` as the **answer** (`text_delta`/text block) not thinking, matching the vLLM/MLX routing quirk. (`reasoningEnabled()` extracted; `TranslateOpts.reasoningIsAnswer` threaded through `stream`→`normalizeResponse`→`translateOpenAIStream`.)
+- **B3** `app.go` — actionable hint on `finishReason:max_tokens` ("try /effort off … or raise maxTokens").
+- **C** `compactline.go` — empty-args Bash tool call shows `(no command)` instead of a blank `Ran $ ›`.
+
+**Commands run (real exit codes):**
+- `cd packages/tui && go test ./...` — all packages green (app + components incl. 4 new tests).
+- `bun run lint` — clean (753 files; one auto-format applied). `bun run typecheck` — clean.
+- `bun test tests/providers/` — 127 pass / 2 skip / 0 fail (resolver wrapper + ollama unaffected by the `normalizeResponse` optional-arg).
+- `bun test` (full) — 3856–3858 pass / 16 skip; the only fails were the known flaky env-sensitive set (cron fixture + ambient-config server tests — 0 fail on re-run), none in the changed blast radius.
+- **Live probes** against `vllm-mlx`: reasoning_content per-token streaming; thinking-off → answer on reasoning channel (`"Paris."`/`"Red."`/`"391"`, `content` empty); thinking-on trivial task converged (`content:"hello"`). Tests use these exact captured wire shapes.
+
+**Two existing tests updated** (the old behavior WAS the bug): `effort.adapters.test.ts` sov-off now expects `enable_thinking:false`; `sov.test.ts` reasoning→thinking case scoped to `effort:'high'` + new thinking-off→answer case.
+
+**Result:** PASS. Docs updated (`usage.md` `/effort` sov note). `sov upgrade` + release + end-to-end binary verification against the live server follow.
+
 ## 2026-06-10 — Full-codebase audit + remediation (17 fix commits)
 
 **Scope:** whole-repo audit (21 subsystem auditors + holistic data-leakage / lifecycle / consistency passes, all Opus) → triage → fixes across every region. Report: `docs/audits/2026-06-10-full-codebase-audit.md`.
