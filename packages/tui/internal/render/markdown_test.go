@@ -214,6 +214,58 @@ func TestWrapFileRefs_MultipleBulletsInList(t *testing.T) {
 	}
 }
 
+// 2026-06-11 — the extension allow-list was missing common document,
+// media, and archive types (pdf, mov, zip, …), so filenames a user
+// sees in a "files on my Desktop" listing went unhighlighted while
+// their .png/.md/.txt neighbors lit up (us1.png feedback). These pin
+// the now-recognized categories. All are bullets, the common shape.
+
+func TestWrapFileRefs_BulletWithPdfExtension(t *testing.T) {
+	in := "- Yevgeny_Getman_Resume.pdf"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`Yevgeny_Getman_Resume.pdf`") {
+		t.Errorf("expected .pdf filename wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_BulletWithEmDashAndPdf(t *testing.T) {
+	// The exact us1.png case: an em-dash (U+2014) and spaces in a .pdf
+	// bullet. The bullet pass wraps the whole content as a unit; the
+	// only thing that was missing was .pdf in the extension list.
+	in := "- Vulcan — Deployed Agent Orchestrators.pdf"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`Vulcan — Deployed Agent Orchestrators.pdf`") {
+		t.Errorf("expected multi-word em-dash .pdf filename wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_BulletWithMovExtension(t *testing.T) {
+	in := "- Screen Recording 2026-06-10 at 3.29.26 PM.mov"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`Screen Recording 2026-06-10 at 3.29.26 PM.mov`") {
+		t.Errorf("expected .mov screen-recording filename wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_BulletWithZipExtension(t *testing.T) {
+	in := "- MarkdownViewer.zip"
+	out := wrapFileRefs(in)
+	if !strings.Contains(out, "`MarkdownViewer.zip`") {
+		t.Errorf("expected .zip filename wrapped, got %q", out)
+	}
+}
+
+func TestWrapFileRefs_ProseMediaAndDocExtensions(t *testing.T) {
+	// Space-free media/doc/archive tokens in prose must also light up
+	// via the token-level pass, not just bullets.
+	out := wrapFileRefs("saved report.pdf, clip.mov, and bundle.zip today")
+	for _, want := range []string{"`report.pdf`", "`clip.mov`", "`bundle.zip`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %s wrapped in prose, got %q", want, out)
+		}
+	}
+}
+
 // ux-fixes round 2 — wrapFileRefs gained a table-cell awareness pass
 // so multi-word filenames sitting in a markdown table row pick up the
 // inline-code styling. The token-level fileRefPattern is constrained

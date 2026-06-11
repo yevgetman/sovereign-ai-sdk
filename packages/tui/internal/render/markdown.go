@@ -65,12 +65,12 @@ func Markdown(text string, t theme.Theme, width int) string {
 // splitSmashedTableHeader undoes a glamour v1.0.0 bug where a markdown
 // table's header row and separator row are emitted on the SAME line:
 //
-//   " Tool      │ What it did ─────────┼─────────"
+//	" Tool      │ What it did ─────────┼─────────"
 //
 // instead of the correct two-line form:
 //
-//   " Tool      │ What it did       "
-//   "───────────┼───────────────────"
+//	" Tool      │ What it did       "
+//	"───────────┼───────────────────"
 //
 // Detection: a line that contains BOTH `│` (column separator) AND `┼`
 // (cross intersection) is smashed. The `┼` is the marker that a
@@ -92,7 +92,7 @@ func Markdown(text string, t theme.Theme, width int) string {
 //
 // ux-fixes 2026-05-22 (ux1.png-v2): glamour bug repro at width 60:
 //
-//   "| Tool | What it did |\n|------|-------------|\n| bash | ran |\n"
+//	"| Tool | What it did |\n|------|-------------|\n| bash | ran |\n"
 //
 // rendered as a single 101-char header line concatenated with 28 dashes
 // + `┼` + 28 dashes — visually broken at every terminal width. This
@@ -418,10 +418,37 @@ func isBoxDrawingOnly(s string) bool {
 //     hello.go, config.yaml)
 //
 // Word boundaries on both ends keep the regex from grabbing into
-// surrounding prose. Extension list covers what models typically
-// mention in agent responses; not exhaustive but conservative.
+// surrounding prose. The extension list below is shared by both the
+// prose token-matcher (fileRefPattern) and the bullet whole-content
+// matcher (fileExtensionTailPattern) so the two never drift apart.
+//
+// fileExtensionGroup is the alternation body of recognized file
+// extensions, grouped by category. It deliberately covers the kinds of
+// names a user sees in a real file listing — not just source code —
+// because the prior code-only list left documents, media, and archives
+// (pdf, mov, zip, …) unhighlighted next to their lit-up .png/.md/.txt
+// neighbors (us1.png feedback, 2026-06-11). Kept conservative: every
+// entry is a genuine extension shape, matched only after a literal dot
+// with word boundaries, so prose false positives stay rare.
+const fileExtensionGroup = `` +
+	// images
+	`png|jpe?g|gif|svg|webp|ico|bmp|tiff?|heic|heif|avif|` +
+	// documents
+	`md|mdx|txt|rtf|pdf|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp|epub|pages|numbers|key|` +
+	// data / config
+	`json|ya?ml|toml|csv|tsv|log|xml|conf|cfg|ini|env|lock|db|sqlite3?|parquet|ipynb|` +
+	// archives / disk images
+	`zip|tar|gz|tgz|bz2|xz|zst|7z|rar|dmg|pkg|iso|deb|rpm|` +
+	// audio / video
+	`mov|mp4|m4v|avi|mkv|webm|mpe?g|mp3|m4a|wav|flac|aac|ogg|opus|` +
+	// source code
+	`go|ts|tsx|js|jsx|mjs|cjs|py|rs|sh|bash|zsh|fish|html?|css|scss|sass|sql|` +
+	`c|cc|cpp|cxx|h|hpp|java|kt|rb|php|swift|mm?|vue|svelte|astro|dart|scala|clj|ex|exs|lua|tf|proto|` +
+	// dotfile-style names
+	`gitignore|gitattributes|dockerfile|makefile`
+
 var fileRefPattern = regexp.MustCompile(
-	`(?:^|[\s(\[{"'])((?:/|~/|\./|\.\./)[\w./\-]+|[\w\-][\w\-.]*\.(?:png|jpe?g|gif|svg|webp|ico|md|mdx|txt|json|ya?ml|toml|csv|tsv|log|go|ts|tsx|js|jsx|mjs|cjs|py|rs|sh|bash|zsh|fish|html?|css|scss|sass|sql|c|cc|cpp|cxx|h|hpp|java|kt|rb|php|swift|mm?|xml|conf|cfg|ini|env|lock|gitignore|gitattributes|dockerfile|makefile))(?:$|[\s),.!?:;\]}"'])`,
+	`(?:^|[\s(\[{"'])((?:/|~/|\./|\.\./)[\w./\-]+|[\w\-][\w\-.]*\.(?:` + fileExtensionGroup + `))(?:$|[\s),.!?:;\]}"'])`,
 )
 
 // fileExtensionTailPattern matches the trailing portion of a string that
@@ -430,7 +457,7 @@ var fileRefPattern = regexp.MustCompile(
 // recognized as a unit, since fileRefPattern is constrained to
 // space-free tokens).
 var fileExtensionTailPattern = regexp.MustCompile(
-	`\.(?:png|jpe?g|gif|svg|webp|ico|md|mdx|txt|json|ya?ml|toml|csv|tsv|log|go|ts|tsx|js|jsx|mjs|cjs|py|rs|sh|bash|zsh|fish|html?|css|scss|sass|sql|c|cc|cpp|cxx|h|hpp|java|kt|rb|php|swift|mm?|xml|conf|cfg|ini|env|lock|gitignore|gitattributes|dockerfile|makefile)$`,
+	`\.(?:` + fileExtensionGroup + `)$`,
 )
 
 // listBulletPattern matches a markdown list-item prefix:
