@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-11 — Reasoning render UX follow-up + file-ref highlight gaps (us1.png)
+
+**Scope.** Founder screenshot (`us1.png`, fetched via the scp skill) flagged two TUI issues against the sov lane: (1) when thinking is enabled (`/effort`), streamed reasoning **persists in the terminal scrollback** — it should stream *in-place* (new replaces old) and *not persist* once the turn completes; (2) some filenames in a file listing aren't highlighted while their neighbors are. Investigated with the systematic-debugging skill; two parallel Opus Explore agents mapped the reasoning render flow and the file-ref matcher before any fix.
+
+**Root causes (Phase-1, both confirmed in code):**
+- **Reasoning persistence (TUI).** The 2026-06-10 fix (commit `7868677`) buffered `thinking_delta` into `m.thinkingBuf` and `flushThinking()` committed it to **permanent scrollback via `tea.Println`** at the next non-thinking event — reasoning was never in the live region and was never cleared. (The buffer-then-flush solved the "vertical sliver" but on the wrong surface.)
+- **File-ref highlight gaps (TUI).** Highlighting wraps detected file-refs in backticks (glamour → sky-blue). The extension allow-list in `markdown.go` (`fileRefPattern` + `fileExtensionTailPattern`, duplicated) had no `pdf`/`mov`/`zip` (and many other doc/media/archive types), so `.png`/`.md`/`.txt` lit up while `.pdf`/`.mov`/`.zip` didn't. All shown names are bullets, and the bullet pass already tolerates spaces/em-dashes — so the *only* gap was the missing extensions.
+
+**Fixes (TDD, RED→GREEN each):**
+- **Issue 1** — reasoning now lives in the `LiveRegion` as an in-place, bounded (`reasoningSliverLines = 8`) dim-italic sliver: `AppendReasoningDelta`/`ClearReasoning`/`reasoningView` (`liveregion.go`); `thinking_delta` appends to it; `clearThinkingIfPending` (called at every turn-progress boundary — text_delta, tool_use_start/result, turn_complete/error, ESC-cancel — but NOT during thinking_delta) drops it; `thinkingBuf` + `flushThinking` + the handleEvent flush-guard deleted (`app.go`). Reasoning is **never** committed to scrollback. 4 new app tests pin: streams-in-live-region-not-scrollback, word-wraps-in-live-region, cleared-when-answer-begins, never-in-scrollback-across-turn (replacing the 2 old tests that asserted the now-wrong scrollback contract).
+- **Issue 2** — extracted a shared `fileExtensionGroup` const (DRYs the two regexes) and expanded it to cover images/documents/data/archives/audio-video/modern-source/dotfiles (`markdown.go`). 5 new render tests pin the exact us1.png names (`Vulcan — …​.pdf` em-dash bullet, `Screen Recording … PM.mov`, `MarkdownViewer.zip`, `Yevgeny_Getman_Resume.pdf`) + a prose `.pdf/.mov/.zip` case.
+
+**Commands run (real results):**
+- `cd packages/tui && go build ./... ` — OK. `go test ./...` — all packages green (app + components + render, incl. 9 new tests). `gofmt -l` — clean (after `gofmt -w`). `go vet` — clean.
+- `bun run lint` — clean (753 files). `bun run typecheck` — clean.
+- `bun run test` (fresh `HARNESS_HOME`) — **3858 pass / 0 fail / 16 skip** (61s).
+
+**Result:** PASS. Both issues addressed on the correct surface, fully unit-pinned. `sov upgrade` + v0.6.40 release follow. (Live in-place-streaming is best seen on a thinking-enabled turn; the static screenshot can't show the disappear-after-turn behavior, which the tests assert.)
+
 ## 2026-06-10 — Local (sov/MLX) reasoning UX fix — broken render + "model exits"
 
 **Scope.** Two symptoms reported running the sov lane against a live `vllm-mlx` server (`mlx-community/Qwen3-4B-4bit`): (1) reasoning rendered as a broken 1–3-word vertical sliver; (2) the model "eventually exits" without answering. Anthropic was unaffected. Investigated with the systematic-debugging skill + **live probes against the running server** (`127.0.0.1:8000`).
