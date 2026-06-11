@@ -1802,7 +1802,7 @@ The level is **per-session**, mutated live (parallel to `/model`) — it is not 
 
 | Level | Anthropic (`thinking.budget_tokens`) | OpenAI reasoning models (`reasoning_effort`) | sov (`enable_thinking`) |
 |---|---|---|---|
-| `off` | — (no `thinking`; request byte-identical) | — (omitted) | — (omitted) |
+| `off` | — (no `thinking`; request byte-identical) | — (omitted) | `false` (explicit — see note) |
 | `low` | 4000 | `low` | `true` |
 | `medium` | 8000 | `medium` | `true` |
 | `high` | 16000 | `high` | `true` |
@@ -1811,6 +1811,8 @@ The level is **per-session**, mutated live (parallel to `/model`) — it is not 
 For Anthropic, when thinking is on the adapter also: raises `max_tokens` to fit the budget (floor `budget + 8192`, clamped to a 32000 ceiling; the budget is shaved below `max_tokens` if needed); **drops `temperature`** (the API rejects `temperature != 1` with thinking enabled); and attaches the interleaved-thinking beta (`interleaved-thinking-2025-05-14`) so reasoning persists across tool-use turns. Models that support reasoning: the Anthropic 4.x family (`claude-haiku-4-5` / `-sonnet-4` / `-opus-4` — includes the default model, so it works out of the box), OpenAI `o1`/`o3`/`o4`/`gpt-5`, and the local `sov` engine. Default `off` ⇒ the request is byte-identical to a no-thinking turn.
 
 > **ollama reasoning is not yet supported** (planned fast-follow). `/effort` is a **no-op on ollama models**: ollama's native thinking switch (a top-level `think: true` on `/api/chat`) differs from the `enable_thinking` chat-template flag `sov` uses and needs per-model capability data that isn't wired yet, so the capability gate reports ollama models as non-reasoning and no thinking parameter is attached.
+
+> **`sov` local lane — reasoning is opt-in, and the off-switch is explicit.** Unlike Anthropic/OpenAI (where `off` omits the thinking parameter and is byte-identical), the `sov` lane **always** sends `enable_thinking` — `true` for `low`–`max`, `false` for `off`/default. This is deliberate: a Qwen3-style chat template defaults thinking **ON** when the flag is absent, so omitting it (the pre-fix behavior) meant `/effort off` couldn't actually stop the model reasoning — a small local model would reason until it exhausted `max_tokens` and never produce an answer (the turn just ended with `⚠ max_tokens`). Sending `false` makes the off-switch real, so **the lane defaults to direct answers** (since `thinking.effort` defaults to `off`); raise it with `/effort` when you want the model to think first. Two more `sov`-specific behaviors that follow: (1) when thinking is **off**, the local vLLM/MLX engine routes the whole answer onto its `reasoning_content` channel (empty `content`), so the harness surfaces that channel as the **answer** (plain text), not as dim "thinking"; (2) streamed reasoning (when thinking is **on**) is buffered and word-wrapped into one block in the TUI rather than printed one token per line — the local engine streams reasoning one token per delta, which previously rendered as a 1–3-word vertical sliver.
 
 **Status line.** Once you run `/effort` at least once, the TUI status line shows `effort:<level>` in its left column (after the model). It is not seeded at boot (unlike the model field), so it stays absent until the first `/effort`.
 

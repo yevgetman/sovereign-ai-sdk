@@ -84,14 +84,15 @@ describe('SovProvider — keyless posture', () => {
 });
 
 describe('SovProvider — reuses the OpenAI translation', () => {
-  test('surfaces a reasoning_content chunk as a thinking block', async () => {
+  test('thinking ON (effort set): a reasoning_content chunk surfaces as a thinking block', async () => {
     const { fetchImpl } = fakeFetch([
       '{"choices":[{"delta":{"reasoning_content":"let me think"}}]}',
       '{"choices":[{"delta":{"content":"the answer is 42"}}]}',
       '{"choices":[{"delta":{},"finish_reason":"stop"}]}',
     ]);
     const provider = new SovProvider({ fetchImpl });
-    const { yielded, returned } = await drain(provider.stream(REQ));
+    // effort set ⇒ thinking on ⇒ reasoning_content is genuine CoT.
+    const { yielded, returned } = await drain(provider.stream({ ...REQ, effort: 'high' }));
 
     // The reasoning text rode the thinking channel, not the text channel.
     const thinkingDelta = yielded.find(
@@ -104,6 +105,27 @@ describe('SovProvider — reuses the OpenAI translation', () => {
       { type: 'thinking', thinking: 'let me think' },
       { type: 'text', text: 'the answer is 42' },
     ]);
+  });
+
+  test('thinking OFF (default): reasoning_content is the ANSWER, surfaced as text', async () => {
+    // Mirrors the live vllm-mlx behavior with enable_thinking:false — the whole
+    // answer lands on the reasoning channel and `content` stays empty. Without
+    // the fix it rendered as dim "thinking" and no assistant response appeared.
+    const { fetchImpl } = fakeFetch([
+      '{"choices":[{"delta":{"reasoning_content":"Paris."}}]}',
+      '{"choices":[{"delta":{},"finish_reason":"stop"}]}',
+    ]);
+    const provider = new SovProvider({ fetchImpl });
+    // REQ has no effort ⇒ thinking off ⇒ the reasoning channel carries the answer.
+    const { yielded, returned } = await drain(provider.stream(REQ));
+
+    // It must NOT be a thinking block — it's the answer, surfaced as text.
+    expect(yielded.some((e) => e.type === 'thinking_delta')).toBe(false);
+    const textDelta = yielded.find(
+      (e): e is Extract<StreamEvent, { type: 'text_delta' }> => e.type === 'text_delta',
+    );
+    expect(textDelta?.text).toBe('Paris.');
+    expect(returned.content).toEqual([{ type: 'text', text: 'Paris.' }]);
   });
 
   test('preserves an engine-supplied tool-call id end to end', async () => {

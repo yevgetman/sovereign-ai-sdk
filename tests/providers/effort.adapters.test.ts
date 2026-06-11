@@ -208,12 +208,18 @@ describe('Sov buildKwargs — effort wiring (inherits OpenAI + enable_thinking)'
     return baseReq({ model: 'mlx-community/Qwen3-4B-4bit', ...overrides });
   }
 
-  test('regression: effort off ⇒ body byte-identical to undefined-effort body', () => {
+  test('off/undefined ⇒ enable_thinking:false (the real off-switch), no reasoning_effort', () => {
     const off = provider.buildKwargs(sovReq({ effort: 'off' }));
     const absent = provider.buildKwargs(sovReq());
+    // off and undefined still produce the same body as each other...
     expect(off).toEqual(absent);
     expect('reasoning_effort' in off).toBe(false);
-    expect('chat_template_kwargs' in off).toBe(false);
+    // ...but UNLIKE anthropic/openai, sov ALWAYS sends the chat-template flag.
+    // Omitting it let Qwen3's chat template default thinking ON, so `/effort
+    // off` could never actually disable reasoning (the model reasoned until it
+    // exhausted max_tokens and never answered). Sending enable_thinking:false
+    // is what makes the off-switch real.
+    expect(off.chat_template_kwargs).toEqual({ enable_thinking: false });
   });
 
   test('on: sets BOTH reasoning_effort and chat_template_kwargs.enable_thinking', () => {

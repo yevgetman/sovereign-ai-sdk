@@ -149,14 +149,23 @@ export class OpenAIProvider
     }));
   }
 
+  /** Whether reasoning/thinking is on for this request: an effort is set, it
+   *  isn't `off`, and the model supports reasoning under this apiMode. Shared by
+   *  buildKwargs (to set the wire params) and stream (to decide whether the sov
+   *  `reasoning_content` channel is genuine CoT or the answer itself). */
+  protected reasoningEnabled(req: ProviderRequest): boolean {
+    return (
+      req.effort !== undefined &&
+      req.effort !== 'off' &&
+      modelSupportsReasoning(req.model, this.apiMode)
+    );
+  }
+
   buildKwargs(req: ProviderRequest): OpenAIChatBody {
     const tools = this.toProviderTools(req.tools);
     // Reasoning params only when an effort is set, it isn't `off`, and the model
     // supports reasoning under this apiMode. Otherwise the body is unchanged.
-    const reasoningOn =
-      req.effort !== undefined &&
-      req.effort !== 'off' &&
-      modelSupportsReasoning(req.model, this.apiMode);
+    const reasoningOn = this.reasoningEnabled(req);
     // OpenAI's hosted reasoning models (o1/o3/o4/gpt-5) reject `max_tokens` (they
     // require `max_completion_tokens`) and reject a non-default temperature —
     // mirror the Anthropic thinking path: swap the token-cap key + drop
@@ -185,17 +194,22 @@ export class OpenAIProvider
       // narrows req.effort for the call below
       ...(reasoningOn && req.effort !== undefined ? openAiReasoningFor(req.effort) : {}),
       // The sov local engine (vLLM/MLX) toggles its thinking channel via the
-      // chat-template flag rather than reasoning_effort.
-      ...(reasoningOn && this.apiMode === 'sov'
-        ? { chat_template_kwargs: { enable_thinking: true } }
-        : {}),
+      // chat-template flag. We ALWAYS send it for sov — `true` when reasoning is
+      // on, `false` otherwise. Omitting it (the old behavior) let Qwen3's chat
+      // template default thinking ON, so `/effort off` could never actually
+      // disable reasoning: the model reasoned until it exhausted max_tokens and
+      // never produced an answer. Sending `false` is what makes the off-switch
+      // real. Only sov gets this key; openai/ollama keep a byte-identical
+      // default-off body.
+      ...(this.apiMode === 'sov' ? { chat_template_kwargs: { enable_thinking: reasoningOn } } : {}),
     };
   }
 
   async *normalizeResponse(
     raw: AsyncIterable<OpenAIChatChunk>,
+    opts: TranslateOpts = {},
   ): AsyncGenerator<StreamEvent, AssistantMessage> {
-    return yield* translateOpenAIStream(raw);
+    return yield* translateOpenAIStream(raw, opts);
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
@@ -216,13 +230,32 @@ export class OpenAIProvider
     }
     if (!response.body) throw new Error(`${this.name} returned no response body`);
 
-    return yield* this.normalizeResponse(parseSse(response.body));
+    // sov local lane with thinking OFF: the vLLM/MLX engine routes the whole
+    // answer onto `reasoning_content` (with an empty `content`). Tell the
+    // translator to treat that channel as the answer so it renders as the
+    // assistant's response instead of dim "thinking". Only sov + thinking-off;
+    // every other path keeps reasoning_content → thinking.
+    const reasoningIsAnswer = this.apiMode === 'sov' && !this.reasoningEnabled(req);
+    return yield* this.normalizeResponse(parseSse(response.body), { reasoningIsAnswer });
   }
 }
 
+/** Options for {@link translateOpenAIStream}. */
+export type TranslateOpts = {
+  /** When true, `reasoning_content` deltas are treated as ANSWER text
+   *  (text_delta + text block) instead of thinking. Set for the sov local lane
+   *  when thinking is disabled: the vLLM/MLX engine routes the whole answer onto
+   *  the reasoning channel with an empty `content`, so without this the answer
+   *  would render as dim "thinking" and no assistant response would appear.
+   *  Default false preserves reasoning_content → thinking_delta everywhere else. */
+  reasoningIsAnswer?: boolean;
+};
+
 export async function* translateOpenAIStream(
   raw: AsyncIterable<OpenAIChatChunk>,
+  opts: TranslateOpts = {},
 ): AsyncGenerator<StreamEvent, AssistantMessage> {
+  const reasoningIsAnswer = opts.reasoningIsAnswer === true;
   yield { type: 'message_start' };
 
   const textParts: string[] = [];
@@ -238,8 +271,14 @@ export async function* translateOpenAIStream(
 
     const reasoning = choice.delta?.reasoning_content;
     if (reasoning) {
-      reasoningParts.push(reasoning);
-      yield { type: 'thinking_delta', thinking: reasoning };
+      if (reasoningIsAnswer) {
+        // Local lane, thinking off: this channel carries the answer, not CoT.
+        textParts.push(reasoning);
+        yield { type: 'text_delta', text: reasoning };
+      } else {
+        reasoningParts.push(reasoning);
+        yield { type: 'thinking_delta', thinking: reasoning };
+      }
     }
 
     const content = choice.delta?.content;
