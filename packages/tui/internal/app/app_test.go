@@ -394,6 +394,96 @@ func TestApp_thinkingClearedByFirstResponseEvent(t *testing.T) {
 	}
 }
 
+// TestApp_thinkingDeltasBufferedIntoSingleBlock guards the local-model
+// reasoning fix: a provider that streams reasoning one token per
+// thinking_delta (the sov/MLX local lane emits reasoning_content per token)
+// must NOT render each fragment on its own scrollback line — that is the
+// "vertical sliver" bug from the screenshots. Fragments accumulate into a
+// buffer and commit as ONE wrapped italic block when the next non-thinking
+// event arrives. The old behavior printed each delta via its own tea.Println,
+// so the per-token fragments landed one-per-line.
+func TestApp_thinkingDeltasBufferedIntoSingleBlock(t *testing.T) {
+	m := New("s-think-buf", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	// Per-token reasoning fragments with the leading-space BPE subwords the
+	// local vllm-mlx server actually emits (captured live).
+	frags := []string{"Okay,", " let's", " see.", " I need", " to check", " the version."}
+	for i, f := range frags {
+		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-buf","block":0,"text":%q}`, i+1, f)
+		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-buf", int64(i+1), raw))
+	}
+	// A non-thinking event flushes the accumulated reasoning as one block.
+	tcRaw := `{"type":"turn_complete","seq":7,"sessionId":"s-think-buf","finishReason":"end_turn"}`
+	m.handleEvent(newTestEnvelope("turn_complete", "s-think-buf", 7, tcRaw))
+	m.drainPrintln()
+	out := scrollbackContent(m)
+	// The fragments must be JOINED on one line, not split one-per-line. The
+	// broken per-delta path left newlines between every fragment, so this
+	// contiguous substring would be absent.
+	if !strings.Contains(out, "Okay, let's see. I need to check the version.") {
+		t.Errorf("expected per-token thinking deltas buffered into one block; got %q", out)
+	}
+}
+
+// TestApp_thinkingBlockWrapsAtTerminalWidth guards the other half of the
+// reasoning fix: the buffered block must WORD-WRAP at the terminal width, not
+// collapse to a single overflowing line. Streams a long reasoning paragraph as
+// per-token fragments at width 40 and asserts the committed block spans
+// multiple lines with whole words kept together (the broken per-delta path put
+// every token on its own line, so adjacent words never shared a line).
+func TestApp_thinkingBlockWrapsAtTerminalWidth(t *testing.T) {
+	m := New("s-think-wrap", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	long := strings.Repeat("the model reasons about pnpm and the lockfile ", 8)
+	for i, w := range strings.Fields(long) {
+		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-wrap","block":0,"text":%q}`, i+1, " "+w)
+		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-wrap", int64(i+1), raw))
+	}
+	m.handleEvent(newTestEnvelope("turn_complete", "s-think-wrap", 999,
+		`{"type":"turn_complete","seq":999,"sessionId":"s-think-wrap","finishReason":"end_turn"}`))
+	m.drainPrintln()
+	out := scrollbackContent(m)
+	// "model reasons" can only appear on a line if adjacent word-tokens were
+	// wrapped together — proving the block both buffered AND word-wrapped.
+	contiguous := 0
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "model reasons") {
+			contiguous++
+		}
+	}
+	if contiguous < 3 {
+		t.Errorf("expected long reasoning word-wrapped across multiple lines at width 40; got %d lines with contiguous words:\n%s", contiguous, out)
+	}
+}
+
+// TestApp_maxTokensTurnCompleteShowsActionableHint guards the B3 guardrail: a
+// turn that ends on finishReason "max_tokens" (a local reasoning model that
+// reasoned past its budget without answering — the "model exits" symptom) must
+// surface an ACTIONABLE hint, not just a cryptic "⚠ max_tokens".
+func TestApp_maxTokensTurnCompleteShowsActionableHint(t *testing.T) {
+	m := New("s-maxtok", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	m.handleEvent(newTestEnvelope("turn_complete", "s-maxtok", 1,
+		`{"type":"turn_complete","seq":1,"sessionId":"s-maxtok","finishReason":"max_tokens"}`))
+	m.drainPrintln()
+	out := scrollbackContent(m)
+	if !strings.Contains(out, "max_tokens") {
+		t.Errorf("expected the max_tokens reason surfaced; got %q", out)
+	}
+	if !strings.Contains(out, "/effort off") {
+		t.Errorf("expected an actionable /effort off hint on max_tokens; got %q", out)
+	}
+}
+
 // TestApp_renderToolResultAsCard guards M3.6: a tool_result event should
 // render visibly in the rendered transcript.
 //

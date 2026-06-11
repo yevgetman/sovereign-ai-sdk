@@ -62,6 +62,23 @@ func TestFormatCompactToolLine_FileRead(t *testing.T) {
 	}
 }
 
+func TestFormatCompactToolLine_BashEmptyCommandShowsPlaceholder(t *testing.T) {
+	// Some local models emit a Bash tool call with empty/missing args (the
+	// orchestrator then rejects it — command required). The compact line must
+	// not render a confusing blank "Ran $   ›" — show a placeholder instead.
+	out := FormatCompactToolLine(
+		"Bash",
+		mkJSON(t, map[string]any{}),
+		mkJSON(t, map[string]any{"status": "error"}),
+		theme.Dark(),
+		80,
+	)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "(no command)") {
+		t.Errorf("expected '(no command)' placeholder for empty Bash args, got: %q", plain)
+	}
+}
+
 func TestFormatCompactToolLine_FileWrite(t *testing.T) {
 	out := FormatCompactToolLine(
 		"FileWrite",

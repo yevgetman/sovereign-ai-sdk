@@ -132,6 +132,15 @@ type Model struct {
 	sseCursor        int64              // highest event seq observed; sent as Last-Event-ID on reconnect so a post-turn reconnect resumes AFTER the terminal instead of re-receiving (and re-rendering) the whole completed turn — the infinite-replay loop. 0 = none yet.
 	sseCursorSession string             // the session m.sseCursor belongs to; on a session pivot the cursor resets (a new bus has its own seq space starting at 1)
 	thinkingPending  bool
+	// thinkingBuf accumulates streamed reasoning (thinking_delta) text so it
+	// commits as ONE width-wrapped italic block instead of one scrollback
+	// line per delta. The sov/MLX local lane streams reasoning one token per
+	// delta (reasoning_content), so printing each delta via its own
+	// tea.Println produced the "vertical sliver" (1–3 words per line) seen in
+	// the local-model screenshots. flushThinking() drains this at every
+	// non-thinking event boundary. A plain string (not a strings.Builder)
+	// because Bubble Tea copies Model by value on every Update.
+	thinkingBuf      string
 	permission       *components.Permission // M5 T9: active approval modal; nil when not visible
 	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
 	completedBlocks  []CompletedBlock       // M8 T6: ring buffer of tool_result blocks for /expand re-render
@@ -1948,6 +1957,13 @@ func (m *Model) applyThemeByName(name string) error {
 }
 
 func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
+	// Commit any buffered reasoning as one wrapped block before rendering a
+	// non-thinking event — real content (text / a tool call) or a turn
+	// boundary finalizes the reasoning run. thinking_delta itself accumulates
+	// into thinkingBuf (see its case below).
+	if env.Type != "thinking_delta" {
+		m.flushThinking()
+	}
 	switch env.Type {
 	case "text_delta":
 		td, err := transport.DecodeTextDelta(env.Raw)
@@ -1970,16 +1986,19 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if err != nil {
 			return nil
 		}
-		m.clearThinkingIfPending()
-		m.print(
-			lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6e7681")).
-				Italic(true).
-				Render(td.Text),
-		)
-		// ux-fixes — extended-thinking blocks have the same post-block
-		// gap as text blocks; arm the idle-check spinner.
-		return m.scheduleIdleCheck()
+		// Accumulate into the reasoning buffer; do NOT print per-delta. The
+		// sov/MLX local lane streams one token per delta, so printing each
+		// produced the "vertical sliver". flushThinking() (top of handleEvent)
+		// commits the wrapped block when the next non-thinking event arrives.
+		// Keep the "thinking" spinner running while reasoning streams so the
+		// user still sees liveness; (re)start it if none is active — e.g. a
+		// second reasoning pass after a tool result cleared the prior spinner.
+		m.thinkingBuf += td.Text
+		if !m.thinkingPending {
+			m.thinkingPending = true
+			return m.startSpinner("thinking")
+		}
+		return nil
 	case "tool_use_start":
 		_, err := transport.DecodeToolUseStart(env.Raw)
 		if err != nil {
@@ -2179,6 +2198,13 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 			dim := lipgloss.NewStyle().Foreground(m.theme.Dim).Italic(true)
 			m.print(turnSeparator(m.theme, m.width))
 			m.print(dim.Render("  ⚠ " + tc.FinishReason))
+			if tc.FinishReason == "max_tokens" {
+				// The turn hit the token cap before completing. For a local
+				// reasoning model this usually means it reasoned past its budget
+				// without ever answering (the "model exits" symptom). Point at
+				// the levers: a direct answer (/effort off) or a larger budget.
+				m.print(dim.Render("    reached the token limit before finishing — try /effort off for a direct answer, or raise maxTokens"))
+			}
 		}
 		for range style.S.Separator.TrailingGap {
 			m.print("")
@@ -2329,6 +2355,39 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 // ensures incidental references don't break the build.
 func (m Model) handleMouseClick(_ tea.MouseMsg) (Model, tea.Cmd) {
 	return m, nil
+}
+
+// flushThinking commits any accumulated reasoning (thinkingBuf) to scrollback
+// as a single full-width, word-wrapped italic block, then clears the buffer.
+// Called at the top of handleEvent for every NON-thinking event so a reasoning
+// run is finalized the moment real content (text, a tool call) or a turn
+// boundary arrives. No-op when the buffer is empty.
+//
+// This is the fix for the local-model "vertical sliver": the sov/MLX lane
+// streams reasoning one token per thinking_delta, and the previous code
+// printed each via its own tea.Println (1–3 words per line). Buffering +
+// wrapping here renders reasoning as proper paragraphs for every provider.
+// Anthropic sends large thinking chunks, so this is a near no-op there.
+func (m *Model) flushThinking() {
+	if m.thinkingBuf == "" {
+		return
+	}
+	body := strings.TrimSpace(m.thinkingBuf)
+	m.thinkingBuf = ""
+	if body == "" {
+		return
+	}
+	width := m.width
+	if width < 20 {
+		width = 80
+	}
+	m.print(
+		lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6e7681")).
+			Italic(true).
+			Width(width).
+			Render(body),
+	)
 }
 
 // clearThinkingIfPending removes the "…thinking" placeholder appended by the

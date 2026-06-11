@@ -253,7 +253,14 @@ func verbTargetDetails(
 		// can render in its own accent (theme.Success green) rather than
 		// the brand-purple verb color. The user wanted the shell-prompt
 		// marker to pop on its own as a visual cue.
-		return "Ran", "$", flattenWhitespace(extractStringField(input, "command")), ""
+		cmd := flattenWhitespace(extractStringField(input, "command"))
+		if cmd == "" {
+			// A malformed/empty-args tool call (some local models emit a Bash
+			// call with no `command`; the orchestrator then rejects it). Show a
+			// placeholder so the line isn't a confusing blank "Ran $   ›".
+			cmd = "(no command)"
+		}
+		return "Ran", "$", cmd, ""
 	case "Grep":
 		pat := extractStringField(input, "pattern")
 		path := extractStringField(input, "path")
