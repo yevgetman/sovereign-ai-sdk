@@ -132,43 +132,38 @@ type Model struct {
 	sseCursor        int64              // highest event seq observed; sent as Last-Event-ID on reconnect so a post-turn reconnect resumes AFTER the terminal instead of re-receiving (and re-rendering) the whole completed turn — the infinite-replay loop. 0 = none yet.
 	sseCursorSession string             // the session m.sseCursor belongs to; on a session pivot the cursor resets (a new bus has its own seq space starting at 1)
 	thinkingPending  bool
-	// thinkingBuf accumulates streamed reasoning (thinking_delta) text so it
-	// commits as ONE width-wrapped italic block instead of one scrollback
-	// line per delta. The sov/MLX local lane streams reasoning one token per
-	// delta (reasoning_content), so printing each delta via its own
-	// tea.Println produced the "vertical sliver" (1–3 words per line) seen in
-	// the local-model screenshots. flushThinking() drains this at every
-	// non-thinking event boundary. A plain string (not a strings.Builder)
-	// because Bubble Tea copies Model by value on every Update.
-	thinkingBuf      string
-	permission       *components.Permission // M5 T9: active approval modal; nil when not visible
-	skills           []transport.Skill      // M8 T6: skill cache populated by the GET /skills hydration
-	completedBlocks  []CompletedBlock       // M8 T6: ring buffer of tool_result blocks for /expand re-render
-	theme            theme.Theme            // M9 T1: active color/style palette (constructor-injected per ADR M9-01)
-	mostRecentDiff   *components.DiffView   // M9 T5: points to the diff in the latest FileEdit/FileWrite tool_result; Ctrl+] focuses
-	focus            focusTarget            // M9 T5: routing target for j/k/Esc when not in modal
-	goodbyeSummary   *transport.SessionSummary // M9 T7: non-nil after session_summary event; View renders the card instead
-	autocomplete     components.SlashAutocomplete // M9 T8: popup shown when prompt starts with /
-	harnessHome      string                     // M9.5 T3: $HARNESS_HOME path for theme persistence reads/writes
-	pendingThemeErr  error                      // M9.5 T3: surfaced as a dim marker on first WindowSizeMsg
-	pendingThemeName string                     // M9.5 T3: theme name from config used in the dim marker text
-	stallBadge       *components.StallBadge     // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
-	stallGeneration  int                        // M9.6 T2: increments per stall; tick closure captures + compares on expire
-	picker           *components.PickerCard     // M11.5: inline picker card rendered from a pickerOpen side-effect; nil when no picker is active
-	inputCard        *components.InputCard      // 2026-05-24 config UX rebuild: inline input card rendered from an inputOpen side-effect; nil when no input editor is active
-	initialCommand   string                     // 2026-05-24 config UX rebuild: slash command to fire once the splash is up (sov config bootstrap)
-	initialFired     bool                       // 2026-05-24 config UX rebuild: guards the initial-command auto-fire so it runs exactly once
-	configOnly       bool                       // 2026-05-24 patch: `sov config` standalone mode — hide prompt/status, exit when no modal is open
-	configOnlyExit   bool                       // 2026-05-24 patch: latch set when the configOnly run is ready to quit (next tick returns tea.Quit)
-	debugMode        bool                       // 2026-05-24 patch: when true, delegator lines surface lane provider/model via the [provider/model] suffix
-	splashShown      bool                       // M11.1: splash rendered once on the first WindowSizeMsg
-	spinner          components.Spinner         // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
-	spinnerLineIdx   int                        // M11.2: transcript line index of the live spinner row; -1 when no spinner active
-	spinnerLabel     string                     // M11.2: current spinner label ("thinking", "expanding /name", etc.)
-	spinnerGen       int                        // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
-	deltaGen         int                        // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
-	userCancelledTurn bool                      // ux-fixes round 4: ESC triggered POST /cancel — suppress the subsequent turn_error warning since we already showed "(interrupted by user)"
-	harnessVersion    string                     // Phase 21: harness runtime version (from src/version.ts) injected via WithSessionInfo; rendered in the splash card
+	// Streamed reasoning (thinking_delta) now lives in the LiveRegion as an
+	// in-place, ephemeral sliver (see liveregion.go: AppendReasoningDelta /
+	// ClearReasoning) — it is rendered while the model thinks and dropped
+	// when the answer begins or the turn ends, never committed to scrollback.
+	permission        *components.Permission       // M5 T9: active approval modal; nil when not visible
+	skills            []transport.Skill            // M8 T6: skill cache populated by the GET /skills hydration
+	completedBlocks   []CompletedBlock             // M8 T6: ring buffer of tool_result blocks for /expand re-render
+	theme             theme.Theme                  // M9 T1: active color/style palette (constructor-injected per ADR M9-01)
+	mostRecentDiff    *components.DiffView         // M9 T5: points to the diff in the latest FileEdit/FileWrite tool_result; Ctrl+] focuses
+	focus             focusTarget                  // M9 T5: routing target for j/k/Esc when not in modal
+	goodbyeSummary    *transport.SessionSummary    // M9 T7: non-nil after session_summary event; View renders the card instead
+	autocomplete      components.SlashAutocomplete // M9 T8: popup shown when prompt starts with /
+	harnessHome       string                       // M9.5 T3: $HARNESS_HOME path for theme persistence reads/writes
+	pendingThemeErr   error                        // M9.5 T3: surfaced as a dim marker on first WindowSizeMsg
+	pendingThemeName  string                       // M9.5 T3: theme name from config used in the dim marker text
+	stallBadge        *components.StallBadge       // M9.6 T2: nil when no recent stall_detected; auto-clears 5s after the event
+	stallGeneration   int                          // M9.6 T2: increments per stall; tick closure captures + compares on expire
+	picker            *components.PickerCard       // M11.5: inline picker card rendered from a pickerOpen side-effect; nil when no picker is active
+	inputCard         *components.InputCard        // 2026-05-24 config UX rebuild: inline input card rendered from an inputOpen side-effect; nil when no input editor is active
+	initialCommand    string                       // 2026-05-24 config UX rebuild: slash command to fire once the splash is up (sov config bootstrap)
+	initialFired      bool                         // 2026-05-24 config UX rebuild: guards the initial-command auto-fire so it runs exactly once
+	configOnly        bool                         // 2026-05-24 patch: `sov config` standalone mode — hide prompt/status, exit when no modal is open
+	configOnlyExit    bool                         // 2026-05-24 patch: latch set when the configOnly run is ready to quit (next tick returns tea.Quit)
+	debugMode         bool                         // 2026-05-24 patch: when true, delegator lines surface lane provider/model via the [provider/model] suffix
+	splashShown       bool                         // M11.1: splash rendered once on the first WindowSizeMsg
+	spinner           components.Spinner           // M11.2: branded thinking indicator (Braille rotation + gradient color cycle)
+	spinnerLineIdx    int                          // M11.2: transcript line index of the live spinner row; -1 when no spinner active
+	spinnerLabel      string                       // M11.2: current spinner label ("thinking", "expanding /name", etc.)
+	spinnerGen        int                          // M11.2: increments each time a new spinner starts; tick closure compares to drop stale ticks
+	deltaGen          int                          // ux-fixes: bumps on every SSE event so idle-check ticks scheduled by content events can detect a still gap from a stale gen
+	userCancelledTurn bool                         // ux-fixes round 4: ESC triggered POST /cancel — suppress the subsequent turn_error warning since we already showed "(interrupted by user)"
+	harnessVersion    string                       // Phase 21: harness runtime version (from src/version.ts) injected via WithSessionInfo; rendered in the splash card
 	// ux-fixes 2026-05-22: tool-call rendering mode + truncation cap.
 	// "compact" (default) emits a single-line per tool_result using
 	// components.FormatCompactToolLine. "detailed" emits the existing
@@ -1957,13 +1952,6 @@ func (m *Model) applyThemeByName(name string) error {
 }
 
 func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
-	// Commit any buffered reasoning as one wrapped block before rendering a
-	// non-thinking event — real content (text / a tool call) or a turn
-	// boundary finalizes the reasoning run. thinking_delta itself accumulates
-	// into thinkingBuf (see its case below).
-	if env.Type != "thinking_delta" {
-		m.flushThinking()
-	}
 	switch env.Type {
 	case "text_delta":
 		td, err := transport.DecodeTextDelta(env.Raw)
@@ -1986,14 +1974,13 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		if err != nil {
 			return nil
 		}
-		// Accumulate into the reasoning buffer; do NOT print per-delta. The
-		// sov/MLX local lane streams one token per delta, so printing each
-		// produced the "vertical sliver". flushThinking() (top of handleEvent)
-		// commits the wrapped block when the next non-thinking event arrives.
+		// Stream reasoning IN-PLACE into the live region's bounded sliver —
+		// never to scrollback. It's dropped (ClearReasoning) when the answer
+		// begins, a tool starts, or the turn ends, so it doesn't persist.
 		// Keep the "thinking" spinner running while reasoning streams so the
 		// user still sees liveness; (re)start it if none is active — e.g. a
 		// second reasoning pass after a tool result cleared the prior spinner.
-		m.thinkingBuf += td.Text
+		m.live.AppendReasoningDelta(td.Text)
 		if !m.thinkingPending {
 			m.thinkingPending = true
 			return m.startSpinner("thinking")
@@ -2357,39 +2344,6 @@ func (m Model) handleMouseClick(_ tea.MouseMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// flushThinking commits any accumulated reasoning (thinkingBuf) to scrollback
-// as a single full-width, word-wrapped italic block, then clears the buffer.
-// Called at the top of handleEvent for every NON-thinking event so a reasoning
-// run is finalized the moment real content (text, a tool call) or a turn
-// boundary arrives. No-op when the buffer is empty.
-//
-// This is the fix for the local-model "vertical sliver": the sov/MLX lane
-// streams reasoning one token per thinking_delta, and the previous code
-// printed each via its own tea.Println (1–3 words per line). Buffering +
-// wrapping here renders reasoning as proper paragraphs for every provider.
-// Anthropic sends large thinking chunks, so this is a near no-op there.
-func (m *Model) flushThinking() {
-	if m.thinkingBuf == "" {
-		return
-	}
-	body := strings.TrimSpace(m.thinkingBuf)
-	m.thinkingBuf = ""
-	if body == "" {
-		return
-	}
-	width := m.width
-	if width < 20 {
-		width = 80
-	}
-	m.print(
-		lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6e7681")).
-			Italic(true).
-			Width(width).
-			Render(body),
-	)
-}
-
 // clearThinkingIfPending removes the "…thinking" placeholder appended by the
 // ENTER handler. Called from every event handler that produces visible
 // output for a turn (text_delta, thinking_delta, tool_use_start, tool_result,
@@ -2406,6 +2360,13 @@ func (m *Model) flushThinking() {
 // when there is no active spinner to clear.
 func (m *Model) clearThinkingIfPending() {
 	m.deltaGen++
+	// 2026-06-11 — drop the ephemeral reasoning sliver. This runs at every
+	// turn-progress boundary (text_delta, tool_use_start, tool_result,
+	// turn_complete/error, ESC-cancel) — i.e. every point where the model
+	// has moved past reasoning — but NEVER during thinking_delta streaming
+	// (that case doesn't call this), so reasoning shows in-place while it
+	// streams and vanishes the instant the answer/turn supersedes it.
+	m.live.ClearReasoning()
 	if !m.thinkingPending {
 		return
 	}

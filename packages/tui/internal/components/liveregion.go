@@ -34,15 +34,30 @@ import (
 	"hash/fnv"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
 )
 
+// reasoningSliverLines caps how many wrapped lines of streamed reasoning
+// the live region shows at once. Reasoning streams IN-PLACE: as new lines
+// arrive the oldest scroll out of this fixed window ("new replaces old"),
+// keeping the bottom region a bounded height and never pushing the prompt
+// far down a long chain-of-thought. The reasoning is ephemeral — cleared
+// when the answer begins or the turn ends, never committed to scrollback.
+const reasoningSliverLines = 8
+
 type LiveRegion struct {
-	width   int
-	theme   theme.Theme
-	stream  *strings.Builder // currentAssistant streaming buffer; nil = no active card
-	spinner string           // last-rendered spinner frame, or "" when inactive
+	width  int
+	theme  theme.Theme
+	stream *strings.Builder // currentAssistant streaming buffer; nil = no active card
+	// reasoning holds streamed thinking_delta text while the model reasons.
+	// Unlike stream it is NEVER committed to scrollback — it renders as a
+	// bounded dim-italic sliver in View() and is dropped (ClearReasoning)
+	// when the answer begins or the turn ends. nil = no active reasoning.
+	// A pointer (like stream) so Bubble Tea's by-value Model copy shares it.
+	reasoning *strings.Builder
+	spinner   string // last-rendered spinner frame, or "" when inactive
 	// runningCommand is the "…running /name <args>" indicator that
 	// renders while a slash command is awaiting its response. Cleared
 	// when the matching commandDispatchedMsg / compactCompleteMsg /
@@ -164,6 +179,55 @@ func (l *LiveRegion) AppendAssistantDelta(delta string) {
 	l.refreshStreamRender()
 }
 
+// AppendReasoningDelta accumulates streamed thinking_delta text into the
+// in-place reasoning sliver. The first call opens a fresh buffer; later
+// calls append. Unlike the answer stream this is never committed to
+// scrollback — ClearReasoning drops it when the answer begins / the turn
+// ends. No markdown render (reasoning is plain dim-italic prose).
+func (l *LiveRegion) AppendReasoningDelta(delta string) {
+	if l.reasoning == nil {
+		l.reasoning = &strings.Builder{}
+	}
+	l.reasoning.WriteString(delta)
+}
+
+// ClearReasoning drops the in-flight reasoning sliver without committing it
+// anywhere. Idempotent. Called when the answer begins, a tool starts, or
+// the turn completes — reasoning is ephemeral and must not persist.
+func (l *LiveRegion) ClearReasoning() {
+	l.reasoning = nil
+}
+
+// reasoningView renders the reasoning sliver: word-wrapped to the live
+// width, capped to the last reasoningSliverLines lines, dim + italic.
+// Returns "" when no reasoning is active. Wrapping is done plain first and
+// styled last so tail-slicing never cuts through an ANSI escape sequence.
+func (l LiveRegion) reasoningView() string {
+	if l.reasoning == nil || l.reasoning.Len() == 0 {
+		return ""
+	}
+	body := strings.TrimSpace(l.reasoning.String())
+	if body == "" {
+		return ""
+	}
+	width := l.width
+	if width < 20 {
+		width = 80
+	}
+	wrapped := lipgloss.NewStyle().Width(width).Render(body)
+	lines := strings.Split(wrapped, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	if len(lines) > reasoningSliverLines {
+		lines = lines[len(lines)-reasoningSliverLines:]
+	}
+	return lipgloss.NewStyle().
+		Foreground(l.theme.Dim).
+		Italic(true).
+		Render(strings.Join(lines, "\n"))
+}
+
 // HasStreaming reports whether an open streaming card exists. Used by
 // turn-boundary handlers to know whether to commit before swapping to
 // another live element (tool card, error, etc.).
@@ -213,6 +277,7 @@ func (l *LiveRegion) SetRunningCommand(line string) {
 
 // View returns the composited live region:
 //
+//	<reasoning sliver>   — in-place dim-italic thinking, capped, ephemeral
 //	<streaming card>     — current assistant content, markdown-rendered
 //	<running command>    — dim "…running /name args" while awaiting
 //	<spinner>            — branded thinking indicator
@@ -220,6 +285,12 @@ func (l *LiveRegion) SetRunningCommand(line string) {
 // Empty when nothing is live. Caller appends prompt + status below.
 func (l LiveRegion) View() string {
 	var parts []string
+	// Reasoning streams in-place ABOVE the answer/spinner while the model
+	// thinks; it's replaced by the answer (ClearReasoning) once text_delta
+	// arrives, so in practice it and the stream are not both present.
+	if r := l.reasoningView(); r != "" {
+		parts = append(parts, r+"\n")
+	}
 	if l.stream != nil && l.stream.Len() > 0 {
 		// FIX 6 (audit) — serve the memoized render; a spinner-only tick
 		// leaves the cache key unchanged so this is a map-free reuse, not

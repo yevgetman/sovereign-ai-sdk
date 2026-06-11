@@ -394,16 +394,19 @@ func TestApp_thinkingClearedByFirstResponseEvent(t *testing.T) {
 	}
 }
 
-// TestApp_thinkingDeltasBufferedIntoSingleBlock guards the local-model
-// reasoning fix: a provider that streams reasoning one token per
-// thinking_delta (the sov/MLX local lane emits reasoning_content per token)
-// must NOT render each fragment on its own scrollback line — that is the
-// "vertical sliver" bug from the screenshots. Fragments accumulate into a
-// buffer and commit as ONE wrapped italic block when the next non-thinking
-// event arrives. The old behavior printed each delta via its own tea.Println,
-// so the per-token fragments landed one-per-line.
-func TestApp_thinkingDeltasBufferedIntoSingleBlock(t *testing.T) {
-	m := New("s-think-buf", "")
+// Reasoning-render contract (2026-06-11, us1.png feedback): when thinking
+// is enabled, streamed reasoning (thinking_delta) must (a) stream IN-PLACE
+// in the bottom live region while it arrives — never committed to the
+// terminal's permanent scrollback — and (b) disappear once the answer
+// begins or the turn completes. The prior behavior buffered reasoning and
+// flushed it to scrollback via tea.Println, so it persisted forever; these
+// tests pin the opposite contract.
+
+// TestApp_reasoningStreamsInLiveRegionNotScrollback: per-token reasoning
+// fragments accumulate into the live region (visible there, joined) and do
+// NOT land in scrollback while streaming.
+func TestApp_reasoningStreamsInLiveRegionNotScrollback(t *testing.T) {
+	m := New("s-think-live", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
 	m.pendingPrintln = nil
@@ -412,53 +415,106 @@ func TestApp_thinkingDeltasBufferedIntoSingleBlock(t *testing.T) {
 	// local vllm-mlx server actually emits (captured live).
 	frags := []string{"Okay,", " let's", " see.", " I need", " to check", " the version."}
 	for i, f := range frags {
-		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-buf","block":0,"text":%q}`, i+1, f)
-		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-buf", int64(i+1), raw))
+		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-live","block":0,"text":%q}`, i+1, f)
+		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-live", int64(i+1), raw))
 	}
-	// A non-thinking event flushes the accumulated reasoning as one block.
-	tcRaw := `{"type":"turn_complete","seq":7,"sessionId":"s-think-buf","finishReason":"end_turn"}`
-	m.handleEvent(newTestEnvelope("turn_complete", "s-think-buf", 7, tcRaw))
+	// While streaming (no terminal/answer event yet) the reasoning is visible
+	// in the live region, JOINED on one line (not one fragment per line).
+	live := m.live.View()
+	if !strings.Contains(live, "Okay, let's see. I need to check the version.") {
+		t.Errorf("expected reasoning streamed in the live region; got %q", live)
+	}
+	// It must NOT have been committed to scrollback.
 	m.drainPrintln()
-	out := scrollbackContent(m)
-	// The fragments must be JOINED on one line, not split one-per-line. The
-	// broken per-delta path left newlines between every fragment, so this
-	// contiguous substring would be absent.
-	if !strings.Contains(out, "Okay, let's see. I need to check the version.") {
-		t.Errorf("expected per-token thinking deltas buffered into one block; got %q", out)
+	if sb := scrollbackContent(m); strings.Contains(sb, "Okay,") {
+		t.Errorf("reasoning must NOT be committed to scrollback while streaming; got %q", sb)
 	}
 }
 
-// TestApp_thinkingBlockWrapsAtTerminalWidth guards the other half of the
-// reasoning fix: the buffered block must WORD-WRAP at the terminal width, not
-// collapse to a single overflowing line. Streams a long reasoning paragraph as
-// per-token fragments at width 40 and asserts the committed block spans
-// multiple lines with whole words kept together (the broken per-delta path put
-// every token on its own line, so adjacent words never shared a line).
-func TestApp_thinkingBlockWrapsAtTerminalWidth(t *testing.T) {
+// TestApp_reasoningWordWrapsInLiveRegion: the live-region reasoning must
+// WORD-WRAP at the terminal width (adjacent words share a line), not collapse
+// to one overflowing line or a per-token vertical sliver.
+func TestApp_reasoningWordWrapsInLiveRegion(t *testing.T) {
 	m := New("s-think-wrap", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
 	m = model.(Model)
 	m.pendingPrintln = nil
 	m.emittedPrintln = nil
-	long := strings.Repeat("the model reasons about pnpm and the lockfile ", 8)
+	long := strings.Repeat("the model reasons about pnpm and the lockfile ", 2)
 	for i, w := range strings.Fields(long) {
 		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-wrap","block":0,"text":%q}`, i+1, " "+w)
 		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-wrap", int64(i+1), raw))
 	}
-	m.handleEvent(newTestEnvelope("turn_complete", "s-think-wrap", 999,
-		`{"type":"turn_complete","seq":999,"sessionId":"s-think-wrap","finishReason":"end_turn"}`))
-	m.drainPrintln()
-	out := scrollbackContent(m)
+	live := m.live.View()
 	// "model reasons" can only appear on a line if adjacent word-tokens were
-	// wrapped together — proving the block both buffered AND word-wrapped.
+	// wrapped together — proving the live block word-wraps, not one-per-line.
 	contiguous := 0
-	for _, ln := range strings.Split(out, "\n") {
+	for _, ln := range strings.Split(live, "\n") {
 		if strings.Contains(ln, "model reasons") {
 			contiguous++
 		}
 	}
-	if contiguous < 3 {
-		t.Errorf("expected long reasoning word-wrapped across multiple lines at width 40; got %d lines with contiguous words:\n%s", contiguous, out)
+	if contiguous < 2 {
+		t.Errorf("expected live reasoning word-wrapped across lines at width 40; got %d lines with contiguous words:\n%s", contiguous, live)
+	}
+}
+
+// TestApp_reasoningClearedWhenAnswerBegins: the moment the answer's first
+// text_delta arrives, reasoning is replaced by the answer in the live region
+// — and never leaks to scrollback.
+func TestApp_reasoningClearedWhenAnswerBegins(t *testing.T) {
+	m := New("s-think-answer", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	for i, f := range []string{"Okay,", " let's", " see."} {
+		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-answer","block":0,"text":%q}`, i+1, f)
+		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-answer", int64(i+1), raw))
+	}
+	// The answer begins.
+	m.handleEvent(newTestEnvelope("text_delta", "s-think-answer", 10,
+		`{"type":"text_delta","seq":10,"sessionId":"s-think-answer","block":0,"text":"The version is 1.2.3."}`))
+	live := m.live.View()
+	if strings.Contains(live, "Okay,") {
+		t.Errorf("reasoning should be cleared once the answer begins; live still shows it: %q", live)
+	}
+	if !strings.Contains(live, "version") {
+		t.Errorf("answer text should be streaming in the live region; got %q", live)
+	}
+	m.drainPrintln()
+	if sb := scrollbackContent(m); strings.Contains(sb, "Okay,") {
+		t.Errorf("reasoning must never be committed to scrollback; got %q", sb)
+	}
+}
+
+// TestApp_reasoningNeverCommittedToScrollbackAcrossTurn: across a full turn
+// (reasoning → answer → turn_complete) scrollback holds the ANSWER but NEVER
+// the reasoning, and the live region is clear of reasoning afterward.
+func TestApp_reasoningNeverCommittedToScrollbackAcrossTurn(t *testing.T) {
+	m := New("s-think-turn", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingPrintln = nil
+	m.emittedPrintln = nil
+	for i, f := range []string{"Okay,", " let's", " check", " the version."} {
+		raw := fmt.Sprintf(`{"type":"thinking_delta","seq":%d,"sessionId":"s-think-turn","block":0,"text":%q}`, i+1, f)
+		m.handleEvent(newTestEnvelope("thinking_delta", "s-think-turn", int64(i+1), raw))
+	}
+	m.handleEvent(newTestEnvelope("text_delta", "s-think-turn", 10,
+		`{"type":"text_delta","seq":10,"sessionId":"s-think-turn","block":0,"text":"The version is 1.2.3."}`))
+	m.handleEvent(newTestEnvelope("turn_complete", "s-think-turn", 11,
+		`{"type":"turn_complete","seq":11,"sessionId":"s-think-turn","finishReason":"end_turn"}`))
+	m.drainPrintln()
+	sb := scrollbackContent(m)
+	if strings.Contains(sb, "Okay,") || strings.Contains(sb, "the version.") {
+		t.Errorf("reasoning leaked into scrollback after the turn: %q", sb)
+	}
+	if !strings.Contains(sb, "1.2.3") {
+		t.Errorf("the answer should be committed to scrollback: %q", sb)
+	}
+	if strings.Contains(m.live.View(), "Okay,") {
+		t.Errorf("reasoning still in live region after turn_complete: %q", m.live.View())
 	}
 }
 
@@ -610,10 +666,10 @@ func TestApp_compactSlashRoutesToCompactEndpoint(t *testing.T) {
 	const childID = "child-session"
 
 	var (
-		mu             sync.Mutex
-		compactPosts   []string
-		turnPostsPath  []string
-		turnPostsBody  [][]byte
+		mu            sync.Mutex
+		compactPosts  []string
+		turnPostsPath []string
+		turnPostsBody [][]byte
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Compact route — return the new child session id.
@@ -1375,9 +1431,9 @@ func TestApp_PromptToSendAutoFiresTurn(t *testing.T) {
 	const promptBody = "Expanded prompt body to send as turn."
 
 	var (
-		mu             sync.Mutex
-		commandPosts   int
-		turnPostsBody  [][]byte
+		mu            sync.Mutex
+		commandPosts  int
+		turnPostsBody [][]byte
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// /commands POST — return a prompt-type response.
