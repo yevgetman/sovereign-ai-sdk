@@ -13,7 +13,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMissionInit } from '../../src/cli/missionInit.js';
-import { resolveWakeMaxTurns, runMissionWake } from '../../src/cli/missionRun.js';
+import {
+  normalizePerWakeTurnBudget,
+  resolveWakeMaxTurns,
+  runMissionWake,
+} from '../../src/cli/missionRun.js';
 
 const MAIN_TS = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/main.ts');
 
@@ -85,6 +89,47 @@ describe('resolveWakeMaxTurns (FIX 1b)', () => {
     // The whole point: a default per-wake budget (10) must bound the wake.
     expect(resolveWakeMaxTurns(10, 50)).not.toBe(100);
     expect(resolveWakeMaxTurns(10, 50)).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('normalizePerWakeTurnBudget (#39)', () => {
+  it('passes through a valid positive integer budget', () => {
+    expect(normalizePerWakeTurnBudget(10)).toBe(10);
+    expect(normalizePerWakeTurnBudget(1)).toBe(1);
+    expect(normalizePerWakeTurnBudget(50)).toBe(50);
+  });
+
+  it('floors a fractional budget to a whole number of turns', () => {
+    expect(normalizePerWakeTurnBudget(10.9)).toBe(10);
+  });
+
+  it('falls back to the default for a 0, negative, NaN, or non-finite budget', () => {
+    // The bug: any of these as maxTurns makes query() run ZERO turns while
+    // still advancing FSM state — silent forward progress with no work done.
+    expect(normalizePerWakeTurnBudget(0)).toBe(10);
+    expect(normalizePerWakeTurnBudget(-5)).toBe(10);
+    expect(normalizePerWakeTurnBudget(Number.NaN)).toBe(10);
+    expect(normalizePerWakeTurnBudget(Number.POSITIVE_INFINITY)).toBe(10);
+  });
+
+  it('falls back to the default for a missing / non-numeric budget', () => {
+    expect(normalizePerWakeTurnBudget(undefined)).toBe(10);
+    expect(normalizePerWakeTurnBudget(null)).toBe(10);
+    expect(normalizePerWakeTurnBudget('10')).toBe(10);
+    expect(normalizePerWakeTurnBudget({})).toBe(10);
+  });
+});
+
+describe('resolveWakeMaxTurns — invalid budget (#39)', () => {
+  it('never collapses to zero turns when the budget is 0 / NaN', () => {
+    // Without the #39 guard, a 0 budget would make Math.min(0, agentMaxTurns)
+    // = 0 → query() runs zero turns. The guard substitutes the default 10.
+    expect(resolveWakeMaxTurns(0, 50)).toBe(10);
+    expect(resolveWakeMaxTurns(Number.NaN, 50)).toBe(10);
+  });
+
+  it('still caps the substituted default at a lower agent ceiling', () => {
+    expect(resolveWakeMaxTurns(0, 3)).toBe(3);
   });
 });
 

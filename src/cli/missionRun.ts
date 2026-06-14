@@ -17,10 +17,11 @@ import { readConfig } from '../config/store.js';
 import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
 import type { ContentBlock, Message, SystemSegment, Terminal } from '../core/types.js';
+import { touchLock } from '../cron/lockUtil.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { resolveProjectScope } from '../memory/scope.js';
 import { applyTransition, shouldRun } from '../mission/fsm.js';
-import { missionMdPath, notesMdPath, stateJsonPath } from '../mission/paths.js';
+import { lockPath, missionMdPath, notesMdPath, stateJsonPath } from '../mission/paths.js';
 import { buildMissionSegments } from '../mission/segments.js';
 import {
   acquireLock,
@@ -36,6 +37,31 @@ import type { Tool, ToolContext } from '../tool/types.js';
 const MISSION_AGENT_NAME = 'scheduled-mission';
 const DEFAULT_MAX_TOKENS = 4096;
 
+/** Fallback per-wake turn budget when `state.json` carries a missing / 0 /
+ *  NaN / negative value. Mirrors the `mission init` default so a corrupt or
+ *  hand-edited state never collapses the wake to zero turns (#39). */
+const DEFAULT_PER_WAKE_TURN_BUDGET = 10;
+
+/** How often the wake refreshes its overlap lock's mtime while it works, so a
+ *  legitimately long-running wake (slow model turns) is never reclaimed by the
+ *  shared lock's mtime staleness ceiling (#40). Well under that 6h ceiling. */
+const LOCK_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Coerce a `state.json` `perWakeTurnBudget` to a usable positive turn count.
+ *
+ *  #39 — the value is loaded from a JSON file that may be missing the field,
+ *  carry a non-numeric / 0 / NaN / negative value (a typo or a hand-edit), or
+ *  arrive `undefined`. Feeding any of those into `query()`'s `maxTurns` makes
+ *  the wake run zero turns yet still advance FSM state — silent forward
+ *  progress with no work done. Validate at this boundary and fall back to the
+ *  documented default. */
+export function normalizePerWakeTurnBudget(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    return DEFAULT_PER_WAKE_TURN_BUDGET;
+  }
+  return Math.floor(value);
+}
+
 /** Resolve the wake's `query()` turn ceiling.
  *
  *  FIX 1b — the wake is a *bounded* unit of work: the mission's
@@ -45,13 +71,17 @@ const DEFAULT_MAX_TOKENS = 4096;
  *  100-turn default and the per-wake budget was silently ignored — a wake could
  *  run 100 turns instead of the intended 10.
  *
+ *  #39 — the incoming budget is validated via `normalizePerWakeTurnBudget` so a
+ *  missing / 0 / NaN value can never collapse the wake to zero turns.
+ *
  *  The agent definition's own `maxTurns` is an additional ceiling: if the agent
  *  declares a lower bound than the budget, honor the lower one. (`agentMaxTurns`
  *  is always set in practice — the loader defaults it — but it's optional here
  *  so the helper is independently testable.) */
 export function resolveWakeMaxTurns(perWakeTurnBudget: number, agentMaxTurns?: number): number {
-  if (agentMaxTurns === undefined) return perWakeTurnBudget;
-  return Math.min(perWakeTurnBudget, agentMaxTurns);
+  const budget = normalizePerWakeTurnBudget(perWakeTurnBudget);
+  if (agentMaxTurns === undefined) return budget;
+  return Math.min(budget, agentMaxTurns);
 }
 
 export type MissionWakeOpts = {
@@ -98,9 +128,18 @@ export async function runMissionWake(opts: MissionWakeOpts): Promise<MissionWake
     return { lockHeld: true, reason: 'lock held' };
   }
 
+  // #40 — a single wake can legitimately run for hours (slow model turns),
+  // longer than the shared lock's 6h mtime staleness ceiling. Refresh the
+  // lock's mtime on an interval so a *live* holder is never reclaimed by the
+  // ceiling. `.unref()` so the heartbeat can never keep the process alive.
+  const lockDir = lockPath(stateDir);
+  const heartbeat = setInterval(() => touchLock(lockDir), LOCK_HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref?.();
+
   try {
     return await runMissionWakeLocked(stateDir, opts);
   } finally {
+    clearInterval(heartbeat);
     releaseLock(stateDir);
   }
 }
