@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ToolContext } from '../../src/tool/types.js';
 import { WebFetchTool, htmlToText } from '../../src/tools/WebFetchTool.js';
+import type { LookupImpl } from '../../src/tools/ssrfGuard.js';
 
 const ctxBase: Partial<ToolContext> = {
   cwd: '/tmp',
@@ -202,5 +203,51 @@ describe('WebFetchTool SSRF hardening', () => {
     expect(result.data.status).toBe(200);
     expect(result.data.text).toContain('final body');
     expect(urls).toEqual(['https://example.com/start', 'https://example.org/final']);
+  });
+});
+
+describe('WebFetchTool DNS resolve-validate-pin (findings #4/#5/#12)', () => {
+  // With lookupImpl injected the DNS guard turns ON even under an injected
+  // fetch double, exercising the resolve-all → block-if-any-private → pin path.
+
+  test('finding #4: blocks a multi-IP host where ANY resolved address is private', async () => {
+    const { fetchImpl, urls } = makeSeqFetchMock([{ body: 'INTERNAL' }]);
+    const lookupImpl: LookupImpl = async () => [
+      { address: '93.184.216.34', family: 4 },
+      { address: '169.254.169.254', family: 4 }, // one private among many
+    ];
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl } as unknown as ToolContext;
+    const result = await WebFetchTool.call({ url: 'http://multi.example/' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(urls).toHaveLength(0); // never fetched
+    expect(result.data.text).not.toContain('INTERNAL');
+  });
+
+  test('finding #4: plain-http pins to the validated IP + sends original Host', async () => {
+    const seen: { url: string; host: string | null }[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      seen.push({ url: String(url), host: headers.get('host') });
+      return new Response('ok', { status: 200, headers: { 'content-type': 'text/plain' } });
+    }) as unknown as typeof fetch;
+    const lookupImpl: LookupImpl = async () => [{ address: '93.184.216.34', family: 4 }];
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl } as unknown as ToolContext;
+    const result = await WebFetchTool.call({ url: 'http://pin.example/path' }, ctx);
+    expect(result.data.status).toBe(200);
+    expect(seen[0]?.url).toBe('http://93.184.216.34/path'); // pinned to the IP
+    expect(seen[0]?.host).toBe('pin.example'); // original Host preserved
+    expect(result.data.finalUrl).toBe('http://pin.example/path'); // human-readable
+  });
+
+  test('finding #5: a DNS error fails CLOSED (refusal, no fetch)', async () => {
+    const { fetchImpl, urls } = makeSeqFetchMock([{ body: 'INTERNAL' }]);
+    const lookupImpl: LookupImpl = async () => {
+      throw new Error('SERVFAIL');
+    };
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl } as unknown as ToolContext;
+    const result = await WebFetchTool.call({ url: 'http://servfail.example/' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(urls).toHaveLength(0);
+    expect(result.data.text).not.toContain('INTERNAL');
   });
 });

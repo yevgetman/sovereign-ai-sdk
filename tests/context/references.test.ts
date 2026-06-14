@@ -6,6 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expandContextReferences } from '../../src/context/references.js';
+import type { LookupImpl } from '../../src/tools/ssrfGuard.js';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-references-'));
@@ -120,6 +121,58 @@ describe('expandContextReferences', () => {
     });
     expect(out).toContain('[ERROR');
     expect(out).not.toContain('SECRET');
+  });
+
+  // findings #4/#5/#12 — @url must reuse the resolve-validate-pin guard.
+  test('@url blocks a multi-IP host where ANY resolved address is private', async () => {
+    let fetched = false;
+    const lookupImpl: LookupImpl = async () => [
+      { address: '93.184.216.34', family: 4 },
+      { address: '127.0.0.1', family: 4 },
+    ];
+    const out = await expandContextReferences('@url:http://multi.example/', {
+      fetchImpl: (async () => {
+        fetched = true;
+        return new Response('INTERNAL', { status: 200 });
+      }) as unknown as typeof fetch,
+      lookupImpl,
+    });
+    expect(fetched).toBe(false);
+    expect(out).toContain('[ERROR');
+    expect(out).not.toContain('INTERNAL');
+  });
+
+  test('@url plain-http pins to the validated IP + sends original Host', async () => {
+    const seen: { url: string; host: string | null }[] = [];
+    const lookupImpl: LookupImpl = async () => [{ address: '93.184.216.34', family: 4 }];
+    const out = await expandContextReferences('@url:http://pin.example/p', {
+      fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        seen.push({ url: String(url), host: headers.get('host') });
+        return new Response('hi', { status: 200 });
+      }) as unknown as typeof fetch,
+      lookupImpl,
+    });
+    expect(out).toContain('hi');
+    expect(seen[0]?.url).toBe('http://93.184.216.34/p');
+    expect(seen[0]?.host).toBe('pin.example');
+  });
+
+  test('@url fails CLOSED on a DNS error (no fetch, no leak)', async () => {
+    let fetched = false;
+    const lookupImpl: LookupImpl = async () => {
+      throw new Error('SERVFAIL');
+    };
+    const out = await expandContextReferences('@url:http://servfail.example/', {
+      fetchImpl: (async () => {
+        fetched = true;
+        return new Response('INTERNAL', { status: 200 });
+      }) as unknown as typeof fetch,
+      lookupImpl,
+    });
+    expect(fetched).toBe(false);
+    expect(out).toContain('[ERROR');
+    expect(out).not.toContain('INTERNAL');
   });
 
   test('an unreadable @file: resolves to an [ERROR] marker, never rejects', async () => {

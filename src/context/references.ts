@@ -5,12 +5,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
-import { type LookupImpl, assertResolvedHostPublic, checkUrlAllowed } from '../tools/ssrfGuard.js';
+import { type LookupImpl, checkUrlAllowed, resolvePinnedTarget } from '../tools/ssrfGuard.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_URL_BYTES = 128 * 1024;
 const MAX_FOLDER_ENTRIES = 500;
+const URL_TIMEOUT_MS = 10_000;
 
 export type ReferenceOptions = {
   cwd?: string;
@@ -136,17 +137,29 @@ async function urlReference(raw: string, options: ReferenceOptions): Promise<str
   if (!guard.ok) return `[ERROR: URL fetch refused ${raw}: ${guard.reason}]`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), URL_TIMEOUT_MS);
   try {
     let currentUrl = raw;
     let response: Response;
     let redirects = 0;
     while (true) {
+      // Resolve-validate-pin every hop, bounded by the same URL_TIMEOUT_MS as
+      // the fetch so a slow/hostile resolver can't outlast the cap. Plain http
+      // is truly pinned (host→IP rewrite + Host header); https carries a
+      // documented residual (see resolvePinnedTarget). Fail-closed on DNS error.
+      let connectUrl = currentUrl;
+      let pinnedHeaders: Record<string, string> = {};
       if (dnsGuardEnabled) {
-        const dnsBlock = await assertResolvedHostPublic(new URL(currentUrl).hostname, lookupImpl);
-        if (dnsBlock) return `[ERROR: URL fetch refused ${raw}: ${dnsBlock}]`;
+        const pin = await resolvePinnedTarget(currentUrl, lookupImpl, URL_TIMEOUT_MS);
+        if (!pin.ok) return `[ERROR: URL fetch refused ${raw}: ${pin.reason}]`;
+        connectUrl = pin.url;
+        pinnedHeaders = pin.headers ?? {};
       }
-      response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' });
+      response = await fetchImpl(connectUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+        ...(Object.keys(pinnedHeaders).length > 0 ? { headers: pinnedHeaders } : {}),
+      });
       const isRedirect = response.status >= 300 && response.status < 400;
       const location = response.headers.get('location');
       if (!isRedirect || !location) break;

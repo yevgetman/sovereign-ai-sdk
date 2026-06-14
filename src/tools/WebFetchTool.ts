@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
-import { type LookupImpl, assertResolvedHostPublic, checkUrlAllowed } from './ssrfGuard.js';
+import { type LookupImpl, checkUrlAllowed, resolvePinnedTarget } from './ssrfGuard.js';
 
 const DEFAULT_MAX_CHARS = 50_000;
 const ABSOLUTE_MAX_CHARS = 200_000;
@@ -158,17 +158,24 @@ export const WebFetchTool = buildTool<Input, Output>({
       let response: Response;
       let redirects = 0;
       while (true) {
-        // Block hostnames that resolve to private/loopback/metadata space
-        // (DNS-rebinding / *.nip.io). Re-checked every hop alongside the sync
-        // scheme/literal gate.
+        // Resolve once, validate EVERY resolved address, and PIN the connection
+        // to a validated IP (plain http: host→IP rewrite + Host header; https:
+        // unrewritten with a documented residual). Bounds the lookup by the same
+        // TIMEOUT_MS as the fetch so a slow resolver can't outlast the cap. Done
+        // every hop alongside the sync scheme/literal gate (DNS-rebinding /
+        // *.nip.io). The pinned IP closes the resolve→connect re-resolution gap.
+        let connectUrl = currentUrl;
+        let pinnedHeaders: Record<string, string> = {};
         if (dnsGuardEnabled) {
-          const dnsBlock = await assertResolvedHostPublic(new URL(currentUrl).hostname, lookupImpl);
-          if (dnsBlock) return blockedResult(input.url, currentUrl, dnsBlock);
+          const pin = await resolvePinnedTarget(currentUrl, lookupImpl, TIMEOUT_MS);
+          if (!pin.ok) return blockedResult(input.url, currentUrl, pin.reason);
+          connectUrl = pin.url;
+          pinnedHeaders = pin.headers ?? {};
         }
-        response = await fetchImpl(currentUrl, {
+        response = await fetchImpl(connectUrl, {
           signal: controller.signal,
           redirect: 'manual',
-          headers: { 'user-agent': 'sovereign-ai-harness/0.0.1 (+webfetch)' },
+          headers: { 'user-agent': 'sovereign-ai-harness/0.0.1 (+webfetch)', ...pinnedHeaders },
         });
         const isRedirect = response.status >= 300 && response.status < 400;
         const location = response.headers.get('location');
@@ -190,7 +197,9 @@ export const WebFetchTool = buildTool<Input, Output>({
         redirects += 1;
       }
       const contentType = response.headers.get('content-type') ?? '';
-      const finalUrl = response.url || currentUrl;
+      // Prefer the human-readable currentUrl: when we pin plain-http to an IP,
+      // response.url reports the IP form, which would be misleading.
+      const finalUrl = currentUrl || response.url;
       const status = response.status;
       const raw = await readBoundedText(response, RESPONSE_BYTE_CAP);
       const isHtml = /text\/html|application\/xhtml/i.test(contentType);
