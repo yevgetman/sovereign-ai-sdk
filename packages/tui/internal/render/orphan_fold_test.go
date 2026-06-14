@@ -163,6 +163,36 @@ func TestFoldOrphanLines_FoldsIntoNextWhenPrevOverflows(t *testing.T) {
 	}
 }
 
+// TestFoldOrphanLines_FoldDownPreservesNextIndent is the FIX (post-audit
+// #45) regression: when an orphan folds DOWN into the next content line, the
+// next line's ORIGINAL leading indentation must be preserved. Pre-fix the
+// merge stored `orphanWord + " " + leftTrimmed(next)`, dropping the indent
+// and shifting the continuation line's left margin within the paragraph.
+func TestFoldOrphanLines_FoldDownPreservesNextIndent(t *testing.T) {
+	prev := "aaaa bbbb cccc dddd ee" // 22 cols — folding "and" up overflows width 24
+	const indent = "  "
+	next := indent + "more text" // an indented, multi-word continuation line
+	width := 24
+	in := prev + "\nand\n" + next + "\n"
+	out := foldOrphanLines(in, width)
+	// The orphan must be gone…
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(stripAnsiForFold(line)) == "and" {
+			t.Fatalf("orphan 'and' survived; expected fold into next line: %q", out)
+		}
+	}
+	// …and the merged line must keep the next line's leading indentation.
+	if !strings.Contains(out, indent+"and more text") {
+		t.Errorf("fold-down dropped the next line's leading indent; want %q in %q", indent+"and more text", out)
+	}
+	// No line may exceed width (the measured string == the stored string).
+	for _, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(line) > width {
+			t.Errorf("produced an over-width line (>%d): %q", width, line)
+		}
+	}
+}
+
 // End-to-end regression guard: render the exact ux4.png input through
 // the full Markdown() pipeline at the width where glamour orphaned
 // "spec" and assert no single-word lines survive.

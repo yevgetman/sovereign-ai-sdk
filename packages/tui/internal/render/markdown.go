@@ -313,12 +313,25 @@ func tryFoldIntoNextLine(lines []string, i int, orphanWord string, width int) bo
 	if nextTrim == "" || isStructuralLine(nextTrim) {
 		return false
 	}
-	nextLeftTrimmed := strings.TrimLeft(next, " \t")
-	if width > 0 &&
-		lipgloss.Width(orphanWord)+1+lipgloss.Width(strings.TrimRight(nextLeftTrimmed, " \t")) > width {
+	// FIX (post-audit #45): preserve the next line's ORIGINAL leading
+	// indentation and measure the EXACT string we will store.
+	//   • Pre-fix dropped the indent (TrimLeft) so an indented continuation
+	//     line lost its left margin in the merged paragraph.
+	//   • Pre-fix measured a right-trimmed candidate but stored the
+	//     untrimmed value, so a line with trailing padding could be stored
+	//     wider than the width check approved.
+	// We right-trim the trailing whitespace (glamour pads lines to the wrap
+	// width — cosmetic padding dropped on re-store, matching the fold-UP path
+	// which also right-trims) and measure exactly the indent + word + content
+	// we store, so the width check and the stored line agree.
+	leftTrimmed := strings.TrimLeft(next, " \t")
+	indent := next[:len(next)-len(leftTrimmed)]
+	content := strings.TrimRight(leftTrimmed, " \t")
+	merged := indent + orphanWord + " " + content
+	if width > 0 && lipgloss.Width(merged) > width {
 		return false
 	}
-	lines[i+1] = orphanWord + " " + nextLeftTrimmed
+	lines[i+1] = merged
 	return true
 }
 

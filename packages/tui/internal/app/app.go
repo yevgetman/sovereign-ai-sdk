@@ -131,6 +131,7 @@ type Model struct {
 	sseCancel        context.CancelFunc // cancels the current SSE consumer's request; torn down + replaced on reconnect (nil until first startSSE)
 	sseCursor        int64              // highest event seq observed; sent as Last-Event-ID on reconnect so a post-turn reconnect resumes AFTER the terminal instead of re-receiving (and re-rendering) the whole completed turn — the infinite-replay loop. 0 = none yet.
 	sseCursorSession string             // the session m.sseCursor belongs to; on a session pivot the cursor resets (a new bus has its own seq space starting at 1)
+	sseSawEvent      bool               // FIX (post-audit #9): did the CURRENT SSE stream deliver at least one event before it closed? Reset to false in startSSE, set true on the first sseMsg. A clean close that saw NO events is an idle turn-boundary reconnect (the server ends an empty replay immediately); reconnecting it with zero delay hot-loops. See the sseDoneMsg clean-close branch.
 	thinkingPending  bool
 	// Streamed reasoning (thinking_delta) now lives in the LiveRegion as an
 	// in-place, ephemeral sliver (see liveregion.go: AppendReasoningDelta /
@@ -218,6 +219,16 @@ const (
 	sseBackoffInitial = 200 * time.Millisecond
 	sseBackoffMax     = 5 * time.Second
 )
+
+// sseIdleReconnectDelay throttles the reconnect after a CLEAN close that
+// delivered no events (FIX, post-audit #9). The server ends an empty
+// Last-Event-ID replay immediately when no turn is active, so an idle
+// turn-boundary close reconnects → empty close → reconnect … as fast as the
+// loopback round-trip allows, pegging a CPU core for the whole idle period.
+// A ~1s floor turns that hot loop into a gentle keep-alive poll while adding
+// zero latency to the first event of the NEXT turn (a streamed turn sets
+// sseSawEvent and reconnects immediately instead of taking this delay).
+const sseIdleReconnectDelay = 1 * time.Second
 
 // sseReconnectMsg is dispatched by the backoff tea.Tick scheduled in the
 // sseDoneMsg error path. The captured gen lets the handler drop the
@@ -831,6 +842,12 @@ func (m Model) startSSE() (Model, tea.Cmd) {
 		m.sseCancel()
 	}
 	m.sseGen++
+	// FIX (post-audit #9): a fresh stream has, by definition, delivered no
+	// events yet. The clean-close branch reads this to tell a real streamed
+	// turn (saw events → reconnect immediately, no added latency) apart from
+	// an idle turn-boundary close (saw nothing → the server ends an empty
+	// replay instantly; delay the reconnect so we don't hot-loop).
+	m.sseSawEvent = false
 	cctx, cancel := context.WithCancel(m.ctx)
 	m.sseCancel = cancel
 	// A session pivot (/clear, /rollback, /compact, or a compaction_complete
@@ -1460,6 +1477,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen != 0 && msg.gen != m.sseGen {
 			return m, m.respond(nil)
 		}
+		// FIX (post-audit #9): mark that this stream delivered an event so a
+		// subsequent clean close reconnects immediately (a turn streamed) rather
+		// than being throttled as an idle empty close.
+		m.sseSawEvent = true
 		// Advance the reconnect cursor to the highest seq seen so the NEXT
 		// startSSE resumes after it (Last-Event-ID) instead of re-fetching the
 		// whole turn. seq is monotonic per bus, but guard with > for safety.
@@ -1536,17 +1557,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// FIX 2 (audit) — distinguish a clean per-turn close from a real
 		// transport failure. A clean close (err == nil: the server
-		// disposed the bus after turn_complete) reconnects IMMEDIATELY and
-		// resets the backoff. An errored close (server down / persistent
-		// non-2xx) would, if reconnected immediately, busy-loop on
-		// loopback (Consume fails in microseconds) — spinning CPU with a
-		// dead-looking UI. Instead delay the reconnect with capped
-		// exponential backoff and print one dim "connection lost" marker.
+		// disposed the bus after turn_complete) reconnects and resets the
+		// backoff. An errored close (server down / persistent non-2xx)
+		// would, if reconnected immediately, busy-loop on loopback (Consume
+		// fails in microseconds) — spinning CPU with a dead-looking UI.
+		// Instead delay the reconnect with capped exponential backoff and
+		// print one dim "connection lost" marker.
 		if msg.err == nil {
 			m.sseBackoff = 0
-			var c tea.Cmd
-			m, c = m.startSSE()
-			return m, m.respond(c)
+			// FIX (post-audit #9) — a clean close splits two ways:
+			//   • a turn actually streamed (sseSawEvent) → the server disposed
+			//     the bus after turn_complete; reconnect IMMEDIATELY so the next
+			//     turn's first event has zero added latency.
+			//   • zero events were delivered → this is an idle turn-boundary
+			//     reconnect whose Last-Event-ID replay the server ends instantly
+			//     (events.ts: !isTurnActive && replayedCount===0). Reconnecting
+			//     with no delay produces a tight HTTP-flood loop for the whole
+			//     idle period. Schedule a throttled reconnect instead — DO NOT
+			//     bump sseGen here, so the captured gen still matches when the
+			//     tick fires.
+			if m.sseSawEvent {
+				var c tea.Cmd
+				m, c = m.startSSE()
+				return m, m.respond(c)
+			}
+			capturedGen := m.sseGen
+			return m, m.respond(tea.Tick(sseIdleReconnectDelay, func(time.Time) tea.Msg {
+				return sseReconnectMsg{gen: capturedGen}
+			}))
 		}
 		// Errored close — advance the backoff and schedule a delayed
 		// reconnect rather than reconnecting now. Print the marker only on
@@ -2420,6 +2458,15 @@ func (m *Model) startSpinner(label string) tea.Cmd {
 // (the spinner replaces it).
 func (m *Model) submitQueuedTurn() tea.Cmd {
 	if m.pendingSubmission == "" {
+		return nil
+	}
+	// FIX (post-audit #44) — a terminal turn_error/turn_complete can fire the
+	// queued turn AFTER the user has quit (Ctrl+C/ESC cancelled m.ctx). The
+	// POST would build its request on the cancelled context and fail instantly,
+	// printing a stray "submit error: context canceled" line at teardown. Drop
+	// the queued turn on a cancelled context, mirroring the sseDoneMsg /
+	// sseReconnectMsg guards.
+	if m.ctx.Err() != nil {
 		return nil
 	}
 	text := m.pendingSubmission

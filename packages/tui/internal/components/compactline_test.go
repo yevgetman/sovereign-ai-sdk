@@ -725,3 +725,92 @@ func TestFormatCompactToolLine_BashExit1RendersErrorGlyph(t *testing.T) {
 		t.Errorf("expected ✗ error glyph for Bash exit-1 plain-text payload, got: %q", plain)
 	}
 }
+
+// --- FIX (post-audit #23): orchestrator early-return is_error payloads ---
+//
+// These tool_result bodies (src/core/orchestrator.ts) carry is_error=true on
+// the wire but DO NOT include a "status: error" header, so the pre-fix
+// DetectToolStatus returned (false,false) and the TUI showed NO error glyph,
+// visually identical to a successful call.
+
+func TestDetectToolStatus_ToolThrew(t *testing.T) {
+	isError, isDenied := DetectToolStatus(json.RawMessage(`"tool threw: connection reset by peer"`))
+	if !isError {
+		t.Error("expected isError=true for 'tool threw:' payload")
+	}
+	if isDenied {
+		t.Error("expected isDenied=false for a runtime throw (not a denial)")
+	}
+}
+
+func TestDetectToolStatus_HookDenied(t *testing.T) {
+	// A hook denial is a GATE refusal → ⚠ (denied), not ✗.
+	isError, isDenied := DetectToolStatus(json.RawMessage(`"hook denied: blocked by policy"`))
+	if !isError {
+		t.Error("expected isError=true for 'hook denied:' payload")
+	}
+	if !isDenied {
+		t.Error("expected isDenied=true for a hook denial (it is a gate refusal)")
+	}
+}
+
+func TestDetectToolStatus_UnknownTool(t *testing.T) {
+	isError, isDenied := DetectToolStatus(json.RawMessage(`"unknown tool: frobnicate"`))
+	if !isError {
+		t.Error("expected isError=true for 'unknown tool:' payload")
+	}
+	if isDenied {
+		t.Error("expected isDenied=false for unknown-tool")
+	}
+}
+
+func TestDetectToolStatus_InputValidationFailed(t *testing.T) {
+	isError, isDenied := DetectToolStatus(json.RawMessage(`"input validation failed: path: Required"`))
+	if !isError {
+		t.Error("expected isError=true for 'input validation failed:' payload")
+	}
+	if isDenied {
+		t.Error("expected isDenied=false for input-validation failure")
+	}
+}
+
+func TestDetectToolStatus_HookUpdatedInputValidationFailed(t *testing.T) {
+	// The orchestrator also emits a "hook-updated input validation failed: …"
+	// variant — the substring match must still flag it.
+	isError, _ := DetectToolStatus(json.RawMessage(`"hook-updated input validation failed: x: bad"`))
+	if !isError {
+		t.Error("expected isError=true for the 'hook-updated input validation failed:' variant")
+	}
+}
+
+// TestFormatCompactToolLine_ToolThrewRendersErrorGlyph is the end-to-end
+// assertion for the #23 fix: a "tool threw: …" payload renders the ✗ glyph.
+func TestFormatCompactToolLine_ToolThrewRendersErrorGlyph(t *testing.T) {
+	out := FormatCompactToolLine(
+		"Bash",
+		mkJSON(t, map[string]any{"command": "git push"}),
+		json.RawMessage(`"tool threw: boom"`),
+		theme.Dark(),
+		80,
+	)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, style.S.Glyph.Error) {
+		t.Errorf("expected ✗ error glyph for 'tool threw:' payload, got: %q", plain)
+	}
+}
+
+// TestFormatCompactToolLine_HookDeniedRendersWarnGlyph asserts a hook denial
+// renders the ⚠ (denied) glyph rather than no glyph.
+func TestFormatCompactToolLine_HookDeniedRendersWarnGlyph(t *testing.T) {
+	out := FormatCompactToolLine(
+		"Bash",
+		mkJSON(t, map[string]any{"command": "rm -rf /"}),
+		json.RawMessage(`"hook denied: blocked"`),
+		theme.Dark(),
+		80,
+	)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, style.S.Glyph.Warning) {
+		t.Errorf("expected ⚠ denied glyph for 'hook denied:' payload, got: %q", plain)
+	}
+}

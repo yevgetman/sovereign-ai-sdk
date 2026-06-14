@@ -170,22 +170,46 @@ func FormatCompactToolLine(
 	return margin + prefix + body + chevronStyled
 }
 
+// Orchestrator early-return content prefixes (src/core/orchestrator.ts).
+// These tool_result bodies carry is_error=true on the wire but DO NOT
+// include a "status: error" header (they short-circuit BEFORE the tool's
+// observation envelope is built), so DetectToolStatus must recognize them
+// by prefix. FIX (post-audit #23) — these were previously invisible and
+// rendered with no error glyph.
+//
+//   - denialPrefixes  → ⚠ (a gate refusal, not a runtime fault)
+//   - errorPrefixes   → ✗ (a runtime/validation fault)
+var (
+	denialPrefixes = []string{
+		"permission denied", // orchestrator permission gate
+		"hook denied",       // PreToolUse hook refusal
+	}
+	errorPrefixes = []string{
+		"tool threw:",              // the tool's call() raised
+		"unknown tool:",            // dispatch found no such tool
+		"input validation failed:", // Zod / semantic input rejection (covers the
+		// "permission-updated " / "hook-updated " variants via the substring check)
+	}
+)
+
 // DetectToolStatus inspects an Output blob and reports whether the
 // tool errored at runtime (isError) and whether the error was a
-// permission denial (isDenied).
+// permission/gate denial (isDenied).
 //
-// Three on-wire shapes are recognized (FIX 4, audit):
+// On-wire shapes recognized (FIX 4, audit; broadened by FIX post-audit #23):
 //
 //  1. Phase 12.5+ plain-text result: the tool's text payload is
 //     JSON-encoded into the wire `output` string. A failed tool emits a
 //     "status: error\nsummary: ..." header as the FIRST line of that
-//     text (Bash nonzero exit, FileEdit no-match, hook-denied). We
-//     decode the JSON string (via DecodeOutputText) then test the
-//     leading "status: error" header.
+//     text (Bash nonzero exit, FileEdit no-match). We decode the JSON
+//     string (via DecodeOutputText) then test the leading
+//     "status: error" header.
 //  2. Legacy tool-emitted JSON envelope `{status:'error', summary, ...}`
 //     — kept for any surface still emitting the structured shape.
-//  3. Orchestrator deny path: text content "permission denied: <reason>"
-//     (surfaced into Output as a quoted JSON string or raw text).
+//  3. Orchestrator early-return paths (no observation envelope, so no
+//     "status: error" header): "permission denied: …" / "hook denied: …"
+//     (both denials → ⚠), and "tool threw: …" / "unknown tool: …" /
+//     "input validation failed: …" (runtime/validation faults → ✗).
 //
 // Unknown shapes fall through to success.
 func DetectToolStatus(output json.RawMessage) (isError, isDenied bool) {
@@ -200,12 +224,22 @@ func DetectToolStatus(output json.RawMessage) (isError, isDenied bool) {
 		return true, false
 	}
 	// Decode the JSON-string payload (Phase 12.5+) so the plain-text
-	// header checks below run against real, unquoted text.
+	// checks below run against real, unquoted text.
 	text := strings.TrimSpace(DecodeOutputText(output))
-	// Permission denial path takes precedence over the generic error
-	// glyph so the ⚠ (denied) shows instead of ✗ (runtime error).
-	if strings.HasPrefix(text, "permission denied") {
-		return true, true
+	// Denial paths take precedence over the generic error glyph so ⚠
+	// (denied) shows instead of ✗ (runtime error).
+	for _, p := range denialPrefixes {
+		if strings.HasPrefix(text, p) {
+			return true, true
+		}
+	}
+	// Orchestrator early-return error paths. The validation-failed string
+	// also appears with a "permission-updated " / "hook-updated " prefix,
+	// so match it as a substring rather than only at the start of line.
+	for _, p := range errorPrefixes {
+		if strings.HasPrefix(text, p) || (p == "input validation failed:" && strings.Contains(text, p)) {
+			return true, false
+		}
 	}
 	// Plain-text error header: the failed-tool payload leads with a
 	// "status: error" line. Match the first line so a later occurrence

@@ -196,3 +196,36 @@ func TestLiveRegion_DeltaInvalidatesCache(t *testing.T) {
 		t.Errorf("expected refreshed render with new content; got %q", view)
 	}
 }
+
+// TestLiveRegion_ReasoningWrapsAtNarrowWidth is the FIX (post-audit #43)
+// regression: on a genuinely narrow terminal the reasoning sliver must wrap
+// at the REAL width, not substitute a fixed 80. Pre-fix it wrapped at 80, so
+// the reasoningSliverLines cap was applied to ~80-col lines that the host
+// terminal then re-wrapped into many visual rows, blowing past the cap and
+// pushing the prompt off-screen. Post-fix every wrapped line fits the real
+// width, so one wrapped line == one visual row and the cap actually bounds
+// the height.
+func TestLiveRegion_ReasoningWrapsAtNarrowWidth(t *testing.T) {
+	const narrow = 12
+	l := NewLiveRegion(theme.Dark())
+	l.SetWidth(narrow)
+	// A long chain-of-thought that would wrap to many lines at width 12.
+	l.AppendReasoningDelta(strings.Repeat("the model reasons carefully about the lockfile ", 8))
+
+	view := l.reasoningView()
+	if view == "" {
+		t.Fatal("expected a non-empty reasoning sliver")
+	}
+	lines := strings.Split(view, "\n")
+	// The cap must bound the rendered line count.
+	if len(lines) > reasoningSliverLines {
+		t.Errorf("sliver exceeded cap: got %d lines, want <= %d", len(lines), reasoningSliverLines)
+	}
+	// No wrapped line may exceed the real terminal width — otherwise the host
+	// terminal re-wraps it and the cap no longer bounds visual rows.
+	for i, ln := range lines {
+		if w := visibleLen(stripANSI(ln)); w > narrow {
+			t.Errorf("line %d width %d exceeds terminal width %d: %q", i, w, narrow, stripANSI(ln))
+		}
+	}
+}

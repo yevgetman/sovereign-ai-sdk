@@ -47,6 +47,13 @@ import (
 // when the answer begins or the turn ends, never committed to scrollback.
 const reasoningSliverLines = 8
 
+// reasoningMinWrapWidth is the smallest column width the reasoning sliver
+// wraps at. A tiny floor (not the old fixed 80) keeps wrapping at the real
+// terminal width on genuinely narrow terminals so the reasoningSliverLines
+// cap bounds actual visual rows, while still avoiding a zero/negative width
+// that lipgloss would reject. FIX (post-audit #43).
+const reasoningMinWrapWidth = 1
+
 type LiveRegion struct {
 	width  int
 	theme  theme.Theme
@@ -210,9 +217,16 @@ func (l LiveRegion) reasoningView() string {
 	if body == "" {
 		return ""
 	}
+	// FIX (post-audit #43): wrap at the ACTUAL terminal width (with a small
+	// floor) — never substitute a fixed 80. Wrapping wide on a narrow
+	// terminal made each capped line re-wrap in the host terminal into
+	// several visual rows, so the reasoningSliverLines cap (applied to the
+	// 80-col lines, not the real rows) failed to bound the sliver height and
+	// pushed the prompt off-screen. Wrapping at the real width makes one
+	// wrapped line == one visual row, so the cap holds.
 	width := l.width
-	if width < 20 {
-		width = 80
+	if width < reasoningMinWrapWidth {
+		width = reasoningMinWrapWidth
 	}
 	wrapped := lipgloss.NewStyle().Width(width).Render(body)
 	lines := strings.Split(wrapped, "\n")

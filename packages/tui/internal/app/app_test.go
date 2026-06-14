@@ -2596,16 +2596,18 @@ func TestApp_SSEErrorClosesScheduleBackoff(t *testing.T) {
 	}
 }
 
-// TestApp_SSECleanCloseResetsBackoff proves a CLEAN stream end (the normal
-// per-turn close, err == nil) reconnects immediately (gen bumps) and
-// resets any accumulated backoff to zero — so a normal turn boundary is
-// never delayed.
+// TestApp_SSECleanCloseResetsBackoff proves a CLEAN stream end after a turn
+// actually STREAMED (sseSawEvent) reconnects immediately (gen bumps) and
+// resets any accumulated backoff to zero — so the first event of the next
+// turn is never delayed.
 func TestApp_SSECleanCloseResetsBackoff(t *testing.T) {
 	m := New("s-clean-close", "http://127.0.0.1:1")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
-	// Pretend a prior failure left a backoff in effect.
+	// Pretend a prior failure left a backoff in effect, and that this stream
+	// delivered at least one event (a real turn streamed) before closing.
 	m.sseBackoff = sseBackoffMax
+	m.sseSawEvent = true
 	genBefore := m.sseGen
 	model, cmd := m.Update(sseDoneMsg{gen: m.sseGen, err: nil})
 	m = model.(Model)
@@ -2613,10 +2615,47 @@ func TestApp_SSECleanCloseResetsBackoff(t *testing.T) {
 		t.Errorf("clean close should reset backoff to 0; got %v", m.sseBackoff)
 	}
 	if m.sseGen == genBefore {
-		t.Errorf("clean close should reconnect immediately (gen should bump); stayed %d", genBefore)
+		t.Errorf("clean close after a streamed turn should reconnect immediately (gen should bump); stayed %d", genBefore)
 	}
 	if cmd == nil {
 		t.Errorf("expected the immediate-reconnect waiter Cmd on clean close")
+	}
+}
+
+// TestApp_SSEIdleCleanCloseThrottlesReconnect is the FIX (post-audit #9)
+// regression: a CLEAN close that delivered ZERO events is an idle
+// turn-boundary reconnect (the server ends an empty Last-Event-ID replay
+// instantly). Reconnecting it with no delay produces a tight HTTP-flood loop
+// for the whole idle period. The reconnect must instead be THROTTLED behind a
+// tick — so startSSE is NOT called inline (sseGen does NOT bump here).
+func TestApp_SSEIdleCleanCloseThrottlesReconnect(t *testing.T) {
+	m := New("s-idle-close", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// A fresh stream that saw no events before closing cleanly (idle boundary).
+	m.sseSawEvent = false
+	genBefore := m.sseGen
+	model, cmd := m.Update(sseDoneMsg{gen: m.sseGen, err: nil})
+	m = model.(Model)
+	if m.sseGen != genBefore {
+		t.Errorf("idle clean close must NOT reconnect immediately (gen bumped %d->%d = hot loop)", genBefore, m.sseGen)
+	}
+	if cmd == nil {
+		t.Errorf("expected a throttled-reconnect tick Cmd on an idle clean close")
+	}
+}
+
+// TestApp_SSESawEventResetOnReconnect proves startSSE resets the saw-event
+// flag, so the FIRST clean close of a NEW stream (before any event arrives)
+// is correctly treated as idle.
+func TestApp_SSESawEventResetOnReconnect(t *testing.T) {
+	m := New("s-saw-reset", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.sseSawEvent = true // leftover from a prior stream
+	m, _ = m.startSSE()
+	if m.sseSawEvent {
+		t.Error("startSSE must reset sseSawEvent to false for the fresh stream")
 	}
 }
 
@@ -2636,5 +2675,45 @@ func TestApp_SSEReconnectMsgDroppedOnStaleGen(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Errorf("stale reconnect tick should produce no Cmd; got non-nil")
+	}
+}
+
+// TestApp_SubmitQueuedTurnDroppedOnCancelledContext is the FIX (post-audit
+// #44) regression: a queued turn fired from a terminal turn_error/turn_complete
+// AFTER the user quit (Ctrl+C cancels m.ctx) must be DROPPED, not dispatched.
+// Pre-fix submitQueuedTurn guarded only on baseURL, so it cleared the running-
+// command indicator and built a POST on the cancelled context, surfacing a
+// stray "submit error: context canceled" line at teardown.
+func TestApp_SubmitQueuedTurnDroppedOnCancelledContext(t *testing.T) {
+	m := New("s-queued-quit", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingSubmission = "queued message"
+	// Simulate the user quitting: cancel the app context.
+	m.cancel()
+	cmd := m.submitQueuedTurn()
+	if cmd != nil {
+		t.Errorf("queued turn on a cancelled context must be dropped (nil Cmd); got non-nil")
+	}
+	// The queued submission must remain untouched (no side effects on teardown).
+	if m.pendingSubmission != "queued message" {
+		t.Errorf("cancelled-context guard should leave pendingSubmission intact; got %q", m.pendingSubmission)
+	}
+}
+
+// TestApp_SubmitQueuedTurnFiresWhenContextLive proves the guard does NOT
+// regress the normal path: with a live context and a server, a queued turn
+// still dispatches (non-nil Cmd) and the submission is consumed.
+func TestApp_SubmitQueuedTurnFiresWhenContextLive(t *testing.T) {
+	m := New("s-queued-live", "http://127.0.0.1:1")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	m.pendingSubmission = "queued message"
+	cmd := m.submitQueuedTurn()
+	if cmd == nil {
+		t.Errorf("queued turn on a live context + server should dispatch (non-nil Cmd)")
+	}
+	if m.pendingSubmission != "" {
+		t.Errorf("dispatched queued turn should clear pendingSubmission; got %q", m.pendingSubmission)
 	}
 }
