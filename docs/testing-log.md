@@ -8,6 +8,22 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-14 — CI maintenance: Node-24 actions (#49 re-fix) + Go suite guarded in CI (#56)
+
+**Scope.** The v0.6.41 release CI threw Node-20 deprecation warnings (GitHub's forced Node-24 cutover is 2026-06-16). Investigated + addressed two CI-maintenance items.
+
+**#49 re-fix (Node-20 actions).** Ground truth via each `action.yml`'s `runs.using`: `upload-artifact@v5`=node20 (v6=node24); `download-artifact@v5`+`v6`=node20, `v7`=node24. #49's v4→v5 bump verified the versions *existed* but not their Node *runtime* — the gap. Bumped `upload-artifact@v5→v6` (×2) + `download-artifact@v5→v7`.
+
+**#56 (stale Go test + Go suite unguarded in CI).** Reproduced as the INVERSE of #55: `TestM9_ThemeSwitchAltersRender` PASSED on this dev's polluted `~/.harness` (config `theme:"light"` → `New()` boots already-light → false PASS) but FAILED in a clean/CI env — `env -u HARNESS_HOME HOME=$(mktemp -d) go test ./...` → `theme not switched: "dark" (was "dark")`. The test typed `/theme light`+ENTER and relied on the dispatch round-trip #46 moved server-side; a no-server unit test discards the dispatch Cmd. Rewrote it to feed the `themeChanged` side-effect directly (switching BOTH directions, env-independent), and added `setup-go` + `go test ./...` to the release-workflow preflight so the Go suite is finally guarded.
+
+**Commands run (real results):**
+- `go test ./...` (CLEAN env: `HARNESS_HOME` unset, `HOME=tmp`): **RED before fix** (`TestM9_ThemeSwitchAltersRender` FAIL), **GREEN after** (all 6 packages ok). `gofmt -l` clean, `go vet` clean.
+- YAML validity: `ruby -ryaml` → valid. Action runtimes: `gh api repos/actions/*/contents/action.yml?ref=vN` → `runs.using`.
+
+**Validation of the workflow change (honest).** The go-test-in-CI mechanism is sound: the existing release `go build` jobs already prove Go module resolution works on the CI runner with no committed `go.sum` (`go test` uses identical resolution); a fresh-cache clean-env run confirmed `go test` downloads + passes without `go.sum`. `upload@v6`/`download@v7` are node24 + API-stable for our inputs (`name`/`path`/`if-no-files-found`/`pattern`/`merge-multiple`). **CAVEAT:** the new workflow steps are NOT yet exercised by a real tag-push run — a dry-run dispatch checks out the `v0.6.41` tag (pre-fix code), so it can't validate the success path; they take effect (low-risk, recoverable) on the next release. No binary release cut (CI/test/docs-only per the cutting-releases convention).
+
+**Result:** PASS. #56 + #49 follow-up shipped to master. Commits `0dfb9cc` (test), `2ac4304` (CI), `cdc70e5` (backlog). Open backlog 8 → 7.
+
 ## 2026-06-14 — Per-session `/effort` (#57) + #55 verification (already fixed)
 
 **Scope.** Two backlog items, autonomous build-to-ship. **#57** — `runtime.effort` was process-global, so on a multi-user `sov gateway` one principal's `/effort` changed reasoning depth for every other principal + for cron/channel turns. **#55** — learning/observation server tests reportedly false-fail against a polluted global `~/.harness`. Used the TDD + systematic-debugging skills.
