@@ -148,6 +148,51 @@ func TestStatusLine_EffortAbsentWhenEmpty(t *testing.T) {
 	}
 }
 
+// 2026-06-14 config live-apply (M6) — permission-mode indicator slot.
+
+func TestStatusLine_PermissionModeBypassRendersLoudChip(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(120)
+	s.PermissionMode = "bypass"
+	out := s.View()
+	// The loud chip uppercases the mode + leads with the warning glyph.
+	if !strings.Contains(out, "BYPASS") {
+		t.Errorf("expected loud 'BYPASS' chip for bypass mode; got %q", out)
+	}
+	if !strings.Contains(out, "⚠") {
+		t.Errorf("expected warning glyph on the bypass chip; got %q", out)
+	}
+}
+
+func TestStatusLine_PermissionModeNonDefaultRendersQuietChip(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(120)
+	s.PermissionMode = "plan"
+	out := s.View()
+	if !strings.Contains(out, "PLAN") {
+		t.Errorf("expected 'PLAN' chip for plan mode; got %q", out)
+	}
+	// The quiet chip must NOT carry the loud warning glyph (that's reserved
+	// for bypass — the only mode that disables every approval gate).
+	if strings.Contains(out, "⚠") {
+		t.Errorf("non-bypass mode should not show the warning glyph; got %q", out)
+	}
+}
+
+func TestStatusLine_PermissionModeDefaultRendersNothing(t *testing.T) {
+	for _, mode := range []string{"", "default"} {
+		s := NewStatusLine(theme.Dark())
+		s.SetWidth(120)
+		s.PermissionMode = mode
+		out := s.View()
+		for _, leak := range []string{"BYPASS", "DEFAULT", "⚠"} {
+			if strings.Contains(out, leak) {
+				t.Errorf("mode=%q should render no chip; got %q (leak %q)", mode, out, leak)
+			}
+		}
+	}
+}
+
 func TestStatusLineSetThemeSwapsRender(t *testing.T) {
 	s := NewStatusLine(theme.Dark())
 	s.SetWidth(80)

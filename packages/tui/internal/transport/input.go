@@ -36,4 +36,11 @@ type InputOpenPayload struct {
 	OnBack *struct {
 		Command string `json:"command"`
 	} `json:"onBack,omitempty"`
+	// Badge — the 4-state apply-scope token ('live'|'reload'|'other'|
+	// 'restart') for the edited field, so the InputCard shows the same
+	// live-vs-restart affordance the picker rows show BEFORE the user
+	// saves. Empty/unknown renders no badge. Mirrors the `badge` field
+	// on InputOpenConfigSchema (src/server/schema.ts). 2026-06-14 config
+	// live-apply (M6).
+	Badge string `json:"badge,omitempty"`
 }

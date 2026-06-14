@@ -95,9 +95,16 @@ func (i InputCard) View(width int) string {
 	var lines []string
 
 	// Title — bold, no Foreground so the terminal default fg renders
-	// bright. Same approach as PickerCard (M11.14).
+	// bright. Same approach as PickerCard (M11.14). The apply-scope
+	// badge (live/reload/other/restart) trails the title so the user
+	// sees whether the edit applies live BEFORE saving — the same
+	// affordance the picker rows show. 2026-06-14 config live-apply (M6).
 	titleStyle := lipgloss.NewStyle().Bold(true)
-	lines = append(lines, titleStyle.Render(i.payload.Title))
+	titleLine := titleStyle.Render(i.payload.Title)
+	if badge := renderBadgeText(i.payload.Badge); badge != "" {
+		titleLine += "  " + badge
+	}
+	lines = append(lines, titleLine)
 
 	// Subtitle — dim italic, only when present.
 	if i.payload.Subtitle != "" {

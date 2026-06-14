@@ -17,12 +17,17 @@
 //	Response: {
 //	  "output": "<text>",        // always present (may be empty)
 //	  "error": "<msg>",          // when dispatch failed
-//	  "sideEffects": {           // optional, per-command
-//	    "newSessionId": "...",   // /clear (deferred to backlog #41)
-//	    "exitRequested": true,   // /quit
-//	    "modelChanged": "...",   // /model <m>
-//	    "effortChanged": "...",  // /effort <level>
-//	    "pickerOpen": { ... }    // /model, /resume, /export no-args (M11.5)
+//	  "sideEffects": {                 // optional, per-command
+//	    "newSessionId": "...",         // /clear (deferred to backlog #41)
+//	    "exitRequested": true,         // /quit
+//	    "modelChanged": "...",         // /model <m>
+//	    "effortChanged": "...",        // /effort <level>
+//	    "pickerOpen": { ... },         // /model, /resume, /export no-args (M11.5)
+//	    "permissionModeChanged": "…",  // /config set permissionMode (M6)
+//	    "toolOutputChanged": { ... },  // /config set ui.toolOutput.* (M6)
+//	    "footerChanged": true,         // /config set ui.footer.* (M6)
+//	    "contextMeterChanged": { ... },// /config set ui.contextMeter.* (M6)
+//	    "diffRenderChanged": true      // /config set ui.diffRender.* (M6)
 //	  }
 //	}
 
@@ -106,6 +111,52 @@ type CommandSideEffects struct {
 	// the second commit must reliably close it.
 	// 2026-05-24 patch.
 	CloseModal *bool `json:"closeModal,omitempty"`
+	// PermissionModeChanged carries the new permission mode
+	// (default|plan|acceptEdits|bypass) after a live `/config set
+	// permissionMode <mode>` edit. The TUI surfaces it as a status-line
+	// indicator — LOUD when 'bypass' (a red chip), since bypass disables
+	// every approval gate (safety). Empty/unset means no change.
+	// 2026-06-14 config live-apply (M6).
+	PermissionModeChanged string `json:"permissionModeChanged,omitempty"`
+	// ToolOutputChanged carries a live `ui.toolOutput.*` edit. Mode is
+	// "compact"|"detailed" (empty = leave unchanged); InlineLines is the
+	// detailed-mode output cap (a pointer so absence is distinct from an
+	// explicit 0 = header-only). Applied the same surface as
+	// VerboseChanged — future tool_results pick up the new render mode.
+	// 2026-06-14 config live-apply (M6).
+	ToolOutputChanged *ToolOutputChange `json:"toolOutputChanged,omitempty"`
+	// FooterChanged carries a live `ui.footer.*` edit. Pointer so absence
+	// (nil) is distinct from an explicit `false`. Relayed to the renderer
+	// flag so subsequent frames reflect the new footer visibility.
+	// 2026-06-14 config live-apply (M6).
+	FooterChanged *bool `json:"footerChanged,omitempty"`
+	// ContextMeterChanged carries a live `ui.contextMeter.*` edit (warn /
+	// danger thresholds). Pointer fields so an absent threshold is
+	// distinct from an explicit 0. 2026-06-14 config live-apply (M6).
+	ContextMeterChanged *ContextMeterChange `json:"contextMeterChanged,omitempty"`
+	// DiffRenderChanged carries a live `ui.diffRender.*` edit. Pointer so
+	// absence (nil) is distinct from an explicit `false`.
+	// 2026-06-14 config live-apply (M6).
+	DiffRenderChanged *bool `json:"diffRenderChanged,omitempty"`
+}
+
+// ToolOutputChange is the decoded `toolOutputChanged` side-effect. Mode
+// flips the toolcard renderer (compact one-liner vs. full bordered
+// output); InlineLines caps the detailed-mode output rows. Both optional
+// so a partial edit (mode only, or inlineLines only) is honoured.
+// 2026-06-14 config live-apply (M6).
+type ToolOutputChange struct {
+	Mode        string `json:"mode,omitempty"`
+	InlineLines *int   `json:"inlineLines,omitempty"`
+}
+
+// ContextMeterChange is the decoded `contextMeterChanged` side-effect —
+// the warn/danger percentage thresholds for the context-usage meter.
+// Pointer fields so an absent threshold is distinct from an explicit 0.
+// 2026-06-14 config live-apply (M6).
+type ContextMeterChange struct {
+	WarnAtPercent   *float64 `json:"warnAtPercent,omitempty"`
+	DangerAtPercent *float64 `json:"dangerAtPercent,omitempty"`
 }
 
 // CommandResponse is the JSON envelope returned by /commands.

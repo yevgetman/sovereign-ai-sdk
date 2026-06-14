@@ -8,6 +8,7 @@ package components
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
@@ -44,9 +45,22 @@ type StatusLine struct {
 	// seeded at boot). Slice D / T7.
 	Effort string
 
+	// PermissionMode — the active permission posture
+	// (default|plan|acceptEdits|bypass). Set by the live
+	// permissionModeChanged side-effect (2026-06-14 config live-apply
+	// M6). Empty or "default" renders nothing (the implicit, expected
+	// posture). A non-default mode renders a chip on the right edge;
+	// 'bypass' renders a LOUD red BYPASS chip because it disables every
+	// approval gate (safety reflection).
+	PermissionMode string
+
 	// M9 T10 — spinner frame index, advanced by Tick events from app.go.
 	spinner int
 }
+
+// permissionModeBypass is the one mode that disables all approval gates;
+// it gets the loud red chip. Other non-default modes get a quiet chip.
+const permissionModeBypass = "bypass"
 
 // spinnerFrames is the braille-spinner animation used during streaming.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -87,6 +101,28 @@ func (s StatusLine) SpinnerFrame() string {
 	return spinnerFrames[s.spinner]
 }
 
+// permissionChip renders the permission-mode indicator, or "" when the
+// mode is empty/"default" (the implicit posture — no chrome needed).
+// 'bypass' renders a LOUD chip in the theme's error red (bold) because it
+// disables every approval gate; any other non-default mode renders a
+// quiet warning-colored chip. The chip text is uppercased so it reads as
+// a status pill, not a value. 2026-06-14 config live-apply (M6).
+func (s StatusLine) permissionChip() string {
+	if s.PermissionMode == "" || s.PermissionMode == "default" {
+		return ""
+	}
+	label := strings.ToUpper(s.PermissionMode)
+	if s.PermissionMode == permissionModeBypass {
+		return lipgloss.NewStyle().
+			Foreground(s.Theme.Error).
+			Bold(true).
+			Render(style.S.Glyph.Warning + " " + label)
+	}
+	return lipgloss.NewStyle().
+		Foreground(s.Theme.Warning).
+		Render(label)
+}
+
 func (s StatusLine) View() string {
 	// M11.5 — drop the explicit background fill. On terminals where
 	// the configured theme.Background hex doesn't match the actual
@@ -124,6 +160,12 @@ func (s StatusLine) View() string {
 	left := dimFg.Render(leftText)
 
 	right := dimFg.Render(fmt.Sprintf("$%.4f"+sep+"cache %.0f%%", s.Cost, s.CacheHit*100))
+	// Permission-mode chip sits at the leading edge of the right cluster
+	// (a loud BYPASS chip is impossible to miss there). Rendered with its
+	// own (error/warning) color so it stands out against the dim metadata.
+	if chip := s.permissionChip(); chip != "" {
+		right = chip + sep + right
+	}
 	if s.Streaming {
 		spinStyle := lipgloss.NewStyle().Foreground(s.Theme.Primary).Bold(true)
 		spin := spinStyle.Render(spinnerFrames[s.spinner])

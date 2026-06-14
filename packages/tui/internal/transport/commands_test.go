@@ -205,6 +205,126 @@ func TestDispatchCommand_VerboseChangedSideEffect(t *testing.T) {
 	}
 }
 
+// TestDispatchCommand_M6SideEffects verifies the 2026-06-14 config
+// live-apply chrome/render side-effects decode from the wire. Hand-rolled
+// JSON pins the field names (permissionModeChanged, toolOutputChanged,
+// footerChanged, contextMeterChanged, diffRenderChanged) against
+// CommandSideEffectsSchema in src/server/schema.ts. Drift lands here as a
+// decode-zero-value rather than a silently-dead live config edit.
+func TestDispatchCommand_M6SideEffects(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"output": "saved — permissionMode applied to this session",
+			"sideEffects": {
+				"permissionModeChanged": "bypass",
+				"toolOutputChanged": {"mode": "detailed", "inlineLines": 25},
+				"footerChanged": false,
+				"contextMeterChanged": {"warnAtPercent": 70, "dangerAtPercent": 90},
+				"diffRenderChanged": true
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(
+		context.Background(), srv.URL, "abc-123", "config", "set permissionMode bypass",
+	)
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.SideEffects == nil {
+		t.Fatalf("expected sideEffects, got nil")
+	}
+	se := resp.SideEffects
+	if se.PermissionModeChanged != "bypass" {
+		t.Errorf("permissionModeChanged = %q, want bypass", se.PermissionModeChanged)
+	}
+	if se.ToolOutputChanged == nil {
+		t.Fatalf("expected toolOutputChanged, got nil")
+	}
+	if se.ToolOutputChanged.Mode != "detailed" {
+		t.Errorf("toolOutputChanged.Mode = %q, want detailed", se.ToolOutputChanged.Mode)
+	}
+	if se.ToolOutputChanged.InlineLines == nil || *se.ToolOutputChanged.InlineLines != 25 {
+		t.Errorf("toolOutputChanged.InlineLines = %v, want 25", se.ToolOutputChanged.InlineLines)
+	}
+	if se.FooterChanged == nil || *se.FooterChanged {
+		t.Errorf("footerChanged = %v, want explicit false", se.FooterChanged)
+	}
+	if se.ContextMeterChanged == nil {
+		t.Fatalf("expected contextMeterChanged, got nil")
+	}
+	if se.ContextMeterChanged.WarnAtPercent == nil || *se.ContextMeterChanged.WarnAtPercent != 70 {
+		t.Errorf("contextMeterChanged.WarnAtPercent = %v, want 70", se.ContextMeterChanged.WarnAtPercent)
+	}
+	if se.ContextMeterChanged.DangerAtPercent == nil || *se.ContextMeterChanged.DangerAtPercent != 90 {
+		t.Errorf("contextMeterChanged.DangerAtPercent = %v, want 90", se.ContextMeterChanged.DangerAtPercent)
+	}
+	if se.DiffRenderChanged == nil || !*se.DiffRenderChanged {
+		t.Errorf("diffRenderChanged = %v, want true", se.DiffRenderChanged)
+	}
+}
+
+// TestDispatchCommand_M6PartialToolOutput verifies a mode-only edit
+// (no inlineLines) decodes with a nil InlineLines so the apply path
+// leaves the current cap unchanged.
+func TestDispatchCommand_M6PartialToolOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(
+			`{"output":"saved","sideEffects":{"toolOutputChanged":{"mode":"compact"}}}`,
+		))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(
+		context.Background(), srv.URL, "abc-123", "config", "set ui.toolOutput.mode compact",
+	)
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.SideEffects == nil || resp.SideEffects.ToolOutputChanged == nil {
+		t.Fatalf("expected toolOutputChanged, got %+v", resp.SideEffects)
+	}
+	if resp.SideEffects.ToolOutputChanged.Mode != "compact" {
+		t.Errorf("Mode = %q, want compact", resp.SideEffects.ToolOutputChanged.Mode)
+	}
+	if resp.SideEffects.ToolOutputChanged.InlineLines != nil {
+		t.Errorf("InlineLines should be nil for a mode-only edit; got %v",
+			*resp.SideEffects.ToolOutputChanged.InlineLines)
+	}
+}
+
+// TestDispatchCommand_InputOpenBadge verifies the apply-scope badge token
+// on the inputOpen side-effect decodes (2026-06-14 config live-apply).
+func TestDispatchCommand_InputOpenBadge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"output": "",
+			"sideEffects": {
+				"inputOpen": {
+					"title": "defaultModel",
+					"onSubmit": {"command": "config set defaultModel"},
+					"badge": "reload"
+				}
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	resp, err := DispatchCommand(
+		context.Background(), srv.URL, "abc-123", "config", "edit defaultModel",
+	)
+	if err != nil {
+		t.Fatalf("DispatchCommand: %v", err)
+	}
+	if resp.SideEffects == nil || resp.SideEffects.InputOpen == nil {
+		t.Fatalf("expected inputOpen, got %+v", resp.SideEffects)
+	}
+	if resp.SideEffects.InputOpen.Badge != "reload" {
+		t.Errorf("InputOpen.Badge = %q, want reload", resp.SideEffects.InputOpen.Badge)
+	}
+}
+
 func TestDispatchCommand_PromptToSend(t *testing.T) {
 	// Backlog: prompt-type slash commands (/init, /commit, every
 	// skill-sourced command) return a structured `promptToSend` field

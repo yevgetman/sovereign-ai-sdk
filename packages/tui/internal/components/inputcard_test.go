@@ -156,3 +156,49 @@ func TestInputCard_SetThemeUpdatesTheme(t *testing.T) {
 		t.Errorf("SetTheme should not affect Value(): before=%q after=%q", before, card.Value())
 	}
 }
+
+// 2026-06-14 config live-apply (M6) — the InputCard renders the same
+// 4-state apply-scope badge the picker rows show, so free-text edits
+// show the live-vs-restart affordance BEFORE the user saves.
+
+func TestInputCard_BadgeRendersInTitleLine(t *testing.T) {
+	cases := []struct {
+		badge string
+		want  string
+	}{
+		{"live", "✓ live"},
+		{"reload", "✓ applied"},
+		{"other", "⤴ other process"},
+		{"restart", "⟳ restart"},
+	}
+	for _, c := range cases {
+		payload := sampleInputPayload()
+		payload.Badge = c.badge
+		card := NewInputCard(payload, theme.Dark())
+		out := card.View(80)
+		if !strings.Contains(out, c.want) {
+			t.Errorf("badge %q: View(80) missing %q in:\n%s", c.badge, c.want, out)
+		}
+		// The title must still render alongside the badge.
+		if !strings.Contains(out, "defaultModel") {
+			t.Errorf("badge %q: View(80) dropped title in:\n%s", c.badge, out)
+		}
+	}
+}
+
+func TestInputCard_NoBadgeWhenAbsentOrUnknown(t *testing.T) {
+	for _, badge := range []string{"", "mystery"} {
+		payload := sampleInputPayload()
+		payload.Badge = badge
+		card := NewInputCard(payload, theme.Dark())
+		out := card.View(80)
+		for _, leak := range []string{"✓ live", "✓ applied", "⤴ other process", "⟳ restart"} {
+			if strings.Contains(out, leak) {
+				t.Errorf("badge=%q: View(80) unexpectedly contains %q in:\n%s", badge, leak, out)
+			}
+		}
+		if !strings.Contains(out, "defaultModel") {
+			t.Errorf("badge=%q: View(80) dropped title in:\n%s", badge, out)
+		}
+	}
+}

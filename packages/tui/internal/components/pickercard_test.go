@@ -226,7 +226,7 @@ func TestPickerCard_BackwardsCompatibleLayout(t *testing.T) {
 		}
 	}
 	// No value-column / badge artifacts should appear.
-	for _, leak := range []string{"✓ live", "⟳ next session"} {
+	for _, leak := range []string{"✓ live", "✓ applied", "⤴ other process", "⟳ restart"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("View(80) baseline layout unexpectedly contains %q in:\n%s", leak, out)
 		}
@@ -252,10 +252,46 @@ func TestPickerCard_BadgeLiveRenders(t *testing.T) {
 }
 
 func TestPickerCard_BadgeReloadRenders(t *testing.T) {
+	// 2026-06-14 config live-apply — 'reload' is a between-turns reload
+	// that still applies THIS session, so it reads as the green "applied"
+	// affordance (not the old amber "next session"). See applyScope.ts.
 	card := NewPickerCard(configSamplePayload(), theme.Dark())
 	out := card.View(120)
-	if !strings.Contains(out, "⟳ next session") {
-		t.Errorf("expected '⟳ next session' badge for reload items in:\n%s", out)
+	if !strings.Contains(out, "✓ applied") {
+		t.Errorf("expected '✓ applied' badge for reload items in:\n%s", out)
+	}
+}
+
+// 2026-06-14 config live-apply — the two amber scopes ('other', 'restart')
+// render distinct glyph+label pills so the user sees why a save didn't
+// apply to this session.
+func TestPickerCard_BadgeOtherProcessRenders(t *testing.T) {
+	payload := transport.PickerOpenPayload{
+		Title: "config / gateway",
+		Items: []transport.PickerItem{
+			{Label: "port", Value: "gateway.port", ValueColumn: "8766", Badge: "other"},
+		},
+	}
+	payload.OnSelect.Command = "config edit"
+	card := NewPickerCard(payload, theme.Dark())
+	out := card.View(120)
+	if !strings.Contains(out, "⤴ other process") {
+		t.Errorf("expected '⤴ other process' badge for 'other' items in:\n%s", out)
+	}
+}
+
+func TestPickerCard_BadgeRestartRenders(t *testing.T) {
+	payload := transport.PickerOpenPayload{
+		Title: "config / debug",
+		Items: []transport.PickerItem{
+			{Label: "enabled", Value: "debugMode.enabled", ValueColumn: "false", Badge: "restart"},
+		},
+	}
+	payload.OnSelect.Command = "config edit"
+	card := NewPickerCard(payload, theme.Dark())
+	out := card.View(120)
+	if !strings.Contains(out, "⟳ restart") {
+		t.Errorf("expected '⟳ restart' badge for 'restart' items in:\n%s", out)
 	}
 }
 
@@ -271,7 +307,7 @@ func TestPickerCard_UnknownBadgeRendersNothing(t *testing.T) {
 	payload.OnSelect.Command = "noop"
 	card := NewPickerCard(payload, theme.Dark())
 	out := card.View(80)
-	for _, leak := range []string{"✓ live", "⟳ next session", "mystery"} {
+	for _, leak := range []string{"✓ live", "✓ applied", "⤴ other process", "⟳ restart", "mystery"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("View(80) unexpectedly contains %q for unknown badge in:\n%s", leak, out)
 		}

@@ -31,12 +31,29 @@ import (
 )
 
 // Badge string constants — discriminated values on PickerItem.Badge.
-// Server emits `"live"` or `"reload"`; any other value (including empty)
-// renders no badge. Keep these in sync with the BadgeSchema enum on
-// the TS side. 2026-05-24 config UX rebuild.
+// Server emits one of the four apply-scope badge tokens; any other value
+// (including empty) renders no badge. Keep these in sync with the
+// InputOpenConfigSchema / PickerOpenItemSchema badge enums on the TS side
+// (src/config/applyScope.ts ScopeBadge). 2026-05-24 config UX rebuild;
+// extended to 4 states 2026-06-14 config live-apply.
+//
+//   live    — applied to this session (green ✓)
+//   reload  — applied this session via a between-turns reload (green ✓;
+//             treated as live/applied — same green affordance)
+//   other   — saved; applies to a separate gateway/serve process (amber ⤴)
+//   restart — saved; needs restarting this process (amber ⟳)
 const (
-	pickerBadgeLive   = "live"
-	pickerBadgeReload = "reload"
+	pickerBadgeLive    = "live"
+	pickerBadgeReload  = "reload"
+	pickerBadgeOther   = "other"
+	pickerBadgeRestart = "restart"
+)
+
+// Badge glyphs — the leading symbol for each badge state.
+const (
+	pickerBadgeGlyphApplied = "✓"
+	pickerBadgeGlyphOther   = "⤴"
+	pickerBadgeGlyphRestart = "⟳"
 )
 
 // PickerCard is a Bubble Tea component that renders an inline picker.
@@ -195,26 +212,52 @@ func (p PickerCard) labelColumnWidth() int {
 	return w
 }
 
-// renderBadge returns the styled badge text for an item, or empty when
-// the badge value is unknown (or empty). Badge "live" renders as
-// "✓ live" in success-green; "reload" renders as "⟳ next session" in
-// the same pale-orange used for non-selected item labels (so the badge
-// reads as a quiet "not yet applied" cue, not an error). Any other
-// badge string renders nothing.
+// badgeColorGlyphLabel maps a 4-state apply-scope badge token to its
+// color (a brand hex), glyph, and label. The two green states ('live',
+// 'reload') read as "applied to this session"; the two amber states
+// ('other', 'restart') read as "saved, not applied here" with a reason.
+// Returns ok=false for an unknown/empty token (caller renders nothing).
 //
-// The badge style is computed by the caller (foreground only, no bold)
-// so the selected row's bold doesn't bleed into the badge — keeping the
-// badge readable as a status pill on every row. 2026-05-24 config UX
-// rebuild.
-func (p PickerCard) renderBadge(badge string) string {
+// Shared by the picker rows AND the InputCard so free-text fields show
+// the same affordance. 2026-06-14 config live-apply (M6).
+func badgeColorGlyphLabel(badge string) (color, glyph, label string, ok bool) {
 	switch badge {
 	case pickerBadgeLive:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerBadgeColor)).Render("✓ live")
+		return style.S.Brand.PickerBadgeColor, pickerBadgeGlyphApplied, "live", true
 	case pickerBadgeReload:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(style.S.Brand.PickerItemColor)).Render("⟳ next session")
+		// A bounded between-turns reload still applies THIS session — same
+		// green "applied" affordance as 'live' (per the apply-scope spec).
+		return style.S.Brand.PickerBadgeColor, pickerBadgeGlyphApplied, "applied", true
+	case pickerBadgeOther:
+		return style.S.Brand.PickerItemColor, pickerBadgeGlyphOther, "other process", true
+	case pickerBadgeRestart:
+		return style.S.Brand.PickerItemColor, pickerBadgeGlyphRestart, "restart", true
 	default:
+		return "", "", "", false
+	}
+}
+
+// renderBadgeText returns the styled badge pill (glyph + label) for a
+// 4-state apply-scope token, or "" when the token is unknown/empty.
+// Foreground-only (no bold) so a caller's bold (e.g. a selected picker
+// row) doesn't bleed into the pill — it stays readable as a status chip.
+// 2026-06-14 config live-apply (M6).
+func renderBadgeText(badge string) string {
+	color, glyph, label, ok := badgeColorGlyphLabel(badge)
+	if !ok {
 		return ""
 	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color)).
+		Render(glyph + " " + label)
+}
+
+// renderBadge returns the styled badge text for a picker row, or empty
+// when the badge value is unknown (or empty). Delegates to the shared
+// renderBadgeText so the picker and InputCard agree on color+glyph+label
+// for each scope. 2026-05-24 config UX rebuild; 4-state 2026-06-14.
+func (p PickerCard) renderBadge(badge string) string {
+	return renderBadgeText(badge)
 }
 
 // View renders the picker card. `width` is the total width of the

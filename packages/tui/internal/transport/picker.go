@@ -18,8 +18,10 @@ package transport
 // optional hint), so /model, /resume, /export, /theme stay byte-
 // identical visually.
 //
-// Badge values are `"live"` (✓ live, success-green) or `"reload"`
-// (⟳ next session, dim-orange). Other values render no badge.
+// Badge is one of the four apply-scope tokens (2026-06-14 config
+// live-apply): `"live"` / `"reload"` render a green "applied" pill,
+// `"other"` / `"restart"` an amber "saved, not applied here" pill.
+// Other values render no badge. See PickerCard.renderBadge.
 type PickerItem struct {
 	Label       string `json:"label"`
 	Value       string `json:"value"`

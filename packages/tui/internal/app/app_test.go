@@ -2220,6 +2220,163 @@ func TestApp_VerboseChangedNilPointerNoOps(t *testing.T) {
 	}
 }
 
+// 2026-06-14 config live-apply (M6) — chrome/render side-effect apply.
+
+func TestApp_PermissionModeChangedUpdatesStatusLine(t *testing.T) {
+	m := New("s-permmode", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = model.(Model)
+
+	resp := &transport.CommandResponse{
+		Output: "saved — permissionMode applied to this session",
+		SideEffects: &transport.CommandSideEffects{
+			PermissionModeChanged: "bypass",
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.statusLine.PermissionMode != "bypass" {
+		t.Errorf("statusLine.PermissionMode = %q, want bypass", m.statusLine.PermissionMode)
+	}
+	// The loud BYPASS chip must be visible in the rendered frame (safety).
+	if !strings.Contains(m.View(), "BYPASS") {
+		t.Errorf("expected loud BYPASS chip in the rendered frame; got:\n%s", m.View())
+	}
+}
+
+func TestApp_ToolOutputChangedFlipsRenderMode(t *testing.T) {
+	m := New("s-tooloutput", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Baseline is "compact" / 10 lines (the New() default).
+	if m.toolOutputMode != "compact" {
+		t.Skipf("baseline toolOutputMode is %q, not compact — cannot verify flip", m.toolOutputMode)
+	}
+
+	inlineLines := 25
+	resp := &transport.CommandResponse{
+		Output: "saved",
+		SideEffects: &transport.CommandSideEffects{
+			ToolOutputChanged: &transport.ToolOutputChange{Mode: "detailed", InlineLines: &inlineLines},
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.toolOutputMode != "detailed" {
+		t.Errorf("toolOutputMode = %q, want detailed", m.toolOutputMode)
+	}
+	if m.toolOutputInlineLines != 25 {
+		t.Errorf("toolOutputInlineLines = %d, want 25", m.toolOutputInlineLines)
+	}
+}
+
+func TestApp_ToolOutputChangedModeOnlyKeepsInlineLines(t *testing.T) {
+	m := New("s-tooloutput-partial", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	beforeLines := m.toolOutputInlineLines
+
+	resp := &transport.CommandResponse{
+		Output: "saved",
+		SideEffects: &transport.CommandSideEffects{
+			ToolOutputChanged: &transport.ToolOutputChange{Mode: "detailed"}, // no InlineLines
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.toolOutputMode != "detailed" {
+		t.Errorf("toolOutputMode = %q, want detailed", m.toolOutputMode)
+	}
+	if m.toolOutputInlineLines != beforeLines {
+		t.Errorf("inlineLines should be unchanged for a mode-only edit; before=%d after=%d",
+			beforeLines, m.toolOutputInlineLines)
+	}
+}
+
+func TestApp_FooterAndDiffRenderChangedSetFlags(t *testing.T) {
+	m := New("s-render-flags", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+
+	footer := false
+	diff := true
+	resp := &transport.CommandResponse{
+		Output: "saved",
+		SideEffects: &transport.CommandSideEffects{
+			FooterChanged:     &footer,
+			DiffRenderChanged: &diff,
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.footerEnabled == nil || *m.footerEnabled {
+		t.Errorf("footerEnabled = %v, want explicit false", m.footerEnabled)
+	}
+	if m.diffRenderEnabled == nil || !*m.diffRenderEnabled {
+		t.Errorf("diffRenderEnabled = %v, want true", m.diffRenderEnabled)
+	}
+}
+
+func TestApp_ContextMeterChangedSetsThresholds(t *testing.T) {
+	m := New("s-context-meter", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	// Defaults start unset (-1).
+	if m.contextMeterWarnPct != -1 || m.contextMeterDangerPct != -1 {
+		t.Fatalf("baseline thresholds should be -1; got warn=%v danger=%v",
+			m.contextMeterWarnPct, m.contextMeterDangerPct)
+	}
+
+	warn := 70.0
+	danger := 90.0
+	resp := &transport.CommandResponse{
+		Output: "saved",
+		SideEffects: &transport.CommandSideEffects{
+			ContextMeterChanged: &transport.ContextMeterChange{WarnAtPercent: &warn, DangerAtPercent: &danger},
+		},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.contextMeterWarnPct != 70 {
+		t.Errorf("contextMeterWarnPct = %v, want 70", m.contextMeterWarnPct)
+	}
+	if m.contextMeterDangerPct != 90 {
+		t.Errorf("contextMeterDangerPct = %v, want 90", m.contextMeterDangerPct)
+	}
+}
+
+func TestApp_M6SideEffectsNilNoOp(t *testing.T) {
+	// Defensive — a CommandResponse with sideEffects but no M6 fields
+	// must not touch any of the live render-flag state.
+	m := New("s-m6-nil", "")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = model.(Model)
+	beforeMode := m.toolOutputMode
+	beforePerm := m.statusLine.PermissionMode
+
+	resp := &transport.CommandResponse{
+		Output:      "some other output",
+		SideEffects: &transport.CommandSideEffects{},
+	}
+	model, _ = m.Update(commandDispatchedMsg{name: "config", resp: resp})
+	m = model.(Model)
+
+	if m.toolOutputMode != beforeMode {
+		t.Errorf("toolOutputMode changed on a no-op side-effect: %q -> %q", beforeMode, m.toolOutputMode)
+	}
+	if m.statusLine.PermissionMode != beforePerm {
+		t.Errorf("PermissionMode changed on a no-op side-effect: %q -> %q", beforePerm, m.statusLine.PermissionMode)
+	}
+	if m.footerEnabled != nil || m.diffRenderEnabled != nil {
+		t.Errorf("render flags should stay nil on a no-op; footer=%v diff=%v", m.footerEnabled, m.diffRenderEnabled)
+	}
+}
+
 func TestApp_WithInitialCommandSetsField(t *testing.T) {
 	// The builder method seeds the field so the WindowSizeMsg handler
 	// can fire the command once the splash is up.

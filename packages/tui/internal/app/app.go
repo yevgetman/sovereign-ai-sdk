@@ -176,6 +176,17 @@ type Model struct {
 	toolOutputMode        string
 	toolOutputInlineLines int
 	verboseRaw            bool
+	// 2026-06-14 config live-apply (M6) — live render-flag state relayed
+	// from `/config set ui.*` edits via the dispatcher side-effects. These
+	// mirror the persisted ui.* config so the renderer reflects an in-
+	// session change without a restart. footerEnabled / diffRenderEnabled
+	// are pointers so "never set" (nil — use the renderer's own default)
+	// is distinct from an explicit false. The context-meter thresholds
+	// drive the (forward-looking) context-usage meter; -1 means unset.
+	footerEnabled         *bool
+	diffRenderEnabled     *bool
+	contextMeterWarnPct   float64
+	contextMeterDangerPct float64
 	// pendingPrintln queues content destined for the terminal's
 	// scrollback above the live view. drainPrintln consolidates the
 	// queue into a single tea.Println Cmd at the end of every Update
@@ -553,6 +564,10 @@ func New(sessionID, baseURL string) Model {
 		toolOutputMode:        "compact",
 		toolOutputInlineLines: 10,
 		verboseRaw:            false,
+		// 2026-06-14 config live-apply (M6) — context-meter thresholds
+		// start unset (-1); a live ui.contextMeter.* edit seeds them.
+		contextMeterWarnPct:   -1,
+		contextMeterDangerPct: -1,
 	}
 	if baseURL != "" {
 		// Sets up the first SSE consumer (gen 1). Init() issues the matching
@@ -619,6 +634,20 @@ func (m Model) WithToolOutput(mode string, inlineLines int) Model {
 func (m Model) WithVerboseRaw(v bool) Model {
 	m.verboseRaw = v
 	return m
+}
+
+// applyToolOutputChange applies a live `ui.toolOutput.*` edit relayed via
+// the toolOutputChanged side-effect. It maps the optional wire shape (an
+// empty Mode = "leave unchanged"; a nil InlineLines = "leave unchanged")
+// onto WithToolOutput's existing validation (which treats "" and a
+// negative inlineLines as "keep current"), so the live path and the boot
+// path share one validation rule. 2026-06-14 config live-apply (M6).
+func (m Model) applyToolOutputChange(change transport.ToolOutputChange) Model {
+	inlineLines := -1 // -1 = leave unchanged (WithToolOutput's "keep" sentinel)
+	if change.InlineLines != nil && *change.InlineLines >= 0 {
+		inlineLines = *change.InlineLines
+	}
+	return m.WithToolOutput(change.Mode, inlineLines)
 }
 
 // WithInitialCommand seeds a slash command to fire automatically once
@@ -1837,10 +1866,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Apply sideEffects. SessionID pivot (newSessionId) and exit
-		// signals fire even on empty output. Note: StatusLine doesn't
-		// dynamically render the model (M2 fixed-field design); the
-		// model change is visible via the command's output text — no
-		// statusline mutation needed in M10.5.
+		// signals fire even on empty output. The StatusLine DOES update
+		// the model/effort/task-router/permission-mode chrome live from
+		// the side-effects below (the M10.5 "fixed-field" note is stale).
 		var clearScrollbackPending bool
 		var sseReconnect tea.Cmd
 		if msg.resp != nil && msg.resp.SideEffects != nil {
@@ -1916,6 +1944,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if se.TaskRouterChanged != nil {
 				m.statusLine.TaskRouter = *se.TaskRouterChanged
+			}
+			// 2026-06-14 config live-apply (M6) — live `/config set
+			// permissionMode <mode>` edit. The status line surfaces the
+			// new posture on the next render; 'bypass' shows a LOUD red
+			// chip (safety — bypass disables every approval gate).
+			if se.PermissionModeChanged != "" {
+				m.statusLine.PermissionMode = se.PermissionModeChanged
+			}
+			// 2026-06-14 config live-apply (M6) — ui.toolOutput.* edit.
+			// Flips the toolcard render mode / inline-lines cap live, the
+			// same surface VerboseChanged uses. Partial edits are honoured
+			// (mode-only or inlineLines-only). Future tool_results pick up
+			// the new rendering; finalized cards in scrollback are not
+			// re-rendered (out of scope, matching VerboseChanged).
+			if se.ToolOutputChanged != nil {
+				m = m.applyToolOutputChange(*se.ToolOutputChanged)
+			}
+			// 2026-06-14 config live-apply (M6) — ui.footer / ui.diffRender
+			// / ui.contextMeter edits update the live renderer flags so
+			// subsequent frames reflect the change without a restart.
+			if se.FooterChanged != nil {
+				footer := *se.FooterChanged
+				m.footerEnabled = &footer
+			}
+			if se.DiffRenderChanged != nil {
+				diff := *se.DiffRenderChanged
+				m.diffRenderEnabled = &diff
+			}
+			if se.ContextMeterChanged != nil {
+				if p := se.ContextMeterChanged.WarnAtPercent; p != nil {
+					m.contextMeterWarnPct = *p
+				}
+				if p := se.ContextMeterChanged.DangerAtPercent; p != nil {
+					m.contextMeterDangerPct = *p
+				}
 			}
 			// 2026-05-24 patch — explicit close-modal signal from
 			// /config commit / /config discard. Clears any picker /
