@@ -234,7 +234,8 @@ export const PickerOpenItemSchema = z.object({
   value: z.string(),
   hint: z.string().optional(),
   valueColumn: z.string().optional(),
-  badge: z.enum(['live', 'reload']).optional(),
+  // 2026-06-14 config live-apply — widened to the 4-state apply-scope badge.
+  badge: z.enum(['live', 'reload', 'other', 'restart']).optional(),
 });
 
 export const PickerOpenConfigSchema = z.object({
@@ -282,6 +283,10 @@ export const InputOpenConfigSchema = z.object({
   // submenu. Absence falls back to the M11.5-style "(cancelled)"
   // close. Symmetric with PickerOpenConfigSchema.onBack.
   onBack: z.object({ command: z.string() }).optional(),
+  // 2026-06-14 config live-apply — the apply-scope badge token
+  // ('live'|'reload'|'other'|'restart') for this field, so the InputCard
+  // shows the same live-vs-restart affordance the picker rows show.
+  badge: z.enum(['live', 'reload', 'other', 'restart']).optional(),
 });
 
 export type InputOpenConfigWire = z.infer<typeof InputOpenConfigSchema>;
@@ -329,6 +334,19 @@ export const CommandSideEffectsSchema = z.object({
   // a parent picker (parent-refresh), the second commits and must
   // close that picker so the user actually exits.
   closeModal: z.boolean().optional(),
+  // 2026-06-14 config live-apply (M6) — chrome reflections for live /config
+  // edits. permissionModeChanged surfaces the new mode (loud for 'bypass');
+  // the ui.* fields tell the Go renderer to apply appearance changes live
+  // the same way verboseChanged/themeChanged do.
+  permissionModeChanged: z.string().optional(),
+  toolOutputChanged: z
+    .object({ mode: z.string().optional(), inlineLines: z.number().optional() })
+    .optional(),
+  footerChanged: z.boolean().optional(),
+  contextMeterChanged: z
+    .object({ warnAtPercent: z.number().optional(), dangerAtPercent: z.number().optional() })
+    .optional(),
+  diffRenderChanged: z.boolean().optional(),
 });
 
 export type CommandSideEffects = z.infer<typeof CommandSideEffectsSchema>;

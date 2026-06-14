@@ -24,6 +24,7 @@ const REQUIRED_GROUP_IDS = [
   'providers-openai',
   'providers-openrouter',
   'providers-ollama',
+  'providers-sov',
   'task-routing',
   'subscription-executor',
   'router',
@@ -106,12 +107,14 @@ describe('config catalog', () => {
     if (providers) {
       expect(providers.items).toEqual([]);
       expect(providers.drillInto).toBeDefined();
-      expect(providers.drillInto?.length).toBe(4);
+      // 2026-06-14 (T4) — added the Sovereign (local) provider subgroup.
+      expect(providers.drillInto?.length).toBe(5);
       const targetIds = providers.drillInto?.map((d) => d.targetGroupId);
       expect(targetIds).toContain('providers-anthropic');
       expect(targetIds).toContain('providers-openai');
       expect(targetIds).toContain('providers-openrouter');
       expect(targetIds).toContain('providers-ollama');
+      expect(targetIds).toContain('providers-sov');
     }
   });
 

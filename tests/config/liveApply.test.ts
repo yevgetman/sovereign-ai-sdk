@@ -120,23 +120,30 @@ describe('LIVE_APPLY_HOOKS — defaultModel', () => {
 });
 
 describe('LIVE_APPLY_HOOKS — providers.<x>.model conditional', () => {
+  // 2026-06-14 (T4) — semantics widened beyond the old binary "active ⇒
+  // setModel else persisted-only". Now three honest cases, all green when
+  // applied: active+same-family ⇒ setModel; active+cross-family ⇒
+  // reresolveProvider; non-active ⇒ applied (future default, picked up on
+  // provider switch). makeCtx's apiMode is 'anthropic', so a `claude-` id is
+  // same-family (setModel path) and a `gpt-` id is cross-family.
   const PROVIDERS = ['anthropic', 'openai', 'openrouter', 'ollama'] as const;
 
   for (const providerName of PROVIDERS) {
     const hookKey = `providers.${providerName}.model`;
 
-    test(`${hookKey} — fires applied when ctx.providerName matches`, async () => {
+    test(`${hookKey} — active + same-family fires setModel and returns applied`, async () => {
       const ctx = makeCtx({ providerName });
       const tracker = setModelCapture(ctx);
       const hook = LIVE_APPLY_HOOKS[hookKey];
       expect(hook, `${hookKey} hook should exist`).toBeDefined();
       if (!hook) return;
-      const verdict = await hook('my-new-model', { commandCtx: ctx });
+      // claude- id matches the stub apiMode 'anthropic' ⇒ cheap setModel path.
+      const verdict = await hook('claude-sonnet-4-6', { commandCtx: ctx });
       expect(verdict).toBe('applied');
-      expect(tracker.calls).toEqual(['my-new-model']);
+      expect(tracker.calls).toEqual(['claude-sonnet-4-6']);
     });
 
-    test(`${hookKey} — returns persisted-only when ctx.providerName does NOT match`, async () => {
+    test(`${hookKey} — non-active provider returns applied (future default, no setModel)`, async () => {
       // Pick a different provider than the one being tested.
       const wrongProvider = PROVIDERS.find((p) => p !== providerName);
       expect(wrongProvider).toBeDefined();
@@ -145,7 +152,19 @@ describe('LIVE_APPLY_HOOKS — providers.<x>.model conditional', () => {
       const tracker = setModelCapture(ctx);
       const hook = LIVE_APPLY_HOOKS[hookKey];
       if (!hook) return;
-      const verdict = await hook('my-new-model', { commandCtx: ctx });
+      const verdict = await hook('claude-sonnet-4-6', { commandCtx: ctx });
+      expect(verdict).toBe('applied'); // honest green — applies on provider switch
+      expect(tracker.calls).toEqual([]); // no in-flight transport to disturb
+    });
+
+    test(`${hookKey} — active + cross-family degrades to persisted-only without reresolveProvider`, async () => {
+      const ctx = makeCtx({ providerName }); // no reresolveProvider wired
+      const tracker = setModelCapture(ctx);
+      const hook = LIVE_APPLY_HOOKS[hookKey];
+      if (!hook) return;
+      // gpt- id is cross-family vs the stub apiMode 'anthropic' ⇒ needs
+      // reresolveProvider; absent ⇒ persisted-only (badge stays honest).
+      const verdict = await hook('gpt-4o', { commandCtx: ctx });
       expect(verdict).toBe('persisted-only');
       expect(tracker.calls).toEqual([]);
     });
@@ -153,7 +172,7 @@ describe('LIVE_APPLY_HOOKS — providers.<x>.model conditional', () => {
     test(`${hookKey} — returns persisted-only when commandCtx is undefined`, async () => {
       const hook = LIVE_APPLY_HOOKS[hookKey];
       if (!hook) return;
-      const verdict = await hook('my-new-model', {});
+      const verdict = await hook('claude-sonnet-4-6', {});
       expect(verdict).toBe('persisted-only');
     });
 

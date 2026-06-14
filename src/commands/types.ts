@@ -3,6 +3,7 @@
 
 import type { SessionCost, SessionListEntry } from '../agent/sessionDb.js';
 import type { CompactResult } from '../compact/compactor.js';
+import type { ScopeBadge } from '../config/applyScope.js';
 import type { PermissionRuleLayer } from '../config/rules.js';
 import type { BudgetReport } from '../context/budget.js';
 import type { ContentBlock, Message } from '../core/types.js';
@@ -25,8 +26,9 @@ export type PickerOpenItem = {
   hint?: string;
   /** Right-aligned current-value column (config picker rows). */
   valueColumn?: string;
-  /** Reload semantics badge (`live` = ✓ green; `reload` = ⟳ dim). */
-  badge?: 'live' | 'reload';
+  /** Apply-scope badge token (2026-06-14): `live`/`reload` = green ✓ applied;
+   *  `other` = ⤴ other process; `restart` = ⟳ restart. From describeScope(). */
+  badge?: ScopeBadge;
 };
 
 /** Payload that a server-mode picker command emits in lieu of running an
@@ -73,6 +75,9 @@ export type InputOpenConfig = {
    *  InputCard re-dispatches this command instead of cancelling
    *  outright. Symmetric with `PickerOpenConfig.onBack`. */
   onBack?: { command: string };
+  /** Apply-scope badge token (2026-06-14) so free-text fields show the same
+   *  live-vs-restart affordance the picker rows show. */
+  badge?: ScopeBadge;
 };
 
 /** Runtime services exposed to slash command handlers. */
@@ -124,6 +129,25 @@ export type CommandContext = {
    *  config standalone, headless dispatch) can omit it; hooks
    *  degrade to persisted-only when undefined. */
   rebuildTaskRouting?: () => Promise<void>;
+  /** 2026-06-14 config live-apply (M1) — re-resolve the active provider stack
+   *  in place so a cross-family model, a credential/baseUrl change, or a
+   *  router-lane edit applies to the LIVE conversation from the next turn.
+   *  Re-runs resolveProvider and atomically swaps
+   *  runtime.resolvedProvider/provider/model + the compactor model + the
+   *  learning Reason adapter between turns. Optional so non-server surfaces
+   *  degrade to a deferred ('restart') message. */
+  reresolveProvider?: (provider?: string, model?: string) => Promise<void>;
+  /** 2026-06-14 config live-apply (M2) — rebuild the HookRunner from fresh
+   *  config and reassign runtime.hookRunner (read by reference per turn). */
+  reloadHooks?: () => Promise<void>;
+  /** 2026-06-14 config live-apply (M2) — reconnect the MCP client pool, rebuild
+   *  the MCP slice of runtime.toolPool, and recompute tool visibility. */
+  reloadMcpServers?: () => Promise<void>;
+  /** 2026-06-14 config live-apply (M4) — rebuild the ACTIVE SessionContext's
+   *  recall thunk + learning observer from fresh config so learning.recall.* /
+   *  learning.disabled apply to the live conversation. Re-reads the user's
+   *  persisted values only; never changes recall/synthesis semantics. */
+  rebuildRecall?: () => Promise<void>;
   clearHistory: () => string;
   getCost: () => SessionCost;
   compact: () => Promise<CompactResult>;
@@ -222,6 +246,15 @@ export type CommandContext = {
    *  REPL has its own raw-output gate driven by CLI flags. */
   recordVerboseChange?: (value: boolean) => void;
   recordTaskRouterChange?: (preset: string) => void;
+  /** 2026-06-14 config live-apply (M6) — chrome-reflection recorders the
+   *  /config relay calls so live edits surface in the Go TUI. Optional so
+   *  non-server surfaces (sov config standalone, headless dispatch) omit them;
+   *  the relay no-ops when absent. */
+  recordPermissionModeChange?: (mode: string) => void;
+  recordToolOutputChange?: (change: { mode?: string; inlineLines?: number }) => void;
+  recordFooterChange?: (value: boolean) => void;
+  recordContextMeterChange?: (change: { warnAtPercent?: number; dangerAtPercent?: number }) => void;
+  recordDiffRenderChange?: (value: boolean) => void;
   /** 2026-05-24 — Config UX rebuild. True when the dispatcher runs inside
    *  `sov config` standalone mode (no active runtime / agent loop).
    *  Live-apply hooks treat this as "no session to apply to" and return

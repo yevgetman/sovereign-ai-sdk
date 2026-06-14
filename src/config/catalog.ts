@@ -217,6 +217,7 @@ const PROVIDERS_ROOT_GROUP: ConfigGroup = {
     { label: 'OpenAI', targetGroupId: 'providers-openai' },
     { label: 'OpenRouter', targetGroupId: 'providers-openrouter' },
     { label: 'Ollama', targetGroupId: 'providers-ollama' },
+    { label: 'Sovereign (local)', targetGroupId: 'providers-sov' },
   ],
 };
 
@@ -305,8 +306,29 @@ const PROVIDERS_OLLAMA_GROUP: ConfigGroup = {
     {
       path: 'providers.ollama.numCtx',
       label: 'numCtx',
-      description: 'Explicit num_ctx override (default: model registered context length).',
+      description:
+        'Explicit num_ctx override (default: model registered context length). Live-applied when Ollama is the active provider (provider stack re-resolves).',
       editor: { kind: 'number', min: 1, placeholder: '8192' },
+    },
+  ],
+};
+
+const PROVIDERS_SOV_GROUP: ConfigGroup = {
+  id: 'providers-sov',
+  label: 'Providers / Sovereign (local)',
+  items: [
+    {
+      path: 'providers.sov.model',
+      label: 'model',
+      description:
+        'Default model served by the local Sovereign engine. Live-applied when sov is the active provider.',
+      editor: { kind: 'string', choices: SOV_MODELS },
+    },
+    {
+      path: 'providers.sov.baseUrl',
+      label: 'baseUrl',
+      description: 'Local Sovereign engine endpoint (OpenAI-compatible /v1).',
+      editor: { kind: 'string', placeholder: 'http://localhost:8080/v1' },
     },
   ],
 };
@@ -482,7 +504,8 @@ const SUBSCRIPTION_EXECUTOR_GROUP: ConfigGroup = {
 const ROUTER_GROUP: ConfigGroup = {
   id: 'router',
   label: 'Router (local-first)',
-  description: 'Local-vs-frontier escalation router. Effective next session.',
+  description:
+    'Local-vs-frontier escalation router. Lane provider/model/escalation fields apply live (provider stack re-resolves); the maxConcurrent caps need a restart (see per-field badges).',
   items: [
     {
       path: 'router.defaultLane',
@@ -540,7 +563,8 @@ const ROUTER_GROUP: ConfigGroup = {
 const COMPACTION_GROUP: ConfigGroup = {
   id: 'compaction',
   label: 'Compaction',
-  description: 'Proactive and per-message compaction. Effective next session.',
+  description:
+    'Proactive and per-message compaction. Live-applied — the turns route re-reads microcompaction + the proactive threshold per turn, so changes take effect on the next turn.',
   items: [
     {
       path: 'microcompaction.enabled',
@@ -658,8 +682,28 @@ const REVIEW_GROUP: ConfigGroup = {
 const LEARNING_GROUP: ConfigGroup = {
   id: 'learning',
   label: 'Learning',
-  description: 'Continuous-learning observer + instinct corpus. Effective next session.',
+  description:
+    'Continuous-learning observer + instinct corpus. Recall, synthesis cadence, and confidence tunables apply live; the observation buffer size + prune knobs need a restart (see per-field badges).',
   items: [
+    {
+      path: 'learning.recall.enabled',
+      label: 'recall.enabled',
+      description:
+        'Splice relevant synthesized instincts into the latest user message before each turn (default true). Live-applied — the active session rebuilds its recall thunk on save.',
+      editor: { kind: 'boolean' },
+    },
+    {
+      path: 'learning.recall.maxLessons',
+      label: 'recall.maxLessons',
+      description: 'Cap on how many recalled lessons are surfaced per turn (default 8).',
+      editor: { kind: 'number', min: 1 },
+    },
+    {
+      path: 'learning.recall.tokenBudget',
+      label: 'recall.tokenBudget',
+      description: 'Cap on the injected recall snapshot size in tokens (default 1200).',
+      editor: { kind: 'number', min: 1 },
+    },
     {
       path: 'learning.disabled',
       label: 'disabled',
@@ -820,6 +864,34 @@ const GATEWAY_GROUP: ConfigGroup = {
       description: 'Bind host for sov gateway (default 127.0.0.1 loopback).',
       editor: { kind: 'string', placeholder: '127.0.0.1' },
     },
+    {
+      path: 'gateway.eventBufferSize',
+      label: 'eventBufferSize',
+      description:
+        'Per-session SSE replay-ring size for Last-Event-ID reconnect (default 512). Effective in the gateway process.',
+      editor: { kind: 'number', min: 1 },
+    },
+    {
+      path: 'gateway.idleSessionTimeoutMs',
+      label: 'idleSessionTimeoutMs',
+      description:
+        'How long an untouched session sits before the supervisor reclaims its in-memory state (default 30 min). Effective in the gateway process.',
+      editor: { kind: 'number', min: 1 },
+    },
+    {
+      path: 'gateway.idleSweepIntervalMs',
+      label: 'idleSweepIntervalMs',
+      description:
+        'Background idle-session sweep cadence (default 5 min). Effective in the gateway process.',
+      editor: { kind: 'number', min: 1 },
+    },
+    {
+      path: 'gateway.maxConcurrentSessions',
+      label: 'maxConcurrentSessions',
+      description:
+        'Cap on live in-memory sessions; 0 = unlimited. Enforced by POST /sessions (429 at the ceiling). Effective in the gateway process.',
+      editor: { kind: 'number', min: 0 },
+    },
   ],
 };
 
@@ -843,7 +915,7 @@ const APPEARANCE_GROUP: ConfigGroup = {
       path: 'ui.theme',
       label: 'ui.theme',
       description:
-        'Legacy UI theme key (M9.5). Same effect as `theme`; the top-level key is canonical.',
+        'Legacy alias of `theme` (M9.5) — the top-level `theme` key is canonical. Live-applied: editing either updates the running renderer immediately.',
       editor: { kind: 'enum', choices: THEME_CHOICES },
     },
     {
@@ -902,6 +974,7 @@ export const CONFIG_CATALOG: readonly ConfigGroup[] = Object.freeze([
   PROVIDERS_OPENAI_GROUP,
   PROVIDERS_OPENROUTER_GROUP,
   PROVIDERS_OLLAMA_GROUP,
+  PROVIDERS_SOV_GROUP,
   TASK_ROUTING_GROUP,
   SUBSCRIPTION_EXECUTOR_GROUP,
   ROUTER_GROUP,
@@ -989,29 +1062,75 @@ export function getLiveApplyHook(path: string): LiveApplyHook | undefined {
   return LIVE_APPLY_HOOKS[path];
 }
 
-/**
- * Walk the persisted Settings object and return the set of top-level
- * keys that don't appear in any catalog item path. Used to surface an
- * "Advanced (unmanaged)" group when the catalog falls behind the schema
- * — we never want to hide a user's data.
- *
- * The check is intentionally shallow: a top-level key counts as managed
- * if any catalog item path starts with `<key>.` or equals `<key>`.
- *
- * Note: SettingsSchema is strict, so `readConfig()` already rejects
- * top-level keys unknown to the schema. The unmanaged set surfaces
- * fields that ARE in the schema but NOT yet in the catalog — a
- * forward-compatibility guard. A test may also call this with a raw
- * dict to verify the function's shape independent of schema parsing.
- */
-export function listUnmanagedKeys(settings: Settings): string[] {
-  const topLevelKeys = Object.keys(settings as Record<string, unknown>);
-  const managedTopLevel = new Set<string>();
+/** Every dotpath the catalog manages — built once per call. */
+function collectCatalogPaths(): Set<string> {
+  const paths = new Set<string>();
   for (const group of CONFIG_CATALOG) {
-    for (const item of group.items) {
-      const first = item.path.split('.', 1)[0];
-      if (first !== undefined) managedTopLevel.add(first);
+    for (const item of group.items) paths.add(item.path);
+  }
+  return paths;
+}
+
+/** True when some catalog path is a strict descendant of `prefix` — i.e. the
+ *  block at `prefix` is PARTIALLY catalogued and worth recursing into. */
+function hasCataloguedDescendant(prefix: string, catalogPaths: Set<string>): boolean {
+  const needle = `${prefix}.`;
+  for (const p of catalogPaths) {
+    if (p.startsWith(needle)) return true;
+  }
+  return false;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Recurse the settings tree collecting orphan dotpaths. A node is:
+ *   - managed (stop) when its own path is a catalog item path;
+ *   - recursed into when it's an object with catalogued descendants (a
+ *     PARTIALLY-catalogued block — surface only its uncatalogued leaves);
+ *   - reported as a single orphan otherwise (a wholly-uncatalogued subtree
+ *     or an uncatalogued leaf value).
+ */
+function collectOrphans(
+  node: Record<string, unknown>,
+  prefix: string,
+  catalogPaths: Set<string>,
+  out: string[],
+): void {
+  for (const [key, value] of Object.entries(node)) {
+    const path = prefix === '' ? key : `${prefix}.${key}`;
+    if (catalogPaths.has(path)) continue; // exact catalog leaf — managed
+    if (isPlainObject(value) && hasCataloguedDescendant(path, catalogPaths)) {
+      collectOrphans(value, path, catalogPaths, out); // partially-catalogued
+    } else {
+      out.push(path); // wholly-uncatalogued subtree or orphan leaf
     }
   }
-  return topLevelKeys.filter((k) => !managedTopLevel.has(k));
+}
+
+/**
+ * Walk the persisted Settings object and return the set of dotpaths that
+ * don't appear in any catalog item path. Used to surface an "Advanced
+ * (unmanaged)" group when the catalog falls behind the schema — we never
+ * want to hide a user's data.
+ *
+ * Recursive (2026-06-14): a wholly-uncatalogued top-level key is reported as
+ * itself (e.g. `futureExp`), but a PARTIALLY-catalogued block (e.g. `gateway`,
+ * where `token`/`port`/… are catalogued but `corsOrigins`/`principals` are not)
+ * is recursed into so its specific orphan sub-fields surface (e.g.
+ * `gateway.corsOrigins`) rather than being hidden by the catalogued siblings.
+ *
+ * Note: SettingsSchema is strict, so `readConfig()` already rejects top-level
+ * keys unknown to the schema. The unmanaged set surfaces fields that ARE in
+ * the schema but NOT yet in the catalog — a forward-compatibility guard. A
+ * test may also call this with a raw dict to verify the shape independent of
+ * schema parsing.
+ */
+export function listUnmanagedKeys(settings: Settings): string[] {
+  const catalogPaths = collectCatalogPaths();
+  const out: string[] = [];
+  collectOrphans(settings as Record<string, unknown>, '', catalogPaths, out);
+  return out;
 }
