@@ -8,6 +8,27 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-14 — Config live-apply UX: unify apply-scope, maximize live-apply
+
+**Scope.** Resolve the `/config` "unclear whether a saved setting applies now or needs a restart" UX gap. Replaced the binary hook-presence model (badge + toast derived independently, could disagree; many settings silently fell to "next session") with a single **apply-scope taxonomy** (`src/config/applyScope.ts`: `live` / `live-reload` / `other-process` / `restart`), maximized the live-apply set, and made the save confirmation always name the setting + state the exact outcome. Spec `docs/specs/2026-06-14-config-live-apply-design.md`, plan `docs/plans/2026-06-14-config-live-apply.md`. Built T1 (foundation) by hand; T2–T7 via a 5-owner disjoint-file workflow (TDD + per-owner review + a safety review of the provider re-resolution); integration seams + the safety-review HIGH reconciled centrally.
+
+**What's now live this session (green "applied to this session", reflected in the chrome):** models + `defaultProvider` + provider creds/baseUrl + router lanes (via a new `runtime.reresolveProvider` that atomically re-resolves the whole provider stack — transport, contextLength, compactor, learning reasoner — between turns, applying to the LIVE conversation), `thinking.effort` (the #1 prior silent no-op — now mirrors `/effort`), task-routing, `permissionMode` (with a loud `bypass` chrome indicator), web search, learning/recall (rebuilds the session's recall+observer in place), microcompaction/compaction, and the `ui.*` render flags. **Honest amber:** `gateway.*`/`openaiServer.*` → "applies to the gateway/serve process"; the few boot-captured settings (`maxTurns`, `behavior.*`, `review.*`, `subscriptionExecutor.*`, `debugMode.*`, `router.maxConcurrent*`, learning prune/buffer) → "restart sov". **Invariant:** every green path has a matching `LIVE_APPLY_HOOK`, so the badge can't over-claim (verified against the registry; removed `reasoning.effort`/`mcpServers`/`hooks` green entries that had no hook).
+
+**Key catches during the build (review layers earning their keep):**
+- The safety review caught that `reresolveProvider` left the **compactor model stale** after a cross-family swap (captured as a string snapshot, not by-reference) — the "foreign model id to the wrong client" bug relocated to compaction. Fixed by reassigning `runtime.compact` on reresolve + a regression guard.
+- Caught + fixed several **over-claims** (green badge, no hook): `subscriptionExecutor.*`/`maxTurns` (boot-captured), `mcpServers`/`hooks` (reload methods exist but no `/config` trigger).
+
+**Coverage + fixes:** surfaced orphan fields (`learning.recall.*`, `providers.sov.*`, missing `gateway.*`); `listUnmanagedKeys` now recurses into partially-catalogued blocks; fixed the `refreshRuntimeFromConfig` `#55-class` `harnessHome` bug; #57-style effort isolation preserved (a `/config thinking.effort` edit never mutates the shared `runtime.effort`).
+
+**Commands run (real results):**
+- Behavioral smoke via the source binary (`sov drive`, real dispatcher): `/config set thinking.effort medium` → `saved — thinking.effort applied to this session`; `gateway.token` → `…applies to the sov gateway/serve process…`; `debugMode.enabled` → `…restart sov…`; `webSearch.maxResults` → `…applied to this session`. Every toast names the setting + states the scope. ✓
+- `bun run lint` clean (765 files); `bun run typecheck` clean.
+- `HARNESS_HOME=$(mktemp -d) bun test` → **4096 pass / 0 fail / 16 skip** (+100 new tests). Go `build`/`vet`/`test` all green.
+
+**Known v1 limitation:** the `ui.footer` / `ui.diffRender` / `ui.contextMeter` flags update live session state + persist, but their on-screen rendering depends on the inline TUI's widget-renderer support (a pre-existing TUI-feature matter, not a config-apply gap). `runtime.model` remains process-global on a multi-user gateway (backlog #58, unchanged).
+
+**Result: PASS.** Every `/config` save now applies live (with reflection + a named green confirmation) or names the setting + states why a restart is needed.
+
 ## 2026-06-14 — Post-audit deep-dive bug hunt: 46 findings, all fixed
 
 **Scope.** A second agent-driven deep-dive bug hunt run *after* the 2026-06-10 full-codebase audit (107 findings) shipped, deliberately targeting the least-reviewed code in the repo — the 69 files changed *since* that audit's baseline `f661f24` (the audit fixes themselves + post-audit features: per-session `/effort` #57, sov/MLX reasoning streaming) — plus a sweep of high-value unchanged subsystems. Full report + per-finding inventory: [`docs/audits/2026-06-14-post-audit-bug-hunt.md`](audits/2026-06-14-post-audit-bug-hunt.md).

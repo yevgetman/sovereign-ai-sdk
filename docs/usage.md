@@ -465,7 +465,7 @@ It is **off by default** (`subscriptionExecutor.enabled: false`). When disabled 
 
 > **Mutually exclusive with [task routing](#multi-provider-task-routing-phase-1).** `subscriptionExecutor` and `taskRouting` are two different cost strategies on the same delegation path — a flat-rate subscription vs. API cost-tier routing — so **enable only one**. Setting `subscriptionExecutor.enabled: true` and `taskRouting.enabled: true` together is rejected at config-parse time.
 
-**Enable it** from the config TUI — `/config` → **Subscription executor** (or `sov config`) — or by editing the `subscriptionExecutor` config block (`~/.harness/config.json`) directly. Every field carries a **⟳ next session** badge: the scheduler captures the executor config at boot, so a change applies to the next session, not the running one.
+**Enable it** from the config TUI — `/config` → **Subscription executor** (or `sov config`) — or by editing the `subscriptionExecutor` config block (`~/.harness/config.json`) directly. Every field carries a **⟳ restart** badge: the scheduler captures the executor config at boot (and it gates the delegate role's tool visibility), so a change takes effect after restarting `sov`, not in the running session.
 
 ```json
 {
@@ -1480,7 +1480,17 @@ sov config set microcompaction.enabled false
 sov config unset microcompaction.enabled
 ```
 
-Bare `sov config` opens the branded Bubble Tea config TUI — the same surface `/config` (or `/settings`) opens in-session (2026-05-24 config UX rebuild). It's a hierarchical drill-in menu: a curated catalog of ~10 groups (plus per-provider subgroups) covering every field in the settings schema, each row showing its current value and a badge — `✓ live` for settings that apply immediately, `⟳ next session` for those that need a restart. Enter edits a field: enum and boolean fields open a sub-picker; string, number, and secret fields open an inline editor (secrets masked). Every edit is validated against the settings schema before writing; on a validation failure the editor re-opens with your typed value preserved and the error shown as the subtitle so you fix it in place. The scriptable `show` / `path` / `get` / `set` / `unset` verbs remain as escape hatches.
+Bare `sov config` opens the branded Bubble Tea config TUI — the same surface `/config` (or `/settings`) opens in-session (2026-05-24 config UX rebuild). It's a hierarchical drill-in menu: a curated catalog of ~10 groups (plus per-provider subgroups) covering every field in the settings schema, each row showing its current value and an **apply-scope badge**. Enter edits a field: enum and boolean fields open a sub-picker; string, number, and secret fields open an inline editor (secrets masked, and carrying the same badge). Every edit is validated against the settings schema before writing; on a validation failure the editor re-opens with your typed value preserved and the error shown as the subtitle so you fix it in place. The scriptable `show` / `path` / `get` / `set` / `unset` verbs remain as escape hatches.
+
+**Apply-scope — what happens when you save** (2026-06-14). Every setting carries one of four scopes, and the badge AND the save confirmation derive from the same source, so they never disagree and the confirmation always names the setting:
+
+| Badge | Scope | On save (in the live TUI) |
+|---|---|---|
+| `✓ live` (green) | **live** / **live-reload** | Applies to the **running session** — including the in-flight conversation, from the next turn. Models, `defaultProvider`, `thinking.effort`, task-routing, `permissionMode`, web search, learning/recall, the `ui.*` render flags, microcompaction, and more all apply immediately. A model/provider change re-resolves the whole provider stack (transport, context length, compactor, learning reasoner) between turns; learning changes rebuild the session's recall/observer in place. Toast: `saved — <setting> applied to this session`. |
+| `⤴ other` (amber) | **other-process** | `gateway.*` / `openaiServer.*` are consumed by a *separate* `sov gateway` / `sov serve` process, not your TUI. Toast: `saved — <setting> applies to the sov gateway/serve process, not this session (restart that process to take effect)`. |
+| `⟳ restart` (amber) | **restart** | The few settings with no in-process reload API (e.g. `debugMode.*`, `router.maxConcurrent*`, `learning.observationBufferSize`). Toast: `saved — restart sov for <setting> to take effect`. |
+
+Running `sov config` standalone (no active session) always shows a plain `saved` — there's no session to apply against. (Note: the `ui.footer` / `ui.diffRender` / `ui.contextMeter` flags update live session state, but their on-screen rendering depends on the inline TUI's renderer support for those widgets.)
 
 The same verbs work in-session via `/config`:
 
