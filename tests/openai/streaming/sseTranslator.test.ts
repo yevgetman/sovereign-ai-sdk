@@ -226,4 +226,60 @@ describe('translateStream', () => {
     expect(lines[0]).toContain('"finish_reason":"stop"');
     expect(result).toBeUndefined();
   });
+
+  // #38 — no usage chunk by default (parity with prior behavior; clients that
+  // don't opt in must not see an extra chunk).
+  test('emits NO usage chunk when includeUsage is not set (#38)', async () => {
+    const { writer, lines } = collect();
+    await translateStream(
+      gen(
+        [
+          { type: 'message_start' },
+          { type: 'text_delta', text: 'hi' },
+          { type: 'usage_delta', usage: { inputTokens: 10, outputTokens: 2 } },
+        ],
+        { reason: 'completed' },
+      ),
+      ctx,
+      writer,
+    );
+    expect(lines.some((l) => l.includes('"usage"'))).toBe(false);
+    expect(lines[lines.length - 1]).toBe('data: [DONE]\n\n');
+  });
+
+  // #38 — with includeUsage the final usage chunk lands between the final-stop
+  // chunk and [DONE], and reports the accumulated totals (#18: cache-inclusive).
+  test('emits a usage chunk before [DONE] when includeUsage is set (#38)', async () => {
+    const { writer, lines } = collect();
+    await translateStream(
+      gen(
+        [
+          { type: 'message_start' },
+          { type: 'text_delta', text: 'hi' },
+          {
+            type: 'usage_delta',
+            usage: { inputTokens: 300, cacheReadInputTokens: 20000, outputTokens: 80 },
+          },
+        ],
+        { reason: 'completed' },
+      ),
+      ctx,
+      writer,
+      { includeUsage: true },
+    );
+    // Last line is [DONE]; the usage chunk is the one immediately before it.
+    expect(lines[lines.length - 1]).toBe('data: [DONE]\n\n');
+    const usageLine = lines[lines.length - 2] ?? '';
+    expect(usageLine).toContain('"usage"');
+    const payload = JSON.parse(usageLine.replace(/^data: /, '').trim()) as {
+      choices: unknown[];
+      usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    };
+    expect(payload.choices).toEqual([]);
+    expect(payload.usage.prompt_tokens).toBe(20300);
+    expect(payload.usage.completion_tokens).toBe(80);
+    expect(payload.usage.total_tokens).toBe(20380);
+    // The finish-reason chunk precedes the usage chunk.
+    expect(lines[lines.length - 3]).toContain('"finish_reason"');
+  });
 });

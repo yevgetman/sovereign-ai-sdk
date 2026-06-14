@@ -47,7 +47,13 @@ import { blocksToOpenAI } from '../mapping/blocksToOpenAI.js';
 import { requestToMessages } from '../mapping/requestToMessages.js';
 import { ChatRequestSchema } from '../mapping/schema.js';
 import { InvalidModelError, resolveModelForRequest } from '../modelResolution.js';
-import { DONE_MARKER, buildFinalChunk } from '../streaming/chunks.js';
+import {
+  DONE_MARKER,
+  accumulateUsageEvent,
+  buildFinalChunk,
+  createUsageAccumulator,
+  finalizeUsage,
+} from '../streaming/chunks.js';
 import { translateStream } from '../streaming/sseTranslator.js';
 
 /** OpenAI-shaped error envelope. The route returns 400/401/501 with this
@@ -385,12 +391,18 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         };
 
         try {
+          // #38 — honor stream_options.include_usage: emit a final usage
+          // chunk for parity with the non-streaming branch's totals (which
+          // already fold cache tokens per #18). Schema passes the field
+          // through `.passthrough()`; it's typed via stream_options.
+          const includeUsage = parsed.stream_options?.include_usage === true;
           await translateStream(
             feedFromFirstStep(),
             { id: responseId, model: parsed.model, created },
             async (line) => {
               await stream.write(line);
             },
+            { includeUsage },
           );
         } catch (err) {
           // Best-effort: emit a final-stop chunk + DONE so the client
@@ -467,27 +479,14 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         error: new Error('query() never terminated'),
       };
 
-      // FIX 4 — accumulate usage across every provider call in the tool
-      // loop. query() emits usage_delta per provider call: for Anthropic,
-      // one at message_start (carrying inputTokens) and one at message_delta
-      // (carrying the call's FINAL cumulative outputTokens). Both deltas
-      // within a single call are cumulative-from-zero FOR THAT CALL, so we
-      // must NOT sum the two within-call deltas — we keep the last-seen
-      // value per field within a call, then SUM those per-call finals across
-      // calls. A new provider call begins at each `message_start`, so we
-      // flush the prior call's accumulator into the running total there (and
-      // once more after the generator terminates for the last call).
-      let totalInputTokens = 0;
-      let totalOutputTokens = 0;
-      let callInputTokens: number | undefined;
-      let callOutputTokens: number | undefined;
-      let sawAnyCall = false;
-      const flushCallUsage = (): void => {
-        if (callInputTokens !== undefined) totalInputTokens += callInputTokens;
-        if (callOutputTokens !== undefined) totalOutputTokens += callOutputTokens;
-        callInputTokens = undefined;
-        callOutputTokens = undefined;
-      };
+      // FIX 4 (#18) — accumulate usage across every provider call in the
+      // tool loop via the shared accumulator (also drives the streaming
+      // branch's usage chunk, so both transport modes report identical
+      // totals). The accumulator keeps the last-seen value per field within a
+      // call, sums per-call finals across calls, and — the #18 fix — folds
+      // cache-read + cache-creation tokens into the input total so the
+      // default cached Anthropic path doesn't understate prompt_tokens.
+      let usageAcc = createUsageAccumulator();
 
       for (;;) {
         const step = await gen.next();
@@ -496,25 +495,11 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           break;
         }
         const ev = step.value;
-        if (ev && typeof ev === 'object' && 'type' in ev) {
-          if (ev.type === 'message_start') {
-            // A new provider call has begun. Flush the previous call's
-            // accumulated usage before resetting the per-call tracker.
-            if (sawAnyCall) flushCallUsage();
-            sawAnyCall = true;
-          } else if (ev.type === 'assistant_message') {
-            finalAssistant = ev.message;
-          } else if (ev.type === 'usage_delta') {
-            // Overwrite (not add) within a call — each field's latest value
-            // is the cumulative-for-this-call figure.
-            if (ev.usage.inputTokens !== undefined) callInputTokens = ev.usage.inputTokens;
-            if (ev.usage.outputTokens !== undefined) callOutputTokens = ev.usage.outputTokens;
-          }
+        usageAcc = accumulateUsageEvent(usageAcc, ev);
+        if (ev && typeof ev === 'object' && 'type' in ev && ev.type === 'assistant_message') {
+          finalAssistant = ev.message;
         }
       }
-      // Flush the final provider call's usage (no trailing message_start
-      // closes it). Guard on sawAnyCall so a zero-call run stays at 0.
-      if (sawAnyCall) flushCallUsage();
 
       // H2(a) — terminal-level error path. query() caught a provider
       // exception and surfaced a Terminal with reason='error'. Return
@@ -549,12 +534,11 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       const finishReason = mapTerminalToFinishReason(terminal);
 
       // OpenAI's `usage` object uses prompt/completion/total tokens; our
-      // internal TokenUsage uses input/output. FIX 4 — these are the
-      // accumulated per-call totals across the whole tool loop (not just
-      // the final provider call). Missing fields default to 0 (some
-      // providers don't emit one or the other).
-      const promptTokens = totalInputTokens;
-      const completionTokens = totalOutputTokens;
+      // internal TokenUsage uses input/output. FIX 4 (#18) — these are the
+      // accumulated per-call totals across the whole tool loop (not just the
+      // final provider call), WITH cache-read + cache-creation tokens folded
+      // into prompt_tokens and surfaced via prompt_tokens_details.cached_tokens.
+      const usage = finalizeUsage(usageAcc);
 
       return c.json({
         id: responseId,
@@ -576,11 +560,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             finish_reason: finishReason,
           },
         ],
-        usage: {
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          total_tokens: promptTokens + completionTokens,
-        },
+        usage,
       });
     } catch (err) {
       // H2(b) — defense-in-depth: catch anything that escapes query().
@@ -686,11 +666,29 @@ function extractUpstreamStatus(err: unknown): number | undefined {
  *  `catch` or a `Terminal.error?: Error` — we narrow defensively. */
 function buildProviderErrorResponse(c: Context, err: unknown): Response {
   const message = err instanceof Error ? err.message : String(err);
+  const upstreamStatus = extractUpstreamStatus(err);
 
-  if (
-    isCredentialUnavailable(err) ||
-    /credential|api[\s_-]?key|unauthorized|forbidden/i.test(message)
-  ) {
+  // #37 — prefer the STRUCTURED signal over a message-substring scan. The
+  // prior classifier ran a broad message regex (matching bare 'forbidden' /
+  // 'api key' / 'credential') BEFORE consulting the HTTP status, so a 400
+  // ('your prompt references a forbidden token') or a 429 whose text merely
+  // mentions 'api key' was misreported as 401 invalid_api_key, masking the
+  // real upstream cause. Now:
+  //  1) An explicit auth status (CredentialUnavailableError, or a 401/403
+  //     ProviderHttpError — both covered by isCredentialUnavailable) →
+  //     invalid_api_key.
+  //  2) A non-auth structured status (any other 4xx/5xx) → mirror it as
+  //     upstream_error; the message regex is NEVER consulted, so a 400/429
+  //     with auth-flavored wording keeps its true status.
+  //  3) Only when there is NO structured status (e.g. a network/parse error
+  //     surfacing as a bare Error) do we fall back to a TIGHTENED message
+  //     regex — 'unauthorized' / 'invalid api key' only, not bare 'forbidden'
+  //     or 'credential' — to classify it as a credential failure.
+  const hasUpstreamStatus =
+    upstreamStatus !== undefined && upstreamStatus >= 400 && upstreamStatus < 600;
+  const looksLikeAuthMessage = /unauthorized|invalid\s*api[\s_-]?key/i.test(message);
+
+  if (isCredentialUnavailable(err) || (!hasUpstreamStatus && looksLikeAuthMessage)) {
     return c.json(
       {
         error: {
@@ -702,8 +700,7 @@ function buildProviderErrorResponse(c: Context, err: unknown): Response {
     );
   }
 
-  const upstreamStatus = extractUpstreamStatus(err);
-  if (upstreamStatus !== undefined && upstreamStatus >= 400 && upstreamStatus < 600) {
+  if (hasUpstreamStatus) {
     return c.json(
       {
         error: {

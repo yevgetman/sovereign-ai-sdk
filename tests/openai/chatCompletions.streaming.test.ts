@@ -126,6 +126,56 @@ describe('POST /v1/chat/completions (streaming)', () => {
     expect(lastLine).toBe('data: [DONE]');
   });
 
+  // #38 — stream_options.include_usage emits a final usage chunk (choices: [])
+  // before [DONE] for parity with the non-streaming branch's usage totals.
+  test('emits a usage chunk before [DONE] when stream_options.include_usage is true (#38)', async () => {
+    const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'harness-default',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const dataLines = (await res.text())
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('data: '));
+
+    expect(dataLines[dataLines.length - 1]).toBe('data: [DONE]');
+    // The usage chunk is the line just before [DONE].
+    const usageLine = dataLines[dataLines.length - 2] ?? '';
+    const usageChunk = JSON.parse(usageLine.replace(/^data: /, '')) as {
+      object?: string;
+      choices?: unknown[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    };
+    expect(usageChunk.object).toBe('chat.completion.chunk');
+    expect(usageChunk.choices).toEqual([]);
+    expect(typeof usageChunk.usage?.completion_tokens).toBe('number');
+    expect(typeof usageChunk.usage?.total_tokens).toBe('number');
+  });
+
+  // #38 — without include_usage there is NO usage chunk (unchanged default).
+  test('emits no usage chunk when stream_options is absent (#38)', async () => {
+    const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'harness-default',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: true,
+      }),
+    });
+    const body = await res.text();
+    expect(body.includes('"usage"')).toBe(false);
+  });
+
   test('disposes the per-request event bus after the stream completes (no leak)', async () => {
     const { __test_resetAllBuses, __test_busCount } = await import('../../src/server/eventBus.js');
     __test_resetAllBuses();

@@ -51,17 +51,29 @@
 // envelope; in-stream errors fall through to the final-stop+DONE close.
 
 import type { ContentBlock, StreamEvent, Terminal } from '../../core/types.js';
-import type { ChunkCtx } from './chunks.js';
+import type { ChunkCtx, UsageAccumulator } from './chunks.js';
 import {
   DONE_MARKER,
+  accumulateUsageEvent,
   buildDeltaChunk,
   buildFinalChunk,
   buildProgressPayload,
   buildRoleChunk,
   buildToolCallsChunk,
+  buildUsageChunk,
+  createUsageAccumulator,
+  finalizeUsage,
 } from './chunks.js';
 
 export type WriteFn = (line: string) => Promise<void> | void;
+
+/** Options for the translator. `includeUsage` (#38) mirrors OpenAI's
+ *  `stream_options.include_usage`: when true, a final usage chunk
+ *  (choices: []) is emitted just before [DONE], reporting the same
+ *  accumulated totals as the non-streaming branch. */
+export type TranslateStreamOptions = {
+  includeUsage?: boolean;
+};
 
 /** Drives an AsyncGenerator yielding StreamEvent | Message values and
  *  returning a Terminal. Emits OpenAI-shaped SSE chunks via `write`.
@@ -71,9 +83,14 @@ export async function translateStream(
   gen: AsyncGenerator<unknown, unknown, void>,
   ctx: ChunkCtx,
   write: WriteFn,
+  options: TranslateStreamOptions = {},
 ): Promise<unknown> {
   let terminal: unknown;
   let roleEmitted = false;
+  // #38 — accumulate usage across the tool loop so we can emit a final usage
+  // chunk (parity with the non-streaming branch). Folded for every event
+  // regardless of includeUsage; the chunk is only written when requested.
+  let usageAcc: UsageAccumulator = createUsageAccumulator();
 
   const ensureRoleEmitted = async (): Promise<void> => {
     if (roleEmitted) return;
@@ -88,6 +105,7 @@ export async function translateStream(
       break;
     }
     const ev = step.value;
+    usageAcc = accumulateUsageEvent(usageAcc, ev);
 
     // Bare Message objects (role-discriminated): user-role messages
     // carry tool_result blocks; assistant-role messages are never
@@ -121,6 +139,11 @@ export async function translateStream(
 
   const reason = deriveFinishReason(terminal);
   await write(`data: ${JSON.stringify(buildFinalChunk(reason, ctx))}\n\n`);
+  // #38 — emit the usage chunk (choices: []) BEFORE [DONE] when the client
+  // requested stream_options.include_usage.
+  if (options.includeUsage === true) {
+    await write(`data: ${JSON.stringify(buildUsageChunk(finalizeUsage(usageAcc), ctx))}\n\n`);
+  }
   await write(`data: ${DONE_MARKER}\n\n`);
   return terminal;
 }

@@ -56,11 +56,22 @@ export const ChatMessageSchema = z.discriminatedUnion('role', [
 ]);
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
+/** OpenAI's `stream_options` object. v0 honors only `include_usage`: when
+ *  true the streaming branch emits a final usage chunk (choices: []) before
+ *  [DONE], for parity with the non-streaming `usage` object (#38). Other
+ *  keys pass through unused. */
+const StreamOptionsSchema = z
+  .object({
+    include_usage: z.boolean().optional(),
+  })
+  .passthrough();
+
 export const ChatRequestSchema = z
   .object({
     model: z.string(),
     messages: z.array(ChatMessageSchema).min(1),
     stream: z.boolean().optional().default(false),
+    stream_options: StreamOptionsSchema.optional(),
     max_tokens: z.number().int().positive().optional(),
     temperature: z.number().min(0).max(2).optional(),
   })

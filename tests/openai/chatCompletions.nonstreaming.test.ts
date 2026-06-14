@@ -235,6 +235,87 @@ describe('POST /v1/chat/completions (non-streaming)', () => {
     }
   });
 
+  // #37 — a non-auth provider error whose MESSAGE merely contains
+  // 'forbidden' must NOT be misreported as 401 invalid_api_key. A 400
+  // ProviderHttpError carries a structured status; the classifier must mirror
+  // it as upstream_error (400) and NEVER consult the message regex.
+  test('does not misclassify a 400 whose message mentions "forbidden" as 401 (#37)', async () => {
+    MockProvider.throwOnNext = new ProviderHttpError(
+      'mock',
+      400,
+      'your prompt references a forbidden token',
+    );
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: { message?: string; type?: string } };
+      expect(body.error?.type).toBe('upstream_error');
+      expect(body.error?.message).toContain('forbidden');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
+  // #37 — a 429 whose message mentions 'api key' (e.g. a rate-limit note that
+  // happens to reference the key) must stay a 429 upstream_error, not become
+  // a 401 invalid_api_key that masks the real rate-limit cause.
+  test('does not misclassify a 429 whose message mentions "api key" as 401 (#37)', async () => {
+    MockProvider.throwOnNext = new ProviderHttpError(
+      'mock',
+      429,
+      'rate limit exceeded for this api key',
+    );
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(429);
+      const body = (await res.json()) as { error?: { type?: string } };
+      expect(body.error?.type).toBe('upstream_error');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
+  // #37 — a genuine credential failure with NO structured status (a bare
+  // Error) still classifies as 401 via the tightened message regex.
+  test('still maps a bare "Invalid API key" Error to 401 invalid_api_key (#37)', async () => {
+    MockProvider.throwOnNext = new Error('Invalid API key provided');
+    try {
+      const app = buildOpenAIApp({ runtime, apiKey: 'test' });
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'harness-default',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+        }),
+      });
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error?: { type?: string } };
+      expect(body.error?.type).toBe('invalid_api_key');
+    } finally {
+      MockProvider.throwOnNext = undefined;
+    }
+  });
+
   // FIX 2 — a valid-but-unconfigured model name (in SUPPORTED_MODELS, but no
   // provider credential available) makes resolveModelForRequest →
   // resolveProvider throw CredentialUnavailableError SYNCHRONOUSLY in the

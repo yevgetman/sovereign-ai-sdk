@@ -27,6 +27,7 @@
 //     wire shape. Mirrors `buildProgressPayload`'s framing-free contract:
 //     the route owns `event:` / `data:` framing.
 
+import type { TokenUsage } from '../../core/types.js';
 import type {
   DelegatorAtomCompleteEvent,
   DelegatorAtomStartedEvent,
@@ -236,4 +237,146 @@ export type DelegatorProgressEvent =
  *  event. Verbatim serialization — the event is already the wire shape. */
 export function buildDelegatorProgressPayload(event: DelegatorProgressEvent): string {
   return JSON.stringify(event);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Usage accumulation (shared by the non-streaming route and the streaming
+// translator so both transport modes report identical totals).
+//
+// query() emits one or more `usage_delta` events per provider call: for
+// Anthropic, one at message_start (carrying inputTokens + cache fields) and
+// one at message_delta (carrying that call's FINAL cumulative outputTokens).
+// Both deltas within a single call are cumulative-from-zero FOR THAT CALL, so
+// we keep the LAST-SEEN value per field within a call, then SUM those per-call
+// finals across the tool loop. A new provider call begins at each
+// `message_start`, so we flush the prior call's accumulator there (and once
+// more after the generator terminates for the last call).
+//
+// FIX (#18) — the input total must include cache-read AND cache-creation
+// tokens. Anthropic's usageToInternal maps `input_tokens` WITHOUT cached
+// tokens (cache_read_input_tokens / cache_creation_input_tokens are separate
+// TokenUsage fields). Prompt caching is ON by default, so within a tool loop
+// every call after the first is a cache hit — omitting them understates
+// prompt_tokens / total_tokens by an order of magnitude. OpenAI semantics
+// require prompt_tokens to include cached tokens, and surface the cached
+// portion in prompt_tokens_details.cached_tokens.
+
+/** Immutable accumulator state for OpenAI usage reporting. `total*` are the
+ *  summed per-call finals; `call*` are the in-progress current call's
+ *  last-seen values; `sawAnyCall` gates the first-flush so a zero-call run
+ *  stays at 0. */
+export type UsageAccumulator = {
+  readonly totalInputTokens: number;
+  readonly totalOutputTokens: number;
+  readonly totalCachedTokens: number;
+  readonly callInputTokens: number | undefined;
+  readonly callOutputTokens: number | undefined;
+  readonly callCachedTokens: number | undefined;
+  readonly sawAnyCall: boolean;
+};
+
+/** OpenAI `usage` object shape. `prompt_tokens_details.cached_tokens` mirrors
+ *  OpenAI's reporting of the cached portion of the prompt. */
+export type OpenAIUsage = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_tokens_details?: { cached_tokens: number };
+};
+
+export function createUsageAccumulator(): UsageAccumulator {
+  return {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCachedTokens: 0,
+    callInputTokens: undefined,
+    callOutputTokens: undefined,
+    callCachedTokens: undefined,
+    sawAnyCall: false,
+  };
+}
+
+/** Flush the current call's last-seen per-field values into the running
+ *  totals and reset the per-call trackers. Returns a new accumulator. */
+function flushCall(acc: UsageAccumulator): UsageAccumulator {
+  return {
+    ...acc,
+    totalInputTokens: acc.totalInputTokens + (acc.callInputTokens ?? 0),
+    totalOutputTokens: acc.totalOutputTokens + (acc.callOutputTokens ?? 0),
+    totalCachedTokens: acc.totalCachedTokens + (acc.callCachedTokens ?? 0),
+    callInputTokens: undefined,
+    callOutputTokens: undefined,
+    callCachedTokens: undefined,
+  };
+}
+
+/** Fold one query() event into the accumulator. Returns a new accumulator.
+ *  - `message_start` flushes the prior call (a new provider call has begun).
+ *  - `usage_delta` records the last-seen value per field for the current call,
+ *    including cache-read + cache-creation tokens summed into the call input.
+ *  Any other event is a no-op (returns the same state). */
+export function accumulateUsageEvent(acc: UsageAccumulator, ev: unknown): UsageAccumulator {
+  if (!ev || typeof ev !== 'object' || !('type' in ev)) return acc;
+  const type = (ev as { type: unknown }).type;
+  if (type === 'message_start') {
+    const flushed = acc.sawAnyCall ? flushCall(acc) : acc;
+    return { ...flushed, sawAnyCall: true };
+  }
+  if (type !== 'usage_delta') return acc;
+  const usage = (ev as { usage?: TokenUsage }).usage;
+  if (!usage || typeof usage !== 'object') return acc;
+  const cached = (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0);
+  const callInput =
+    usage.inputTokens !== undefined || cached > 0
+      ? (usage.inputTokens ?? 0) + cached
+      : acc.callInputTokens;
+  return {
+    ...acc,
+    callInputTokens: callInput,
+    callOutputTokens: usage.outputTokens !== undefined ? usage.outputTokens : acc.callOutputTokens,
+    callCachedTokens: cached > 0 ? cached : acc.callCachedTokens,
+  };
+}
+
+/** Flush the final provider call (no trailing message_start closes it) and
+ *  project to the OpenAI `usage` object. `prompt_tokens` includes cached
+ *  tokens; `prompt_tokens_details.cached_tokens` is emitted only when any
+ *  cached tokens were observed. */
+export function finalizeUsage(acc: UsageAccumulator): OpenAIUsage {
+  const flushed = acc.sawAnyCall ? flushCall(acc) : acc;
+  const promptTokens = flushed.totalInputTokens;
+  const completionTokens = flushed.totalOutputTokens;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    ...(flushed.totalCachedTokens > 0
+      ? { prompt_tokens_details: { cached_tokens: flushed.totalCachedTokens } }
+      : {}),
+  };
+}
+
+/** Chunk variant carrying a final `usage` object with an empty `choices`
+ *  array — the OpenAI streaming shape when `stream_options.include_usage`
+ *  is requested. Emitted just before `[DONE]`. */
+export type UsageChunk = {
+  id: string;
+  object: 'chat.completion.chunk';
+  created: number;
+  model: string;
+  choices: [];
+  usage: OpenAIUsage;
+};
+
+/** Build the final usage chunk (#38). OpenAI emits this as a standalone
+ *  chunk with `choices: []` after the final-stop chunk and before [DONE]. */
+export function buildUsageChunk(usage: OpenAIUsage, ctx: ChunkCtx): UsageChunk {
+  return {
+    id: ctx.id,
+    object: 'chat.completion.chunk',
+    created: ctx.created,
+    model: ctx.model,
+    choices: [],
+    usage,
+  };
 }
