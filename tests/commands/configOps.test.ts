@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dispatchConfigCommand } from '../../src/commands/configOps.js';
+import { __test__, dispatchConfigCommand } from '../../src/commands/configOps.js';
 import type {
   CommandContext,
   InputOpenConfig,
@@ -142,15 +142,23 @@ describe('/config dispatcher', () => {
       expect(values).toContain('maxTurns');
     });
 
-    test('items have a badge: live for defaultModel, reload for maxTurns', async () => {
+    test('items carry the 4-state apply-scope badge (defaultModel green-live, maxTurns restart)', async () => {
+      // 2026-06-14 — badge is now the field's STATIC declared apply-scope
+      // (describeScope(scopeFor(path)).badge), not the binary hook-present bit.
+      // defaultModel is 'live-reload' → the green 'live' badge (live + live-
+      // reload both read green); maxTurns is boot-captured → 'restart'.
       const { ctx, cap } = captureCtx();
       await dispatchConfigCommand('general', ctx);
       const picker = cap.pickers[0];
       if (!picker) return;
-      const defaultModelItem = picker.items.find((i) => i.value === 'defaultModel');
-      const maxTurnsItem = picker.items.find((i) => i.value === 'maxTurns');
+      const defaultModelItem = picker.items.find((i) => i.value === 'defaultModel') as
+        | { badge?: string }
+        | undefined;
+      const maxTurnsItem = picker.items.find((i) => i.value === 'maxTurns') as
+        | { badge?: string }
+        | undefined;
       expect(defaultModelItem?.badge).toBe('live');
-      expect(maxTurnsItem?.badge).toBe('reload');
+      expect(maxTurnsItem?.badge).toBe('restart');
     });
 
     test('value column reflects persisted value', async () => {
@@ -325,16 +333,22 @@ describe('/config dispatcher', () => {
       expect(onDisk.defaultProvider).toBe('ollama');
     });
 
-    test('returns a toast with the persisted-only message for a reload-needed field', async () => {
+    test('a hook that can only persist in this surface gets the honest amber restart toast', async () => {
+      // 2026-06-14 (kills the lying badge) — defaultProvider is declared
+      // 'live-reload' (green badge) and HAS a hook, but the test ctx doesn't
+      // wire reresolveProvider, so the hook can only persist here. The toast is
+      // honest about THIS surface's outcome: restart (not a green over-claim).
       const { ctx } = captureCtx();
       const result = await dispatchConfigCommand('set defaultProvider ollama', ctx);
-      expect(result).toContain('effective next session');
+      expect(result).toContain('restart sov for');
+      expect(result).toContain('defaultProvider'); // still names the setting
     });
 
     test('returns a toast with the applied message for a live-applyable field', async () => {
       const { ctx } = captureCtx();
       const result = await dispatchConfigCommand('set defaultModel claude-opus-4-7', ctx);
-      expect(result).toContain('applied to current session');
+      expect(result).toContain('applied to this session');
+      expect(result).toContain('defaultModel');
     });
 
     test('returns plain "saved" toast in sov config standalone mode', async () => {
@@ -929,6 +943,104 @@ describe('/config dispatcher', () => {
       const input = cap.inputs[0];
       if (!input) return;
       expect(input.title).toBe('save current as preset');
+    });
+  });
+
+  // 2026-06-14 config live-apply (T2) — badge + toast unified on the
+  // applyScope contract (describeScope(scopeFor(path))). Both derive from
+  // ONE source of truth so they can never disagree; every toast names the
+  // setting; standalone `sov config` collapses to plain "saved".
+  describe('apply-scope badge + toast unification', () => {
+    /** Map a 4-state scope badge to the green/amber outcome substring its
+     *  toast must contain (describeScope() is the source of truth). */
+    function toastSubstringForBadge(badge: 'live' | 'reload' | 'other' | 'restart'): string {
+      if (badge === 'live' || badge === 'reload') return 'applied to this session';
+      if (badge === 'other') return 'applies to the sov gateway/serve process';
+      return 'restart sov for';
+    }
+
+    test('badge matches the toast scope for a green (live-reload) path that applies', async () => {
+      // defaultModel — declared 'live-reload' → the green 'live' badge; its
+      // hook applies in the test ctx (setModel), so the toast is green and the
+      // two agree. (live + live-reload both render the green 'live' badge.)
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('general', ctx);
+      const picker = cap.pickers[0];
+      if (!picker) return;
+      const item = picker.items.find((i) => i.value === 'defaultModel') as
+        | { badge?: 'live' | 'reload' | 'other' | 'restart' }
+        | undefined;
+      expect(item?.badge).toBe('live');
+
+      const { ctx: setCtx } = captureCtx();
+      const toast = await dispatchConfigCommand('set defaultModel claude-opus-4-7', setCtx);
+      expect(toast).toContain(toastSubstringForBadge(item?.badge ?? 'restart'));
+      expect(toast).toContain('defaultModel'); // names the setting
+    });
+
+    test('badge matches the toast scope for an other-process path (gateway.*)', async () => {
+      // gateway.port — declared 'other-process' → badge 'other', amber toast
+      // that points at the gateway/serve process (not a restart of this TUI).
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('edit gateway.port', ctx);
+      // Numeric field → InputCard carries the scope badge (item 4). The
+      // InputOpenConfig type is being widened to carry `badge` by the seam
+      // owner; read it structurally so this test compiles before that lands.
+      const input = cap.inputs[0] as (typeof cap.inputs)[number] & { badge?: string };
+      expect(input?.badge).toBe('other');
+
+      const { ctx: setCtx } = captureCtx();
+      const toast = await dispatchConfigCommand('set gateway.port 9999', setCtx);
+      expect(toast).toContain(toastSubstringForBadge('other'));
+      expect(toast).toContain('gateway.port'); // names the setting
+    });
+
+    test('badge matches the toast scope for a restart path (debugMode.*)', async () => {
+      // debugMode.enabled — declared 'restart' → badge 'restart', amber
+      // "restart sov" toast (no in-process reload API for the transcript writer).
+      const { ctx, cap } = captureCtx();
+      await dispatchConfigCommand('debug', ctx);
+      const debugPicker = cap.pickers[0];
+      const enabledRow = debugPicker?.items.find((i) => i.value === 'debugMode.enabled') as
+        | { badge?: string }
+        | undefined;
+      // PickerOpenItem.badge is being widened to the 4-state ScopeBadge by the
+      // seam owner; read it structurally so this test compiles before that lands.
+      expect(enabledRow?.badge).toBe('restart');
+
+      const { ctx: setCtx } = captureCtx();
+      const toast = await dispatchConfigCommand('set debugMode.enabled true', setCtx);
+      expect(toast).toContain(toastSubstringForBadge('restart'));
+      expect(toast).toContain('debugMode.enabled'); // names the setting
+    });
+
+    test('every non-standalone toast names the setting', async () => {
+      const { ctx } = captureCtx();
+      const toast = await dispatchConfigCommand('set defaultModel claude-opus-4-7', ctx);
+      expect(toast).toContain('defaultModel');
+    });
+
+    test('standalone sov config collapses every toast to plain "saved"', async () => {
+      // No active session → no "applied/restart/gateway" claim, just "saved".
+      const { ctx } = captureCtx({ isConfigStandalone: true });
+      const greenToast = await dispatchConfigCommand('set defaultModel claude-opus-4-7', ctx);
+      expect(greenToast).toBe('saved');
+      const otherToast = await dispatchConfigCommand('set gateway.port 9999', ctx);
+      expect(otherToast).toBe('saved');
+    });
+
+    test('pickToast: hook-present-but-persisted-only yields the honest amber restart toast', async () => {
+      // The lying-badge fix: a hook that could only persist (e.g. a non-active
+      // provider's model) must NOT claim the declared green scope. pickToast
+      // falls back to the 'restart' toast for that path.
+      const toast = __test__.pickToast('defaultModel', true, 'persisted-only', false);
+      expect(toast).toContain('restart sov for');
+      expect(toast).toContain('defaultModel');
+    });
+
+    test('pickToast: standalone short-circuits to "saved" regardless of verdict/hook', () => {
+      expect(__test__.pickToast('defaultModel', true, 'applied', true)).toBe('saved');
+      expect(__test__.pickToast('gateway.port', false, 'persisted-only', true)).toBe('saved');
     });
   });
 });

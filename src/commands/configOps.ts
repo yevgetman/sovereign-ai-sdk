@@ -23,11 +23,19 @@
 // for surfaces that don't (headless dispatch, sov config standalone).
 //
 // Live-apply: `set` and `unset` look up the dotpath in LIVE_APPLY_HOOKS
-// (src/config/liveApply.ts). When a hook exists, the toast says "saved
-// — applied to current session"; absent a hook, "saved — effective next
-// session". When ctx.commandCtx is undefined (sov config standalone),
-// the hook returns 'persisted-only' and the toast says just "saved".
+// (src/config/liveApply.ts) AND its canonical apply-scope in
+// SETTING_SCOPES (src/config/applyScope.ts). 2026-06-14 — badge AND toast
+// both derive from the SAME source of truth (`describeScope(scopeFor(path))`)
+// so they can never disagree:
+//   - BADGE is always the setting's STATIC declared scope
+//     (`scopeFor(path)`) — a 4-state token (live/reload/other/restart).
+//   - TOAST is the OUTCOME: standalone ⇒ plain 'saved'; otherwise the
+//     hook's verdict picks the scope (a hook that applied ⇒ the declared
+//     scope's toast [green]; a hook that could only persist here ⇒ the
+//     honest 'restart' toast [amber]); no hook ⇒ the declared scope's toast.
+//   - Every toast NAMES the setting (the dotpath).
 
+import { describeScope, scopeFor } from '../config/applyScope.js';
 import {
   CONFIG_CATALOG,
   type ConfigEditor,
@@ -66,7 +74,7 @@ import {
   unsetAt,
   writeConfig,
 } from '../config/store.js';
-import type { CommandContext, InputOpenConfig, PickerOpenConfig } from './types.js';
+import type { CommandContext, InputOpenConfig, PickerOpenConfig, PickerOpenItem } from './types.js';
 
 // ──────────────────────────────────────────────────────────────────────
 // Side-effect relay — bridges LiveApplySideEffect to CommandContext
@@ -83,6 +91,23 @@ function relayLiveApplySideEffects(effect: LiveApplySideEffect, ctx: CommandCont
   if (effect.taskRouterChanged !== undefined && ctx.recordTaskRouterChange !== undefined) {
     ctx.recordTaskRouterChange(effect.taskRouterChanged);
   }
+  // M6 chrome reflections (2026-06-14). Absent a recorder (REPL / standalone),
+  // each relay is a no-op — the persist already succeeded.
+  if (effect.permissionModeChanged !== undefined && ctx.recordPermissionModeChange !== undefined) {
+    ctx.recordPermissionModeChange(effect.permissionModeChanged);
+  }
+  if (effect.toolOutputChanged !== undefined && ctx.recordToolOutputChange !== undefined) {
+    ctx.recordToolOutputChange(effect.toolOutputChanged);
+  }
+  if (effect.footerChanged !== undefined && ctx.recordFooterChange !== undefined) {
+    ctx.recordFooterChange(effect.footerChanged);
+  }
+  if (effect.contextMeterChanged !== undefined && ctx.recordContextMeterChange !== undefined) {
+    ctx.recordContextMeterChange(effect.contextMeterChanged);
+  }
+  if (effect.diffRenderChanged !== undefined && ctx.recordDiffRenderChange !== undefined) {
+    ctx.recordDiffRenderChange(effect.diffRenderChanged);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -91,8 +116,11 @@ function relayLiveApplySideEffects(effect: LiveApplySideEffect, ctx: CommandCont
 
 const SECRET_MASK = '••••••••';
 const UNSET_DISPLAY = '(unset)';
-const TOAST_APPLIED = 'saved — applied to current session';
-const TOAST_PERSISTED_ONLY = 'saved — effective next session';
+// 2026-06-14 — the green ("applied this session") and amber ("restart / other
+// process") toast TEXT now comes from describeScope() (the single source of
+// truth in applyScope.ts), so it always agrees with the badge and names the
+// setting. The only literal toast that survives is the standalone `sov config`
+// case (no active session ⇒ a plain "saved"), kept here so tests can assert it.
 const TOAST_SAVED_NO_SESSION = 'saved';
 
 /**
@@ -308,12 +336,15 @@ function openGroup(groupId: string, ctx: CommandContext): string {
   const redacted = redactSecrets(settings);
 
   if (ctx.requestPicker === undefined) {
-    // Headless fallback: print the items + current values + reload-badge.
+    // Headless fallback: print the items + current values + scope badge.
+    // 2026-06-14 — the badge is the 4-state declared apply-scope token (the
+    // same describeScope().badge the picker rows show), not the old binary
+    // live/next-session.
     const lines: string[] = [`${group.label}:`];
     for (const item of group.items) {
       const valueDisplay = renderValueColumn(item, redacted, settings);
-      const badge = getLiveApplyHook(item.path) !== undefined ? '  [live]' : '  [next-session]';
-      lines.push(`  ${item.path}  = ${valueDisplay}${badge}`);
+      const badge = describeScope(scopeFor(item.path)).badge;
+      lines.push(`  ${item.path}  = ${valueDisplay}  [${badge}]`);
     }
     lines.push('');
     lines.push('edit: /config edit <dotpath>');
@@ -325,7 +356,7 @@ function openGroup(groupId: string, ctx: CommandContext): string {
   // shortcuts at the top: pick a preset to apply, or save the current
   // lane config as a named preset. Selection dispatches sentinel
   // values that runEdit routes to the preset verbs.
-  const items: PickerOpenConfig['items'] =
+  const items: PickerOpenItem[] =
     group.id === 'task-routing'
       ? [
           {
@@ -396,26 +427,18 @@ function buildGroupItemPickerRow(
   item: ConfigItem,
   redacted: ReturnType<typeof redactSecrets>,
   settings: ReturnType<typeof readConfig>,
-): {
-  label: string;
-  value: string;
-  hint?: string;
-  valueColumn?: string;
-  badge?: 'live' | 'reload';
-} {
+): PickerOpenItem {
   const valueColumn = renderValueColumn(item, redacted, settings);
-  const liveApply = getLiveApplyHook(item.path) !== undefined;
-  const row: {
-    label: string;
-    value: string;
-    hint?: string;
-    valueColumn?: string;
-    badge?: 'live' | 'reload';
-  } = {
+  // 2026-06-14 — badge is the field's STATIC declared apply-scope (a 4-state
+  // token: live/reload/other/restart), NOT the binary "hook present?" bit.
+  // describeScope() is the single source of truth shared with pickToast, so
+  // the badge and the save toast can never disagree.
+  const badge = describeScope(scopeFor(item.path)).badge;
+  const row: PickerOpenItem = {
     label: item.label,
     value: item.path,
     valueColumn,
-    badge: liveApply ? 'live' : 'reload',
+    badge,
   };
   if (item.description !== undefined) row.hint = item.description;
   return row;
@@ -611,6 +634,10 @@ function openInputEditor(
   }
 
   const backCmd = backCommandForEditor(item);
+  // 2026-06-14 — carry the field's apply-scope badge so free-text (string /
+  // number / secret) fields show the SAME live-vs-restart affordance the
+  // picker rows show. Same source of truth (describeScope(scopeFor(path))).
+  const badge = describeScope(scopeFor(item.path)).badge;
   const input: InputOpenConfig = {
     title: item.path,
     ...(item.description !== undefined ? { subtitle: item.description } : {}),
@@ -622,6 +649,7 @@ function openInputEditor(
       ? { placeholder: editor.placeholder }
       : {}),
     ...(isSecret ? { masked: true } : {}),
+    badge,
     onSubmit: { command: `config set ${item.path}` },
     ...(backCmd !== undefined ? { onBack: { command: backCmd } } : {}),
   };
@@ -726,7 +754,7 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
     relayLiveApplySideEffects(sideEffect, ctx);
   }
 
-  const toast = pickToast(verdict, hook !== undefined, standalone) + cascadeNote;
+  const toast = pickToast(path, hook !== undefined, verdict, standalone) + cascadeNote;
   return emitParentRefresh(path, toast, ctx);
 }
 
@@ -760,7 +788,7 @@ async function runUnset(rest: string, ctx: CommandContext): Promise<string> {
     relayLiveApplySideEffects(sideEffect, ctx);
   }
 
-  const toast = pickToast(verdict, hook !== undefined, standalone);
+  const toast = pickToast(path, hook !== undefined, verdict, standalone);
   return emitParentRefresh(path, `${toast} (unset ${path})`, ctx);
 }
 
@@ -899,25 +927,39 @@ function reopenEditorWithError(
   return error;
 }
 
+/**
+ * Pick the save toast for `path`, naming the setting and styling by the
+ * resolved apply-scope. 2026-06-14 — the SINGLE source of truth is
+ * describeScope(); badge and toast can never disagree.
+ *
+ * The KEY DESIGN mapping:
+ *   - standalone (`sov config`, no active session) ⇒ plain 'saved' —
+ *     short-circuited BEFORE any scope reasoning so we never imply
+ *     "applied to this session".
+ *   - hook present + verdict 'applied' ⇒ the field's DECLARED scope toast
+ *     (green — describeScope(scopeFor(path))).
+ *   - hook present + verdict 'persisted-only' ⇒ the HONEST 'restart' toast
+ *     (amber) — the hook couldn't apply the change in this surface, so we
+ *     don't claim the declared green scope.
+ *   - no hook ⇒ the field's declared scope toast (a deferred field's
+ *     scope is itself 'restart' / 'other-process', so this is honest).
+ */
 function pickToast(
-  verdict: 'applied' | 'persisted-only',
+  path: string,
   hookPresent: boolean,
+  verdict: 'applied' | 'persisted-only',
   standalone: boolean,
 ): string {
-  // In `sov config` standalone mode there's no active session — every
-  // edit is effectively persisted-only and we collapse the toast to
-  // plain "saved" so we don't misleadingly imply "applied to current
-  // session". Per spec §"Reload semantics + badge protocol".
   if (standalone) return TOAST_SAVED_NO_SESSION;
   if (!hookPresent) {
-    // No hook = field is reload-needed; surface "next session".
-    return TOAST_PERSISTED_ONLY;
+    return describeScope(scopeFor(path)).toast(path);
   }
-  if (verdict === 'applied') return TOAST_APPLIED;
-  // Hook present but reported persisted-only — typically a conditional
-  // hook (provider model didn't match the active provider). Honest
-  // outcome is "effective next session".
-  return TOAST_PERSISTED_ONLY;
+  if (verdict === 'applied') {
+    return describeScope(scopeFor(path)).toast(path);
+  }
+  // Hook present but it could only persist (e.g. a non-active provider's
+  // model edit). Be honest: a restart of THIS process is what applies it.
+  return describeScope('restart').toast(path);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -1192,8 +1234,6 @@ function runGet(rest: string): string {
 export const __test__ = Object.freeze({
   SECRET_MASK,
   UNSET_DISPLAY,
-  TOAST_APPLIED,
-  TOAST_PERSISTED_ONLY,
   TOAST_SAVED_NO_SESSION,
   renderValueColumn,
   buildGroupItemPickerRow,
