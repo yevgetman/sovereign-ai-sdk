@@ -378,6 +378,28 @@ export type Runtime = {
    *  cache invalidation is the cost of the rebuild — accepted as a
    *  trade-off the user opts into by editing taskRouting at runtime. */
   rebuildTaskRouting: () => Promise<void>;
+  /** 2026-06-14 config live-apply (M1) — re-resolve the active provider stack
+   *  in place and atomically swap it between turns. Re-runs resolveProvider
+   *  (or rebuilds the RouterProvider for provider:router) and re-points
+   *  resolvedProvider.{transport,contextLength,metadata} + provider + model +
+   *  the learning Reason adapter; the compactor reads the runtime fields by
+   *  reference so it follows automatically. Callers invoke it BETWEEN turns
+   *  (the /config save path is between turns — a running query() already
+   *  captured its refs, so the swap never disrupts an in-flight turn).
+   *
+   *  Optional so the `sov config` standalone runtime (`runConfigOnlyMode`,
+   *  which has no live session/provider stack to swap) can omit it; the server
+   *  runtime built by `buildRuntime` always provides it. */
+  reresolveProvider?: (provider?: string, model?: string) => Promise<void>;
+  /** 2026-06-14 config live-apply (M2) — rebuild the HookRunner from fresh
+   *  config and reassign runtime.hookRunner (read by reference per turn).
+   *  Optional for the same reason as `reresolveProvider`. */
+  reloadHooks?: () => Promise<void>;
+  /** 2026-06-14 config live-apply (M2) — reconnect the MCP client pool, rebuild
+   *  the MCP slice of runtime.toolPool, recompute tool visibility, and shut the
+   *  replaced pool down after the swap. Between-turns, like reresolveProvider.
+   *  Optional for the same reason as `reresolveProvider`. */
+  reloadMcpServers?: () => Promise<void>;
   /** 2026-05-24 — bundle root, exposed so rebuildTaskRouting can
    *  re-read prompt files. Internal use; consumers should treat it
    *  as opaque. */
@@ -642,8 +664,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // below, so the orchestrator sees mcp__<server>__<tool> entries on the
   // very first turn. The pool is shut down before sessionDb.close()
   // inside dispose() (M7-08 order).
-  const mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
-  const mcpClientPool: McpClientPool | undefined =
+  // 2026-06-14 config live-apply (M2) — these three are `let`, not `const`,
+  // so `reloadMcpServers` can swap them between turns. Both
+  // `harnessInfoSnapshot` and `rebuildTaskRouting` close over them by name, so
+  // reassigning the binding (not just a holder field) is what makes the
+  // reconnected pool's tools flow into the next-turn snapshot + tool-pool
+  // rebuild. The runtime literal's `mcpClientPool` field is also reassigned in
+  // lockstep so external introspection (HarnessInfo / dispose) sees the live pool.
+  let mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
+  let mcpClientPool: McpClientPool | undefined =
     opts.mcpClientPool ??
     (Object.keys(mcpSettings.servers).length > 0
       ? await buildMcpClientPool({
@@ -654,7 +683,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
           env: process.env,
         })
       : undefined);
-  const mcpTools = mcpClientPool
+  let mcpTools = mcpClientPool
     ? wrapMcpTools(mcpClientPool.tools(), mcpClientPool, (msg) => process.stderr.write(`${msg}\n`))
     : [];
 
@@ -980,7 +1009,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // session by `learning.recall.enabled` (in buildSessionContext), and the
   // layer's Observe ports are Phase 1 no-ops. Cheap to construct — both
   // adapters defer all I/O to first call.
-  const learningLayer = createLearningLayer({
+  // `let`, not `const` — 2026-06-14 config live-apply (M1) rebuilds the
+  // layer's Reason adapter against the new provider transport + model when
+  // `reresolveProvider` swaps the active provider stack between turns, so the
+  // synthesizer keeps reasoning over the provider the live conversation uses.
+  let learningLayer = createLearningLayer({
     persist: createFsPersist(harnessHome),
     reason: createProviderReason(resolved.transport, resolved.model),
   });
@@ -1435,6 +1468,207 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     runtime.systemSegments.push(...newSegments);
   };
 
+  // 2026-06-14 config live-apply (M1) — re-resolve the active provider stack
+  // and ATOMICALLY swap it into the runtime BETWEEN TURNS. The /config save
+  // path is between turns; a running query() already captured its provider /
+  // model / systemSegments refs for the in-flight turn, so this never disrupts
+  // an in-flight turn — the swap takes effect from the NEXT runOnce.
+  //
+  // Faithful to buildRuntime's construction:
+  //   - router provider re-resolves via the SAME `useRouter` path (`'router'`
+  //     name rebuilds the RouterProvider over freshly-resolved lanes);
+  //   - single-provider re-resolves via resolveProvider(name, model, …);
+  //   - the compactor reads runtime.resolvedProvider.transport + runtime.model
+  //     by reference per call, so mutating those fields re-points it with no
+  //     separate "captured model" to update;
+  //   - the learning Reason adapter is rebuilt against the new transport+model
+  //     (createProviderReason), exactly as at boot.
+  // Mutates `resolved.{transport,contextLength,metadata}` IN PLACE so any
+  // closure that captured the `resolved` object reference (harnessInfoSnapshot,
+  // compactor) observes the new stack, then re-points runtime.provider/model.
+  const reresolveProvider = async (
+    providerOverride?: string,
+    modelOverride?: string,
+  ): Promise<void> => {
+    const fresh = readConfig({ harnessHome });
+    const nextProviderName = providerOverride ?? runtime.resolvedProvider.transport.name;
+    const useRouterNow =
+      nextProviderName === 'router' ||
+      (providerOverride === undefined && fresh.defaultProvider === 'router');
+    let next: ResolvedProvider;
+    if (useRouterNow) {
+      const routerCfg = fresh.router;
+      if (!routerCfg) {
+        throw new Error('reresolveProvider: provider:router requires a `router` block in config');
+      }
+      const localResolved = resolveProvider(routerCfg.localProvider, routerCfg.localModel, {
+        harnessHome,
+      });
+      const frontierResolved = resolveProvider(
+        routerCfg.frontierProvider,
+        routerCfg.frontierModel,
+        { harnessHome },
+      );
+      const routerProvider = new RouterProvider({
+        config: {
+          localProvider: routerCfg.localProvider,
+          frontierProvider: routerCfg.frontierProvider,
+          ...(routerCfg.localModel !== undefined ? { localModel: routerCfg.localModel } : {}),
+          ...(routerCfg.frontierModel !== undefined
+            ? { frontierModel: routerCfg.frontierModel }
+            : {}),
+          ...(routerCfg.defaultLane !== undefined ? { defaultLane: routerCfg.defaultLane } : {}),
+          ...(routerCfg.escalationMode !== undefined
+            ? { escalationMode: routerCfg.escalationMode }
+            : {}),
+          ...(routerCfg.maxConcurrentLocal !== undefined
+            ? { maxConcurrentLocal: routerCfg.maxConcurrentLocal }
+            : {}),
+          ...(routerCfg.maxConcurrentFrontier !== undefined
+            ? { maxConcurrentFrontier: routerCfg.maxConcurrentFrontier }
+            : {}),
+        },
+        localProvider: localResolved.transport,
+        frontierProvider: frontierResolved.transport,
+        ...(routerAuditLogger !== undefined ? { auditLogger: routerAuditLogger } : {}),
+        sessionId: 'pending',
+        localContextLength: localResolved.contextLength,
+        resolvedLocalModel: localResolved.model,
+        resolvedFrontierModel: frontierResolved.model,
+      });
+      next = {
+        transport: routerProvider as unknown as Transport,
+        client: routerProvider,
+        baseUrl: 'router://',
+        model: `${localResolved.model} | ${frontierResolved.model}`,
+        contextLength: Math.min(localResolved.contextLength, frontierResolved.contextLength),
+        authType: 'none',
+        metadata: {
+          provider: 'router',
+          apiMode: 'router',
+          purpose: 'main',
+          localProvider: localResolved.metadata.provider,
+          frontierProvider: frontierResolved.metadata.provider,
+        },
+      };
+    } else {
+      next = resolveProvider(
+        providerOverride ?? runtime.resolvedProvider.transport.name,
+        modelOverride ?? runtime.model,
+        { harnessHome, settings: fresh },
+      );
+    }
+    // Mutate the resolved record IN PLACE so closures holding the `resolved`
+    // object reference see the swap; then re-point the runtime's scalar fields.
+    resolved.transport = next.transport;
+    resolved.client = next.client;
+    resolved.baseUrl = next.baseUrl;
+    resolved.model = next.model;
+    resolved.contextLength = next.contextLength;
+    resolved.authType = next.authType;
+    resolved.metadata = next.metadata;
+    runtime.resolvedProvider = resolved;
+    runtime.provider = next.transport;
+    runtime.model = next.model;
+    // Rebuild the learning Reason adapter against the new provider+model so the
+    // synthesizer reasons over the provider the live conversation now uses.
+    learningLayer = createLearningLayer({
+      persist: createFsPersist(harnessHome),
+      reason: createProviderReason(next.transport, next.model),
+    });
+    runtime.learningLayer = learningLayer;
+    // The compactor captured `model` as a STRING SNAPSHOT at boot (it reads the
+    // literal it was handed, not runtime.model). Its transport follows the
+    // in-place `resolved` swap, so without this a cross-family reresolve would
+    // send the OLD model id to the NEW transport on the compaction path — the
+    // exact "foreign model id to the wrong client" bug this build set out to
+    // kill, relocated to compaction. Reassign the runtime field (read live by
+    // every caller) so compaction uses the new model too.
+    runtime.compact = buildServerCompactor({
+      sessionDb,
+      resolvedProvider: resolved,
+      model: next.model,
+      systemSegments,
+    });
+  };
+
+  // 2026-06-14 config live-apply (M2) — rebuild the HookRunner from fresh
+  // config and reassign runtime.hookRunner (read by reference per turn). Mirrors
+  // buildRuntime's hook wiring: same consent store + non-interactive checker.
+  const reloadHooks = async (): Promise<void> => {
+    const freshHookSettings = loadHookSettings({ cwd: opts.cwd, harnessHome });
+    const freshConsentStore = buildFileConsentStore(
+      join(harnessHome, 'shell-hooks-allowlist.json'),
+    );
+    const freshConsent = buildConsentChecker({
+      store: freshConsentStore,
+      ask: async (): Promise<AskResponse> => 'deny',
+    });
+    runtime.hookRunner = buildHookRunner({
+      hooksByEvent: freshHookSettings.hooksByEvent,
+      consent: freshConsent,
+      home: process.env.HOME,
+      logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
+    });
+  };
+
+  // 2026-06-14 config live-apply (M2) — reconnect the MCP client pool, rebuild
+  // the MCP slice of runtime.toolPool, and recompute tool visibility. Mirrors
+  // rebuildTaskRouting's in-place tool-pool mutation so per-turn readers (and
+  // harnessInfoSnapshot) pick up the new tools next turn. Shuts the old pool
+  // down AFTER the new one connects so an in-flight tool call on the prior pool
+  // is never severed mid-turn (this runs between turns).
+  const reloadMcpServers = async (): Promise<void> => {
+    const previousPool = mcpClientPool;
+    mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
+    mcpClientPool =
+      Object.keys(mcpSettings.servers).length > 0
+        ? await buildMcpClientPool({
+            servers: mcpSettings.servers,
+            log: (msg) => process.stderr.write(`${msg}\n`),
+            env: process.env,
+          })
+        : undefined;
+    mcpTools = mcpClientPool
+      ? wrapMcpTools(mcpClientPool.tools(), mcpClientPool, (msg) =>
+          process.stderr.write(`${msg}\n`),
+        )
+      : [];
+    runtime.mcpClientPool = mcpClientPool;
+
+    // Recompute tool visibility from fresh config (same flags rebuildTaskRouting
+    // uses) and reassemble the pool with the new MCP tools, mutating in place.
+    const fresh = readConfig({ harnessHome });
+    const freshEnabled = resolveTaskRoutingEnabled(
+      process.env.SOV_TASK_ROUTING_ENABLED,
+      fresh.taskRouting?.enabled,
+    );
+    const freshVisibleAgents = computeToolVisibleAgents(agents, {
+      taskRoutingEnabled: freshEnabled,
+      subscriptionExecutorEnabled: fresh.subscriptionExecutor?.enabled === true,
+    });
+    const freshToolCtx: ToolContext = {
+      cwd: opts.cwd,
+      ...(bundle ? { bundleRoot: bundle.root } : {}),
+      sessionId: 'pending',
+      harnessHome,
+      agents: freshVisibleAgents,
+    };
+    const freshPool = assembleToolPool(freshToolCtx, { mcpTools, harnessInfoSnapshot });
+    runtime.toolPool.length = 0;
+    runtime.toolPool.push(...freshPool);
+    finalToolPoolRef = runtime.toolPool;
+    // Shut the old pool AFTER the swap so the new tools are already live.
+    if (previousPool !== undefined && previousPool !== mcpClientPool) {
+      try {
+        await previousPool.shutdown();
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[mcp] failed to shut down replaced pool: ${reason}\n`);
+      }
+    }
+  };
+
   const runtime: Runtime = {
     sessionDb,
     toolPool,
@@ -1468,6 +1702,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       return laneRegistryHolder.current;
     },
     rebuildTaskRouting,
+    reresolveProvider,
+    reloadHooks,
+    reloadMcpServers,
     cacheEnabled,
     writeLock,
     subagentScheduler,

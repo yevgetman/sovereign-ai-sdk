@@ -37,7 +37,7 @@ import { computeRoutingStats } from '../router/stats.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import type { Runtime } from './runtime.js';
-import type { SessionContext } from './sessionContext.js';
+import { type SessionContext, rebuildSessionRecall } from './sessionContext.js';
 import { loadHistoryAsMessages } from './sessionId.js';
 
 /** Side-effect collector. The route reads these after dispatch and
@@ -91,6 +91,15 @@ export type CommandSideEffects = {
   /** Carries the new preset id (or '' when routing is disabled) so the
    *  TUI status bar updates live. Empty string clears the indicator. */
   taskRouterChanged?: string;
+  /** 2026-06-14 config live-apply (M6) — chrome reflections for live /config
+   *  edits, mirroring CommandSideEffectsSchema. permissionModeChanged surfaces
+   *  the new mode (loud for 'bypass'); the ui.* fields tell the Go renderer to
+   *  apply appearance changes live like verboseChanged/themeChanged. */
+  permissionModeChanged?: string;
+  toolOutputChanged?: { mode?: string; inlineLines?: number };
+  footerChanged?: boolean;
+  contextMeterChanged?: { warnAtPercent?: number; dangerAtPercent?: number };
+  diffRenderChanged?: boolean;
 };
 
 export type BuildServerCommandContextResult = {
@@ -242,7 +251,14 @@ export function buildServerCommandContext(
     // both per-request (microcompactConfig + proactiveCompactThreshold)
     // so the next turn picks up the new values.
     refreshRuntimeFromConfig: (): void => {
-      const fresh = readConfig();
+      // #55-class fix (2026-06-14) — read from the runtime's resolved
+      // harnessHome, not the process-global home. A bare `readConfig()` falls
+      // back to `resolveHarnessHome()`, so a runtime built with an explicit
+      // harnessHome (while $HARNESS_HOME is unset — any embedder / a real dev
+      // box) silently re-read ~/.harness/config.json and the live-apply was a
+      // no-op against the home the runtime actually uses. Mirrors every other
+      // config read in buildRuntime / buildSessionContext.
+      const fresh = readConfig({ harnessHome: runtime.harnessHome });
       runtime.microcompactConfig = buildMicrocompactConfig(fresh.microcompaction);
       const pct = fresh.compaction?.proactiveThresholdPct;
       runtime.proactiveCompactThreshold = pct === undefined ? 0.75 : pct / 100;
@@ -253,6 +269,34 @@ export function buildServerCommandContext(
     // is reloaded from disk.
     rebuildTaskRouting: async (): Promise<void> => {
       await runtime.rebuildTaskRouting();
+    },
+    // 2026-06-14 config live-apply (M1) — re-resolve the active provider stack
+    // between turns so a cross-family model / credential / baseUrl / router-lane
+    // edit applies to the LIVE conversation from the next turn. Forwards to the
+    // runtime closure which atomically swaps the transport + model + compactor
+    // model + learning Reason adapter.
+    reresolveProvider: async (provider?: string, model?: string): Promise<void> => {
+      await runtime.reresolveProvider?.(provider, model);
+    },
+    // 2026-06-14 config live-apply (M2) — rebuild the HookRunner from fresh
+    // config; the turns route reads runtime.hookRunner by reference per turn.
+    reloadHooks: async (): Promise<void> => {
+      await runtime.reloadHooks?.();
+    },
+    // 2026-06-14 config live-apply (M2) — reconnect the MCP pool + rebuild the
+    // MCP slice of the tool pool so mcpServers edits apply next turn.
+    reloadMcpServers: async (): Promise<void> => {
+      await runtime.reloadMcpServers?.();
+    },
+    // 2026-06-14 config live-apply (M4) — rebuild THIS session's recall thunk +
+    // learning observer in place from fresh config so learning.recall.* /
+    // learning.disabled apply to the live conversation. Operates on the SAME
+    // cached SessionContext this builder was handed (the instance the turns
+    // route reads via getSessionContext). Re-reads the user's persisted values
+    // only; never changes recall/synthesis semantics or founder-reserved
+    // defaults (recall ON).
+    rebuildRecall: async (): Promise<void> => {
+      await rebuildSessionRecall(runtime, sessionCtx);
     },
     // Backlog #41 — wired 2026-05-19. Mints a fresh child session via
     // the existing createClearedChildSession helper, sets
@@ -411,6 +455,26 @@ export function buildServerCommandContext(
     },
     recordTaskRouterChange: (preset: string): void => {
       sideEffects.taskRouterChanged = preset;
+    },
+    // 2026-06-14 config live-apply (M6) — chrome-reflection recorders the
+    // /config relay calls so live edits surface in the Go TUI.
+    recordPermissionModeChange: (mode: string): void => {
+      sideEffects.permissionModeChanged = mode;
+    },
+    recordToolOutputChange: (change: { mode?: string; inlineLines?: number }): void => {
+      sideEffects.toolOutputChanged = change;
+    },
+    recordFooterChange: (value: boolean): void => {
+      sideEffects.footerChanged = value;
+    },
+    recordContextMeterChange: (change: {
+      warnAtPercent?: number;
+      dangerAtPercent?: number;
+    }): void => {
+      sideEffects.contextMeterChanged = change;
+    },
+    recordDiffRenderChange: (value: boolean): void => {
+      sideEffects.diffRenderChanged = value;
     },
     ...(opts.configStandalone === true ? { isConfigStandalone: true } : {}),
     taskManager: runtime.taskManager,

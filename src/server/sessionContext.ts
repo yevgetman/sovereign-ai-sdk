@@ -164,6 +164,102 @@ export function resolveSeedEffort(runtime: Runtime, sessionId: string): Reasonin
   return parentEffort ?? runtime.effort;
 }
 
+/** Build the per-session learning observer, or undefined when learning is
+ *  disabled. Extracted so the M4 live-reload path (`rebuildSessionRecall`)
+ *  rebuilds it identically to boot. `learning.disabled === true` leaves it
+ *  undefined so the orchestrator's optional-chain observe becomes a no-op. */
+function buildSessionLearningObserver(
+  runtime: Runtime,
+  sessionId: string,
+  learning: ReturnType<typeof readConfig>['learning'],
+  userId: string | undefined,
+): LearningObserver | undefined {
+  if (learning?.disabled === true) return undefined;
+  return new LearningObserver({
+    harnessHome: runtime.harnessHome,
+    cwd: runtime.cwd,
+    sessionId,
+    ...(learning?.observationBufferSize !== undefined
+      ? { bufferSize: learning.observationBufferSize }
+      : {}),
+    enabled: true,
+    // Phase E T6 — scope observations to the owning principal (write path).
+    ...(userId !== undefined ? { userId } : {}),
+  });
+}
+
+/** Build the per-session recall thunk, or undefined when recall is explicitly
+ *  disabled. ON by default (founder decision 2026-06-04): only an explicit
+ *  `learning.recall.enabled === false` opts out. Reads the user's persisted
+ *  values ONLY — never changes recall semantics or defaults. Bound to the
+ *  write-path project id (`getProjectId(cwd).id`) so recalled instincts match
+ *  what the observer/synthesizer store. Extracted so M4's live reload rebuilds
+ *  it identically to boot. */
+function buildSessionRecallThunk(
+  runtime: Runtime,
+  learning: ReturnType<typeof readConfig>['learning'],
+  userId: string | undefined,
+): RecallTurn | undefined {
+  const recallCfg = learning?.recall;
+  const recallEnabled = recallCfg?.enabled !== false;
+  if (!recallEnabled) return undefined;
+  const recallProjectId = getProjectId(runtime.cwd).id;
+  return (latestUserText) =>
+    runtime.learningLayer.recall({
+      projectId: recallProjectId,
+      latestUserText,
+      tokenBudget: recallCfg?.tokenBudget ?? 1200,
+      maxLessons: recallCfg?.maxLessons ?? 8,
+      // Phase E T6 — scope recall to the owning principal (read path).
+      ...(userId !== undefined ? { userId } : {}),
+    });
+}
+
+/** 2026-06-14 config live-apply (M4) — rebuild the ACTIVE SessionContext's
+ *  recall thunk + learning observer in place from FRESH config, so a `/config`
+ *  edit to `learning.recall.*` / `learning.disabled` / synthesis cadence
+ *  applies to the LIVE conversation from the next turn (the recall thunk + the
+ *  orchestrator's observe optional-chain both read these fields per turn).
+ *
+ *  Re-reads the user's persisted values ONLY — recall/synthesis SEMANTICS and
+ *  founder-reserved DEFAULTS (recall ON) are untouched: the same `!== false`
+ *  gate and the same fallbacks as boot. Drains the prior observer first so no
+ *  buffered observation is dropped on the swap. Between-turns, like the
+ *  provider/hook/mcp reloads — a running query() already captured its recall
+ *  thunk for the in-flight turn. */
+export async function rebuildSessionRecall(runtime: Runtime, ctx: SessionContext): Promise<void> {
+  const fresh = readConfig({ harnessHome: runtime.harnessHome });
+  const userId = ctx.userId;
+  const previousObserver = ctx.learningObserver;
+  // Drain the old observer's write chain BEFORE replacing it so buffered
+  // observations land on disk. Bounded by the observer's own drain timeout.
+  if (previousObserver !== undefined) {
+    try {
+      await previousObserver.drain();
+    } catch {
+      // best-effort: a stalled drain must not block the live reload
+    }
+  }
+  // exactOptionalPropertyTypes: assign when present, delete when absent (the
+  // optional fields are declared without `| undefined`, so we must not store an
+  // explicit `undefined` — an absent property is the "disabled" signal the
+  // orchestrator's optional-chain reads).
+  const nextObserver = buildSessionLearningObserver(runtime, ctx.sessionId, fresh.learning, userId);
+  if (nextObserver !== undefined) {
+    ctx.learningObserver = nextObserver;
+  } else {
+    // biome-ignore lint/performance/noDelete: optional-field semantics — the orchestrator reads an ABSENT property (not `undefined`) as "learning disabled".
+    delete ctx.learningObserver;
+  }
+  const nextRecall = buildSessionRecallThunk(runtime, fresh.learning, userId);
+  if (nextRecall !== undefined) {
+    ctx.recall = nextRecall;
+  } else {
+    // biome-ignore lint/performance/noDelete: optional-field semantics.
+    delete ctx.recall;
+  }
+}
+
 /** Lazy-build a SessionContext for the given session id. Idempotent within
  *  a runtime — Runtime caches the return on first call. Construction is
  *  cheap: TraceWriter opens an append-only file handle, LearningObserver
@@ -224,21 +320,14 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // When `learning.disabled === true`, the field is LEFT UNDEFINED so the
   // orchestrator's `ctx.learningObserver?.observe(...)` optional-chain
   // becomes a no-op and disposal skips the drain step entirely (no empty
-  // observations.jsonl created).
-  const learningEnabled = userSettings.learning?.disabled !== true;
-  const learningObserver: LearningObserver | undefined = learningEnabled
-    ? new LearningObserver({
-        harnessHome: runtime.harnessHome,
-        cwd: runtime.cwd,
-        sessionId,
-        ...(userSettings.learning?.observationBufferSize !== undefined
-          ? { bufferSize: userSettings.learning.observationBufferSize }
-          : {}),
-        enabled: true,
-        // Phase E T6 — scope observations to the owning principal (write path).
-        ...(userId !== undefined ? { userId } : {}),
-      })
-    : undefined;
+  // observations.jsonl created). Extracted to a helper so the M4 live-reload
+  // path (`rebuildSessionRecall`) rebuilds it identically.
+  const learningObserver = buildSessionLearningObserver(
+    runtime,
+    sessionId,
+    userSettings.learning,
+    userId,
+  );
 
   // M7 T6 — per-session review manager. AbortController is always built so
   // disposal can unconditionally abort(); the ReviewManager itself is only
@@ -382,24 +471,11 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // memory routing, which has its own id scheme.) Fail-open is the layer's
   // own responsibility — `learningLayer.recall` swallows errors and returns
   // an empty result rather than breaking the turn.
-  const recallCfg = userSettings.learning?.recall;
-  const recallProjectId = getProjectId(runtime.cwd).id;
-  // ON by default — only an explicit `enabled: false` opts out.
-  const recallEnabled = recallCfg?.enabled !== false;
-  const recall: RecallTurn | undefined = recallEnabled
-    ? (latestUserText) =>
-        runtime.learningLayer.recall({
-          projectId: recallProjectId,
-          latestUserText,
-          tokenBudget: recallCfg?.tokenBudget ?? 1200,
-          maxLessons: recallCfg?.maxLessons ?? 8,
-          // Phase E T6 — scope recall to the owning principal (read path). The
-          // learningLayer is a SHARED singleton across users, so userId rides
-          // this per-turn recall context (exactly like projectId) — never a
-          // field stored on the layer. undefined reads the legacy corpus.
-          ...(userId !== undefined ? { userId } : {}),
-        })
-    : undefined;
+  // Extracted to `buildSessionRecallThunk` so the M4 live-reload path
+  // (`rebuildSessionRecall`) rebuilds the thunk identically to boot. The
+  // helper carries the ON-by-default `!== false` gate, the write-path project
+  // id, and the founder-reserved fallbacks.
+  const recall = buildSessionRecallThunk(runtime, userSettings.learning, userId);
 
   return {
     sessionId,

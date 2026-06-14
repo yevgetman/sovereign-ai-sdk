@@ -206,6 +206,16 @@ type SideEffectsBag = {
   // 2026-05-24 patch — /config commit/discard sets this to close
   // any active picker / input card on the TUI side.
   closeModal?: boolean;
+  // 2026-06-14 config live-apply (M6) — chrome reflections for live
+  // /config edits. permissionModeChanged surfaces the new permission
+  // mode (loud for 'bypass'); the ui.* fields tell the Go renderer to
+  // apply appearance changes live the same way verboseChanged /
+  // themeChanged do. Mirrors CommandSideEffectsSchema (src/server/schema.ts).
+  permissionModeChanged?: string;
+  toolOutputChanged?: { mode?: string; inlineLines?: number };
+  footerChanged?: boolean;
+  contextMeterChanged?: { warnAtPercent?: number; dangerAtPercent?: number };
+  diffRenderChanged?: boolean;
 };
 
 /** Flatten a prompt command's ContentBlock[] into plain text. The
@@ -234,7 +244,13 @@ function flattenContentBlocks(content: ReadonlyArray<unknown>): string {
   return parts.join('\n');
 }
 
-function hasSideEffects(s: SideEffectsBag): boolean {
+// Exported for the T5 wire-seam test (seams 2+3) so the side-effect
+// round-trip can be asserted at the unit level WITHOUT coupling to the
+// collector (commandContext.ts, seam 1) or the Go decoder (seam 5) landing
+// order. Named exports avoid the module-init temporal-dead-zone a wrapper
+// const would hit when two test files load this module together. Not part of
+// the route's runtime surface — only the route below calls these.
+export function hasSideEffects(s: SideEffectsBag): boolean {
   return (
     s.newSessionId !== undefined ||
     s.exitRequested !== undefined ||
@@ -246,11 +262,17 @@ function hasSideEffects(s: SideEffectsBag): boolean {
     s.verboseChanged !== undefined ||
     s.taskRouterChanged !== undefined ||
     s.clearScrollback !== undefined ||
-    s.closeModal !== undefined
+    s.closeModal !== undefined ||
+    // 2026-06-14 config live-apply (M6) — chrome reflections.
+    s.permissionModeChanged !== undefined ||
+    s.toolOutputChanged !== undefined ||
+    s.footerChanged !== undefined ||
+    s.contextMeterChanged !== undefined ||
+    s.diffRenderChanged !== undefined
   );
 }
 
-function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
+export function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
   const out: SideEffectsBag = {};
   if (s.newSessionId !== undefined) out.newSessionId = s.newSessionId;
   if (s.exitRequested !== undefined) out.exitRequested = s.exitRequested;
@@ -263,5 +285,11 @@ function pickSideEffects(s: SideEffectsBag): SideEffectsBag {
   if (s.taskRouterChanged !== undefined) out.taskRouterChanged = s.taskRouterChanged;
   if (s.clearScrollback !== undefined) out.clearScrollback = s.clearScrollback;
   if (s.closeModal !== undefined) out.closeModal = s.closeModal;
+  // 2026-06-14 config live-apply (M6) — chrome reflections.
+  if (s.permissionModeChanged !== undefined) out.permissionModeChanged = s.permissionModeChanged;
+  if (s.toolOutputChanged !== undefined) out.toolOutputChanged = s.toolOutputChanged;
+  if (s.footerChanged !== undefined) out.footerChanged = s.footerChanged;
+  if (s.contextMeterChanged !== undefined) out.contextMeterChanged = s.contextMeterChanged;
+  if (s.diffRenderChanged !== undefined) out.diffRenderChanged = s.diffRenderChanged;
   return out;
 }
