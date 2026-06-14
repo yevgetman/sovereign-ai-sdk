@@ -920,6 +920,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       auditLogger: routerAuditLogger,
       sessionId: 'pending',
       localContextLength: localResolved.contextLength,
+      // Resolved lane models so RouterProvider can recover the concrete model
+      // without parsing the synthetic "local | frontier" string — survives
+      // /model in router mode (finding #17, G9).
+      resolvedLocalModel: localResolved.model,
+      resolvedFrontierModel: frontierResolved.model,
     });
     resolved = {
       transport: routerProvider as unknown as Transport,

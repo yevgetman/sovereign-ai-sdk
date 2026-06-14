@@ -26,6 +26,16 @@ export type RouterProviderOpts = {
   /** Local provider's context length, threaded into the classifier's
    *  context-overflow heuristic. */
   localContextLength?: number;
+  /** The local lane's concrete resolved model id, captured at construction
+   *  (e.g. `localResolved.model` in runtime.ts). Used to resolve the lane's
+   *  model independently of the mutable `req.model` — so running `/model` in
+   *  router mode (which overwrites `runtime.model` with a single literal id)
+   *  cannot break lane resolution. Preferred over parsing `req.model`. */
+  resolvedLocalModel?: string;
+  /** The frontier lane's concrete resolved model id, captured at
+   *  construction (e.g. `frontierResolved.model` in runtime.ts). See
+   *  `resolvedLocalModel`. */
+  resolvedFrontierModel?: string;
   /** Per-call override hook the REPL/CLI can set to force a specific lane
    *  for the next stream() call. Cleared after consumption. */
   getNextOverride?: () => 'local' | 'frontier' | undefined;
@@ -111,15 +121,20 @@ export class RouterProvider implements LLMProvider {
       decision.lane === 'local'
         ? this.opts.config.localProvider
         : this.opts.config.frontierProvider;
-    // Resolve the concrete model for the chosen lane. Prefer the configured
-    // per-lane override; when unset, recover the lane's real resolved model from
-    // the synthetic `"<local> | <frontier>"` display string the runtime builds
-    // for `req.model` (it embeds both resolved models even when config omits the
-    // per-lane override). Falling through to req.model would hand the child the
-    // bogus synthetic string and the provider API would reject it.
-    const configuredModel =
-      decision.lane === 'local' ? this.opts.config.localModel : this.opts.config.frontierModel;
-    const delegatedModel = configuredModel ?? recoverLaneModel(req.model, decision.lane);
+    // Resolve the concrete model for the chosen lane WITHOUT depending on the
+    // mutable `req.model`. Precedence:
+    //   1. the configured per-lane override (`config.localModel`/`frontierModel`);
+    //   2. the lane's resolved model captured at construction
+    //      (`resolvedLocalModel`/`resolvedFrontierModel`) — independent of
+    //      `req.model`, so running `/model` in router mode (which overwrites
+    //      `runtime.model` with a single literal id) can't misroute lanes;
+    //   3. (legacy) recover from the synthetic `"<local> | <frontier>"` display
+    //      string the runtime once built for `req.model`.
+    // When all three are empty (the pathological unparseable case) we pass
+    // `req` through unchanged and report THAT model for observability so the
+    // audit log + route_decision match the wire (never an empty string).
+    const delegatedModel = resolveLaneModel(decision.lane, this.opts, req.model);
+    const childModel = delegatedModel || req.model;
 
     if (this.opts.auditLogger) {
       const now = Date.now();
@@ -131,7 +146,7 @@ export class RouterProvider implements LLMProvider {
         classifierLane: decision.classifierLane,
         reason: decision.reason,
         provider: delegatedProvider,
-        model: delegatedModel,
+        model: childModel,
         promptHash: hashPrompt(promptText),
         contextByteCount,
         ...(userOverride !== undefined ? { userOverride } : {}),
@@ -145,19 +160,17 @@ export class RouterProvider implements LLMProvider {
         classifierLane: decision.classifierLane,
         reason: decision.reason,
         delegatedProvider,
-        delegatedModel,
+        delegatedModel: childModel,
       },
     } as StreamEvent;
 
     const child = decision.lane === 'local' ? this.opts.localProvider : this.opts.frontierProvider;
-    // The caller (query.ts) doesn't know which lane will run, so it passes the
-    // synthetic "<local> | <frontier>" model string. Swap in the chosen lane's
-    // resolved model before delegating — `delegatedModel` is the configured
-    // override or the model recovered from that synthetic string, so it's always
-    // a real model id (never the bogus display string). Only the pathological
-    // case of an unparseable model with no override leaves it empty, in which
-    // case we pass req through and let the child apply its own default.
-    const childReq: ProviderRequest = delegatedModel ? { ...req, model: delegatedModel } : req;
+    // Swap in the chosen lane's resolved model before delegating. `childModel`
+    // is the configured override, the resolved-lane model, the model recovered
+    // from a synthetic display string, or — only in the pathological
+    // unparseable case — the original `req.model` passed through unchanged.
+    const childReq: ProviderRequest =
+      childModel === req.model ? req : { ...req, model: childModel };
     // delegate; preserve final return value for the caller's `for await of`.
     return yield* child.stream(childReq);
   }
@@ -166,6 +179,26 @@ export class RouterProvider implements LLMProvider {
 /** Separator the runtime uses to join the two lane models into the synthetic
  *  display model string (`"<local> | <frontier>"`). Mirrors runtime.ts. */
 const SYNTHETIC_MODEL_SEPARATOR = ' | ';
+
+/** Resolve the chosen lane's concrete model id, in precedence order and
+ *  independent of the mutable `req.model`:
+ *    1. the configured per-lane override;
+ *    2. the lane's resolved model captured at construction;
+ *    3. (legacy) recovery from the synthetic `"<local> | <frontier>"` string.
+ *  Returns the empty string only when none apply (pathological unparseable
+ *  case), so the caller can pass `req.model` through and report it for
+ *  observability. */
+function resolveLaneModel(
+  lane: 'local' | 'frontier',
+  opts: RouterProviderOpts,
+  reqModel: string,
+): string {
+  const configured = lane === 'local' ? opts.config.localModel : opts.config.frontierModel;
+  if (configured) return configured;
+  const resolved = lane === 'local' ? opts.resolvedLocalModel : opts.resolvedFrontierModel;
+  if (resolved) return resolved;
+  return recoverLaneModel(reqModel, lane);
+}
 
 /** Recover a lane's concrete model id from the synthetic `"<local> | <frontier>"`
  *  display string the runtime builds for `req.model`. Returns the empty string

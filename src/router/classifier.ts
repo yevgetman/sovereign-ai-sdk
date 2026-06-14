@@ -83,12 +83,10 @@ function reasonFor(
     return `user override → ${opts.userOverride}`;
   }
   if (classifierLane === 'frontier') {
-    // Context overflow is the only rule that hard-escalates to frontier; name it
-    // so the audit log + route_decision explain why local was bypassed.
-    if (isContextOverflow(opts)) {
-      return `context overflow (${opts.contextByteCount} bytes > local cap)`;
-    }
-    return 'classified as frontier-only';
+    // Context overflow is the ONLY non-override rule that hard-escalates to
+    // frontier (classifyRaw), so it always holds here. Name it so the audit log
+    // + route_decision explain why local was bypassed.
+    return `context overflow (${opts.contextByteCount} bytes > local cap)`;
   }
   if (classifierLane === 'local-with-escalation') {
     const triggers: string[] = [];
