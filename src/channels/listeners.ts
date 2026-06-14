@@ -210,7 +210,7 @@ export function buildChannelListeners(
   channels: ChannelListenersConfig,
   deps: ChannelListenersDeps = {},
 ): ChannelListeners {
-  const workers: Array<{ start(): void; stop(): void }> = [];
+  const workers: Array<{ start(): void; stop(): Promise<void> | void }> = [];
 
   const telegram = channels.telegram;
   if (telegram?.enabled === true) {
@@ -232,8 +232,14 @@ export function buildChannelListeners(
     start(): void {
       for (const w of workers) w.start();
     },
-    stop(): void {
-      for (const w of workers) w.stop();
+    // Fix #20 — AWAIT each worker's stop() so an in-flight poll (Telegram) is
+    // fully drained before this resolves. The gateway calls `await
+    // listeners.stop()` BEFORE runtime.dispose(); dropping the workers' async
+    // stop() here would let a live turn's DB writes race the sessionDb.close().
+    // Stop workers in parallel — they're independent — and surface a clean
+    // resolve once all have drained.
+    async stop(): Promise<void> {
+      await Promise.all(workers.map((w) => w.stop()));
     },
   };
 }

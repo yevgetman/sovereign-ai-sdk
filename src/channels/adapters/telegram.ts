@@ -95,8 +95,10 @@ export type TelegramListener = {
   /** Arm the background poll loop. Guards double-start; the timer is unref'd so
    *  it never holds the process open on its own. */
   start(): void;
-  /** Disarm the background poll loop. Idempotent. */
-  stop(): void;
+  /** Disarm the background poll loop AND drain any in-flight poll. Idempotent.
+   *  Resolves only once a live turn's DB writes have flushed, so the gateway's
+   *  `await listener.stop()` → runtime.dispose() ordering is race-free. */
+  stop(): Promise<void>;
   /** Run one poll tick: getUpdates(offset) → per-update turn + send → advance
    *  offset. Exposed for tests + a future on-demand drain. */
   pollOnce(): Promise<void>;
@@ -209,7 +211,13 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
   // (and duplicate billed calls) every tick; at idle it also overlaps the 25 s
   // long-poll and Telegram 409-terminates the bot's own poll. While a poll is
   // running, further pollOnce calls are a no-op.
-  let inFlight = false;
+  //
+  // Fix #20 (L3/L4) — the guard is the RETAINED in-flight promise, not a bare
+  // boolean, so stop() can drain it. A live poll (whose turn writes to the
+  // session DB) must finish BEFORE the gateway's runtime.dispose() closes that
+  // DB; stop() awaits this promise to guarantee the ordering. Mirrors
+  // SessionSupervisor.stop()'s drain-then-teardown.
+  let inFlight: Promise<void> | null = null;
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
     const msg = mapUpdateToInbound(update);
@@ -231,52 +239,59 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
     await transport.sendMessage(update.message?.chat.id ?? msg.chatId, result.text);
   }
 
-  async function pollOnce(): Promise<void> {
+  /** The actual poll body. The guard + in-flight tracking live in `pollOnce`. */
+  async function runPoll(): Promise<void> {
+    // The getUpdates call is the ONLY unguarded throw site that the
+    // fire-and-forget tick (`void pollOnce()`) would turn into an unhandled
+    // rejection on a bad token / network error. Guard it: log ONE concise,
+    // actionable line (never the token) and arm the backoff so a persistent
+    // failure doesn't spam at the poll cadence. The per-update try/catch below
+    // already handles a single bad update / turn.
+    let updates: TelegramUpdate[];
+    try {
+      updates = await transport.getUpdates(offset);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      log(`telegram poll failed (check SOV_TELEGRAM_BOT_TOKEN / network): ${detail}`);
+      ticksToSkip = failureBackoffTicks;
+      return;
+    }
+    // A successful poll clears any pending backoff.
+    ticksToSkip = 0;
+    for (const update of updates) {
+      // Fix F4 — advance + CONFIRM the cursor past this update BEFORE awaiting
+      // its (slow) turn. Telegram treats a getUpdates(offset) as an ack of
+      // everything below `offset`, so confirming first means a re-poll (after
+      // the in-flight guard clears, or from a crashed/restarted process) never
+      // re-serves an update we've already consumed — even one whose turn
+      // throws or is still running. Updates can arrive out of order, so take
+      // the max rather than blindly trusting the last id.
+      if (update.update_id + 1 > offset) offset = update.update_id + 1;
+      try {
+        await handleUpdate(update);
+      } catch (err) {
+        // One bad update must not kill the batch or the loop. Log without the
+        // bot token (it's never part of the message anyway).
+        const detail = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[telegram] update ${update.update_id} failed: ${detail}\n`);
+      }
+    }
+  }
+
+  function pollOnce(): Promise<void> {
     // Fix F4 — in-flight guard. If a previous pollOnce is still awaiting its
     // model turn, do nothing: starting a second poll now would re-getUpdates
-    // and re-serve the in-flight (unconfirmed) update. The flag is cleared in
+    // and re-serve the in-flight (unconfirmed) update. Returning the SAME
+    // retained promise (not a fresh resolved one) means stop() — which awaits
+    // `inFlight` — drains whichever poll is actually running.
+    if (inFlight !== null) return inFlight;
+    // Fix #20 — retain the running poll so stop() can drain it. Cleared in
     // `finally` so a thrown turn / getUpdates failure can't wedge the loop.
-    if (inFlight) return;
-    inFlight = true;
-    try {
-      // The getUpdates call is the ONLY unguarded throw site that the
-      // fire-and-forget tick (`void pollOnce()`) would turn into an unhandled
-      // rejection on a bad token / network error. Guard it: log ONE concise,
-      // actionable line (never the token) and arm the backoff so a persistent
-      // failure doesn't spam at the poll cadence. The per-update try/catch below
-      // already handles a single bad update / turn.
-      let updates: TelegramUpdate[];
-      try {
-        updates = await transport.getUpdates(offset);
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        log(`telegram poll failed (check SOV_TELEGRAM_BOT_TOKEN / network): ${detail}`);
-        ticksToSkip = failureBackoffTicks;
-        return;
-      }
-      // A successful poll clears any pending backoff.
-      ticksToSkip = 0;
-      for (const update of updates) {
-        // Fix F4 — advance + CONFIRM the cursor past this update BEFORE awaiting
-        // its (slow) turn. Telegram treats a getUpdates(offset) as an ack of
-        // everything below `offset`, so confirming first means a re-poll (after
-        // the in-flight guard clears, or from a crashed/restarted process) never
-        // re-serves an update we've already consumed — even one whose turn
-        // throws or is still running. Updates can arrive out of order, so take
-        // the max rather than blindly trusting the last id.
-        if (update.update_id + 1 > offset) offset = update.update_id + 1;
-        try {
-          await handleUpdate(update);
-        } catch (err) {
-          // One bad update must not kill the batch or the loop. Log without the
-          // bot token (it's never part of the message anyway).
-          const detail = err instanceof Error ? err.message : String(err);
-          process.stderr.write(`[telegram] update ${update.update_id} failed: ${detail}\n`);
-        }
-      }
-    } finally {
-      inFlight = false;
-    }
+    const running = runPoll().finally(() => {
+      inFlight = null;
+    });
+    inFlight = running;
+    return running;
   }
 
   function start(): void {
@@ -296,10 +311,25 @@ export function createTelegramListener(opts: CreateTelegramListenerOpts): Telegr
     timer = t;
   }
 
-  function stop(): void {
+  /** Disarm the poll loop and DRAIN any in-flight poll. Idempotent. Clears the
+   *  interval first (so no new tick can schedule a poll), then awaits the
+   *  retained in-flight poll — swallowing its errors — so a live turn's session
+   *  DB writes / trajectory / learning drain can never outlive the
+   *  sessionDb.close() that gateway shutdown runs next. Mirrors
+   *  SessionSupervisor.stop()'s stop-then-drain ordering (Fix #20). */
+  async function stop(): Promise<void> {
     if (timer !== null) {
       clearInterval(timer);
       timer = null;
+    }
+    if (inFlight !== null) {
+      try {
+        await inFlight;
+      } catch {
+        // A failing in-flight poll must not break shutdown — runPoll already
+        // guards getUpdates + per-update turns, so it never rejects, but guard
+        // anyway so stop() always resolves.
+      }
     }
   }
 

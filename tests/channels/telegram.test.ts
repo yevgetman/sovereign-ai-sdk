@@ -29,6 +29,7 @@ import {
   type TelegramUpdate,
   createTelegramListener,
 } from '../../src/channels/adapters/telegram.js';
+import { buildChannelListeners } from '../../src/channels/listeners.js';
 import { buildSessionKey } from '../../src/channels/sessionKey.js';
 import type { InboundMessage } from '../../src/channels/types.js';
 import { MockProvider } from '../../src/providers/mock.js';
@@ -570,5 +571,112 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
       expect(getUpdatesOffsets).toEqual([0, 101]);
       expect(sent.length).toBe(1);
     });
+  });
+
+  // Fix #20 (L3/L4) — shutdown drain. stop() must AWAIT the in-flight pollOnce
+  // before resolving, so the gateway's `await listeners.stop()` → runtime.dispose()
+  // ordering guarantees no live turn's DB writes can outlive sessionDb.close().
+  // Previously stop() only clearInterval()'d (synchronous) and could not drain.
+  describe('Fix #20 — stop() drains the in-flight poll before resolving', () => {
+    test('stop() does not resolve until a mid-turn pollOnce completes', async () => {
+      // Keep the model turn observably in flight so stop() has something to drain.
+      MockProvider.slowMode = true;
+      MockProvider.slowModeDelayMs = 30;
+
+      const { transport, sent } = makeMockTransport([[privateUpdate(100)]]);
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        transport,
+      });
+
+      // Start the poll (fetches the batch, begins the slow turn) without awaiting.
+      const poll = listener.pollOnce();
+      // Let the turn get underway but not finish.
+      await new Promise<void>((r) => setTimeout(r, 5));
+      // At this point the slow turn has not sent its reply yet.
+      expect(sent.length).toBe(0);
+
+      // stop() MUST drain the in-flight poll: when it resolves, the turn is done
+      // and the reply has been delivered. With the pre-fix synchronous stop()
+      // this returns immediately and the send has NOT happened yet → FAIL.
+      await listener.stop();
+      expect(sent.length).toBe(1);
+      expect(sent[0]).toEqual({ chatId: 42, text: 'Hello world.' });
+
+      // The original poll promise is already settled by the time stop() resolved.
+      await poll;
+    });
+
+    test('stop() is idempotent and resolves with no in-flight poll', async () => {
+      const { transport } = makeMockTransport([[]]);
+      const listener = createTelegramListener({
+        runtime,
+        botToken: TOKEN,
+        principalId: PRINCIPAL,
+        transport,
+      });
+      listener.start();
+      // No poll in flight → stop() resolves promptly; a second stop() is a no-op.
+      await expect(listener.stop()).resolves.toBeUndefined();
+      await expect(listener.stop()).resolves.toBeUndefined();
+    });
+  });
+});
+
+// Fix #20 — the buildChannelListeners aggregator must AWAIT each worker's
+// (async) stop() so the gateway's `await listeners.stop()` actually drains the
+// Telegram poll loop before runtime.dispose() closes the DB.
+describe('buildChannelListeners — stop() awaits each worker drain', () => {
+  let home: string;
+  let runtime: Runtime;
+
+  beforeEach(async () => {
+    home = mkdtempSync(join(tmpdir(), 'sov-channels-tg-listeners-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    process.env.HARNESS_HOME = home;
+    resetMockProviderStatics();
+    runtime = await buildTestRuntime(home);
+  });
+
+  afterEach(async () => {
+    await runtime.dispose();
+    resetMockProviderStatics();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.HARNESS_HOME;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test('listeners.stop() drains an in-flight Telegram turn before resolving', async () => {
+    MockProvider.slowMode = true;
+    MockProvider.slowModeDelayMs = 30;
+
+    const { transport, sent } = makeMockTransport([[privateUpdate(700)]]);
+    // A tiny poll cadence so the armed timer fires its first (slow) poll quickly;
+    // slowMode keeps that turn in flight while we call stop().
+    const listeners = buildChannelListeners(
+      runtime,
+      { telegram: { enabled: true, botToken: TOKEN, principalId: PRINCIPAL } },
+      { telegramTransport: transport, pollIntervalMs: 2 },
+    );
+
+    listeners.start();
+    // Let the armed timer's first tick fire the slow poll and get mid-turn.
+    await new Promise<void>((r) => setTimeout(r, 8));
+    // The slow turn has not sent its reply yet.
+    expect(sent.length).toBe(0);
+
+    // stop() returns a Promise (async contract) and must drain the in-flight poll
+    // before resolving — proving the aggregator awaits each worker's async stop().
+    const result = listeners.stop();
+    expect(result).toBeInstanceOf(Promise);
+    await result;
+    expect(sent.length).toBe(1);
+    // privateUpdate hardcodes chat.id 42 regardless of update_id; the point is
+    // the in-flight turn finished + delivered before stop() resolved.
+    expect(sent[0]).toEqual({ chatId: 42, text: 'Hello world.' });
   });
 });
