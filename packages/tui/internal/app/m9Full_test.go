@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
 )
 
 func TestM9_MarkdownRenderedInAssistantText(t *testing.T) {
@@ -218,25 +220,38 @@ func TestM9_StatusUpdateUpdatesStatusLine(t *testing.T) {
 }
 
 func TestM9_ThemeSwitchAltersRender(t *testing.T) {
+	// Backlog #46/#56 — `/theme <name>` is server-mediated: the dispatch
+	// returns a `themeChanged` side-effect that applyThemeByName applies to
+	// the Go renderer's m.theme. Drive that side-effect directly. The prior
+	// version typed "/theme light" + ENTER and relied on the dispatch
+	// round-trip — which a no-server unit test can't perform (the dispatch
+	// Cmd is discarded) — so it only passed when the boot config happened to
+	// already be "light" (#56: a false PASS on a polluted ~/.harness, a real
+	// FAIL in a clean/CI env). Switching in BOTH directions makes the
+	// assertion independent of the env-dependent boot theme.
 	m := New("s-theme", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(Model)
-	// Append an assistant line so the rendered transcript has content.
-	env := newTestEnvelope("text_delta", "s-theme", 1,
-		`{"type":"text_delta","seq":1,"sessionId":"s-theme","block":0,"text":"hello world"}`)
-	model, _ = m.Update(sseMsg{env: env})
-	m = model.(Model)
-	darkName := m.theme.Name
 
-	// Send /theme light + ENTER via two messages.
-	for _, r := range "/theme light" {
-		model, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		m = model.(Model)
+	applyThemeViaSideEffect := func(name string) Model {
+		msg := commandDispatchedMsg{
+			name: "theme",
+			resp: &transport.CommandResponse{
+				Output:      "theme set to " + name,
+				SideEffects: &transport.CommandSideEffects{ThemeChanged: name},
+			},
+		}
+		next, _ := m.Update(msg)
+		return next.(Model)
 	}
-	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = model.(Model)
+
+	m = applyThemeViaSideEffect("light")
 	if m.theme.Name != "light" {
-		t.Errorf("theme not switched: %q (was %q)", m.theme.Name, darkName)
+		t.Fatalf("themeChanged=light did not switch theme: got %q", m.theme.Name)
+	}
+	m = applyThemeViaSideEffect("dark")
+	if m.theme.Name != "dark" {
+		t.Fatalf("themeChanged=dark did not switch theme: got %q", m.theme.Name)
 	}
 }
 
