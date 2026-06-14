@@ -155,14 +155,41 @@ describe('OpenAI buildKwargs — effort wiring', () => {
     return baseReq({ model: 'gpt-5', ...overrides });
   }
 
-  test('regression: effort off ⇒ body byte-identical to undefined-effort body', () => {
+  test('regression: effort off ⇒ same reasoning-disabled body as undefined-effort body', () => {
     const off = provider.buildKwargs(openaiReq({ effort: 'off' }));
     const absent = provider.buildKwargs(openaiReq());
     expect(off).toEqual(absent);
     expect('reasoning_effort' in off).toBe(false);
     expect('chat_template_kwargs' in off).toBe(false);
-    expect(off.temperature).toBe(0.7);
-    expect(off.max_tokens).toBe(4096);
+  });
+
+  // A reasoning model (gpt-5/o-series) rejects `max_tokens` + a non-default
+  // `temperature` UNCONDITIONALLY — even with reasoning_effort off (the default).
+  // So buildKwargs must ALWAYS emit `max_completion_tokens` and drop temperature
+  // for these models, regardless of effort, or preflight (which sends no effort)
+  // fails and the session never boots.
+  test('reasoning model + effort off ⇒ max_completion_tokens, no max_tokens, no temperature', () => {
+    const off = provider.buildKwargs(openaiReq({ effort: 'off' }));
+    expect('max_tokens' in off).toBe(false);
+    expect(off.max_completion_tokens).toBe(4096);
+    expect('temperature' in off).toBe(false);
+    expect('reasoning_effort' in off).toBe(false);
+  });
+
+  test('reasoning model + undefined effort (preflight path) ⇒ max_completion_tokens, no max_tokens, no temperature', () => {
+    // Mirrors preflightProvider: model set, no effort field, small maxTokens.
+    const body = provider.buildKwargs(openaiReq({ maxTokens: 8 }));
+    expect('max_tokens' in body).toBe(false);
+    expect(body.max_completion_tokens).toBe(8);
+    expect('temperature' in body).toBe(false);
+    expect('reasoning_effort' in body).toBe(false);
+  });
+
+  test('o-series reasoning model (o3-mini) + effort off ⇒ max_completion_tokens, no max_tokens/temperature', () => {
+    const body = provider.buildKwargs(openaiReq({ model: 'o3-mini', effort: 'off' }));
+    expect('max_tokens' in body).toBe(false);
+    expect(body.max_completion_tokens).toBe(4096);
+    expect('temperature' in body).toBe(false);
   });
 
   test('low/medium/high pass reasoning_effort straight through; max collapses to high', () => {

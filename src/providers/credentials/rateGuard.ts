@@ -137,8 +137,49 @@ function parseResetHeader(value: string | null, now: number): number | null {
     if (numeric > 1_000_000_000) return numeric;
     return now + Math.max(0, numeric);
   }
+  // OpenAI emits native reset headers as Go-duration strings ('6m0s', '1.5s',
+  // '880ms', '1h2m3s'); without this they'd fall through to the 60s floor.
+  const durationSeconds = parseGoDurationSeconds(trimmed);
+  if (durationSeconds !== null) return now + Math.max(0, durationSeconds);
   const date = Date.parse(trimmed);
   return Number.isFinite(date) ? date / 1000 : null;
+}
+
+const GO_DURATION_UNIT_SECONDS: Record<string, number> = {
+  ns: 1e-9,
+  us: 1e-6,
+  // U+00B5 MICRO SIGN and U+03BC GREEK SMALL LETTER MU — both used by Go.
+  µs: 1e-6,
+  μs: 1e-6,
+  ms: 1e-3,
+  s: 1,
+  m: 60,
+  h: 3600,
+};
+// Longest units first so 'ms'/'us'/'ns' match before the bare 's'.
+const GO_DURATION_SEGMENT_RE = /(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|h|m|s)/giy;
+
+/** Parse a Go time.Duration string (e.g. '6m0s', '1.5s', '880ms', '1h2m3s')
+ *  to seconds. Returns null when the value is not a well-formed, fully-consumed
+ *  duration so callers can fall through to other formats. */
+function parseGoDurationSeconds(value: string): number | null {
+  const body = value.startsWith('-') || value.startsWith('+') ? value.slice(1) : value;
+  if (body.length === 0) return null;
+  GO_DURATION_SEGMENT_RE.lastIndex = 0;
+  let total = 0;
+  let consumed = 0;
+  let match = GO_DURATION_SEGMENT_RE.exec(body);
+  while (match !== null) {
+    const amount = Number(match[1]);
+    const unitSeconds = GO_DURATION_UNIT_SECONDS[match[2] ?? ''];
+    if (!Number.isFinite(amount) || unitSeconds === undefined) return null;
+    total += amount * unitSeconds;
+    consumed = GO_DURATION_SEGMENT_RE.lastIndex;
+    match = GO_DURATION_SEGMENT_RE.exec(body);
+  }
+  // Reject anything not fully consumed by valid segments (e.g. trailing junk).
+  if (consumed !== body.length) return null;
+  return value.startsWith('-') ? -total : total;
 }
 
 function parseRetryAfter(value: string | null, now: number): number | null {

@@ -131,6 +131,83 @@ describe('CredentialPool', () => {
     expect(state.credentials?.anthropic?.ANTHROPIC_API_KEY?.status).toBe('exhausted');
     expect(state.credentials?.anthropic?.ANTHROPIC_API_KEY?.cooldownUntil).toBe(8888);
   });
+
+  // FINDING #15: two long-lived processes sharing the SAME provider must not
+  // clobber each other's per-credential rows. Process B marks a slot exhausted
+  // (writes disk); Process A — whose boot snapshot still shows that slot ok —
+  // marks a DIFFERENT slot ok and persists. A's persist must NOT resurrect the
+  // slot B locked out: merge is per-credential-row, not per-provider-map.
+  test('same-provider persist preserves another process row it did not touch', () => {
+    const path = join(tempDir(), 'credentials.json');
+    // Process A boots seeing both slots.
+    const procA = new CredentialPool(
+      'openai',
+      [
+        { id: 'slotA', provider: 'openai', authType: 'api_key', secret: 'a' },
+        { id: 'slotB', provider: 'openai', authType: 'api_key', secret: 'b' },
+      ],
+      { path, now: () => 100 },
+    );
+    // Process B (separate pool, same file + provider) boots from the same disk.
+    const procB = new CredentialPool(
+      'openai',
+      [
+        { id: 'slotA', provider: 'openai', authType: 'api_key', secret: 'a' },
+        { id: 'slotB', provider: 'openai', authType: 'api_key', secret: 'b' },
+      ],
+      { path, now: () => 100 },
+    );
+    // B locks out slotB (rate limit) and writes disk.
+    procB.markExhausted('slotB', '429', 9999);
+    // A — with a STALE in-memory snapshot showing slotB ok — only touches slotA.
+    procA.markOk('slotA');
+
+    const state = JSON.parse(readFileSync(path, 'utf8')) as {
+      credentials?: Record<
+        string,
+        Record<string, { status: string; cooldownUntil: number | null }>
+      >;
+    };
+    // A's own touched row reflects A's mutation.
+    expect(state.credentials?.openai?.slotA?.status).toBe('ok');
+    // B's lockout on the slot A never touched must survive A's persist.
+    expect(state.credentials?.openai?.slotB?.status).toBe('exhausted');
+    expect(state.credentials?.openai?.slotB?.cooldownUntil).toBe(9999);
+  });
+
+  // FINDING #15: the clobber must be closed even when the SAME credential id is
+  // touched by both processes — last-writer-per-credential. A selects (marks ok)
+  // at boot; B then exhausts the same slot; A's later markOk would otherwise
+  // overwrite B's fresh exhausted marker with A's stale ok. The merge must not
+  // resurrect a row A did not mutate AFTER B wrote it. Here A's final mutation
+  // IS on the shared slot, so last-writer wins for that slot, but a third
+  // untouched slot B exhausted must still survive.
+  test('same-provider persist does not resurrect an untouched sibling row', () => {
+    const path = join(tempDir(), 'credentials.json');
+    const procA = new CredentialPool(
+      'openai',
+      [
+        { id: 'shared', provider: 'openai', authType: 'api_key', secret: 's' },
+        { id: 'other', provider: 'openai', authType: 'api_key', secret: 'o' },
+      ],
+      { path, now: () => 100 },
+    );
+    const procB = new CredentialPool(
+      'openai',
+      [
+        { id: 'shared', provider: 'openai', authType: 'api_key', secret: 's' },
+        { id: 'other', provider: 'openai', authType: 'api_key', secret: 'o' },
+      ],
+      { path, now: () => 100 },
+    );
+    // B locks out the 'other' slot, then A persists a mutation on 'shared'.
+    procB.markExhausted('other', '429', 7777);
+    procA.markOk('shared');
+    const state = JSON.parse(readFileSync(path, 'utf8')) as {
+      credentials?: Record<string, Record<string, { status: string }>>;
+    };
+    expect(state.credentials?.openai?.other?.status).toBe('exhausted');
+  });
 });
 
 describe('RateLimitGuard', () => {
@@ -176,6 +253,29 @@ describe('RateLimitGuard', () => {
     const resetMs = (now + 42) * 1000; // 42s in the future, expressed in ms
     const reset = resetTimeFromHeaders({ 'x-ratelimit-reset': String(resetMs) }, now);
     expect(reset).toBe(now + 42);
+  });
+
+  // FINDING #16: OpenAI emits x-ratelimit-reset-requests as a Go-duration
+  // string ('6m0s', '1.5s', '880ms'), not a number. parseResetHeader must
+  // parse it instead of dropping to the no-header floor.
+  test('parses Go-duration reset headers (OpenAI native format)', () => {
+    const now = 1000;
+    expect(resetTimeFromHeaders({ 'x-ratelimit-reset-requests': '6m0s' }, now)).toBe(now + 360);
+    expect(resetTimeFromHeaders({ 'x-ratelimit-reset-requests': '1.5s' }, now)).toBe(now + 1.5);
+    expect(resetTimeFromHeaders({ 'x-ratelimit-reset-requests': '880ms' }, now)).toBe(now + 0.88);
+    // Compound multi-unit duration.
+    expect(resetTimeFromHeaders({ 'x-ratelimit-reset-requests': '1h2m3s' }, now)).toBe(
+      now + 3600 + 120 + 3,
+    );
+    // Generic x-ratelimit-reset in Go-duration form is honored too.
+    expect(resetTimeFromHeaders({ 'x-ratelimit-reset': '90s' }, now)).toBe(now + 90);
+  });
+
+  // FINDING #16: a bare numeric value (relative seconds / epoch) must still
+  // parse — the Go-duration path must not regress the numeric path.
+  test('numeric reset headers still parse after Go-duration support', () => {
+    const now = 100;
+    expect(resetTimeFromHeaders({ 'x-ratelimit-reset-requests': '20' }, now)).toBe(120);
   });
 
   // FIX 3: repeated immediate header-less 429s should grow the backoff but stay

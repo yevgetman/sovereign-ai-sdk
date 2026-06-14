@@ -168,11 +168,16 @@ export class OpenAIProvider
     const reasoningOn = this.reasoningEnabled(req);
     // OpenAI's hosted reasoning models (o1/o3/o4/gpt-5) reject `max_tokens` (they
     // require `max_completion_tokens`) and reject a non-default temperature —
-    // mirror the Anthropic thinking path: swap the token-cap key + drop
-    // temperature. This is OpenAI-specific: the `sov` local engine (vLLM/MLX) is
-    // reasoning-capable but speaks standard `max_tokens` + `enable_thinking`, so
-    // it keeps the normal body.
-    const openAiReasoningModel = reasoningOn && this.apiMode === 'openai';
+    // ALWAYS, independent of whether reasoning_effort is set. So the token-cap
+    // swap + temperature drop must be gated on the MODEL being a reasoning model
+    // under the openai apiMode, NOT on reasoning being actively on. (Gating on
+    // reasoningOn made `/effort off` — the default — send `max_tokens` +
+    // temperature for a gpt-5/o3 model, which the API rejects, so preflight
+    // failed and the session never booted.) This is OpenAI-specific: the `sov`
+    // local engine (vLLM/MLX) is reasoning-capable but speaks standard
+    // `max_tokens` + `enable_thinking`, so it keeps the normal body.
+    const openAiReasoningModel =
+      this.apiMode === 'openai' && modelSupportsReasoning(req.model, this.apiMode);
     return {
       model: req.model,
       messages: this.toProviderMessages(req.messages, req.system),

@@ -71,6 +71,12 @@ export class CredentialPool {
   private readonly secrets = new Map<string, string | undefined>();
   private readonly activeIds = new Set<string>();
 
+  /** Credential ids this pool has mutated this process. Only these rows are
+   *  overlaid onto the freshly-read disk state at persist() time, so a
+   *  concurrent same-provider process's untouched rows are never clobbered by
+   *  our stale boot snapshot. */
+  private readonly dirtyIds = new Set<string>();
+
   constructor(
     private readonly provider: string,
     inputs: CredentialInput[],
@@ -88,6 +94,9 @@ export class CredentialPool {
       const secretHash = hashSecret(input.secret ?? '');
       const id = input.id ?? `${input.provider}-${secretHash}`;
       this.activeIds.add(id);
+      // Seeding a slot (incl. clearing a stale lockout on a rotated secret) is
+      // a mutation we own; record it so it survives the merge.
+      this.dirtyIds.add(id);
       const existing = providerState[id];
       this.secrets.set(id, input.secret);
       // A rotated secret under the same slot id (env-var / config key) must
@@ -111,6 +120,12 @@ export class CredentialPool {
       };
     }
     this.persist();
+    // The boot-seed persist above is a one-shot write of the seeded rows onto
+    // the then-current disk state. Clearing the dirty set here ensures that
+    // every LATER persist overlays only the rows this process mutates at
+    // runtime — a stale boot snapshot of an untouched sibling can no longer
+    // clobber a concurrent same-provider process's fresh write to it.
+    this.dirtyIds.clear();
   }
 
   select(): CredentialSelection | null {
@@ -124,6 +139,7 @@ export class CredentialPool {
     credential.usageCount++;
     credential.status = 'ok';
     credential.cooldownUntil = null;
+    this.dirtyIds.add(credential.id);
     this.persist();
     const secret = this.secrets.get(credential.id);
     return secret === undefined ? { credential } : { credential, secret };
@@ -136,6 +152,7 @@ export class CredentialPool {
     cred.lastError = null;
     cred.lastErrorAt = null;
     cred.cooldownUntil = null;
+    this.dirtyIds.add(id);
     this.persist();
   }
 
@@ -146,6 +163,7 @@ export class CredentialPool {
     cred.lastError = reason;
     cred.lastErrorAt = this.now();
     cred.cooldownUntil = cooldownUntil ?? this.now() + DEFAULT_COOLDOWN_SECONDS;
+    this.dirtyIds.add(id);
     this.persist();
   }
 
@@ -159,6 +177,7 @@ export class CredentialPool {
     // self-heal, and a rotated key (detected by secret-hash change at
     // construction) clears it immediately on the next boot regardless.
     cred.cooldownUntil = this.now() + DEFAULT_AUTH_FAILED_COOLDOWN_SECONDS;
+    this.dirtyIds.add(id);
     this.persist();
   }
 
@@ -180,14 +199,25 @@ export class CredentialPool {
   }
 
   private persist(): void {
-    // Last-writer-wins at the file level would clobber other providers' rows
-    // that a concurrent process (gateway + cron tick, two gateways, ...) wrote
-    // since our boot snapshot. Re-read the current file and merge in ONLY this
-    // pool's provider sub-map, then write atomically.
+    // Re-read the current file and overlay ONLY the credential rows this pool
+    // actually mutated this process. Replacing the whole provider sub-map with
+    // our boot snapshot would clobber a concurrent SAME-provider process's
+    // rows (the 'two gateways' case): both pools share a provider, so a
+    // map-level merge still loses the other's fresh lockout. Row-level overlay
+    // is last-writer-per-credential — an untouched sibling another process
+    // wrote always survives our persist.
     const disk = readState(this.path);
-    const merged: StateFile = { credentials: { ...(disk.credentials ?? {}) } };
+    const diskCredentials = disk.credentials ?? {};
+    const diskProvider = diskCredentials[this.provider] ?? {};
     const ours = this.state.credentials?.[this.provider] ?? {};
-    if (merged.credentials) merged.credentials[this.provider] = ours;
+    const mergedProvider: Record<string, PooledCredential> = { ...diskProvider };
+    for (const id of this.dirtyIds) {
+      const row = ours[id];
+      if (row) mergedProvider[id] = row;
+    }
+    const merged: StateFile = {
+      credentials: { ...diskCredentials, [this.provider]: mergedProvider },
+    };
     writeStateAtomic(this.path, merged);
   }
 }
