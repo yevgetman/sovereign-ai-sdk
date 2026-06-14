@@ -359,6 +359,58 @@ describe('runSubprocessExecutor — parse + shape', () => {
     expect(result.terminal.error?.message ?? '').toMatch(/timed out after 10ms/);
   });
 
+  // FINDING #31 — when BOTH the scheduler signal (opts.signal) and an internal
+  // config.timeoutMs are set and the PARENT-CANCEL fires FIRST, the abort must
+  // be attributed to the cancel, not the self-timeout — even if the internal
+  // timeout also elapses by the time the drain resolves. The pre-fix code
+  // re-read `timeoutSignal.aborted` AFTER the drain, so a tiny timeout that
+  // fired during teardown misattributed a cancel as a timeout. The fix captures
+  // the first cause at the moment onAbort fires.
+  test('parent-cancel-first with an also-elapsing internal timeout reports a cancel, not a timeout', async () => {
+    let killed = false;
+    const spawn: SpawnFn = () => ({
+      // Never closes on its own — only the abort/kill ends it.
+      stdout: new ReadableStream<Uint8Array>({ start() {} }),
+      stderr: new ReadableStream<Uint8Array>({
+        start(c) {
+          c.close();
+        },
+      }),
+      stdin: { write: () => 0, end: () => {} },
+      // Resolve only AFTER kill so the drain can't complete before onAbort runs.
+      // Delay the resolution a few ms so the tiny internal timeout (1 ms) has
+      // certainly elapsed by the time the abort-result branch is read.
+      exited: new Promise<number>((resolve) => {
+        const iv = setInterval(() => {
+          if (killed) {
+            clearInterval(iv);
+            setTimeout(() => resolve(143), 15);
+          }
+        }, 1);
+      }),
+      kill: () => {
+        killed = true;
+      },
+    });
+    const ctl = new AbortController();
+    ctl.abort(); // PRE-aborted → the parent cancel is the first (and true) cause.
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      // A 1 ms internal timeout that will ALSO elapse during the kill/drain,
+      // racing the cancel attribution.
+      config: { ...baseConfig, timeoutMs: 1 },
+      spawn,
+      signal: ctl.signal,
+    });
+    expect(result.terminal.reason).toBe('error');
+    expect(killed).toBe(true);
+    const msg = result.terminal.error?.message ?? '';
+    // The first cause was the parent cancel — it must NOT be reported as a timeout.
+    expect(msg).not.toMatch(/timed out after/);
+    expect(msg.toLowerCase()).toContain('cancel');
+  });
+
   // FIX 3b — a long `claude -p --verbose stream-json` run can emit > 4 MB of
   // stdout (full tool_result payloads). The old reader kept only the HEAD 4 MB
   // and dropped the rest, so the trailing `result` frame was lost → the parser

@@ -170,6 +170,84 @@ describe('TaskManager error / cancel mapping', () => {
     expect(manager.get(created.id)?.state).toBe('cancelled');
     db.close();
   });
+
+  // FINDING #30 — the subscription-executor (claude -p) returns its
+  // cancel/timeout terminal IN-BAND as `reason: 'error'` (it never throws), so
+  // delegate() resolves normally with an error terminal. The native AgentRunner
+  // path instead THROWS on abort → scheduler returns `reason: 'interrupted'`
+  // (correctly mapped to cancelled/timed_out). Pre-fix the manager mapped the
+  // subprocess error terminal to 'failed' unconditionally, losing the cancel /
+  // timeout distinction. These three cases assert native-vs-subprocess parity.
+  test('user-aborted subprocess error terminal -> cancelled (not failed)', async () => {
+    const deferred = makeDeferred<DelegateResult>();
+    const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
+    const created = await manager.create({
+      parentSessionId: sessionId,
+      agentName: 'subscription-executor',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    await manager.stop(created.id); // userAborted = true
+    seedChildSession(db, 'child-sub-cancel');
+    // The subprocess executor's in-band abort terminal: error + cancel message.
+    deferred.resolve(
+      makeCompletedResult('child-sub-cancel', {
+        reason: 'error',
+        error: new Error('subscription-executor cancelled by scheduler signal'),
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(manager.get(created.id)?.state).toBe('cancelled');
+    db.close();
+  });
+
+  test('scheduler-timed-out subprocess error terminal -> timed_out (not failed)', async () => {
+    const deferred = makeDeferred<DelegateResult>();
+    const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
+    const created = await manager.create({
+      parentSessionId: sessionId,
+      agentName: 'subscription-executor',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    // No manager.stop() — userAborted stays false (the scheduler/internal
+    // timeout fired, not the user).
+    seedChildSession(db, 'child-sub-timeout');
+    deferred.resolve(
+      makeCompletedResult('child-sub-timeout', {
+        reason: 'error',
+        error: new Error('subscription-executor timed out after 120000ms'),
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(manager.get(created.id)?.state).toBe('timed_out');
+    db.close();
+  });
+
+  test('genuine subprocess error terminal (no abort) -> failed (regression guard)', async () => {
+    const deferred = makeDeferred<DelegateResult>();
+    const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
+    const created = await manager.create({
+      parentSessionId: sessionId,
+      agentName: 'subscription-executor',
+      prompt: 'p',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    seedChildSession(db, 'child-sub-err');
+    // A real failure (non-zero exit) — userAborted false, not an abort message.
+    deferred.resolve(
+      makeCompletedResult('child-sub-err', {
+        reason: 'error',
+        error: new Error('subscription-executor exited 1: boom'),
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(manager.get(created.id)?.state).toBe('failed');
+    db.close();
+  });
 });
 
 describe('TaskManager.list / get', () => {

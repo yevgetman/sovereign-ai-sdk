@@ -39,6 +39,15 @@ import type { CreateTaskInput, TaskController, TaskRecord, TaskState } from './t
 
 const PREVIEW_MAX_CHARS = 1024;
 
+// FINDING #30 — the subscription-executor (`claude -p`) returns its
+// cancel/timeout terminal IN-BAND as `reason: 'error'` (it never throws), so it
+// flows through delegate()'s success tail rather than the throw path the native
+// AgentRunner takes. To keep native-vs-subprocess parity we recognise the
+// executor's two distinguishable abort messages (src/runtime/subprocessExecutor.ts)
+// and map them to the scheduler-driven terminal states instead of 'failed'.
+const SUBPROCESS_TIMEOUT_MESSAGE_RE = /timed out after/i;
+const SUBPROCESS_CANCEL_MESSAGE_RE = /cancelled by scheduler signal/i;
+
 export type TaskManagerOpts = {
   store: TaskStore;
   scheduler: SubagentScheduler;
@@ -228,6 +237,7 @@ function mapTerminalToState(terminal: Terminal, userAborted: boolean): TaskState
     case 'interrupted':
       return userAborted ? 'cancelled' : 'timed_out';
     case 'error':
+      return mapSubprocessErrorTerminal(terminal, userAborted);
     case 'max_tokens':
       return 'failed';
     case 'checkin':
@@ -235,6 +245,24 @@ function mapTerminalToState(terminal: Terminal, userAborted: boolean): TaskState
     default:
       return 'failed';
   }
+}
+
+/** An in-band `reason: 'error'` terminal is normally a genuine failure
+ *  ('failed'). But the subprocess executor surfaces a user-cancel / timeout
+ *  abort in-band as an error terminal (it never throws), so we recover the
+ *  scheduler-driven states the native path gets via `reason: 'interrupted'`:
+ *  a user abort → 'cancelled'; a (scheduler / internal) timeout → 'timed_out'.
+ *  A genuine error (non-zero exit, result error, truncated stream) → 'failed'. */
+function mapSubprocessErrorTerminal(terminal: Terminal, userAborted: boolean): TaskState {
+  if (userAborted) return 'cancelled';
+  const message = terminal.error?.message ?? '';
+  if (SUBPROCESS_TIMEOUT_MESSAGE_RE.test(message)) return 'timed_out';
+  // A scheduler-signal cancel without an explicit user stop (e.g. the
+  // scheduler's per-child deadline propagated through opts.signal) is a
+  // deadline expiry, mapped to 'timed_out' to mirror the native path's
+  // `interrupted` + !userAborted branch.
+  if (SUBPROCESS_CANCEL_MESSAGE_RE.test(message)) return 'timed_out';
+  return 'failed';
 }
 
 function bound(text: string, max: number): string {

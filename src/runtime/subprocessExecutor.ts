@@ -281,9 +281,13 @@ export async function runSubprocessExecutor(
     opts.signal !== undefined && timeoutSignal !== undefined
       ? AbortSignal.any([opts.signal, timeoutSignal])
       : (opts.signal ?? timeoutSignal ?? new AbortController().signal);
-  // True when the abort originated from OUR internal timeout (vs. the
-  // scheduler's signal). Read in the abort-result branch below.
-  const timedOut = (): boolean => timeoutSignal?.aborted === true;
+  // FINDING #31 — capture which signal aborted FIRST, at the instant onAbort
+  // fires, rather than re-reading `timeoutSignal.aborted` after the drain.
+  // When the parent-cancel (opts.signal) fires first but the internal
+  // AbortSignal.timeout also elapses during the kill/drain, the post-drain
+  // re-read would misattribute the cancel as a self-timeout. Snapshotting the
+  // first cause makes the attribution reflect the true initial trigger.
+  let abortWasTimeout = false;
 
   let proc: SpawnedProc;
   try {
@@ -309,6 +313,11 @@ export async function runSubprocessExecutor(
   const stderrReader = proc.stderr.getReader() as unknown as StreamReader;
   const onAbort = (): void => {
     aborted = true;
+    // Snapshot the first cause: if the internal timeout has ALREADY fired at the
+    // instant of this abort, it is the trigger; otherwise the scheduler's signal
+    // (parent cancel) fired first. Reading it here — not after the drain — keeps
+    // the attribution from flipping when the timeout elapses during teardown.
+    abortWasTimeout = timeoutSignal?.aborted === true;
     try {
       proc.kill();
     } catch {
@@ -330,11 +339,14 @@ export async function runSubprocessExecutor(
     ]);
 
     if (aborted) {
-      // FIX 3a — distinguish a self-timeout (our internal AbortSignal.timeout)
-      // from a scheduler-initiated cancellation (opts.signal). When no internal
+      // FIX 3a / FINDING #31 — distinguish a self-timeout (our internal
+      // AbortSignal.timeout) from a scheduler-initiated cancellation
+      // (opts.signal) by the FIRST cause snapshotted in onAbort, not by
+      // re-reading both signals here (where the timeout may have since elapsed
+      // during the kill/drain and would mask the true cancel). When no internal
       // timeout was configured, an abort is always a scheduler cancel.
       return errorResult(
-        timedOut()
+        abortWasTimeout
           ? new Error(`subscription-executor timed out after ${timeoutMs}ms`)
           : new Error('subscription-executor cancelled by scheduler signal'),
       );
