@@ -28,6 +28,13 @@ import {
 
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
 
+// After a connect timeout we close the transport (which forces the real SDK
+// connect to settle) and then reap the abandoned connect promise. A pathological
+// transport that never propagates close to the connect must not wedge teardown,
+// so the reap is bounded by this budget — the connect's rejection is already
+// swallowed, so abandoning it after the budget is leak-safe.
+const CONNECT_REAP_BUDGET_MS = 2_000;
+
 export type BuildMcpClientPoolOpts = {
   /** Server configs keyed by alias. The alias becomes the `mcp__<alias>__`
    *  prefix on every tool name. Empty / undefined => empty pool, no spawn. */
@@ -130,25 +137,62 @@ export type TimerFns = {
   clearTimeoutFn: typeof clearTimeout;
 };
 
+/** The view of `client.connect` the timeout race drives — accepts the SDK's
+ *  optional `{ signal }` so a timed-out connect is actually CANCELLED (the SDK
+ *  threads the signal into its in-flight initialize request), not merely raced
+ *  and abandoned. */
+type ConnectFn = (transport: Transport, options?: { signal?: AbortSignal }) => Promise<void>;
+
+/** Optional hook fired synchronously when the connect promise is created, with
+ *  a settled (rejection-swallowed) view of it. The caller (connectAndList) uses
+ *  it to await the abandoned connect to completion AFTER closing the transport
+ *  on a timeout — reaping the stdio child deterministically. Kept optional so
+ *  connectWithTimeout never blocks on a connect that ignores the abort. */
+type OnConnectStarted = (settled: Promise<void>) => void;
+
 /** Connect a client with a hard timeout, clearing the timer on EITHER
  *  outcome so the pending reject timer never keeps the event loop alive past
  *  exit. (A leaked 15s timer delayed shutdown for short-lived processes:
- *  one-shot CLI, per-request OpenAI/cron pools, and the test runner.) */
+ *  one-shot CLI, per-request OpenAI/cron pools, and the test runner.)
+ *
+ *  On TIMEOUT the in-flight connect is CANCELLED via an AbortSignal threaded
+ *  into `client.connect` (so the SDK tears down its initialize request and the
+ *  stdio child instead of leaving it mid-spawn) and the timeout error is thrown.
+ *  A swallow-late-rejection catch is attached to the connect promise
+ *  immediately, so an eventual rejection of the abandoned connect can never
+ *  escape as an unhandledRejection. The settled view is handed to
+ *  `onConnectStarted` so the caller can reap the connect after teardown — this
+ *  function never awaits it itself (a connect that ignores the abort would
+ *  otherwise hang the timeout). */
 export async function connectWithTimeout(
-  client: Pick<Client, 'connect'>,
+  client: { connect: ConnectFn },
   transport: Transport,
   connectTimeoutMs: number,
   timers: TimerFns = { setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout },
+  onConnectStarted?: OnConnectStarted,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const abort = new AbortController();
   const timeout = new Promise<never>((_, reject) => {
-    timer = timers.setTimeoutFn(
-      () => reject(new Error(`connect timeout after ${connectTimeoutMs}ms`)),
-      connectTimeoutMs,
-    );
+    timer = timers.setTimeoutFn(() => {
+      // Reject the race with the timeout error FIRST so the caller sees a
+      // timeout (not a derived abort error), THEN cancel the in-flight connect.
+      // Ordering matters: a connect that rejects synchronously on abort would
+      // otherwise win the race and mask the timeout reason.
+      reject(new Error(`connect timeout after ${connectTimeoutMs}ms`));
+      abort.abort();
+    }, connectTimeoutMs);
   });
+  const connectPromise = client.connect(transport, { signal: abort.signal });
+  // Settled view with the rejection already swallowed: an eventual rejection of
+  // the abandoned (timed-out) connect can never escape as an unhandledRejection.
+  const settled: Promise<void> = connectPromise.then(
+    () => undefined,
+    () => undefined,
+  );
+  onConnectStarted?.(settled);
   try {
-    await Promise.race([client.connect(transport), timeout]);
+    await Promise.race([connectPromise, timeout]);
   } finally {
     if (timer !== undefined) timers.clearTimeoutFn(timer);
   }
@@ -157,7 +201,7 @@ export async function connectWithTimeout(
 /** Minimal structural views of the SDK Client / Transport so `connectAndList`
  *  is unit-testable with a mock pair. */
 type ConnectableClient = {
-  connect: (transport: Transport) => Promise<void>;
+  connect: ConnectFn;
   listTools: () => Promise<ListedTools>;
   close: () => Promise<void>;
 };
@@ -171,10 +215,13 @@ type ListedTools = {
  *  stdio subprocess. A healthy connection is left untouched.
  *
  *  On TIMEOUT the connect may still be in-flight (it lost the race but the
- *  child is live), so we close the TRANSPORT directly to tear it down. On a
- *  post-connect listTools failure the client is wired, so we close the CLIENT
- *  (which closes the transport in turn). Cleanup errors are swallowed — the
- *  original failure is what the caller must see. */
+ *  child is live). connectWithTimeout has already cancelled it via an abort
+ *  signal; here we (1) close the TRANSPORT directly to force the stdio child
+ *  down, then (2) AWAIT the now-settled connect promise so the child is reaped
+ *  deterministically rather than left to settle (and potentially orphan) after
+ *  we return. On a post-connect listTools failure the client is wired, so we
+ *  close the CLIENT (which closes the transport in turn). Cleanup errors are
+ *  swallowed — the original failure is what the caller must see. */
 export async function connectAndList(
   client: ConnectableClient,
   transport: Transport,
@@ -182,18 +229,47 @@ export async function connectAndList(
   timers?: TimerFns,
 ): Promise<ListedTools> {
   let connected = false;
+  // The rejection-swallowed connect promise, captured the instant the connect
+  // starts so we can reap it after closing the transport on a timeout.
+  let connectSettled: Promise<void> | undefined;
   try {
-    await connectWithTimeout(client, transport, connectTimeoutMs, timers);
+    await connectWithTimeout(client, transport, connectTimeoutMs, timers, (settled) => {
+      connectSettled = settled;
+    });
     connected = true;
     return await client.listTools();
   } catch (err) {
     try {
-      if (connected) await client.close();
-      else await transport.close();
+      if (connected) {
+        await client.close();
+      } else {
+        // Connect failed/timed out: close the transport to force the child
+        // down, then await the cancelled connect so it is reaped, not orphaned.
+        // Bounded so a transport that ignores close can't wedge teardown.
+        await transport.close();
+        if (connectSettled) await reapBounded(connectSettled);
+      }
     } catch {
       // Best-effort teardown — never mask the original connect/list failure.
     }
     throw err;
+  }
+}
+
+/** Await an already-settling (rejection-swallowed) connect promise, but give up
+ *  after CONNECT_REAP_BUDGET_MS so a transport that never propagates its close
+ *  to the connect can't wedge teardown. The `.unref()` keeps the budget timer
+ *  from holding a short-lived process's event loop open. */
+async function reapBounded(settled: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, CONNECT_REAP_BUDGET_MS);
+    (timer as { unref?: () => void }).unref?.();
+  });
+  try {
+    await Promise.race([settled, budget]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
