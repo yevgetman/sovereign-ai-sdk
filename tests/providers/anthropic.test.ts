@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import type { RawMessageStreamEvent } from '@anthropic-ai/sdk/resources/messages/messages';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
 import {
   messagesToSdk,
   normalizeAnthropicError,
@@ -223,6 +223,85 @@ describe('Anthropic interleaved-thinking signature round-trip', () => {
     }>;
     const redactedParam = sdk[0]?.content.find((b) => b.type === 'redacted_thinking');
     expect(redactedParam).toEqual({ type: 'redacted_thinking', data: 'ENCRYPTED-BLOB' });
+  });
+});
+
+describe('Anthropic cross-provider thinking-block stripping (#35)', () => {
+  // A reasoning-capable OpenAI-API / sov-local / ollama model persists a
+  // { type:'thinking' } block with NO signature. When the session later routes
+  // to Anthropic (mid-session /model switch, router mix, or resume), replaying
+  // that block with the empty-string fallback makes Anthropic 400 with
+  // `thinking.signature invalid`. messagesToSdk must drop unsigned thinking
+  // blocks while keeping signed (same-provider) ones intact.
+  test('drops an unsigned thinking block from outbound Anthropic messages', () => {
+    const history: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'cross-provider reasoning, no sig' },
+          { type: 'text', text: 'the answer' },
+        ],
+      },
+    ];
+    const sdk = messagesToSdk(history, false) as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    const kinds = sdk[0]?.content.map((b) => b.type);
+    expect(kinds).toEqual(['text']);
+    expect(sdk[0]?.content.find((b) => b.type === 'thinking')).toBeUndefined();
+  });
+
+  test('drops a thinking block whose signature is an empty string', () => {
+    const history: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'reasoning', signature: '' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    ];
+    const sdk = messagesToSdk(history, false) as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    expect(sdk[0]?.content.find((b) => b.type === 'thinking')).toBeUndefined();
+  });
+
+  test('keeps a signed (same-provider) thinking block', () => {
+    const history: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'signed reasoning', signature: 'SIG-REAL' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    ];
+    const sdk = messagesToSdk(history, false) as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    const thinkingParam = sdk[0]?.content.find((b) => b.type === 'thinking');
+    expect(thinkingParam).toBeDefined();
+    expect(thinkingParam?.signature).toBe('SIG-REAL');
+  });
+
+  test('keeps redacted_thinking blocks (opaque data, no signature)', () => {
+    const history: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'redacted_thinking', data: 'ENCRYPTED' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    ];
+    const sdk = messagesToSdk(history, false) as unknown as Array<{
+      content: Array<Record<string, unknown>>;
+    }>;
+    expect(sdk[0]?.content.find((b) => b.type === 'redacted_thinking')).toEqual({
+      type: 'redacted_thinking',
+      data: 'ENCRYPTED',
+    });
   });
 });
 

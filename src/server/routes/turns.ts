@@ -94,6 +94,52 @@ function publishCompactionComplete(
   });
 }
 
+/** A message carries no tool_use/tool_result block — i.e. plain text/thinking
+ *  content only. The pre-H7 corruption (a standalone loop-detector guidance
+ *  message) is always such a plain user message. */
+function isPlainMessage(msg: Message): boolean {
+  return !msg.content.some((b) => b.type === 'tool_use' || b.type === 'tool_result');
+}
+
+/**
+ * Coalesce adjacent same-role messages into one (concatenating their content
+ * blocks in order) — but ONLY when both are plain (no tool_use/tool_result),
+ * which is exactly the pre-H7 corruption signature. Anthropic requires strictly
+ * alternating user/assistant roles; a session corrupted by the pre-H7 bug — a
+ * standalone trailing guidance user message left the timeline ending on
+ * (assistant, user, user) — would 400 with "roles must alternate" on resume.
+ * `repairMissingToolResults` only synthesizes missing tool_result blocks; it has
+ * no same-role coalescing, so legacy-corrupted histories need this heal.
+ *
+ * Scoping to plain messages is deliberate: a legitimate trailing tool_result
+ * user message (e.g. an interrupted tool turn) must NOT be folded into the next
+ * user prompt — that would glue a stale tool_result onto the new question and
+ * disturb the tool_use/tool_result pairing the rest of the turn loop relies on.
+ *
+ * Purely additive + immutable: returns a fresh array, never mutates the input
+ * messages, and is a no-op when no mergeable plain same-role pair exists.
+ */
+export function mergeConsecutiveSameRoleMessages(messages: readonly Message[]): Message[] {
+  const out: Message[] = [];
+  for (const msg of messages) {
+    const prev = out[out.length - 1];
+    if (
+      prev !== undefined &&
+      prev.role === msg.role &&
+      isPlainMessage(prev) &&
+      isPlainMessage(msg)
+    ) {
+      out[out.length - 1] = {
+        role: prev.role,
+        content: [...prev.content, ...msg.content],
+      } as Message;
+      continue;
+    }
+    out.push(msg);
+  }
+  return out;
+}
+
 export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
   const r = new Hono<{ Variables: AppVariables }>();
 
@@ -507,7 +553,12 @@ async function runTurnInBackground(
         `[repair] synthesized ${insertedToolResults} missing tool_result block(s) for session ${sessionId}\n`,
       );
     }
-    return repaired;
+    // Heal legacy-corrupted histories (pre-H7 standalone trailing guidance user
+    // message → two consecutive user messages) so Anthropic's strict
+    // user/assistant alternation holds on resume. Runs AFTER repair so any
+    // synthesized tool_result user message is folded in too. No-op for an
+    // already-alternating timeline.
+    return mergeConsecutiveSameRoleMessages(repaired);
   };
   let messages: Message[] = hydrate();
 

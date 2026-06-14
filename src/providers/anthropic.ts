@@ -334,8 +334,28 @@ export function messagesToSdk(messages: Message[], cacheEnabled = true): Message
   const cacheFrom = Math.max(0, messages.length - 3);
   return messages.map((m, index) => ({
     role: m.role,
-    content: withOptionalCacheMarker(m.content.map(blockToSdk), cacheEnabled && index >= cacheFrom),
+    content: withOptionalCacheMarker(
+      m.content.filter(isReplayableBlock).map(blockToSdk),
+      cacheEnabled && index >= cacheFrom,
+    ),
   }));
+}
+
+/**
+ * Whether a content block can be safely replayed to Anthropic. A `thinking`
+ * block carries a `signature` the API verifies on the continuation call;
+ * cross-provider history (OpenAI-API / sov-local / ollama reasoning models)
+ * persists thinking blocks with NO signature, and replaying them with the
+ * empty-string fallback makes Anthropic reject the whole request with a 400
+ * (`thinking.signature invalid`). Anthropic ignores prior-turn thinking when
+ * thinking is off, so dropping an unsigned thinking block is safe — only a
+ * signed (same-provider) block needs to survive. All other block kinds —
+ * including `redacted_thinking`, whose opaque `data` replays verbatim with no
+ * signature — are replayable as-is.
+ */
+function isReplayableBlock(block: ContentBlock): boolean {
+  if (block.type !== 'thinking') return true;
+  return typeof block.signature === 'string' && block.signature.length > 0;
 }
 
 function withOptionalCacheMarker(
