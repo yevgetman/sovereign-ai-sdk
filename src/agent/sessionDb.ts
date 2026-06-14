@@ -375,30 +375,13 @@ export class SessionDb {
    *  is enabled), so dependent rows must be removed first. tasks already
    *  CASCADE / SET NULL via migration 3→4.
    *
-   *  Returns the number of session rows deleted. Called during runtime boot. */
+   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — each
+   *  DELETE binds ONE parameter (the cutoff), never a per-id placeholder list,
+   *  so SQLite's bound-parameter ceiling (audit H14) can never be hit no matter
+   *  how many stale rows have accrued. Returns the number of session rows
+   *  deleted. Called during runtime boot. */
   cleanupOldCronSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
-    const cutoffSec = (Date.now() - maxAgeMs) / 1000;
-    return this.writeWithRetry(() => {
-      const ids = this.db
-        .query<{ session_id: string }, [number]>(
-          `SELECT session_id FROM sessions
-           WHERE json_extract(metadata, '$.kind') = 'cron'
-             AND created_at < ?`,
-        )
-        .all(cutoffSec)
-        .map((row) => row.session_id);
-      if (ids.length === 0) return 0;
-      const placeholders = ids.map(() => '?').join(',');
-      this.db.run(`DELETE FROM messages WHERE session_id IN (${placeholders})`, ids);
-      this.db.run(
-        `DELETE FROM session_compactions
-         WHERE parent_session_id IN (${placeholders})
-            OR child_session_id IN (${placeholders})`,
-        [...ids, ...ids],
-      );
-      const result = this.db.run(`DELETE FROM sessions WHERE session_id IN (${placeholders})`, ids);
-      return result.changes ?? 0;
-    });
+    return this.deleteSessionsByKind('cron', 'created_at', maxAgeMs);
   }
 
   /** Fix F6 — sweep channel sessions whose LAST ACTIVITY is older than maxAgeMs.
@@ -417,29 +400,49 @@ export class SessionDb {
    *  WITHOUT ON DELETE CASCADE (PRAGMA foreign_keys = ON), so dependent rows are
    *  removed first; tasks CASCADE / SET NULL via migration 3→4. Wrapped in
    *  writeWithRetry (matching the cron sweep) so a transient SQLITE_BUSY from a
-   *  concurrent writer is retried. Returns the number of session rows deleted. */
+   *  concurrent writer is retried.
+   *
+   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — each
+   *  DELETE binds ONE parameter (the cutoff), never a per-id placeholder list,
+   *  so a flood of untrusted channel senders can never push the sweep past
+   *  SQLite's bound-parameter ceiling (audit H14). Returns the number of
+   *  session rows deleted. */
   cleanupOldChannelSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
+    return this.deleteSessionsByKind('channel', 'last_updated', maxAgeMs);
+  }
+
+  /** Shared sweep for kind-tagged sessions older than maxAgeMs. Deletes the
+   *  dependent rows (messages, session_compactions) then the session rows, all
+   *  via a CORRELATED SUBQUERY keyed on a single cutoff parameter — so the
+   *  number of stale rows is irrelevant to the bound-parameter budget (audit
+   *  H14 / findings #10, #11). `ageColumn` is a fixed internal literal (never
+   *  caller input): 'created_at' for cron (each run is a fresh row) or
+   *  'last_updated' for channels (touched on every turn, so a recently-active
+   *  chat survives). Wrapped in writeWithRetry for SQLITE_BUSY resilience. */
+  private deleteSessionsByKind(
+    kind: 'cron' | 'channel',
+    ageColumn: 'created_at' | 'last_updated',
+    maxAgeMs: number,
+  ): number {
     const cutoffSec = (Date.now() - maxAgeMs) / 1000;
+    const staleSelect = `SELECT session_id FROM sessions
+       WHERE json_extract(metadata, '$.kind') = '${kind}'
+         AND ${ageColumn} < ?`;
     return this.writeWithRetry(() => {
-      const ids = this.db
-        .query<{ session_id: string }, [number]>(
-          `SELECT session_id FROM sessions
-           WHERE json_extract(metadata, '$.kind') = 'channel'
-             AND last_updated < ?`,
-        )
-        .all(cutoffSec)
-        .map((row) => row.session_id);
-      if (ids.length === 0) return 0;
-      const placeholders = ids.map(() => '?').join(',');
-      this.db.run(`DELETE FROM messages WHERE session_id IN (${placeholders})`, ids);
-      this.db.run(
-        `DELETE FROM session_compactions
-         WHERE parent_session_id IN (${placeholders})
-            OR child_session_id IN (${placeholders})`,
-        [...ids, ...ids],
-      );
-      const result = this.db.run(`DELETE FROM sessions WHERE session_id IN (${placeholders})`, ids);
-      return result.changes ?? 0;
+      const run = this.db.transaction((): number => {
+        this.db.run(`DELETE FROM messages WHERE session_id IN (${staleSelect})`, [cutoffSec]);
+        this.db.run(
+          `DELETE FROM session_compactions
+           WHERE parent_session_id IN (${staleSelect})
+              OR child_session_id IN (${staleSelect})`,
+          [cutoffSec, cutoffSec],
+        );
+        const result = this.db.run(`DELETE FROM sessions WHERE session_id IN (${staleSelect})`, [
+          cutoffSec,
+        ]);
+        return result.changes ?? 0;
+      });
+      return run();
     });
   }
 
