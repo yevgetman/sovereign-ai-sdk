@@ -8,6 +8,29 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-14 — Per-session `/effort` (#57) + #55 verification (already fixed)
+
+**Scope.** Two backlog items, autonomous build-to-ship. **#57** — `runtime.effort` was process-global, so on a multi-user `sov gateway` one principal's `/effort` changed reasoning depth for every other principal + for cron/channel turns. **#55** — learning/observation server tests reportedly false-fail against a polluted global `~/.harness`. Used the TDD + systematic-debugging skills.
+
+**#57 — fix (TDD, RED→GREEN).**
+- Root cause: `commandContext.setEffort` did `runtime.effort = level` (shared singleton); the turns route + cron + channel pipelines all read `runtime.effort`. Discovered the `/model` override is global in the SAME way — so the backlog's "mirror the session model-override pattern" rested on a false premise (filed as **#58**, deferred: model threads through far more sites — cost estimation, `/clear` child, headers).
+- Fix: store depth on the per-session `SessionContext.effort` (seeded from the `runtime.effort` boot default at build time); `setEffort` writes `sessionCtx.effort`; the turns route reads `sessionCtx.effort`; `runtime.effort` is now ONLY the boot default (read by cron/channels, never mutated → that's the isolation).
+- RED: new isolation test in `commandContext.test.ts` (setEffort on session A → assert B's effort + `runtime.effort` unchanged) failed as expected ("high" vs "off"). GREEN after the fix. Rewrote 2 stale tests (commandContext + commands route) that asserted the old global mutation; rewrote the turns-route propagation test to set effort on the SAME session the turn runs on + added a second-session leg proving A's `/effort` doesn't reach B end-to-end. **`tsc` caught a `.toBe('off')` overload-narrowing bug in the new test that `bun test` passed at runtime** — fixed via the file's existing typed-`props` capture idiom (good argument for keeping typecheck in the gate).
+- Known v1 limit: per-session effort resets to the boot default on SessionContext rebuild (idle eviction / compaction child).
+
+**#55 — verified already fixed (NO code change).**
+- Reproduced the literal backlog condition — `HARNESS_HOME` UNSET against the real **1.1 GB** `~/.harness`. The full affected set (`turns.learning` + `multiUserIsolation` + `m7Full` + `m8Full` + `turns.recall`, **22 tests**) PASSES, with **zero corpus pollution** (16→16 `~/.harness/learning` subdirs before/after).
+- The fix already landed in `79a1b7f` (2026-06-09) and the real root cause was DIFFERENT from the backlog's hypothesis: NOT a path leak (observations were always written under `tmpHome`) but **global-DB write-lock contention** — `buildRuntime` didn't thread `harnessHome` into `SessionDb.open`/`readConfig`, so with `$HARNESS_HOME` unset both fell back to the 1.18 GB global DB → the turn timed out before the observer drained. `79a1b7f` threaded `harnessHome` + added a deterministic, CI-proof regression guard (`runtime.test.ts` clears `HARNESS_HOME` + asserts the DB filename; `store.test.ts` covers config precedence). Backlog was stale → closed + corrected the root-cause note. The related `buildMockRuntime` smell is also resolved (it passes `harnessHome=home`).
+
+**Commands run (real results):**
+- `bun run lint` — clean (753 files). `bun run typecheck` — clean (after fixing the test narrowing bug).
+- `bun run test` (fresh `HARNESS_HOME`) — **3859 pass / 0 fail / 16 skip** (59s).
+- #55 repro: `env -u HARNESS_HOME bun test <5 affected files>` — **22 pass / 0 fail**; `~/.harness/learning` subdir count unchanged.
+
+**Result:** PASS. #57 fixed + shipped (v0.6.41); #55 verified-already-fixed + backlog corrected; #58 filed. Commits `7bfffcc` (#57), `dcd829f` (#55 docs); release bump `6854dbc`; tag `v0.6.41` → release CI.
+
+**Soak note (ACTIVE FOCUS).** This session is driven by Claude Code, not `sov`, so no `<learned-context>` recall applies to my own turns. The #55 work is nonetheless soak-relevant: it confirms the learning corpus write-isolation holds under a polluted global home (no test pollution of the real corpus). `sov learning status` (this repo, project `21046ff852d33e6c`): 2 instincts, both <0.3 confidence, latest evidence 2026-05-22 — corpus still thin, consistent with the documented "payoff thin until depth accrues."
+
 ## 2026-06-11 — Reasoning render UX follow-up + file-ref highlight gaps (us1.png)
 
 **Scope.** Founder screenshot (`us1.png`, fetched via the scp skill) flagged two TUI issues against the sov lane: (1) when thinking is enabled (`/effort`), streamed reasoning **persists in the terminal scrollback** — it should stream *in-place* (new replaces old) and *not persist* once the turn completes; (2) some filenames in a file listing aren't highlighted while their neighbors are. Investigated with the systematic-debugging skill; two parallel Opus Explore agents mapped the reasoning render flow and the file-ref matcher before any fix.
