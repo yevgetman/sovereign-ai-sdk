@@ -75,6 +75,47 @@ describe('permission rule matching helpers', () => {
     expect(ruleMatchesTool(mcpTool, { tool: 'mcp__echo__other', content: null })).toBe(false);
   });
 
+  test('mcp server-scoped rule matches a dotted/spaced alias via the sanitized prefix', () => {
+    // Server alias `git.hub` is sanitized to `git_hub` in the tool name
+    // (composeMcpToolName), so the ONLY server-scope selector the user can see
+    // and type is `mcp__git_hub`. The raw-alias form `mcp__git.hub` must NOT be
+    // required (it is undiscoverable). Regression for the rules.ts/toolWrapper.ts
+    // sanitization divergence.
+    const dotted = buildTool({
+      name: 'mcp__git_hub__create_issue',
+      description: () => 'create issue',
+      inputSchema: z.object({ title: z.string() }),
+      isMcp: true,
+      mcpInfo: { serverName: 'git.hub', toolName: 'create_issue' },
+      async call() {
+        return { data: 'ok' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    // The sanitized prefix (what the user sees in the tool name) MUST match.
+    expect(ruleMatchesTool(dotted, { tool: 'mcp__git_hub', content: null })).toBe(true);
+    // The full tool-level name still matches via the exact-name branch.
+    expect(ruleMatchesTool(dotted, { tool: 'mcp__git_hub__create_issue', content: null })).toBe(
+      true,
+    );
+    // A different server must not match.
+    expect(ruleMatchesTool(dotted, { tool: 'mcp__other', content: null })).toBe(false);
+  });
+
+  test('mcp server-scoped rule matches a spaced alias via the sanitized prefix', () => {
+    // Spaces also sanitize to `_`: `my server` -> `my_server`.
+    const spaced = buildTool({
+      name: 'mcp__my_server__run',
+      description: () => 'run',
+      inputSchema: z.object({ cmd: z.string() }),
+      isMcp: true,
+      mcpInfo: { serverName: 'my server', toolName: 'run' },
+      async call() {
+        return { data: 'ok' };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    expect(ruleMatchesTool(spaced, { tool: 'mcp__my_server', content: null })).toBe(true);
+  });
+
   test('file wildcard can match nested paths', () => {
     expect(wildcardMatches('*.ts', 'src/index.ts', { flavor: 'file' })).toBe(true);
     expect(wildcardMatches('*.ts', 'src/index.md', { flavor: 'file' })).toBe(false);

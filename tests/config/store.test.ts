@@ -122,7 +122,7 @@ describe('config store', () => {
           slack: { botToken: 'xoxb-real', signingSecret: 'sign-real' },
           telegram: { botToken: 'tg-real' },
           webhook: { secret: 'hook-real' },
-          sms: { accountSid: 'AC123', authToken: 'auth-real' },
+          sms: { accountSid: 'AC123', authToken: 'auth-real', fromNumber: '+15555550123' },
         },
       },
     } as Record<string, unknown>;
@@ -133,6 +133,11 @@ describe('config store', () => {
     expect(pick('gateway', 'channels', 'telegram', 'botToken')).toBe('***');
     expect(pick('gateway', 'channels', 'webhook', 'secret')).toBe('***');
     expect(pick('gateway', 'channels', 'sms', 'authToken')).toBe('***');
+    // #28 — all three Twilio creds (accountSid/authToken/fromNumber) are
+    // documented as secrets in schema.ts and must be redacted; accountSid and
+    // fromNumber previously leaked in clear.
+    expect(pick('gateway', 'channels', 'sms', 'accountSid')).toBe('***');
+    expect(pick('gateway', 'channels', 'sms', 'fromNumber')).toBe('***');
   });
 
   // Audit 2026-06-10 — a __proto__/constructor/prototype dotpath segment must

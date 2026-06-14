@@ -30,16 +30,24 @@ export interface ResolveProjectScopeOpts {
   harnessHome?: string;
 }
 
+/** Read a bundle-index field as a trimmed non-empty string, or undefined.
+ *  Defense-in-depth: the loader's `normalizeBundleIndex` drops non-string
+ *  values, but a fake/future caller may hand us a raw index whose `repo`/
+ *  `projectId` is numeric or a list — `(123).trim()` would crash boot. */
+function trimmedStringField(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function resolveProjectScope(opts: ResolveProjectScopeOpts): ProjectScope {
   const { cwd, bundle } = opts;
 
   // 1. Bundle with explicit manifest projectId.
   if (bundle !== null) {
-    const declared = bundle.index.projectId;
-    if (typeof declared === 'string' && declared.trim().length > 0) {
-      const id = declared.trim();
-      const repoName = bundle.index.repo?.trim();
-      const name = repoName && repoName.length > 0 ? repoName : id;
+    const id = trimmedStringField(bundle.index.projectId);
+    if (id !== undefined) {
+      const name = trimmedStringField(bundle.index.repo) ?? id;
       return { kind: 'project', id, name };
     }
 
@@ -51,10 +59,9 @@ export function resolveProjectScope(opts: ResolveProjectScopeOpts): ProjectScope
         return bundle.root;
       }
     })();
-    const id = createHash('sha256').update(`bundle:${realRoot}`).digest('hex').slice(0, 16);
-    const repoName = bundle.index.repo?.trim();
-    const name = repoName && repoName.length > 0 ? repoName : basename(realRoot);
-    return { kind: 'project', id, name };
+    const hashedId = createHash('sha256').update(`bundle:${realRoot}`).digest('hex').slice(0, 16);
+    const name = trimmedStringField(bundle.index.repo) ?? basename(realRoot);
+    return { kind: 'project', id: hashedId, name };
   }
 
   // 3. Git repo — strict check (no realpath fallback).

@@ -86,6 +86,39 @@ describe('loadBundle', () => {
     });
   });
 
+  // Finding #22 — M14's shape guard only validated the TOP-LEVEL object, not
+  // field TYPES, so a non-string `repo:`/`projectId:` (a plausible YAML typo)
+  // survived normalization and then crashed boot at resolveProjectScope's
+  // `bundle.index.repo?.trim()`. normalizeBundleIndex now drops non-string
+  // values for the known string fields and warns, achieving M14's stated goal
+  // of surviving a typo'd bundle.
+  test('drops a non-string repo (numeric typo) so it never reaches .trim()', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'index.yaml'), 'repo: 123\nprojectId: my-bundle\n');
+      const bundle = await loadBundle(dir);
+      expect(bundle.index.repo).toBeUndefined();
+      // The valid string field survives.
+      expect(bundle.index.projectId).toBe('my-bundle');
+    });
+  });
+
+  test('drops a list-valued repo', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'index.yaml'), 'repo:\n  - a\n  - b\n');
+      const bundle = await loadBundle(dir);
+      expect(bundle.index.repo).toBeUndefined();
+    });
+  });
+
+  test('drops a non-string projectId (numeric typo)', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'index.yaml'), 'projectId: 42\nrepo: my-repo\n');
+      const bundle = await loadBundle(dir);
+      expect(bundle.index.projectId).toBeUndefined();
+      expect(bundle.index.repo).toBe('my-repo');
+    });
+  });
+
   test('a valid index.yaml still loads its fields', async () => {
     await withTmp(async (dir) => {
       writeMinimalBundle(dir);

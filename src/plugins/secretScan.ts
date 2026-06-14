@@ -153,26 +153,31 @@ function isEnvPlaceholder(value: string): boolean {
   return /^\$\{[^}]+\}$/.test(trimmed) || /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed);
 }
 
-/** True for a value that looks like a FILE PATH (absolute, `~`-home, `./`-rel,
- *  `${VAR}`-rooted, or any value containing a `/`). A credential-named field
- *  holding a path (e.g. `GOOGLE_APPLICATION_CREDENTIALS=${HOME}/key.json`,
+/** True for a value that looks like a FILE PATH (absolute `/…`, `~`-home,
+ *  `./`-rel, `../`-rel, or `${VAR}`-rooted). A credential-named field holding
+ *  such a path (e.g. `GOOGLE_APPLICATION_CREDENTIALS=${HOME}/key.json`,
  *  `API_KEY_PATH=/home/u/k`) REFERENCES a credential file rather than embedding
  *  a secret — the safe pattern — so it is exempt from the location-based
  *  field-targeting signal. (The CONTENT scan still runs, so a real key prefix
- *  embedded inside a path is still caught.) */
+ *  embedded inside a path is still caught.)
+ *
+ *  SECURITY: the exemption requires a genuine path-like PREFIX. A bare value
+ *  with only an INTERIOR `/` (e.g. the AWS secret key `wJalr…/K7…/bPx…`) is far
+ *  more likely a base64-standard secret than a path and is NOT exempted — it
+ *  must still reach the field-target opaque-token check (which strips `/` before
+ *  measuring length). Exempting any interior-`/` value let slash-containing
+ *  base64/HMAC/AWS-secret keys escape both this branch AND the entropy scan
+ *  (whose `TOKEN_CHAR_RE` excludes `/`), a false-negative regression. */
 function isPathShaped(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length === 0) return false;
-  if (
+  return (
     trimmed.startsWith('/') ||
     trimmed.startsWith('~') ||
     trimmed.startsWith('./') ||
     trimmed.startsWith('../') ||
     trimmed.startsWith('${')
-  ) {
-    return true;
-  }
-  return trimmed.includes('/');
+  );
 }
 
 /** True when `key` (the leaf's terminal field name) signals a credential field

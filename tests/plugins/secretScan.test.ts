@@ -246,3 +246,42 @@ describe('scanObjectForSecrets — path-shaped credential values (FIX 7)', () =>
     expect(findings.length).toBeGreaterThan(0);
   });
 });
+
+describe('scanObjectForSecrets — slash-containing secrets escape no path exemption (#27)', () => {
+  // The path exemption must only cover GENUINE path shapes (prefixed with /, ~,
+  // ./, ../, ${). A bare base64-standard secret with an INTERIOR `/` (the AWS
+  // example secret key) must NOT be exempted — it has no `/` content match in
+  // the entropy scan (TOKEN_CHAR_RE excludes `/`), so the field-target branch is
+  // its only catch. The pre-fix `isPathShaped` (any interior `/`) suppressed it.
+  test('the canonical AWS secret access key in a credential field IS flagged', () => {
+    const findings = scanObjectForSecrets({
+      apiKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    });
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.path === 'apiKey')).toBe(true);
+  });
+
+  test('a slash-containing base64 secret in an env credential var IS flagged', () => {
+    const findings = scanObjectForSecrets({
+      env: { AWS_SECRET_ACCESS_KEY: 'aB3/cD4+eF5gH6iJ7kL8/mN9oP0qR1sT2uV3wX4y' },
+    });
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.path === 'env.AWS_SECRET_ACCESS_KEY')).toBe(true);
+  });
+
+  test('a slash-containing secret in an Authorization header IS flagged', () => {
+    const findings = scanObjectForSecrets({
+      headers: { Authorization: 'aB3/cD4+eF5gH6iJ7kL8/mN9oP0qR1sT2uV3wX4y' },
+    });
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  // Regression-guard the OTHER direction: genuine path shapes still exempt.
+  test('absolute / ~ / ./ / ../ / ${VAR} path shapes remain exempt', () => {
+    expect(scanObjectForSecrets({ apiKey: '/etc/secrets/cred.json' })).toEqual([]);
+    expect(scanObjectForSecrets({ env: { KEY_PATH: '~/.aws/credentials' } })).toEqual([]);
+    expect(scanObjectForSecrets({ apiKey: './secrets/key.pem' })).toEqual([]);
+    expect(scanObjectForSecrets({ env: { CRED_PATH: '../shared/creds/key' } })).toEqual([]);
+    expect(scanObjectForSecrets({ env: { CRED_PATH: '${HOME}/key.json' } })).toEqual([]);
+  });
+});

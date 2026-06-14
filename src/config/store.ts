@@ -17,6 +17,11 @@ const SECRET_KEYS = new Set([
   'signingSecret',
   'authToken',
   'secret',
+  // Twilio SMS creds — schema.ts documents accountSid/authToken/fromNumber as
+  // secrets. `authToken` was already redacted; `accountSid` and `fromNumber`
+  // leaked in clear, an inconsistency with the schema's stated intent.
+  'accountSid',
+  'fromNumber',
 ]);
 const SECRET_LIST_KEYS = new Set(['apiKeys']);
 

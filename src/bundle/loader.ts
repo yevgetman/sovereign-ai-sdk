@@ -17,21 +17,45 @@ const READ_IF_EXISTS = async (p: string): Promise<string | null> => {
   return readFile(p, 'utf8');
 };
 
+/** Fields of `BundleIndex` that MUST be strings. A YAML typo (e.g. a numeric
+ *  `repo: 123` or a list) would otherwise survive the top-level shape guard and
+ *  crash the first session at `resolveProjectScope`'s `bundle.index.repo?.trim()`. */
+const STRING_INDEX_FIELDS = ['repo', 'description', 'updated', 'projectId'] as const;
+
 /**
- * Validate the parsed `index.yaml` is a plain object. A malformed index — empty
- * (parses to `null`), a bare scalar, or a top-level array — would otherwise be
- * cast to `BundleIndex` and crash the first session: `resolveProjectScope`
- * reads `bundle.index.projectId`, which TypeErrors on `null`. Normalize any
- * non-object to an empty index and warn, so boot survives a typo'd bundle.
+ * Validate the parsed `index.yaml` is a plain object AND that its known
+ * string-typed fields are actually strings. A malformed index — empty (parses
+ * to `null`), a bare scalar, or a top-level array — would otherwise be cast to
+ * `BundleIndex` and crash the first session: `resolveProjectScope` reads
+ * `bundle.index.projectId`/`.repo`, which TypeError on `null` or on a numeric/
+ * list value (`(123).trim` is not a function). Normalize any non-object to an
+ * empty index, and drop any non-string value from a string-typed field, warning
+ * in both cases — so boot survives a typo'd bundle (M14's stated goal).
  */
 function normalizeBundleIndex(parsed: unknown, indexPath: string): BundleIndex {
-  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    return parsed as BundleIndex;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    process.stderr.write(
+      `[bundle] WARNING ${indexPath} is not a YAML mapping (got ${describeYamlShape(parsed)}); using an empty index\n`,
+    );
+    return {};
   }
-  process.stderr.write(
-    `[bundle] WARNING ${indexPath} is not a YAML mapping (got ${describeYamlShape(parsed)}); using an empty index\n`,
-  );
-  return {};
+  return coerceStringFields({ ...(parsed as Record<string, unknown>) }, indexPath);
+}
+
+/** Drop any non-string value from a known string-typed field (returns a new
+ *  object; never mutates the input). */
+function coerceStringFields(index: Record<string, unknown>, indexPath: string): BundleIndex {
+  const cleaned = { ...index };
+  for (const field of STRING_INDEX_FIELDS) {
+    const value = cleaned[field];
+    if (value !== undefined && typeof value !== 'string') {
+      process.stderr.write(
+        `[bundle] WARNING ${indexPath} field "${field}" is not a string (got ${describeYamlShape(value)}); ignoring it\n`,
+      );
+      delete cleaned[field];
+    }
+  }
+  return cleaned as BundleIndex;
 }
 
 function describeYamlShape(value: unknown): string {

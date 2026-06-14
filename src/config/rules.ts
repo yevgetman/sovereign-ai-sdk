@@ -2,6 +2,7 @@
 // rule engine intentionally knows only the tool selector and the raw
 // pattern; matching semantics stay delegated to each tool's matcher.
 
+import { composeMcpToolName } from '../mcp/toolWrapper.js';
 import type { Tool } from '../tool/types.js';
 
 export type PermissionRuleBehavior = 'allow' | 'deny' | 'ask';
@@ -57,8 +58,23 @@ export function ruleMatchesTool(tool: Tool<unknown, unknown>, rule: ParsedPermis
   // Server-scoped MCP rule: `mcp__<server>` matches every tool from that server,
   // so `deny: ["mcp__github"]` blocks the whole server in one line. Tool-level
   // rules use the full `mcp__<server>__<tool>` name and hit the exact match above.
-  if (tool.isMcp && tool.mcpInfo && rule.tool === `mcp__${tool.mcpInfo.serverName}`) return true;
+  if (tool.isMcp && tool.mcpInfo && rule.tool === serverScopeSelector(tool.mcpInfo.serverName)) {
+    return true;
+  }
   return false;
+}
+
+/** The `mcp__<server>` selector for the whole-server deny/allow form. The
+ *  server segment MUST go through the SAME sanitization the tool name does
+ *  (composeMcpToolName) — otherwise a server alias with a non-`[A-Za-z0-9_-]`
+ *  char (e.g. `git.hub` → tool name `mcp__git_hub__…`) diverges from the raw
+ *  alias and the server-scope rule silently never matches. We derive the
+ *  prefix from composeMcpToolName(server, '') (= `mcp__<sanitized>__`) and drop
+ *  the trailing `__` separator, single-sourcing the transform. */
+function serverScopeSelector(serverName: string): string | null {
+  const withSeparator = composeMcpToolName(serverName, '');
+  if (withSeparator === null) return null;
+  return withSeparator.replace(/_+$/, '');
 }
 
 function assertToolSelector(tool: string, raw: string): void {

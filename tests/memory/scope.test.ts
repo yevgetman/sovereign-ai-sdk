@@ -167,6 +167,56 @@ describe('resolveProjectScope', () => {
     }
   });
 
+  // Finding #22 — defense-in-depth: even if a raw index slips through with a
+  // non-string `repo`/`projectId` (e.g. a YAML-numeric or list typo), the
+  // read-site `.trim()` must not throw and crash the first session.
+  test('non-string repo does not crash boot (projectId branch)', () => {
+    const bundle = makeFakeBundle({ projectId: 'my-bundle' });
+    // Simulate a typo'd bundle index that reached scope with a numeric repo.
+    (bundle.index as Record<string, unknown>).repo = 123;
+    const scope = resolveProjectScope({ cwd: '/tmp', bundle });
+    // repo is ignored (not a string); name falls back to the projectId.
+    expect(scope).toEqual({ kind: 'project', id: 'my-bundle', name: 'my-bundle' });
+  });
+
+  test('list repo does not crash boot (projectId branch)', () => {
+    const bundle = makeFakeBundle({ projectId: 'my-bundle' });
+    (bundle.index as Record<string, unknown>).repo = ['a', 'b'];
+    const scope = resolveProjectScope({ cwd: '/tmp', bundle });
+    expect(scope).toEqual({ kind: 'project', id: 'my-bundle', name: 'my-bundle' });
+  });
+
+  test('non-string repo does not crash boot (hash branch)', () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'sov-bundle-'));
+    try {
+      const bundle = makeFakeBundle({ root: tmpRoot });
+      (bundle.index as Record<string, unknown>).repo = 123;
+      const scope = resolveProjectScope({ cwd: '/tmp', bundle });
+      expect(scope.kind).toBe('project');
+      if (scope.kind !== 'project') return;
+      expect(scope.id).toMatch(/^[a-f0-9]{16}$/);
+      // repo is ignored; name falls back to the canonical basename.
+      expect(scope.name).toBe(basename(realpathSync(tmpRoot)));
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('non-string projectId does not crash boot, falls through to hash', () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'sov-bundle-'));
+    try {
+      const bundle = makeFakeBundle({ root: tmpRoot });
+      (bundle.index as Record<string, unknown>).projectId = 42;
+      const scope = resolveProjectScope({ cwd: '/tmp', bundle });
+      expect(scope.kind).toBe('project');
+      if (scope.kind !== 'project') return;
+      // A non-string projectId is ignored → hash path.
+      expect(scope.id).toMatch(/^[a-f0-9]{16}$/);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
   test('bundle takes precedence over git when both present', () => {
     const tmpCwd = mkdtempSync(join(tmpdir(), 'sov-both-'));
     try {
