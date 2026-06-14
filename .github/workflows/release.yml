@@ -54,6 +54,15 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
+      # backlog #56 — guard the Go (sov-tui) suite in CI. The release CI only
+      # `go build`s the TUI, so Go test regressions (e.g. the stale theme-switch
+      # test) surfaced only on a developer's machine. Run it as part of the gate.
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+      - name: Go suite (sov-tui)
+        working-directory: packages/tui
+        run: go test ./...
 
   build-darwin:
     name: build-darwin
@@ -98,7 +107,7 @@ jobs:
             "$BARE"*) echo "OK: --version starts with $BARE" ;;
             *) echo "::error::--version output '$OUT' does not start with $BARE"; exit 1 ;;
           esac
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: tarballs-darwin
           path: build/release/${{ needs.preflight.outputs.version }}/sov-darwin-*.tar.gz
@@ -142,7 +151,7 @@ jobs:
             "$BARE"*) echo "OK: --version starts with $BARE" ;;
             *) echo "::error::--version output '$OUT' does not start with $BARE"; exit 1 ;;
           esac
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: tarballs-linux
           path: build/release/${{ needs.preflight.outputs.version }}/sov-linux-x64.tar.gz
@@ -170,7 +179,7 @@ jobs:
           bun-version: '1.2.0'
       - run: bun install --frozen-lockfile
       - name: Download all build artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: tarballs-*
           merge-multiple: true
