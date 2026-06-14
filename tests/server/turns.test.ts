@@ -327,7 +327,7 @@ describe('turns route — maxTokens propagation', () => {
 });
 
 describe('turns route — effort (reasoning depth) propagation', () => {
-  test('a turn after setEffort(high) forwards effort:high to the provider', async () => {
+  test('a turn after /effort high forwards effort:high for THAT session only (backlog #57)', async () => {
     const home = join(tmpdir(), `effort-prop-${Date.now()}`);
     let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
     try {
@@ -338,16 +338,22 @@ describe('turns route — effort (reasoning depth) propagation', () => {
       });
       // Default boot level (no thinking config) is 'off'.
       expect(runtime.effort).toBe('off');
-      // Mutate via the SAME path the /effort command will use — the
-      // CommandContext setEffort hook — so the test exercises the real wiring.
-      const sessionCtx = runtime.getSessionContext('effort-setter');
-      const { ctx } = buildServerCommandContext(runtime, sessionCtx, 'effort-setter');
-      ctx.setEffort('high');
-      expect(runtime.effort).toBe('high');
 
       const app = buildAppWithRuntime(runtime);
       const created = await app.request('/sessions', { method: 'POST' });
       const { sessionId } = (await created.json()) as { sessionId: string };
+
+      // Set effort on THIS session via the SAME path the /effort command uses —
+      // the CommandContext setEffort hook — so the test exercises the real
+      // wiring. Per backlog #57 this is per-session (on the SessionContext),
+      // NOT the shared runtime.effort.
+      const sessionCtx = runtime.getSessionContext(sessionId);
+      const { ctx } = buildServerCommandContext(runtime, sessionCtx, sessionId);
+      ctx.setEffort('high');
+      // The per-session level is 'high'; the shared boot default is untouched.
+      expect(sessionCtx.effort).toBe('high');
+      expect(runtime.effort).toBe('off');
+
       MockProvider.lastEffort = undefined; // reset before turn to avoid cross-test leak
       const turnRes = await app.request(`/sessions/${sessionId}/turns`, {
         method: 'POST',
@@ -361,6 +367,24 @@ describe('turns route — effort (reasoning depth) propagation', () => {
       const captured: import('../../src/providers/effort.js').ReasoningEffort | undefined =
         props.lastEffort;
       expect(captured).toBe('high');
+
+      // A SECOND session that never ran /effort forwards the boot default 'off' —
+      // proving the level set above did NOT leak to other sessions (the #57 fix).
+      const created2 = await app.request('/sessions', { method: 'POST' });
+      const { sessionId: sessionId2 } = (await created2.json()) as { sessionId: string };
+      MockProvider.lastEffort = undefined;
+      const turnRes2 = await app.request(`/sessions/${sessionId2}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(turnRes2.status).toBe(202);
+      await (await app.request(`/sessions/${sessionId2}/events`)).text();
+      // Read through the typed `props` alias (not MockProvider.lastEffort
+      // directly) so TS doesn't narrow to `undefined` from the reset above.
+      const captured2: import('../../src/providers/effort.js').ReasoningEffort | undefined =
+        props.lastEffort;
+      expect(captured2).toBe('off');
     } finally {
       MockProvider.lastEffort = undefined;
       if (runtime !== null) await runtime.dispose();

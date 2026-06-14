@@ -301,11 +301,14 @@ export type Runtime = {
   /** Concrete model the provider resolved to — useful for SessionDb rows
    *  and provider/model metadata in events. */
   model: string;
-  /** Per-session reasoning-depth ("effort") level. MUTABLE — parallels
-   *  `model`. Initialized from `thinking.effort` config (default 'off') and
-   *  mutated live by the `/effort` slash command via CommandContext.setEffort.
-   *  The turns route threads it into query() so the next turn's provider
-   *  request carries the level. 'off' keeps the request byte-identical. */
+  /** Reasoning-depth ("effort") BOOT DEFAULT. Initialized from `thinking.effort`
+   *  config (default 'off') and NOT mutated by `/effort` (backlog #57 — that now
+   *  writes the per-session `SessionContext.effort`, seeded from this value at
+   *  build time). This field is read by the cron + channel pipelines (which have
+   *  no interactive session and should always use the configured default) and
+   *  seeds every fresh session's effort. Leaving it unmutated is what keeps one
+   *  principal's `/effort` from leaking to other principals / cron / channels.
+   *  (`model` above is still global — that sibling gap is tracked separately.) */
   effort: ReasoningEffort;
   agents: AgentRegistry;
   bundle: Bundle | null;

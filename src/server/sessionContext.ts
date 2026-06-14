@@ -28,6 +28,7 @@ import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
 import { type MemoryManager, createDefaultMemoryManager } from '../memory/provider.js';
 import { type ProjectScope, resolveProjectScope } from '../memory/scope.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import { ReviewManager } from '../review/manager.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
@@ -112,6 +113,18 @@ export type SessionContext = {
    *  after memory injection and prepends recalled lessons to the latest
    *  user message. */
   recall?: RecallTurn;
+  /** Backlog #57 — per-session reasoning-depth ("effort") level. Seeded from
+   *  the runtime BOOT DEFAULT (`runtime.effort`, from `thinking.effort` config)
+   *  at build time, then mutated live by the `/effort` slash command via
+   *  CommandContext.setEffort. Stored HERE — a per-session holder keyed by
+   *  sessionId (like `userId`) — and NOT on the shared `runtime.effort`, so one
+   *  principal's `/effort` on a multi-user gateway can't change another
+   *  principal's depth (nor the cron / channel pipelines, which read the
+   *  untouched boot default). The turns route threads this onto the query()
+   *  params. Resets to the boot default when the session context is rebuilt
+   *  (idle eviction or a compaction child) — acceptable for a UX-depth dial;
+   *  durable-across-restart effort would require persisting it on the DB row. */
+  effort: ReasoningEffort;
 };
 
 export type BuildSessionContextOpts = {
@@ -370,6 +383,10 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     subdirectoryHintState: createSubdirectoryHintState(),
     memoryManager,
     projectScope,
+    // Backlog #57 — seed per-session reasoning depth from the runtime boot
+    // default. `/effort` mutates THIS (via setEffort), never the shared
+    // runtime.effort, so depth stays isolated per session.
+    effort: runtime.effort,
     // Phase E T6 — surface the per-session owning principal so the turn route
     // can thread it onto the per-turn ToolContext (synthesizer write path).
     ...(userId !== undefined ? { userId } : {}),

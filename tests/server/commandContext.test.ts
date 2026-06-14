@@ -103,25 +103,85 @@ describe('buildServerCommandContext — setEffort (reasoning depth)', () => {
     expect(runtime.effort).toBe('off');
   });
 
-  test('ctx.effort reflects the current runtime.effort', () => {
+  test("ctx.effort reflects the session's effort, seeded from the boot default", () => {
     const sessionCtx = runtime.getSessionContext('effort-stub-1');
     const { ctx } = buildServerCommandContext(runtime, sessionCtx, 'effort-stub-1');
-    expect(ctx.effort).toBe(runtime.effort);
+    // A fresh session inherits the runtime boot default (backlog #57).
+    expect(sessionCtx.effort).toBe(runtime.effort);
+    expect(ctx.effort).toBe(sessionCtx.effort);
     expect(typeof ctx.setEffort).toBe('function');
   });
 
-  test('setEffort mutates runtime.effort and records effortChanged', () => {
+  test('setEffort updates the per-session effort + records effortChanged, leaving the boot default', () => {
     const sessionCtx = runtime.getSessionContext('effort-stub-2');
     const { ctx, sideEffects } = buildServerCommandContext(runtime, sessionCtx, 'effort-stub-2');
     expect(sideEffects.effortChanged).toBeUndefined();
 
     ctx.setEffort('high');
 
-    expect(runtime.effort).toBe('high');
+    // The session's own context now carries 'high'...
+    expect(sessionCtx.effort).toBe('high');
     expect(sideEffects.effortChanged).toBe('high');
+    // ...and a freshly-built context for the SAME session reads it back.
+    const reread = buildServerCommandContext(
+      runtime,
+      runtime.getSessionContext('effort-stub-2'),
+      'effort-stub-2',
+    );
+    expect(reread.ctx.effort).toBe('high');
 
-    // Reset so this test doesn't leak the mutated level into the next.
+    // The shared runtime boot default is NOT mutated (backlog #57).
+    expect(runtime.effort).toBe('off');
+
+    // Reset so this session's level doesn't leak into later tests on this runtime.
     ctx.setEffort('off');
+    expect(sessionCtx.effort).toBe('off');
+  });
+});
+
+describe('buildServerCommandContext — setEffort is per-session (backlog #57)', () => {
+  let runtime: Runtime;
+  let tmpHome: string;
+
+  beforeAll(async () => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'sov-effort-iso-'));
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    __test_resetProjectIdCache();
+    runtime = await buildRuntime({
+      cwd: tmpHome,
+      harnessHome: tmpHome,
+      provider: 'mock',
+      model: 'mock-haiku',
+      preflight: false,
+    });
+  });
+
+  afterAll(async () => {
+    await runtime.dispose();
+    // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+    delete process.env.SOV_TEST_MOCK_PROVIDER;
+    rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  test('setEffort on one session does not leak to another session or the boot default', () => {
+    // Session A cranks reasoning depth to high.
+    const a = buildServerCommandContext(runtime, runtime.getSessionContext('iso-A'), 'iso-A');
+    a.ctx.setEffort('high');
+    expect(a.sideEffects.effortChanged).toBe('high');
+
+    // A re-read of A's context sees high — the override sticks to A's session.
+    const aReread = buildServerCommandContext(runtime, runtime.getSessionContext('iso-A'), 'iso-A');
+    expect(aReread.ctx.effort).toBe('high');
+
+    // A DIFFERENT session (principal B, or a cron/channel session) is untouched —
+    // it still reflects the configured boot default. This is the #57 isolation
+    // the old shared-runtime.effort behavior violated.
+    const b = buildServerCommandContext(runtime, runtime.getSessionContext('iso-B'), 'iso-B');
+    expect(b.ctx.effort).toBe('off');
+
+    // The shared boot default on the runtime — read by the cron + channel
+    // pipelines and seeded into every fresh session — is NEVER mutated by a
+    // per-session /effort.
     expect(runtime.effort).toBe('off');
   });
 });

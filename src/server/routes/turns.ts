@@ -694,9 +694,12 @@ async function runTurnInBackground(
       const stream = query({
         provider: runtime.resolvedProvider.transport,
         model: runtime.model,
-        // Reasoning-depth level, mutated live by the `/effort` command. 'off'
-        // (the default) → query() omits the key → byte-identical request.
-        effort: runtime.effort,
+        // Reasoning-depth level for THIS session, mutated live by `/effort`
+        // (backlog #57 — per-session on the SessionContext, not the shared
+        // runtime). 'off' (the default) → query() omits the key →
+        // byte-identical request. sessionCtx is the current session's context
+        // (re-fetched across the compaction-retry hop), so this stays correct.
+        effort: sessionCtx.effort,
         messages: currentMessages,
         systemPrompt: runtime.systemSegments,
         // Feature B — the SKILL-SCOPED tool pool (a fresh copy; identity when

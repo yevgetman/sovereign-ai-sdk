@@ -439,6 +439,9 @@ function buildStubSessionContext(sessionId: string): SessionContext {
       onDelegation: async () => {},
     } as unknown as SessionContext['memoryManager'],
     projectScope: { kind: 'none' },
+    // Backlog #57 — per-session reasoning depth. Inert here: config-only mode
+    // runs no turns, but the field is typed-required, so supply the safe default.
+    effort: 'off',
   };
 }
 

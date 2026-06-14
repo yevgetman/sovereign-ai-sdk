@@ -255,6 +255,9 @@ async function runChannelTurnInner(args: {
       model: runtime.model,
       // Honor the operator's configured reasoning depth on channel turns.
       // 'off' (default) → AgentRunner omits it → byte-identical request.
+      // Intentionally the runtime BOOT DEFAULT (backlog #57): a channel turn has
+      // no interactive session, and `/effort` no longer mutates this shared
+      // field, so channel senders can't shift depth via another principal.
       effort: runtime.effort,
       systemPrompt: runtime.systemSegments,
       maxTokens: runtime.maxTokens,

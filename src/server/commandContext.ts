@@ -167,17 +167,26 @@ export function buildServerCommandContext(
     providerName: runtime.resolvedProvider.transport.name,
     model: runtime.model,
     apiMode: runtime.resolvedProvider.transport.apiMode,
-    effort: runtime.effort,
+    // Backlog #57 — the CURRENT level is read off the per-session context (not
+    // the shared runtime boot default), so `/effort status` reports this
+    // session's depth and the picker marks the right entry.
+    effort: sessionCtx.effort,
     bundlePath: runtime.bundle?.root ?? null,
     setModel: (model: string): void => {
       runtime.model = model;
       sideEffects.modelChanged = model;
     },
-    // Mirror setModel — mutate the live runtime field so the next turn's
-    // query() carries the new reasoning-depth level, and record it as a
-    // side-effect for the TUI status display.
+    // Backlog #57 — mutate the PER-SESSION effort (on the cached SessionContext
+    // this builder was handed, which is the same instance the turns route reads
+    // via getSessionContext), NOT the shared runtime.effort. This keeps one
+    // principal's `/effort` from changing another principal's depth on a
+    // multi-user gateway, and leaves the cron / channel pipelines reading the
+    // untouched boot default. The next turn's query() carries the new level
+    // because it reads sessionCtx.effort; effortChanged is still recorded for
+    // the TUI status display. (Unlike setModel, which remains global — that
+    // sibling gap is tracked separately; see backlog.)
     setEffort: (level: ReasoningEffort): void => {
-      runtime.effort = level;
+      sessionCtx.effort = level;
       sideEffects.effortChanged = level;
     },
     // 2026-05-24 patch — live-apply hook for `permissionMode`. The

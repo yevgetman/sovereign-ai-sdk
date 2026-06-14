@@ -257,6 +257,9 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           model: runtime.model,
           // Honor the operator's configured reasoning depth on scheduled turns.
           // 'off' (default) → AgentRunner omits it → byte-identical request.
+          // Intentionally the runtime BOOT DEFAULT (backlog #57): a scheduled
+          // job has no interactive session, and `/effort` no longer mutates this
+          // shared field, so cron is isolated from any principal's `/effort`.
           effort: runtime.effort,
           systemPrompt: runtime.systemSegments,
           maxTokens: runtime.maxTokens,

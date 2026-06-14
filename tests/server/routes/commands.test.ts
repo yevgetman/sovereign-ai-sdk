@@ -164,10 +164,13 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     expect(runtime.model).toBe('claude-sonnet-4-6');
   });
 
-  test('side-effect — /effort <level> sets effortChanged in sideEffects', async () => {
-    // Slice D / T7 — mirrors /model. /effort high must surface
-    // effortChanged on the wire (via hasSideEffects + pickSideEffects)
-    // AND mutate runtime.effort. The confirmation also lands in output.
+  test('side-effect — /effort <level> sets effortChanged + the per-session effort (backlog #57)', async () => {
+    // Slice D / T7 — mirrors /model on the wire (effortChanged surfaces via
+    // hasSideEffects + pickSideEffects). Per backlog #57 the level is stored
+    // PER SESSION (on the SessionContext), NOT on the shared runtime.effort, so
+    // one principal's /effort can't change another principal's depth (nor the
+    // cron / channel pipelines, which read the untouched boot default).
+    const bootDefault = runtime.effort;
     const sessionId = await newSession();
     const { status, json } = await postCommand(sessionId, {
       name: 'effort',
@@ -177,8 +180,10 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
     expect(json.sideEffects).toBeDefined();
     const se = json.sideEffects as { effortChanged?: string };
     expect(se.effortChanged).toBe('high');
-    // runtime.effort has been mutated
-    expect(runtime.effort).toBe('high');
+    // THIS session's effort is now 'high' (the cached context the route mutated).
+    expect(runtime.getSessionContext(sessionId).effort).toBe('high');
+    // The shared runtime boot default is NOT mutated.
+    expect(runtime.effort).toBe(bootDefault);
     // The command output carries the user-visible confirmation line.
     expect(json.output as string).toContain('effort set to high');
   });
