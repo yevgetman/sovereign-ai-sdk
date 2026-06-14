@@ -121,9 +121,14 @@ export type SessionContext = {
    *  principal's `/effort` on a multi-user gateway can't change another
    *  principal's depth (nor the cron / channel pipelines, which read the
    *  untouched boot default). The turns route threads this onto the query()
-   *  params. Resets to the boot default when the session context is rebuilt
-   *  (idle eviction or a compaction child) — acceptable for a UX-depth dial;
-   *  durable-across-restart effort would require persisting it on the DB row. */
+   *  params.
+   *
+   *  #14 — a COMPACTION CHILD inherits the parent's live effort (see
+   *  `resolveSeedEffort`), so a `/effort high` set earlier in the conversation
+   *  survives the mid-turn compaction pivot. An idle-eviction rebuild (the
+   *  supervisor dropped the parent context) still falls back to the boot
+   *  default — acceptable for a UX-depth dial; durable-across-restart effort
+   *  would require persisting it on the DB row. */
   effort: ReasoningEffort;
 };
 
@@ -131,6 +136,33 @@ export type BuildSessionContextOpts = {
   runtime: Runtime;
   sessionId: string;
 };
+
+/** #14 — resolve the effort level to seed a freshly-built SessionContext with.
+ *
+ *  A COMPACTION CHILD must inherit the reasoning depth the user set earlier in
+ *  the conversation. Compaction mints a new child session row (carrying
+ *  `parentSessionId`) and the turns route pivots the active session onto it
+ *  mid-turn; without this, the child would re-seed from `runtime.effort` (the
+ *  boot default) and silently drop a `/effort high` for the rest of the
+ *  conversation.
+ *
+ *  We read the parent's effort off its LIVE SessionContext (still cached in
+ *  `runtime.sessionContexts` at pivot time — compaction does not dispose the
+ *  parent before the child is built). When there is no parent, or the parent
+ *  context is no longer live (e.g. an idle-eviction rebuild), we fall back to
+ *  the runtime boot default — byte-identical to the pre-#14 behavior. */
+export function resolveSeedEffort(runtime: Runtime, sessionId: string): ReasoningEffort {
+  let parentSessionId: string | null = null;
+  try {
+    parentSessionId = runtime.sessionDb.getSession(sessionId)?.parentSessionId ?? null;
+  } catch {
+    // A DB transient must never block context construction — fall back below.
+    parentSessionId = null;
+  }
+  if (parentSessionId === null) return runtime.effort;
+  const parentEffort = runtime.sessionContexts.get(parentSessionId)?.effort;
+  return parentEffort ?? runtime.effort;
+}
 
 /** Lazy-build a SessionContext for the given session id. Idempotent within
  *  a runtime — Runtime caches the return on first call. Construction is
@@ -383,10 +415,12 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     subdirectoryHintState: createSubdirectoryHintState(),
     memoryManager,
     projectScope,
-    // Backlog #57 — seed per-session reasoning depth from the runtime boot
-    // default. `/effort` mutates THIS (via setEffort), never the shared
-    // runtime.effort, so depth stays isolated per session.
-    effort: runtime.effort,
+    // Backlog #57 — seed per-session reasoning depth. `/effort` mutates THIS
+    // (via setEffort), never the shared runtime.effort, so depth stays isolated
+    // per session. #14 — a compaction child inherits the parent's live effort
+    // (resolveSeedEffort) so a mid-conversation `/effort` survives the pivot;
+    // otherwise this is the runtime boot default.
+    effort: resolveSeedEffort(runtime, sessionId),
     // Phase E T6 — surface the per-session owning principal so the turn route
     // can thread it onto the per-turn ToolContext (synthesizer write path).
     ...(userId !== undefined ? { userId } : {}),

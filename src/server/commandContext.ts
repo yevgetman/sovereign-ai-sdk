@@ -31,6 +31,8 @@ import { readConfig } from '../config/store.js';
 import { auditContextBudget } from '../context/budget.js';
 import type { Message, SystemSegment } from '../core/types.js';
 import type { ReasoningEffort } from '../providers/effort.js';
+import { PROVIDER_REGISTRY } from '../providers/models.js';
+import type { ApiMode } from '../providers/types.js';
 import { computeRoutingStats } from '../router/stats.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
@@ -48,9 +50,10 @@ export type CommandSideEffects = {
   exitRequested?: boolean;
   modelChanged?: string;
   /** `/effort <level>` records the new reasoning-depth level so the TUI can
-   *  update its status display (parallels `modelChanged`). The runtime field
-   *  mutation (`runtime.effort`) IS the behavioral effect; this side-effect is
-   *  purely for the chrome. Absent when no `/effort` ran in the dispatch. */
+   *  update its status display (parallels `modelChanged`). The PER-SESSION
+   *  mutation (`sessionCtx.effort`, NOT the shared `runtime.effort`) IS the
+   *  behavioral effect — the next turn reads sessionCtx.effort; this side-effect
+   *  is purely for the chrome. Absent when no `/effort` ran in the dispatch. */
   effortChanged?: ReasoningEffort;
   /** M11.5 — picker-driven commands (`/model`, `/resume`, `/export`)
    *  emit this in server mode so the TUI can render an inline card
@@ -94,6 +97,32 @@ export type BuildServerCommandContextResult = {
   ctx: CommandContext;
   sideEffects: CommandSideEffects;
 };
+
+/** #32 — the apiMode the `/effort` reasoning-support report should reason about.
+ *
+ *  In ROUTER mode the resolved provider is a RouterProvider pseudo-transport
+ *  with NO `apiMode` (the cast in runtime.ts leaves `transport.apiMode`
+ *  undefined), and `runtime.model` is the synthetic `"local | frontier"`
+ *  display string. The frontier lane is the one that actually reasons (e.g.
+ *  Claude 4 / o-series / sov), so we resolve the report's apiMode from the
+ *  metadata's `frontierProvider` name. `runtime.model` still carries the
+ *  frontier model id (after the `" | "`), so `modelSupportsReasoning(model,
+ *  frontierApiMode)` then returns the correct boolean — the local lane id
+ *  (sov/ollama) never matches a frontier reasoning pattern, so there is no
+ *  false positive. Outside router mode the metadata's own apiMode is the real
+ *  wire dialect and is returned unchanged.
+ *
+ *  Returns `undefined` only when neither the metadata nor the transport can
+ *  name a dialect (a pathological/misconfigured router); the caller keeps the
+ *  transport's apiMode in that case, matching pre-#32 behavior. */
+export function resolveEffortApiMode(metadata: Record<string, unknown>): ApiMode | undefined {
+  if (metadata.apiMode !== 'router') {
+    return typeof metadata.apiMode === 'string' ? (metadata.apiMode as ApiMode) : undefined;
+  }
+  const frontierProvider = metadata.frontierProvider;
+  if (typeof frontierProvider !== 'string') return undefined;
+  return PROVIDER_REGISTRY[frontierProvider]?.apiMode;
+}
 
 /** Build a per-request CommandContext from the live server Runtime +
  *  SessionContext. The returned `sideEffects` map is mutated in place
@@ -166,7 +195,16 @@ export function buildServerCommandContext(
     cwd: runtime.cwd,
     providerName: runtime.resolvedProvider.transport.name,
     model: runtime.model,
-    apiMode: runtime.resolvedProvider.transport.apiMode,
+    // #32 — in router mode the transport is a RouterProvider with no apiMode
+    // and runtime.model is the synthetic "local | frontier" string, so a naive
+    // `transport.apiMode` makes `/effort status` wrongly report "does not
+    // support reasoning depth". Resolve the FRONTIER lane's apiMode (the lane
+    // that reasons) from the resolved metadata; outside router mode this is the
+    // real wire dialect, unchanged. Fall back to the transport's apiMode for a
+    // pathological/misconfigured router (pre-#32 behavior).
+    apiMode:
+      resolveEffortApiMode(runtime.resolvedProvider.metadata) ??
+      runtime.resolvedProvider.transport.apiMode,
     // Backlog #57 — the CURRENT level is read off the per-session context (not
     // the shared runtime boot default), so `/effort status` reports this
     // session's depth and the picker marks the right entry.

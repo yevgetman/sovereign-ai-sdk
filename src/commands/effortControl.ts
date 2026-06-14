@@ -10,9 +10,13 @@
 //   /effort status        → non-interactive current-level + support report.
 //   /effort current       → alias of status.
 //
-// The behavioral effect lives in ctx.setEffort (Slice B), which mutates
-// runtime.effort so the next turn's provider request carries the level and
-// records the change as a side-effect for the TUI status display. This file is
+// The behavioral effect lives in ctx.setEffort (Slice B), which mutates the
+// PER-SESSION reasoning depth — `SessionContext.effort` (see
+// src/server/commandContext.ts:setEffort), NOT the shared `runtime.effort` —
+// so the next turn's provider request carries the level (the turns route reads
+// sessionCtx.effort) and records the change as a side-effect for the TUI status
+// display. Storing it per session (backlog #57) keeps one principal's `/effort`
+// on a multi-user gateway from changing another principal's depth. This file is
 // purely the user-facing surface; it never touches the provider wire.
 
 import {

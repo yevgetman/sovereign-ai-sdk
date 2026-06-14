@@ -72,40 +72,83 @@ describe('web UI shell — buildAppWithRuntime serves an open HTML shell', () =>
   });
 });
 
-// FIX 5 — the embedded web UI is inline JS served as a static asset; there's no
-// JS harness to execute its handlers here (a true behavioral check needs a
+// FIX (G5) — the embedded web UI is inline JS served as a static asset; there's
+// no JS harness to execute its handlers here (a true behavioral check needs a
 // browser/Playwright run, noted in the report). These structural assertions
-// guard the load-bearing fix against silent regression: on a compaction session
-// pivot the follow stream MUST be re-pointed at the child bus (reset
-// lastEventId + stopStream + openStream), or every subsequent turn renders
-// nothing — the conversation freezes.
-describe('web UI compaction pivot re-points the follow stream (FIX 5)', () => {
-  // Isolate the compactionNotice function body from the served HTML so the
-  // assertions key on the handler, not incidental matches elsewhere.
-  const compactionFn = (() => {
-    const start = WEB_UI_HTML.indexOf('function compactionNotice(');
-    expect(start).toBeGreaterThanOrEqual(0);
-    // Take a generous slice — the function is short; the next `function ` after
-    // it bounds the body.
-    const after = WEB_UI_HTML.indexOf('function ', start + 'function compactionNotice('.length);
-    return WEB_UI_HTML.slice(start, after === -1 ? start + 800 : after);
-  })();
+// guard the load-bearing fix against silent regression.
+//
+// The ORIGINAL FIX 5 re-pointed the follow stream at the child bus the instant
+// compaction_complete arrived. That was a HIGH bug: proactive/overflow
+// compaction fires MID-TURN, and the rest of the in-flight turn's events still
+// flow on the PARENT bus. Aborting+reopening immediately dropped those events
+// and left turnActive stuck true, wedging the UI. The corrected handler mirrors
+// the Go TUI (app.go startSSE: "mid-turn pivots keep streaming on the original
+// bus and reconnect at turn end"): on a mid-turn compaction it pivots
+// S.sessionId (so the next POST targets the child) but DEFERS the stream
+// reconnect, recording a pending child id and reopening only once the turn
+// terminal (turnComplete/turnError) flips turnActive false.
+function sliceFn(name: string, fallbackLen = 1000): string {
+  const decl = `function ${name}(`;
+  const start = WEB_UI_HTML.indexOf(decl);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const after = WEB_UI_HTML.indexOf('function ', start + decl.length);
+  return WEB_UI_HTML.slice(start, after === -1 ? start + fallbackLen : after);
+}
+
+describe('web UI compaction pivot defers the stream reconnect to turn end (FIX G5)', () => {
+  const compactionFn = sliceFn('compactionNotice');
+  const turnCompleteFn = sliceFn('turnComplete', 1600);
+  const turnErrorFn = sliceFn('turnError');
+  const pivotFn = sliceFn('pivotStreamToActiveSession');
 
   test('updates S.sessionId on a child pivot', () => {
     expect(compactionFn).toContain('S.sessionId = ev.activeSessionId');
   });
 
-  test('resets the reconnect cursor (lastEventId) so the child bus is read fresh', () => {
-    expect(compactionFn).toContain('S.lastEventId = null');
+  test('mid-turn (turnActive) it records a pending child id instead of reconnecting now', () => {
+    expect(compactionFn).toContain('if (S.turnActive)');
+    expect(compactionFn).toContain('S.pendingChildId = ev.activeSessionId');
+    // The mid-turn branch MUST NOT abort/reopen the stream — that is the bug.
+    // stopStream/openStream live only in the between-turns pivot helper.
+    const turnActiveIdx = compactionFn.indexOf('if (S.turnActive)');
+    const elseIdx = compactionFn.indexOf('} else {', turnActiveIdx);
+    expect(elseIdx).toBeGreaterThan(turnActiveIdx);
+    const midTurnBranch = compactionFn.slice(turnActiveIdx, elseIdx);
+    expect(midTurnBranch).not.toContain('stopStream()');
+    expect(midTurnBranch).not.toContain('openStream()');
   });
 
-  test('reopens the stream against the child bus (stopStream + openStream)', () => {
-    expect(compactionFn).toContain('stopStream()');
-    expect(compactionFn).toContain('openStream()');
-    // The reconnect must happen AFTER the session id is updated, or it would
-    // reopen against the stale parent id.
-    const pivotIdx = compactionFn.indexOf('S.sessionId = ev.activeSessionId');
-    const openIdx = compactionFn.indexOf('openStream()');
-    expect(openIdx).toBeGreaterThan(pivotIdx);
+  test('between-turns (no active turn) it pivots the stream immediately', () => {
+    expect(compactionFn).toContain('pivotStreamToActiveSession()');
+  });
+
+  test('the pivot helper reconnects the stream to the child bus with a fresh cursor', () => {
+    expect(pivotFn).toContain('S.pendingChildId = null');
+    expect(pivotFn).toContain('S.lastEventId = null');
+    expect(pivotFn).toContain('stopStream()');
+    expect(pivotFn).toContain('openStream()');
+    // The cursor reset must precede the reopen.
+    expect(pivotFn.indexOf('S.lastEventId = null')).toBeLessThan(pivotFn.indexOf('openStream()'));
+  });
+
+  test('both turn terminals apply the deferred pivot after turnActive clears', () => {
+    // turnComplete sets turnActive false then applies the pending pivot.
+    expect(turnCompleteFn).toContain('S.turnActive = false');
+    expect(turnCompleteFn).toContain('applyPendingCompactionPivot()');
+    expect(turnCompleteFn.indexOf('S.turnActive = false')).toBeLessThan(
+      turnCompleteFn.indexOf('applyPendingCompactionPivot()'),
+    );
+    // turnError does the same so a failed turn still pivots to the child.
+    expect(turnErrorFn).toContain('S.turnActive = false');
+    expect(turnErrorFn).toContain('applyPendingCompactionPivot()');
+    expect(turnErrorFn.indexOf('S.turnActive = false')).toBeLessThan(
+      turnErrorFn.indexOf('applyPendingCompactionPivot()'),
+    );
+  });
+
+  test('reconnect resets the cursor on a session mismatch (mirrors app.go sseCursorSession)', () => {
+    const runStreamFn = sliceFn('runStream', 3000);
+    expect(runStreamFn).toContain('S.sessionId !== S.lastEventIdSession');
+    expect(runStreamFn).toContain('S.lastEventId = null');
   });
 });
