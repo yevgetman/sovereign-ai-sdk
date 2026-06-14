@@ -8,6 +8,28 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-14 — Post-audit deep-dive bug hunt: 46 findings, all fixed
+
+**Scope.** A second agent-driven deep-dive bug hunt run *after* the 2026-06-10 full-codebase audit (107 findings) shipped, deliberately targeting the least-reviewed code in the repo — the 69 files changed *since* that audit's baseline `f661f24` (the audit fixes themselves + post-audit features: per-session `/effort` #57, sov/MLX reasoning streaming) — plus a sweep of high-value unchanged subsystems. Full report + per-finding inventory: [`docs/audits/2026-06-14-post-audit-bug-hunt.md`](audits/2026-06-14-post-audit-bug-hunt.md).
+
+**Method.** 16 focused finders (each verifying its area's prior fix is *complete* AND hunting new/introduced bugs) → one skeptic verifier per candidate (flagging anything already-fixed so it wasn't re-filed) → gap sweep. Then 20-way parallel disjoint-file fix fan-out (TDD), per-group completeness review, and an extra **adversarial bypass review on the two security groups**.
+
+**Findings (all CONFIRMED/PLAUSIBLE, none duplicating the prior audit): 1 critical, 10 high, 12 medium, 23 low — all fixed.**
+
+- **CRITICAL — channel-reachable RCE (F1, BashTool).** Incomplete C3 fix: the auto-allow gate's `find`-primary detector was a quote-naive regex while the sibling `shellSemantics` path used a quote-stripping tokenizer, so `find . '-delete'` / `find . '-exec' rm {} ';'` classified read-only and ran with NO prompt for an untrusted channel sender. Fixed by sharing the quote-stripping `FIND_DESTRUCTIVE_PRIMARIES` tokenizer. **Repro confirms closed.**
+- **HIGH highlights:** SSRF gaps (ULA `fc00::/7`, link-local `fe80::/10`, CGNAT `100.64/10`, DNS-rebinding TOCTOU pin, IPv4-compatible IPv6, DNS-lookup timeout); **`sessionDb` H14 was filed-fixed but never actually changed** (+ a channel-driven twin `cleanupOldChannelSessions`) — both rewritten to correlated subqueries (no bound-param limit); reasoning models (`o1/o3/o4/gpt-5`) sent `max_tokens`+`temperature` when effort was off → never booted; idle SSE reconnect flood (clean-close path unthrottled); webui compaction wedge; observations.jsonl > 1 MiB silently stopping synthesis.
+- **Notable process wins:** the **adversarial security reviewer caught a residual SSRF bypass** (IPv4-compatible IPv6 `::a9fe:a9fe`) the implementer missed; the **central gate caught one regression** (an over-broad same-role merge from the F36 fix broke microcompaction turn-loop tests) — root-caused and re-scoped to plain (non-tool) messages.
+
+**Commands run (real results, fresh `HARNESS_HOME`):**
+- Security repros (direct module calls): quoted-`find` RCE → all CLOSED, no false-positives; SSRF `::169.254.169.254`/`::127.0.0.1`/`::100.64.0.1`/AAAA-pin → all CLOSED, `::8.8.8.8` still allowed.
+- `bun run lint` → clean (761 files). `bun run typecheck` → clean.
+- `HARNESS_HOME=$(mktemp -d) bun test` → **3996 pass / 0 fail / 16 skip** (4012 across 407 files; +139 over the 3857 baseline — every fix landed with a regression test).
+- `cd packages/tui && go build/vet/test ./...` → all packages green.
+
+**Consciously deferred (LOW/accepted, documented in the audit report):** F36 sibling-hydrate paths (channel/compact hydrate not healed — nil practical exposure, sessions minted post-H7); F15 same-credential-id race (stale-boot-snapshot clobber fixed; narrower same-id race bounded by the cross-process `RateLimitGuard`).
+
+**Result: PASS.** All critical/high/medium (and all low) findings closed with regression tests; both demonstrated security holes (RCE, SSRF) verified closed by repro.
+
 ## 2026-06-14 — CI maintenance: Node-24 actions (#49 re-fix) + Go suite guarded in CI (#56)
 
 **Scope.** The v0.6.41 release CI threw Node-20 deprecation warnings (GitHub's forced Node-24 cutover is 2026-06-16). Investigated + addressed two CI-maintenance items.
