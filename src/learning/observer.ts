@@ -6,7 +6,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { appendFile } from 'node:fs/promises';
+import { appendFile, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { redact } from '../trajectory/redact.js';
 import { ensureLearningDirs, observationsPath } from './paths.js';
@@ -38,6 +38,21 @@ export interface ObserveInput {
 
 const DEFAULT_BUFFER = 200;
 const SUMMARY_MAX = 256;
+
+/** observations.jsonl is append-only; the instinct-synthesizer reads it WHOLE
+ *  via FileReadTool, which HARD-ERRORS at its 1 MiB cap (MAX_BYTES in
+ *  FileReadTool.ts). Without rotation a busy project crosses 1 MiB and
+ *  synthesis silently wedges — the learning loop stops paying off. We keep the
+ *  file readable by capping it to a recent tail on append.
+ *
+ *  ROTATE_THRESHOLD_BYTES sits well under the 1 MiB FileReadTool cap so the
+ *  file is always readable with comfortable headroom; RETAIN_BYTES is the most
+ *  recent slice we keep when we rotate. Retaining a generous tail preserves
+ *  learning depth (recency is what synthesis clusters over). This changes the
+ *  on-disk WINDOW only — recall/synthesis semantics and learning defaults are
+ *  untouched. */
+const ROTATE_THRESHOLD_BYTES = 800 * 1024;
+const RETAIN_BYTES = 600 * 1024;
 
 export class LearningObserver {
   private writeChain: Promise<void> = Promise.resolve();
@@ -82,6 +97,7 @@ export class LearningObserver {
           ensureLearningDirs(this.harnessHome, project.id, this.userId);
         }
         await appendFile(path, `${JSON.stringify(observation)}\n`, 'utf-8');
+        await capObservationsFile(path);
       } catch {
         // Invariant #10: never block. Swallow disk failures.
       } finally {
@@ -142,6 +158,13 @@ export class LearningObserver {
     };
   }
 
+  /** Test-only — synchronously enforce the size cap on an observations file.
+   *  Production rotation runs inside the serialized write chain; this exposes
+   *  the same logic for deterministic tests. */
+  static async __test_capObservationsFile(path: string): Promise<void> {
+    await capObservationsFile(path);
+  }
+
   // Returns null when input cannot be serialized; caller drops the
   // observation rather than poisoning the corpus with a sentinel hash.
   private trySerializeInput(input: unknown): string | null {
@@ -154,4 +177,23 @@ export class LearningObserver {
       return null;
     }
   }
+}
+
+/** Cap observations.jsonl to a recent tail so the synthesizer's whole-file
+ *  Read never trips FileReadTool's 1 MiB hard cap. No-op until the file
+ *  exceeds ROTATE_THRESHOLD_BYTES; then it rewrites the file to the most
+ *  recent ~RETAIN_BYTES, keeping only WHOLE JSON lines (a truncated leading
+ *  line would poison the synthesizer's JSON parse). Best-effort: any disk
+ *  error is swallowed by the caller's try/catch (Invariant #10). */
+async function capObservationsFile(path: string): Promise<void> {
+  const info = await stat(path);
+  if (info.size <= ROTATE_THRESHOLD_BYTES) return;
+
+  const content = await readFile(path, 'utf-8');
+  // Keep the most recent RETAIN_BYTES, then drop the (likely partial) first
+  // surviving line so every retained line is a complete JSON record.
+  const tail = content.slice(content.length - RETAIN_BYTES);
+  const firstNewline = tail.indexOf('\n');
+  const whole = firstNewline === -1 ? '' : tail.slice(firstNewline + 1);
+  await writeFile(path, whole, 'utf-8');
 }

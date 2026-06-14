@@ -81,4 +81,46 @@ describe('learning paths', () => {
       expect(projectRoot(home, GLOBAL_PROJECT_ID)).toBe(join(home, 'learning', GLOBAL_PROJECT_ID));
     });
   });
+
+  // Finding #13 (sibling of FIX 4) — the instinct id is the SECOND path
+  // segment and is synthesizer-LLM-supplied (validated only as
+  // z.string().min(1) at the tool boundary). A traversal id like
+  // '../../../../tmp/secret' must be rejected before it's joined, or it
+  // escapes the project's instincts dir (arbitrary read / cross-user instinct
+  // leak). FIX 4 hardened projectId but left instinctId open.
+  describe('instinctId path-segment validation', () => {
+    const validProjectId = 'a1b2c3d4e5f6a7b8';
+    const traversal = [
+      '../../../../tmp/secret',
+      '..',
+      '../../alice/learning/abcdef0123456789/instincts/20260610-real',
+      'a/b',
+      'foo/../bar',
+      './x',
+      '.',
+      'a\\b',
+      '20260610.real',
+      '',
+    ];
+
+    for (const bad of traversal) {
+      test(`instinctPath rejects traversal instinctId ${JSON.stringify(bad)}`, () => {
+        expect(() => instinctPath(home, validProjectId, bad)).toThrow();
+      });
+    }
+
+    test('legitimate timestamp-hex instinct id (newInstinctId format) is accepted', () => {
+      // newInstinctId() emits `<14-digit-timestamp>-<12-hex>`.
+      const id = '20260610120000-abcdef012345';
+      expect(instinctPath(home, validProjectId, id)).toBe(
+        join(home, 'learning', validProjectId, 'instincts', `${id}.md`),
+      );
+    });
+
+    test('a traversal instinctId cannot escape even with a valid projectId + userId', () => {
+      // The escape FIX 4 missed: project_id passes, but '../../...' as the id
+      // would resolve outside the instincts dir. Must throw at the chokepoint.
+      expect(() => instinctPath(home, validProjectId, '../../../../tmp/secret', 'bob')).toThrow();
+    });
+  });
 });

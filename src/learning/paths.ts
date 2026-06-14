@@ -26,6 +26,23 @@ function validateProjectId(projectId: string): void {
   }
 }
 
+/** Validate an instinct id before it is joined into a filesystem path.
+ *  SECURITY-LOAD-BEARING (defense-in-depth, sibling of FIX 4 for the SECOND
+ *  path segment): the instinct id is synthesizer-LLM-supplied and validated
+ *  only as `z.string().min(1)` at the tool-input boundary
+ *  (InstinctViewTool / InstinctUpdateConfidenceTool), so a traversal value
+ *  like `../../../../tmp/secret` (or `../../alice/.../real` for a cross-user
+ *  instinct read) would escape the project's instincts dir. Same safe charset
+ *  as the project id; `.` is excluded so `.`/`..`/`a.b` all fail. Legitimate
+ *  ids (`<timestamp>-<hex>` from newInstinctId) pass. */
+function validateInstinctId(instinctId: string): void {
+  if (!PROJECT_ID_RE.test(instinctId)) {
+    throw new Error(
+      `invalid instinct id ${JSON.stringify(instinctId)}: must match ${PROJECT_ID_RE} (ASCII alphanumerics, '-', '_', at least one char)`,
+    );
+  }
+}
+
 /** Phase E T6 — the learning root for a given principal. When `userId` is
  *  provided the corpus is namespaced under `<harnessHome>/users/{userId}/learning`;
  *  when undefined it is the legacy top-level `<harnessHome>/learning` (BYTE-
@@ -61,6 +78,11 @@ export function instinctPath(
   instinctId: string,
   userId?: string,
 ): string {
+  // Sibling of FIX 4 — the single chokepoint all instinct read/write builders
+  // (InstinctStore.read/readWithBody/write/remove) flow through. Validate the
+  // instinct id here so a traversal value can never reach `join` (projectId is
+  // already validated via instinctsDir → projectRoot).
+  validateInstinctId(instinctId);
   return join(instinctsDir(harnessHome, projectId, userId), `${instinctId}.md`);
 }
 
