@@ -165,6 +165,65 @@ describe('drive cursor/session pairing (FIX 1b)', () => {
     expect(manager.currentCursorSession).toBe('session-A');
     await manager.stop();
   });
+
+  // Regression for finding #46: the OLD guard `activeSessionId !== cursorSession`
+  // could NEVER fire because pivot() updates both fields in lockstep. So residual
+  // events draining from the pre-pivot (parent) connection in the same buffered
+  // chunk would bump the cursor with stale high old-bus seqs, and the child
+  // reconnect would skip the child bus's low-seq events. The cursor advance must
+  // be gated by the EVENT's originating CONNECTION session instead.
+  test('residual old-bus events after a mid-turn compaction pivot do NOT poison the cursor', () => {
+    const PARENT = 'parent-session';
+    const CHILD = 'child-session';
+    const manager = new DriveSseManager({
+      baseURL,
+      initialSessionId: PARENT,
+      renderer: silentRenderer(),
+    });
+
+    // 1. A normal parent-bus event advances the cursor (current connection).
+    manager.ingestEvent(
+      { type: 'text_delta', seq: 41, sessionId: PARENT, block: 0, text: 'before' },
+      PARENT,
+    );
+    expect(manager.currentCursor).toBe(41);
+
+    // 2. compaction_complete arrives on the parent connection: it advances the
+    //    cursor to its own seq, then pivots to the child (resetting the cursor).
+    manager.ingestEvent(
+      {
+        type: 'compaction_complete',
+        seq: 42,
+        sessionId: PARENT,
+        activeSessionId: CHILD,
+        summary: 's',
+        estimatedBeforeTokens: 100,
+        estimatedAfterTokens: 10,
+      },
+      PARENT,
+    );
+    expect(manager.activeSessionId).toBe(CHILD);
+    expect(manager.currentCursor).toBeNull(); // pivot reset it
+
+    // 3. THE BUG: a residual parent-bus event still buffered on the SAME
+    //    (pre-pivot) parent connection arrives AFTER the pivot. It carries a high
+    //    old-bus seq and MUST NOT bump the cursor — the child reconnect needs to
+    //    be a fresh subscriber (cursor null) so it sees the child bus's seq-1+
+    //    events. Pre-fix this set the cursor to 99 (the parent's seq) because
+    //    activeSessionId === cursorSession === CHILD made the old guard false.
+    manager.ingestEvent(
+      { type: 'text_delta', seq: 99, sessionId: PARENT, block: 0, text: 'residual' },
+      PARENT,
+    );
+    expect(manager.currentCursor).toBeNull();
+
+    // 4. A genuine event on the NEW child connection advances the cursor again.
+    manager.ingestEvent(
+      { type: 'text_delta', seq: 1, sessionId: CHILD, block: 0, text: 'child' },
+      CHILD,
+    );
+    expect(manager.currentCursor).toBe(1);
+  });
 });
 
 describe('drive follow stream — no idle reconnect busy-loop (FIX 2)', () => {

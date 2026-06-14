@@ -312,28 +312,46 @@ export class DriveSseManager {
     }
   }
 
-  private onEvent = (ev: ServerEvent): void => {
+  /** Ingest one parsed event arriving on the connection opened against
+   *  `connSessionId`. Single chokepoint the drain loop calls per event: it
+   *  advances the reconnect cursor (under the connection-session guard) and then
+   *  renders + applies any session pivot.
+   *
+   *  The cursor advance MUST be keyed off the EVENT's originating connection
+   *  session (`connSessionId`, snapshotted when the connection opened), NOT off
+   *  `this.cursorSession`: a mid-turn compaction pivot sets `activeSessionId`,
+   *  `cursor`, and `cursorSession` in lockstep, so `activeSessionId ===
+   *  cursorSession` is ALWAYS true and could never gate out residual old-bus
+   *  events. After a pivot the old parent connection keeps draining buffered
+   *  events before it ends; those carry the old bus's high seqs and must not
+   *  bump the cursor (they'd make the new child bus's fresh subscriber skip its
+   *  lower-numbered events). Mirrors app.go's generation guard, where events
+   *  from a superseded connection are dropped entirely.
+   *
+   *  Order matters: advance the cursor BEFORE rendering, so a pivot triggered by
+   *  rendering a compaction_complete (which resets the cursor to null) is not
+   *  immediately re-bumped by the same event, and so the NEXT residual old-bus
+   *  event — now arriving on a connection whose session is no longer active — is
+   *  correctly dropped from cursor accounting. Exported for unit tests that
+   *  reproduce the residual-old-bus-event scenario deterministically. */
+  ingestEvent(ev: ServerEvent, connSessionId: string): void {
+    this.advanceCursor(ev, connSessionId);
     this.renderer.handle(ev);
-    // FIX 1b — a mid-turn compaction pivots the session id. The event arrives on
-    // the OLD (parent) bus, which keeps streaming until turn end; pivot() resets
-    // the cursor + aborts the connection so the loop reconnects to the child.
-    // Crucially the cursor reset is paired with the session change so the same
-    // old-bus connection delivering further events before it ends can't re-poison
-    // the cursor with high old-bus seqs (advanceCursor only advances within the
-    // current session).
+    // A mid-turn compaction pivots the session id. The event arrives on the OLD
+    // (parent) bus, which keeps streaming until turn end; pivot() resets the
+    // cursor + aborts the connection so the loop reconnects to the child.
     if (ev.type === 'compaction_complete' && ev.activeSessionId) {
       this.pivot(ev.activeSessionId);
     }
-  };
+  }
 
-  /** Advance the reconnect cursor — but ONLY for events on the session the
-   *  cursor currently belongs to. After a pivot, residual events draining from
-   *  the old bus must NOT bump the cursor (they'd re-poison it with stale
-   *  old-bus seqs); the cursor stays null so the reconnect to the new bus is a
-   *  fresh subscriber. Mirrors app.go: the cursor is reset on session change in
-   *  startSSE, and only advanced for current-session events. */
-  private advanceCursor(ev: ServerEvent): void {
-    if (this.activeSessionId !== this.cursorSession) return;
+  /** Advance the reconnect cursor — but ONLY for events arriving on a connection
+   *  whose session is still the active one. `connSessionId` is the session this
+   *  event's connection was opened against; once a pivot moves `activeSessionId`
+   *  away from it, this connection is superseded and its events no longer
+   *  advance the cursor. See ingestEvent for the full rationale. */
+  private advanceCursor(ev: ServerEvent, connSessionId: string): void {
+    if (connSessionId !== this.activeSessionId) return;
     this.cursor = ev.seq;
   }
 
@@ -354,9 +372,13 @@ export class DriveSseManager {
           sessionIdRef: { current: connSessionId },
           signal,
           follow: true,
-          onEvent: this.onEvent,
           getCursor: () => this.cursor,
-          onCursorAdvance: (ev) => this.advanceCursor(ev),
+          // Single per-event chokepoint, tagged with THIS connection's session
+          // id. After a pivot moves activeSessionId to the child, residual events
+          // still draining from this (now-superseded) old connection are dropped
+          // from cursor accounting — the cursor stays null so the child reconnect
+          // is a fresh subscriber.
+          ingest: (ev) => this.ingestEvent(ev, connSessionId),
         });
       } catch {
         // drainSseStream throws when the signal aborts (shutdown or pivot) or on
@@ -521,7 +543,7 @@ export class EventRenderer {
         // These don't need plain-text rendering for semantic tests;
         // tool_result + text_delta carry the substantive observable
         // behavior. compaction_complete updates the session id via
-        // the onEvent hook in drainSseStream.
+        // DriveSseManager.ingestEvent's pivot.
         return;
     }
   }
@@ -769,17 +791,15 @@ async function drainSseStream(opts: {
   // stays open across turn boundaries (no per-turn reconnect busy-loop). When
   // false (or omitted) the server's default per-turn contract applies.
   follow?: boolean;
-  onEvent: (ev: ServerEvent) => void;
   // The reconnect cursor (highest seq seen on the CURRENT bus). Read at connect
   // time and sent as `Last-Event-ID` so the server replays only events AFTER it
   // — without it a reconnect re-receives (and re-renders) the whole completed
   // turn, including turn_complete, an infinite re-stream loop.
   getCursor: () => number | null;
-  // Called for each parsed event so the owner can advance the cursor under its
-  // own session-pairing guard (a residual old-bus event after a pivot must NOT
-  // bump the cursor). Invoked BEFORE onEvent so a throw in onEvent can't make us
-  // re-request an event we already accounted for.
-  onCursorAdvance: (ev: ServerEvent) => void;
+  // Called for each parsed event. The owner advances the cursor (under its
+  // connection-session guard, so a residual old-bus event after a pivot does NOT
+  // bump the cursor) and then renders + applies any pivot — see ingestEvent.
+  ingest: (ev: ServerEvent) => void;
 }): Promise<void> {
   const base = `${opts.baseURL}/sessions/${opts.sessionIdRef.current}/events`;
   const url = opts.follow ? `${base}?follow=true` : base;
@@ -803,8 +823,7 @@ async function drainSseStream(opts: {
         buffer = buffer.slice(blockEnd + 2);
         const ev = parseEventBlock(block);
         if (ev !== null) {
-          opts.onCursorAdvance(ev);
-          opts.onEvent(ev);
+          opts.ingest(ev);
         }
         blockEnd = buffer.indexOf('\n\n');
       }
