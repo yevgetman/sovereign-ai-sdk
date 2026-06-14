@@ -75,11 +75,6 @@ const COMMAND_LAUNCHERS = new Set<string>([
   'xargs',
 ]);
 
-/** `find` primaries that execute commands or mutate the filesystem — they make
- *  an otherwise read-only `find` unsafe (audit C3). */
-const FIND_DESTRUCTIVE_RE =
-  /(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fprint0|fls)(?:\s|$)/;
-
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
@@ -187,8 +182,15 @@ function isReadOnlySegment(segment: string): boolean {
   if (!cmd) return false; // launcher with no real command (e.g. bare `env`)
   if (cmd.startsWith('-') || cmd.includes('/')) return false;
   if (!BASH_READ_COMMANDS.has(cmd)) return false;
-  // `find` is read-only only without a destructive/exec primary.
-  if (cmd === 'find' && FIND_DESTRUCTIVE_RE.test(seg)) return false;
+  // `find` is read-only only without a destructive/exec primary. Defer the
+  // classification to the shared `analyzeShellCommand` analyzer (which uses the
+  // SAME quote-stripping tokenizer + `FIND_DESTRUCTIVE_PRIMARIES` set), so a
+  // quoted primary (`find /x '-delete'`, `find . '-exec' rm {} ';'`) can never
+  // slip past a quote-naive regex and auto-allow file deletion (deep-dive #1).
+  // The two paths cannot diverge again — both read the analyzer.
+  if (cmd === 'find' && !analyzeShellCommand(seg).every((op) => op.kind === 'read')) {
+    return false;
+  }
   return true;
 }
 
@@ -235,12 +237,57 @@ function normalizeShellSegment(raw: string): string {
  */
 const PRIV_ESCALATION_COMMANDS = new Set<string>(['sudo', 'pkexec', 'doas', 'su']);
 
+/**
+ * Split a single shell segment into tokens, stripping single/double quotes and
+ * backslash escapes (mirrors the quote handling in shellSemantics.ts's
+ * tokenizer). A whitespace `split` alone is quote-naive: `'sudo' rm` would
+ * yield the literal token `'sudo'` (with quotes), which never matches `sudo`.
+ * Bash strips those quotes before resolving the command word, so we must too.
+ */
+function tokenizeStrippingQuotes(segment: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+  for (const ch of segment) {
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\' && !inSingle) {
+      escaped = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (/\s/.test(ch) && !inSingle && !inDouble) {
+      if (current) tokens.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
 export function detectPrivilegeEscalation(command: string): string | null {
   // Quote-aware split on every control operator incl. newline + control `&`
   // (a regex split missed those, so `cat a\nsudo …` evaded the guard — C2).
   const segments = splitShellSegments(command);
   for (const seg of segments) {
-    const tokens = seg.split(/\s+/).filter(Boolean);
+    // Quote-stripping tokenizer: a quoted escalator (`'sudo' rm -rf /`) would
+    // otherwise survive as the literal token `'sudo'` and evade the guard
+    // (deep-dive #24 — same quote-naive root cause as the find bug).
+    const tokens = tokenizeStrippingQuotes(seg);
     let cursor = 0;
     while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
       cursor++;

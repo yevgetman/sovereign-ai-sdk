@@ -208,6 +208,30 @@ describe('isReadOnlyBashCommand', () => {
     expect(isReadOnlyBashCommand('find . -execdir rm {} +')).toBe(false);
     expect(isReadOnlyBashCommand('find . -name "*.ts"')).toBe(true); // benign find still read
   });
+
+  // Post-2026-06-10 deep-dive #1 (CRITICAL) — the find-primary detector was
+  // quote-naive: quoting a destructive primary put a quote char before the
+  // dash, so the gate classified the command read-only and auto-allowed an
+  // arbitrary file deletion / command execution with NO permission prompt.
+  // Bash itself honors quoted find primaries, so these MUST stay non-read.
+  test('find with a QUOTED destructive primary is not read-only (#1 RCE)', () => {
+    // Single-quoted primaries.
+    expect(isReadOnlyBashCommand("find /x '-delete'")).toBe(false);
+    expect(isReadOnlyBashCommand("find . '-exec' rm {} ';'")).toBe(false);
+    expect(isReadOnlyBashCommand("find . '-execdir' rm {} +")).toBe(false);
+    // Double-quoted primaries.
+    expect(isReadOnlyBashCommand('find /x "-delete"')).toBe(false);
+    expect(isReadOnlyBashCommand('find . "-exec" rm {} ";"')).toBe(false);
+    // The destructive primary in a non-first position (after the path).
+    expect(isReadOnlyBashCommand("find /tmp/bt5 -type f '-exec' rm {} ';'")).toBe(false);
+    // Unquoted destructive variants still classify non-read (no regression).
+    expect(isReadOnlyBashCommand('find . -delete')).toBe(false);
+    expect(isReadOnlyBashCommand('find . -ok rm {} ;')).toBe(false);
+    expect(isReadOnlyBashCommand('find . -fls out.txt')).toBe(false);
+    // A genuinely read-only find stays read (no false-positive prompt-spam).
+    expect(isReadOnlyBashCommand("find . -name '*.ts'")).toBe(true);
+    expect(isReadOnlyBashCommand('find . -type f -name "*.md"')).toBe(true);
+  });
 });
 
 describe('matchesBashPermissionPattern', () => {
@@ -282,6 +306,18 @@ describe('detectPrivilegeEscalation', () => {
   test('returns null for empty / whitespace input', () => {
     expect(detectPrivilegeEscalation('')).toBeNull();
     expect(detectPrivilegeEscalation('   ')).toBeNull();
+  });
+
+  // Post-2026-06-10 deep-dive #24 — the escalator scan tokenized on whitespace
+  // WITHOUT stripping quotes, so a quoted escalator ("'sudo' rm -rf /") was the
+  // literal token "'sudo'" which !== 'sudo' after basename strip → evaded the
+  // hang-guard. Same quote-naive root cause as #1; fix consistently.
+  test('flags a QUOTED escalator (#24)', () => {
+    expect(detectPrivilegeEscalation("'sudo' rm -rf /")).toBe('sudo');
+    expect(detectPrivilegeEscalation('"sudo" ls')).toBe('sudo');
+    expect(detectPrivilegeEscalation("'pkexec' ls")).toBe('pkexec');
+    expect(detectPrivilegeEscalation("echo ok && 'sudo' ls")).toBe('sudo');
+    expect(detectPrivilegeEscalation("'/usr/bin/sudo' ls")).toBe('sudo');
   });
 });
 
