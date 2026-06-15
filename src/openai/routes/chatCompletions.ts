@@ -26,6 +26,7 @@ import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { ZodError } from 'zod';
+import { persistMessage } from '../../agent/persistMessage.js';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../../agents/exclusions.js';
 import { loadPermissionSettings } from '../../config/settings.js';
 import { query } from '../../core/query.js';
@@ -282,7 +283,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     const lastUserMessage = findLastUserMessage(messages);
     if (lastUserMessage !== undefined) {
       try {
-        runtime.sessionDb.saveMessage(sessionId, {
+        persistMessage(runtime, sessionId, {
           role: 'user',
           content: lastUserMessage.content,
         });
@@ -431,7 +432,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           // affect the response the client already received.
           if (capturedAssistant !== undefined) {
             try {
-              runtime.sessionDb.saveMessage(sessionId, {
+              persistMessage(runtime, sessionId, {
                 role: 'assistant',
                 content: capturedAssistant.content,
               });
@@ -516,7 +517,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       // the response.
       if (finalAssistant !== undefined) {
         try {
-          runtime.sessionDb.saveMessage(sessionId, {
+          persistMessage(runtime, sessionId, {
             role: 'assistant',
             content: finalAssistant.content,
           });

@@ -188,7 +188,10 @@ async function main(argv: string[]): Promise<void> {
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
     .option('--no-cache', 'disable provider prompt-cache markers for this session')
     .option('--no-preflight', 'skip the startup provider health check')
-    .option('--transcript <path>', 'write a redacted JSONL terminal/event transcript')
+    .option(
+      '--transcript <path>',
+      'DEPRECATED (no-op) — per-session transcripts are now always-on; set `transcripts.dir` in config to relocate them',
+    )
     .option('-v, --verbose', 'show full tool-result previews instead of one-line summaries')
     .option(
       '--capture-fixture <path>',

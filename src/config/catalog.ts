@@ -796,15 +796,43 @@ const DEBUG_GROUP: ConfigGroup = {
     },
     {
       path: 'debugMode.transcript',
-      label: 'transcript',
-      description: 'Write a redacted JSONL transcript per session.',
+      label: 'transcript (deprecated)',
+      description: 'DEPRECATED — superseded by the always-on Transcripts group. Ignored.',
       editor: { kind: 'boolean' },
     },
     {
       path: 'debugMode.transcriptDir',
-      label: 'transcriptDir',
-      description: 'Directory for auto-generated transcripts (default <harnessHome>/debug).',
+      label: 'transcriptDir (deprecated)',
+      description: 'DEPRECATED — use transcripts.dir. Honored only as a fallback for it.',
       editor: { kind: 'string', placeholder: '~/.harness/debug' },
+    },
+  ],
+};
+
+// ── Transcripts ──────────────────────────────────────────────────────
+const TRANSCRIPTS_GROUP: ConfigGroup = {
+  id: 'transcripts',
+  label: 'Transcripts',
+  description:
+    'Per-session conversation transcripts (one JSONL file per session under <dir>/projects/<slug>/, the Claude-Code ergonomic). On by default. Effective next session.',
+  items: [
+    {
+      path: 'transcripts.enabled',
+      label: 'enabled',
+      description: 'Write a per-session JSONL conversation transcript. Default on.',
+      editor: { kind: 'boolean' },
+    },
+    {
+      path: 'transcripts.dir',
+      label: 'dir',
+      description: 'Base directory for transcripts (default <harnessHome>).',
+      editor: { kind: 'string', placeholder: '~/.harness' },
+    },
+    {
+      path: 'transcripts.redactSecrets',
+      label: 'redactSecrets',
+      description: 'Redact secrets (API keys/tokens) from each line before writing. Default on.',
+      editor: { kind: 'boolean' },
     },
   ],
 };
@@ -983,6 +1011,7 @@ export const CONFIG_CATALOG: readonly ConfigGroup[] = Object.freeze([
   REVIEW_GROUP,
   LEARNING_GROUP,
   DEBUG_GROUP,
+  TRANSCRIPTS_GROUP,
   OPENAI_SERVER_GROUP,
   GATEWAY_GROUP,
   APPEARANCE_GROUP,

@@ -1,6 +1,7 @@
 // Context-window compaction. Splits a long session into an immutable parent
 // plus a child carrying a guarded handoff summary and recent tail.
 
+import { persistMessage } from '../agent/persistMessage.js';
 import type { SessionDb } from '../agent/sessionDb.js';
 import {
   estimateMessageTokens,
@@ -22,6 +23,7 @@ import {
   isModelUnavailable,
 } from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
+import type { TranscriptStore } from '../transcript/store.js';
 
 const TOOL_RESULT_PRUNE_CHARS = 800;
 const DEFAULT_TAIL_TOKEN_BUDGET = 4_000;
@@ -57,6 +59,10 @@ export type CompactSummarizer = (
 
 export type CompactOptions = {
   db: SessionDb;
+  /** 2026-06-15 — optional transcript store so the post-compaction child
+   *  session's seeded messages (summary + preserved tail) land in the JSONL
+   *  transcript too. Omitted by callers without a runtime store. */
+  transcripts?: TranscriptStore;
   sessionId: string;
   model: string;
   providerName: string;
@@ -185,13 +191,17 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     ...(parent.ownerId != null ? { owner: parent.ownerId } : {}),
   });
 
-  options.db.saveMessage(newSessionId, {
+  const persistHost = {
+    sessionDb: options.db,
+    ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
+  };
+  persistMessage(persistHost, newSessionId, {
     role: 'assistant',
     content: summaryMessage.content,
     tokenCount: estimateMessageTokens(summaryMessage),
   });
   for (const message of guardedTail) {
-    options.db.saveMessage(newSessionId, {
+    persistMessage(persistHost, newSessionId, {
       role: message.role,
       content: message.content,
       tokenCount: estimateMessageTokens(message),

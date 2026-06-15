@@ -26,11 +26,15 @@ export type ServerCompactor = (
 ) => Promise<CompactResult>;
 
 export function buildServerCompactor(
-  runtime: Pick<Runtime, 'sessionDb' | 'resolvedProvider' | 'model' | 'systemSegments'>,
+  runtime: Pick<
+    Runtime,
+    'sessionDb' | 'resolvedProvider' | 'model' | 'systemSegments' | 'transcripts'
+  >,
 ): ServerCompactor {
   return async function compact(history, sessionId, signal) {
     return compactSession({
       db: runtime.sessionDb,
+      ...(runtime.transcripts !== undefined ? { transcripts: runtime.transcripts } : {}),
       sessionId,
       model: runtime.model,
       providerName: runtime.resolvedProvider.transport.name,

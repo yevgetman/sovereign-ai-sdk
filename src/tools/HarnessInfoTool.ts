@@ -100,6 +100,11 @@ export type HarnessInfoSnapshot = {
      *  `agents`, `keywords`). Disclosed, never silently dropped. */
     ignoredKeys: string[];
   }>;
+  /** 2026-06-15 — the active session-transcripts projects dir (where per-session
+   *  `.jsonl` conversation files are written). Absent when transcripts are
+   *  disabled. The model reads this to answer "are my conversations saved and
+   *  where". */
+  transcriptsDir?: string;
 };
 
 const SECTIONS = [
@@ -163,7 +168,11 @@ export function buildHarnessInfoTool(getSnapshot: () => HarnessInfoSnapshot): To
 function filterSnapshot(snap: HarnessInfoSnapshot, section: Section): Output {
   switch (section) {
     case 'settings':
-      return { permissionMode: snap.permissionMode, settingsLayers: snap.settingsLayers };
+      return {
+        permissionMode: snap.permissionMode,
+        settingsLayers: snap.settingsLayers,
+        ...(snap.transcriptsDir !== undefined ? { transcriptsDir: snap.transcriptsDir } : {}),
+      };
     case 'mcp':
       return { mcpServers: snap.mcpServers };
     case 'tools':
@@ -185,6 +194,9 @@ function formatSnapshot(out: Output): string {
   const lines: string[] = [];
   if (out.permissionMode !== undefined) {
     lines.push(`permissionMode: ${out.permissionMode}`);
+  }
+  if (out.transcriptsDir !== undefined) {
+    lines.push(`transcripts: ${out.transcriptsDir}`);
   }
   if (out.settingsLayers !== undefined) {
     lines.push('', 'settings layers (highest precedence first):');

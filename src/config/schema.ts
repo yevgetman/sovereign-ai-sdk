@@ -124,17 +124,40 @@ const UiSchema = z
  *  unset. The CLI can still override individual settings per session. */
 const DebugModeSchema = z
   .object({
-    /** Master switch. When true, all child capabilities (currently:
-     *  `transcript`) auto-enable regardless of their individual values. */
+    /** Master switch. When true, debug capabilities auto-enable regardless of
+     *  their individual values. Today: annotates the TUI delegator lines with
+     *  the resolved lane provider/model. */
     enabled: z.boolean().optional(),
-    /** When true (or when `enabled` is true), each REPL session writes a
-     *  redacted JSONL transcript under `transcriptDir`. */
+    /** DEPRECATED (2026-06-15) — superseded by the always-on `transcripts`
+     *  block. Session transcripts are now written by default; this field is
+     *  retained only so existing configs still parse and is otherwise ignored.
+     *  Use `transcripts.enabled` to disable. */
     transcript: z.boolean().optional(),
-    /** Directory for auto-generated transcript files. Tilde and
-     *  relative paths are expanded against the harness home /
-     *  process cwd at REPL startup. Defaults to `<harnessHome>/debug`
-     *  (i.e. `~/.harness/debug`). */
+    /** DEPRECATED (2026-06-15) — superseded by `transcripts.dir`. Honored ONLY
+     *  as a fallback for `transcripts.dir` when the latter is unset. */
     transcriptDir: z.string().optional(),
+  })
+  .strict();
+
+/** User-level session transcripts (2026-06-15 — see
+ *  docs/specs/2026-06-15-session-transcripts-design.md). An always-on,
+ *  human-readable JSONL mirror of each session's conversation, one file per
+ *  session under `<dir>[/users/<owner>]/projects/<slug(cwd)>/<sessionId>.jsonl`
+ *  (the Claude-Code ergonomic). The authoritative store remains `sessions.db`.
+ *  All fields optional; read-site defaults: enabled=true, redactSecrets=true. */
+const TranscriptsSchema = z
+  .object({
+    /** Write per-session transcript files. Default TRUE (like Claude Code).
+     *  Set false to disable transcript writing entirely. */
+    enabled: z.boolean().optional(),
+    /** Base directory for transcripts; defaults to `$HARNESS_HOME`. Files live
+     *  at `<dir>/projects/<slug>/<sessionId>.jsonl` (or
+     *  `<dir>/users/<owner>/projects/...` for a multi-user gateway). */
+    dir: z.string().optional(),
+    /** Redact secrets (API keys/tokens/etc.) from each line before writing.
+     *  Default TRUE — the harness writes transcripts from gateway/channel/
+     *  multi-user/cron contexts, so redaction is the safe default. */
+    redactSecrets: z.boolean().optional(),
   })
   .strict();
 
@@ -320,6 +343,7 @@ export const SettingsSchema = z
     microcompaction: MicrocompactionSchema.optional(),
     compaction: CompactionSchema.optional(),
     debugMode: DebugModeSchema.optional(),
+    transcripts: TranscriptsSchema.optional(),
     review: z
       .object({
         autoPromoteMemory: z.boolean().optional(),
@@ -753,3 +777,23 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type SubscriptionExecutorConfig = NonNullable<Settings['subscriptionExecutor']>;
 export type PluginsConfig = NonNullable<Settings['plugins']>;
+export type TranscriptsConfig = NonNullable<Settings['transcripts']>;
+
+/** Resolved transcripts config with read-site defaults applied (the schema is
+ *  `.optional()` per the project convention, so absent-parent → defaults).
+ *  `enabled` and `redactSecrets` default TRUE (always-on, like Claude Code);
+ *  the legacy `debugMode.transcriptDir` is honored only as a fallback for
+ *  `dir`. */
+export function resolveTranscriptsConfig(settings: Settings): {
+  enabled: boolean;
+  redactSecrets: boolean;
+  dir?: string;
+} {
+  const t = settings.transcripts;
+  const dir = t?.dir ?? settings.debugMode?.transcriptDir;
+  return {
+    enabled: t?.enabled ?? true,
+    redactSecrets: t?.redactSecrets ?? true,
+    ...(dir !== undefined ? { dir } : {}),
+  };
+}

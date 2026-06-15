@@ -10,6 +10,7 @@
 // time. The session id is created on demand by POST /sessions.
 
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { SessionDb } from '../agent/sessionDb.js';
 import { loadAgents } from '../agents/loader.js';
@@ -21,6 +22,7 @@ import type { PromptCommand } from '../commands/types.js';
 import { type MicrocompactConfig, buildMicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import type { Settings } from '../config/schema.js';
+import { resolveTranscriptsConfig } from '../config/schema.js';
 import {
   getPermissionSettingsPaths,
   loadHookSettings,
@@ -81,6 +83,7 @@ import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { buildWorkflowRunTool } from '../tools/WorkflowRunTool.js';
+import { TranscriptStore } from '../transcript/store.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
@@ -296,6 +299,12 @@ export type RuntimeOptions = {
 
 export type Runtime = {
   sessionDb: SessionDb;
+  /** 2026-06-15 — always-on per-session transcript store. Lazily writes a
+   *  human-readable JSONL mirror of each session's conversation under
+   *  `<base>[/users/<owner>]/projects/<slug(cwd)>/<sessionId>.jsonl` (the
+   *  Claude-Code ergonomic). `persistMessage` routes every persisted message
+   *  through it. Optional so the `sov config` standalone runtime can omit it. */
+  transcripts?: TranscriptStore;
   toolPool: Tool<unknown, unknown>[];
   systemSegments: SystemSegment[];
   provider: LLMProvider;
@@ -796,6 +805,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       // answer "what plugins are installed / why isn't X active". Empty array
       // when none are installed (honest: the runtime has plugin state).
       plugins: buildPluginSnapshots(plugins),
+      // 2026-06-15 — surface the active transcripts dir (null when disabled).
+      // Lazy closure: `transcriptStore` is declared below but this getter only
+      // runs at tool-call time, after the runtime is fully built.
+      ...(transcriptStore.projectsDir !== null
+        ? { transcriptsDir: transcriptStore.projectsDir }
+        : {}),
     };
   };
 
@@ -1425,6 +1440,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         ...(disposeOpts?.bus !== undefined ? { bus: disposeOpts.bus } : {}),
       });
     }
+    // 2026-06-15 — drain + drop this session's transcript writer (mirrors the
+    // trace writer's per-session close in disposeSessionContext).
+    await transcriptStore.closeSession(sessionId);
     disposeBus(sessionId);
   };
 
@@ -1695,8 +1713,28 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     }
   };
 
+  // 2026-06-15 — the always-on per-session transcript store (resolved from the
+  // `transcripts` config; default on + redacted). `base` is the configured dir
+  // (tilde-expanded) or $HARNESS_HOME; per-session writers resolve owner +
+  // lineage from the session row lazily on first message.
+  const transcriptsCfg = resolveTranscriptsConfig(userSettings);
+  const transcriptBase =
+    transcriptsCfg.dir !== undefined
+      ? transcriptsCfg.dir.startsWith('~/')
+        ? join(homedir(), transcriptsCfg.dir.slice(2))
+        : transcriptsCfg.dir
+      : harnessHome;
+  const transcriptStore = new TranscriptStore({
+    enabled: transcriptsCfg.enabled,
+    base: transcriptBase,
+    redactSecrets: transcriptsCfg.redactSecrets,
+    cwd: opts.cwd,
+    getSession: (id) => sessionDb.getSession(id),
+  });
+
   const runtime: Runtime = {
     sessionDb,
+    transcripts: transcriptStore,
     toolPool,
     systemSegments,
     provider,
@@ -1772,6 +1810,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       for (const liveId of liveSessionIds) {
         await disposeSession(liveId);
       }
+      // 2026-06-15 — drain any transcript writers for sessions that persisted
+      // messages WITHOUT a sessionContext (e.g. the stateless OpenAI API route),
+      // which the disposeSession walk above never reached.
+      await transcriptStore.closeAll();
       // Phase B transport hardening, Fix 4 — sweep up every remaining bus map
       // entry. The disposeSession walk above only reaches sessions that ran a
       // turn (they have a sessionContext); a session that merely opened an

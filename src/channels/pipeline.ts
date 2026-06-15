@@ -27,6 +27,7 @@
 // adapter's job (ChannelAdapter.deliver); this pipeline only produces the
 // reply text + the silent verdict.
 
+import { persistMessage } from '../agent/persistMessage.js';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
 import type { AssistantMessage } from '../core/types.js';
 import type { LLMProvider } from '../providers/types.js';
@@ -192,7 +193,7 @@ async function runChannelTurnInner(args: {
   // messages on the reused row is what makes a channel conversation
   // CONTINUOUS — the next message lands on the same session and the history
   // grows rather than resetting.
-  runtime.sessionDb.saveMessage(sessionId, {
+  persistMessage(runtime, sessionId, {
     role: 'user',
     content: [{ type: 'text', text: msg.text }],
   });
@@ -295,7 +296,7 @@ async function runChannelTurnInner(args: {
     // the full assistant content, not just the extracted text — so a future
     // resume reconstructs the exact turn.
     if (result.finalAssistant) {
-      runtime.sessionDb.saveMessage(sessionId, {
+      persistMessage(runtime, sessionId, {
         role: 'assistant',
         content: result.finalAssistant.content,
       });

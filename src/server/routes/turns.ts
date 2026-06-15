@@ -20,7 +20,7 @@
 // once when the generator returns — as the turn boundary.
 
 import { Hono } from 'hono';
-import type { SessionDb } from '../../agent/sessionDb.js';
+import { type PersistMessageHost, persistMessage } from '../../agent/persistMessage.js';
 import { buildToolScope, filterParseableRules } from '../../commands/toolScope.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
@@ -504,7 +504,7 @@ async function runTurnInBackground(
     content: [{ type: 'text', text: expandedText }],
   };
   // Persist before the try block so a query() failure still preserves the user's prompt in the transcript.
-  runtime.sessionDb.saveMessage(sessionId, {
+  persistMessage(runtime, sessionId, {
     role: userMessage.role,
     content: userMessage.content,
   });
@@ -835,7 +835,7 @@ async function runTurnInBackground(
             sessionId,
             currentBlock,
             pendingToolUses,
-            runtime.sessionDb,
+            runtime,
             sessionCtx,
           );
           continue;
@@ -854,7 +854,7 @@ async function runTurnInBackground(
             currentBlock,
             pendingToolUses,
             runtime.toolPool,
-            runtime.sessionDb,
+            runtime,
             sessionCtx,
           );
           continue;
@@ -1078,11 +1078,11 @@ function handleAssistantMessage(
   block: number,
   pending: Map<string, PendingToolUse>,
   toolPool: readonly Tool<unknown, unknown>[],
-  sessionDb: SessionDb,
+  host: PersistMessageHost,
   sessionCtx: SessionContext,
 ): void {
   // Persist before emitting wire events so resume can reconstruct the full turn even if the SSE subscriber disconnects.
-  sessionDb.saveMessage(sessionId, {
+  persistMessage(host, sessionId, {
     role: msg.role,
     content: msg.content,
   });
@@ -1130,12 +1130,12 @@ function handleUserMessage(
   sessionId: string,
   block: number,
   pending: Map<string, PendingToolUse>,
-  sessionDb: SessionDb,
+  host: PersistMessageHost,
   sessionCtx: SessionContext,
 ): void {
   if (msg.role !== 'user') return;
   // Persist all user-role messages (tool_result and guidance) so resume reconstructs exact prior context.
-  sessionDb.saveMessage(sessionId, {
+  persistMessage(host, sessionId, {
     role: msg.role,
     content: msg.content,
   });
