@@ -182,6 +182,51 @@ End with: Finding (1-2 sentences), Evidence (3-6 bullet points each `path:line`)
 
 **Review agents have a special role.** The three `review-*` agents are invoked exclusively by `runReviewFork()` in `src/review/fork.ts`, never by the main agent directly. They receive an augmented tool pool that includes `REVIEW_ONLY_TOOLS` (`memory_propose` and `skill_propose`) — tools that are deliberately excluded from the main agent's pool via `src/tool/registry.ts`'s `REVIEW_ONLY_TOOLS` export. If you add a tool that should only be callable from review forks (not from main agent turns), add it to `REVIEW_ONLY_TOOLS` rather than `REGISTERED_TOOLS`, and declare it in the review agents' `allowedTools` frontmatter.
 
+## Authoring A Workflow
+
+A **workflow** (multi-agent workflows, `src/workflows/`) is a declarative, deterministic orchestration plan over the sub-agents you authored above — a YAML file that fans agents out in parallel across dimensions / a list, barriers between phases, and threads outputs forward. It's data, not code (no arbitrary execution); the engine runs it by calling the same `scheduler.delegate()` path that backs the Agent tool, so workflows inherit lane routing, timeouts, traces, and the learning hook for free. See the design spec [`docs/specs/2026-06-15-multi-agent-workflows-design.md`](specs/2026-06-15-multi-agent-workflows-design.md) and the format reference in [`docs/usage.md`](usage.md#multi-agent-workflows).
+
+Drop a YAML file into one of the three search paths (project `.harness/workflows/` → user `<harness-home>/workflows/` → bundle `<bundle>/workflows/`), precedence project > user > bundle (mirroring the agent loader). It is validated against `WorkflowDefSchema` in `src/workflows/types.ts` at load — an invalid file is rejected, not silently ignored.
+
+```yaml
+name: review                          # required; kebab-case; the invocation name
+description: Review a diff, verify findings, synthesize.   # required
+args:                                 # optional declared inputs (validated + coerced)
+  diff:       { type: string, required: true }
+  dimensions: { type: list,   required: true }   # string | number | boolean | list
+phases:                               # run in order; a BARRIER between each
+  - id: find                          # parallel fan-out across each dimension
+    map:                              # `map` + `task`: fan one task over an array…
+      over: args.dimensions           # …resolved from args.<f> or <phaseId>.<f>
+      as: dimension                   # loop var → {{dimension}} (default `item`)
+    task:
+      agent: explore                  # a loaded sub-agent; validated at load
+      output: json                    # parse the agent's final JSON
+      prompt: |
+        Review the {{dimension}} dimension and return
+        {"findings":[{"claim","file","severity"}]}: {{args.diff}}
+  - id: verify                        # BARRIER: starts after all of `find`
+    map:
+      over: find.findings             # `.field` sugar: flatten item.findings across `find`
+      as: finding
+    task: { agent: verify, output: json, prompt: 'Refute: {{finding.claim}}' }
+  - id: synthesize                    # a fixed set of tasks (use even for one)
+    tasks:
+      - agent: plan                   # `lane:` optionally overrides the agent's own model
+        lane: frontier-task           #   cheap-task | moderate-task | frontier-task
+        prompt: 'Merge confirmed findings: {{verify.results}}'
+```
+
+**Phase shape (exactly one form).** `tasks: [ ... ]` runs a fixed set in parallel (use a one-element list for a single task — there is **no** bare top-level `task:` without `map`). `map: { over, as? } + task: { ... }` fans one task across an array. The barrier between phases means a later phase's `over`/prompt can reference any earlier phase's output.
+
+**Output threading.** Prompts are templated by a safe dotpath interpolator (no `eval`): `{{args.X}}`, `{{<loopVar>.field}}`, `{{<phaseId>.text}}`, `{{<phaseId>.json.field}}`, `{{<phaseId>.results}}` (a map phase's collected array), and `{{<phaseId>.<field>}}` (the flattened `item.<field>` across a map phase's JSON outputs — this powers `over: find.findings`). Unresolved refs are a load-time error where statically checkable.
+
+**Writes are an enforced boundary.** A task with no `writes:` is read-only (writes denied entirely). Declaring `writes: [<globs>]` both scopes the path-lock (disjoint scopes parallelize, overlapping serialize) AND enforces it — a write whose target falls outside the declared globs is **denied** at the permission layer, so parallel write fan-out is safe even if an author under-declares. `['**']` = the whole tree (serializes with everything).
+
+**Reuse the bundled agents.** The example workflow [`bundle-default/workflows/review.yaml`](../bundle-default/workflows/review.yaml) is built entirely on read-only bundle agents (`explore`, `verify`, `plan`) — copy it as the authoring template. Reference only agents that exist in the registry (the loader rejects an unknown `agent`); author a new sub-agent first (see [Add An Agent Definition](#add-an-agent-definition)) if you need a capability the bundle doesn't ship.
+
+Run it with `sov workflow run <name> --arg k=v ...`, the `/workflow <name> k=v ...` slash command, or the model-invocable `workflow_run` tool. The first two are the day-to-day surfaces; `workflow_run` is excluded from sub-agent and channel tool pools (no nesting; not reachable from untrusted inbound senders).
+
 ## Authoring A Plugin
 
 A **plugin** (Plugin System v1, `src/plugins/`) bundles **skills + slash-commands** into one installable, consentable unit. You don't author plugins under `src/` — a plugin is a self-contained directory with a manifest plus `skills/` and `commands/` dirs, installed by the operator via `/plugins install <dir>`. v1 contributes skills + commands only; a manifest may *declare* `hooks` / `mcpServers` (and CC-only keys like `agents`), but those are disclosed-and-inert — validated, listed at install time, never run.

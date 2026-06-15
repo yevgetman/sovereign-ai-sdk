@@ -120,6 +120,7 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `cron <add\|list\|show\|pause\|resume\|delete\|run\|tick>` | (Phase 17.) Schedule fresh-session agent runs (cron / relative / interval / ISO timestamps). **Cron-expression schedules evaluate in the host's local timezone** (e.g. `0 9 * * *` = 09:00 local), matching a system crontab. Per-job optional pre-agent script + chained skills + delivery target. `list` prints 8-char job-id prefixes, and `show`/`pause`/`resume`/`delete`/`run` accept any unique id prefix. The 60-second tick loop runs as long as a `sov` process (TUI / drive / dispatch / `sov serve`) is alive. See `docs/state/2026-05-22-phase-17-cron.md` for the design lock + `cron add --help` for flag detail. |
 | `serve [--port <n>] [--host <addr>] [--provider <name>] [--model <name>] [--max-tokens <n>] [--permission-mode <mode>] [--no-cron] [--no-preflight] [-b/--bundle <path>]` | (Phase 18.) Run the OpenAI-compatible HTTP API server. Long-lived; SIGINT/SIGTERM trigger graceful shutdown. Any tool speaking OpenAI's HTTP API (Open WebUI, LibreChat, AnythingLLM, official `openai` Python/JS SDKs with a custom `base_url`) can drive the harness without code changes. API key required at boot (`SOV_OPENAI_API_KEY` env > `openaiServer.apiKey` config). See [OpenAI-compatible HTTP API (`sov serve`)](#openai-compatible-http-api-sov-serve) below for the full surface. |
 | `gateway [--host <addr>] [--port <n>]` | (Run-anywhere roadmap A–F.) Run the harness's **native HTTP+SSE** protocol as a long-lived, remote-reachable, authenticated server — the rich interactive surface (turns, streaming, tool events, permission prompts, slash commands, skills) the TUI / `sov drive` speak, exposed off-loopback. Ships a built-in browser UI, persistent multi-session hosting, multi-user principals, and Slack/Telegram/webhook channels. A token is required off-loopback (refuses to boot otherwise). Long-lived; SIGINT/SIGTERM trigger graceful shutdown. All other config (host/port/token/CORS/principals/channels) lives in `config.json` + env. See [Remote gateway (`sov gateway`)](#remote-gateway-sov-gateway) below for the full surface. |
+| `workflow <list\|show\|run>` | Run a **declarative multi-agent workflow** — a YAML plan that fans sub-agents out across dimensions / a list, barriers between phases, and threads outputs forward. `list` prints the loaded workflows; `show <name>` prints a definition; `run <name> [--arg k=v ...] [--json]` drives the engine headlessly and prints progress + the final result. See [Multi-agent workflows](#multi-agent-workflows) below for the full surface. |
 
 ## Eval Suite
 
@@ -504,6 +505,123 @@ Driving a subscription credential as an **automated / unattended / multi-tenant 
 That is why the executor is wired **only** to the interactive sub-agent delegation seam and is deliberately **NOT** available to **cron, channels, or the gateway** — those are exactly the automated / remote / multi-tenant contexts where driving the subscription binary would cross the line. Because that seam is attended, the executor **defaults to `--dangerously-skip-permissions`** (a headless subprocess has no approver) — you are delegating to your own logged-in Claude Code, not exposing a remote bypass; set `permissionMode` to `plan` / `acceptEdits` / `default` for a constrained posture. The remote channel surfaces keep their own bypass rejection, and the off-by-default gate keeps the capability invisible until an operator opts in for their own attended use.
 
 See the spike / design doc — [`docs/specs/2026-06-08-subscription-executor-spike.md`](specs/2026-06-08-subscription-executor-spike.md) — for the full rationale, the verified scheduler seam, the live `stream-json` shape, and the strategic context (ADR H-0010 "rent the engine").
+
+## Multi-agent workflows
+
+A **workflow** is a declarative, deterministic multi-agent orchestration plan — a YAML file that says "fan these reviewers out across these dimensions, barrier, then verify each finding, then synthesize." Unlike model-driven fan-out (where the orchestrator LLM decides to call the Agent tool N times), a workflow is a **reusable, repeatable artifact**: the same plan runs the same way every time. The engine executes it by reusing the existing sub-agent scheduler, so workflows inherit provider/model resolution, cost-lane routing, per-child timeouts, parent-child session lineage, traces, and the learning hook for free.
+
+Workflows are **data, not code** — there is no arbitrary code execution. They are author-controlled bundle / user / project artifacts (the same trust tier as agents), loaded only from trusted roots.
+
+### The YAML format
+
+A workflow lives at `workflows/<name>.yaml` in a project (`.harness/workflows/`), user (`<harness-home>/workflows/`), or bundle (`bundle-default/workflows/`) root — precedence **project > user > bundle**, mirroring the agent loader. The shipped example is [`bundle-default/workflows/review.yaml`](../bundle-default/workflows/review.yaml):
+
+```yaml
+name: review                       # kebab-case; the invocation name
+description: Review a diff across dimensions, verify each finding, synthesize.
+args:                              # declared, validated inputs
+  diff:       { type: string, required: true }
+  dimensions: { type: list,   required: true }   # e.g. [bugs, security, perf]
+phases:
+  - id: find                       # phase 1 — parallel fan-out (the headline)
+    map:
+      over: args.dimensions        # fan the task across each element
+      as: dimension                # names the loop variable ({{dimension}})
+    task:
+      agent: explore               # a loaded sub-agent (validated at load)
+      output: json                 # parse the agent's final JSON
+      prompt: |
+        Review the {{dimension}} dimension and return
+        {"findings":[{"claim","file","severity"}]}: {{args.diff}}
+  - id: verify                     # phase 2 — BARRIER: waits for all of `find`
+    map:
+      over: find.findings          # dynamic fan-out over a prior phase's output
+      as: finding
+    task:
+      agent: verify
+      output: json
+      prompt: 'Refute this finding; return {"real":bool}: {{finding.claim}}'
+  - id: synthesize                 # phase 3 — a fixed set of one task
+    tasks:
+      - agent: plan
+        prompt: 'Merge the confirmed findings into a report: {{verify.results}}'
+```
+
+**`args`** — declared inputs, each `{ type: string|number|boolean|list, required?, default?, description? }`. Validated + coerced before the run starts.
+
+**`phases`** — run strictly **in order, with a barrier between each**: a phase begins only when the previous phase has fully resolved. A phase has **exactly one** of:
+
+- **`tasks: [ ... ]`** — a fixed set of tasks run in **parallel**. Use this even for a single task (a one-element list).
+- **`map: { over: <ref>, as?: <name> }` + `task: { ... }`** — fan one `task` across each element of the array `over` resolves to. `over` is a ref (`args.<field>` or `<phaseId>.<field>`); `as` names the loop variable (default `item`). This is the **fan-out / map-reduce** primitive.
+
+**`task`** — `{ agent, prompt, lane?, writes?, output?, label? }`:
+
+- `agent` — a loaded sub-agent (`subagent_type`); validated against the agent registry at load.
+- `prompt` — a template (see interpolation below).
+- `lane?` — optional cost-lane override (`cheap-task` / `moderate-task` / `frontier-task`); otherwise the agent's own role/provider resolution applies.
+- `writes?` — declared write-path globs, relative to cwd. **Absent ⇒ the task is read-only** (writes denied entirely, never takes a write lock). **Present ⇒** both the path-lock scope AND an **enforced** write boundary — a `Write`/`Edit`/destructive-`Bash` whose target falls outside the declared globs is **denied** at the permission layer. `['**']` = the whole tree (serializes with everything, the legacy global-lock behavior).
+- `output?` — `'text'` (default; the agent's final text) or `'json'` (the engine extracts + parses a JSON value from the final message, with one repair retry on parse failure).
+- `label?` — display label for progress events; defaults to the agent name.
+
+### Output threading (interpolation)
+
+Prompts are templated by a small, **safe** interpolator — dotpath substitution only, **no `eval`, no expressions**. References:
+
+- `{{args.X}}` — a validated workflow arg.
+- `{{<loopVar>}}` / `{{<loopVar>.field}}` — the current map item (text, or a field of a parsed-JSON item).
+- `{{<phaseId>.text}}` — a single-task phase's final text.
+- `{{<phaseId>.json}}` / `{{<phaseId>.json.field}}` — a single-task phase's parsed JSON (when `output: json`).
+- `{{<phaseId>.results}}` — a map phase's collected outputs (an array; serialized to JSON in text prompts).
+- `{{<phaseId>.<field>}}` — sugar: the flattened array of `item.<field>` across a map phase's JSON outputs (this powers `map.over: find.findings`).
+
+Unresolved refs are a **load-time error** where statically checkable (validated against declared args + prior phase ids), else a clear run-time error.
+
+### Parallelism, lanes, and path-granular locking
+
+The engine fires every task in a phase concurrently (`Promise.all`); **real concurrency is bounded by the lane semaphores + the path-lock manager** inside the scheduler:
+
+- **Read-only tasks** (no `writes`) never take a write lock → fully concurrent.
+- **Write-capable tasks** acquire a per-path lock scoped to their declared `writes`. **Disjoint declared scopes run in parallel**; overlapping scopes serialize. Overlap is computed conservatively — a false "overlap" only costs parallelism, never correctness.
+- A task with no declared `writes` (or with `['**']`) reproduces the legacy behavior — model-driven Agent-tool delegation is byte-identical to before (an undeclared scope = whole tree = the old single global write-lock).
+
+A task that **errors** (terminal ≠ completed) records a structured `{ error }` and does **not** abort the phase (mirroring the scheduler's atom-failure tolerance) — the synthesis phase sees the failures and can report them.
+
+### Invocation surfaces
+
+There are three ways to run a workflow:
+
+**1. CLI — `sov workflow`** (headless; builds a runtime + parent session, cron-style):
+
+```bash
+# List the workflows the loader found (project > user > bundle):
+sov workflow list
+
+# Print a definition:
+sov workflow show review
+
+# Run it; pass args as --arg k=v (list args accept comma-separated or repeated flags):
+sov workflow run review \
+  --arg diff="$(git diff HEAD~1)" \
+  --arg dimensions=bugs,security,performance
+
+# Emit the structured WorkflowResult as JSON instead of progress + text:
+sov workflow run review --arg diff=... --arg dimensions=bugs --json
+```
+
+`run` prints progress events (`[workflow] phase 1: find — 3 task(s) in parallel`, per-task `✓`/`✗` lines) and then the final synthesis text; `--json` emits the structured `WorkflowResult` (`{ ok, phases, finalText, runSummary }`).
+
+**2. Slash command — `/workflow`** (runs in the active TUI session, streams progress, relays the final text as the turn output):
+
+```
+/workflow list
+/workflow review diff=... dimensions=bugs,security,perf
+```
+
+**3. Tool — `workflow_run`** (model-invocable mid-turn). An agent can call `workflow_run { name, args }` to trigger a named workflow. For safety it is **excluded from the sub-agent tool pool** (no workflow-from-subagent → no nesting/recursion in v1) and **excluded from the channel tool pool** (an untrusted inbound sender can't trigger arbitrary workflows) — it is effectively TTY / local-session only.
+
+### Out of scope (v1)
+
+Arbitrary loops / conditionals / `while`, scripted (sandboxed-JS) workflow kinds, nested workflows, resume/checkpointing, and a gateway HTTP route are deferred. v1 is parallel + map fan-out with barriers and output threading. See the design spec [`docs/specs/2026-06-15-multi-agent-workflows-design.md`](specs/2026-06-15-multi-agent-workflows-design.md) for the full rationale.
 
 ## Bundleless Invocation + Default Bundle
 

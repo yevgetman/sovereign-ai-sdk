@@ -1,0 +1,96 @@
+# Multi-agent code-review workflow (bundled example).
+# See docs/extending.md → "Authoring a workflow" and the design spec at
+# docs/specs/2026-06-15-multi-agent-workflows-design.md.
+#
+# Shape: fan-out → verify → synthesize.
+#   1. `find`      — fan one read-only reviewer across each requested dimension
+#                    (parallel; bounded by the lane semaphores) and collect each
+#                    one's findings as JSON.
+#   2. `verify`    — fan an independent skeptic across every collected finding
+#                    (dynamic fan-out over the prior phase's flattened output);
+#                    each returns whether the finding is real.
+#   3. `synthesize`— a single task merges the confirmed findings into a report.
+#
+# All three agents are READ-ONLY (no `writes:` declared), so every task is
+# denied write access and the whole run is side-effect free — safe to run on
+# any diff. Read-only tasks never take a write lock, so the fan-out is fully
+# concurrent.
+name: review
+description: Review a diff across dimensions, adversarially verify each finding, then synthesize a report.
+
+args:
+  diff:
+    type: string
+    required: true
+    description: The unified diff (or a path/description of the change) to review.
+  dimensions:
+    type: list
+    required: true
+    description: Review dimensions to fan out over, e.g. [bugs, security, performance].
+
+phases:
+  # Phase 1 — parallel fan-out: one reviewer per dimension. The map fans the
+  # task across each element of `args.dimensions`; `{{dimension}}` is the
+  # current element. Each task returns JSON so `find.findings` (below) can
+  # flatten the `findings` arrays across every dimension.
+  - id: find
+    map:
+      over: args.dimensions
+      as: dimension
+    task:
+      agent: explore
+      output: json
+      label: review-dimension
+      prompt: |
+        Review the {{dimension}} dimension of the following change. Read the
+        relevant code, then report concrete issues. Return ONLY a JSON object of
+        the form:
+          {"findings": [{"claim": "<one-sentence issue>", "file": "<path>", "severity": "low|medium|high|critical"}]}
+        If you find nothing for this dimension, return {"findings": []}.
+
+        Dimension: {{dimension}}
+
+        Change under review:
+        {{args.diff}}
+
+  # Phase 2 — BARRIER + dynamic fan-out: starts only after every `find` task
+  # resolves. `find.findings` is the flattened array of `item.findings` across
+  # the phase-1 JSON outputs (the `.field` sugar). One verifier per finding.
+  - id: verify
+    map:
+      over: find.findings
+      as: finding
+    task:
+      agent: verify
+      output: json
+      label: verify-finding
+      prompt: |
+        Adversarially check this code-review finding against the actual code.
+        Treat it as a hypothesis and try to refute it. Return ONLY a JSON object:
+          {"real": <true|false>, "reason": "<one sentence>"}
+
+        Finding: {{finding.claim}}
+        File: {{finding.file}}
+        Severity: {{finding.severity}}
+
+  # Phase 3 — single synthesis task: sees the verifier results and produces the
+  # final report. A fixed-set phase with one task uses `tasks:` (the top-level
+  # `task:` form is only for `map`). `{{verify.results}}` is the collected array
+  # of phase-2 outputs (serialized to JSON for the prompt). Uses the frontier
+  # lane for the higher-stakes synthesis reasoning.
+  - id: synthesize
+    tasks:
+      - agent: plan
+        lane: frontier-task
+        output: text
+        label: synthesize-report
+        prompt: |
+          You are writing the final code-review report. Below are review
+          findings that were each independently verified — keep only the ones
+          marked "real": true and write a concise, prioritized report grouped by
+          severity. For each kept finding give the claim, the file, and a
+          one-line rationale. If nothing survived verification, say the change
+          looks clean.
+
+          Verified findings (JSON array):
+          {{verify.results}}
