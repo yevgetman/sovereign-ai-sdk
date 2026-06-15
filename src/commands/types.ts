@@ -13,6 +13,7 @@ import type { RoutingStatsSnapshot } from '../router/stats.js';
 import type { SkillRegistry } from '../skills/types.js';
 import type { Tool } from '../tool/types.js';
 import type { SessionMetrics } from '../ui/sessionSummary.js';
+import type { WorkflowCommandCapability } from './workflowOps.js';
 
 /** One option in a server-emitted picker. M11.5. The optional
  *  `valueColumn` and `badge` are populated by the 2026-05-24 config UX
@@ -267,6 +268,11 @@ export type CommandContext = {
    *  (current dispatch headless mode) can omit it; the command surfaces a
    *  friendly fallback when undefined. */
   getRoutingStats?: (opts?: { all?: boolean }) => RoutingStatsSnapshot;
+  /** 2026-06-15 multi-agent workflows — runtime-bearing capability so
+   *  `/workflow` can list + run declarative workflows in the active session.
+   *  Optional: surfaces without a live runtime (sov config standalone, headless
+   *  dispatch) omit it and the command degrades to a "not wired" message. */
+  workflows?: WorkflowCommandCapability;
 };
 
 /** Slash command that runs locally and returns display text. */

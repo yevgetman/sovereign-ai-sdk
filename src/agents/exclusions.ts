@@ -32,6 +32,13 @@ export const SUBAGENT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set<string>([
   // Parent-side control plane.
   'task_stop',
   'send_message',
+  // Multi-agent workflows (2026-06-15) — `workflow_run` orchestrates its own
+  // fan-out of sub-agent tasks. Excluding it here means a workflow task (itself
+  // a sub-agent child) can never trigger a workflow → no nesting / recursion in
+  // v1. The same exclusion strips `workflow_run` from the cron + channel tool
+  // pools (both filter against this set), so an untrusted remote sender can't
+  // trigger arbitrary workflows.
+  'workflow_run',
 ]);
 
 /**

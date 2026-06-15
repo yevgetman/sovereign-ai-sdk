@@ -15,6 +15,7 @@ import { routingStatsCommand } from './routingStats.js';
 import { SESSION_OPS_COMMANDS } from './sessionOps.js';
 import { TASK_OPS_COMMANDS } from './taskOps.js';
 import type { CommandContext, CommandDispatchResult, SlashCommand } from './types.js';
+import { WORKFLOW_OPS_COMMANDS } from './workflowOps.js';
 
 /** Static category labels for /help. Skill-generated commands fall into
  *  the "skills" bucket; everything else is keyed off the command name. */
@@ -38,6 +39,7 @@ const COMMAND_CATEGORIES: Record<string, string> = {
   tasks: 'session',
   review: 'session',
   continue: 'session',
+  workflow: 'session',
   // model + config
   model: 'config',
   effort: 'config',
@@ -128,6 +130,7 @@ export const COMMANDS: SlashCommand[] = [
   ...TASK_OPS_COMMANDS,
   ...REVIEW_OPS_COMMANDS,
   ...PLUGIN_OPS_COMMANDS,
+  ...WORKFLOW_OPS_COMMANDS,
   routingStatsCommand,
   {
     type: 'local',

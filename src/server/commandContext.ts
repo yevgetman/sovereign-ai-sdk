@@ -36,9 +36,25 @@ import type { ApiMode } from '../providers/types.js';
 import { computeRoutingStats } from '../router/stats.js';
 import { buildSkillCommands } from '../skills/commands.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
+import { runWorkflow } from '../workflows/engine.js';
+import { loadWorkflows } from '../workflows/loader.js';
 import type { Runtime } from './runtime.js';
 import { type SessionContext, rebuildSessionRecall } from './sessionContext.js';
 import { loadHistoryAsMessages } from './sessionId.js';
+
+/** Loader roots for `/workflow` — scans project (cwd) / user (harnessHome) /
+ *  bundle workflows/ dirs, same precedence as the agent loader. */
+function workflowLoaderRoots(runtime: Runtime): {
+  cwd: string;
+  harnessHome: string;
+  bundleRoot?: string;
+} {
+  return {
+    cwd: runtime.cwd,
+    harnessHome: runtime.harnessHome,
+    ...(runtime.bundle?.root !== undefined ? { bundleRoot: runtime.bundle.root } : {}),
+  };
+}
 
 /** Side-effect collector. The route reads these after dispatch and
  *  surfaces them in the CommandResponse envelope so the TUI can react
@@ -511,6 +527,36 @@ export function buildServerCommandContext(
           : runtime.sessionDb.listRoutingAtomsAll()
         : runtime.sessionDb.listRoutingAtomsByParent(sessionId);
       return computeRoutingStats(rows, all ? 'all' : 'session');
+    },
+    // 2026-06-15 multi-agent workflows — `/workflow` runs declarative workflows
+    // in THIS session via the live runtime (scheduler/lanes/path-lock). loads
+    // from project/user/bundle workflows/ on each call (matches /config's
+    // hot-read semantics). run() delegates to the engine, which fans out the
+    // phase tasks in parallel through the scheduler.
+    workflows: {
+      list: async () => {
+        const { byName } = await loadWorkflows(workflowLoaderRoots(runtime));
+        return [...byName.values()].map((w) => ({
+          name: w.def.name,
+          description: w.def.description,
+          source: w.source,
+          phaseCount: w.def.phases.length,
+        }));
+      },
+      run: async (name, args, onEvent) => {
+        const { byName } = await loadWorkflows(workflowLoaderRoots(runtime));
+        const loaded = byName.get(name);
+        if (loaded === undefined) {
+          throw new Error(`unknown workflow '${name}' (try /workflow list)`);
+        }
+        return runWorkflow({
+          runtime,
+          def: loaded.def,
+          args,
+          parentSessionId: sessionId,
+          ...(onEvent !== undefined ? { onEvent } : {}),
+        });
+      },
     },
     // resumeCheckin is REPL-specific (paused-turn resumption). Left
     // undefined; /continue surfaces 'no pending checkin' as it does

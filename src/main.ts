@@ -28,6 +28,7 @@ import {
 } from './config/store.js';
 import type { PermissionMode } from './permissions/types.js';
 import { VERSION } from './version.js';
+import type { WorkflowEvent } from './workflows/events.js';
 
 /**
  * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`
@@ -875,6 +876,102 @@ async function main(argv: string[]): Promise<void> {
         // .tick.lock and can't double-fire a job a live scheduler is running.
         await runner.tick();
         process.stdout.write('tick complete\n');
+      } finally {
+        await runtime.dispose();
+      }
+    });
+
+  const workflowCmd = program
+    .command('workflow')
+    .description('List, show, and run declarative multi-agent workflows (2026-06-15)');
+
+  workflowCmd
+    .command('list')
+    .description('List available workflows (project > user > bundle)')
+    .action(async () => {
+      const { runWorkflowList, formatWorkflowLine } = await import('./cli/workflowCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { getDefaultBundlePath } = await import('./bundle/defaultBundle.js');
+      const { loadBundleIfPresent } = await import('./bundle/loader.js');
+      const bundle = await loadBundleIfPresent(getDefaultBundlePath());
+      const entries = await runWorkflowList({
+        cwd: process.cwd(),
+        harnessHome: resolveHarnessHome(),
+        ...(bundle ? { bundleRoot: bundle.root } : {}),
+      });
+      if (entries.length === 0) {
+        process.stdout.write('no workflows\n');
+        return;
+      }
+      for (const entry of entries) process.stdout.write(`${formatWorkflowLine(entry)}\n`);
+    });
+
+  workflowCmd
+    .command('show <name>')
+    .description('Show the full definition for a workflow')
+    .action(async (name: string) => {
+      const { runWorkflowShow } = await import('./cli/workflowCommand.js');
+      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { getDefaultBundlePath } = await import('./bundle/defaultBundle.js');
+      const { loadBundleIfPresent } = await import('./bundle/loader.js');
+      const bundle = await loadBundleIfPresent(getDefaultBundlePath());
+      const loaded = await runWorkflowShow(name, {
+        cwd: process.cwd(),
+        harnessHome: resolveHarnessHome(),
+        ...(bundle ? { bundleRoot: bundle.root } : {}),
+      });
+      if (!loaded) {
+        process.stderr.write(`no workflow named ${name}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(
+        `${JSON.stringify({ source: loaded.source, ...loaded.def }, null, 2)}\n`,
+      );
+    });
+
+  workflowCmd
+    .command('run <name>')
+    .description('Run a workflow once, headless')
+    .option('--arg <pair...>', 'workflow argument as key=value (repeatable)')
+    .option('--json', 'print the structured WorkflowResult instead of the final text')
+    .action(async (name: string, opts) => {
+      const { runWorkflowRun, parseArgPairs } = await import('./cli/workflowCommand.js');
+      const { formatWorkflowEvent } = await import('./workflows/events.js');
+      const { buildRuntime } = await import('./server/runtime.js');
+      let parsedArgs: Record<string, string>;
+      try {
+        parsedArgs = parseArgPairs(Array.isArray(opts.arg) ? opts.arg : []);
+      } catch (err) {
+        process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+      }
+      const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
+      try {
+        const { result } = await runWorkflowRun({
+          runtime,
+          name,
+          args: parsedArgs,
+          // exactOptionalPropertyTypes — omit onEvent entirely (don't pass
+          // undefined) when --json suppresses progress lines.
+          ...(opts.json === true
+            ? {}
+            : {
+                onEvent: (event: WorkflowEvent) => {
+                  process.stderr.write(`${formatWorkflowEvent(event)}\n`);
+                },
+              }),
+        });
+        if (opts.json === true) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } else {
+          process.stdout.write(`${result.finalText}\n`);
+        }
+        if (!result.ok) process.exit(1);
+      } catch (err) {
+        process.stderr.write(
+          `workflow run failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        process.exit(1);
       } finally {
         await runtime.dispose();
       }
