@@ -8,6 +8,28 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-15 — Multi-agent workflows: adversarial feature review + fixes (v0.6.45)
+
+**Scope.** Adversarial `/code-review` of the just-shipped multi-agent workflow feature (`git diff 80075ea^..HEAD`, ~2.6k insertions / 24 files), then fix every confirmed critical/high/medium autonomously. Review run as a Workflow: 6 parallel finders (pathlock-concurrency, writescope-bypass, engine-correctness, template-safety, loader/types-safety, wiring-integration) → per-finding verify → fresh-reviewer sweep → triaged JSON. **25 candidates → 24 survived verify + 6 sweep = 30 findings** (32 agents, ~2.9M subagent tokens).
+
+**Findings fixed (deduped by root cause).**
+- **CRITICAL — C1 path-lock false-disjoint** (findings 1,3): `globPrefix` cut a glob mid-segment (`src/foo*`→`src/foo`), so `prefixesTouch` judged it disjoint from `src/foobar.ts` while `Bun.Glob` matched both → two write-capable children raced the same file. Fixed: collapse a wildcard glob to its containing DIRECTORY (segment boundary) + case-fold + `./`-normalize (also closes H1 case-insensitive-FS, findings 4,5).
+- **CRITICAL — C2 subprocess-executor write race** (findings 2,6): subscription-executor is `readOnly:true` yet its `claude -p --dangerously-skip-permissions` subprocess writes → it skipped the path-lock. Fixed: force the whole-tree lock for the subprocess executor regardless of label/scope.
+- **HIGH — H2 fan-out >4 dropped tasks** (7,9,22): the per-parent cap (default 4) threw synchronously for the 5th+ task. Fixed: bounded engine worker-pool (width 8) + per-call `maxChildrenOverride`.
+- **HIGH — H3 upstream-failure crash** (8): a downstream interpolation of a failed task's `.json` threw out of `runWorkflow`. Fixed: graceful per-phase degradation.
+- **HIGH — H4 doc/behavior mismatch** (11): writes-less task is whole-tree-locked, not "read-only/denied" — docs corrected.
+- **MEDIUM** — M1 fail-closed empty affectedPaths (12); M2 harness-state/read-only tools exempt from project-scope deny (13,14); M4 wire `validateWorkflow` at run start (16,17,18); M5 loader readdir per-dir try/catch (19); M6/#61 wire `workflow_run` via lazy runtime holder (20); M8 coerce default args (24); M9 quote-aware slash args (27); M10 thread `memoryManager` (26); M11 bare-dir glob subtree match (23); template prototype-chain hardening.
+- **LOW** — finding 29 reject unknown `task.lane`; finding 30 `process.exitCode` so `dispose()` runs on error exit.
+
+**Deferred (documented):** #62 — server-side onEvent→SSE forwarding for `/workflow` TUI progress + slash-launched workflow cancellation (M3/M7 — the command route is synchronous request/response; making it stream is a v-next design change). The CLI surfaces live progress; the slash returns final text. Known limitation: harness-state writes (memory/skill_manage) from two parallel disjoint-scope tasks aren't path-lock-serialized (the lock covers the project tree only) — acceptable within the local-trusted model.
+
+**Commands run (real results).**
+- `bun run typecheck` clean; `bun run lint` clean (785 files).
+- `HARNESS_HOME=$(mktemp -d) bun test` → **4222 pass / 0 fail / 16 skip** (+24 regression tests across pathLock/writeScope/scheduler/engine/loader/template/workflowOps/workflow_run).
+- Go (clean env `env -u HARNESS_HOME HOME=$(mktemp -d)`) → all 6 packages green.
+
+**Result: PASS.** Both critical data races closed (proven false-disjoint repro + subprocess-lock test); the headline parallel fan-out runs every task; the run degrades gracefully on failure; the semantic gate fails fast on every surface; `workflow_run` is now model-invocable.
+
 ## 2026-06-15 — Multi-agent workflows: declarative engine + path-granular locking
 
 **Scope.** Build a deterministic multi-agent orchestration layer into the harness — the gap identified in the prior turn (model-driven fan-out only; a single global write-lock serialized write-capable fan-out). Founder-locked design: a DECLARATIVE engine (no arbitrary code exec) + path-granular locking, with **parallel fan-out as the headline**. Spec `docs/specs/2026-06-15-multi-agent-workflows-design.md`, plan `docs/plans/2026-06-15-multi-agent-workflows.md`. Built W1 (the concurrency core) by hand; W2–W6 via a 5-owner disjoint-file workflow (TDD + per-owner review); seams reconciled centrally.
