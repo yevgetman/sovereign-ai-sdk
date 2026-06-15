@@ -686,6 +686,18 @@ func (m Model) WithTaskRouter(preset string) Model {
 	return m
 }
 
+// WithSubscriptionExecutor flags that the subscription-executor feature is
+// active for this session. When on, delegations route to a headless
+// `claude -p --dangerously-skip-permissions` subprocess (default
+// permissionMode 'bypass' — no approval gate), so StatusLine renders a LOUD
+// chip flagging the no-approval-gate posture (mirrors the bypass permission
+// chip). Off (default) renders nothing. Boot-flag indicator,
+// restart-to-apply. 2026-06-15 patch.
+func (m Model) WithSubscriptionExecutor(on bool) Model {
+	m.statusLine.SubscriptionExecutor = on
+	return m
+}
+
 // WithDebugMode enables granular surfaces tied to `debugMode.enabled`
 // in config. Today: delegator_atom_started and delegator_atom_complete
 // lines render the resolved provider/model in brackets after the lane

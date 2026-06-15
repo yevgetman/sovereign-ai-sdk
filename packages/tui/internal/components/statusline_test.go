@@ -193,6 +193,33 @@ func TestStatusLine_PermissionModeDefaultRendersNothing(t *testing.T) {
 	}
 }
 
+// 2026-06-15 patch — subscription-executor posture chip. Mirrors the loud
+// bypass permission chip because it's the same "no approval gate" posture.
+
+func TestStatusLine_SubscriptionExecutorRendersLoudChip(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(120)
+	s.SubscriptionExecutor = true
+	out := s.View()
+	if !strings.Contains(out, "SUB-EXEC") {
+		t.Errorf("expected loud 'SUB-EXEC' chip when SubscriptionExecutor is on; got %q", out)
+	}
+	// The loud chip leads with the warning glyph (same as the bypass chip).
+	if !strings.Contains(out, "⚠") {
+		t.Errorf("expected warning glyph on the subscription-executor chip; got %q", out)
+	}
+}
+
+func TestStatusLine_SubscriptionExecutorOffRendersNothing(t *testing.T) {
+	s := NewStatusLine(theme.Dark())
+	s.SetWidth(120)
+	// Default (false) — no chip at all.
+	out := s.View()
+	if strings.Contains(out, "SUB-EXEC") {
+		t.Errorf("SubscriptionExecutor off should render no chip; got %q", out)
+	}
+}
+
 func TestStatusLineSetThemeSwapsRender(t *testing.T) {
 	s := NewStatusLine(theme.Dark())
 	s.SetWidth(80)

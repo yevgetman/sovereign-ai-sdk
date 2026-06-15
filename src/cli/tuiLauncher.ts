@@ -350,6 +350,15 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   if (activePreset !== undefined) {
     tuiArgs.push('--task-router', activePreset);
   }
+  // 2026-06-15 patch — surface the subscription-executor posture in the
+  // bottom status line. When enabled, delegations route to a headless
+  // `claude -p --dangerously-skip-permissions` subprocess (default
+  // permissionMode 'bypass' — no approval gate), so the TUI renders a
+  // LOUD chip (same "no approval gate" posture as the bypass permission
+  // chip). Boolean flag, no value; restart-to-apply.
+  if (userSettings.subscriptionExecutor?.enabled === true) {
+    tuiArgs.push('--subscription-executor');
+  }
   // 2026-05-24 patch — debug mode. When enabled (umbrella switch or
   // any child capability), delegator atom lines surface lane
   // provider/model in brackets so users see exactly which model

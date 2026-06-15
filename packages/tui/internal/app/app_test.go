@@ -2245,6 +2245,35 @@ func TestApp_PermissionModeChangedUpdatesStatusLine(t *testing.T) {
 	}
 }
 
+// 2026-06-15 patch — the WithSubscriptionExecutor builder flags the
+// subscription-executor posture so the status line renders a loud chip.
+
+func TestApp_WithSubscriptionExecutorSetsStatusLineField(t *testing.T) {
+	m := New("s-subexec", "").WithSubscriptionExecutor(true)
+	if !m.statusLine.SubscriptionExecutor {
+		t.Errorf("WithSubscriptionExecutor(true) should set statusLine.SubscriptionExecutor; got %v", m.statusLine.SubscriptionExecutor)
+	}
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = model.(Model)
+	// The loud SUB-EXEC chip must be visible in the rendered frame (safety).
+	if !strings.Contains(m.View(), "SUB-EXEC") {
+		t.Errorf("expected loud SUB-EXEC chip in the rendered frame; got:\n%s", m.View())
+	}
+}
+
+func TestApp_WithSubscriptionExecutorOffRendersNoChip(t *testing.T) {
+	// Default (no builder call) — the field is false and no chip renders.
+	m := New("s-subexec-off", "")
+	if m.statusLine.SubscriptionExecutor {
+		t.Errorf("subscription-executor should default to off; got %v", m.statusLine.SubscriptionExecutor)
+	}
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = model.(Model)
+	if strings.Contains(m.View(), "SUB-EXEC") {
+		t.Errorf("subscription-executor off should render no chip; got:\n%s", m.View())
+	}
+}
+
 func TestApp_ToolOutputChangedFlipsRenderMode(t *testing.T) {
 	m := New("s-tooloutput", "")
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

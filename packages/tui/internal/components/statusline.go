@@ -54,6 +54,16 @@ type StatusLine struct {
 	// approval gate (safety reflection).
 	PermissionMode string
 
+	// SubscriptionExecutor — true when the subscription-executor feature
+	// is active for this session (config-level, known at launch and
+	// forwarded as the --subscription-executor boot flag). When on,
+	// delegations route to a headless `claude -p
+	// --dangerously-skip-permissions` subprocess (default permissionMode
+	// 'bypass' — no approval gate), so the right cluster renders a LOUD
+	// red chip (same "no approval gate" posture as the bypass permission
+	// chip). False (default) renders nothing. 2026-06-15 patch.
+	SubscriptionExecutor bool
+
 	// M9 T10 — spinner frame index, advanced by Tick events from app.go.
 	spinner int
 }
@@ -123,6 +133,27 @@ func (s StatusLine) permissionChip() string {
 		Render(label)
 }
 
+// subscriptionExecutorChip renders the subscription-executor indicator, or
+// "" when the feature is off. When on, delegations run via a headless
+// `claude -p --dangerously-skip-permissions` subprocess (no approval gate),
+// so this renders a LOUD chip in the theme's error red (bold) leading with
+// the warning glyph — the same loud posture as the bypass permission chip.
+//
+// Label note: the neighboring chips (BYPASS, PLAN) are short uppercase
+// pills, and a typical right cluster ($x.xxxx · cache n%) leaves little room
+// before the padding hits its floor on an 80-col terminal. The concise
+// uppercase "SUB-EXEC" reads as a status pill consistent with those chips
+// rather than a long lowercase feature name. 2026-06-15 patch.
+func (s StatusLine) subscriptionExecutorChip() string {
+	if !s.SubscriptionExecutor {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Foreground(s.Theme.Error).
+		Bold(true).
+		Render(style.S.Glyph.Warning + " " + "SUB-EXEC")
+}
+
 func (s StatusLine) View() string {
 	// M11.5 — drop the explicit background fill. On terminals where
 	// the configured theme.Background hex doesn't match the actual
@@ -164,6 +195,13 @@ func (s StatusLine) View() string {
 	// (a loud BYPASS chip is impossible to miss there). Rendered with its
 	// own (error/warning) color so it stands out against the dim metadata.
 	if chip := s.permissionChip(); chip != "" {
+		right = chip + sep + right
+	}
+	// Subscription-executor chip sits alongside the permission chip at the
+	// leading edge of the right cluster — both flag a "no approval gate"
+	// posture, so a loud red pill here is impossible to miss. Rendered with
+	// its own error color so it stands out against the dim metadata.
+	if chip := s.subscriptionExecutorChip(); chip != "" {
 		right = chip + sep + right
 	}
 	if s.Streaming {

@@ -64,6 +64,12 @@ func main() {
 		// after the lane name, so users see exactly which model
 		// handled a given response.
 		debugMode = flag.Bool("debug-mode", false, "render granular routing detail in delegator lines (lane provider/model)")
+		// 2026-06-15 patch — subscription-executor posture. When set,
+		// delegations route to a headless `claude -p
+		// --dangerously-skip-permissions` subprocess (default
+		// permissionMode 'bypass' — no approval gate), so the status
+		// line renders a LOUD chip flagging the no-approval-gate posture.
+		subscriptionExecutor = flag.Bool("subscription-executor", false, "render a loud status-line chip flagging that subscription-executor delegations run with no approval gate")
 	)
 	flag.Parse()
 	_ = mouse   // accepted for back-compat
@@ -86,6 +92,7 @@ func main() {
 		WithInitialCommand(*initialCommand).
 		WithConfigOnly(*configOnly).
 		WithTaskRouter(*taskRouter).
+		WithSubscriptionExecutor(*subscriptionExecutor).
 		WithDebugMode(*debugMode)
 	// ux-fixes round 5 — inline mode. Drop the alt screen so transcript
 	// content flows into the terminal's native scrollback (wheel scroll
