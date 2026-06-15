@@ -16,9 +16,11 @@
 //   - Cancellation: parent's AbortSignal composes with a per-child
 //     timeout via AbortSignal.any(); both children and parent share one
 //     cancellation tree.
-//   - Path lock: write-capable children acquire a single global write
-//     mutex (Semaphore(1)) — the v0 path-lock primitive. Per-path
-//     locking can land later when there's a real consumer.
+//   - Path lock (2026-06-15): write-capable children acquire a write SCOPE on
+//     the PathLockManager. Disjoint declared scopes run concurrently;
+//     overlapping ones (and any child with no declared scope, which acquires
+//     `{kind:'all'}` ≡ the whole tree) serialize — so model-driven delegation
+//     is unchanged while workflow tasks declaring disjoint paths parallelize.
 
 import { buildSubagentExclusions } from '../agents/exclusions.js';
 import type { AgentDefinition, AgentRegistry } from '../agents/types.js';
@@ -26,6 +28,7 @@ import type { LaneConfig, SubscriptionExecutorConfig } from '../config/schema.js
 import type { AssistantMessage, SystemSegment, Terminal } from '../core/types.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
+import { wrapCanUseToolWithWriteScope } from '../permissions/writeScope.js';
 import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import { findCapableModel } from '../router/capabilities.js';
@@ -36,7 +39,7 @@ import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
 import { AgentRunner } from './agentRunner.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
-import type { Semaphore } from './semaphore.js';
+import type { PathLockManager, PathScope } from './pathLock.js';
 import {
   type RunSubprocessExecutorOpts,
   type SubprocessExecutorResult,
@@ -55,9 +58,11 @@ const FRONTIER_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai', 
 export type SubagentSchedulerOpts = {
   agents: AgentRegistry;
   laneSemaphores: LaneSemaphores;
-  /** v0 profile-scoped write lock — Semaphore(1). Write-capable children
-   *  serialize through it. Read-only children skip it. */
-  writeLock: Semaphore;
+  /** Path-granular write lock (2026-06-15). Write-capable children acquire a
+   *  write SCOPE; disjoint scopes run concurrently, overlapping ones serialize.
+   *  A child with no declared scope acquires `{kind:'all'}` (the whole tree) —
+   *  byte-identical to the old global Semaphore(1). Read-only children skip it. */
+  pathLock: PathLockManager;
   /** Caller-supplied provider resolution. Tests inject mocks; the REPL
    *  passes a closure that calls resolveProvider() with the live
    *  settings/credentials. */
@@ -150,6 +155,13 @@ export type DelegateInput = {
   parentToolPool: Tool<unknown, unknown>[];
   parentToolContext: ToolContext;
   canUseTool?: CanUseTool;
+  /** 2026-06-15 multi-agent workflows — the child's declared write scope for
+   *  path-granular locking. Absent ⇒ `{kind:'all'}` (whole tree; serializes
+   *  with everything — the legacy global-lock behavior). A `globs` scope both
+   *  (a) lets disjoint write-capable children run in parallel and (b) is
+   *  ENFORCED: the child's writes outside the scope are denied (see
+   *  wrapCanUseToolWithWriteScope), so under-declaration fails closed. */
+  writeScope?: PathScope;
   memoryManager?: MemoryRuntime;
   traceRecorder?: (event: TraceEvent) => void;
   /** Phase 2 T3 — per-child timeout override resolved at dispatch time.
@@ -233,7 +245,10 @@ export class SubagentScheduler {
     try {
       laneRelease = await this.opts.laneSemaphores.acquire(concurrencyLane, input.parentSignal);
       if (!agent.readOnly) {
-        writeLockRelease = await this.opts.writeLock.acquire(input.parentSignal);
+        writeLockRelease = await this.opts.pathLock.acquire(
+          input.writeScope ?? { kind: 'all' },
+          input.parentSignal,
+        );
       }
 
       const tools = buildChildToolPool(input.parentToolPool, agent);
@@ -404,6 +419,15 @@ export class SubagentScheduler {
                 : {}),
             });
           } else {
+            // 2026-06-15 workflows — when the child declares a narrow write
+            // scope, ENFORCE it: deny writes (FileWrite/FileEdit + write-capable
+            // Bash) outside the declared globs, so a disjoint-scope parallel
+            // fan-out can't clash even if the author under-declared. A no-scope
+            // / `{kind:'all'}` child is unaffected.
+            const childCanUseTool =
+              input.writeScope?.kind === 'globs'
+                ? wrapCanUseToolWithWriteScope(input.canUseTool, input.writeScope.globs)
+                : input.canUseTool;
             const runner = new AgentRunner({
               provider: resolved.transport as unknown as LLMProvider,
               model: resolved.model,
@@ -411,7 +435,7 @@ export class SubagentScheduler {
               maxTokens: this.opts.maxTokens,
               tools,
               toolContext: childToolContext,
-              ...(input.canUseTool !== undefined ? { canUseTool: input.canUseTool } : {}),
+              ...(childCanUseTool !== undefined ? { canUseTool: childCanUseTool } : {}),
               ...(input.memoryManager !== undefined ? { memoryManager: input.memoryManager } : {}),
               ...(wrappedTraceRecorder !== undefined
                 ? { traceRecorder: wrappedTraceRecorder }

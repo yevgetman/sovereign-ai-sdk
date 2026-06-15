@@ -43,8 +43,8 @@ import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider, Transport } from '../providers/types.js';
 import { buildLaneRegistry } from '../router/laneRegistry.js';
 import { LaneSemaphores } from '../runtime/laneSemaphores.js';
+import { PathLockManager } from '../runtime/pathLock.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
-import { Semaphore } from '../runtime/semaphore.js';
 import { buildAppWithRuntime } from '../server/app.js';
 import { ApprovalQueue } from '../server/approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from '../server/compactor.js';
@@ -261,14 +261,14 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
   // queried by the scheduler, not the config UI).
   const laneRegistry = buildLaneRegistry(undefined);
   const laneSemaphores = new LaneSemaphores({});
-  const writeLock = new Semaphore(1);
+  const pathLock = new PathLockManager();
 
   // SubagentScheduler: minimal real instance. The closures throw if hit.
   // The config command never delegates.
   const subagentScheduler = new SubagentScheduler({
     agents: { agents: [], byName: new Map() },
     laneSemaphores,
-    writeLock,
+    pathLock,
     resolveProvider: () => {
       throw new Error('provider resolution is not available in config-only mode');
     },
@@ -353,7 +353,7 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     // active session), so this is a no-op that returns immediately.
     rebuildTaskRouting: async () => {},
     cacheEnabled: true,
-    writeLock,
+    pathLock,
     subagentScheduler,
     taskManager,
     daemonEventBus,

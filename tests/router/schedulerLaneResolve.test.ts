@@ -13,8 +13,8 @@ import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { PathLockManager } from '../../src/runtime/pathLock.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { Semaphore } from '../../src/runtime/semaphore.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
 
@@ -185,7 +185,7 @@ describe('SubagentScheduler — resolveLane callback (Phase 1 T7)', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent({ name: 'cheap-worker', role: 'cheap-task' })]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('qwen2.5:7b'),
       createChildSession: makeCreateChildSession(records),
       defaultProvider: 'anthropic',
@@ -209,7 +209,7 @@ describe('SubagentScheduler — resolveLane callback (Phase 1 T7)', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent({ name: 'explorer', role: 'explore' })]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('whatever'),
       createChildSession: makeCreateChildSession(records),
       availableProviders: ['anthropic'],
@@ -236,7 +236,7 @@ describe('SubagentScheduler — resolveLane callback (Phase 1 T7)', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent({ name: 'explorer', role: 'explore' })]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('whatever'),
       createChildSession: makeCreateChildSession(records),
       availableProviders: ['anthropic'],
@@ -264,7 +264,7 @@ describe('SubagentScheduler — resolveLane callback (Phase 1 T7)', () => {
         makeAgent({ name: 'pinned', model: 'openrouter/qwen2.5-72b', role: 'cheap-task' }),
       ]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('qwen2.5-72b'),
       createChildSession: makeCreateChildSession(records),
       defaultProvider: 'anthropic',
@@ -307,7 +307,7 @@ describe('SubagentScheduler — buildChildToolPool (Phase 1 T7)', () => {
         }),
       ]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: makeRecordingProvider(recorded),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',
@@ -339,7 +339,7 @@ describe('SubagentScheduler — buildChildToolPool (Phase 1 T7)', () => {
         }),
       ]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: makeRecordingProvider(recorded),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',
@@ -370,7 +370,7 @@ describe('SubagentScheduler — buildChildToolPool (Phase 1 T7)', () => {
         }),
       ]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: makeRecordingProvider(recorded),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',

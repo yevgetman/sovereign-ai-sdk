@@ -19,8 +19,8 @@ import type { MemoryRuntime } from '../../src/memory/provider.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { PathLockManager } from '../../src/runtime/pathLock.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { Semaphore } from '../../src/runtime/semaphore.js';
 import type { ToolContext } from '../../src/tool/types.js';
 
 function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -103,7 +103,7 @@ describe('scheduler on_delegation hook', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved(),
       createChildSession: () => 'child-1',
       defaultProvider: 'anthropic',
@@ -139,7 +139,7 @@ describe('scheduler on_delegation hook', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => ({
         transport: {
           name: 'hang',
@@ -193,7 +193,7 @@ describe('scheduler on_delegation hook', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved(),
       createChildSession: () => 'child',
       defaultProvider: 'anthropic',
@@ -232,7 +232,7 @@ describe('scheduler child trajectory capture', () => {
       const scheduler = new SubagentScheduler({
         agents: makeAgentRegistry([makeAgent()]),
         laneSemaphores: new LaneSemaphores({}),
-        writeLock: new Semaphore(1),
+        pathLock: new PathLockManager(),
         resolveProvider: () => makeFakeResolved(),
         createChildSession: () => 'child-traj-1',
         defaultProvider: 'anthropic',
@@ -274,7 +274,7 @@ describe('scheduler child trajectory capture', () => {
       const scheduler = new SubagentScheduler({
         agents: makeAgentRegistry([makeAgent()]),
         laneSemaphores: new LaneSemaphores({}),
-        writeLock: new Semaphore(1),
+        pathLock: new PathLockManager(),
         resolveProvider: () => ({
           transport: {
             name: 'hang-then-abort',
@@ -334,7 +334,7 @@ describe('scheduler child trajectory capture', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved(),
       createChildSession: () => 'child-no-traj',
       defaultProvider: 'anthropic',
@@ -366,7 +366,7 @@ describe('scheduler parent-child DB lineage (integration)', () => {
       const scheduler = new SubagentScheduler({
         agents: makeAgentRegistry([makeAgent()]),
         laneSemaphores: new LaneSemaphores({}),
-        writeLock: new Semaphore(1),
+        pathLock: new PathLockManager(),
         resolveProvider: () => makeFakeResolved(),
         createChildSession: (input) =>
           db.createSession({
@@ -411,7 +411,7 @@ describe('scheduler parent-child DB lineage (integration)', () => {
       const scheduler = new SubagentScheduler({
         agents: makeAgentRegistry([makeAgent({ name: 'explore' }), makeAgent({ name: 'verify' })]),
         laneSemaphores: new LaneSemaphores({}),
-        writeLock: new Semaphore(1),
+        pathLock: new PathLockManager(),
         resolveProvider: () => makeFakeResolved(),
         createChildSession: (input) =>
           db.createSession({

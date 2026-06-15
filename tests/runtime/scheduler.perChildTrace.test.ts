@@ -19,8 +19,8 @@ import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { PathLockManager } from '../../src/runtime/pathLock.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { Semaphore } from '../../src/runtime/semaphore.js';
 import type { ToolContext } from '../../src/tool/types.js';
 import type { TraceEvent } from '../../src/trace/types.js';
 
@@ -96,7 +96,7 @@ describe('scheduler per-child trace file (Backlog Item 8)', () => {
       const scheduler = new SubagentScheduler({
         agents: makeAgentRegistry([makeAgent()]),
         laneSemaphores: new LaneSemaphores({}),
-        writeLock: new Semaphore(1),
+        pathLock: new PathLockManager(),
         resolveProvider: () => makeFakeResolved(),
         createChildSession: () => 'child-abc',
         defaultProvider: 'anthropic',
@@ -152,7 +152,7 @@ describe('scheduler per-child trace file (Backlog Item 8)', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved(),
       createChildSession: () => 'child-no-home',
       defaultProvider: 'anthropic',
@@ -187,7 +187,7 @@ describe('scheduler per-child trace file (Backlog Item 8)', () => {
       const scheduler = new SubagentScheduler({
         agents: makeAgentRegistry([makeAgent()]),
         laneSemaphores: new LaneSemaphores({}),
-        writeLock: new Semaphore(1),
+        pathLock: new PathLockManager(),
         resolveProvider: () => makeFakeResolved(),
         createChildSession: () => 'child-headless',
         defaultProvider: 'anthropic',

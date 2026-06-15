@@ -61,7 +61,7 @@ describe('runtime — sub-agent scheduler construction', () => {
 
     expect(runtime.subagentScheduler).toBeDefined();
     expect(runtime.laneSemaphores).toBeDefined();
-    expect(runtime.writeLock).toBeDefined();
+    expect(runtime.pathLock).toBeDefined();
     expect(typeof runtime.subagentScheduler.delegate).toBe('function');
 
     await runtime.dispose();

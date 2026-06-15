@@ -71,8 +71,8 @@ import { TASK_ROUTING_ROLES } from '../router/lanes.js';
 import { runLanePreflight } from '../router/preflight.js';
 import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
+import { PathLockManager } from '../runtime/pathLock.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
-import { Semaphore } from '../runtime/semaphore.js';
 import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
 import { TaskManager } from '../tasks/manager.js';
@@ -404,10 +404,11 @@ export type Runtime = {
    *  re-read prompt files. Internal use; consumers should treat it
    *  as opaque. */
   cacheEnabled: boolean;
-  /** Single-writer lock for write-capable children. Prevents two child
-   *  agents from racing on the same path. v0 is a single in-memory
-   *  Semaphore(1); finer-grained per-path locking lands later. */
-  writeLock: Semaphore;
+  /** Path-granular write lock for write-capable children (2026-06-15).
+   *  Disjoint declared write scopes run in parallel; overlapping ones (and
+   *  any undeclared `{kind:'all'}` child) serialize, preserving the no-clash
+   *  invariant. Replaces the v0 single global Semaphore(1). */
+  pathLock: PathLockManager;
   /** Sub-agent scheduler. The turns route plumbs this onto toolContext
    *  at query() time so AgentTool can call `scheduler.delegate(...)`
    *  for any agent dispatch the model issues. */
@@ -1215,11 +1216,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // the offline learning/review pipelines), and leave concurrency
   // unbounded. Derivations live in three pure helpers above so the
   // wiring is unit-testable.
-  // Write lock: v0 profile-scoped Semaphore(1) for write-capable children.
-  // `agents` is the registry loaded earlier; reuse it as-is. Provider/
-  // model defaults track the parent session.
+  // Write lock: path-granular (2026-06-15) for write-capable children — a child
+  // with no declared scope acquires the whole tree (Semaphore(1)-equivalent),
+  // so model-driven AgentTool delegation is unchanged; workflow tasks declaring
+  // disjoint scopes run in parallel. `agents` is the registry loaded earlier.
   const laneSemaphores = new LaneSemaphores(resolveLaneSemaphoresOpts(userSettings));
-  const writeLock = new Semaphore(1);
+  const pathLock = new PathLockManager();
   // M8 T1 / backlog #30 — when the runtime is router-mode, sub-agent
   // defaults must specialize to the frontier lane. The literal `'router'`
   // string isn't a real provider entry — resolveProvider would throw if a
@@ -1244,7 +1246,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const subagentScheduler = new SubagentScheduler({
     agents,
     laneSemaphores,
-    writeLock,
+    pathLock,
     resolveProvider: (name, model) => resolveProvider(name, model, { harnessHome }),
     createChildSession: (input) => {
       // Phase 2 T1 — pick the metadata shape based on the routing attribution
@@ -1706,7 +1708,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     reloadHooks,
     reloadMcpServers,
     cacheEnabled,
-    writeLock,
+    pathLock,
     subagentScheduler,
     taskManager,
     daemonEventBus,

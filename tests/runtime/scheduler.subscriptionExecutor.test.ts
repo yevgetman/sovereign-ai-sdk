@@ -18,8 +18,8 @@ import type { MemoryRuntime } from '../../src/memory/provider.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { PathLockManager } from '../../src/runtime/pathLock.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { Semaphore } from '../../src/runtime/semaphore.js';
 import {
   type RunSubprocessExecutorOpts,
   type SpawnFn,
@@ -113,7 +113,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider(providerCalled),
       createChildSession: () => 'child-sub-1',
       defaultProvider: 'anthropic',
@@ -161,7 +161,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider(providerCalled),
       createChildSession: () => 'child-sub-2',
       defaultProvider: 'anthropic',
@@ -200,7 +200,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider(providerCalled),
       createChildSession: () => 'child-sub-3',
       defaultProvider: 'anthropic',
@@ -248,7 +248,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider({ called: false }),
       createChildSession: () => 'child-obs-1',
       defaultProvider: 'anthropic',
@@ -309,7 +309,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider({ called: false }),
       createChildSession: () => 'child-obs-2',
       defaultProvider: 'anthropic',
@@ -344,7 +344,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider({ called: false }),
       createChildSession: () => 'child-sub-4',
       defaultProvider: 'anthropic',
@@ -441,7 +441,7 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeRecordingProvider({ called: false }),
       createChildSession: () => 'child-e2e',
       defaultProvider: 'anthropic',

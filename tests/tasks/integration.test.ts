@@ -15,8 +15,8 @@ import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { PathLockManager } from '../../src/runtime/pathLock.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { Semaphore } from '../../src/runtime/semaphore.js';
 import { TaskManager } from '../../src/tasks/manager.js';
 import { TaskStore } from '../../src/tasks/store.js';
 import type { ToolContext } from '../../src/tool/types.js';
@@ -103,7 +103,7 @@ function setup(holdMs = 0): {
   const scheduler = new SubagentScheduler({
     agents: makeRegistry(),
     laneSemaphores: new LaneSemaphores({}),
-    writeLock: new Semaphore(1),
+    pathLock: new PathLockManager(),
     resolveProvider: () => makeResolved(holdMs),
     createChildSession: (input) =>
       db.createSession({

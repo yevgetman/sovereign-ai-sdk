@@ -10,8 +10,8 @@ import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
 import type { ResolvedProvider } from '../../src/providers/resolver.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
 import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { PathLockManager } from '../../src/runtime/pathLock.js';
 import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { Semaphore } from '../../src/runtime/semaphore.js';
 import { buildTool } from '../../src/tool/buildTool.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
 import { FileReadTool } from '../../src/tools/FileReadTool.js';
@@ -157,7 +157,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent({ name: 'explore' })]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('claude-haiku-4-5-20251001'),
       createChildSession: makeCreateChildSession(records),
       defaultProvider: 'anthropic',
@@ -188,7 +188,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('any'),
       createChildSession: () => 'child',
       defaultProvider: 'anthropic',
@@ -210,7 +210,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('m', 50),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',
@@ -262,7 +262,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent({ name: 'explore' })]),
       laneSemaphores: new LaneSemaphores({ local: 1 }),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => trackingProvider(++counter),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'ollama',
@@ -305,7 +305,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([writeAgent]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => {
         const tag = `${++counter}`;
         return {
@@ -357,7 +357,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => ({
         transport: {
           name: 'hang',
@@ -400,7 +400,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent({ name: 'explore', role: 'explore' })]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('whatever'),
       createChildSession: makeCreateChildSession(records),
       // Restrict available providers to anthropic only — should still
@@ -452,7 +452,7 @@ describe('SubagentScheduler', () => {
         }),
       ]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: recordingProvider,
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',
@@ -474,7 +474,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: () => makeFakeResolved('m', 20),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',
@@ -510,7 +510,7 @@ describe('SubagentScheduler', () => {
         makeAgent({ name: 'explore', allowedTools: ['Read'] }),
       ]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       resolveProvider: makeToolRecordingProvider(recordedToolNames),
       createChildSession: makeCreateChildSession([]),
       defaultProvider: 'anthropic',
@@ -538,7 +538,7 @@ describe('SubagentScheduler', () => {
     const scheduler = new SubagentScheduler({
       agents: makeAgentRegistry([makeAgent()]),
       laneSemaphores: new LaneSemaphores({}),
-      writeLock: new Semaphore(1),
+      pathLock: new PathLockManager(),
       // Hold each child a beat so all 6 are in-flight together.
       resolveProvider: () => makeFakeResolved('m', 30),
       createChildSession: makeCreateChildSession([]),
