@@ -966,12 +966,16 @@ async function main(argv: string[]): Promise<void> {
         } else {
           process.stdout.write(`${result.finalText}\n`);
         }
-        if (!result.ok) process.exit(1);
+        // Set the exit code but DON'T process.exit() here — that fires before
+        // the finally's async `await runtime.dispose()` can complete, leaking
+        // MCP child processes and skipping the SQLite close (2026-06-15 review
+        // fix). The process exits with this code once the finally drains.
+        if (!result.ok) process.exitCode = 1;
       } catch (err) {
         process.stderr.write(
           `workflow run failed: ${err instanceof Error ? err.message : String(err)}\n`,
         );
-        process.exit(1);
+        process.exitCode = 1;
       } finally {
         await runtime.dispose();
       }

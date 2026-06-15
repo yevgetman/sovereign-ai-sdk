@@ -87,7 +87,28 @@ function makeRecordingDelegate(scripts: Record<string, Script | Script[]>) {
 
 /** A minimal Runtime stub: only the fields `buildSessionToolContext` +
  *  `buildWorkflowCanUseTool` dereference. Everything else is cast away. */
-function makeStubRuntime(delegate: (input: DelegateInput) => Promise<DelegateResult>): Runtime {
+/** Every agent name referenced across this file's workflow defs. The stub's
+ *  `subagentScheduler.agentNames()` returns these so the engine's semantic gate
+ *  (validateWorkflow) passes — a test that adds a new agent name must add it
+ *  here (the validation error makes that obvious). */
+const STUB_AGENT_NAMES = [
+  'a',
+  'b',
+  'c',
+  'rev',
+  'finder',
+  'verifier',
+  'syn',
+  'ok1',
+  'boom',
+  'ok2',
+  'w',
+];
+
+function makeStubRuntime(
+  delegate: (input: DelegateInput) => Promise<DelegateResult>,
+  agentNames: string[] = STUB_AGENT_NAMES,
+): Runtime {
   const sessionCtx = {
     sessionId: 'wf-parent',
     subdirectoryHintState: { touched: new Set<string>() },
@@ -105,7 +126,7 @@ function makeStubRuntime(delegate: (input: DelegateInput) => Promise<DelegateRes
     taskManager: {},
     laneRegistry: { lookup: () => undefined, entries: () => [] },
     skills: { skills: [], byName: new Map() },
-    subagentScheduler: { delegate },
+    subagentScheduler: { delegate, agentNames: () => agentNames },
     getSessionContext: () => sessionCtx,
   } as unknown as Runtime;
 }
@@ -368,5 +389,195 @@ describe('runWorkflow — failure tolerance + writeScope', () => {
       parentSessionId: PARENT,
     });
     expect(fake.calls[0]?.writeScope).toEqual({ kind: 'globs', globs: ['src/a/**'] });
+  });
+});
+
+describe('runWorkflow — review-fix regressions', () => {
+  // H2 — a phase wider than the scheduler's default per-parent cap (4) must run
+  // EVERY task, not silently drop tasks 5+. The stub delegate has no cap, but
+  // this asserts the engine fires all of them (and the real maxChildrenOverride
+  // lifts the cap end-to-end).
+  test('a phase with >4 tasks runs every task (no silent truncation)', async () => {
+    const fake = makeRecordingDelegate(
+      Object.fromEntries(['a', 'b', 'c', 'finder', 'verifier', 'syn'].map((n) => [n, { text: n }])),
+    );
+    const def: WorkflowDef = {
+      name: 'wide',
+      description: 'd',
+      phases: [
+        {
+          id: 'p',
+          tasks: [
+            { agent: 'a', prompt: '1', output: 'text' },
+            { agent: 'b', prompt: '2', output: 'text' },
+            { agent: 'c', prompt: '3', output: 'text' },
+            { agent: 'finder', prompt: '4', output: 'text' },
+            { agent: 'verifier', prompt: '5', output: 'text' },
+            { agent: 'syn', prompt: '6', output: 'text' },
+          ],
+        },
+      ],
+    };
+    const result = await runWorkflow({
+      runtime: makeStubRuntime(fake.delegate),
+      def,
+      args: {},
+      parentSessionId: PARENT,
+    });
+    expect(fake.calls).toHaveLength(6);
+    expect(result.runSummary.phases[0]).toEqual({ phaseId: 'p', total: 6, failed: 0 });
+  });
+
+  test('every delegate call carries the per-call child-cap override (lifts the default cap)', async () => {
+    const overrides: Array<number | undefined> = [];
+    const def: WorkflowDef = {
+      name: 'cap',
+      description: 'd',
+      phases: [{ id: 'p', tasks: [{ agent: 'a', prompt: 'x', output: 'text' }] }],
+    };
+    await runWorkflow({
+      runtime: makeStubRuntime(async (input) => {
+        overrides.push(input.maxChildrenOverride);
+        return {
+          childSessionId: 'c',
+          agentName: input.agentName,
+          resolvedProvider: 'f',
+          resolvedModel: 'm',
+          terminal: { reason: 'completed' },
+          summary: 'ok',
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          durationMs: 1,
+        };
+      }),
+      def,
+      args: {},
+      parentSessionId: PARENT,
+    });
+    expect(overrides[0]).toBeGreaterThan(4);
+  });
+
+  // H3 — an upstream task failure (recorded as {error}, json undefined) used in
+  // a downstream interpolation must degrade the dependent phase gracefully, NOT
+  // throw out of runWorkflow (the per-task degradation contract).
+  test('a downstream ref to a failed upstream json degrades gracefully (no crash)', async () => {
+    const fake = makeRecordingDelegate({
+      a: { text: 'boom', terminal: 'error' }, // phase A fails → json undefined
+      b: { text: 'b-done' },
+    });
+    const def: WorkflowDef = {
+      name: 'cascade',
+      description: 'd',
+      phases: [
+        { id: 'a', tasks: [{ agent: 'a', prompt: 'go', output: 'json' }] },
+        { id: 'b', tasks: [{ agent: 'b', prompt: 'use {{a.json.value}}', output: 'text' }] },
+      ],
+    };
+    const result = await runWorkflow({
+      runtime: makeStubRuntime(fake.delegate),
+      def,
+      args: {},
+      parentSessionId: PARENT,
+    });
+    // No throw; the run completes ok:false with phase b recorded failed.
+    expect(result.ok).toBe(false);
+    const phaseB = result.runSummary.phases.find((p) => p.phaseId === 'b');
+    expect(phaseB?.failed).toBe(1);
+  });
+
+  // M4 — validateWorkflow is wired at run start: an unknown agent / bad lane /
+  // bad template ref fails fast BEFORE any phase runs.
+  test('rejects an unknown agent at run start (no delegate call)', async () => {
+    const fake = makeRecordingDelegate({ a: { text: 'a' } });
+    const def: WorkflowDef = {
+      name: 'badagent',
+      description: 'd',
+      phases: [{ id: 'p', tasks: [{ agent: 'nonexistent', prompt: 'x', output: 'text' }] }],
+    };
+    await expect(
+      runWorkflow({
+        runtime: makeStubRuntime(fake.delegate),
+        def,
+        args: {},
+        parentSessionId: PARENT,
+      }),
+    ).rejects.toThrow(/unknown agent 'nonexistent'/);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test('rejects an unknown lane at run start', async () => {
+    const def: WorkflowDef = {
+      name: 'badlane',
+      description: 'd',
+      phases: [{ id: 'p', tasks: [{ agent: 'a', prompt: 'x', output: 'text', lane: 'turbo' }] }],
+    };
+    await expect(
+      runWorkflow({
+        runtime: makeStubRuntime(async () => {
+          throw new Error('should not be called');
+        }),
+        def,
+        args: {},
+        parentSessionId: PARENT,
+      }),
+    ).rejects.toThrow(/unknown lane 'turbo'/);
+  });
+
+  // M8 — a list/number default expressed as a string is coerced through the same
+  // path as a provided value (so map.over on a default list works).
+  test('a list default given as a string is coerced into an array (map.over works)', async () => {
+    const fake = makeRecordingDelegate({ rev: { text: 'r' } });
+    const def: WorkflowDef = {
+      name: 'defaults',
+      description: 'd',
+      args: { dims: { type: 'list', default: 'bugs,perf,security' } },
+      phases: [
+        {
+          id: 'review',
+          map: { over: 'args.dims', as: 'dim' },
+          task: { agent: 'rev', prompt: 'check {{dim}}', output: 'text' },
+        },
+      ],
+    };
+    await runWorkflow({
+      runtime: makeStubRuntime(fake.delegate),
+      def,
+      args: {},
+      parentSessionId: PARENT,
+    });
+    expect(fake.calls.map((c) => c.prompt)).toEqual(['check bugs', 'check perf', 'check security']);
+  });
+
+  // M10 — the parent's learning memoryManager is threaded into every delegate
+  // input so workflow tasks feed the on_delegation learning hook.
+  test('threads the parent memoryManager into each delegate input', async () => {
+    let sawMemoryManager = false;
+    const def: WorkflowDef = {
+      name: 'mem',
+      description: 'd',
+      phases: [{ id: 'p', tasks: [{ agent: 'a', prompt: 'x', output: 'text' }] }],
+    };
+    await runWorkflow({
+      runtime: makeStubRuntime(async (input) => {
+        sawMemoryManager = input.memoryManager !== undefined;
+        return {
+          childSessionId: 'c',
+          agentName: input.agentName,
+          resolvedProvider: 'f',
+          resolvedModel: 'm',
+          terminal: { reason: 'completed' },
+          summary: 'ok',
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          durationMs: 1,
+        };
+      }),
+      def,
+      args: {},
+      parentSessionId: PARENT,
+    });
+    expect(sawMemoryManager).toBe(true);
   });
 });

@@ -91,11 +91,46 @@ export async function dispatchWorkflowCommand(
   }
 }
 
-/** Split `<name> k=v k2=v2` into the workflow name and the raw `k=v` tokens. */
+/** Split `<name> k=v k2="multi word"` into the workflow name and the raw `k=v`
+ *  tokens. Quote-aware: a `"..."` or `'...'` segment keeps its inner spaces, so
+ *  a multi-word value (e.g. the `review` workflow's `diff`) survives the slash
+ *  surface instead of shattering on whitespace (2026-06-15 review fix M9). */
 function splitNameAndArgs(args: string): { name: string; pairs: string[] } {
-  const parts = args.split(/\s+/).filter((p) => p.length > 0);
-  const name = parts[0] ?? '';
-  return { name, pairs: parts.slice(1) };
+  const tokens = tokenizeArgs(args);
+  const name = tokens[0] ?? '';
+  return { name, pairs: tokens.slice(1) };
+}
+
+/** Whitespace-split that respects single/double quotes (quotes are stripped). */
+function tokenizeArgs(input: string): string[] {
+  const tokens: string[] = [];
+  let cur = '';
+  let started = false;
+  let quote: '"' | "'" | null = null;
+  for (const ch of input) {
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) {
+        tokens.push(cur);
+        cur = '';
+        started = false;
+      }
+      continue;
+    }
+    cur += ch;
+    started = true;
+  }
+  if (started) tokens.push(cur);
+  return tokens;
 }
 
 /** Parse `k=v` tokens into a string-valued map; the engine coerces against the

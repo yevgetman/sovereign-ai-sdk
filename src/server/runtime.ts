@@ -80,6 +80,7 @@ import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
+import { buildWorkflowRunTool } from '../tools/WorkflowRunTool.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
@@ -798,7 +799,22 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     };
   };
 
-  let toolPool = assembleToolPool(toolCtx, { mcpTools, harnessInfoSnapshot });
+  // 2026-06-15 multi-agent workflows — the model-invocable `workflow_run` tool
+  // needs the full runtime, but the pool is assembled here, BEFORE the runtime
+  // object exists. Bind it to a holder filled in once `runtime` is constructed
+  // (mirrors laneRegistryHolder); `getRuntime()` is only ever called inside the
+  // tool's `call()` (turn time), by which point the holder is populated.
+  const runtimeHolder: { current: Runtime | undefined } = { current: undefined };
+  const workflowRunTool = buildWorkflowRunTool({
+    getRuntime: () => {
+      if (runtimeHolder.current === undefined) {
+        throw new Error('workflow_run invoked before runtime construction');
+      }
+      return runtimeHolder.current;
+    },
+  }) as unknown as Tool<unknown, unknown>;
+
+  let toolPool = assembleToolPool(toolCtx, { mcpTools, harnessInfoSnapshot, workflowRunTool });
   finalToolPoolRef = toolPool;
 
   // Determine provider mode BEFORE permission cascade reads userSettings —
@@ -1451,7 +1467,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       harnessHome,
       agents: freshVisibleAgents,
     };
-    const freshPool = assembleToolPool(freshToolCtx, { mcpTools, harnessInfoSnapshot });
+    const freshPool = assembleToolPool(freshToolCtx, {
+      mcpTools,
+      harnessInfoSnapshot,
+      workflowRunTool,
+    });
     runtime.toolPool.length = 0;
     runtime.toolPool.push(...freshPool);
     finalToolPoolRef = runtime.toolPool;
@@ -1656,7 +1676,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       harnessHome,
       agents: freshVisibleAgents,
     };
-    const freshPool = assembleToolPool(freshToolCtx, { mcpTools, harnessInfoSnapshot });
+    const freshPool = assembleToolPool(freshToolCtx, {
+      mcpTools,
+      harnessInfoSnapshot,
+      workflowRunTool,
+    });
     runtime.toolPool.length = 0;
     runtime.toolPool.push(...freshPool);
     finalToolPoolRef = runtime.toolPool;
@@ -1787,6 +1811,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       sessionDb.close();
     },
   };
+
+  // 2026-06-15 multi-agent workflows — populate the holder the `workflow_run`
+  // tool reads (built above, before this literal existed). Safe now: the tool's
+  // getRuntime() only fires at turn time, long after this binds.
+  runtimeHolder.current = runtime;
 
   // Phase 17 — arm the cron runner AFTER the runtime literal is complete.
   // createProductionCronRunner closes over `runtime` (its `runAgent`

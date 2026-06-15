@@ -110,6 +110,17 @@ describe('interpolate — no eval / dotpath only', () => {
     const out = interpolate('keep { this } literal {{args.x}}', ctx({ args: { x: 'v' } }));
     expect(out).toBe('keep { this } literal v');
   });
+
+  // 2026-06-15 review hardening — a ref to an inherited (non-own) key must NOT
+  // walk the prototype chain (it would silently render '[]'/'{}'/ 'undefined');
+  // it fails fast as an unresolved reference instead.
+  test('does not resolve prototype-chain keys (__proto__ / constructor / toString)', () => {
+    const c = ctx({ args: { items: [1, 2, 3] }, item: { x: 1 } });
+    expect(() => interpolate('{{args.items.__proto__}}', c)).toThrow(/unresolved reference/);
+    expect(() => interpolate('{{args.items.constructor}}', c)).toThrow(/unresolved reference/);
+    expect(() => interpolate('{{toString}}', c)).toThrow(/unknown root/);
+    expect(() => interpolate('{{constructor.findings}}', c)).toThrow(/unknown root/);
+  });
 });
 
 describe('resolveOverArray', () => {

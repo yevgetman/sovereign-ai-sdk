@@ -371,4 +371,60 @@ phases:
     // unknown agent + unknown arg
     expect(errors.length).toBeGreaterThanOrEqual(2);
   });
+
+  // 2026-06-15 review fix (finding 29) — an unknown `task.lane` is rejected when
+  // the valid-lane set is supplied (it would otherwise silently mis-route).
+  test('rejects an unknown lane when validLanes is supplied', () => {
+    const def = parse(`
+name: w
+description: bad lane
+phases:
+  - id: a
+    tasks:
+      - agent: a
+        prompt: hi
+        lane: turbo
+`);
+    const ok = validateWorkflow(def, ['a'], ['cheap-task', 'frontier-task']);
+    expect(ok.some((e) => e.includes("unknown lane 'turbo'"))).toBe(true);
+    const good = parse(`
+name: w
+description: good lane
+phases:
+  - id: a
+    tasks:
+      - agent: a
+        prompt: hi
+        lane: frontier-task
+`);
+    expect(validateWorkflow(good, ['a'], ['cheap-task', 'frontier-task'])).toEqual([]);
+  });
+});
+
+describe('loadWorkflows — directory tolerance (M5)', () => {
+  test('an unreadable subdirectory is skipped, not a whole-scan crash', async () => {
+    await withTmp(async (dir) => {
+      const bundleRoot = join(dir, 'bundle');
+      writeWorkflow(join(bundleRoot, 'workflows/ok.yaml'), MINIMAL_BODY('ok'));
+      // A mode-0o000 subdirectory under the workflows root → readdir EACCES.
+      const locked = join(bundleRoot, 'workflows', 'locked');
+      mkdirSync(locked, { recursive: true });
+      const { chmodSync } = await import('node:fs');
+      chmodSync(locked, 0o000);
+      const warnings: string[] = [];
+      try {
+        const { byName } = await loadWorkflows({
+          cwd: join(dir, 'project'),
+          harnessHome: join(dir, 'home'),
+          bundleRoot,
+          warn: (m) => warnings.push(m),
+        });
+        // The readable workflow still loaded (no scan abort).
+        expect(byName.get('ok')).toBeDefined();
+        expect(warnings.some((m) => m.includes('directory skipped'))).toBe(true);
+      } finally {
+        chmodSync(locked, 0o755); // so the tmp cleanup can remove it
+      }
+    });
+  });
 });

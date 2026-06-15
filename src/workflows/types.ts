@@ -28,13 +28,17 @@ export const TaskSchema = z
     agent: z.string().min(1),
     /** Templated prompt — {{args.X}}, {{<loopVar>}}, {{<phaseId>.text|json|results|field}}. */
     prompt: z.string().min(1),
-    /** Optional cost-lane override (cheap|moderate|frontier|…); otherwise the
-     *  agent's own role/provider resolution applies. */
+    /** Optional cost-lane override (one of the canonical lane names:
+     *  cheap-task | moderate-task | frontier-task | delegator); validated at run
+     *  start. Otherwise the agent's own role/provider resolution applies. */
     lane: z.string().min(1).optional(),
-    /** Declared write-path globs (relative to cwd). ABSENT ⇒ the task is
-     *  read-only (never takes a write lock; writes denied). PRESENT ⇒ both the
-     *  path-lock scope AND an ENFORCED write boundary (writes outside are
-     *  denied). `['**']` = whole tree (serializes with everything). */
+    /** Declared write-path globs (relative to cwd). ABSENT ⇒ the task acquires
+     *  the WHOLE-TREE write lock (`{kind:'all'}`, serializes with every other
+     *  writer — the legacy global-lock behavior) and its writes are governed by
+     *  normal permissions; declare `writes` to enable parallel disjoint write
+     *  fan-out. PRESENT ⇒ both the path-lock scope AND an ENFORCED write boundary
+     *  (writes outside the globs are denied). `['**']` = whole tree (serializes
+     *  with everything). */
     writes: z.array(z.string().min(1)).optional(),
     /** 'text' (default — the agent's final text) or 'json' (the engine parses a
      *  JSON value from the final message, with one repair retry). */

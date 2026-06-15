@@ -5,8 +5,12 @@
 // Closure-injected factory (mirrors buildHarnessInfoTool / buildToolSearchTool):
 // the engine entrypoint runWorkflow needs the full Runtime (scheduler, session
 // DB, tool pool), which a tool's ToolContext does not carry — so the runtime
-// supplies it via this factory at tool-pool assembly time (the W7 integration
-// seam wires `buildWorkflowRunTool({ runtime })` into assembleToolPool).
+// supplies it via this factory at tool-pool assembly time. Because the pool is
+// assembled DURING runtime construction (before the runtime object exists), the
+// factory takes a lazy `getRuntime` accessor backed by a holder the runtime
+// fills in once built (mirrors the laneRegistryHolder pattern); `getRuntime()`
+// is only ever called inside `call()`, which runs at turn time when the holder
+// is populated.
 //
 // Safety (spec §"Invocation surfaces"): `workflow_run` is in
 // SUBAGENT_EXCLUDED_TOOLS so it can never nest (a workflow task can't itself
@@ -46,14 +50,15 @@ export type WorkflowRunToolOutput = {
   phases: Array<{ phaseId: string; total: number; failed: number }>;
 };
 
-/** Build the `workflow_run` tool bound to a live Runtime. The runtime supplies
- *  the loader roots (cwd / harnessHome / bundleRoot) and the engine's runtime
- *  dependency. */
-export function buildWorkflowRunTool(deps: { runtime: Runtime }): Tool<
+/** Build the `workflow_run` tool bound to a live Runtime via a lazy accessor.
+ *  The runtime supplies the loader roots (cwd / harnessHome / bundleRoot) and
+ *  the engine's runtime dependency. `getRuntime` is resolved inside `call()`
+ *  (turn time), so it can be wired before the runtime object is constructed. */
+export function buildWorkflowRunTool(deps: { getRuntime: () => Runtime }): Tool<
   Input,
   WorkflowRunToolOutput
 > {
-  const { runtime } = deps;
+  const { getRuntime } = deps;
   return buildTool<Input, WorkflowRunToolOutput>({
     name: WORKFLOW_RUN_TOOL_NAME,
     searchHint: 'Run a named declarative multi-agent workflow.',
@@ -73,6 +78,7 @@ export function buildWorkflowRunTool(deps: { runtime: Runtime }): Tool<
     isDestructive: () => false,
     renderHint: { kind: 'markdown' },
     async call(input, ctx) {
+      const runtime = getRuntime();
       const { loadWorkflows } = await import('../workflows/loader.js');
       const { runWorkflow } = await import('../workflows/engine.js');
 

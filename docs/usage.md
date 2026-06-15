@@ -578,11 +578,11 @@ Unresolved refs are a **load-time error** where statically checkable (validated 
 
 ### Parallelism, lanes, and path-granular locking
 
-The engine fires every task in a phase concurrently (`Promise.all`); **real concurrency is bounded by the lane semaphores + the path-lock manager** inside the scheduler:
+The engine fans a phase's tasks out concurrently, **bounded to a fixed in-flight width** (the rest queue, so a wide `map` can't exhaust resources or trip the scheduler's per-parent child cap); **real provider concurrency is bounded further by the lane semaphores + the path-lock manager** inside the scheduler:
 
-- **Read-only tasks** (no `writes`) never take a write lock → fully concurrent.
-- **Write-capable tasks** acquire a per-path lock scoped to their declared `writes`. **Disjoint declared scopes run in parallel**; overlapping scopes serialize. Overlap is computed conservatively — a false "overlap" only costs parallelism, never correctness.
-- A task with no declared `writes` (or with `['**']`) reproduces the legacy behavior — model-driven Agent-tool delegation is byte-identical to before (an undeclared scope = whole tree = the old single global write-lock).
+- **Read-only agents** never take a write lock → fully concurrent.
+- **Write-capable tasks** acquire a per-path lock scoped to their declared `writes`. **Disjoint declared scopes run in parallel**; overlapping scopes serialize. Overlap is computed conservatively (at a directory-segment boundary, case-folded) — a false "overlap" only costs parallelism, never correctness.
+- A write-capable task with no declared `writes` (or with `['**']`) acquires the **whole-tree lock** — model-driven Agent-tool delegation is byte-identical to before (an undeclared scope = whole tree = the old single global write-lock).
 
 A task that **errors** (terminal ≠ completed) records a structured `{ error }` and does **not** abort the phase (mirroring the scheduler's atom-failure tolerance) — the synthesis phase sees the failures and can report them.
 

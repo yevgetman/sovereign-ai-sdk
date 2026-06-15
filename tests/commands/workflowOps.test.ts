@@ -83,6 +83,28 @@ describe('/workflow dispatch', () => {
     });
   });
 
+  // 2026-06-15 review fix M9 — a quoted multi-word value survives the slash
+  // surface (the `review` workflow's `diff` arg) instead of shattering on
+  // whitespace into an "invalid argument" error.
+  test('/workflow <name> parses a quoted multi-word arg value', async () => {
+    let ran: { name: string; args: Record<string, unknown> } | null = null;
+    const out = await dispatchWorkflowCommand(
+      'review-changes diff="the broken parser" dimensions=bugs,perf',
+      ctxWithWorkflows({
+        list: async () => SAMPLE_SUMMARIES,
+        run: async (name, args) => {
+          ran = { name, args };
+          return makeResult({ finalText: 'ok' });
+        },
+      }),
+    );
+    expect(out).toBe('ok');
+    expect(ran as { name: string; args: Record<string, unknown> } | null).toEqual({
+      name: 'review-changes',
+      args: { diff: 'the broken parser', dimensions: 'bugs,perf' },
+    });
+  });
+
   test('an empty finalText falls back to a status line', async () => {
     const out = await dispatchWorkflowCommand(
       'review-changes',

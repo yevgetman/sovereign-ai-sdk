@@ -55,12 +55,17 @@ function renderValue(value: unknown): string {
 }
 
 /** Walk a dotpath of literal keys into a value. Returns `undefined` the moment
- *  a segment can't be reached (non-object parent or missing key) so the caller
- *  can raise a precise unresolved-ref error. */
+ *  a segment can't be reached (non-object parent or missing OWN key) so the
+ *  caller can raise a precise unresolved-ref error. Only OWN enumerable-or-not
+ *  properties resolve — `__proto__` / `constructor` / `toString` and other
+ *  inherited keys never reach the prototype chain (2026-06-15 review hardening),
+ *  so a ref to a reserved key fails fast instead of silently rendering an
+ *  inherited function as '[]' / '{}' / 'undefined'. */
 function walkPath(root: unknown, segments: string[]): unknown {
   let current = root;
   for (const seg of segments) {
     if (current === null || typeof current !== 'object') return undefined;
+    if (!Object.hasOwn(current, seg)) return undefined;
     current = (current as Record<string, unknown>)[seg];
     if (current === undefined) return undefined;
   }
@@ -118,11 +123,13 @@ function resolveRef(ref: string, ctx: TemplateContext): unknown {
     if (value === undefined) throw new Error(`unresolved reference '{{${ref}}}': no such arg`);
     return value;
   }
-  if (ctx.item !== undefined && root in ctx.item) {
+  if (ctx.item !== undefined && Object.hasOwn(ctx.item, root)) {
     return rest.length === 0 ? ctx.item[root] : walkPath(ctx.item[root], rest);
   }
-  const phase = ctx.phases[root];
-  if (phase !== undefined) return resolvePhaseRef(phase, ref, rest);
+  if (Object.hasOwn(ctx.phases, root)) {
+    const phase = ctx.phases[root];
+    if (phase !== undefined) return resolvePhaseRef(phase, ref, rest);
+  }
 
   throw new Error(`unresolved reference '{{${ref}}}': unknown root '${root}'`);
 }

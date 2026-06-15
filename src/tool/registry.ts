@@ -108,6 +108,11 @@ export type AssembleToolPoolOpts = {
    *  pool via reference cells supplied by the REPL. When omitted, the
    *  HarnessInfo tool is not registered. */
   harnessInfoSnapshot?: () => HarnessInfoSnapshot;
+  /** 2026-06-15 multi-agent workflows — the runtime-bound `workflow_run` tool
+   *  (built lazily via a runtime holder; see buildWorkflowRunTool). When
+   *  supplied it is appended so the model can trigger a named workflow
+   *  mid-turn. Omitted on surfaces without a live runtime. */
+  workflowRunTool?: Tool<unknown, unknown>;
 };
 
 /**
@@ -134,7 +139,12 @@ export function assembleToolPool(
   const harnessInfo = opts.harnessInfoSnapshot
     ? (buildHarnessInfoTool(opts.harnessInfoSnapshot) as unknown as Tool<unknown, unknown>)
     : null;
-  const withExtras = [...enabled, toolSearch, ...(harnessInfo ? [harnessInfo] : [])];
+  const withExtras = [
+    ...enabled,
+    toolSearch,
+    ...(harnessInfo ? [harnessInfo] : []),
+    ...(opts.workflowRunTool ? [opts.workflowRunTool] : []),
+  ];
   // Phase 13.5 — patchSchemasAgainstAvailable() reads ctx.agents to
   // populate AgentTool's `subagent_type` enum with only the agents that
   // are actually loaded. When no agents are loaded (or the field is

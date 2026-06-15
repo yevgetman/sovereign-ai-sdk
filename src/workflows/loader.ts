@@ -14,6 +14,7 @@
 // every `{{...}}` template ref must resolve to a declared arg, the current
 // map loop variable, or an EARLIER phase's id.
 
+import type { Dirent } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -62,7 +63,7 @@ export async function loadWorkflows(opts: LoadWorkflowsOptions): Promise<LoadWor
   const byName = new Map<string, LoadedWorkflow>();
 
   for (const root of roots) {
-    for (const file of await listYamlFiles(root.path)) {
+    for (const file of await listYamlFiles(root.path, opts.warn)) {
       const rp = await safeRealpath(file, opts.warn);
       if (rp === null) continue;
       if (seenRealpaths.has(rp)) continue;
@@ -120,19 +121,29 @@ async function loadWorkflowFile(
   }
 }
 
-async function listYamlFiles(root: string): Promise<string[]> {
+async function listYamlFiles(root: string, warn?: (message: string) => void): Promise<string[]> {
   if (!existsSync(root)) return [];
   const out: string[] = [];
-  await walk(root, out);
+  await walk(root, out, warn);
   return out.sort();
 }
 
-async function walk(dir: string, out: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
+async function walk(dir: string, out: string[], warn?: (message: string) => void): Promise<void> {
+  // Per-DIRECTORY tolerance: an unreadable subdirectory (EACCES, stale mount)
+  // is skipped with a warning rather than aborting the whole scan and dropping
+  // already-collected workflows (2026-06-15 review fix M5 — mirrors the
+  // per-file tolerance in loadWorkflowFile).
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    warn?.(`workflow directory skipped (${dir}): ${errorMessage(err)}`);
+    return;
+  }
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      await walk(path, out);
+      await walk(path, out, warn);
       continue;
     }
     if (entry.isFile() && YAML_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
@@ -145,12 +156,19 @@ async function walk(dir: string, out: string[]): Promise<void> {
  * Semantic validation of a loaded workflow against the known agent registry.
  * Returns a list of human-readable error strings (empty ⇒ valid):
  *  - every `task.agent` must name a loaded agent;
+ *  - every `task.lane` (if any) must be a known cost-lane name (when
+ *    `validLanes` is supplied) — an unknown lane silently mis-routes;
  *  - every `{{...}}` template ref in a prompt must resolve to a declared arg
  *    (`args.<name>`), the current map loop variable, or an EARLIER phase id.
  */
-export function validateWorkflow(def: WorkflowDef, agentNames: Iterable<string>): string[] {
+export function validateWorkflow(
+  def: WorkflowDef,
+  agentNames: Iterable<string>,
+  validLanes?: Iterable<string>,
+): string[] {
   const errors: string[] = [];
   const agents = new Set(agentNames);
+  const lanes = validLanes !== undefined ? new Set(validLanes) : undefined;
   const declaredArgs = new Set(Object.keys(def.args ?? {}));
   const priorPhaseIds = new Set<string>();
 
@@ -159,6 +177,7 @@ export function validateWorkflow(def: WorkflowDef, agentNames: Iterable<string>)
     validatePhaseOver(phase, declaredArgs, priorPhaseIds, errors);
     for (const task of phaseTasks(phase)) {
       validateTaskAgent(task, phase.id, agents, errors);
+      validateTaskLane(task, phase.id, lanes, errors);
       validateTaskRefs(task, phase.id, declaredArgs, priorPhaseIds, loopVar, errors);
     }
     priorPhaseIds.add(phase.id);
@@ -202,6 +221,20 @@ function validateTaskAgent(
 ): void {
   if (!agents.has(task.agent)) {
     errors.push(`phase '${phaseId}' task references unknown agent '${task.agent}'`);
+  }
+}
+
+function validateTaskLane(
+  task: Task,
+  phaseId: string,
+  validLanes: Set<string> | undefined,
+  errors: string[],
+): void {
+  if (task.lane === undefined || validLanes === undefined) return;
+  if (!validLanes.has(task.lane)) {
+    errors.push(
+      `phase '${phaseId}' task references unknown lane '${task.lane}' (valid: ${[...validLanes].join(', ')})`,
+    );
   }
 }
 

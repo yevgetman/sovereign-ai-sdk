@@ -12,9 +12,11 @@
 //      only when the previous fully resolves):
 //        - resolve the task list (fixed `tasks`, or `map` → one task per
 //          element of the resolved-array, binding the loop var);
-//        - fire ALL tasks in PARALLEL (the headline) via Promise.all over
-//          `delegate(...)`. Real concurrency is bounded by the lane semaphores
-//          + the path-lock INSIDE delegate(); the engine just fires them.
+//        - fan the tasks out in PARALLEL (the headline) over `delegate(...)`,
+//          bounded to WORKFLOW_PHASE_CONCURRENCY in flight (the rest queue) so a
+//          wide `map` can't exhaust resources or trip the scheduler's per-parent
+//          child cap. Real provider concurrency is throttled further by the lane
+//          semaphores + the path-lock INSIDE delegate().
 //        - collect each task's output (text, or parsed JSON for `output:json`)
 //          keyed by phase id. A task whose terminal != completed (or whose JSON
 //          fails to parse after one repair retry) records `{ error }` and does
@@ -24,12 +26,14 @@
 import { loadPermissionSettings } from '../config/settings.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import type { AskResponse } from '../permissions/types.js';
+import { KNOWN_LANE_NAMES } from '../router/laneRegistry.js';
 import type { PathScope } from '../runtime/pathLock.js';
 import type { DelegateInput, DelegateResult } from '../runtime/scheduler.js';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
 import type { ToolContext } from '../tool/types.js';
 import type { WorkflowEventSink } from './events.js';
+import { validateWorkflow } from './loader.js';
 import {
   type PhaseOutput,
   type TaskOutput,
@@ -41,6 +45,34 @@ import type { ArgSpec, Phase, Task, WorkflowDef } from './types.js';
 
 /** Default loop-variable name when a `map` phase omits `as`. */
 const DEFAULT_LOOP_VAR = 'item';
+
+/** Max tasks the engine runs concurrently within a phase. Bounds resource use
+ *  (a `map` over a 1000-element list spawns at most this many children at once,
+ *  the rest queue) AND is passed as the per-call child-cap override so the
+ *  scheduler's default recursion guard never truncates a wide fan-out. Real
+ *  provider concurrency is throttled further by the lane semaphores. */
+const WORKFLOW_PHASE_CONCURRENCY = 8;
+
+/** Run `items` through `fn` with at most `limit` concurrent in flight, preserving
+ *  result order. Used to bound a phase's parallel fan-out. */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i] as T, i);
+    }
+  };
+  const width = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: width }, () => worker()));
+  return results;
+}
 
 export type RunWorkflowOpts = {
   runtime: Runtime;
@@ -74,7 +106,11 @@ export function validateArgs(
   for (const [name, spec] of Object.entries(declared)) {
     const provided = raw[name];
     if (provided === undefined) {
-      if (spec.default !== undefined) out[name] = spec.default;
+      // Coerce the default through the SAME path as a provided value — so a
+      // `list`/`number` default expressed as a string (e.g. `default: 'a,b'`)
+      // is split/parsed identically and a later `map.over: args.<list>` works
+      // whether the value came from the default or `--arg` (2026-06-15 review).
+      if (spec.default !== undefined) out[name] = coerceArg(name, spec, spec.default);
       else if (spec.required) throw new Error(`workflow arg '${name}' is required`);
       continue;
     }
@@ -157,8 +193,20 @@ function buildTaskDelegateInput(
     parentSessionId,
     parentToolPool: parentToolContext.parentToolPool ?? [],
     parentToolContext,
+    // Lift the per-parent child cap to the engine's bounded phase-fan-out width
+    // so a wide (operator-declared) parallel fan-out isn't silently truncated by
+    // the default recursion-guard cap. The engine already bounds real in-flight
+    // concurrency to this width (see runPhase), so this never spawns more.
+    maxChildrenOverride: WORKFLOW_PHASE_CONCURRENCY,
     ...(parentToolContext.canUseTool !== undefined
       ? { canUseTool: parentToolContext.canUseTool }
+      : {}),
+    // Thread the parent's learning memory manager so a workflow-delegated task
+    // feeds the scheduler's on_delegation learning hook exactly as a model-driven
+    // AgentTool delegation does (2026-06-15 review — the active learning soak
+    // relies on this; it was previously dropped).
+    ...(parentToolContext.memoryManager !== undefined
+      ? { memoryManager: parentToolContext.memoryManager }
       : {}),
     ...(writeScope !== undefined ? { writeScope } : {}),
     ...(task.lane !== undefined ? { roleOverride: task.lane } : {}),
@@ -287,13 +335,30 @@ async function runPhase(
   signal: AbortSignal | undefined,
   onEvent: WorkflowEventSink | undefined,
 ): Promise<{ output: PhaseOutput; total: number; failed: number }> {
-  const tasks = resolvePhaseTasks(phase, ctx);
+  // Resolve the phase's task list (interpolating prompts / the map.over array).
+  // This can THROW when an earlier phase failed and a downstream ref reads its
+  // missing `.json` — in that case the whole phase degrades to a single failed
+  // task rather than crashing the run (the per-task failure contract must hold
+  // for resolution-time failures too, 2026-06-15 review fix H3).
+  let tasks: ResolvedTask[];
+  try {
+    tasks = resolvePhaseTasks(phase, ctx);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onEvent?.({ type: 'workflow_phase_started', phaseId: phase.id, index, taskCount: 0 });
+    const errorTask: TaskOutput = { text: '', error: message };
+    return { output: toPhaseOutput(phase, [errorTask]), total: 1, failed: 1 };
+  }
   onEvent?.({ type: 'workflow_phase_started', phaseId: phase.id, index, taskCount: tasks.length });
 
-  // The headline: fire ALL tasks in parallel. Real concurrency is bounded by
-  // the lane semaphores + the path-lock inside delegate(); we just fire.
-  const outputs = await Promise.all(
-    tasks.map(async (resolved, i) => {
+  // The headline: fan the phase's tasks out in PARALLEL, bounded to
+  // WORKFLOW_PHASE_CONCURRENCY in flight (the rest queue). Real provider
+  // concurrency is throttled further by the lane semaphores + the path-lock
+  // inside delegate().
+  const outputs = await mapWithConcurrency(
+    tasks,
+    WORKFLOW_PHASE_CONCURRENCY,
+    async (resolved, i) => {
       onEvent?.({
         type: 'workflow_task_started',
         phaseId: phase.id,
@@ -316,7 +381,7 @@ async function runPhase(
         ok: output.error === undefined,
       });
       return output;
-    }),
+    },
   );
 
   const failed = outputs.filter((o) => o.error !== undefined).length;
@@ -336,6 +401,22 @@ function finalTextOf(output: PhaseOutput | undefined): string {
 export async function runWorkflow(opts: RunWorkflowOpts): Promise<WorkflowResult> {
   const { runtime, def, parentSessionId, signal, onEvent } = opts;
   const startedAt = Date.now();
+
+  // Semantic gate (2026-06-15 review fix M4): validate every `task.agent`,
+  // template ref, and `lane` against the live registry BEFORE running any phase.
+  // This was defined but never wired — so an unknown agent or a typo'd `{{ref}}`
+  // surfaced as a confusing mid-run failure (or, for refs, an uncaught throw
+  // out of a later phase) after earlier phases had already spent real work. Now
+  // it fails fast at the start of the run on every surface (CLI / slash / tool).
+  const semanticErrors = validateWorkflow(
+    def,
+    runtime.subagentScheduler.agentNames(),
+    KNOWN_LANE_NAMES,
+  );
+  if (semanticErrors.length > 0) {
+    throw new Error(`workflow '${def.name}' is invalid:\n  - ${semanticErrors.join('\n  - ')}`);
+  }
+
   const args = validateArgs(def.args, opts.args);
 
   onEvent?.({ type: 'workflow_started', workflow: def.name, phaseCount: def.phases.length });
