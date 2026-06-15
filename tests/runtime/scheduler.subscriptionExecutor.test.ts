@@ -340,6 +340,91 @@ describe('SubagentScheduler — subscription-executor branch', () => {
     expect(captured?.learningObserver).toBeUndefined();
   });
 
+  // 2026-06-15 review fix C2 — the subscription-executor agent is readOnly:true
+  // but its subprocess runs --dangerously-skip-permissions and CAN write the
+  // tree, so it MUST acquire the whole-tree path-lock (serialize with all other
+  // writers) rather than skip the lock like a genuine read-only child.
+  test('a subscription-executor delegation acquires the whole-tree path-lock', async () => {
+    const acquired: Array<{ kind: string }> = [];
+    const spyLock = {
+      acquire: async (scope: { kind: string }) => {
+        acquired.push(scope);
+        return () => {};
+      },
+      heldCount: () => 0,
+      agentNames: () => [],
+    } as unknown as PathLockManager;
+
+    const scheduler = new SubagentScheduler({
+      agents: makeRegistry([makeAgent()]), // readOnly: true
+      laneSemaphores: new LaneSemaphores({}),
+      pathLock: spyLock,
+      resolveProvider: () => makeRecordingProvider({ called: false }),
+      createChildSession: () => 'child-c2',
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-haiku-4-5-20251001',
+      maxTokens: 256,
+      subscriptionExecutor: { enabled: true, engine: 'claude-code', permissionMode: 'plan' },
+      runSubprocessExecutor: async () => ({
+        terminal: { reason: 'completed' },
+        finalAssistant: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+        iterationsUsed: 1,
+        toolCallCount: 0,
+        distinctToolNames: [],
+        messages: [],
+      }),
+    });
+
+    await scheduler.delegate({
+      agentName: 'subscription-executor',
+      prompt: 'do it',
+      parentSessionId: 'parent-c2',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+      // Even a declared narrow scope must be ignored — we can't bound the
+      // subprocess, so it takes the whole tree.
+      writeScope: { kind: 'globs', globs: ['src/a/**'] },
+    });
+
+    expect(acquired).toHaveLength(1);
+    expect(acquired[0]?.kind).toBe('all');
+  });
+
+  // A genuinely read-only NATIVE child (no subprocess) still skips the lock.
+  test('a read-only native child does NOT acquire the path-lock', async () => {
+    let acquireCalls = 0;
+    const spyLock = {
+      acquire: async () => {
+        acquireCalls += 1;
+        return () => {};
+      },
+      heldCount: () => 0,
+      agentNames: () => [],
+    } as unknown as PathLockManager;
+
+    const scheduler = new SubagentScheduler({
+      agents: makeRegistry([makeAgent({ name: 'ro', role: 'reviewer', readOnly: true })]),
+      laneSemaphores: new LaneSemaphores({}),
+      pathLock: spyLock,
+      resolveProvider: () => makeRecordingProvider({ called: false }),
+      createChildSession: () => 'child-ro',
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-haiku-4-5-20251001',
+      maxTokens: 256,
+      // no subscriptionExecutor → native AgentRunner path
+    });
+
+    await scheduler.delegate({
+      agentName: 'ro',
+      prompt: 'read',
+      parentSessionId: 'parent-ro',
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+
+    expect(acquireCalls).toBe(0);
+  });
+
   test('subprocess error terminal round-trips as a non-success result', async () => {
     const scheduler = new SubagentScheduler({
       agents: makeRegistry([makeAgent()]),

@@ -12,12 +12,25 @@
 // AgentTool delegation (which never declares paths) is therefore unchanged.
 //
 // Overlap is computed CONSERVATIVELY (a false "overlap" only costs parallelism,
-// never correctness): globs collapse to their literal path-prefix (the part
-// before the first wildcard), and two scopes overlap if any prefix of one is a
-// path-prefix of any prefix of the other. Pairing this with the workflow's
-// enforced write-scope boundary (a child's writes outside its declared scope
-// are denied at the permission layer) makes parallel write fan-out safe even if
-// an author under-declares — a stray write fails closed rather than racing.
+// never correctness): a glob collapses to the DIRECTORY that bounds everything
+// it could match (its containing directory when the first wildcard is mid- or
+// whole-segment; the full literal path when it has no wildcard). Two scopes
+// overlap if either collapsed directory is at or under the other. Pairing this
+// with the workflow's enforced write-scope boundary (a child's writes outside
+// its declared scope are denied at the permission layer) makes parallel write
+// fan-out safe even if an author under-declares — a stray write fails closed
+// rather than racing.
+//
+// CORRECTNESS NOTE (2026-06-15 review fix): the prefix is taken at a `/` segment
+// boundary, NOT mid-segment. An earlier version cut `src/foo*` to `src/foo`,
+// which `prefixesTouch` then judged disjoint from `src/foobar.ts` even though
+// `Bun.Glob('src/foo*')` matches `src/foobar.ts` — a false-disjoint verdict
+// that let two write-capable children race the same file. Collapsing to the
+// containing directory (`src/foo*` → `src`) is the conservative fix.
+// Comparison is also case-folded and `./`-normalized so same-target scopes that
+// differ only in case (case-insensitive FS) or `./` prefix still serialize.
+
+import { posix } from 'node:path';
 
 /** A write scope: the whole tree (the conservative default), or a set of path
  *  globs relative to cwd. */
@@ -25,18 +38,34 @@ export type PathScope = { kind: 'all' } | { kind: 'globs'; globs: string[] };
 
 const GLOB_CHARS = /[*?[\]{}]/;
 
-/** The literal directory/file prefix of a glob — everything before the first
- *  wildcard, with any trailing slash trimmed. `src/foo/**` → `src/foo`,
- *  `src/a.ts` → `src/a.ts`, `*` → ``. */
+/** Lexically canonicalize a wildcard-free path prefix for comparison: collapse
+ *  `./`, `//`, and `..` segments, drop a trailing slash, and case-fold. A bare
+ *  `.` (or empty) means the whole tree. */
+function normalizePrefix(p: string): string {
+  if (p === '') return '';
+  const norm = posix.normalize(p).replace(/\/+$/, '');
+  const canon = norm === '.' ? '' : norm;
+  return canon.toLowerCase();
+}
+
+/** The bounding directory of a glob: when the glob has a wildcard, everything
+ *  up to (and excluding) the last `/` before the FIRST wildcard — i.e. its
+ *  containing directory at a segment boundary, never mid-segment. With no
+ *  wildcard the full literal path. Examples (arrow shows the collapsed prefix):
+ *  `src/foo/` + `**` collapses to `src/foo`; `src/foo*` to `src`; `src/a.ts` to
+ *  `src/a.ts`; a leading-wildcard glob to the empty prefix (whole tree).
+ *  Normalized + case-folded for comparison. */
 function globPrefix(glob: string): string {
   const m = glob.match(GLOB_CHARS);
-  const literal = m === null || m.index === undefined ? glob : glob.slice(0, m.index);
-  return literal.replace(/\/+$/, '');
+  if (m === null || m.index === undefined) return normalizePrefix(glob);
+  const beforeWildcard = glob.slice(0, m.index);
+  const lastSlash = beforeWildcard.lastIndexOf('/');
+  return normalizePrefix(lastSlash === -1 ? '' : beforeWildcard.slice(0, lastSlash));
 }
 
 /** True when path-prefix `a` contains-or-equals `b` (or vice versa) — i.e. one
- *  is at or under the other in the tree. An empty prefix ('') matches the whole
- *  tree. */
+ *  is at or under the other in the tree. Both are already normalized + folded by
+ *  {@link globPrefix}. An empty prefix ('') matches the whole tree. */
 function prefixesTouch(a: string, b: string): boolean {
   if (a === '' || b === '') return true;
   if (a === b) return true;

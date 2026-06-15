@@ -167,6 +167,13 @@ export type DelegateInput = {
    *  routes through that lane's (provider, model) regardless of the agent's own
    *  role/model. Absent ⇒ normal agent resolution. */
   roleOverride?: string;
+  /** 2026-06-15 multi-agent workflows — per-call override of the per-parent
+   *  child cap. The workflow engine bounds its own phase fan-out to a fixed
+   *  width and passes that width here so a wide (operator-declared) parallel
+   *  fan-out is NOT silently truncated by the default recursion-guard cap
+   *  (DEFAULT_MAX_CHILDREN). Wins over `opts.maxChildrenPerParent`. Absent ⇒
+   *  the construction-time default. */
+  maxChildrenOverride?: number;
   memoryManager?: MemoryRuntime;
   traceRecorder?: (event: TraceEvent) => void;
   /** Phase 2 T3 — per-child timeout override resolved at dispatch time.
@@ -214,11 +221,26 @@ export class SubagentScheduler {
     return this.childCounts.get(parentSessionId) ?? 0;
   }
 
+  /** Names of every agent `delegate()` can resolve — the exact registry the
+   *  workflow engine validates `task.agent` against (so a workflow that passes
+   *  validation can never hit `unknown subagent` at delegate time). */
+  agentNames(): string[] {
+    return [...this.opts.agents.byName.keys()];
+  }
+
   async delegate(input: DelegateInput): Promise<DelegateResult> {
     const agent = this.opts.agents.byName.get(input.agentName);
     if (!agent) {
       throw new Error(`unknown subagent: '${input.agentName}'`);
     }
+
+    // Executor selection (hoisted from the body so the write-lock decision below
+    // can account for it). When the resolved agent's role is the subscription-
+    // executor AND the config enables it, the task runs in a headless `claude -p`
+    // subprocess instead of the harness's own AgentRunner. Off-by-default and
+    // inert for every other role / when the config is absent.
+    const useSubprocessExecutor =
+      this.opts.subscriptionExecutor?.enabled === true && agent.role === SUBSCRIPTION_EXECUTOR_ROLE;
 
     // FIX 2 — reserve the per-parent slot ATOMICALLY at entry, BEFORE the first
     // `await`. AgentTool/task_create are concurrency-safe, so an orchestrator
@@ -229,7 +251,8 @@ export class SubagentScheduler {
     // in between makes the reservation race-free, and rejecting here (before
     // acquiring any semaphore) means an over-cap call never holds a lane/write
     // slot. The reservation is released exactly once in the outer finally.
-    const maxChildren = this.opts.maxChildrenPerParent ?? DEFAULT_MAX_CHILDREN;
+    const maxChildren =
+      input.maxChildrenOverride ?? this.opts.maxChildrenPerParent ?? DEFAULT_MAX_CHILDREN;
     const current = this.childCounts.get(input.parentSessionId) ?? 0;
     if (current >= maxChildren) {
       throw new Error(
@@ -249,11 +272,18 @@ export class SubagentScheduler {
     let writeLockRelease: (() => void) | undefined;
     try {
       laneRelease = await this.opts.laneSemaphores.acquire(concurrencyLane, input.parentSignal);
-      if (!agent.readOnly) {
-        writeLockRelease = await this.opts.pathLock.acquire(
-          input.writeScope ?? { kind: 'all' },
-          input.parentSignal,
-        );
+      // 2026-06-15 review fix (C2) — the subscription-executor runs a headless
+      // `claude -p --dangerously-skip-permissions` subprocess we CANNOT bound
+      // with the write-scope wrap, yet the agent is labelled readOnly:true. It
+      // must therefore serialize with ALL other writers (whole-tree lock)
+      // regardless of its label or declared scope — otherwise two such tasks
+      // (or one plus a native writer) race the same files. A genuinely
+      // read-only native child still skips the lock.
+      if (useSubprocessExecutor || !agent.readOnly) {
+        const lockScope: PathScope = useSubprocessExecutor
+          ? { kind: 'all' }
+          : (input.writeScope ?? { kind: 'all' });
+        writeLockRelease = await this.opts.pathLock.acquire(lockScope, input.parentSignal);
       }
 
       const tools = buildChildToolPool(input.parentToolPool, agent);
@@ -374,17 +404,8 @@ export class SubagentScheduler {
               }
             : undefined;
 
-        // SPIKE — executor selection. The ONLY branch in delegate(): when the
-        // resolved agent's role is the subscription-executor AND the config
-        // enables it, hand the task to a headless `claude -p` subprocess that
-        // runs its own agentic loop. It returns the EXACT shape `drainRunner`
-        // returns, so the entire tail below (summary, trajectory, memory hook,
-        // review, lifecycle) is byte-unchanged. Off-by-default and inert for
-        // every other role / when the config is absent.
-        const useSubprocessExecutor =
-          this.opts.subscriptionExecutor?.enabled === true &&
-          agent.role === SUBSCRIPTION_EXECUTOR_ROLE;
-
+        // Executor selection (`useSubprocessExecutor`) was hoisted to delegate()
+        // entry so the write-lock decision could account for it; reused here.
         const startedAt = Date.now();
         let result: SubprocessExecutorResult;
         try {

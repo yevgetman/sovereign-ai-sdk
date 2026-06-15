@@ -24,6 +24,35 @@ describe('scopesOverlap', () => {
   test('empty glob set matches nothing → never overlaps', () => {
     expect(scopesOverlap(globs(), globs('src/a.ts'))).toBe(false);
   });
+
+  // 2026-06-15 review fix C1 — a mid-segment trailing wildcard (`src/foo*`)
+  // must NOT be judged disjoint from a sibling it can actually match
+  // (`Bun.Glob('src/foo*')` matches `src/foobar.ts`). The fix collapses the
+  // glob to its containing DIRECTORY (`src`), so these overlap.
+  test('mid-segment wildcard overlaps a same-directory literal it can match', () => {
+    expect(scopesOverlap(globs('src/foo*'), globs('src/foobar.ts'))).toBe(true);
+    expect(scopesOverlap(globs('src/user*.ts'), globs('src/users.ts'))).toBe(true);
+    expect(scopesOverlap(globs('build/app?'), globs('build/app1'))).toBe(true);
+    expect(scopesOverlap(globs('src/foo*'), globs('src/foobar'))).toBe(true);
+  });
+
+  test('distinct literal files in the same directory still run in parallel', () => {
+    expect(scopesOverlap(globs('src/a.ts'), globs('src/b.ts'))).toBe(false);
+  });
+
+  // 2026-06-15 review fix H1 — case-insensitive FS (macOS default): scopes that
+  // name the same directory in different case target the same inode, so they
+  // must serialize (folded comparison).
+  test('case-only / ./-prefix differences overlap (same-target safety)', () => {
+    expect(scopesOverlap(globs('src/**'), globs('SRC/**'))).toBe(true);
+    expect(scopesOverlap(globs('./src/**'), globs('src/**'))).toBe(true);
+    expect(scopesOverlap(globs('src/a/**'), globs('SRC/A/**'))).toBe(true);
+  });
+
+  test('disjoint dirs differing only by a deeper segment still parallel', () => {
+    expect(scopesOverlap(globs('src/a/**'), globs('src/b/**'))).toBe(false);
+    expect(scopesOverlap(globs('pkg/x/**'), globs('pkg/y/**'))).toBe(false);
+  });
 });
 
 describe('PathLockManager', () => {
