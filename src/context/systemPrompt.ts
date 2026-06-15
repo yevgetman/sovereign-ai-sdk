@@ -31,6 +31,13 @@ export type BuildSystemSegmentsOptions = {
    *  but before the dynamic system + user context. Absent / empty means
    *  the segment is omitted entirely. */
   smartRouterPrompt?: string;
+  /** SPIKE — when `subscriptionExecutor.enabled === true`, the runtime loads
+   *  `<bundle-root>/prompts/subscription-executor.md` and threads its body
+   *  through this option. The segment biases the parent toward delegating
+   *  substantive work to the `subscription-executor` sub-agent (which shells
+   *  out to a headless `claude -p`). Inserted after the smart-router segment;
+   *  absent / empty means the segment is omitted entirely. */
+  subscriptionExecutorPrompt?: string;
 };
 
 const BASE_INSTRUCTIONS = `\
@@ -177,6 +184,16 @@ export function buildSystemSegments(
   // dynamic system/user context (which must stay non-cacheable at the tail).
   if (options.smartRouterPrompt !== undefined && options.smartRouterPrompt.length > 0) {
     segments.push({ text: options.smartRouterPrompt, cacheable: cacheEnabled });
+  }
+
+  // SPIKE — subscription-executor bias segment. Inserted after the smart-router
+  // segment (both can be active, though typically only one is) and before the
+  // dynamic system/user context tail.
+  if (
+    options.subscriptionExecutorPrompt !== undefined &&
+    options.subscriptionExecutorPrompt.length > 0
+  ) {
+    segments.push({ text: options.subscriptionExecutorPrompt, cacheable: cacheEnabled });
   }
 
   const systemContext = getSystemContext({

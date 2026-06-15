@@ -172,6 +172,36 @@ async function loadSmartRouterPrompt(opts: {
   return smartRouterPrompt;
 }
 
+/**
+ * SPIKE — load the subscription-executor bias system-prompt segment. Returns
+ * undefined when the executor is disabled or no bundle is present; in that case
+ * the system prompt is built without the segment. Mirrors loadSmartRouterPrompt
+ * so the hot-reload path (rebuildTaskRouting) can reuse it.
+ *
+ * The segment biases the parent toward delegating substantive work to the
+ * `subscription-executor` sub-agent. Without it, enabling the executor only
+ * makes the role a *legal* AgentTool target — nothing nudges the model to pick
+ * it, so it almost never gets used. Missing prompt files are non-fatal.
+ */
+async function loadSubscriptionExecutorPrompt(opts: {
+  enabled: boolean;
+  bundle: Bundle | null;
+}): Promise<string | undefined> {
+  if (!opts.enabled || opts.bundle === null) return undefined;
+  const promptPath = join(opts.bundle.root, 'prompts', 'subscription-executor.md');
+  try {
+    return await readFile(promptPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      process.stderr.write(
+        `[subscriptionExecutor] prompt not found at ${promptPath}; bias segment skipped\n`,
+      );
+      return undefined;
+    }
+    throw err;
+  }
+}
+
 /** Default timeout for a pending permission request (M5-02). 60 seconds —
  *  long enough for a user to read the prompt and decide, short enough that
  *  a forgotten approval doesn't park a turn indefinitely. */
@@ -896,6 +926,16 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     trivialFastPath: userSettings.taskRouting?.trivialFastPath === true,
   });
 
+  // SPIKE — subscription-executor bias segment, gated on its own config flag
+  // (independent of taskRouting). When on, biases the parent toward delegating
+  // substantive work to the `subscription-executor` sub-agent (the `claude -p`
+  // shell). See loadSubscriptionExecutorPrompt.
+  const subscriptionExecutorEnabled = userSettings.subscriptionExecutor?.enabled === true;
+  const subscriptionExecutorPrompt = await loadSubscriptionExecutorPrompt({
+    enabled: subscriptionExecutorEnabled,
+    bundle,
+  });
+
   const systemSegments = buildSystemSegments({
     ...(bundle ? { bundle } : {}),
     cwd: opts.cwd,
@@ -903,6 +943,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     cacheEnabled: opts.cacheEnabled !== false,
     tools: toolPool,
     ...(smartRouterPrompt !== undefined ? { smartRouterPrompt } : {}),
+    ...(subscriptionExecutorPrompt !== undefined ? { subscriptionExecutorPrompt } : {}),
   });
   systemSegmentsRef = systemSegments;
   const useRouter =
@@ -1470,6 +1511,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       bundle,
       trivialFastPath: fresh.taskRouting?.trivialFastPath === true,
     });
+    const freshSubscriptionExecutorPrompt = await loadSubscriptionExecutorPrompt({
+      enabled: fresh.subscriptionExecutor?.enabled === true,
+      bundle,
+    });
 
     // Rebuild the tool pool's AgentTool enum so routing agents appear /
     // disappear when the user toggles taskRouting.enabled mid-session. The
@@ -1501,6 +1546,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       cacheEnabled,
       tools: runtime.toolPool,
       ...(freshPrompt !== undefined ? { smartRouterPrompt: freshPrompt } : {}),
+      ...(freshSubscriptionExecutorPrompt !== undefined
+        ? { subscriptionExecutorPrompt: freshSubscriptionExecutorPrompt }
+        : {}),
     });
     // Mutate in place so any closure that captured the array reference
     // (e.g., harnessInfoSnapshot at line ~580) sees the new content.

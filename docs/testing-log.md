@@ -8,6 +8,23 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-15 — Subscription-executor delegation bias (soft) (v0.6.47)
+
+**Scope.** Founder reported: subscription executor was enabled, but the agent built a web page inline and never delegated to the `claude -p` shell. Investigated the transcript `~/.harness/projects/-Users-yev/82e6f867-…jsonl` (19 records, Haiku 4.5): the model wrote `index.html`/`styles.css`/`script.js` via direct `FileWrite` calls + `StaticSiteValidate` — **no `AgentTool` invocation at all**. Root cause: enabling `subscriptionExecutor` only adds the role back to the model-visible Agent-tool enum (`computeToolVisibleAgents`) — it makes the role a *legal* delegation target but injects nothing into the parent system prompt, so the model has no bias to pick it (contrast `taskRouting`, which loads `smart-router.md` and *forces* delegation).
+
+**What shipped (soft-bias variant, founder-approved).**
+- **`bundle-default/prompts/subscription-executor.md`** — a `<subscription-executor>` bias segment: prefer delegating substantive work (file writes/edits, commands, builds, multi-step, research, debugging) to `subagent_type: "subscription-executor"`; handle only trivial conversation directly; "when in doubt, delegate." Soft bias, not a forced first-action dispatch.
+- **`loadSubscriptionExecutorPrompt()`** in `src/server/runtime.ts` (mirrors `loadSmartRouterPrompt`; ENOENT non-fatal) + wiring into `buildSystemSegments` on both the boot path and the config hot-reload (`rebuildTaskRouting`) path, gated on `subscriptionExecutor.enabled`.
+- **`subscriptionExecutorPrompt?`** option added to `BuildSystemSegmentsOptions`; segment inserted after the smart-router segment. (The two never coexist — mutually exclusive at config-parse.)
+- No scheduler change — the `delegate()` → `claude -p` branch already worked; this only changes how often the model *chooses* it.
+
+**Commands run (real results).**
+- `bun run lint` clean (795 files); `bun run typecheck` clean.
+- New test `tests/server/runtime.subscriptionExecutorPrompt.test.ts` (segment absent when disabled / present + names the delegation target when enabled) + taskRouting wiring test: **8/0**.
+- Full suite **`bun run test` → 4248 pass / 0 fail / 16 skip** (clean `HARNESS_HOME`).
+
+**Known caveats (documented, unchanged).** Delegated turns run in `claude -p`'s own loop, so turn-level recall/capture is bypassed (only the spike's per-tool replay canonicalization feeds learning) — in tension with the learning-loop soak; watch the corpus while running with the executor on. Latency: every delegated turn spawns a subprocess. Personal/attended use only (ToS boundary unchanged; still off cron/channels/gateway).
+
 ## 2026-06-15 — Session transcripts + subscription-executor visibility (v0.6.46)
 
 **Scope.** Three founder-reported gaps: (1) the subscription-executor is invisible in the TUI when active; (2) "debug mode" doesn't actually save transcripts; (3) the harness should save per-session conversation transcripts at the user level like Claude Code. Investigated the current state with 4 parallel agents (subscription-executor surfacing + TUI status seams; every persistence surface + debugMode; Claude Code's transcript format; the `saveMessage` chokepoint + cwd availability), then built spec → plan → implementation. Spec `docs/specs/2026-06-15-session-transcripts-design.md`, plan `docs/plans/2026-06-15-session-transcripts.md`.
