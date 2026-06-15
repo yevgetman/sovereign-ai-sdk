@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-15 — Multi-agent workflows: declarative engine + path-granular locking
+
+**Scope.** Build a deterministic multi-agent orchestration layer into the harness — the gap identified in the prior turn (model-driven fan-out only; a single global write-lock serialized write-capable fan-out). Founder-locked design: a DECLARATIVE engine (no arbitrary code exec) + path-granular locking, with **parallel fan-out as the headline**. Spec `docs/specs/2026-06-15-multi-agent-workflows-design.md`, plan `docs/plans/2026-06-15-multi-agent-workflows.md`. Built W1 (the concurrency core) by hand; W2–W6 via a 5-owner disjoint-file workflow (TDD + per-owner review); seams reconciled centrally.
+
+**What shipped.**
+- **Path-granular write lock (W1, `src/runtime/pathLock.ts`)** — replaces the global `Semaphore(1)`. Disjoint declared write scopes run in PARALLEL; overlapping ones serialize; an undeclared scope = whole tree = byte-identical to today (model-driven `AgentTool` delegation unchanged — the scheduler suite stays green). The task's declared `writes` is ENFORCED as a permission boundary (`src/permissions/writeScope.ts`) so disjoint scopes provably can't clash even on author under-declaration.
+- **Declarative engine (`src/workflows/`)** — YAML workflows (phases / parallel tasks / map fan-out / barriers / output threading / `writes` scope / per-task `lane`); the engine fans phase tasks out in parallel via `scheduler.delegate`, threads outputs forward, tolerates per-task failure. Safe dotpath template interpolator (no eval). Loader scans project>user>bundle.
+- **Surfaces** — `sov workflow list|show|run` (CLI, functional), `/workflow` slash (in-session, functional). The `workflow_run` tool is v1.1 scaffolding (agent-invocable; runtime-self-ref wiring deferred). A bundled example `bundle-default/workflows/review.yaml`.
+
+**Commands run (real results).**
+- `pathLock` + `writeScope` unit tests **18/0**; existing scheduler suite **19/0** (back-compat through the writeLock→pathLock rename across 8 files).
+- Behavioral smoke (source binary): `sov workflow list` → shows the bundle `review` workflow (3 phases); `sov workflow show review` → prints the validated definition (map fan-out over `dimensions`). Loader + CLI + bundle end-to-end. ✓
+- `bun run lint` clean (785 files); `bun run typecheck` clean.
+- `HARNESS_HOME=$(mktemp -d) bun test` → **4198 pass / 0 fail / 16 skip** (+84 workflow tests). Go `build`/`vet`/`test` all green.
+
+**Deferred (documented):** the `workflow_run` TOOL (agent-invocable) — runtime-self-reference injection wants a dedicated pass; CLI + slash deliver the feature meanwhile. Server-side onEvent→SSE forwarding for `/workflow` TUI progress (render paths are safe no-ops until wired). Arbitrary loops/conditionals + scripted workflows (v2 per the spec).
+
+**Result: PASS.** Declarative parallel-fan-out workflows run in the harness via CLI + slash; write-capable fan-out across disjoint paths is genuinely parallel (path-granular lock), enforced safe.
+
 ## 2026-06-14 — Config live-apply UX: unify apply-scope, maximize live-apply
 
 **Scope.** Resolve the `/config` "unclear whether a saved setting applies now or needs a restart" UX gap. Replaced the binary hook-presence model (badge + toast derived independently, could disagree; many settings silently fell to "next session") with a single **apply-scope taxonomy** (`src/config/applyScope.ts`: `live` / `live-reload` / `other-process` / `restart`), maximized the live-apply set, and made the save confirmation always name the setting + state the exact outcome. Spec `docs/specs/2026-06-14-config-live-apply-design.md`, plan `docs/plans/2026-06-14-config-live-apply.md`. Built T1 (foundation) by hand; T2–T7 via a 5-owner disjoint-file workflow (TDD + per-owner review + a safety review of the provider re-resolution); integration seams + the safety-review HIGH reconciled centrally.
