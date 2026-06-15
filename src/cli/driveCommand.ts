@@ -33,6 +33,8 @@ import { createInterface } from 'node:readline/promises';
 import { PreflightError, SessionNotFoundError } from '../server/errors.js';
 import type { ServerEvent } from '../server/schema.js';
 import { parseServerEvent } from '../server/schema.js';
+import type { WorkflowEvent } from '../workflows/events.js';
+import { formatWorkflowEvent } from '../workflows/events.js';
 
 export const READY_MARKER = '--- ready ---';
 export const TURN_SEPARATOR = '--- end-of-turn ---';
@@ -824,6 +826,16 @@ async function drainSseStream(opts: {
         const ev = parseEventBlock(block);
         if (ev !== null) {
           opts.ingest(ev);
+        } else {
+          // The server's main session-event union (ServerEventSchema) does not
+          // (yet) include the workflow_* lifecycle events the engine emits via
+          // its WorkflowEventSink. When /workflow runs server-side and forwards
+          // those events onto the per-session bus (a central-integration seam),
+          // they arrive here as blocks parseEventBlock can't decode. Render them
+          // as plain text via the shared formatWorkflowEvent so a `sov drive`
+          // transcript surfaces workflow progress. Until that server-emit seam
+          // is wired this branch never fires (no-op), so it's safe today.
+          renderWorkflowEventBlock(block);
         }
         blockEnd = buffer.indexOf('\n\n');
       }
@@ -838,15 +850,65 @@ async function drainSseStream(opts: {
 }
 
 export function parseEventBlock(block: string): ServerEvent | null {
+  const dataLine = extractDataLine(block);
+  if (dataLine === null) return null;
+  return parseServerEvent(dataLine);
+}
+
+/** Lift the `data: <json>` payload out of an SSE block. The last `data:` line
+ *  wins for multi-line payloads, though our publisher emits single-line data;
+ *  the loop is defensive against future format changes. Shared by the
+ *  ServerEvent and workflow-event parse paths. */
+function extractDataLine(block: string): string | null {
   let dataLine: string | null = null;
   for (const line of block.split('\n')) {
     if (line.startsWith('data: ')) {
       dataLine = line.slice('data: '.length);
-      // Don't break — the last data: line wins for multi-line SSE
-      // payloads, but our publisher emits single-line data; this loop
-      // is defensive against future format changes.
     }
   }
+  return dataLine;
+}
+
+const WORKFLOW_EVENT_TYPES = new Set<WorkflowEvent['type']>([
+  'workflow_started',
+  'workflow_phase_started',
+  'workflow_task_started',
+  'workflow_task_complete',
+  'workflow_complete',
+]);
+
+/** Parse an SSE block as a workflow lifecycle event. Returns null when the
+ *  block isn't a workflow event (the common case — most blocks are ServerEvents
+ *  handled by parseEventBlock). The bus adds seq/sessionId envelope keys; we
+ *  only need the workflow-specific fields formatWorkflowEvent reads, so a
+ *  type-tag check is enough to route the block. Pure + allocation-light. */
+export function parseWorkflowEventBlock(block: string): WorkflowEvent | null {
+  const dataLine = extractDataLine(block);
   if (dataLine === null) return null;
-  return parseServerEvent(dataLine);
+  let obj: unknown;
+  try {
+    obj = JSON.parse(dataLine);
+  } catch {
+    return null;
+  }
+  if (typeof obj !== 'object' || obj === null) return null;
+  const type = (obj as { type?: unknown }).type;
+  if (typeof type !== 'string' || !WORKFLOW_EVENT_TYPES.has(type as WorkflowEvent['type'])) {
+    return null;
+  }
+  return obj as WorkflowEvent;
+}
+
+/** Render a workflow event block to stdout via the shared formatter. A no-op
+ *  when the block isn't a workflow event. Keeps the drain loop's fall-through
+ *  branch a single call. */
+export function renderWorkflowEventBlock(
+  block: string,
+  write: (s: string) => void = (s) => {
+    process.stdout.write(s);
+  },
+): void {
+  const ev = parseWorkflowEventBlock(block);
+  if (ev === null) return;
+  write(`${formatWorkflowEvent(ev)}\n`);
 }

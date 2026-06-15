@@ -2433,8 +2433,159 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		m.print("") // space between atom events and summary footer
 		m.print(components.FormatDelegatorCompleteLine(ev, m.theme, m.width))
 		m.print("") // breathing room after delegator group
+	case "workflow_started":
+		// Multi-agent workflows (2026-06-15) — a /workflow run began. One
+		// status line; the phase/task lines follow as the engine emits them.
+		ev, err := transport.DecodeWorkflowStarted(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print("") // breathing room before workflow group
+		m.print(m.formatWorkflowStartedLine(ev))
+	case "workflow_phase_started":
+		ev, err := transport.DecodeWorkflowPhaseStarted(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(m.formatWorkflowPhaseStartedLine(ev))
+	case "workflow_task_started":
+		ev, err := transport.DecodeWorkflowTaskStarted(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(m.formatWorkflowTaskStartedLine(ev))
+	case "workflow_task_complete":
+		ev, err := transport.DecodeWorkflowTaskComplete(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print(m.formatWorkflowTaskCompleteLine(ev))
+	case "workflow_complete":
+		ev, err := transport.DecodeWorkflowComplete(env.Raw)
+		if err != nil {
+			return nil
+		}
+		m.clearThinkingIfPending()
+		if rendered, ok := m.live.EndAssistantCard(); ok {
+			m.print(rendered)
+		}
+		m.print("") // space before summary footer
+		m.print(m.formatWorkflowCompleteLine(ev))
+		m.print("") // breathing room after workflow group
 	}
 	return nil
+}
+
+// --- Workflow event rendering ---------------------------------------------
+//
+// Single-line renders for the five workflow_* SSE events, reusing the
+// delegation-line vocabulary (style.S.Delegator.Indent + style.S.Glyph.* +
+// the sky-300 brand accent) so workflow progress reads consistently with the
+// delegator group. Kept minimal per the v1 spec (a basic line per event); a
+// dedicated components.Workflow* family is a follow-up if richer layout is
+// wanted. The plain-text fallback for `sov drive`/CLI lives in
+// src/workflows/events.ts (formatWorkflowEvent).
+
+// formatWorkflowStartedLine renders the "◇ Workflow <name> — <n> phase(s)" header.
+func (m *Model) formatWorkflowStartedLine(ev transport.WorkflowStartedEvent) string {
+	prefix := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
+		Bold(true).
+		Render(style.S.Glyph.Plan + " Workflow " + ev.Workflow)
+	tail := lipgloss.NewStyle().
+		Foreground(m.theme.Info).
+		Render(fmt.Sprintf(" — %d phase(s)", ev.PhaseCount))
+	return style.S.Delegator.Indent + prefix + tail
+}
+
+// formatWorkflowPhaseStartedLine renders "→ phase <n>: <id> — <k> task(s)".
+func (m *Model) formatWorkflowPhaseStartedLine(ev transport.WorkflowPhaseStartedEvent) string {
+	glyph := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
+		Render(style.S.Glyph.Arrow)
+	verb := lipgloss.NewStyle().
+		Foreground(m.theme.Foreground).
+		Render(fmt.Sprintf(" phase %d: ", ev.Index+1))
+	phase := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
+		Bold(true).
+		Render(ev.PhaseID)
+	tail := lipgloss.NewStyle().
+		Foreground(m.theme.Info).
+		Render(fmt.Sprintf(" — %d task(s)", ev.TaskCount))
+	return style.S.Delegator.Indent + glyph + verb + phase + tail
+}
+
+// formatWorkflowTaskStartedLine renders "→ <phaseId>/<label> (<lane>)".
+func (m *Model) formatWorkflowTaskStartedLine(ev transport.WorkflowTaskStartedEvent) string {
+	glyph := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(style.S.Brand.AccentColor)).
+		Render(style.S.Glyph.Arrow)
+	body := lipgloss.NewStyle().
+		Foreground(m.theme.Foreground).
+		Render(fmt.Sprintf(" %s/%s", ev.PhaseID, ev.Label))
+	var lane string
+	if ev.Lane != "" {
+		lane = lipgloss.NewStyle().
+			Foreground(m.theme.Info).
+			Render(fmt.Sprintf(" (%s)", ev.Lane))
+	}
+	return style.S.Delegator.Indent + glyph + body + lane
+}
+
+// formatWorkflowTaskCompleteLine renders "✓/✗ <phaseId>/<label>".
+func (m *Model) formatWorkflowTaskCompleteLine(ev transport.WorkflowTaskCompleteEvent) string {
+	glyphChar := style.S.Glyph.Success
+	glyphColor := m.theme.Success
+	if !ev.Ok {
+		glyphChar = style.S.Glyph.Error
+		glyphColor = m.theme.Error
+	}
+	glyph := lipgloss.NewStyle().Foreground(glyphColor).Bold(true).Render(glyphChar)
+	body := lipgloss.NewStyle().
+		Foreground(m.theme.Foreground).
+		Render(fmt.Sprintf(" %s/%s", ev.PhaseID, ev.Label))
+	return style.S.Delegator.Indent + glyph + body
+}
+
+// formatWorkflowCompleteLine renders the closing summary:
+//
+//	◆ <name> complete — <n> failed task(s), <ms>ms
+func (m *Model) formatWorkflowCompleteLine(ev transport.WorkflowCompleteEvent) string {
+	failed := 0
+	for _, p := range ev.Phases {
+		failed += p.Failed
+	}
+	status := "complete"
+	statusColor := m.theme.Success
+	if !ev.Ok {
+		status = "completed with errors"
+		statusColor = m.theme.Error
+	}
+	prefix := lipgloss.NewStyle().
+		Foreground(statusColor).
+		Bold(true).
+		Render(fmt.Sprintf("%s %s %s", style.S.Glyph.Done, ev.Workflow, status))
+	tail := lipgloss.NewStyle().
+		Foreground(m.theme.Info).
+		Render(fmt.Sprintf(" — %d failed task(s), %dms", failed, ev.DurationMs))
+	return style.S.Delegator.Indent + prefix + tail
 }
 
 // handleMouseClick is retained as a stub for any caller that still
