@@ -32,6 +32,8 @@ Implementation backlogs from these findings live in
 - Full suite `HARNESS_HOME=$(mktemp -d) bun test` → **4246 pass / 0 fail / 16 skip** (+24).
 - Go (clean env) → build + all packages green incl. the 4 new `SUB-EXEC` chip tests.
 
+**Post-upgrade binary smoke (v0.6.46).** `sov --version` → `0.6.46`. One `sov drive` turn from a temp project dir (`/tmp/ttest-tx`, on the free local `sov`/Qwen provider — $0) wrote `~/.harness/projects/-private-tmp-ttest-tx/<sessionId>.jsonl` containing: a `session_meta` line (`cwd=/private/tmp/ttest-tx`, `provider=sov`, `version=0.6.46`), a `user` record (seq=135593, text block), and an `assistant` record (seq=135594, text block) — proving the compiled binary writes per-session transcripts at the user level with the correct realpath-derived slug + record shapes. (Test artifact cleaned up.) The `SUB-EXEC` chip is verified by the 4 Go render/builder tests (a visual TTY smoke wasn't run).
+
 **Result: PASS.** Conversations are now saved as browsable per-session JSONL under the user's home (all surfaces, redacted, per-user-scoped); the dead debug-transcript config is retired; and the subscription-executor is visibly flagged in the TUI when active.
 
 ## 2026-06-15 — Multi-agent workflows: adversarial feature review + fixes (v0.6.45)
