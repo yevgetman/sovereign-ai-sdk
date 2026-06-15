@@ -8,6 +8,32 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-15 — Session transcripts + subscription-executor visibility (v0.6.46)
+
+**Scope.** Three founder-reported gaps: (1) the subscription-executor is invisible in the TUI when active; (2) "debug mode" doesn't actually save transcripts; (3) the harness should save per-session conversation transcripts at the user level like Claude Code. Investigated the current state with 4 parallel agents (subscription-executor surfacing + TUI status seams; every persistence surface + debugMode; Claude Code's transcript format; the `saveMessage` chokepoint + cwd availability), then built spec → plan → implementation. Spec `docs/specs/2026-06-15-session-transcripts-design.md`, plan `docs/plans/2026-06-15-session-transcripts.md`.
+
+**Findings that drove the build.**
+- The full message history IS persisted (always-on) — but as JSON rows in the shared SQLite `sessions.db`, NOT a per-session human-readable `.jsonl`. The per-session `traces/<id>.jsonl` files are an event trace (no message bodies).
+- `debugMode.transcript` / `transcriptDir` / the `--transcript` flag were **orphaned dead config** (pre-M13 REPL vestiges) — nothing read them. The founder's "not sure transcripts are saved in debug mode" was correct: they weren't.
+- `SessionDb.saveMessage` is the single universal message-persistence chokepoint (turns/channels/OpenAI/compaction); sub-agent children never call it (matches CC's sidechain exclusion). `runtime.cwd` is available everywhere — no schema migration needed for the project slug.
+
+**What shipped.**
+- **`src/transcript/`** — `TranscriptWriter` (mirrors `TraceWriter`: per-session sequential write-chain, fail-open) writing `<base>[/users/<owner>]/projects/<slug(cwd)>/<sessionId>.jsonl`; `paths.ts` (CC-style human-readable cwd slug + `transcriptsRoot` per-user scoping + the trace writer's traversal-hardening); a runtime-level `TranscriptStore` (lazy per-session writers, closed on disposeSession/dispose).
+- **`persistMessage(host, sessionId, msg)`** — wraps `saveMessage` + the transcript append; every former call site migrated (turns ×3, channels ×2, OpenAI ×3, compaction ×2). Returns the row id verbatim.
+- **Config** — `transcripts: { enabled (default true), dir?, redactSecrets (default true) }`; legacy `debugMode.transcript*` deprecated (parseable, `transcriptDir` honored as a `dir` fallback); `--transcript` flag retired to a documented no-op; catalog group + `restart` apply-scope.
+- **Redaction ON by default** (reuses `redact()`) — divergence from CC, justified by gateway/channel/multi-user write contexts.
+- **Subscription-executor indicator (subagent-built, Go TUI)** — a loud red `⚠ SUB-EXEC` status-line chip via the `TaskRouter` boot-flag pattern (`--subscription-executor` from `tuiLauncher.ts` → `main.go` → `WithSubscriptionExecutor` → `statusline.go`); `style.S.*` + theme tokens only.
+- **Surfacing** — the active transcripts dir is reported in the `harness_info` snapshot (settings section).
+
+**Commands run (real results).**
+- `bun run typecheck` clean; `bun run lint` clean (794 files).
+- New tests **24/0** (`tests/transcript/{paths,writer,store}.test.ts`, `tests/config/transcripts.test.ts`, `tests/agent/persistMessage.test.ts`).
+- Affected suites green: `tests/server` + `tests/channels` + `tests/openai` + `tests/compact` → **757/0** (always-on transcript writes to tmp HARNESS_HOME disturbed nothing).
+- Full suite `HARNESS_HOME=$(mktemp -d) bun test` → **4246 pass / 0 fail / 16 skip** (+24).
+- Go (clean env) → build + all packages green incl. the 4 new `SUB-EXEC` chip tests.
+
+**Result: PASS.** Conversations are now saved as browsable per-session JSONL under the user's home (all surfaces, redacted, per-user-scoped); the dead debug-transcript config is retired; and the subscription-executor is visibly flagged in the TUI when active.
+
 ## 2026-06-15 — Multi-agent workflows: adversarial feature review + fixes (v0.6.45)
 
 **Scope.** Adversarial `/code-review` of the just-shipped multi-agent workflow feature (`git diff 80075ea^..HEAD`, ~2.6k insertions / 24 files), then fix every confirmed critical/high/medium autonomously. Review run as a Workflow: 6 parallel finders (pathlock-concurrency, writescope-bypass, engine-correctness, template-safety, loader/types-safety, wiring-integration) → per-finding verify → fresh-reviewer sweep → triaged JSON. **25 candidates → 24 survived verify + 6 sweep = 30 findings** (32 agents, ~2.9M subagent tokens).

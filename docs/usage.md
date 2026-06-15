@@ -58,7 +58,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--db <path>` | Override the session DB path. Default: `~/.harness/sessions.db`. |
 | `--no-cache` | Disable provider prompt-cache markers for testing. |
 | `--no-preflight` | Skip startup provider/model health checks. |
-| `--transcript <path>` | Write a redacted JSONL terminal/event transcript for manual tests. |
+| `--transcript <path>` | **Deprecated (no-op).** Per-session transcripts are now always-on (see [Session transcripts](#session-transcripts)); set `transcripts.dir` in config to relocate them. |
 | `-v, --verbose` | Show full tool-result preview blocks instead of one-line summaries. |
 | `--capture-fixture <path>` | (Phase 10.5 part 2.) Wrap the resolved provider + tools to write a deterministic-replay fixture at this path on session end. See [Eval Suite](#eval-suite). Verified working post-Phase-16-revert. |
 | `--replay-fixture <path>` | (Phase 10.5 part 2.) Replay a previously-captured fixture instead of resolving a real provider. No LLM calls. Mutually exclusive with `--capture-fixture`. Verified working post-Phase-16-revert. |
@@ -91,7 +91,7 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `--no-preflight` | Wired (M4) | Skips provider preflight |
 | `--capture-fixture <path>` | Wired (M8) | Threads through `buildRuntime` as `captureFixturePath`; mutex-checked against `--replay-fixture` (exits 2 if both set) |
 | `--replay-fixture <path>` | Wired (M8) | Threads through `buildRuntime` as `replayFixturePath` |
-| `--transcript <path>` | **Warn** | Wires in M7 (trajectory capture) |
+| `--transcript <path>` | **Deprecated (no-op)** | Transcripts are always-on; use `transcripts.dir` |
 | `--agent <name>` | **Warn** | Wires in M7 (sub-agent scheduler + scheduled-mission) |
 | `--state-dir <path>` | **Warn** | Wires in M7 |
 | `-v, --verbose` | Wired | Forwarded to the TUI as `--verbose-raw` (raw tool-output escape hatch) |
@@ -456,6 +456,30 @@ Phase 2 wired through the R-D plumbing Phase 1 deferred. Each lane's `timeoutMs`
 
 The configured value is consulted in three-step precedence: lane override (via `ctx.laneRegistry.lookup(role)?.timeoutMs`) → `SubagentSchedulerOpts.perChildTimeoutMs` → `agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS`.
 
+## Session transcripts
+
+Every session writes a **human-readable per-session transcript** — one JSONL file per session under your harness home, appended as the conversation happens (the Claude-Code ergonomic). This is **on by default**.
+
+- **Location:** `<harness-home>/projects/<slug>/<sessionId>.jsonl`, where `<slug>` is your working directory with every non-alphanumeric character replaced by `-` (e.g. `/Users/you/code/app` → `-Users-you-code-app`), so the directory is browsable. Multi-user gateways scope per principal: `<harness-home>/users/<ownerId>/projects/<slug>/<sessionId>.jsonl`.
+- **Format:** one JSON object per line — a leading `session_meta` record (`sessionId`/`cwd`/`model`/`provider`/`kind`/`version`/`startedAt`), then one record per message (`{type:"user"|"assistant", seq, sessionId, parentSessionId, cwd, version, timestamp, message:{role, content}}`). `content` is the verbatim block array — text, thinking, tool_use, tool_result, images. A tool result is a `user` record carrying a `tool_result` block.
+- **Coverage:** all surfaces — interactive TUI / `sov drive`, the gateway, channels (Slack/Telegram/webhook/SMS), the OpenAI-compatible API server, and the post-compaction child session. (Sub-agent child turns are not persisted as messages, so — like Claude Code — they don't appear in the parent transcript.)
+- **Secrets are redacted by default** (API keys, tokens, etc.) before each line is written, since the harness writes transcripts from gateway/channel/multi-user contexts. Set `transcripts.redactSecrets: false` to opt out.
+- **The authoritative store is still `sessions.db`** (the SQLite message rows drive resume). The transcript file is an always-on, portable **mirror** for inspection and archival — it is not the resume source.
+
+**Configure** from `/config` → **Transcripts** (or `sov config`), or the `transcripts` block in `~/.harness/config.json`:
+
+```json
+{
+  "transcripts": {
+    "enabled": true,
+    "dir": "~/.harness",
+    "redactSecrets": true
+  }
+}
+```
+
+`enabled: false` turns transcript writing off entirely. `dir` overrides the base directory (default `<harness-home>`; transcripts live at `<dir>/projects/...`). All three carry a **⟳ restart** badge — the writer resolves config at boot, so a change applies to new sessions after restarting `sov`. The active directory is also reported by the `harness_info` tool (settings section) and via `transcripts: <dir>` so you can confirm where conversations are being saved. (The legacy `debugMode.transcript` / `debugMode.transcriptDir` fields are **deprecated** — superseded by this block; `debugMode.transcriptDir` is honored only as a fallback for `transcripts.dir`.)
+
 ## Subscription executor (opt-in)
 
 > ⚠️ **Personal / attended use only.** Read the [terms-of-service boundary](#terms-of-service-boundary) below before enabling this. Driving a subscription credential as an automated / unattended / multi-tenant / client-product backend is against Anthropic's (and OpenAI's) subscription terms — that use stays on the per-token API.
@@ -463,6 +487,8 @@ The configured value is consulted in three-step precedence: lane override (via `
 **What it is.** An opt-in execution backend where a delegated sub-agent task is handed to a **headless Claude Code session** — a `claude -p` subprocess the harness spawns. Claude Code runs its **own** agentic loop (its own tools, its own permission system) and returns a summary, which round-trips back through the **normal sub-agent path** (the same `extractSummary` → trajectory write → `on_delegation` memory hook → review-fork → delegation SSE events the native loop produces). Because the subprocess runs under your **local `claude` install** — which can be authenticated by a Claude *subscription* (Pro/Max login) rather than an API key — heavy agentic work runs at flat-rate **subscription cost** instead of per-token API billing.
 
 It is **off by default** (`subscriptionExecutor.enabled: false`). When disabled — which includes an empty config — the harness is byte-identical to today: the lane is hidden from the model, the scheduler branch is inert, and every delegation takes the normal `AgentRunner` path.
+
+> **You'll see it when it's on.** When `subscriptionExecutor.enabled: true`, the TUI status line shows a loud red **`⚠ SUB-EXEC`** chip (alongside the `BYPASS` chip) so you always know — while using the session — that delegated work may be routed to a `claude -p --dangerously-skip-permissions` subprocess. The chip is a boot indicator (restart-to-apply, like the feature itself); it disappears when the feature is off.
 
 > **Mutually exclusive with [task routing](#multi-provider-task-routing-phase-1).** `subscriptionExecutor` and `taskRouting` are two different cost strategies on the same delegation path — a flat-rate subscription vs. API cost-tier routing — so **enable only one**. Setting `subscriptionExecutor.enabled: true` and `taskRouting.enabled: true` together is rejected at config-parse time.
 
