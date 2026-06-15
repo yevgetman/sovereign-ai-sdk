@@ -27,6 +27,7 @@ Implementation backlogs from these findings live in
 - `bun run typecheck` clean; `bun run lint` clean (785 files).
 - `HARNESS_HOME=$(mktemp -d) bun test` → **4222 pass / 0 fail / 16 skip** (+24 regression tests across pathLock/writeScope/scheduler/engine/loader/template/workflowOps/workflow_run).
 - Go (clean env `env -u HARNESS_HOME HOME=$(mktemp -d)`) → all 6 packages green.
+- **Post-upgrade binary smoke (v0.6.45):** `sov --version` → `0.6.45`; `sov workflow list` → bundle `review` (3 phases); `sov workflow show review` → validated def with the map fan-out; `sov workflow run` on a project workflow naming an unknown agent → **fails fast** `workflow 'bad' is invalid: - phase 'only' task references unknown agent …` with **exit code 1** (proves the wired `validateWorkflow` M4 fix + the finding-30 `process.exitCode` dispose-on-error fix both ship in the compiled binary, no model call).
 
 **Result: PASS.** Both critical data races closed (proven false-disjoint repro + subprocess-lock test); the headline parallel fan-out runs every task; the run degrades gracefully on failure; the semantic gate fails fast on every surface; `workflow_run` is now model-invocable.
 
