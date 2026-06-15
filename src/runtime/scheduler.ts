@@ -162,6 +162,11 @@ export type DelegateInput = {
    *  ENFORCED: the child's writes outside the scope are denied (see
    *  wrapCanUseToolWithWriteScope), so under-declaration fails closed. */
   writeScope?: PathScope;
+  /** 2026-06-15 multi-agent workflows — a per-task cost-lane override (a lane
+   *  role name like 'frontier-task'). When set + the lane resolves, the child
+   *  routes through that lane's (provider, model) regardless of the agent's own
+   *  role/model. Absent ⇒ normal agent resolution. */
+  roleOverride?: string;
   memoryManager?: MemoryRuntime;
   traceRecorder?: (event: TraceEvent) => void;
   /** Phase 2 T3 — per-child timeout override resolved at dispatch time.
@@ -233,7 +238,7 @@ export class SubagentScheduler {
     }
     this.childCounts.set(input.parentSessionId, current + 1);
 
-    const { providerName, modelName } = this.resolveProviderModel(agent);
+    const { providerName, modelName } = this.resolveProviderModel(agent, input.roleOverride);
     // The concurrency lane (local|frontier) the child's provider runs in —
     // distinct from the `lane` attribution object computed inside the try.
     const concurrencyLane = laneFor(providerName);
@@ -619,10 +624,21 @@ export class SubagentScheduler {
     }
   }
 
-  private resolveProviderModel(agent: AgentDefinition): {
+  private resolveProviderModel(
+    agent: AgentDefinition,
+    roleOverride?: string,
+  ): {
     providerName: string;
     modelName: string;
   } {
+    // 2026-06-15 workflows — a task's `lane` override routes through the named
+    // lane regardless of the agent's own role/model, when the lane resolves.
+    if (roleOverride !== undefined && this.opts.resolveLane !== undefined) {
+      const lane = this.opts.resolveLane(roleOverride);
+      if (lane !== undefined) {
+        return { providerName: lane.provider, modelName: lane.model };
+      }
+    }
     if (agent.model !== undefined) {
       const slashIdx = agent.model.indexOf('/');
       if (slashIdx > 0) {
