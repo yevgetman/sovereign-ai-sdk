@@ -38,7 +38,7 @@ The reference SDK is a thin importable surface: a single `query({ prompt, option
 3. **Workflow engine** — `src/workflows/` (declarative parallel DAG with *enforced* per-task write-globs + lane semaphores).
 4. **Subscription-executor bridge** — `src/runtime/subprocessExecutor.ts` (canonicalize-and-replay a headless `claude -p` transcript into the native learning loop — the hardest to copy).
 
-**Fix-or-drop:** the "bundle separates runtime from business data (read-only tiers)" story is **convention-only in code** (`src/bundle/` — no write-guard; the promised business-doc accessor doesn't exist). Build the enforcement or stop marketing it.
+**Bundle framing deprecated (founder direction, 2026-06-24):** the "bundle separates runtime from business data (read-only tiers)" framing is **dropped** — *not* "build the enforcement." This repo is now an **SDK**, not a singular runtime for managing a business, so runtime/business-data separation is no longer a selling point (it was convention-only in code anyway — `src/bundle/`, no write-guard). The **bundle concept itself is to be minimized to whatever extent is prudent** (step F).
 
 ## Extraction shape (high-level)
 
@@ -47,6 +47,7 @@ The reference SDK is a thin importable surface: a single `query({ prompt, option
 - **C. Decouple the blockers** — make session persistence an injectable port (in-memory default) so `bun:sqlite` isn't mandatory; add object-based config injection; document an ephemeral/no-state default; decide Node compatibility (Bun-only today).
 - **D. Split packaging** — open-core package (license flipped to OSS) vs. the proprietary layer (separate package/repo or source-available license) consuming the open core through its public ports.
 - **E. SDK-grade docs + examples** (the thin-repo lesson).
+- **F. Minimize the bundle** — fold/trim `src/bundle/` to whatever is prudent for an SDK; drop the runtime/business-data-separation framing (deprecated 2026-06-24). The bundle made sense when this was "the runtime that reads your business docs"; an SDK doesn't need it as a first-class concept.
 
 Effort to a *first thin SDK* is modest — the core, types, tool factory, and provider injection already exist; the real work is the boundary decision and decoupling the server-fused assembler, not a rewrite.
 
