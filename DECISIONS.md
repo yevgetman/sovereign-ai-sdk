@@ -2,6 +2,14 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-06-24 — Direction: this harness becomes an open-core SDK
+
+Decision: per business ADR **B-0014** (`~/code/sovereign-ai-docs/business/decisions/0014-sdk-open-core-split.md`), this repo is re-oriented toward an **open-core SDK** — refining B-0013's "open-source the SDK" into a boundary. A code-level audit (vs. Anthropic's `claude-agent-sdk-typescript`) found the moat is execution/integration, not invention: most of the harness is reproducible commodity, four subsystems are genuinely differentiated. **OPEN CORE** = the `query()` agent-loop core + typed options, the `Tool<I,O>` factory + permissioned tool contract, the multi-provider (local-first) abstraction, MCP, and hooks/skills/memory + transcripts. **PROPRIETARY** (source-available or closed) = the learning layer (`src/learning*`), the gateway multi-tenancy (`src/server/` — SSE replay ring + human-in-the-loop approval queue + per-principal isolation), the workflow engine (`src/workflows/` — enforced parallel write-scoping), and the subscription-executor bridge (`src/runtime/subprocessExecutor.ts`).
+
+Rationale + readiness (~3/5 — library-shaped core, app-shaped seams) and the extraction shape (barrel + `exports` map + a thin `createAgent()` assembler that omits the server/cron/learning; injectable persistence port; split packaging; SDK-grade docs): **`docs/plans/2026-06-24-sdk-open-core-extraction-shape.md`**. This **supersedes** the 2026-05-13 "Phase 14 (Distribution) dropped — proprietary IP, no public distribution" decision below for the open core. Fix-or-drop: the bundle's "runtime/business-data separation" is convention-only in code today (`src/bundle/` — no write-guard).
+
+Status: direction recorded (high-level shape only). The rigorous, actionable plan — module-by-module open/closed call, exact public API, persistence-port interface, packaging mechanics, OSS-license choice — is a deliberate follow-up pass. `private: true` / `UNLICENSED` in `package.json` must be reconciled for the open-core package when that pass runs.
+
 ## ADR P21-A — Binary-install asset discovery via `process.execPath`, source-mode walk as fallback
 
 Decision: `shippedBundlePath()` in `src/bundle/defaultBundle.ts` tries a binary-install resolver FIRST (resolves `process.execPath` via `realpathSync`, looks for `<dirname(dirname(execPath))>/bundle-default/index.yaml`) and falls through to the source-mode `import.meta.url` walk only when the binary branch misses. The function takes optional `{ execPath, metaUrl }` test seams; production passes nothing. The same pattern is mirrored in `findTuiBinary()` in `src/cli/tuiLauncher.ts` for resolving the `sov-tui` sibling binary, and `src/version.ts` switched to a build-time JSON import (`import pkg from '../package.json' with { type: 'json' }`) so the version number embeds into the compiled binary at build time.
