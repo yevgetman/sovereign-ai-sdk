@@ -1,0 +1,7 @@
+node: sovereign-ai
+authoritative: me/org/nodes/sovereign-ai
+parent: me
+domain:
+- /Users/julie/code/sovereign-ai-docs
+- /Users/julie/code/sovereign-ai-harness
+- /Users/julie/code/sovereign-ai-inference
