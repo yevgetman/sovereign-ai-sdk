@@ -1,24 +1,25 @@
 # Autonomous feature builds (spec → plan → ship)
 
-**Locked rule.** Any **large feature build that warrants a planning phase** (i.e. one you'd write a spec + an implementation plan for) runs the full pipeline **autonomously, with no approval gates**. Do not stop to ask the founder to approve the spec or the plan, and do not check in between implementation tasks. Drive it to a shipped, verified, released state.
+## Building a feature → SOP-12 (inherited from the Firm apex)
 
-This composes with the other conventions ([`lint-and-commit.md`](lint-and-commit.md), [`subagent-policy.md`](subagent-policy.md), [`cutting-releases.md`](cutting-releases.md), [`sov-upgrade.md`](sov-upgrade.md), [`testing-log.md`](testing-log.md)) — it removes the *approval gates*, not the *quality gates*.
+This node's build procedure is the Firm's **apex SOP-12 — "Build a codebase"**, inherited via the firm
+governance cascade. It **supersedes the prior local `autonomous-feature-builds` procedure**, and the agent
+governing this node **must follow it for any code build, without being told**. Shape:
 
-## The pipeline
+**spec → CEO green-light → autonomous subagent build → docs + tests → ship.**
 
-1. **Spec.** Write the design spec at `docs/specs/YYYY-MM-DD-<topic>-design.md`. **Self-review it** before moving on — placeholder scan, internal consistency, scope, ambiguity — and fix inline. **Do NOT pause for spec approval.**
-2. **Plan.** Immediately write the implementation plan at `docs/plans/YYYY-MM-DD-<feature>.md`, task-checkboxed for `superpowers:subagent-driven-development`. **Do NOT pause for plan approval.**
-3. **Execute.** Immediately execute the plan with `superpowers:subagent-driven-development` — **fully autonomous**. Fresh subagent per task; review at sensible checkpoints. While executing, if bugs or issues surface, **address them autonomously with best judgment and prudence**. Do not stop to check in between tasks. Continue until the feature is shipped.
-4. **Final pass.** Once the build is complete, do a final pass to confirm everything is copasetic; address any issues that surface.
-5. **Docs + tests (always).** Update the documentation. Add and update the requisite tests. Run the full pre-commit gate (`bun run lint && bun run typecheck && bun run test`) and confirm it is green (no new failures beyond the known env-only set).
-6. **Ship.** Add, commit, and push to remote. Then **update + reinstall the CLI** (`sov upgrade`), update **any agent skills** affected, and **cut a new release when applicable** (per [`cutting-releases.md`](cutting-releases.md) — any `src/` / `bundle-default/` / `packages/tui/` change).
+1. Write + self-review the **spec** at `specs/YYYY-MM-DD-<topic>-design.md`.
+2. **Present the spec to the CEO and PAUSE for an explicit green-light** — the one human gate; never
+   self-approved, never skipped. (This is the change from the old local workflow, which had no gate.)
+3. On green-light: write the **plan** at `plans/YYYY-MM-DD-<feature>.md`, then execute it **fully
+   autonomously** — a fresh subagent per task, review between tasks, no further approval pauses; fix issues
+   with sound judgment.
+4. Always finish with **docs + tests** and the node quality gate green, then **ship** (commit + push +
+   release plumbing). Stop only for a CEO-reserved decision the spec can't resolve, a
+   destructive/irreversible/outward action, or decomposition into sub-specs.
 
-## What this does NOT remove (still requires judgment / a pause)
-
-- **Founder-reserved / strategic decisions** — anything that sets direction, cost, lock-in, or a major tech choice (e.g. TypeScript-vs-Python, build-vs-adopt). Surface it; do not decide it.
-- **Destructive or irreversible actions outside the build itself** (deleting/overwriting unrelated work, force-pushing shared history, publishing to an external service beyond the normal release). Confirm first.
-- **Decomposition.** If the spec reveals the work is actually several independent subsystems, decompose into sub-specs/plans first — still no approval gate, but plan accordingly.
-
-## Scope
-
-Applies to **all** large feature builds requiring a planning phase. Small or mechanical changes (a one-file fix, a config tweak, a doc edit) don't need the spec/plan ceremony — just make them (still through the quality gates). When unsure whether a change is "large," ask only "does this warrant a spec?" — if yes, this rule governs it end-to-end.
+**This node's specifics:** quality gate = `bun run lint && bun run typecheck && bun run test`; specs →
+`specs/`, plans → `plans/` (this repo currently uses `docs/specs/` + `docs/plans/` — keep using those for
+now, migrate later per thefirm/docs/firm-plugin-roadmap.md; never `superpowers/`). Full text:
+`~/code/me/org/sop/12-build-a-codebase.md` (or `firm seed sovereign-ai`). It is **inherited, not copied** —
+the apex owns it; this node may *tighten* but never relax it.
