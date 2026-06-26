@@ -18,7 +18,7 @@ describe('documentation defaults', () => {
   test('max-token default matches the CLI constant', () => {
     const defaultMaxTokens = extractDefaultMaxTokens(readRepoFile('src/main.ts'));
     const readme = readRepoFile('README.md');
-    const usage = readRepoFile('docs/usage.md');
+    const usage = readRepoFile('docs/03-cli-reference/usage.md');
 
     expect(readme).toContain(`--max-tokens <n>\` (default \`${defaultMaxTokens}\`)`);
     expect(usage).toContain(`Default: \`${defaultMaxTokens}\`.`);

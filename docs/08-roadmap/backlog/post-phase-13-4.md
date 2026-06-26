@@ -1,0 +1,673 @@
+# Post-Phase-13.4 Backlog
+
+This document is the record of truth for items not part of the canonical build plan that have surfaced as v0 limits, deferred polish, or architectural extensions during the Phase 13.3 + 13.4 work shipped on 2026-05-06. Future sessions can pick these up without re-deriving context.
+
+These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` — they are smaller follow-ups, polish, and known v0 trade-offs documented in commit messages, code comments, and the testing log. The build plan's freshest closed phases are **Phase 17 (cron / scheduled jobs, shipped 2026-05-22 evening)**, **Phase 18 (OpenAI-compatible HTTP API server, shipped 2026-05-23)**, and **Phase 21 M2 (release automation, shipped 2026-05-25)**. No new phase has closed since — v0.6.1 → v0.6.13 shipped as post-M2 hardening/UX releases (no phase designation; see `docs/07-history/state/2026-05-31-post-m2-hardening.md`). The next concretely-specced phases are **the demand-gated 16.5 (Telegram) / 19 (MCP server) / 20 (Slack) channels** — these backlog items are orthogonal and can land between phases or as time permits. Phase 13.5 (scheduled-mission sub-agents) shipped 2026-05-11 and is complete in the canonical plan.
+
+**Last sync:** 2026-06-15 (session transcripts + subscription-executor visibility — v0.6.46) — **closed three founder-reported gaps in one build.** (1) Conversations are now saved as **always-on, human-readable per-session JSONL transcripts at the user level** (the Claude-Code ergonomic): `<base>[/users/<owner>]/projects/<slug(cwd)>/<sessionId>.jsonl`, appended as the conversation happens, across every surface (turns/channels/OpenAI/compaction), **secret-redacted by default**, per-user scoped. New `src/transcript/` (`TranscriptWriter` mirroring `TraceWriter` + a runtime-level `TranscriptStore`) + a `persistMessage(host, sessionId, msg)` wrapper at the universal `SessionDb.saveMessage` chokepoint (every call site migrated). `sessions.db` stays authoritative/the resume source — the JSONL is a mirror. (2) The **dead `debugMode.transcript`/`transcriptDir`/`--transcript` config** (orphaned pre-M13 vestiges that never wrote anything — the founder's "not sure transcripts are saved in debug mode" was correct) is **retired**: superseded by the new always-on `transcripts: { enabled(true), dir?, redactSecrets(true) }` block; legacy fields deprecated-but-parseable (`transcriptDir` honored as a `dir` fallback); `--transcript` → documented no-op. (3) The **subscription-executor is now visible** — a loud red `⚠ SUB-EXEC` TUI status-line chip when enabled (Go, via the `TaskRouter` boot-flag pattern). The active transcripts dir is surfaced in `harness_info`. Investigated with 4 parallel agents → spec/plan → core by hand + the Go chip via one Opus subagent. Gate: lint+typecheck clean, **TS 4246 pass / 0 fail / 16 skip** (+24), Go green (incl. 4 chip tests). Spec `specs/2026-06-15-session-transcripts-design.md`, plan `plans/2026-06-15-session-transcripts.md`, snapshot `docs/07-history/state/2026-06-15-session-transcripts.md`. Deferred (out-of-scope v1): resume-from-JSONL (DB stays the source), sub-agent sidechain files, large-output overflow sidecar, a live `/config` toggle for the chip. Open backlog unchanged at **10** (#17 + #50–#54 + #58 + #59 + #60 + #62). Predecessor **Last sync:** 2026-06-15 (multi-agent workflows — feature review) — **adversarial `/code-review` of the just-shipped workflow feature, then fixed every confirmed critical/high/medium autonomously (v0.6.45).** Review run as a Workflow (6 parallel finders → verify → sweep; 30 findings). **Two CRITICAL data races closed:** the path-lock's `globPrefix`/`prefixesTouch` reported a **false-disjoint** for mid-segment-wildcard globs (`src/foo*` vs `src/foobar.ts` matched the same file yet ran concurrently — now collapses to the containing directory + case-fold/`./`-normalize, also closing the case-insensitive-FS twin); and the **subscription-executor** (`readOnly:true`, but its `--dangerously-skip-permissions` subprocess writes) **skipped the path-lock** (now forces the whole-tree lock). **Highs:** >4 fan-out silently dropped tasks → bounded worker-pool (8) + per-call `maxChildrenOverride`; an upstream-failure-driven downstream interpolation crashed the run → graceful per-phase degradation. **Mediums:** wired the never-invoked `validateWorkflow` at run start (fail-fast on every surface); fail-closed empty-affectedPaths; exempt harness-state/read-only tools from the project-scope deny; loader per-dir try/catch; default-arg coercion; quote-aware slash args; thread `memoryManager` (learning soak); bare-dir-glob subtree parity; template prototype-chain hardening. **Lows:** reject unknown `task.lane`; `process.exitCode` so `dispose()` runs on error exit. **#61 CLOSED** (`workflow_run` wired via a lazy runtime holder). Gate: lint+typecheck clean, **TS 4222 pass / 0 fail / 16 skip** (+24 regression tests), Go green. Commits `e367f54` + `7131f95`. **Deferred:** #62 (workflow TUI progress over SSE + slash cancel — the command route is synchronous; streaming is a v-next change). Open backlog **11 → 10** (#17 + #50–#54 + #58 + #59 + #60 + #62). Predecessor **Last sync:** 2026-06-15 (multi-agent workflows) — **built a deterministic multi-agent orchestration layer into the harness** (the gap: model-driven fan-out only + a global write-lock that serialized write-capable fan-out). Founder-locked design: a DECLARATIVE engine (no arbitrary code exec) + **path-granular write locking**, with **parallel fan-out the headline**. Shipped: **`src/runtime/pathLock.ts`** (`PathLockManager` replaces the global `Semaphore(1)` — disjoint declared write scopes run in PARALLEL, overlapping serialize, undeclared=whole-tree=back-compat) + **enforced write-scope** (`src/permissions/writeScope.ts` — a task's `writes` is a denied-outside permission boundary, so disjoint scopes can't clash on under-declaration); the **`src/workflows/` engine** (YAML phases / parallel tasks / map fan-out / barriers / output threading / per-task `lane` + `writes`; safe dotpath interpolator; project>user>bundle loader); surfaces **`sov workflow list|show|run`** (CLI) + **`/workflow`** (slash); a bundled example `bundle-default/workflows/review.yaml`. Built W1 by hand; W2–W6 via a 5-owner workflow fan-out + central reconciliation. Spec `specs/2026-06-15-multi-agent-workflows-design.md`, plan `plans/2026-06-15-multi-agent-workflows.md`. Gate: lint+typecheck clean, **TS 4198 pass / 0 fail / 16 skip** (+84), Go green; smoke confirms list/show/loader/bundle end-to-end. **Opened #61** (workflow_run TOOL wiring — agent-invocable; runtime-self-ref injection, deferred) + **#62** (workflow onEvent→SSE for TUI progress). Open backlog **9 → 11** (#17 + #50–#54 + #58–#62). Predecessor **Last sync:** 2026-06-14 (config live-apply UX) — **resolved the `/config` "is this saved setting applied now or do I need to restart?" ambiguity.** Replaced the binary hook-presence model (badge + toast derived independently → could disagree; many settings silently "next session") with a single **apply-scope taxonomy** (`src/config/applyScope.ts`: `live`/`live-reload`/`other-process`/`restart`); the picker badge AND the save toast now derive from one source and the toast always **names the setting + states the outcome**. Maximized live-apply: models / `defaultProvider` / creds / router lanes re-resolve the whole provider stack to the LIVE conversation (new `runtime.reresolveProvider`, atomic, between-turns); `thinking.effort` (the #1 prior silent no-op) now applies live like `/effort`; task-routing, `permissionMode` (loud `bypass` chrome indicator), web search, learning/recall (rebuilds the session's recall+observer in place), microcompaction, and `ui.*` render flags all green. Honest amber for `gateway.*`/`openaiServer.*` (other-process) + the few boot-captured settings (`maxTurns`/`behavior.*`/`review.*`/`subscriptionExecutor.*`/`debugMode.*`/`router.maxConcurrent*`/learning-prune → "restart sov"). Invariant enforced: every green path has a matching `LIVE_APPLY_HOOK` (no over-claiming badge). Surfaced orphan catalog fields (`learning.recall.*`, `providers.sov.*`, missing `gateway.*`); `listUnmanagedKeys` recurses; fixed the `refreshRuntimeFromConfig` #55-class `harnessHome` bug; the safety review caught + fixed a compactor-model-stale-after-cross-family-reresolve bug. Spec `specs/2026-06-14-config-live-apply-design.md`, plan `plans/2026-06-14-config-live-apply.md`. Gate: lint+typecheck clean, **TS 4096 pass / 0 fail / 16 skip** (+100), Go green; behavioral smoke confirms every scope's toast. **Documented v1 limitations (not numbered):** `ui.footer`/`ui.diffRender`/`ui.contextMeter` update live state but on-screen rendering awaits inline-TUI widget support; `runtime.reloadHooks`/`reloadMcpServers` exist but no `/config` field drives them (settings.json-only); `runtime.model` still process-global (#58, unchanged). Open backlog unchanged at **9** (#17 + #50–#54 + #58 + #59 + #60). Predecessor **Last sync:** 2026-06-14 (post-audit bug hunt) — **a second agent-driven deep-dive bug hunt run AFTER the 2026-06-10 audit shipped; 46 confirmed NEW findings (1 critical, 10 high, 12 medium, 23 low), ALL FIXED.** Report + per-finding inventory: `docs/07-history/audits/2026-06-14-post-audit-bug-hunt.md`. Targeted the least-reviewed code (the 69 files changed since the audit baseline `f661f24` — the audit fixes themselves + post-audit features) + a sweep of unchanged subsystems. Headline: a **channel-reachable Bash RCE from an incomplete C3 fix** — the auto-allow gate's `find`-primary detector was a quote-naive regex while the sibling `shellSemantics` path used a quote-stripping tokenizer, so `find . '-delete'` / `find . '-exec' …` ran unprompted for an untrusted channel sender; closed by sharing the tokenizer. Other HIGHs were mostly **incomplete prior fixes**: SSRF range/rebinding gaps; **`sessionDb` H14 was filed-as-fixed but the code was never changed** (+ a channel-driven twin `cleanupOldChannelSessions`); reasoning models (`o1/o3/o4/gpt-5`) never booted when effort was off; idle SSE reconnect flood; observations.jsonl >1 MiB silently stopping synthesis. Built by a **20-way disjoint-file fix fan-out (TDD)** + per-group completeness review + **adversarial bypass review on the two security groups** — the adversarial pass caught a residual SSRF bypass (IPv4-compatible IPv6 `::a9fe:a9fe`) the implementer missed, and the central gate caught one self-introduced regression (an over-broad same-role merge breaking microcompaction turn-loop tests, re-scoped to plain non-tool messages). Security repros confirm the RCE + SSRF closed. Gate: lint clean (761) + typecheck clean + **TS 3996 pass / 0 fail / 16 skip** (+139, every fix with a regression test) + Go green. Opened low follow-ups **#59** (F36 sibling-hydrate paths) + **#60** (F15 same-credential-id race, accepted). Open backlog **7 → 9** (#17 + #50–#54 + #58 + #59 + #60). Predecessor **Last sync:** 2026-06-14 (CI maintenance) — **closed #56; #49 re-fixed.** **#56** (stale Go theme-switch test + Go suite unguarded in CI): confirmed it genuinely fails in a clean/CI env (it passed only on a polluted `~/.harness` with `theme:"light"` — the inverse of #55), rewrote it to drive the `themeChanged` side-effect directly (`0dfb9cc`), and added `go test ./...` to the release-workflow preflight (`2ac4304`) so the Go suite is finally guarded in CI. **#49** (Node-20 actions) re-fixed: the prior v4→v5 bump was insufficient — `upload-artifact@v5` + `download-artifact@v5` both still run on Node 20 (the original fix verified version existence, not Node runtime); bumped to upload@v6 / download@v7 (node24-verified) ahead of the 2026-06-16 forced cutover. Open backlog **8 → 7** (#17 + #50–#54 + #58). Predecessor **Last sync:** 2026-06-14 — **closed #57 + #55; opened #58.** **#57** (`runtime.effort` process-global) FIXED in code (`40a998e`): `/effort` now writes per-session `SessionContext.effort` (seeded from the runtime boot default) instead of the shared `runtime.effort`, so one principal's `/effort` no longer leaks to other principals / cron / channels; isolation proven by a unit test (`tests/server/commandContext.test.ts`) + an end-to-end turns-route test (`tests/server/turns.test.ts`); two stale tests that asserted the old global mutation rewritten; known v1 limit — effort resets to the boot default on SessionContext rebuild (idle eviction / compaction child). **#55** (learning-test global-`~/.harness` false-failures) verified **already fixed** by `79a1b7f` (the real cause was global-DB-contention timeout, NOT the originally-hypothesized path leak) + guarded by a deterministic CI-proof regression test; re-verified the full affected set (22 tests) passes under a deliberately-polluted real 1.1 GB `~/.harness` with zero corpus pollution; backlog was stale, now corrected. **#58** (NEW, P3) — `runtime.model` is process-global in the same way as #57 (discovered while fixing #57: the "mirror the session model-override pattern" premise was false — model is global too); deferred as a wider-surface change with its own item. Open backlog **9 → 8** (#17 + #50–#54 + #56 + #58). Predecessor **Last sync:** 2026-06-10 — **full-codebase audit shipped** (`docs/07-history/audits/2026-06-10-full-codebase-audit.md`): 17 fix commits closing all confirmed Critical/High + most Medium/Low findings from a 21-area + 3-holistic auditor sweep (headlines: an unauthenticated channel-gateway Bash RCE, SSRF, secrets-to-disk in five places incl. one already-public release leak — the 25 dirty public releases were purged; multi-user isolation seams; the `/effort` thinking-signature break). Gate **3857 pass / 0 fail / 16 skip**. Opened backlog **#57** (P3 — `runtime.effort` is process-global, the one consciously-deferred finding). Open backlog rises **8 → 9** (#17 + #50–#57). Predecessor **Last sync:** 2026-06-08 — opened backlog **#55** + **#56**, two pre-existing test issues surfaced while gating the **v0.6.33** Last-Event-ID SSE-reconnect fix (the infinite-turn-re-stream bug): **#55** — the learning/observation tests read the global `~/.harness` when `HARNESS_HOME` is unset, so they emit FALSE failures on a developer's polluted home (they pass under a clean `HARNESS_HOME` and in CI); **#56** — a stale Go test (`TestM9_ThemeSwitchAltersRender`) fails deterministically against the removed client-side `/theme` path, unnoticed because the release CI does NOT run `go test`. Both pure test hygiene; no runtime impact. Open backlog rises from **6 items → 8 items** (#17 + #50–#54 + #55 + #56). Predecessor **Last sync:** 2026-06-06 — closed backlog **#49** (Node-20 GitHub Actions deprecation): bumped every Node-20-based action in `.github/workflows/release.yml` to its current latest Node-24 major (each verified to exist via the action's GitHub releases) — `actions/checkout@v4 → v5`, `actions/setup-go@v5 → v6`, `actions/upload-artifact@v4 → v5`, `actions/download-artifact@v4 → v5`; `oven-sh/setup-bun@v2` already runs on Node 24 (left as-is). Clears the deprecation annotation ahead of the 2026-06-16 forced-Node-24 cutover; pure CI hygiene, no runtime impact. Open backlog drops from **7 items → 6 items** (#17 + #50–#54). Predecessor **Last sync:** 2026-06-04 (HEAD `bb0cb78`, interim v0.6.14) — **Learning-Loop Spike Phase 1 closed: the learning loop is now CLOSED behind a portable four-port learning layer (`src/learning-layer/`, per ADR H-0010); Q1 PASS (6 flips / 0 regressions, no human in the loop).** Recall spliced into `query()` (gated `learning.recall.enabled`, default FALSE); the D6 memory-on-server-surface fix; synthesis-yield repair (saturating confidence curve + normalized cluster keys + end-of-session synthesis); with-vs-without eval (`bun run eval:learning`). See `docs/07-history/state/2026-06-04-learning-loop-spike-phase-1.md`. Added Phase-2 backlog **#50–#54** (deferred-by-design): mock-host isolation suite + portability gates, full Persist extraction, synthesizer-onto-Reason, adapter #2, recall on the other surfaces. Open backlog: **7 items** (#17 + #49 + #50–#54). Founder-reserved (NOT backlog): rented-engine choice, go/no-go, auto-promote default, recall-on default. Predecessor **Last sync:** 2026-05-31 (HEAD `bb8240e`, v0.6.13) — doc-consistency sweep, no runtime change. No new phase since Phase 21 M2; v0.6.1 → v0.6.13 shipped as hardening/UX releases — TUI global style guide (v0.6.4), visual VHS QA loop (v0.6.9–v0.6.10), UX + end-of-turn-gap rounds (v0.6.5–v0.6.8), the **v0.6.12 21-fix bug-hunt** (1 critical / 11 high / 8 medium / 1 low), and the **v0.6.13 markdown heading color sky-100** — all captured in `docs/07-history/state/2026-05-31-post-m2-hardening.md`. Opened **#49** (Node-20 GitHub Actions deprecation, P3 CI-maintenance). Open backlog: **2 items** (#17 + #49). Predecessor **Last sync:** 2026-05-25 — closed backlog #48 (Phase 21 M2 release automation; GitHub Actions workflow at `.github/workflows/release.yml` ships binary releases on `v*.*.*` tag push; `scripts/release.ts` refactored into thin orchestrator over extracted scripts; first cut shipped as v0.6.0). Open backlog drops from **2 items → 1 item** (#17 P4 eval-gated auto-promote). Predecessor **Last sync:** 2026-05-22 evening — closed backlog #47 (dead `packages/tui/internal/components/transcript.go` removed; 511 LoC deleted) + wired TUI to adopt the `promptToSend` field on `CommandResponse`. Prompt-type slash commands (`/init`, `/commit`, every skill-sourced command) now auto-fire the expanded prompt body as a turn — mirrors what `sov drive` already does (`src/cli/driveCommand.ts:475`). Three new Go tests pin the wire shape + the auto-fire + the negative case. TS suite **1996/0/14** (TS untouched); Go all packages green. Predecessor: 2026-05-22 PM — TUI tool-call abstraction + Fix A + Fix B shipped (default `tool_result` rendering flipped to one-liner per call; `monokai` chroma style; launcher stderr boot line gone; `-v / --verbose-raw` orthogonal escape hatch). Predecessor: 2026-05-22 AM — Phase 21 M1 (binary distribution) shipped. Predecessor: 2026-05-21 — ux-fixes rounds 3-5 shipped (commits `e2c8b63` / `2976466` / `bf47564`). Round 5 is the architectural pivot: **dropped `tea.WithAltScreen()` + mouse capture** so the terminal owns scrollback (wheel + trackpad scroll) and text selection natively — matches Claude Code / opencode. Permanent content (user messages, assistant cards, tool results, system messages, splash, boot notices) emits via `tea.Println` into terminal scrollback; the in-TUI View() shrinks to a bottom-anchored live region (streaming card + spinner + "…running" indicator) + prompt + status. New `LiveRegion` component at `packages/tui/internal/components/liveregion.go`. Round 3 fixed textbox auto-grow (`bubbles/textarea`), splash polish, bottom-weighted Braille spinner, markdown bullet hang-indent + table-cell wrap. Round 4 added paste abstraction (`[Pasted text #N +M lines]`), ESC turn-cancel (POST `/sessions/:id/cancel`), prompt prefix first-line-only. Round 5 dropped round-4 PgUp scroll bindings + tool-card click-to-expand + round-3 `--mouse` opt-in. TS suite green at **1955/0/14**; Go all packages green; lint+typecheck clean. **Phase 16.1 stays closed.** Open backlog: **2 items** (#17 P4 eval-gated auto-promote + new #47 P4 transcript.go cleanup). Predecessor (M13, 2026-05-20): terminalRepl removal complete; Phase 16.1 closed. Predecessor history preserved below from prior syncs.
+
+**Prior sync chain:** 2026-05-20 (M13): Phase 16.1 M13 shipped (terminalRepl removal). Deleted `src/ui/terminalRepl.ts` (2334 LoC) + 9 REPL-only `src/ui/*` modules + their tests + `src/cli/replDeprecation.ts` + `src/cli/surfaceResolver.ts` + readline asker bits from `src/permissions/prompt.ts`. Dropped `--ui` flag, `SOV_UI` env, `ui.surface` config field. main.ts boot flow collapsed from ~65 lines to ~13. 4 ADRs landed M13-01..04. Suite green at **1949/0/14**. Predecessor (M12 shipped 2026-05-19): REPL deprecation warning + #41 + #43 closed pre-M12. Predecessor (#45 + #46 closed 2026-05-19): TUI slash-command discovery endpoint + /theme migration to pickerOpen. Predecessor (#44 closed): permission "remember (project)" persistence. Predecessor (audit pass): #29, #38, #39 closed. Predecessor (M11.5): inline picker card; 3 ADRs M11.5-01..03; suite 2061/2061. Predecessor (2026-05-17 M11): Default-flip shipped; 3 ADRs M11-01..03; suite 2033/2033. Predecessor sync (M10.5): slash-command dispatcher shipped; #40 closed. Items 1-11, 14-16, 18-23, 25-39 closed across sixteen batches. Items 25-30 added 2026-05-14 from Phase 16.1 M5 close-out + M5.1 review. Items 31-33 added 2026-05-14 from Phase 16.1 M6 final whole-branch review. Items 34-36 added 2026-05-15 from M6 pre-smoke critical bug-hunt. Item 37 added 2026-05-15 from M6 smoke pre-flight. Items 38-39 added 2026-05-15 from Phase 16.1 M7 T5/T6 reviews. **Item 40 added 2026-05-16 from Phase 16.1 M10 parity audit; CLOSED in M10.5.** Items 41-46 added during the M10 audit + M11.5 / M12 work; all closed by M13. **Item 47 added 2026-05-21 from the ux-fixes round 5 close-out — cosmetic cleanup of dead `transcript.go` production code.**
+
+## Priority order
+
+P0 (correctness / data integrity):
+1. ~~MEMORY.md cap enforcement on `/review approve`~~ **— closed `f7c9c69`**
+2. ~~Auto-promote provenance preservation gap audit~~ **— closed `47993ec` (no real gap; C2 fix verified)**
+
+P1 (UX / observability):
+3. ~~`/review revoke <id>` undo path~~ **— closed `7015b8c`**
+4. ~~Consolidation deletes original entries~~ **— closed `409fe9c` (post-deletion cap check + audit-trail success message)**
+5. ~~Status mapping at observer site upgraded to 4-state~~ **— closed `64e5eef`**
+6. ~~Better confidence ramp-up for cross-project promotion~~ **— closed `d24efee` (tunables exposed; defaults preserved pending soak data)**
+19. ~~MEMORY.md cross-pollinates unrelated projects (global memory, not project-scoped)~~ **[soak 2026-05-07] — closed `db967ed` → `07cb263`**
+22. ~~Mid-turn context pruning anomaly during long autonomous exploration~~ **[soak 2026-05-07] — closed `c6412ce` (real bug; current-turn boundary protection in microcompact)**
+23. ~~FileRead throws instead of returning `{status: error}` envelope on missing file~~ **— closed `d2e1e92`**
+
+P2 (architectural extensions):
+7. ~~Pick `review-memory` vs `review-skill` based on child shape~~ **— closed `2df9da7`**
+8. ~~Per-child trace files in addition to consolidated parent trace~~ **— closed `1001237`**
+9. ~~`ReviewForkPromptContext` field rename~~ **— closed `94eea94` (renamed to primaryFile/secondaryFile)**
+10. ~~Synthesizer dispatch rhythm — currently user-turn only; activity-burst trigger missing~~ **— closed `a8d4ce3`**
+11. ~~Concurrency between multiple `sov` sessions writing to same observations.jsonl~~ **— closed `8e86e61` (verified safe)**
+34. ~~Anthropic strict-alternation hazard with `assistant`-role compaction summary~~ **— closed `4653737` (synthetic bridge user inserted between summary and tail when tail[0].role === 'assistant')**
+35. ~~`isContextOverflowError` substring matcher unverified against real provider error shapes~~ **— closed `1212a42` (real Anthropic overflow probed; matcher catches `'prompt is too long'`; JSDoc + test pin the contract)**
+
+P3 (qwen-amendment deepenings — orthogonal to 13.x):
+12. Microcompaction (Phase 10 deepening)
+13. Shell AST analysis (Phase 7 deepening)
+24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control **[soak 2026-05-07]**
+25. ~~Server-side `SubagentScheduler` does not receive `availableProviders`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
+26. ~~Server-side `SubagentScheduler` does not receive `artifactsRoot`~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
+27. ~~Server-side `LaneSemaphores` cap config not wired from settings~~ **[M5 T6 2026-05-14] — closed `3b07110` (M5.1)**
+31. ~~M3.4 turns route does not validate `:id` shape~~ **[M6 review 2026-05-14] — closed `b9a4ad8` (added `isValidSessionId` guard at top of POST /sessions/:id/turns handler; mirrors sibling routes)**
+32. ~~Resume-after-compaction regression test~~ **[M6 review 2026-05-14] — closed `09da469`**
+36. ~~`estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions~~ **[M6 review 2026-05-15] — closed 2026-05-15 (early-return guard in `compactSession`; `noOp: true` flag wired through all callers)**
+38. ~~`reviewAutoPromoteMemory` / `reviewAutoPromoteSkills` snapshot gap in `parentToolContext`~~ **[M7 T6 2026-05-15] — closed 2026-05-19** (parentToolContext at `src/server/sessionContext.ts:215-228` now spreads `reviewAutoPromoteMemory`/`reviewAutoPromoteSkills: true` from `userSettings.review.autoPromote{Memory,Skills}`, mirroring terminalRepl.ts:974-980. Conditional — only matters with autoPromote enabled; no new tests added since the existing autoPromote code path ships untested in the REPL too and adding scaffolding for this path would be over-procedure.)
+
+P1 (UX / observability) — surfaced in M10 audit:
+40. ~~Server-side built-in slash-command dispatcher route~~ **[M10 audit 2026-05-16] — closed `17d456b` + `d515b9f` (M10.5, 2026-05-16)**
+
+P2 (server-mode subsystem wiring) — surfaced in M10 audit, deferred from M10/M10.5:
+41. ~~`createClearedChildSession` server wiring — backs /clear, /rollback~~ **[M10 audit 2026-05-16] — closed 2026-05-19** (wired in `src/server/commandContext.ts`'s `clearHistory` + `rollback` closures; `sideEffects.newSessionId` already part of the M10.5 envelope; TUI hops on receipt — see `app.go:843`. 3 new server-route tests pin /clear + /rollback + no-parent-error behavior.)
+43. ~~`createDefaultMemoryManager` + `resolveProjectScope` server wiring — backs /memory~~ **[M10 audit 2026-05-16] — closed 2026-05-19** (wired onto `SessionContext` at `src/server/sessionContext.ts`; threaded into ToolContext via `buildSessionToolContext` so `ctx.memoryManager?.onMemoryWrite(...)` fires and `ctx.projectScope` routes writes correctly between global and per-project MEMORY.md; disposal calls onSessionEnd + shutdown. 3 new sessionContext.memory.test.ts cases pin the wire.)
+
+P3 (small persistence gap):
+44. ~~`appendProjectLocalPermissionRule` server-side persistence path — "yes & remember (project)" approval persistence~~ **[M10 audit 2026-05-16] — closed 2026-05-19** (per-session canUseTool's `recordAlwaysAllow` closure at `src/server/routes/turns.ts:451-460` now writes to `<cwd>/.harness/settings.local.json`, mirroring terminalRepl.ts:827. Subsequent turns load the rule via `loadPermissionSettings`'s rule-layer scan, so a single "always" answer persists across the session and across `sov` invocations. The runtime-level fallback canUseTool's closure stays no-op intentionally — its `ask` is a deny-always placeholder, making the always-answer branch unreachable. 3 new tests in `tests/server/permissionPersistence.test.ts` pin happy-path + idempotency + multi-rule cases.)
+
+P3 (TUI architecture):
+45. ~~TUI slash-command discovery endpoint — `staticEntries` in `slashautocomplete.go` is a compile-time hand-mirror of TS `COMMAND_REGISTRY`; add `GET /sessions/:id/commands` so the popup syncs automatically~~ **[2026-05-19] — closed 2026-05-19** (new GET /sessions/:id/commands route at `src/server/routes/commands.ts` returns the live TS COMMAND_REGISTRY; Go TUI fetches at boot via `transport.GetCommands` + `fetchCommandsCmd` and populates the popup via `SlashAutocomplete.SetCommands`. The static fallback remains for pre-fetch / test scenarios. 5 server-side tests + 4 Go component tests.)
+
+P4 (M11.5 follow-up):
+46. ~~Migrate `/theme` to use `pickerOpen` side-effect — currently uses dedicated client-side dispatch (one of the original 4 `staticEntries`). Consistency-only; no user impact today~~ **[M11.5 close-out 2026-05-19, formerly tagged F1 in the spec] — closed 2026-05-19** (new `themeChanged` side-effect protocol replaces the Go-side client interceptor; server's runThemePicker emits pickerOpen on no-args + recordThemeChange on explicit name. Go TUI's `applyThemeByName` helper updates m.theme + all components on the side-effect. writeThemeToConfig deleted — server persists via applyAndPersistTheme. 4 new TS cases + 2 new Go cases; 2 old persistence-path Go tests removed.)
+
+P4 (ux-fixes round 5 cleanup):
+47. ~~**Retire dead `packages/tui/internal/components/transcript.go`**~~ **[ux-fixes round 5 close-out 2026-05-21] — closed 2026-05-22 evening** (deleted `packages/tui/internal/components/transcript.go` 306 LoC + `transcript_test.go` 205 LoC = 511 LoC removed; dropped the `transcript` field from `Model`, the `NewTranscript` initializer, and the `SetSize` call in `recomputeLayout()`. The `focusTranscript` iota stays — it's a focus-state name, not a struct reference. All Go packages green; no consumers had to change.)
+
+P3 (Phase 21 follow-up):
+48. **Phase 21 M2 — GitHub Actions release automation.** **CLOSED 2026-05-25.** Workflow at `.github/workflows/release.yml` in `sovereign-ai-harness` triggers on `v*.*.*` tag push (also `workflow_dispatch` with optional dry-run). Four-job graph: preflight (ubuntu, runs lint+typecheck+test + asserts package.json matches tag) → parallel build-darwin (macos-14, both darwin tarballs) + build-linux (ubuntu, linux-x64 tarball) → release (ubuntu, downloads artifacts + `gh release create` against `yevgetman/sov-releases` via fine-grained `SOV_RELEASES_TOKEN` PAT). `scripts/release.ts` refactored into thin orchestrator over `scripts/release-shared.ts` + `scripts/release-build-target.ts` + `scripts/release-upload.ts`; both local and CI paths call the same extracted scripts. Upload step is idempotent — `gh release view` check before `gh release create`, so local-cut-then-CI scenarios stay green. Optional code-signing/notarization (~$99/yr Apple Developer Program) and homebrew tap remain follow-ups, gated on real-world setup or actual beta demand. Spec: `specs/2026-05-24-phase-21-m2-release-automation-design.md`. Plan: `plans/2026-05-24-phase-21-m2-release-automation.md`. ADR P21-C in DECISIONS.md. First cut shipped as **v0.6.0** (wall time ~4 min end-to-end). v0.6.0 install smoke via public installer PASS.
+
+P3 (CI maintenance):
+49. ~~**Node-20 GitHub Actions deprecation.**~~ **CLOSED 2026-06-06** — bumped every Node-20-based action in `.github/workflows/release.yml` to its current latest Node-24 major (each target version verified to exist via the action's GitHub releases page): `actions/checkout@v4 → v5` (6 occurrences), `actions/setup-go@v5 → v6` (2), `actions/upload-artifact@v4 → v5` (2), `actions/download-artifact@v4 → v5` (1). `oven-sh/setup-bun@v2` left as-is — v2.2.0 already runs on Node 24 (no v3 exists). YAML re-parsed clean (all four jobs intact). This clears the deprecation annotation ahead of the **2026-06-16** forced-Node-24 cutover. Pure CI hygiene — no runtime impact. (Originally noted in the frozen `docs/07-history/state/2026-05-25-phase-21-m2.md` follow-ups; promoted here so it lived in the living backlog.) **2026-06-14 follow-up — the v5 bump was INSUFFICIENT.** `actions/upload-artifact@v5` AND `actions/download-artifact@v5` BOTH still run on Node 20 — #49's methodology verified the target versions *existed* but not their Node *runtime* (the gap). The deprecation warnings persisted on the v0.6.41 run, with the forced cutover 2026-06-16. Verified each `action.yml`'s `runs.using` and bumped to the lowest Node-24 major — **upload-artifact → v6**, **download-artifact → v7** (`2ac4304`); `checkout@v5`/`setup-go@v6`/`setup-bun@v2` are already node24. Lesson: verify the action's Node runtime, not just that the version exists.
+
+P3 (test isolation):
+55. **Learning/observation tests leak into the global `~/.harness` when `HARNESS_HOME` is unset.** **CLOSED 2026-06-14 — already fixed by `79a1b7f` (2026-06-09); the backlog was stale.** The actual root cause was DIFFERENT from this item's original hypothesis (a path leak): the observation file was always written correctly under `tmpHome`; the real cause was **global-DB write-lock contention** — `buildRuntime` accepted `harnessHome` but didn't thread it into `SessionDb.open()` / `readConfig()`, so with `$HARNESS_HOME` unset both fell back to the global 1.18 GB `~/.harness/sessions.db`; under contention the turn timed out before the learning observer drained, so `existsSync(tmpHome/learning/.../observations.jsonl)` failed. `79a1b7f` threaded `harnessHome` into both (`buildRuntime` + `buildSessionContext`) and added a **deterministic regression guard** — `tests/server/runtime.test.ts` `describe('buildRuntime — harnessHome isolation (#55)')` CLEARS `HARNESS_HOME`/`HARNESS_CONFIG` then asserts `sessionDb.handle.filename === <home>/sessions.db` (CI-proof; can't false-pass on a polluted global) + `tests/config/store.test.ts` (readConfig harnessHome precedence). **Re-verified 2026-06-14:** the full affected set — `turns.learning` + `multiUserIsolation` + `m7Full` + `m8Full` + `turns.recall` (22 tests) — passes with `$HARNESS_HOME` UNSET against the real 1.1 GB `~/.harness`, zero corpus pollution. The related `buildMockRuntime` smell is also resolved (it passes `harnessHome=home`, now threaded to the DB); two stale test comments still describe the pre-fix behavior (cosmetic, untracked). Original finding (context): ~7 tests — `tests/server/turns.learning.test.ts`, `tests/server/multiUserIsolation.test.ts` (the Phase-E learning-wiring + back-compat cases), and the M7/M8 full-integration "observation written" assertions — fail with `existsSync(<home>/learning/<projectId>/observations.jsonl) === false` when the developer's real `~/.harness` is non-empty, **even though the tests pass `harnessHome: tmpHome` to `buildRuntime`**. They PASS under `HARNESS_HOME=$(mktemp -d)` and in CI (clean home), so this is a purely local FALSE failure that masks real regressions and forces a wasteful local-vs-CI bisect (the v0.6.33 loop-fix session lost time distinguishing "pre-existing flake" from "my change broke it" — the symptom looked like a regression). Root cause: some path in the learning / recall / observer wiring resolves the harness home from the `HARNESS_HOME` env var or the `homedir()/.harness` default instead of the `harnessHome` threaded into the runtime, so the observation lands under the global home rather than the test's tmpHome. Same family as the documented `buildMockRuntime` global-`sessions.db` test-isolation smell (Phase-D state snapshot). **Repro:** with a non-empty `~/.harness`, `bun test tests/server/turns.learning.test.ts` → fail; `HARNESS_HOME=$(mktemp -d) bun test …` → pass. **Fix:** trace the leaking home-resolution (candidates: `getProjectId`, the recall-thunk construction in `src/server/sessionContext.ts`, the synthesizer's `observationsPath`, or a `readConfig()`/`homedir()` default that ignores the passed `harnessHome`); thread the test `harnessHome` through that path OR set `HARNESS_HOME` in the affected tests' `beforeEach`. Acceptance: the 7 tests pass with a deliberately-polluted `~/.harness`. Effort ~1–2 hrs. Likely areas: `src/learning/`, `src/server/sessionContext.ts`, the three named test files. Surfaced 2026-06-08 (v0.6.33).
+
+P3 (multi-user consistency — deferred from the 2026-06-10 audit):
+57. **`runtime.effort` is process-global, not per-session.** **CLOSED 2026-06-14** — `/effort` now writes a PER-SESSION level on `SessionContext.effort` (seeded from the runtime boot default at build time) via `commandContext.setEffort`; the turns route reads `sessionCtx.effort`; the shared `runtime.effort` is NEVER mutated, so cron / channels / other principals read the untouched boot default. Isolation proven by a unit test (`tests/server/commandContext.test.ts`) + an end-to-end turns-route test (`tests/server/turns.test.ts` — session A's `/effort` doesn't reach session B); two stale tests that asserted the old global mutation were rewritten to the per-session contract. **Known v1 limitation:** per-session effort resets to the boot default when the SessionContext is rebuilt (idle eviction or a compaction child) — acceptable for a P3 UX dial; durable-across-restart effort would need a DB-row column. **The sibling `runtime.model` global is the SAME bug class → filed as #58** (the #57 plan's "mirror the session model-override pattern" rested on a false premise — model is global too). Original finding (context): The `/effort` command (shipped v0.6.36) stores reasoning depth on the shared `Runtime` (`runtime.effort`); `commandContext.setEffort` mutates it and the turns route / cron / channel pipeline all read it. On a multi-user `sov gateway`, principal A's `/effort` therefore changes the effort for principal B (and for cron/channel turns). It is a within-org UX inconsistency, **not** a data-leak or correctness bug — effort never crosses a trust boundary, and single-user surfaces (TUI / `sov drive` / `sov serve`) are unaffected. Deferred from the full-codebase audit because the correct fix is a cross-cutting refactor (per-session effort threaded through the turns route, cron wiring, channel pipeline, and `commandContext`, keyed by session like the model override) touching the newest feature, judged imprudent to land amid the audit's large parallel integration. **Fix:** store effort in per-session context (mirror the session model-override pattern); keep `runtime.effort` only as the boot default. Surfaced 2026-06-10 (audit report `docs/07-history/audits/2026-06-10-full-codebase-audit.md`). Likely areas: `src/server/runtime.ts`, `src/server/commandContext.ts`, `src/server/routes/turns.ts`, `src/core/query.ts`.
+
+58. **`runtime.model` is process-global, not per-session — the sibling of #57.** **OPEN (P3).** `commandContext.setModel` does `runtime.model = model` (the same shape the OLD setEffort had), and the turns route, `sessionContext`, cost estimation, and the `/clear` child-session mint all read `runtime.model`. On a multi-user `sov gateway`, principal A's `/model` therefore changes the active model for principal B (and for cron / channel turns, which read `runtime.model` as their default). Same within-org UX-inconsistency class as #57 — **not** a trust-boundary data leak; single-user surfaces unaffected. **Discovered while closing #57:** the #57 plan said to "mirror the session model-override pattern," but there is NO per-session model mechanism — model is global too. **Deliberately NOT folded into #57** because `runtime.model` is threaded through far more sites than effort (cost estimation in `turns.ts`, the `/clear` child model, the trace/session header, `sessionContext`), so a correct per-session model is a larger, riskier change deserving its own item + test pass. **Fix:** store the model on `SessionContext` (exactly like #57's effort), seed from the `runtime.model` boot default, read `sessionCtx.model` at the turns-route query() + cost-estimation + header sites; keep `runtime.model` as the boot default. Surfaced 2026-06-14 (during #57). Likely areas: `src/server/commandContext.ts`, `src/server/sessionContext.ts`, `src/server/routes/turns.ts`, `src/server/runtime.ts`.
+
+P4 (post-audit bug-hunt residual — defense-in-depth):
+59. **F36 same-role heal not applied to sibling hydrate paths.** **OPEN (P4, LOW).** The 2026-06-14 bug-hunt added `mergeConsecutiveSameRoleMessages` (heals a pre-H7 corrupted history — a standalone trailing guidance user message → consecutive user messages → Anthropic "roles must alternate" 400 on resume) and wired it into the `/turns` resume path (`src/server/routes/turns.ts`, the finding's scope). The sibling hydrate paths `src/channels/pipeline.ts` (`capSeededHistory`) and `src/server/routes/compact.ts` call `loadHistoryAsMessages` + `repairMissingToolResults` WITHOUT the same-role heal, so they retain the same latent exposure. **Practical exposure is nil** — channel sessions are minted post-H7 (they can't carry the legacy corruption) — which is why it was deferred. **Fix (DRY):** relocate the merge (scoped to plain non-tool messages) into `src/core/transcriptRepair.ts` next to `repairMissingToolResults` and call it from all three hydrate sites. Surfaced 2026-06-14 (audit report `docs/07-history/audits/2026-06-14-post-audit-bug-hunt.md` F36).
+
+60. **F15 same-credential-id last-writer race across two gateway processes.** **OPEN (P4, LOW — accepted).** `CredentialPool.persist()` now re-reads the on-disk file and merges only the credential records this pool touched (the 2026-06-14 fix closed the stale-boot-snapshot whole-submap clobber). A narrower race remains: process A `select()`s credential `slot`, B exhausts the SAME `slot` on disk, A's later `markOk('slot')` overwrites B's exhaustion back to `ok`. In the real call path A's `ok` only fires after A genuinely completed a turn on that key (so it IS fresh), and B stays independently throttled by the separate cross-process `RateLimitGuard` sentinel (`rate_limits/<provider>.json`), so this is accepted as-is. **Fix (if ever needed):** the finding's "Alternatively" option — a file-lock read-modify-write around `persist()`. Surfaced 2026-06-14 (audit report F15).
+
+P3 (multi-agent workflows v1.1 — deferred from the 2026-06-15 build):
+61. **`workflow_run` TOOL not wired into the tool pool.** **CLOSED 2026-06-15** (`7131f95`, the feature-review pass). Resolved exactly as the recommended fix: `buildWorkflowRunTool` now takes a lazy `getRuntime` accessor (instead of `{ runtime }`), backed by a `runtimeHolder` the runtime fills in right after the runtime literal binds (mirrors `laneRegistryHolder`); `assembleToolPool` gained an optional `workflowRunTool` arg, threaded into all three assembly sites. `getRuntime()` is only ever called inside the tool's `call()` (turn time), so the self-reference is safe. The model can now trigger a named workflow mid-turn; `workflow_run` stays in `SUBAGENT_EXCLUDED_TOOLS` (no nesting, stripped from cron/channel pools). Tests in `tests/tools/workflowRunTool.exclusion.test.ts`.
+62. **`/workflow` progress not forwarded to the TUI over SSE.** **OPEN (P3/P4).** The workflow engine emits `WorkflowEvent`s via `onEvent`, and the Go TUI + `sov drive` have decoders + a render line (`formatWorkflowEvent`), but the server-side `/workflow` run path does not yet forward the engine's events onto the per-session SSE bus (with the seq/sessionId envelope), so in-TUI workflow progress is a no-op (the final text still renders). The CLI (`sov workflow run`) prints progress directly. **Fix:** thread an `onEvent` from the `workflows.run` capability (`src/server/commandContext.ts`) that publishes the five `workflow_*` shapes onto the bus (add them to `ServerEventSchema`), mirroring `synthesizeDelegationEvents`. Surfaced 2026-06-15. Likely areas: `src/server/commandContext.ts`, `src/server/schema.ts`, `src/server/eventBus.ts`.
+
+P4 (test cleanup):
+56. **Stale Go test `TestM9_ThemeSwitchAltersRender` fails deterministically — and Go tests aren't run in CI.** **CLOSED 2026-06-14.** Confirmed real and is the INVERSE of #55: the test passed on this dev's polluted `~/.harness` (config `theme: "light"` → `New()` boots already-light → false PASS) but FAILED in a clean/CI env (`theme not switched: "dark" (was "dark")`) — it typed `/theme light` + ENTER and relied on the dispatch round-trip that #46 moved server-side, but a no-server unit test discards the dispatch `Cmd`. **Fix (`0dfb9cc`):** rewrote it to feed the `themeChanged` side-effect directly via a `commandDispatchedMsg`, switching BOTH light and dark so the assertion is independent of the env-dependent boot theme — it exercises the real current `applyThemeByName` path and passes deterministically in a clean env (verified `HARNESS_HOME` unset + `HOME=tmp`). **CI coverage (`2ac4304`):** added `setup-go` + `go test ./...` to the release-workflow preflight, so the Go suite is now guarded (the higher-value half) — a future Go regression fails the gate instead of surfacing only on a dev machine. Original finding (context): `packages/tui/internal/app/m9Full_test.go` builds a Model with `baseURL=""` (no server), types `/theme light` + ENTER, and asserts `m.theme.Name == "light"`. It fails ("theme not switched: dark (was dark)") on a CLEAN tree and in isolation. Root cause: it exercises the OLD client-side `/theme` handling that backlog **#46** (closed 2026-05-19) replaced with a **server-mediated** side-effect protocol — `/theme <name>` now dispatches to the commands route, the server emits a `themeChanged` side-effect, and `applyThemeByName` updates `m.theme` on receipt. With no server (`baseURL=""`) that round-trip can't happen, so the theme never switches. #46 removed "2 old persistence-path Go tests" but missed this render-path one. **It went unnoticed because the release CI does NOT run `go test`** — `.github/workflows/release.yml` only `go build`s the TUI (via `scripts/release-build-target.ts`); the Go suite is unguarded, so Go regressions surface only when a developer runs `go test ./...` locally. **Fix:** update the test to drive the server-side `/theme` path against a mock commands route that returns a `themeChanged` side-effect (mirror the TS-side #46 tests), OR delete it (the flow is covered by the server-side `runThemePicker` tests + the `themeChanged` handler tests #46 added). **Recommended companion (separate, higher value): add a `go test ./...` step to the CI preflight** so the Go suite is actually guarded. Surfaced 2026-06-08 (v0.6.33). Effort ~30 min (test) + ~30 min (CI step). Likely areas: `packages/tui/internal/app/m9Full_test.go`, `.github/workflows/release.yml`.
+
+P2 (Learning-loop spike Phase 2 — deferred by design from Phase 1):
+50. **Mock-host isolation suite + the four portability acceptance gates.** **OPEN (P2).**
+51. **Full Persist extraction — `observations.jsonl` + trajectory writers behind `PersistPort`.** **OPEN (P2).**
+52. **Migrate the synthesizer onto the Reason port.** **OPEN (P2).**
+53. **Adapter #2 — a rented-engine binding.** **OPEN (P2, gated on the founder engine choice + go/no-go).**
+54. **Recall on the other surfaces — `agentRunner` / `missionRun` / OpenAI HTTP route.** **OPEN (P2).**
+
+P4 (small ergonomics + nits):
+14. ~~`_resetProjectIdCache` test helper exported from production code~~ **— closed `f3ee05f`**
+15. ~~`nameFromRemote` heuristic loses nested-namespace context~~ **— closed `f3ee05f` (last-two-segments)**
+16. ~~`cleanupPhantomReviews` runs only at session boot~~ **— closed `ac4dc74` (event-driven sweep on /review activity)**
+17. Eval-gated auto-promote (currently auto-promote is straight bypass)
+18. ~~Glob inline tool block: count footer drifts vs. summary line~~ **[soak 2026-05-07] — closed `d52fb75` (footer reads canonical count from envelope summary)**
+20. ~~`HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun (docs)~~ **[soak 2026-05-07] — closed `e677676`**
+21. ~~Tool-count drift between live vs. fresh `harness-home` config (investigation)~~ **[soak 2026-05-07] — closed (WebSearch gated on apiKey; intentional)**
+28. ~~Server-side TaskManager not wired to `DaemonEventBus`~~ **[M5 T7 2026-05-14] — closed `bfaeaad` (M7 T2; `Runtime.daemonEventBus` constructed in `buildRuntime` and threaded into `new TaskManager({...,bus})`)**
+29. ~~lipgloss `Style.Copy()` deprecation in Go TUI permission modal~~ **[M5 T9 2026-05-14] — closed by M9 T11** (verified 2026-05-19: no `.Copy()` calls remain in `packages/tui/`; `permission.go:121-123` documents the historical fix where `lipgloss.Style` value semantics replaced the deprecated identity helper).
+30. ~~Server-mode `subagentDefaultProvider`/`subagentDefaultModel` not specialized for router mode~~ **[M5.1 review 2026-05-14] — closed `49ed104` (M8 T1; `provider: 'router'` constructs RouterProvider and specializes subagent defaults to the frontier lane)**
+33. ~~Asymmetric `bus.isClosed()` guards in turns route~~ **[M6 review 2026-05-14] — closed `79a5c39` (dropped all three redundant guards; eventBus.publish is idempotent on closed buses)**
+37. ~~`sov --version` should print the git SHA (currently shows static `0.1.0`)~~ **[M6 smoke 2026-05-15] — closed `a89b03c` + `4bd849c`**
+39. ~~Go TUI mirror struct for `SessionSummaryEvent` not added~~ **[M7 T6 2026-05-15] — closed** (verified 2026-05-19: `SessionSummary` struct exists at `packages/tui/internal/transport/types.go:231` with full M8 T7 mirror including all extension fields; `DecodeSessionSummary` at line 261; comment explicitly references closing this item).
+
+---
+
+## P0 items
+
+### 1. MEMORY.md cap enforcement on `/review approve`
+
+- Priority: P0
+- Status: **complete (2026-05-07, commit `f7c9c69`)** — `applyMemoryApproval` and `applyConsolidationApproval` pre-flight the cap via the new `checkCapBeforeAppend` helper. On overflow, both return a red error message naming the target file + projected size + `/review consolidate` suggestion. Proposal stays in `pending/` until the user makes room. 2 new tests cover rejection + within-cap regression.
+- Source: original C1 follow-up (deferred from Phase 13.3 polish batches)
+- Recommendation: Pre-flight the bounded-memory cap (`src/memory/bounded.ts:10-13` defines `MEMORY.md=2200`, `USER.md=1375`) before `appendFileSync` in `src/commands/reviewOps.ts`'s `applyMemoryApproval`. If approval would exceed, return a clear error suggesting `/review consolidate` or manual trimming. Alternatively, emit a warning + still append (current silent truncate-on-load is the worst of both).
+- Evidence: `applyMemoryApproval` blindly appends; `src/memory/bounded.ts` enforces the cap at *load* time but no one stops approval from blowing past it. End result: approval succeeds, then the memory loader silently truncates on next session start. User has no warning.
+- Impact: Silently lost memory entries; user thinks they approved a proposal but the next session it's gone.
+- Likely code areas:
+  - `src/commands/reviewOps.ts` (`applyMemoryApproval`)
+  - `src/memory/bounded.ts` (cap constants)
+- Effort: ~30 min
+
+### 2. Auto-promote provenance preservation gap audit
+
+- Priority: P0 (verification, not new code)
+- Status: **complete (2026-05-07, commit `47993ec`)** — added `tests/tools/memoryProposeAudit.test.ts` (4 cases) + `tests/tools/skillProposeAudit.test.ts` (3 cases) round-tripping auto-promoted MEMORY.md / SKILL.md through `readMemoryFile` and `loadSkillFromPath`. C2 (commit `e516a43`) confirmed correct: `--` in source excerpts gets squashed to `-` in the comment body; HTML comment delimiters are preserved; memory + skill loaders parse the resulting files cleanly. No real gap surfaced. 7 new tests; full suite 1592/1592.
+- Source: testing-log entry for commit `e516a43`; code comment in `MemoryProposeTool.ts` auto-promote branch
+- Recommendation: Walk through the auto-promote bypass path with one of each input shape (memory proposal with empty `sourceExcerpt`, with `--` in excerpt, with very long body) and confirm the provenance HTML comment renders correctly in `MEMORY.md` AND survives a round-trip through `parseMarkdownFrontmatter`-equivalent on the next session boot. The C2 fix (commit `e516a43`) added the comment but no integration test verifies the comment is parser-tolerant.
+- Evidence: Code comment in `escapeForHtmlComment` says "double-dashes squashed to single to avoid HTML comment parser confusion" — implies a real concern, but no test loads the resulting `MEMORY.md` through the memory loader.
+- Impact: If a malformed comment breaks the memory loader, auto-promote could silently drop user memory.
+- Likely code areas:
+  - `src/tools/MemoryProposeTool.ts` (auto-promote branch)
+  - `src/tools/SkillProposeTool.ts` (auto-promote branch)
+  - Memory loader's frontmatter / body parser
+- Effort: ~1 hr (verification + 1-2 round-trip tests)
+
+---
+
+## P1 items
+
+### 40. Server-side built-in slash-command dispatcher route [M10 audit 2026-05-16] — CLOSED M10.5
+
+- Priority: P1
+- Status: **complete (2026-05-16, commits `17d456b` server-side + `d515b9f` Go-side)** — closed by Phase 16.1 M10.5. New `POST /sessions/:id/commands { name, args }` route at `src/server/routes/commands.ts` bridges the existing slash-command registry into server-mode via `buildServerCommandContext` at `src/server/commandContext.ts`. The Go TUI's `parseGenericSlashCommand` + `dispatchCommandCmd` route any leading-slash input not handled by dedicated routes (/theme, /compact, /skills <verb>, /expand, /skillname) through the new route. JSON envelope `{ output, error?, sideEffects? }`. 13 server-side tests + 7 Go-side tests + 2 real-Anthropic smokes. ADRs M10.5-01..03 cover the architectural choices. **M11 unblocked.**
+- Source: M10 audit (`docs/07-history/state/2026-05-16-tui-parity-audit.md` §3 slice 1; ADR M10-04). The legacy `terminalRepl.ts` imports `COMMANDS`, `buildCommandRegistry`, `dispatchSlashCommand` from `src/commands/registry.ts` and routes `/clear`, `/context`, `/status`, `/cost`, `/agents`, `/permissions`, `/memory`, `/model`, `/review`, and all other built-ins through them. Server-mode has no equivalent — the TUI implements `/compact`, `/skills`, `/theme` via direct route calls but every other slash falls through to the model as plain text.
+- Recommendation: Add `POST /sessions/:id/commands { name, args }` to the Hono app. The handler builds a `CommandContext` against the runtime (similar to `src/cli/dispatchCommand.ts`'s pattern) and invokes `dispatchSlashCommand`. Output streams over SSE for multi-line responses, or returns as a JSON envelope for single-shot results. The Go TUI in `packages/tui/internal/app/` routes any `/` input not in its small client-side allowlist (`/compact`, `/skills`, `/theme`, `/skillname`) through this endpoint.
+- Evidence: `src/server/runtime.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch — none reference `dispatchSlashCommand`. Only `src/cli/dispatchCommand.ts` and `src/ui/terminalRepl.ts` import it.
+- Impact: User-visible regression in `--ui tui` for at least 9 commonly-used built-in slash commands. Blocks M11 default-flip per the severity-classified disposition rule (ADR M10-03).
+- Likely code areas:
+  - `src/server/routes/commands.ts` (new)
+  - `src/server/runtime.ts` (CommandContext construction helper, exposed)
+  - `src/server/app.ts` (mount the new route)
+  - `packages/tui/internal/transport/commands.go` (new Go client surface)
+  - `packages/tui/internal/app/` (slash handler routing in the input handler)
+- Effort: ~1-2 sessions (could be split into M10.5 server-side first, then Go client integration as a follow-up; or shipped as one M11 prereq commit chain)
+- Closes once shipped: also resolves slice 1 MEDIUM gaps for `createClearedChildSession` (`/clear`), `auditContextBudget` (`/context`), and the slice 2 MEDIUM for `createDefaultMemoryManager` / `resolveProjectScope` (`/memory`) — those all become reachable through the new route's dispatchSlashCommand call.
+
+### 3. `/review revoke <id>` undo path
+
+- Priority: P1
+- Status: **complete (2026-05-07, commit `7015b8c`)** — new `/review revoke <id>` verb. Memory + consolidation revoke: finds the appended block via `<!-- proposal:<id>` prefix match (handles auto-promoted richer comments), strips with leading-blank-line absorption (no separator drift after multi-revoke), moves proposal `approved/` → `rejected/` with status field updated. Skill revoke: rmRf the `skills/agent-created/<name>/` dir + moves the proposal. Idempotent on already-removed blocks. New `removeProposalBlock` helper became the foundation for Item 4. 6 new tests; suite 1619/1619.
+- Source: original C3 follow-up (deferred from Phase 13.3 polish batches)
+- Recommendation: New verb `/review revoke <id>` that removes the appended block from `MEMORY.md` (using the `<!-- proposal:<id> -->` marker as a delimiter) and moves the proposal from `approved/` to `rejected/`. Track which IDs were approved so revoke can find the block.
+- Evidence: No undo on accidental approvals; user must hand-edit MEMORY.md.
+- Impact: Once-and-done friction; not data-loss.
+- Likely code areas:
+  - `src/commands/reviewOps.ts` (new verb)
+  - `src/memory/` (block extraction)
+- Effort: ~2 hrs
+
+### 4. Consolidation deletes original entries
+
+- Priority: P1
+- Status: **complete (2026-05-07, commit `409fe9c`)** — `applyConsolidationApproval` now parses `affectedEntries` and walks each via `removeProposalBlock` (helper from Item 3) BEFORE the cap check + append. Cap-check uses post-deletion content size, so net-shrinking consolidations always pass even when pre-state was at cap. Atomic single-write at the end (deletions + append in one writeFileSync). Missing affectedEntries are non-fatal. Return shape upgraded to `{ ok: true, removed: string[] } | { ok: false, error }` so the success message annotates "merged N entries" — useful audit trail. 4 new tests; suite 1623/1623.
+- Source: original C4 follow-up; code comment in `applyConsolidationApproval` says "actually deleting the affected entries from MEMORY.md is left as a follow-up. v0 appends the consolidation result; user removes originals manually."
+- Recommendation: When approving a `ConsolidationProposal`, parse `affectedEntries` from frontmatter, find each entry's `<!-- proposal:<id> -->` marker in MEMORY.md, remove those blocks, then append the consolidated entry. Bonus: emit a one-line summary of which originals were removed.
+- Evidence: `src/commands/reviewOps.ts:applyConsolidationApproval` only appends.
+- Impact: Memory bloat over time; user must manually remove originals after approving consolidation.
+- Likely code areas:
+  - `src/commands/reviewOps.ts` (`applyConsolidationApproval`)
+- Effort: ~3 hrs (block extraction + integration tests)
+
+### 5. Status mapping at observer site upgraded to 4-state
+
+- Priority: P1
+- Status: **complete (2026-05-07, commit `64e5eef`)** — extracted `notifyLearningObserver` helper and wired into every early-return path in `executeOne`. All 4 ObservationStatus values now reach the corpus: `success` (post-call), `error` (input validation, hook-updated input, post-call thrown), `denied` (permission gate + PreToolUse hook block), `cancelled` (pre-call signal abort + mid-call abort coinciding with `toolError`). 11 new tests; 1613/1613 full suite.
+- Source: T2 implementer's "concerns" report on commit `429a4ff`; T2 status mapping is 2-state only
+- Recommendation: Thread `denied` and `cancelled` ObservationStatus values through to the orchestrator's PostToolUse intercept site. Currently those terminal states early-return before PostToolUse fires. Either:
+  - Tag the observed status from each early-return path with a `let observedStatus: ObservationStatus = 'success'` variable updated as we walk through error/denied/cancelled branches, then read it at PostToolUse
+  - Move the observer notify earlier in the dispatch flow (before the early returns)
+- Evidence: Documented as known limitation in `src/core/orchestrator.ts:516-535` comment.
+- Impact: Negative-example mining for the synthesizer is degraded — denials and signal-cancellations don't reach the corpus. The synthesizer can't learn "user rejects this pattern" from observations.
+- Likely code areas:
+  - `src/core/orchestrator.ts` (early-return paths around tool dispatch)
+- Effort: ~2 hrs
+
+### 6. Better confidence ramp-up for cross-project promotion
+
+- Priority: P1
+- Status: **complete (2026-05-07, commit `d24efee`)** — exposed `ConfidenceTuning` parameter on `reinforce` / `contradict` (4 optional knobs: `reinforcementCurveK`, `contradictionDelta`, `confidenceCap`, `initialConfidenceBaseline`). New `src/learning/tuning.ts` bridges `settings.learning.*` → `ConfidenceTuning` keeping `confidence.ts` I/O-free. `InstinctProposeTool` + `InstinctUpdateConfidenceTool` now load tuning from settings. **Defaults intentionally preserved** — point of this commit is to make tuning *possible*, not pick new values without soak data. Future work: once a real soak surfaces typical confidence ranges, land a defaults-tuning commit using these settings. `crossProjectMinConfidence` settings field also added but not wired to a production caller (no caller of `findPromotionCandidates` outside tests yet). 21 new tests; full suite 1613/1613.
+- Source: T11 integration test note + T13 testing-log follow-up
+- Recommendation: Re-tune `REINFORCEMENT_K` (currently 0.04) OR start instincts at a higher initial confidence floor. Today, `reinforce(0, 12)` produces ~0.10 — meaning a single instinct with 12 supporting observations is well below the 0.7 cross-project promotion threshold. Reaching 0.7 requires many synthesizer reinforcement passes, which only happens with sustained reinforcement across multiple sessions. Real-world behavior: cross-project promotion may never fire on typical 1-2 hour usage patterns.
+- Options:
+  - (a) Initial confidence = `reinforce(BASELINE, evidence_count)` where `BASELINE ≈ 0.4` so a 12-evidence proposal lands at ~0.5 (still below 0.7 — needs reinforcement, but not as far)
+  - (b) Bump `REINFORCEMENT_K` to ~0.15 so 12 evidence yields ~0.4
+  - (c) Lower the cross-project promotion threshold from 0.7 to 0.5 in `src/learning/promotion.ts`
+- Tuning choice depends on real soak data. Run a 5-session soak (different real projects, different real workflows) and check what confidence ranges appear before adjusting.
+- Evidence: T11's integration test had to use `{ minConfidence: 0.05 }` to make cross-project promotion fire deterministically with synthetic data.
+- Impact: Cross-project promotion is theoretically wired but practically unreachable in v0 timeframes.
+- Likely code areas:
+  - `src/learning/confidence.ts` (constants)
+  - `src/learning/promotion.ts` (threshold)
+- Effort: ~1 hr tuning + dependent on real-soak observations
+
+---
+
+## P2 items
+
+### 50. Mock-host isolation suite + the four portability acceptance gates
+
+- Priority: P2
+- Status: **open** (deferred by design from Learning-loop spike Phase 1 — D1)
+- Source: Learning-loop spike Phase 1 close-out (2026-06-04); spec `specs/2026-06-03-portable-learning-layer-adapter-1-design.md` D1/D15
+- Recommendation: Phase 1 made the learning layer portable *by construction* (the adapter is the only host-coupled file) but did not mechanically enforce it. Phase 2 adds the mock-host isolation suite + the four portability acceptance gates so the isolation rule ("in-box code may touch the host only through the four ports") is checkable by directory. Per D15, the in-box `src/learning` / `src/trajectory` / `src/review` modules physically relocate under `src/learning-layer/` so the gate is directory-checkable.
+- Likely code areas: `src/learning-layer/` (new test harness + a mock host); the in-box module relocation.
+
+### 51. Full Persist extraction — observations + trajectory writers behind `PersistPort`
+
+- Priority: P2
+- Status: **open** (deferred by design from Learning-loop spike Phase 1 — D7)
+- Source: Learning-loop spike Phase 1 close-out (2026-06-04); spec D7
+- Recommendation: Phase 1 added only a Persist-backed *reader* for Recall (sharing a pure serde with the synchronous `InstinctStore`). Phase 2 completes the migration: `observations.jsonl` + the trajectory writers go behind `PersistPort`, and the full `InstinctStore` → `PersistPort` async migration ripples through its ~8 callers. Enables a mock-host `PersistPort` (feeds #50).
+- Likely code areas: `src/learning/instinctStore.ts`, `src/learning/observer.ts`, `src/trajectory/writer.ts`, `src/learning-layer/ports.ts`.
+
+### 52. Migrate the synthesizer onto the Reason port
+
+- Priority: P2
+- Status: **open** (deferred by design from Learning-loop spike Phase 1 — D8)
+- Source: Learning-loop spike Phase 1 close-out (2026-06-04); spec D8
+- Recommendation: the `ReasonPort` is defined + bound (`src/learning-layer/adapters/harness/reasonProvider.ts`) + unit-tested but **not** yet load-bearing — the production synthesizer still dispatches the `instinct-synthesizer` sub-agent via the scheduler. Phase 2 (the spec calls this Phase 3 extraction) migrates synthesis onto the Reason port so the layer owns its reasoning end-to-end.
+- Likely code areas: `src/learning/synthesizer.ts`, `src/learning-layer/` (an Observe→Reason→Persist synthesis path).
+
+### 53. Adapter #2 — a rented-engine binding
+
+- Priority: P2 (gated on the founder rented-engine choice + the Phase-1 go/no-go)
+- Status: **open** (deferred by design from Learning-loop spike Phase 1)
+- Source: Learning-loop spike Phase 1 close-out (2026-06-04)
+- Recommendation: bind the four-port contract to a second host (a rented learning engine) — the actual test of portability and the answer to spike Q2. Which engine + whether to proceed are **founder-reserved**; this item tracks the work once those are decided.
+- Likely code areas: a new `src/learning-layer/adapters/<engine>/`.
+
+### 54. Recall on the other surfaces — agentRunner / missionRun / OpenAI HTTP route
+
+- Priority: P2
+- Status: **open** (deferred by design from Learning-loop spike Phase 1)
+- Source: Learning-loop spike Phase 1 close-out (2026-06-04)
+- Recommendation: Phase 1 wired Recall into the server **turns route** only. The other surfaces that drive `query()`/`AgentRunner` — `src/runtime/agentRunner.ts`, the scheduled-mission path, and the OpenAI HTTP route (`src/openai/`) — do not yet build + pass the recall thunk. Extend each to construct a per-session recall thunk (mirroring `src/server/sessionContext.ts`) so recall applies uniformly when `learning.recall.enabled`.
+- Likely code areas: `src/runtime/agentRunner.ts`, the mission-run entry point, `src/openai/` chat-completions route.
+
+### 7. Pick `review-memory` vs `review-skill` based on child shape
+
+- Priority: P2
+- Status: done (2026-05-07)
+- Source: original D1 follow-up
+- Recommendation: `onChildCompletion` currently always fires `review-memory`. Add a heuristic: if the child made `tool_call_count >= 4` AND used 3+ distinct tools, ALSO fire `review-skill`. Or: pick based on the child's session shape (multiple tools = procedural, candidate skill; single tool repeated = pattern, candidate memory).
+- Evidence: Skill-extractable workflows go un-distilled because `review-skill` only fires on `onToolIteration` (every 50 tool calls), not on child completions.
+- Impact: Skill proposals are sparse compared to memory proposals.
+- Likely code areas:
+  - `src/review/manager.ts` (`onChildCompletion`)
+  - Heuristic logic (could land in `src/review/triage.ts` or similar)
+- Effort: ~3 hrs
+
+### 8. Per-child trace files in addition to consolidated
+
+- Priority: P2
+- Status: **complete (2026-05-07, commit `1001237`)** — `SubagentSchedulerOpts` gains optional `harnessHome`. When set, `delegate()` constructs a per-child `TraceWriter` writing to `<harnessHome>/traces/<childSessionId>.jsonl`. The wrapped trace recorder forks every tagged event into BOTH the parent recorder (existing Fix #1 behavior) AND the new child writer. Drained via `await childTraceWriter?.close()` in the inner `finally` so the file is flushed before `delegate()` returns. The wrapper now activates when EITHER a parent recorder OR a child writer is present (previously only when parent recorder was present), so headless sessions still get child files. `terminalRepl` passes the existing `harnessHome` through to scheduler construction. `sov trace show` is unchanged — it already reads `<harnessHome>/traces/<sessionId>.jsonl` for any sessionId, so the new file is the fast-path resolution. 3 new tests pin: (a) child file exists + child-only events when `harnessHome` set, (b) back-compat when `harnessHome` omitted (test fakes), (c) child file written even when parent recorder is undefined.
+- Source: original D2 follow-up; round-2 REPL testing finding
+- Files: `src/runtime/scheduler.ts`, `src/ui/terminalRepl.ts`, `tests/runtime/scheduler.perChildTrace.test.ts`
+
+### 9. `ReviewForkPromptContext` field rename
+
+- Priority: P2
+- Status: **complete (2026-05-07, commit `94eea94`)** — pure rename: `trajectoryPath → primaryFile` and `tracePath → secondaryFile` (now optional). `buildPrompt` updated to emit "Primary file" / "Secondary file" labels and skip the secondary line when omitted. Call sites in `manager.ts` and `consolidate.ts` updated. `synthesizer.ts` unchanged (uses different field names already). `bundle-default/agents/*.md` unchanged (semantic file references, not field-name references). No behavior change.
+- Source: original C5 follow-up; T10 noted the smell
+- Recommendation: Currently `trajectoryPath` and `tracePath` are re-purposed for consolidation (mapped to MEMORY.md / USER.md paths). Rename to `primaryFile` / `secondaryFile` OR add a typed `kind: 'review' | 'consolidation' | 'synthesizer'` discriminator with explicit fields per kind.
+- Evidence: Comment in `src/review/consolidate.ts` acknowledges: "We re-purpose the trajectory/trace fields as MEMORY.md / USER.md paths."
+- Impact: Maintainability / readability — mild.
+- Likely code areas:
+  - `src/review/fork.ts` (interface)
+  - `src/review/consolidate.ts`, `src/review/manager.ts` (callers)
+  - `src/learning/synthesizer.ts` (similar pattern)
+- Effort: ~1 hr (refactor + test updates)
+
+### 10. Synthesizer dispatch on activity-burst rhythm
+
+- Priority: P2
+- Status: **complete (2026-05-07, commit `a8d4ce3`)** — independent `synthesizerToolIterationsSince` counter ticks in `onToolIteration` (default threshold 50). Either counter tripping fires `dispatchSynthesizer()` — the user-turn rhythm and the tool-iteration rhythm now run in parallel without resetting each other. New `settings.learning.synthesizerEveryNToolIterations` field exposes the threshold; wired through `terminalRepl`. `signal.aborted` and `enabled` flag short-circuits propagate naturally through the shared dispatch path. 3 new tests cover: (a) tool-iteration trip alone with no user turns, (b) independence (both counters fire separately, neither resets the other), (c) `signal.aborted` blocks both paths.
+- Source: testing-log Phase 13.4 entry
+- Files: `src/review/manager.ts`, `src/config/schema.ts`, `src/ui/terminalRepl.ts`, `tests/review/manager.test.ts`
+
+### 11. Concurrency between multiple `sov` sessions writing to observations.jsonl
+
+- Priority: P2
+- Status: **complete (2026-05-07)** — verified safe via stress test, no code change required. POSIX atomic-append (Node's `appendFile` opens with `O_APPEND`) holds for our line sizes.
+- Source: not exercised in build; theoretical
+- **Verification:** Added `tests/learning/concurrency.test.ts` — two complementary stress tests:
+  - 2 child processes, 50 observations each → 100 lines, all valid JSON, exact per-session counts (`sess-A`=50, `sess-B`=50).
+  - 3 child processes, 30 observations each (higher contention) → 90 lines, all valid JSON, exact per-session counts (`sess-A`=30, `sess-B`=30, `sess-C`=30).
+  - Each record is ~485 bytes; `Bun.spawn` creates real OS processes that race on `O_APPEND` writes to the same file.
+  - Outcome: 0 torn lines across both tests. Multi-process concurrent append is safe for the observation record sizes the harness emits today (`tool_input_summary` capped at 256 chars per `src/learning/observer.ts:33`, total record ≤ ~600 bytes).
+- **Caveat (documented for future):** POSIX atomic-append is guaranteed only for writes ≤ `PIPE_BUF` (typically 4096 bytes on Linux, 512 on Darwin). On Darwin specifically, the per-call atomicity boundary is small. Our records stay well under that on Linux, and on Darwin a single `appendFile` call still writes through a single `write(2)` syscall whose atomicity APFS guarantees at filesystem level. If a future change pushes per-record sizes above ~512 bytes (e.g., embedding full tool_input rather than the summary), this property would need re-verification.
+- **Test pins the contract going forward:** any regression in the write chain that breaks atomic append (e.g., switching to read-modify-write, dropping `O_APPEND`, batching multiple records into a single `appendFile` call without a newline-correct framing) will surface as torn lines in this test.
+- Likely code areas:
+  - `src/learning/observer.ts` (write-chain — unchanged)
+  - `tests/learning/concurrency.test.ts` (new stress test)
+- Effort: ~1 hr (actual: ~45 min)
+
+---
+
+## P3 items — qwen-amendment deepenings
+
+These are documented in `~/code/sovereign-ai-docs/harness/docs/runtime/qwen-amendment-build-plan.md`. They're orthogonal to Phase 13.x and can land at any time.
+
+### 12. Microcompaction (Phase 10 deepening)
+
+- Priority: P3
+- Status: **complete (2026-05-11, commits `194b4e3` → `cd5a37c`)** — `src/compact/microcompact.ts` (184 lines) delivered the full qwen-amendment spec: context-percentage trigger, per-part clearing, compactable tool set, keep-recent, current-turn protection. Two gaps discovered during backlog audit and closed 2026-05-11: (1) `userSettings.microcompaction` was parsed but never passed to `query()` — fixed by adding `buildMicrocompactConfig()` and wiring it at the call site; (2) post-compaction guard (run microcompaction on freshly rebuilt `[summary, ...tail]` after full compaction) was unimplemented — added to `compactNow()` in `terminalRepl.ts`.
+- Source: qwen-amendment-build-plan
+
+### 13. Shell AST analysis (Phase 7 deepening)
+
+- Priority: P3
+- Status: **complete (2026-04-28, commit `194b4e3`)** — `src/permissions/shellSemantics.ts` (437 lines, 233 test lines) delivered the full qwen-amendment spec: hand-written quote-aware tokenizer, 60+ command handlers (read/write/edit/web/git), transparent prefix stripping (sudo/timeout/env/nice/nohup), redirect-aware write promotion, pattern-first grep path extraction, unsafe-pattern detection. Backlog status was stale — implementation predated the backlog item.
+- Source: qwen-amendment-build-plan
+
+---
+
+## P4 items — small ergonomics + nits
+
+### 14. `_resetProjectIdCache` test helper exported from production code
+
+- Priority: P4
+- Status: **complete (2026-05-07, commit `f3ee05f`)** — renamed `_resetProjectIdCache → __test_resetProjectIdCache` with `@internal` JSDoc warning. Double-underscore + `test_` prefix gives stronger lexical signal than single-underscore. All 3 test-file callers updated. Bundled with Item 15 in the same commit.
+- Source: T1 spec review
+- Recommendation: Move `_resetProjectIdCache` from `src/learning/project.ts` to a `tests/learning/_helpers.ts` module. Production code shouldn't expose `_`-prefixed test helpers.
+- Effort: ~15 min
+
+### 15. `nameFromRemote` loses nested-namespace context
+
+- Priority: P4
+- Status: **complete (2026-05-07, commit `f3ee05f`)** — `nameFromRemote` now returns last-two path segments. Handles SSH (`git@host:owner/repo.git` → `owner/repo`), HTTPS (with/without `.git`, with/without trailing slash), GitLab subgroup nested (`host/group/sub/repo` → `sub/repo`), and bare-host single-segment (`host/repo.git` → `repo`). 8 new test cases pin the URL-shape coverage. Bundled with Item 14 in the same commit.
+- Source: T1 implementer flag
+- Recommendation: Currently `nameFromRemote('https://example.com/group/sub/repo.git')` yields `repo`. For nested namespaces we lose `group/sub` context. Could switch to `last-two-segments` if we want to preserve org/repo distinction.
+- Impact: Project name in `harness learning status` output may collide for projects with the same trailing path component.
+- Effort: ~15 min
+
+### 16. `cleanupPhantomReviews` runs only at session boot
+
+- Priority: P4
+- Status: **complete (2026-05-07, commit `ac4dc74`)** — `/review activity` now triggers cleanup when `phantomCount > 10`. `CommandContext` gains optional `cleanupPhantomReviews?: () => number` callback (same function-binding pattern as `listSessions`). `terminalRepl` populates from `db.cleanupPhantomReviews()`. Activity verb header annotates "(cleaned N phantom rows)" when cleanup ran. Threshold strictly greater than 10 (10 doesn't trigger; 11+ does). 4 new tests cover all branches.
+- Source: not exercised in build; theoretical
+- Recommendation: Currently the cleanup sweep (`SessionDb.cleanupPhantomReviews`, commit `e516a43`) fires once per `sov chat` invocation. A long-running session that never reboots accumulates phantoms during its own lifetime. Add a periodic sweep — e.g., every N user turns OR on `/review activity` invocation if `>10` phantoms detected.
+- Effort: ~30 min
+
+### 17. Eval-gated auto-promote
+
+- Priority: P4
+- Status: open
+- Source: build plan note (eval-gated form mentioned but explicitly deferred); CLAUDE.md follow-ups
+- Recommendation: Currently `settings.review.autoPromote{Memory,Skills}: true` bypasses the pending queue entirely. The build plan envisions an eval-gated form: "auto-promote after N passing evals." Implementation: when a proposal lands in pending and N eval runs pass with that proposal applied (in a sandbox), auto-promote. Requires the eval-runner from Phase 10.5 to know about pending proposals, which is a substantial feature on its own.
+- Effort: ~1-2 days (would warrant its own phase)
+
+---
+
+## Items discovered during 2026-05-07 ad-hoc REPL soak
+
+Seven cross-cutting findings surfaced during a 7-agent parallel REPL soak that exercised tool surface, sub-agent runtime + tasks, slash commands, CLI subcommands, state persistence, Phase 13.4 instinct corpus, and error/edge/multi-turn cases. **All 41 test cases passed.** These items are gaps or polish concerns observed while running, not failures.
+
+### 18. Glob inline tool block — count footer drifts vs. summary line
+
+- Priority: P4
+- Status: **complete (2026-05-07, commit `d52fb75`)** — root cause was `src/ui/toolFooter.ts` reading `totalLines` (the rendered block's line count) as the file count. Phase 12.5's observation envelope prepends `status:` + `summary:` (+ optional `next_actions:`) and a blank separator before the body, so `totalLines = paths.length + envelope rows`. A 1-file result rendered ~4 lines, hence the soak's `summary: 1 file` vs. footer `found 4 files`. Live repro showed a 2-file Glob with `summary: 2 files` next to footer `found 5 files`. Fix: new `extractGlobFileCount` parses the envelope's `summary: <n> file(s)` line and feeds the canonical count to the footer; pre-envelope content shape kept as fallback. Tests: 4 envelope cases in `tests/ui/toolFooter.test.ts` + a parameterized end-to-end test in `tests/tools/globTool.test.ts` that runs the real GlobTool, reconstructs the rendered block, and pins envelope-summary == footer-count for N=1/4/50.
+- Source: 2026-05-07 soak Agent A (tool surface battery), case A4 (Glob + Grep in temp project)
+
+### 19. MEMORY.md cross-pollinates unrelated projects
+
+- Priority: P1
+- Status: **complete (2026-05-07, commits `db967ed` → `07cb263`)** — five commits across three rounds shipped via subagent-driven dispatch. Two-tier MEMORY.md model: global `<harnessHome>/memory/MEMORY.md` (existing, untouched) + new per-project `<harnessHome>/memory/projects/<projectId>/MEMORY.md`. USER.md untouched (always global). Routing decided by `MemoryTool.scope: 'global' | 'project'` argument; default = `'project'` when a project context is detected (bundle manifest `projectId` → bundle path hash → git remote, in that order), else `'global'`. `MemoryTool` rejects `scope: 'project'` with a clean envelope when no projectId is available. New system-prompt segment tells the agent the routing rules. Provider snapshot includes both layers when a project is detected (global block then project block, project closer to user message for soft "later wins" precedence). Existing global MEMORY.md content is preserved as global; no automatic migration. **+33 tests** across `tests/memory/scope.test.ts` (11) + `tests/memory/bounded.test.ts` (7) + `tests/memory/injection.test.ts` (7) + `tests/memory/provider.test.ts` (6) + `tests/tools/memoryTool.test.ts` (16) + `tests/context/systemPrompt.test.ts` (4) — was 1683/1683 before Round 1, now 1716/1716. Suite gates clean; pushed to origin/master and `sov upgrade` ran. Design memo at `plans/2026-05-07-memory-project-scoping.md`.
+- **Behavioral note (smoke test finding):** `sov chat` always loads the default bundle when no `--bundle` is passed, so the `kind: 'none'` branch (true general-purpose harness mode with no memory at all) is rarely reached via the CLI in practice. Most non-git scratch-dir sessions get a stable "default-bundle" projectId via the canonical-path hash path, and their memory lives at `<harnessHome>/memory/projects/<defaultBundleHash>/MEMORY.md`. Different from before (single global MEMORY.md sees everything) but not the same as "no memory" — it's effectively a single shared "general purpose" memory namespace. Acceptable for v1; revisit if it surfaces as a separate problem.
+- Source: 2026-05-07 soak Agent A, cases A4 + A6
+
+### 20. `HARNESS_HOME=… printf | sov chat` env-prefix-pipeline footgun
+
+- Priority: P4
+- Status: **complete (2026-05-07, commit `e677676`)** — added "Scoping `HARNESS_HOME` for tests" subsection at the end of `## Profiles` in `docs/03-cli-reference/usage.md`. Documents the footgun pattern (env scope binds only to `printf`, not the downstream `sov`), shows three correct alternatives (export-then-pipe, redirect from file, repeat env on each pipeline stage), and explains WHY (each command in a pipeline runs in its own subshell with its own environment). Docs-only commit.
+- Source: 2026-05-07 soak Agent F's setup (HARNESS_HOME override for Phase 13.4 testing)
+- Evidence: `HARNESS_HOME=/tmp/sov-soak-F/harness-home printf 'prompt' | sov chat ...` silently routes `sov chat` to the user's live `~/.harness/`, because the env binding scopes only to `printf` (the first command in the pipeline). The override is silently ignored. The tester only noticed when the synthesizerEveryN override didn't take effect.
+- Recommendation:
+  - **(a) Documentation:** Add a "scoping HARNESS_HOME for tests" note to `docs/03-cli-reference/usage.md` explaining that `export HARNESS_HOME=…` (or `env HARNESS_HOME=… sov chat <args>`) is required.
+  - **(b) Optional UX:** A startup banner showing the resolved `HARNESS_HOME` path (already shown in the top-of-session info card per the existing UI) — verify it's prominent enough that a user would catch a mis-scoped env.
+- Likely code areas:
+  - `docs/03-cli-reference/usage.md`
+- Impact: Test ergonomics + occasional debugging confusion. Not a runtime bug.
+- Effort: ~15 min docs
+
+### 21. Tool-count drift between live config and fresh `harness-home`
+
+- Priority: P4
+- Status: **complete (2026-05-07)** — investigated, intentional gating confirmed. No code change required. See resolution below.
+- Source: 2026-05-07 soak Agent F. First (mis-routed) run reported `tools: 22` from live config; second (correctly-routed) run with bare override config reported `tools: 21`.
+- **Resolution:** The single-tool differential is **`WebSearch`** (244-token schema). It is gated by `WebSearchTool.isEnabled = () => resolveProviderSettings().apiKey !== undefined` in `src/tools/WebSearchTool.ts:182`. The live `~/.harness/config.json` has `webSearch.apiKey` set; the bare override config does not, so `isEnabled()` returns `false` and `assembleToolPool` filters it out at `src/tool/registry.ts:128`. Verified by toggle test: adding `webSearch.apiKey` to the bare config flipped the count `21 → 22` and `WebSearch: 244` appeared in `/context-budget` output. `WebFetch` is *not* gated (always present, 256 tokens) — only `WebSearch` requires a provider API key. Hypotheses (a) MCP and (c) `debugMode.transcript` were ruled out: no other tool registers a `isEnabled()` predicate (grep result: `WebSearchTool.ts` is the only file with a non-default `isEnabled`), and `debugMode` only affects logging, not pool assembly.
+- **Verdict:** Intentional behavior. Exposing `WebSearch` without an API key would cause 100% failed invocations — the gating is correct. The deterministic baseline is **21 tools** with no provider-keyed config; it climbs to 22 when `webSearch.apiKey` (or `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY` env var, per `resolveProviderSettings`) is present. Tests that pin exact tool counts should either (i) clear `webSearch.apiKey` + the two env vars in setup, or (ii) accept the 21-vs-22 range. No follow-up filed.
+- Likely code areas (for reference):
+  - `src/tool/registry.ts:128` (`assembleToolPool` filter step)
+  - `src/tools/WebSearchTool.ts:182` (the only `isEnabled` predicate in the tool tree)
+- Impact: Mild — affects test reproducibility when tests reference exact tool counts.
+- Effort: ~30 min investigation (actual: ~20 min)
+
+### 22. Mid-turn context pruning anomaly during long autonomous exploration
+
+- Priority: P1
+- Status: **complete (2026-05-07)** — investigation confirmed a real harness bug; targeted fix shipped. See investigation summary below.
+- Source: 2026-05-07 soak Agent G, case G4 (vague "do something useful" prompt)
+- Evidence: The agent ran 14 tool calls during autonomous exploration. In its own narration it self-noted: *"I was spinning in circles running commands that kept getting cleared."*
+- **Investigation result (real harness bug):**
+  - Microcompaction fires INSIDE the `for (let turn...)` loop in `src/core/query.ts:380-401`, AFTER `runTools` and BEFORE the next iteration's `provider.stream()` call. So it runs mid-prompt, between sub-turns of a single user message.
+  - Eviction policy: `DEFAULT_MICROCOMPACT_CONFIG.keepRecent = 5`, applied GLOBALLY across the entire history (no notion of "current turn" in `collectCompactableRefs`).
+  - Trigger: total compactable tool_result tokens > 40% of total context tokens.
+  - Failure mode: a single user prompt that triggers a 14-call autonomous burst → after turn ~6, microcompact kicks in and clears all but the most recent 5 results — including 9 results created in the SAME user-prompt loop. The agent's next assistant message wants to reference earlier outputs, finds `[Tool result cleared — Bash]` placeholders, and either re-runs the tool or loops in confusion.
+- **Fix:** Added `findCurrentTurnBoundary()` to `src/compact/microcompact.ts`. The boundary is the index of the most recent user message containing a `text` block (real user prompts always carry text; runTools-synthesized tool_result-only messages do not). `collectCompactableRefs` now skips messages at or after that boundary, so tool_results from the in-flight user prompt are never eligible for eviction regardless of count. KeepRecent semantics are unchanged for older history.
+- **Tests:** 3 new cases in `tests/compact/microcompact.test.ts`: 30-result single-burst preservation (the case G4 reproduction), two-prompt boundary respect, standalone-guidance boundary handling.
+- Files: `src/compact/microcompact.ts`, `src/core/query.ts` (comment update), `tests/compact/microcompact.test.ts`
+
+### 23. FileRead throws on missing file instead of returning `{status: error}` envelope
+
+- Priority: P1
+- Status: **complete (2026-05-07, commit `d2e1e92`)** — 2 throw → envelope conversions in `src/tools/FileReadTool.ts` (missing-file + is-directory paths). `next_actions` arrays match Bash's tone ("verify the path with Glob or `ls`; confirm the working directory") for cross-tool consistency. File-too-large stays as a throw per the user-input vs. system-limit distinction (could be revisited if soak surfaces the case). 2 existing tests migrated from `.rejects.toThrow` to envelope-shape assertions.
+- Source: 2026-05-07 soak Agent G, case G5 (mid-multi-turn error)
+- Evidence: FileRead on a non-existent file produced `tool threw: file does not exist: /private/tmp/sov-soak-G/cwd-G5/nonexistent.txt` rather than a clean Phase 12.5 envelope (`status: error, summary: ..., next_actions: [...]`). The agent handled it correctly downstream (no fabrication, honest "did not succeed" report), but the envelope contract is inconsistent with peer tools (Bash returns `status: error` with exit code, etc., per soak A2).
+- Recommendation: Normalize FileRead's missing-file path to return `{status: 'error', summary: 'file not found at <path>', next_actions: ['verify path with Glob or ls'], data: null}` rather than throwing. Same family as Bash's exit-1 pattern.
+- Likely code areas:
+  - `src/tools/FileReadTool.ts` (the file-not-found branch)
+- Impact: Inconsistency makes "all tools surface errors via envelope" rule (Phase 12.5) less reliable for downstream consumers — anything that checks `result.observation?.status === 'error'` would miss FileRead's misses.
+- Effort: ~30 min
+
+### 24. `maxToolCallsBeforeCheckin` knob for vague-prompt cost control
+
+- Priority: P3
+- Status: **complete (2026-05-11, commits `3fa6f67` → `2e192fd`)** — `behavior.maxToolCallsBeforeCheckin` schema field, `Terminal.reason: 'checkin'` + `toolCallCount?`, per-turn counter in `query.ts` after microcompaction, REPL handler prints checkin message + sets `checkinPending`, `/continue` slash command (registered, `CommandContext.resumeCheckin?`), `runModelTurn(isContinuation: true)` path skips user-message push. 3 new schema tests, 3 query tests, 3 command tests. Suite 1778/1778. Known v0 limit: `checkinPending` not reset if user sends a new message instead of /continue.
+- Source: 2026-05-07 soak Agent G, case G4
+- Evidence: Vague prompt "do something useful" triggered 2-minute autonomous exploration with 14 tool calls costing $0.05. Reasonable agent behavior, but cost-aware users might want a configurable check-in point ("ask the user before continuing past N tool calls in a single turn").
+- Recommendation: Add `settings.behavior.maxToolCallsBeforeCheckin: number` (default unset = no limit). When set, the orchestrator interrupts the turn after N tool calls and emits a guidance message asking the user whether to continue. Could pair with a `/continue` slash verb that resumes the same turn.
+- Likely code areas:
+  - `src/config/schema.ts` (settings field)
+  - `src/core/query.ts` (turn-iteration counter check)
+  - New slash verb `/continue` to resume
+- Impact: Cost-control feature; not a bug. Some users would value this; others would find it annoying. Worth an opt-in default.
+- Effort: ~3 hrs
+
+---
+
+## Items discovered during Phase 16.1 M5 close-out (2026-05-14)
+
+Five follow-ups surfaced from the M5 T10 code-quality review (server-side sub-agent + permission round-trip + Go TUI permission modal). All are construction-scope gaps versus terminalRepl's mature wiring — deferred to keep M5 a focused construction milestone, not blocked work. None affect the M5 acceptance criteria; the server-side TUI launcher is functional with the current defaults. Land alongside the broader server-side settings-cascade work (M6 or later) or as part of the parity audit before the `--ui tui` default-flip.
+
+**Update 2026-05-14:** Items 25, 26, 27 closed in commit `3b07110` (M5.1) — the three settings-cascade gaps at the `SubagentScheduler` / `LaneSemaphores` construction site, bundled because they all touch the same lines. Items 28 (DaemonEventBus wiring) and 29 (lipgloss `Style.Copy()` deprecation) remain open.
+
+### 25. Server-side `SubagentScheduler` does not receive `availableProviders`
+
+- Priority: **P2** (bumped from P3 after empirical confirmation during M5 manual smoke 2026-05-14)
+- Status: **complete (2026-05-14, commit `3b07110` — M5.1)** — `buildRuntime` now threads `availableProviders` via a new `resolveSubagentAvailableProviders(resolved)` pure helper. For single-provider mode the list is `[providerName]`; for router metadata it's `[localProvider, frontierProvider]`. Mirrors terminalRepl.ts:887-902. Three new tests pin the helper semantics (single-provider, router-mode, defensive fallback on partial router metadata) + one end-to-end test asserts the value reaches the scheduler at construction time. **Deviation from backlog description:** the backlog described the source as `userSettings.providers.available`, but no such schema field exists — terminalRepl derives the list from `resolved.metadata.provider` and the router lane metadata. The fix mirrors terminalRepl's actual pattern, not the backlog's paraphrase.
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up); confirmed user-visible during M5 manual smoke scenario 3
+- Original recommendation: `buildRuntime` in `src/server/runtime.ts` constructs `SubagentScheduler` without threading `availableProviders` from `userSettings`. terminalRepl reads `userSettings.providers.available` (or the equivalent) and passes it through so the scheduler's lane planner skips providers the user doesn't have credentials for. Server-side, the scheduler currently defaults to all four (`anthropic`, `openai`, `openrouter`, `ollama`) and may attempt to dispatch to a provider that will fail at the first auth check.
+- Original evidence: terminalRepl's scheduler construction site (lines ~879-955) reads `availableProviders` from the settings cascade; `buildRuntime`'s equivalent call site does not. **2026-05-14 manual smoke:** with parent on `anthropic/claude-haiku-4-5`, dispatching the `explore` subagent routed the child to `ollama/llama3.1:70b` (capability-profile default for `role: explore`); on a machine without that local model the child errored immediately and the parent gracefully degraded to running Bash itself. Sessions table at `~/.harness/sessions.db` shows the parent_session_id linkage is correct — only the provider/model choice is wrong.
+
+### 26. Server-side `SubagentScheduler` does not receive `artifactsRoot`
+
+- Priority: P3
+- Status: **complete (2026-05-14, commit `3b07110` — M5.1)** — `buildRuntime` now threads `artifactsRoot` via the new `resolveSubagentArtifactsRoot(harnessHome, bundle)` helper. Returns `<bundle>/state/artifacts` for client bundles (non-default-bundle), else `harnessHome` (the trajectory writer joins `/trajectories` to whichever root). Mirrors terminalRepl.ts:927-930. Two new tests pin the helper semantics + one end-to-end test asserts the value reaches the scheduler at construction time. Phase 13.3 review daemon + Phase 13.4 instinct corpus pipelines now see M5-launched session data.
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up)
+- Original recommendation: `buildRuntime` does not pass `artifactsRoot` to `SubagentScheduler`, which disables per-child trajectory capture in server mode. terminalRepl sets `artifactsRoot: <harnessHome>/artifacts/` so each child writes `samples.jsonl` + `failed.jsonl` under the artifacts tree, feeding the offline learning / review pipelines. Server-mode sessions silently skip this capture.
+
+### 27. Server-side `LaneSemaphores` cap config not wired from settings
+
+- Priority: P3
+- Status: **complete (2026-05-14, commit `3b07110` — M5.1)** — `buildRuntime` now threads `maxConcurrentLocal` / `maxConcurrentFrontier` from `userSettings.router.*` via the new `resolveLaneSemaphoresOpts(userSettings)` helper. Undefined values are omitted so unset lanes stay unbounded (per laneSemaphores.ts:29-32). Mirrors terminalRepl.ts:879-886. Three new tests pin the helper semantics (empty, local-only, frontier-only, both) + two integration tests through `buildRuntime` assert: (a) cap-blocks-acquire when local cap=1 (a second `acquire('local')` suspends until the first releases), and (b) frontier lane stays unbounded when only local cap is configured.
+- Source: Phase 16.1 M5 T10 code-quality review (T6 follow-up)
+- Original recommendation: `buildRuntime` constructs `new LaneSemaphores({})` (empty caps = unbounded). terminalRepl reads `userSettings.router.maxConcurrentLocal` and `userSettings.router.maxConcurrentFrontier` and passes them through so production deployments can throttle concurrent sub-agent dispatch per lane. Server-mode runs are effectively uncapped today.
+
+### 28. Server-side TaskManager not wired to `DaemonEventBus`
+
+- Priority: P4
+- Status: **complete (2026-05-15, commit `bfaeaad`)** — `buildRuntime` constructs a `new DaemonEventBus()` per-runtime and passes it to `new TaskManager({ store, scheduler, bus })`. M7 T2 contract closes here: TaskManager lifecycle events (`task_created`, `task_progress`, `task_completed`, `task_failed`) publish onto the bus from server-mode the same way they do in terminalRepl. No subscriber wired inside the server process itself in M7 — review/learning observe via the orchestrator's direct ToolContext call-sites (per ADR M7-06). The bus is plumbing-only here; cross-process daemon subscribers can attach in future without rewiring the runtime construction. `Runtime.daemonEventBus` field exposes the bus for the integration smoke (verified by `tests/server/m7Full.test.ts`) and any future subscriber that needs the handle.
+- Source: Phase 16.1 M5 T10 code-quality review (T7 follow-up)
+- Recommendation: `buildRuntime` constructs `TaskManager` without subscribing the daemon event bus. terminalRepl's TaskManager publishes lifecycle events (`task_started`, `task_completed`, `task_failed`) onto `DaemonEventBus` so the Phase 16.0a daemon (currently dormant) and any future review/learning consumers can subscribe. Server-mode TaskManager today only emits events onto the parent session's SSE feed; nothing outside the live session sees them.
+- Evidence: terminalRepl's TaskManager construction includes a `DaemonEventBus` subscriber wiring step; `buildRuntime` omits it.
+- Impact: M5 is unaffected (the daemon is dormant; no subscriber exists yet). Becomes a real gap when M7's review/learning subsystems land in server mode — they'll need the daemon-bus integration to fire.
+- Likely code areas:
+  - `src/server/runtime.ts` (`buildRuntime` — `TaskManager` construction)
+  - `src/runtime/taskManager.ts` (verify the daemon-bus injection point)
+- Effort: ~45 min — depends on whether the daemon-bus subscriber API is settled. May overlap with the M7 review/learning wire-up; can defer until that work starts.
+
+### 29. lipgloss `Style.Copy()` deprecation in Go TUI permission modal
+
+- Priority: P4
+- Status: **CLOSED** (Phase 16.1 M9 T11, 2026-05-16)
+- Source: Phase 16.1 M5 T10 code-quality review (T9 follow-up)
+- Resolution: M9 T11 replaced the two `.Copy()` calls in `packages/tui/internal/components/permission.go` with direct field-chain calls (`yellow.Bold(true)` instead of `yellow.Copy().Bold(true)`; `bold.Underline(true)` instead of `bold.Copy().Underline(true)`). `lipgloss.Style` is value-typed so `.Copy()` was a no-op identity helper; the field-chain calls already return new values. Permission modal tests stay green.
+
+### 30. Server-mode `subagentDefaultProvider`/`subagentDefaultModel` not specialized for router mode
+
+- Priority: P4
+- Status: **CLOSED** (Phase 16.1 M8 T1, 2026-05-16 — commit `49ed104`)
+- Source: Phase 16.1 M5.1 final whole-branch review (2026-05-14)
+- Resolution: M8 T1 landed `--provider router` in `buildRuntime` with the full RouterProvider wiring (the `useRouter` branch at `src/server/runtime.ts:518-573` constructs the wrapped provider, and the subagent default resolution at the scheduler construction site specializes to the configured frontier lane — `defaultProvider: routerCfg.frontierProvider`, `defaultModel: routerCfg.frontierModel` — exactly mirroring terminalRepl.ts:908-917). `tests/server/runtime.router.test.ts` pins both contracts; `tests/server/m8Full.test.ts` covers the subagent default fall-through in the integration smoke.
+
+---
+
+## Items discovered during Phase 16.1 M6 final whole-branch review (2026-05-14)
+
+Three follow-ups surfaced from the M6 (long-session survival) final whole-branch review. None affect the M6 acceptance criteria; the long-session survival path is functionally complete and the suite is green at 1924/1924. The first two pin pre-existing gaps M6 made visible (turns-route asymmetry vs. its sibling routes; resume-after-compaction lineage isn't covered by an explicit regression test). The third is a stylistic asymmetry that could be cleaned up in either direction.
+
+### 31. M3.4 turns route does not validate `:id` shape
+
+- Priority: P3
+- Status: **complete (2026-05-15, commit `b9a4ad8`)** — Added `isValidSessionId(sessionId)` guard at the very top of the `POST /sessions/:id/turns` handler in `src/server/routes/turns.ts`, before any work. Returns `{ error: 'invalid session id' }` with status 400 on malformed input — same wire shape as `sessions.ts:39`, `events.ts:20`, `approvals.ts:23`, `compact.ts:41`. Import combined with existing `loadHistoryAsMessages` per Biome's type-first rule. New test in `tests/server/turns.test.ts` ("returns 400 for invalid session id") pins the contract — confirmed RED before fix (received 202, also triggered a `SQLITE_CONSTRAINT_FOREIGNKEY` cascade in the persistence test running afterwards — direct empirical evidence of the impact described below), GREEN after. Pre-commit gate: 1939 pass / 0 fail.
+- Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
+- Recommendation: `src/server/routes/turns.ts:79-80` reads `c.req.param('id')` and uses it directly as the `sessionId` for the bus + background-turn dispatch — no `isValidSessionId` check. Sibling routes (`sessions.ts`, `events.ts`, `approvals.ts`, `compact.ts`) all call `isValidSessionId(sessionId)` and 4xx on malformed ids. Add the same guard at the top of the POST `/sessions/:id/turns` handler.
+- Evidence: pre-existing asymmetry from M3.4 (the turns route was the first server route landed; the `isValidSessionId` helper was added later for sessions/events). M6 made it visible because the new compact route (sibling) DOES validate, so the inconsistency now stands out next to its peers.
+- Impact: A malformed id (e.g., one containing characters outside `[A-Za-z0-9_-]`) would currently flow into `getOrCreateBus` and the persisted user message — neither call sanitizes the id, so it would echo unsanitized into SSE event payloads and the sessions table. Not exploitable today (the id is server-stored and read-back; no third-party render), but the validation contract is what keeps that property true.
+- Likely code areas:
+  - `src/server/routes/turns.ts:79-80` (single validation call before `getOrCreateBus`)
+  - `tests/server/turns.test.ts` (regression test pinning 400 on malformed id)
+- Effort: ~30 min (single validation call + test).
+
+### 32. Resume-after-compaction regression test
+
+- Priority: P3
+- Status: **complete (2026-05-15, commit `09da469`)** — Added one new test in `tests/compact/compactor.test.ts` inside the existing `describe('compactSession', …)` block. The test seeds a 6-message parent history, runs `compactSession` with `tailTokenBudget: 1, minTailMessages: 1` (so the no-op short-circuit at `compactor.ts:130` cannot fire), confirms a real compaction happened (`result.noOp` falsy, `newSessionId !== parentSessionId`, lineage row persisted), then asserts (a) `db.loadMessages(parent)` returns the original 6 messages — first and last contents match the seeded history verbatim, (b) `db.loadMessages(child)` returns the summary+tail shape with `HANDOFF_SUMMARY_NOTE` at index 0, and (c) parent's first message content ≠ child's first message content — the strongest direct evidence that the two ids resolve to distinct message streams. GREEN on first run (invariant held by construction); verified meaningfulness via reasoning — three independent assertions would fail if `loadMessages` were ever changed to walk lineage forward. Pre-commit gate: 1940 pass / 0 fail (was 1939, delta +1).
+- Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
+- Recommendation: `--resume <parentId>` after compaction works by construction — sessionDb is immutable + the lineage row persists — so a future user resuming a parent session can walk the lineage chain and discover the post-compaction child. But no test pins this. Backlog row 7's earlier wording mentioned "rollback lineage"; that's covered by `--resume` walking the lineage chain, but the property is not exercised. Add a unit-level test that: (a) runs a turn that triggers proactive compaction, (b) confirms the lineage row exists, (c) `--resume`s the parent id and verifies the resumed session loads the parent's pre-compaction history (not the child's post-compaction state).
+- Evidence: lineage table populated by `compactSession` at `compactor.ts:145`; resume reads from the parent id directly, doesn't auto-walk to the latest descendant. The "stay on parent" semantic is intentional (resume = "go back to where I was when this happened") but not pinned.
+- Impact: A future refactor that changed resume to "auto-pivot to latest descendant" would silently break this contract. The test would land that change as an explicit regression.
+- Likely code areas:
+  - `tests/cli/resume.test.ts` or `tests/server/turns.compactionResume.test.ts` (new file)
+  - `src/cli/resume.ts` (reference: how resume reads from sessionDb)
+- Effort: ~30 min.
+
+### 33. Asymmetric `bus.isClosed()` guards in turns route
+
+- Priority: P4
+- Status: **complete (2026-05-15, commit `79a5c39`)** — Dropped all three `if (!bus.isClosed())` wrappers in `src/server/routes/turns.ts` (M6 T4 first-overflow turn_error path, M6 T4 second-overflow turn_error path, normal turn_complete path). The catch's turn_error publish was already unguarded — all four publish sites in `runTurnInBackground` now share the same shape. `ServerEventBus.publish` at `eventBus.ts:50-57` is the single source of truth for closed-state behavior (idempotent short-circuit on `this.closed === true`). Pure de-indent diff: 21 insertions, 27 deletions. No behavior change. Pre-commit gate: 1938 pass / 0 fail.
+- Source: Phase 16.1 M6 final whole-branch review (2026-05-14)
+- Recommendation: `src/server/routes/turns.ts` lines 397/410 guard `bus.publish(...)` with `if (!bus.isClosed())` (the second-overflow turn_error and the normal turn_complete paths). Line 419 (the catch's turn_error publish) does NOT guard. Functionally safe — `ServerEventBus.publish` at `eventBus.ts:51` already short-circuits when `closed === true`, so the guards are redundant — but visually asymmetric. Pick one direction: drop both guards (preferred — eventBus is the single source of truth for the closed-check) or add the missing guard at line 419 for symmetry.
+- Evidence: `src/server/eventBus.ts:50-57` shows `publish()` is idempotent on closed buses. The two existing guards are no-ops.
+- Impact: Cosmetic. No runtime difference.
+- Likely code areas:
+  - `src/server/routes/turns.ts` (lines 397, 410, 419)
+- Effort: ~10 min.
+
+---
+
+## Items discovered during M6 pre-smoke critical bug-hunt (2026-05-15)
+
+The user requested a focused, critical code-side review before running the three M6 manual smoke scenarios. Three parallel Opus reviewers covered server flow, Go TUI / wire fidelity, and cross-cutting edge cases. The most-load-bearing finding (multi-turn SSE was broken in the TUI by an M3-era design gap) was fixed in commit `3365fb3` + `f1f5bda` — those scenarios are now smoke-ready. Three items below are the remaining real risks that warrant follow-up but did not block the smoke.
+
+### 34. Anthropic strict-alternation hazard with `assistant`-role compaction summary
+
+- Priority: **P2**
+- Status: **complete (2026-05-15, commit `4653737`)** — Picked Option A (synthetic bridge user). `compactSession` now inserts `{role: 'user', content: [{type: 'text', text: '(continuing from summary)'}]}` between the assistant-role handoff summary and `tail[0]` when (and only when) `tail[0]?.role === 'assistant'`. The bridge is persisted via `db.saveMessage`, included in the returned `result.tail`, and accounted for in `estimatedAfterTokens` so reported numbers stay honest. Both downstream consumers — `src/server/routes/turns.ts` (DB-reload via `hydrate()`) and `src/ui/terminalRepl.ts` (uses `result.tail` directly) — receive the alternation-safe history without caller changes. `createClearedChildSession` in `src/agent/sessionRecovery.ts` was reviewed and has no symmetric hazard (it adds no messages). New regression test in `tests/compact/compactor.test.ts` ("persisted child history alternates user/assistant when tail starts with assistant") — confirmed RED before fix (consecutive `assistant` roles), GREEN after. Existing "does not split assistant tool_use / user tool_result pairs into the tail" test was updated to find the `tool_use` index dynamically (the synthetic user now sits before it) — the underlying alignment invariant is preserved. Pre-commit gate: 1937 pass / 0 fail. Token tax is small (~5 tokens) and only paid when the guard fires.
+- Source: M6 pre-smoke critical review (2026-05-15) — Agent 3 cross-cutting findings, Q3
+- Recommendation: `compactSession` (`src/compact/compactor.ts:113-116, 133-137`) persists the summary as `{role: 'assistant', content: [{type: 'text', text: HANDOFF_SUMMARY_NOTE + summary}]}`. The next turn's history is `[summary(assistant), ...tail, userMessage]`. Anthropic's API requires alternating user/assistant. If `tail[0]?.role === 'assistant'` (which `alignTailStart` at `compactor.ts:223` may produce when walking backward to keep tool_use/tool_result pairs intact), the request becomes `[assistant_summary, assistant_tail0, ...]` — two consecutive assistants → Anthropic 400 (`messages: roles must alternate`). OpenAI is lenient and accepts; Anthropic rejects. Mock provider in tests accepts anything → integration tests do not surface this.
+- Recommended fix: in `compactSession`, after building the new child's `[summary, ...tail]` sequence, check `tail[0]?.role`. If `'assistant'`, either (a) prepend a synthetic minimal `user` message (e.g., `{role: 'user', content: [{type: 'text', text: '(continuing from summary)'}]}`) between summary and tail, OR (b) flip the summary's role to `'user'` so the sequence becomes `[user_summary, assistant_tail0, ...]` (still alternating, model still consumes the summary). Option (b) is one-line but changes the conversational framing slightly; option (a) preserves framing.
+- Evidence: `src/providers/anthropic.ts:84-91` — the SDK throws on the next stream call. `BadRequestError` with `error.message` containing `roles must alternate` would surface as `Terminal{reason:'error', error}` — NOT caught by `isContextOverflowError` (so no recovery), surfaced to user as `turn_error` with the verbatim Anthropic message.
+- Impact: **Real-world bug** for any non-trivial session smoked against Anthropic. The user's basic smoke ("hello + /compact + how are you") happens to land in the safe regime (tail = `[user, assistant]` so summary-prepend yields `[assistant_summary, user, assistant]` which is valid). But longer conversations where the tail boundary lands on an assistant message will 400.
+- Likely code areas:
+  - `src/compact/compactor.ts` (around line 145, after the lineage-recording write)
+  - `src/agent/sessionRecovery.ts:20` (`createClearedChildSession` — verify symmetric handling if the tail-cap happens there)
+- Effort: ~1 hr — fix + a Bun unit test that constructs a parent history whose tail starts with `assistant`, runs `compactSession`, and asserts the new child's persisted history alternates correctly.
+
+### 35. `isContextOverflowError` substring matcher unverified against real provider error shapes
+
+- Priority: **P2**
+- Status: **complete (2026-05-15, commit `1212a42`)** — Probed real Anthropic SDK with a 330K-token user message against `claude-haiku-4-5-20251001`. Caught `BadRequestError` (status=400, type=`invalid_request_error`) with `err.message` of the form `'400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 200039 tokens > 200000 maximum"},...}'`. The existing `'prompt is too long'` substring catches it; no matcher extension was needed. JSDoc on `isContextOverflowError` now documents the verified shape. New `tests/providers/errors.test.ts` pins the real Anthropic shape + the OpenAI-style + the synthetic fixture against the matcher (12 cases total). M6 T4's overflow-recovery branch is provably wired against the live Anthropic format — Scenario 3 smoke can proceed with confidence. Note: Anthropic uses status **400** for overflows, not 413, so the `ProviderHttpError && status === 413` shortcut is irrelevant for Anthropic but kept for OpenAI-compatible providers. OpenAI + Ollama probes deferred until those scenarios become smoke priorities (the substring list already covers their published shapes plausibly).
+- Source: M6 pre-smoke critical review (2026-05-15) — Agent 1 server-flow findings, Q8
+- Recommendation: `src/providers/errors.ts:81-92` matches context-overflow via substring scan on `err.message` (`'context length'`, `'context window'`, `'maximum context'`, `'context_length_exceeded'`, `'prompt is too long'`) plus a `ProviderHttpError && status === 413` shortcut. T4's tests use `tests/helpers/transportWrappers.ts:107` which throws `new Error('context length exceeded by 12000 tokens')` — synthetic shape, not the actual provider error format. The matcher is plausible against Anthropic's `BadRequestError` (which formats `error.message` to include the body, typically containing "prompt is too long: N tokens > 200000 maximum") and OpenAI's `ProviderHttpError` body (typically contains both "context length" and "context_length_exceeded"), but **has never been verified in production code in this repo**. If the matcher misses, T4's overflow-recovery never fires; the user sees `turn_error` instead of `─ auto-compacted` and reasonably concludes recovery is broken.
+- Recommended fix: write a one-shot probe test (gated behind `INTEGRATION_REAL_PROVIDER=1` env or similar — not part of the default suite) that fires a single deliberate overflow against real Anthropic + real OpenAI + real Ollama, captures the thrown error, asserts `isContextOverflowError(err)` returns true. Document the verified error shapes in a code comment on `isContextOverflowError`. If any provider's shape doesn't match, extend the substring list. Pair with M6 Scenario 3 manual smoke pre-flight.
+- Evidence: `src/providers/errors.ts:81-92` (the matcher); `tests/helpers/transportWrappers.ts:107` (the synthetic test fixture); `src/providers/anthropic.ts:84-91` (where the throw happens); `src/providers/openai.ts:136-143` (OpenAI's throw).
+- Impact: **Latent bug for Scenario 3 manual smoke.** Could waste real-API tokens on a smoke that misses recovery silently. Also affects auto-recovery for any user hitting overflow in production.
+- Likely code areas:
+  - `src/providers/errors.ts` (matcher)
+  - `tests/integration/` (new probe test file — likely needs new directory)
+- Effort: ~1.5 hrs — probe + each-provider verification + matcher extension if needed + JSDoc on `isContextOverflowError`.
+
+### 36. `estimatedAfterTokens > estimatedBeforeTokens` cosmetic on small sessions
+
+- Priority: P3
+- Status: **complete (2026-05-15)** — Option (a) shipped: explicit early-return guard in `compactSession` returns a no-op result (`parentSessionId === newSessionId`, `noOp: true`) when `head.length === 0`. All three callers (proactive + recovery in turns route, /compact route, terminalRepl `compactNow`) key off `result.noOp` to skip the SSE event, the session-id pivot, and the misleading visual marker. The TUI's `compactCompleteMsg` handler renders "─ nothing to compact (history already fits)" instead of "─ compacted — new session <prefix>" on the no-op shape. Existing tests that constructed tiny histories were updated to seed 6 filler messages so they exercise the happy path. New unit + integration tests pin the no-op contract end-to-end (TS + Go). Full TS suite: 1938 pass / 0 fail / 4827 expects.
+- Source: M6 pre-smoke critical review (2026-05-15) — Agents 1+3, Q1
+- Recommendation: `compactSession` (`src/compact/compactor.ts:105-106, 154-157`) computes `estimatedBefore = systemPromptTokens + estimateMessagesTokens(history)` and `estimatedAfter = systemPromptTokens + summaryMessage + tail`. For a small history (say 2 messages) where `selectTailStart` returns 0 (full history fits in tail budget), `tail = entireHistory`, and `after = before + summaryMessageTokens` — strictly larger by ~70 tokens. Verified empirically by autonomous smoke: 2-message session reported `before=2247, after=2318`. The TUI's transcript marker renders `─ auto-compacted — 2247→2318 tokens — ...` which looks like compaction is broken even though the algorithm is correct (no head to summarize, so the operation is a no-op-plus-summary-message-overhead).
+- Recommended fix options:
+  - (a) **Early-return guard in `compactSession`**: when `head.length === 0`, skip compaction entirely and return a result indicating "nothing to compact" — caller (proactive / recovery / `/compact` route) decides whether to surface this as a no-op or treat it as success-with-nothing-changed.
+  - (b) **Friendlier marker text**: TUI renders `─ compacted (already minimal — 0 messages summarized)` when `before <= after`. Server side stays unchanged.
+  - (c) **Both**: guard server-side AND improve TUI marker for the case where compaction was meaningful but the delta is tiny.
+- Evidence: `src/compact/compactor.ts:91-170` (the calculation); autonomous smoke output from 2026-05-15 (saved in `docs/06-testing/testing-log.md` 2026-05-15 entry); `packages/tui/internal/app/app.go:407-432` (the marker rendering).
+- Impact: **Cosmetic but credibility-impacting** for the user's first M6 smoke against a fresh session. They'll see "after > before" and reasonably think compaction is broken. Doesn't affect the underlying mechanism (large sessions produce real reductions; verified by `compactor.test.ts` plus the math: 100-message session goes 154,400 → 3,159 tokens).
+- Likely code areas:
+  - `src/compact/compactor.ts` (early-return guard)
+  - `packages/tui/internal/app/app.go` (marker text)
+  - `src/server/compactor.ts` (passthrough — unchanged)
+- Effort: ~30-45 min — server-side guard is the most defensive (also helps with #34 since skipping compaction skips the alternation-hazard message append) plus a unit test asserting the early-return shape.
+
+### 37. `sov --version` should print the git SHA (not just the package.json `0.1.0`)
+
+- Priority: P4
+- Status: **complete (2026-05-15, commits `a89b03c` + `4bd849c`)** — Runtime resolution in `src/version.ts` (preferred over postinstall-write — fewer moving parts, no Bun-trust requirement). Two resolvers tried in order: (1) `<install-root>/.bun-tag` — canonical for `bun install -g git+ssh://...` (Bun writes the resolved 40-char SHA there and does NOT ship `.git/`); (2) `git rev-parse --short HEAD` — fallback for dev `bun link` / working-tree mode. Bare semver final fallback if neither artifact present. TDD with three tests in `tests/version.test.ts`: format-regex (`/^\d+\.\d+\.\d+(-[a-f0-9]{7,})?$/`), package.json prefix, and a git-checkout SHA equality assertion (the last was RED before implementation, GREEN after). Initial implementation only used git rev-parse; post-`sov upgrade` smoke at commit `a89b03c` revealed `sov --version` still printed bare `0.1.0` because the global install has no `.git/` directory — fixed in `4bd849c` by adding the `.bun-tag` resolver. Empirical post-upgrade: `sov --version` prints `0.1.0-4bd849c`; `git rev-parse --short HEAD` matches; `bun src/main.ts --version` also surfaces the same suffix. `/health` route and any future VERSION-consuming surface picks up the SHA transparently. Full TS suite: 1940 → 1943 pass / 0 fail (+3 tests).
+- Source: M6 manual smoke pre-flight (2026-05-15) — user noticed `sov --version` prints `0.1.0` with no commit SHA after `sov upgrade`. Currently the only way to confirm which commit the global binary is pinned to is `bun pm ls -g 2>&1 | grep sov` (which shows the git ref). Worth surfacing in `--version` output for the manual-smoke pre-flight ritual ("did my upgrade actually take?").
+- Recommendation: `src/main.ts` Commander `.version(...)` call currently passes the static `package.json` version. Change to: read the install SHA at build/install time (a postinstall script can write a `version.ts` with the resolved SHA) OR shell out to `git rev-parse HEAD --short` if the binary lives inside a git checkout (it does, post-`sov upgrade` — `~/.bun/install/global/node_modules/@yevgetman/sov/`). Easier path: write the SHA into `package.json`'s `version` field via the postinstall script (e.g., `0.1.0-3365fb3`).
+- Evidence: User feedback during M6 smoke session (2026-05-15). `bun pm ls -g 2>&1 | grep sov` already exposes the git ref; just lift it into `--version`.
+- Impact: Pre-flight ergonomics for any future manual smoke or "did upgrade work?" debug session. Removes a small but real source of confusion ("which version am I running?").
+- Likely code areas:
+  - `src/main.ts` (the `.version(...)` Commander call)
+  - `package.json` postinstall script
+  - Possibly: `bin/sov` shim
+- Effort: ~30 min if going the postinstall-write-version route; ~10 min if just shelling out to `bun pm ls -g`.
+
+---
+
+## Items discovered during Phase 16.1 M7 reviews (2026-05-15)
+
+Two follow-ups surfaced during the M7 Hermes-layer parity work. Neither blocked M7 acceptance — the six-subsystem wiring landed end-to-end (1965/1965 tests green; integration smoke at `tests/server/m7Full.test.ts`). Each is a small downstream parity / mirror gap to land alongside the consumer that will exercise it.
+
+### 38. `reviewAutoPromoteMemory` / `reviewAutoPromoteSkills` snapshot gap in `parentToolContext`
+
+- Priority: P3
+- Status: open
+- Source: Phase 16.1 M7 T6 code-quality review (carry-forward, 2026-05-15)
+- Recommendation: `src/server/sessionContext.ts:168-177` builds a minimal `parentToolContext` snapshot for `ReviewManager` covering `cwd`, `sessionId`, `harnessHome`, `agents`, `subagentScheduler`, `taskManager`, `parentToolPool`. The snapshot omits `reviewAutoPromoteMemory` and `reviewAutoPromoteSkills` — two booleans that `MemoryProposeTool` (`src/tools/MemoryProposeTool.ts:54`) and `SkillProposeTool` (`src/tools/SkillProposeTool.ts:105`) read off `ctx` to decide whether to skip the review queue and promote the proposal immediately. A user who sets `review.autoPromoteMemory: true` in their config will find the flag silently inert when proposals dispatch from review-fork sub-agents because the parent's `ToolContext` snapshot doesn't carry it. Server-mode `buildSessionToolContext` (`src/server/routes/turns.ts:139-158`) also doesn't thread these two booleans, so the same gap exists at the turn-time ToolContext shape — not just the review-fork snapshot. Wire both through, reading from `userSettings.review?.autoPromoteMemory` / `userSettings.review?.autoPromoteSkills` at the same `readConfig()` call `buildSessionContext` already makes.
+- Evidence: file paths above; `MemoryProposeTool` reads `ctx.reviewAutoPromoteMemory`; `buildSessionContext` and `buildSessionToolContext` neither set the field. Same parity-gap shape as item #28 (also pre-T2): plumbing for a feature the user thinks they configured.
+- Impact: A user configuring `review.autoPromoteMemory` or `review.autoPromoteSkills` to `true` in server mode sees no behavioral change — proposals still queue. The pre-T6 review-fork dispatch path never exercised these, so this gap is technically pre-existing, but T6 made the surface area explicit.
+- Likely code areas:
+  - `src/server/sessionContext.ts:168-177` (the `parentToolContext` snapshot)
+  - `src/server/routes/turns.ts:139-158` (per-turn `buildSessionToolContext`)
+  - `src/tools/MemoryProposeTool.ts:54` (read site)
+  - `src/tools/SkillProposeTool.ts:105` (read site)
+- Effort: ~30 min — two two-line edits + a regression test asserting auto-promotion fires when the flag is set in user settings.
+
+### 39. Go TUI mirror struct for `SessionSummaryEvent` not added
+
+- Priority: P4
+- Status: **CLOSED** (Phase 16.1 M9 T7, 2026-05-16)
+- Source: Phase 16.1 M7 T6 code-quality review (carry-forward, 2026-05-15)
+- Resolution: M9 T7 added the Go mirror at `packages/tui/internal/transport/types.go` as `SessionSummary` + `SessionTokens` + `DecodeSessionSummary`, matching the full TS-side `SessionSummaryEvent` shape (M7 base + M8 T7 extension fields). The TUI's new `components/goodbye.go` consumes the decoded struct and renders the styled goodbye card. Extension fields are pointer-or-zero so M7-vintage payloads (no tokens, no tool counts) still decode and render — ADR M9-09 graceful degradation.
+
+---
+
+## How to use this document
+
+Pick any item by priority + effort match for your session length:
+- 10-min slot: item 49 (Node-20 GitHub Actions deprecation — pure CI hygiene)
+- Half-day slot: item 54 (recall on the other surfaces — mirror the turns-route wiring) or item 52 (synthesizer onto Reason)
+- Multi-day: item 17, or the Learning-loop spike Phase-2 cluster (items 50–53)
+
+Cross off completed items by changing `Status: open` → `Status: complete (YYYY-MM-DD)` and recording the commit SHA in a brief follow-up paragraph.
+
+When finishing the document (everything closed), move it to `docs/archive/` rather than deleting — the rationale + evidence have ongoing value.

@@ -1,0 +1,24 @@
+# State snapshot — 2026-06-15 — User-level session transcripts + subscription-executor visibility
+
+**Canonical current-state snapshot.** Latest release pending this snapshot (**v0.6.46**). Three founder-reported gaps closed in one cohesive build. The learning-loop soak continues untouched (recall ON by default — the standing #1 ACTIVE-FOCUS track). No new ADRs; no bundle changes.
+
+## Headline — conversations are now saved as browsable per-session transcripts
+
+**The gaps (founder-reported):** (1) the **subscription-executor was invisible** in the TUI when enabled (even though it routes work to a `claude -p --dangerously-skip-permissions` subprocess); (2) **"debug mode" didn't actually save transcripts** — `debugMode.transcript`/`transcriptDir`/`--transcript` were orphaned dead config from the pre-M13 REPL; (3) the harness had **no Claude-Code-style per-session transcript at the user level** — the full history lived only as rows in the shared SQLite `sessions.db`.
+
+**What shipped:**
+- **Always-on per-session transcripts (`src/transcript/`)** — one human-readable JSONL file per session at `<base>[/users/<owner>]/projects/<slug(cwd)>/<sessionId>.jsonl` (the Claude-Code ergonomic: browsable cwd slug, append-as-you-go). `TranscriptWriter` mirrors `TraceWriter` (per-session sequential write-chain, fail-open, never blocks a turn). A runtime-level `TranscriptStore` owns one lazy writer per session, closed on `disposeSession`/`dispose`. **The authoritative store is still `sessions.db`** — the transcript file is an always-on portable MIRROR, not the resume source (KISS — resume unchanged).
+- **`persistMessage(host, sessionId, msg)`** — the new app-layer wrapper that writes the DB row AND the transcript line in lock-step, returning the row id verbatim. Every former `SessionDb.saveMessage` call site migrated: turns route ×3, channels ×2, OpenAI API ×3, compaction child ×2. **`saveMessage` is the universal chokepoint**, so all surfaces are covered; sub-agent children never persist messages (matches CC's sidechain exclusion — they're absent from the parent transcript).
+- **Redaction ON by default** (reuses `redact()`) — a deliberate divergence from Claude Code (which doesn't redact), justified by the harness writing transcripts from gateway/channel/multi-user/cron contexts. `transcripts.redactSecrets: false` opts out.
+- **Config** — new `transcripts: { enabled (default true), dir?, redactSecrets (default true) }` (read-site defaults via `resolveTranscriptsConfig`); `/config` → **Transcripts** group; `restart` apply-scope (the store resolves config at boot). The dead `debugMode.transcript`/`transcriptDir` are **deprecated** (parseable; `transcriptDir` honored only as a `dir` fallback); the `--transcript` CLI flag retired to a documented no-op. Concern #2 fully closed.
+- **Subscription-executor indicator (Go TUI)** — a loud red `⚠ SUB-EXEC` status-line chip when `subscriptionExecutor.enabled`, via the `TaskRouter` boot-flag pattern (`--subscription-executor` from `tuiLauncher.ts` → `main.go` flag → `WithSubscriptionExecutor` → `statusline.go` chip, styled like the `BYPASS` chip — apt, since the executor defaults to `permissionMode: bypass`). All `style.S.*` + theme tokens.
+- **Surfacing** — the active transcripts dir is reported by the `harness_info` tool (settings section) so the model/user can confirm where conversations are saved.
+
+**Built:** investigated with 4 parallel agents → spec/plan → core built by hand (transcript module + store + `persistMessage` + call-site migration + config + HarnessInfo); the Go `SUB-EXEC` chip fanned to one Opus subagent (disjoint files: `packages/tui/*` + `tuiLauncher.ts`), reconciled in the gate. **Gate:** lint clean (794 files) + typecheck clean + **TS 4246 pass / 0 fail / 16 skip** (+24) + Go green (incl. 4 new chip tests). Spec `specs/2026-06-15-session-transcripts-design.md`, plan `plans/2026-06-15-session-transcripts.md`.
+
+**Deferred / out of scope (v1, documented):** resume/session-picker reading the JSONL (SessionDb stays the resume source); sub-agent sidechain transcript files; large-tool-output overflow sidecar (CC's 50 KB stub — v1 writes full redacted content); a live `/config` toggle for the `SUB-EXEC` chip (boot-flag only; restart-to-apply).
+
+## Open backlog (10)
+#17 (eval-gated auto-promote) · #50–#54 (Phase-2 learning extraction) · #58 (`runtime.model` process-global) · #59 (F36 sibling-hydrate) · #60 (F15 same-credential race) · #62 (workflow TUI progress + slash cancel). Founder-reserved (NOT backlog): rented-engine choice, go/no-go, auto-promote default, recall-on default.
+
+Predecessor: `docs/07-history/state/2026-06-15-multi-agent-workflows.md` (multi-agent workflows — declarative engine + path-granular locking, + the adversarial feature-review fixes at v0.6.45). Find the latest via `ls docs/07-history/state/*.md | sort -r | head -1`.

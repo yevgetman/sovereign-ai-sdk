@@ -6,7 +6,7 @@ This file records runtime-local design choices. Larger product and architecture 
 
 Decision: per business ADR **B-0014** (`~/code/sovereign-ai-docs/business/decisions/0014-sdk-open-core-split.md`), this repo is re-oriented toward an **open-core SDK** — refining B-0013's "open-source the SDK" into a boundary. A code-level audit (vs. Anthropic's `claude-agent-sdk-typescript`) found the moat is execution/integration, not invention: most of the harness is reproducible commodity, four subsystems are genuinely differentiated. **OPEN CORE** = the `query()` agent-loop core + typed options, the `Tool<I,O>` factory + permissioned tool contract, the multi-provider (local-first) abstraction, MCP, and hooks/skills/memory + transcripts. **PROPRIETARY** (source-available or closed) = the learning layer (`src/learning*`), the gateway multi-tenancy (`src/server/` — SSE replay ring + human-in-the-loop approval queue + per-principal isolation), the workflow engine (`src/workflows/` — enforced parallel write-scoping), and the subscription-executor bridge (`src/runtime/subprocessExecutor.ts`).
 
-Rationale + readiness (~3/5 — library-shaped core, app-shaped seams) and the extraction shape (barrel + `exports` map + a thin `createAgent()` assembler that omits the server/cron/learning; injectable persistence port; split packaging; SDK-grade docs): **`docs/plans/2026-06-24-sdk-open-core-extraction-shape.md`**. This **supersedes** the 2026-05-13 "Phase 14 (Distribution) dropped — proprietary IP, no public distribution" decision below for the open core. Bundle framing deprecated (founder direction, 2026-06-24): the "runtime/business-data separation" framing is dropped (this is an SDK, not a business runtime; it was convention-only in code anyway — `src/bundle/`, no write-guard), and the bundle concept is to be minimized to whatever extent is prudent during the extraction.
+Rationale + readiness (~3/5 — library-shaped core, app-shaped seams) and the extraction shape (barrel + `exports` map + a thin `createAgent()` assembler that omits the server/cron/learning; injectable persistence port; split packaging; SDK-grade docs): **`plans/2026-06-24-sdk-open-core-extraction-shape.md`**. This **supersedes** the 2026-05-13 "Phase 14 (Distribution) dropped — proprietary IP, no public distribution" decision below for the open core. Bundle framing deprecated (founder direction, 2026-06-24): the "runtime/business-data separation" framing is dropped (this is an SDK, not a business runtime; it was convention-only in code anyway — `src/bundle/`, no write-guard), and the bundle concept is to be minimized to whatever extent is prudent during the extraction.
 
 Status: direction recorded (high-level shape only). The rigorous, actionable plan — module-by-module open/closed call, exact public API, persistence-port interface, packaging mechanics, OSS-license choice — is a deliberate follow-up pass. `private: true` / `UNLICENSED` in `package.json` must be reconciled for the open-core package when that pass runs.
 
@@ -16,7 +16,7 @@ Decision: `shippedBundlePath()` in `src/bundle/defaultBundle.ts` tries a binary-
 
 Rationale: In Bun `--compile` binaries, `import.meta.url` resolves to a virtual path inside the embedded filesystem (`/$bunfs/...`) — the existing source-mode walks produce paths that don't exist on disk. `process.execPath` always resolves to the actual on-disk executable in both modes. Trying binary FIRST means source-mode invocations (`bun src/main.ts`, `bun install -g`) hit the binary check, find no sibling artifacts next to the Bun runtime, fall through to the source walk, and behave exactly as before. The package.json runtime read was an additional gap surfaced by the first compiled-binary smoke (the binary errored with ENOENT on `/$bunfs/package.json` at module load); switching to a build-time JSON import freezes the version into the embedded bundle.
 
-Status: implemented (Phase 21 M1 — Tasks 1 + 6 commits). Plan: `docs/plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `docs/specs/2026-05-21-binary-distribution-design.md` (ADR P21-02).
+Status: implemented (Phase 21 M1 — Tasks 1 + 6 commits). Plan: `plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `specs/2026-05-21-binary-distribution-design.md` (ADR P21-02).
 
 ## ADR P21-B — `sov upgrade` install-mode auto-detection by `~/.sov/bin/` prefix
 
@@ -24,7 +24,7 @@ Decision: `detectInstallMode({ execPath, homedir })` in `src/cli/upgrade.ts` ret
 
 Rationale: Prefix-string check on `process.execPath` is sufficient because the binary install layout is fully under our control (we placed the binary there in install.sh). No realpath needed — execPath is already canonical from Bun's standpoint. The escape hatch is `opts.mode` — pass `'source'` to force the legacy bun-install flow even on binary installs, or `'binary'` to force the public-installer flow. The constant URL is the contract with the `sov-releases` public repo; if the public repo is ever renamed, this constant moves with it (and the user-facing install command in README.md also moves).
 
-Status: implemented (Phase 21 M1 — Task 2 commit). Plan: `docs/plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `docs/specs/2026-05-21-binary-distribution-design.md` (ADR P21-05).
+Status: implemented (Phase 21 M1 — Task 2 commit). Plan: `plans/2026-05-22-phase-21-binary-distribution.md`. Spec: `specs/2026-05-21-binary-distribution-design.md` (ADR P21-05).
 
 ## ADR P21-C — Cross-repo release upload via fine-grained PAT scoped to `sov-releases`
 
@@ -32,7 +32,7 @@ Decision: The Phase 21 M2 release workflow at `.github/workflows/release.yml` li
 
 Rationale: Fine-grained PAT has the smallest blast radius — read+write on exactly one repo, no other resource. Classic PAT with `repo` scope would also work but grants full read/write across every repo the token owner has access to. GitHub App installation is more correct in principle (rotating short-lived installation tokens) but adds infrastructure for a single-author single-target use case where the security delta is marginal. PAT expiration is bounded at 1 year — calendar-managed regeneration is acceptable for the author's release cadence. The PAT name `sov-releases-upload` makes it discoverable in GitHub settings.
 
-Status: implemented (Phase 21 M2). Plan: `docs/plans/2026-05-24-phase-21-m2-release-automation.md`. Spec: `docs/specs/2026-05-24-phase-21-m2-release-automation-design.md` (ADR P21-C).
+Status: implemented (Phase 21 M2). Plan: `plans/2026-05-24-phase-21-m2-release-automation.md`. Spec: `specs/2026-05-24-phase-21-m2-release-automation-design.md` (ADR P21-C).
 
 ## ADR M8-01 — Router-mode construction lives in `buildRuntime`, not `resolveProvider`
 
@@ -40,7 +40,7 @@ Decision: When `opts.provider === 'router'` (or `userSettings.defaultProvider ==
 
 Rationale: `resolveProvider()` is a single-provider resolver — it returns one `ResolvedProvider` from one provider name. The router wraps two providers (cheap local + expensive frontier) and dispatches per call, so it cannot be expressed through a single resolveProvider call. Mirrors `src/ui/terminalRepl.ts:238-292`. The subagent default specialization (closing backlog #30) lives in the same construction site so child agents launched from a router-mode parent get `defaultProvider: routerCfg.frontierProvider` instead of the literal `'router'` string (which would fail to resolve in the child).
 
-Status: implemented (M8 — `49ed104` (T1 — router-mode construction + subagent default specialization + audit-logger close in dispose order)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`. Backlog item #30 closed in the same commit.
+Status: implemented (M8 — `49ed104` (T1 — router-mode construction + subagent default specialization + audit-logger close in dispose order)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`. Backlog item #30 closed in the same commit.
 
 ## ADR M8-02 — Capture / replay fixture wraps the provider + tool pool, mutex-guarded
 
@@ -48,7 +48,7 @@ Decision: `opts.captureFixturePath` wraps the resolved provider in `CapturingPro
 
 Rationale: The capture sink needs to mirror BOTH the provider stream events and the tool results (otherwise replay can't reproduce the turn). Wrapping is per-runtime, not per-session, because the sink's `meta.provider` / `meta.model` are runtime-level; the fixture's `meta.sessionId` is set to `'pending'` at construction because the session id is minted per-POST and capture is single-session. The fixture write is best-effort — errors log to stderr but don't re-throw so a capture failure doesn't mask the primary disposal outcome.
 
-Status: implemented (M8 — `912379b` (T2 — capture/replay wiring in buildRuntime + dispose-time fixture write + mutex guard)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+Status: implemented (M8 — `912379b` (T2 — capture/replay wiring in buildRuntime + dispose-time fixture write + mutex guard)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
 
 ## ADR M8-03 — `@file:` expansion runs in the route, before persistence and skill-as-slash composes with it
 
@@ -56,7 +56,7 @@ Decision: `runTurnInBackground` in `src/server/routes/turns.ts` calls `expandCon
 
 Rationale: Persisting the raw `@file:` reference and expanding at query-time would break resume — a resumed session loading old messages would never re-expand. Persisting the expanded text means the model context is stable across the original turn and any subsequent resume. The pre-skill-expansion ordering composes naturally: skill template ⊃ `@file:` token, so file expansion runs over the skill's output. Subdirectory hints (M8 row 18) follow the same logic at the orchestrator's `appendSubdirectoryHints` site — per-session `SubdirectoryHintState` keeps each ancestor directory's `AGENTS.md`/`CONTEXT.md`/`.cursorrules` files appended at most once per session.
 
-Status: implemented (M8 — `c9da130` (T3 — @file expansion in turns route + per-session subdirectory hint state on SessionContext)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+Status: implemented (M8 — `c9da130` (T3 — @file expansion in turns route + per-session subdirectory hint state on SessionContext)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
 
 ## ADR M8-06 — Skill registry loads at boot; per-call filter is per-turn (or per-request for GET /skills)
 
@@ -64,7 +64,7 @@ Decision: `runtime.skills` is the UNFILTERED skill registry loaded once at `buil
 
 Rationale: Filtering at boot would force the byName lookup to also filter (or risk a UX surprise where `/foo` works only on the right toolset). Keeping the registry unfiltered on Runtime preserves the byName invariant; filtering per turn keeps the model's view of available skills accurate. The two filter callers (turns route + skills route) compute the same projection because both derive from `runtime.toolPool` — symmetric with terminalRepl which filters per turn at `src/ui/terminalRepl.ts:476-478`.
 
-Status: implemented (M8 — `abcf940` (T4 — skill loading at boot + GET /skills route + per-turn filter in buildSessionToolContext) + `2b9d6f2` (T5 — kind:'skill' byName dispatch + expandSkillPrompt before saveMessage)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+Status: implemented (M8 — `abcf940` (T4 — skill loading at boot + GET /skills route + per-turn filter in buildSessionToolContext) + `2b9d6f2` (T5 — kind:'skill' byName dispatch + expandSkillPrompt before saveMessage)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
 
 ## ADR M8-07 — TUI skill cache + `/skillname` interception is Go-side; the wire is `kind: 'skill'`
 
@@ -72,7 +72,7 @@ Decision: The Go TUI fetches `GET /sessions/:id/skills` once per session to popu
 
 Rationale: Skill-as-slash needs server-side template expansion (skill bodies live in the bundle/project file tree the server walks). But the slash interception itself — turning `/greet` into the skill body before sending — needs client-side knowledge of what's a skill vs. what's a runtime slash command. Splitting at the wire boundary keeps both sides cohesive: the server owns expansion, the TUI owns intercept-and-tag. The same TUI cache feeds `/expand [N]` by keeping a ring of tool blocks indexed by the live transcript position; no server change was needed to support the expand registry (M8 row 24).
 
-Status: implemented (M8 — `b9fee79` (T6 — TUI /skillname interception + /expand dispatch + skill cache fetch)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+Status: implemented (M8 — `b9fee79` (T6 — TUI /skillname interception + /expand dispatch + skill cache fetch)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
 
 ## ADR M8-08 — Stall detection rides the trace recorder; new SSE event added to the wire
 
@@ -80,7 +80,7 @@ Decision: `query()` emits a `stall_detected` trace event when the per-turn `dete
 
 Rationale: Option (c) from the M8 T7 brief — least invasive. The alternative — adding a new `StreamEvent` type and emitting from `query()` — would touch the StreamEvent union, every provider, and every consumer. Riding the trace recorder localizes the change to the route layer. The trace event itself is the source of truth (a single `query()` emission); the wire event is a projection for the TUI consumer.
 
-Status: implemented (M8 — `3366b91` (T7 — stall_detected SSE event + rich session_summary payload)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+Status: implemented (M8 — `3366b91` (T7 — stall_detected SSE event + rich session_summary payload)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
 
 ## ADR M8-10 — Rich `session_summary` payload extends, doesn't replace, the M7 shape
 
@@ -88,7 +88,7 @@ Decision: The `session_summary` SSE event emitted by `disposeSessionContext` on 
 
 Rationale: The M9 goodbye-card renderer needs cost + tool counts to display a meaningful "session ended" surface. Synthesizing these fields client-side would require the TUI to track token usage and tool calls separately from the server — duplicate observation surface. The server already has all the data in `sessionDb`; exposing a single rich payload at disposal is the minimal change. Optional extension fields preserve backward compatibility with any M7-vintage consumer of the wire event (the schema test enforces this).
 
-Status: implemented (M8 — `3366b91` (T7 — `sessionDb.getSessionMetrics` accessor + rich `session_summary` payload + wire schema extension)). Plan: `docs/plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
+Status: implemented (M8 — `3366b91` (T7 — `sessionDb.getSessionMetrics` accessor + rich `session_summary` payload + wire schema extension)). Plan: `plans/2026-05-16-phase-16-1-m8-polish-surfaces.md`.
 
 ## ADR M7-01 — Per-session subsystems live in a Map on Runtime
 
@@ -96,7 +96,7 @@ Decision: M7 introduces a per-session subsystem cluster — trace writer, learni
 
 Rationale: M3–M6 fields on `Runtime` were process-global singletons. M7's per-session subsystems are per-session by design — trace files are named by sessionId, learning observers wrap a per-cwd project identity, review managers carry per-session dispatch counters, and trajectory records are emitted per-session at disposal. Hoisting them onto a process-global `Runtime` field would either force every consumer to take a sessionId argument (intrusive) or invite cross-session leakage (correctness hazard). The Map keeps construction local to where it's needed and gives `disposeSession` a clean teardown contract independent of `runtime.dispose()`. Multi-session UX (the future M8/M9 surface) becomes mechanically possible without rewiring — each session id materializes its own subsystem cluster on first reference.
 
-Status: implemented (M7 — `7a333cc` (T3 — SessionContext + per-session trace writer) + `345dcad` (T4 — trajectory metadata + disposal-time write) + `7a39748` (T5 — learning observer) + `40032e1` (T6 — review manager + disposal-time session_summary)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+Status: implemented (M7 — `7a333cc` (T3 — SessionContext + per-session trace writer) + `345dcad` (T4 — trajectory metadata + disposal-time write) + `7a39748` (T5 — learning observer) + `40032e1` (T6 — review manager + disposal-time session_summary)). Plan: `plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
 
 ## ADR M7-02 — Trace writer rebuilt on compaction
 
@@ -104,7 +104,7 @@ Decision: When M6's compaction creates a new child session id mid-turn, the turn
 
 Rationale: trace files are named by sessionId — `<harnessHome>/traces/<sessionId>.jsonl`. Reusing the parent's writer for the child would write the child's events into the parent's file under the wrong session attribution. `sov trace show <childId>` would find nothing; `sov trace show <parentId>` would surface child events with the parent's session header — useless for forensic replay. Per-session writers also bound resource cost: each child gets a separate `WriteStream`; the parent's stays open only as long as anyone references it. The disposal contract picks up the cleanup at session end.
 
-Status: implemented (M7 — `7a333cc` (T3 — trace writer per-session, registry-cached, disposed at session end)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+Status: implemented (M7 — `7a333cc` (T3 — trace writer per-session, registry-cached, disposed at session end)). Plan: `plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
 
 ## ADR M7-03 — Trajectory writes on session disposal, not per-turn
 
@@ -112,7 +112,7 @@ Decision: `tryWriteTrajectory()` fires from `disposeSessionContext()` (called by
 
 Rationale: trajectory's contract is "full session as one JSON record" (per the Sovereign moat brief — the corpus is per-session, not per-turn). Per-turn writes would either overwrite a file the user expects to grow monotonically (drift from what the consumer reads), or fragment one session across N partial records the consumer would have to reassemble (defeats the ShareGPT shape). Disposal-driven writes match how terminalRepl flushes its trajectory today (`src/ui/terminalRepl.ts:1755-1820`). Trade-off accepted: process crashes lose trajectories for sessions that haven't been disposed — mitigated by `tryWriteTrajectory()` being fire-and-forget so disposal itself completes even if the write fails, and by the operational pattern that crashes are rare relative to graceful end-of-session disposal.
 
-Status: implemented (M7 — `345dcad` (T4 — trajectory writes at disposal) + `73483e5` (T4 cleanup — dropped unused `terminalError`)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+Status: implemented (M7 — `345dcad` (T4 — trajectory writes at disposal) + `73483e5` (T4 cleanup — dropped unused `terminalError`)). Plan: `plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
 
 ## ADR M7-05 — Review manager same lifecycle as trace; scheduler-dispatched
 
@@ -120,7 +120,7 @@ Decision: Per-session `ReviewManager` is constructed in `buildSessionContext` al
 
 Rationale: `ReviewManager` dispatches fire-and-forget sub-agents through the `SubagentScheduler` that already lives on `Runtime` from M5. The construction needs handles to trace + trajectory paths and the per-project instincts dir — which all exist within `SessionContext` once T3+T4+T5 land. Keeping `ReviewManager` on the same per-session lifecycle as the trace writer means a single disposal pathway (`disposeSessionContext`) tears down all four subsystems in a deterministic order. The existing call sites in the orchestrator and scheduler already optional-chain on the field — M7 T6 just needed to populate it on the `ToolContext` and on the dispatch-time `parentToolContext` snapshot the scheduler reads. Review/learning observe via direct ToolContext call-sites, NOT via the `DaemonEventBus` (see ADR M7-06).
 
-Status: implemented (M7 — `40032e1` (T6 — ReviewManager wired into SessionContext + ToolContext + disposal summary) + `e2f6492` (T6 follow-up — `onUserTurn` wired into turns route + dropped `as ToolContext` cast)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+Status: implemented (M7 — `40032e1` (T6 — ReviewManager wired into SessionContext + ToolContext + disposal summary) + `e2f6492` (T6 follow-up — `onUserTurn` wired into turns route + dropped `as ToolContext` cast)). Plan: `plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
 
 ## ADR M7-06 — `DaemonEventBus` is plumbing-only in M7
 
@@ -128,7 +128,7 @@ Decision: M7 T2 closes backlog item #28 by constructing a `DaemonEventBus` insid
 
 Rationale: M5 already exposed `TaskManager` lifecycle events but the server-mode `TaskManager` had no bus subscriber wiring, so the events went nowhere — closing #28 was the natural M7 home because the review/learning subsystems landing in the same milestone are the prospective consumers. But wiring an in-process subscriber inside the same `buildRuntime` would duplicate the direct-call observation pattern review/learning already use, with two complete observation paths to keep in sync going forward. The direct-call pattern is what terminalRepl uses today; staying with it preserves parity. Treating the bus as plumbing-only lets future daemon-mode subscribers attach without rewiring the construction, and unblocks any future Phase 16.0a daemon-mode resurrection without circling back through `buildRuntime`.
 
-Status: implemented (M7 — `bfaeaad` (T2 — DaemonEventBus constructed in buildRuntime, threaded into TaskManager, exposed on `Runtime.daemonEventBus`)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`. Backlog item #28 closed in the same commit.
+Status: implemented (M7 — `bfaeaad` (T2 — DaemonEventBus constructed in buildRuntime, threaded into TaskManager, exposed on `Runtime.daemonEventBus`)). Plan: `plans/2026-05-15-phase-16-1-m7-hermes-layer.md`. Backlog item #28 closed in the same commit.
 
 ## ADR M7-08 — `runtime.dispose()` order — per-session → MCP → approvals → sessionDb
 
@@ -143,7 +143,7 @@ The same order applies even when `disposeSession(sessionId)` is called for a spe
 
 Rationale: trajectory writes inside step 1 read messages from `sessionDb` — closing the database first would break the write. MCP child processes may be referenced by in-flight tool calls; closing them mid-disposal could surface as a tool-call failure that interferes with the trajectory write. Approval queue may have pending Promises waiting on bus closure; closing it last ensures any in-flight approval rejects cleanly. Crashing on step N still leaves the prior steps' data intact per the fire-and-forget invariants on trajectory/trace writes — the per-step ordering is about graceful disposal, not crash safety.
 
-Status: implemented (M7 — `7a333cc` (T3 — initial dispose order set) + `345dcad` (T4 — trajectory step inserted before MCP/approvals/sessionDb)). Plan: `docs/plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
+Status: implemented (M7 — `7a333cc` (T3 — initial dispose order set) + `345dcad` (T4 — trajectory step inserted before MCP/approvals/sessionDb)). Plan: `plans/2026-05-15-phase-16-1-m7-hermes-layer.md`.
 
 ## ADR M6-01 — Compaction creates a new session id; client tracks it
 
@@ -151,7 +151,7 @@ Decision: every compaction (proactive, overflow recovery, or explicit `/compact`
 
 Rationale: mirrors terminalRepl's in-process `activeSessionId` swap (`src/ui/terminalRepl.ts:1720-1754`). SessionDb already persists parent→child lineage via `recordCompactionLineage` (`src/agent/sessionDb.ts:479`), so a future server-side helper could resolve `--resume <oldId>` to the latest descendant if user demand surfaces — deferred for M6 (out of scope). Treating compaction as a fresh-session hop keeps the persisted timeline tractable: each child carries the summarized parent context as its seed, and the parent row stays immutable for audit. The alternative — mutating the parent's history in place — would invalidate any in-flight subscribers and tangle the SessionDb's append-only model.
 
-Status: implemented (M6 — proactive `15ca6cf` (T3) + overflow `a977c86` (T4) + explicit `b4fc7b2` (T5) + Go TUI client `59e5d9f` (T6)). Plan: `docs/plans/2026-05-14-phase-16-1-m6-long-session.md`.
+Status: implemented (M6 — proactive `15ca6cf` (T3) + overflow `a977c86` (T4) + explicit `b4fc7b2` (T5) + Go TUI client `59e5d9f` (T6)). Plan: `plans/2026-05-14-phase-16-1-m6-long-session.md`.
 
 ## ADR M6-02 — Single retry on context-overflow; second overflow surfaces as `turn_error`
 
@@ -159,7 +159,7 @@ Decision: when the first model call inside `runTurnInBackground` surfaces an `is
 
 Rationale: matches the proven shape in `src/ui/terminalRepl.ts:1659-1675`. The `retriedAfterCompact` flag in terminalRepl guards ONLY the recovery retry — proactive + recovery interact independently in the canonical implementation. Two-retry loops mask deeper bugs (a runaway summarizer that emits the same context every time would loop indefinitely without the cap) and increase blast radius — one retry is the established contract. The post-recovery overflow is a distinct failure surface ("compaction didn't yield enough headroom") that the TUI should not treat as a normal turn end; surfacing it as `turn_error` keeps the wire shape honest about what happened. Future user demand for a configurable retry count can land via the existing settings cascade without changing the contract.
 
-Status: implemented (M6 — `a977c86` (T4) + `e464ffa` (T4 cleanup pinned the proactive+recovery interaction)). Plan: `docs/plans/2026-05-14-phase-16-1-m6-long-session.md`.
+Status: implemented (M6 — `a977c86` (T4) + `e464ffa` (T4 cleanup pinned the proactive+recovery interaction)). Plan: `plans/2026-05-14-phase-16-1-m6-long-session.md`.
 
 ## ADR M6-03 — `POST /sessions/:id/compact` is synchronous; returns `CompactResult` JSON inline
 
@@ -167,7 +167,7 @@ Decision: the explicit-compaction route runs `runtime.compact()` inline (no SSE-
 
 Rationale: the TUI's `/compact` is a user-blocking action; the user expects the prompt to wait. SSE-driven flow adds complexity without payoff for a synchronous user verb — the caller would have to dedupe a single user action across two transports and the TUI's pivot logic would need to handle field-ordering ambiguity (which arrives first across the HTTP body and the SSE event?). The synchronous shape mirrors the M5 approval-route's surface (POST returns 200 once the queue resolves), so the TUI's request-then-pivot pattern stays consistent across the two M5/M6 verbs. Auto-compaction during background turns (T3 proactive + T4 recovery) is a different surface — those run inside `runTurnInBackground` and need the SSE bridge so the open SSE subscriber learns about the session-id pivot mid-turn.
 
-Status: implemented (M6 — `b4fc7b2` (T5) + `8bc4a22` (T5 cleanup pinned the 400/404/500 envelopes)). Plan: `docs/plans/2026-05-14-phase-16-1-m6-long-session.md`.
+Status: implemented (M6 — `b4fc7b2` (T5) + `8bc4a22` (T5 cleanup pinned the 400/404/500 envelopes)). Plan: `plans/2026-05-14-phase-16-1-m6-long-session.md`.
 
 ## ADR M5-01 — Non-interactive hooks consent in `--ui tui`
 
@@ -175,7 +175,7 @@ Decision: when a hook command from `~/.harness/settings.json` is not already rec
 
 Rationale: the HTTP+SSE server doesn't own a TTY — there's no interactive surface to render a consent modal against. A `--ui tui` boot needs to make a binary choice the moment the hook would fire: prompt where the user can't see it (broken), block the turn until they switch to repl (worse UX), or deny-by-default (chosen). Deny-by-default preserves Invariant #13 (first-use TTY consent) without bolting a faux-modal onto a surface that can't carry it. The runner treats a denied hook as inert (not a turn-blocking error), so a misconfigured hook degrades visibility (stderr line) rather than usability.
 
-Status: implemented (M5 — commits `3bbc83e` (T1) + `d5133eb` (T2)). Spec §13. Plan: `docs/plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
+Status: implemented (M5 — commits `3bbc83e` (T1) + `d5133eb` (T2)). Spec §13. Plan: `plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
 
 ## ADR M5-02 — Approval timeout default 60 s
 
@@ -183,7 +183,7 @@ Decision: `ApprovalQueue.createPending(requestId, timeoutMs)` is called with a 6
 
 Rationale: 60s is long enough that a user reading a permission prompt has time to weigh the call, short enough that a forgotten / accidentally-closed TUI doesn't park a turn indefinitely. The deny-on-timeout semantics fail safe — a user who walks away from a prompt never accidentally grants a tool. User-configurability (per-mode TTL, per-tool TTL, "no timeout" mode) is a follow-up: M5 ships the constant + an obvious config seam; the cascade lands when there's a user signal that 60s is wrong for their workflow.
 
-Status: implemented (M5 — commits `b844930` (T3) + `f63c8c6` (T5)). Spec §5. Plan: `docs/plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
+Status: implemented (M5 — commits `b844930` (T3) + `f63c8c6` (T5)). Spec §5. Plan: `plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
 
 ## ADR M5-03 — Defer sub-agent activity indicator to M9
 
@@ -191,7 +191,7 @@ Decision: M5 wires `SubagentScheduler` + `LaneSemaphores` + `writeLock` + `TaskM
 
 Rationale: M5 is the "user-noticed group" — the surfaces a user notices when they're missing (hooks fire, permission modal renders, child sessions actually run). A status indicator falls in the "user notices when it's polished" category, which is exactly the M9 visual-polish brief (tool cards, markdown rendering, syntax highlight, slash autocomplete, mouse, theme switch, child activity). Splitting the work this way keeps M5's surface area focused on the functional gates and lets M9 land the indicator alongside the other polish surfaces it pairs with naturally. Trade-off accepted: a user dispatching a sub-agent through `--ui tui` between M5 and M9 sees the parent paused without an explicit "child running" cue; SSE events from the child do not render at all.
 
-Status: deferred to M9 (M5 — commits `1ded093` (T6) + `169c1dc` (T7) + `ba2d454` (T8)). Spec §13. Plan: `docs/plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
+Status: deferred to M9 (M5 — commits `1ded093` (T6) + `169c1dc` (T7) + `ba2d454` (T8)). Spec §13. Plan: `plans/2026-05-14-phase-16-1-m5-user-noticed.md`.
 
 ## ADR M4-01 — Hydrate-then-subscribe for `--resume --ui tui`
 
@@ -531,57 +531,57 @@ Reasoning: the phase log was useful but made the README harder to scan for new d
 
 ## 2026-04-26 - Document Extension Surfaces Before Future Phases
 
-The repo now has `docs/architecture.md` and `docs/extending.md` before Phase 11 starts.
+The repo now has `docs/02-architecture/runtime-architecture.md` and `docs/04-extending/extending.md` before Phase 11 starts.
 
 Reasoning: phases 0-10 established the core contracts. Hooks, MCP, sub-agents, review, and routing will be easier to implement consistently if the existing extension surfaces are explicit first.
 
 ## 2026-04-26 - Split Operator Usage From README
 
-The repo now has `docs/usage.md` for day-to-day runtime operation. The README keeps quick-start commands and links to the full guide.
+The repo now has `docs/03-cli-reference/usage.md` for day-to-day runtime operation. The README keeps quick-start commands and links to the full guide.
 
 Reasoning: install, architecture, development, and operator behavior were competing for space in the README. A dedicated usage guide makes common workflows easier to find without losing detail.
 
 ## 2026-05-13 - Phase 16.1 — Split-process architecture (TS server + Go TUI)
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.1
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.1
 
 `sov` (TS / Bun) runs the agent and a Hono HTTP+SSE server bound to `127.0.0.1`. `sov-tui` (Go) is a separate child process that connects via SSE. Same backend will later serve IDE plugins and other channel adapters without rework. Architectural choice supersedes the umbrella roadmap's single-process options.
 
 ## 2026-05-13 - Phase 16.1 — TUI framework: Go + Bubble Tea (closes Open Q1)
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.2
-Closes: Open Q1 from `docs/specs/2026-05-13-production-harness-roadmap-design.md` §6.
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.2
+Closes: Open Q1 from `specs/2026-05-13-production-harness-roadmap-design.md` §6.
 
 The Charm stack (`bubbletea`, `lipgloss`, `bubbles`, `glamour`, `chroma`) is the most mature TUI ecosystem in any language. Ink was scrapped per the 2026-05-12 revert postmortem. OpenTUI / SolidJS rejected: the umbrella roadmap's claim that opencode uses OpenTUI is incorrect; opencode uses Bubble Tea.
 
 ## 2026-05-13 - Phase 16.1 — Differentiator: polish craft, not feature expansion
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.3
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.3
 
 The TUI wins on Claude Code's surface area at visibly higher quality. Out of scope: session browser, command palette, in-transcript search, multi-pane layouts, image rendering, vim keybindings.
 
 ## 2026-05-13 - Phase 16.1 — Layout: anchored bottom chrome
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.4
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.4
 
 Fixed bottom input row + fixed bottom status row; transcript viewport fills the space above. Selected over CC-style floating-inline input and editor-style top-status during 2026-05-13 brainstorming. Layout B in the brainstorming companion artifact.
 
 ## 2026-05-13 - Phase 16.1 — TUI binary delivery: postinstall `go build`
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.5
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.5
 
 `package.json` postinstall runs `bun run scripts/build-tui.ts`, which detects Go 1.22+ on PATH and runs `go build ./packages/tui/cmd/sov-tui` into `bin/sov-tui`. Missing-Go failures print remediation and `sov` falls back to `--ui repl` until fixed.
 
 ## 2026-05-13 - Phase 16.1 — terminalRepl coexists through M11 (Postmortem Rule 1)
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.6
-References: `docs/postmortems/2026-05-12-phase-16-revert.md` Rule 1
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.6
+References: `docs/07-history/postmortems/2026-05-12-phase-16-revert.md` Rule 1
 
 `terminalRepl.ts` and its helpers (`src/commands/**`, `src/ui/**` other than the new TUI subdirectory if any) are not deleted, deprecated, or refactored from M0 through M11 (default flip). Removal happens at M13 at the earliest.
 
 ## 2026-05-13 - Phase 16.1 — Transport: HTTP + SSE on 127.0.0.1
 
-Source: `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.7
+Source: `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §3.7
 
 HTTP + Server-Sent Events. Not WebSockets. Bun + Hono server side; standard `net/http` + line-by-line SSE parse on the Go client side. v1 binds to `127.0.0.1` only; no auth.
 
@@ -597,7 +597,7 @@ Decision: Every component that needs theme tokens takes `theme.Theme` in its `Ne
 
 Rationale: A package-level global would couple every render path to module-load order and would make `tea.Msg`-driven theme switching require a full re-init of the model tree. Constructor injection makes the swap a pure re-render. Mirrors the pattern from the M7 SessionContext (per-session state passed in, not global).
 
-Status: implemented (M9 — `ba8f389` (T1 — theme package foundation + constructor injection)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `ba8f389` (T1 — theme package foundation + constructor injection)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-02 — `internal/render/*` is pure: `(text, theme, width) → string`
 
@@ -605,11 +605,11 @@ Decision: All functions under `packages/tui/internal/render/` are pure: they tak
 
 Rationale: Pure renderers are testable with table-driven unit tests; impure ones would need the teatest harness for every assertion and would couple to component lifecycle. The fallback-on-error policy matches the M6/M8 pattern of "the model can produce anything; the TUI must remain functional."
 
-Status: implemented (M9 — `6cda7b7` (T2 — render package with glamour + chroma + Plain)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `6cda7b7` (T2 — render package with glamour + chroma + Plain)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-03 — TOML theme loader deferred to M9.5; built-in light + dark only in M9
 
-Decision: M9 ships exactly two themes: Catppuccin Mocha (dark, default) and Catppuccin Latte (light). The `~/.harness/themes/*.toml` loader specified in `docs/specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §6 is deferred to M9.5 — a small mini-phase between M9 and M10 dedicated to TOML schema + loader + precedence.
+Decision: M9 ships exactly two themes: Catppuccin Mocha (dark, default) and Catppuccin Latte (light). The `~/.harness/themes/*.toml` loader specified in `specs/2026-05-13-phase-16-1-tui-rebuild-design.md` §6 is deferred to M9.5 — a small mini-phase between M9 and M10 dedicated to TOML schema + loader + precedence.
 
 Rationale: The loader is ~80 LoC but adds a config-resolution surface (precedence: env > config > built-in) that benefits from its own design pass. Better to ship demo-quality with 2 themes than have 3 weeks of TOML schema discussion. Two built-ins already validate the constructor-injection pattern (ADR M9-01) and the theme-swap re-render path.
 
@@ -621,7 +621,7 @@ Decision: The TUI's streaming spinner + live cost field are driven by `status_up
 
 Rationale: Client-derived cost from `turn_complete.usage` would only update at end of turn — no liveness during streaming. Server-push provides the start-of-stream signal the spinner pivots on. Throttling on the server side is light because `usage_delta` fires once per provider response, not per token — no high-frequency burst to debounce.
 
-Status: implemented (M9 — `cd3cc51` (T10 — status_update emission + statusline streaming spinner)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `cd3cc51` (T10 — status_update emission + statusline streaming spinner)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-05 — Slash autocomplete cache: fetched at boot, slightly stale tolerated
 
@@ -629,7 +629,7 @@ Decision: The slash autocomplete popup (`components/slashautocomplete.go`) fetch
 
 Rationale: Per-keystroke fetch adds latency to a hot-path keypress; cache-and-tolerate-stale matches the M8 T6 skill-cache pattern and the cost is bounded (the user can always type the slash without completion and the server still dispatches correctly via M8 T5's `kind: 'skill'` route). M9.5 may add invalidation on `compaction_complete` if skill churn becomes a real workflow.
 
-Status: implemented (M9 — `8922b8c` (T8 — slash autocomplete popup)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `8922b8c` (T8 — slash autocomplete popup)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-06 — Mouse v1 = wheel-scroll only; click handling deferred
 
@@ -637,7 +637,7 @@ Decision: `cmd/sov-tui/main.go` enables `tea.WithMouseCellMotion()` so mouse eve
 
 Rationale: Click handling requires modal-stack interaction analysis (does a click inside the permission modal pass through to the transcript? does a click outside the slash autocomplete dismiss it?) — that's M9.5 work once the modals' coexistence rules are settled. Wheel-scroll has zero modal interaction and delivers most of the user-perceived "this feels alive" benefit.
 
-Status: implemented (M9 — `0dc6a8c` (T9 — mouse wheel scroll)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `0dc6a8c` (T9 — mouse wheel scroll)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-07 — `/expand` ring buffer (M8 T6) stays untouched; diff focus is orthogonal
 
@@ -645,7 +645,7 @@ Decision: M8 T6's `/expand [N]` ring buffer and M9 T5's `DiffView` focus state a
 
 Rationale: Conflating "expanded tool result" with "focused diff view" would make `j`/`k` ambiguous (scroll inside the expanded result? navigate hunks?). Keeping them as orthogonal states preserves vim-like navigation semantics inside a focused diff while the `/expand` ring stays a pure re-render registry.
 
-Status: implemented (M9 — `166ce21` (T5 — DiffView component + focus-target Model field)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `166ce21` (T5 — DiffView component + focus-target Model field)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-08 — Compaction marker is an inline transcript element, not a status-line indicator
 
@@ -653,7 +653,7 @@ Decision: `compaction_complete` SSE events render through `components/compaction
 
 Rationale: Compaction is a discrete in-history moment ("at this point the session hopped from parent to child"), not a continuous state. Status-line space is already crowded (cwd + profile + model + streaming + cost + cache); adding compaction state would crowd it further. An inline pill is also the "right" semantic — it's a marker in the transcript timeline.
 
-Status: implemented (M9 — `279e387` (T7 — components/compactioncard.go + inline render in handleEvent)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `279e387` (T7 — components/compactioncard.go + inline render in handleEvent)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-09 — Goodbye card degrades gracefully when M7-shape `session_summary` lands
 
@@ -661,7 +661,7 @@ Decision: `components/goodbye.go`'s `RenderGoodbye` renders the M7 base shape (`
 
 Rationale: Forward-compat with older `sov` binaries that pre-date the M8 T7 extension fields. The TS-side schema marked those fields optional; the Go-side renderer matches. Without graceful degradation, an old `sov` server paired with a fresh `sov-tui` would render a half-empty card on legitimate sessions.
 
-Status: implemented (M9 — `279e387` (T7 — RenderGoodbye conditional blocks)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: implemented (M9 — `279e387` (T7 — RenderGoodbye conditional blocks)). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-10 — `src/ui/terminalRepl.ts` untouched (Postmortem Rule 1, again)
 
@@ -669,7 +669,7 @@ Decision: Throughout the M9 12-task implementation, no edits to `src/ui/terminal
 
 Rationale: Postmortem Rule 1 binds through M11 (default flip). M9 is foreground-surface refactor adjacent — it's the milestone where the new TUI becomes visibly polished — but the parity audit (M10) and the default flip (M11) are still ahead. terminalRepl must remain the default + functional through both.
 
-Status: verified (M9 — final regression suite confirms `git diff master -- src/ui/terminalRepl.ts` returns empty). Plan: `docs/plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
+Status: verified (M9 — final regression suite confirms `git diff master -- src/ui/terminalRepl.ts` returns empty). Plan: `plans/2026-05-16-phase-16-1-m9-visual-polish.md`.
 
 ## ADR M9-11 — Theme palette = Catppuccin (Mocha dark, Latte light)
 
@@ -693,7 +693,7 @@ Decision: User TOML theme files live at `<harnessHome>/themes/<name>.toml` and u
 
 Rationale: Override semantics introduce a precedence-resolution surface that has to be documented + tested + thought about for every name collision. Flat priority ("built-ins win") is trivially explainable and gives users the same fork-and-rename pattern they already use for shell themes / editor color schemes. The TOML schema being flat (not nested by category) matches the pattern Catppuccin / Tokyo Night themes ship with.
 
-Status: implemented (M9.5 — `496a1b6` (T1 — TOML loader)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
+Status: implemented (M9.5 — `496a1b6` (T1 — TOML loader)). Plan: `plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
 
 ## ADR M9.5-02 — Theme persistence is synchronous best-effort
 
@@ -701,7 +701,7 @@ Decision: `/theme <name>` writes the new theme name to `<harnessHome>/config.jso
 
 Rationale: Synchronous matches user mental model ("I switched themes; it persists"). Best-effort matches the M6/M8/M9 "the TUI never blocks on filesystem hiccups" policy — persistence is a convenience, not a correctness requirement. Write order (in-memory FIRST, then disk) means a UI-visible switch always happens; the persistence layer is the optional rider.
 
-Status: implemented (M9.5 — `9eee86d` (T3 — boot read + /theme write)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
+Status: implemented (M9.5 — `9eee86d` (T3 — boot read + /theme write)). Plan: `plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
 
 ## ADR M9.5-03 — Partial TOML files use Dark() per-field fallback
 
@@ -709,7 +709,7 @@ Decision: A TOML theme file may omit any color field; missing fields fall back t
 
 Rationale: Forces no one to copy a 13-color baseline just to tweak a primary. Matches the "Dark is the default" precedent set in M9 ADR M9-01 (theme construction). Future-proofs: any new color field added to `Theme` will use Dark's value for legacy themes without an explicit migration. The "name is mandatory" carve-out keeps the loader's contract honest — a theme without a self-declared identity is malformed.
 
-Status: implemented (M9.5 — `496a1b6` (T1 — LoadFromFile + pickColor helper)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
+Status: implemented (M9.5 — `496a1b6` (T1 — LoadFromFile + pickColor helper)). Plan: `plans/2026-05-16-phase-16-1-m9-5-theme-polish.md`.
 
 ## ADR M9.6-01 — Mouse click v1 = toolcard collapse-toggle + autocomplete-select only
 
@@ -717,7 +717,7 @@ Decision: Left-press mouse clicks in the TUI dispatch by screen-Y to (a) toggle 
 
 Rationale: The textinput component is focused by default; adding click-to-focus introduces interaction with the permission-modal + diff-view focus stacks that warrants its own design pass. Toolcard collapse-toggle is the highest-value click target (users with long tool output stop scrolling past full-text dumps), and autocomplete-entry-select pairs naturally with the M9 T8 popup. Future click targets (status-line theme switcher, statusbar buttons) plug into the same `handleMouseClick` switch by adding region cases.
 
-Status: implemented (M9.6 — `e05fd2b` (T1 — mouse click + --no-mouse opt-out)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+Status: implemented (M9.6 — `e05fd2b` (T1 — mouse click + --no-mouse opt-out)). Plan: `plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
 
 ## ADR M9.6-02 — Stall badge auto-fades 5s with generation counter
 
@@ -725,7 +725,7 @@ Decision: `stall_detected` SSE events paint a 1-line warning badge between trans
 
 Rationale: A persistent badge would crowd the statusline indefinitely on a long-stalled session. 5 seconds is enough for the user to read + react without the badge becoming permanent visual noise. The generation counter avoids the alternative of cancelling/replacing in-flight `tea.Tick`s (Bubble Tea ticks fire-and-forget; we can't cancel them, so we filter on receipt). Mirrors the wire-event "soft warning" intent the M8 T7 spec called for.
 
-Status: implemented (M9.6 — `f752882` (T2 — stallbadge component + Model state + tea.Tick + stallExpireMsg handler)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+Status: implemented (M9.6 — `f752882` (T2 — stallbadge component + Model state + tea.Tick + stallExpireMsg handler)). Plan: `plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
 
 ## ADR M9.6-03 — /skills reload is a subcommand; shares dispatch with future verbs and compaction_complete
 
@@ -733,7 +733,7 @@ Decision: `/skills` is a multi-verb slash command parsed at the top of the ENTER
 
 Rationale: Subcommand pattern (`/skills <verb>`) avoids top-level slash namespace pollution (no need for `/skills-reload`, `/skills-list`, `/skills-show` etc.); future verbs plug into the same switch. The compaction-share matters because skills can theoretically vary per session-id (per-session toolset overrides are a future surface, M9-era ADR M9-04); even without that, the cache pointing at a defunct session id is just garbage. The dispatch ordering — `/skills` parsed BEFORE `matchSkillSlash` — means a user can never define a skill literally named "skills" that would shadow the subcommand.
 
-Status: implemented (M9.6 — `6751094` (T3 — /skills <verb> parser + compaction_complete fetchSkillsCmd return)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+Status: implemented (M9.6 — `6751094` (T3 — /skills <verb> parser + compaction_complete fetchSkillsCmd return)). Plan: `plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
 
 ## ADR M9.6-04 — Hex string validation in TOML loader is soft per-field
 
@@ -741,15 +741,15 @@ Decision: `theme.LoadFromFile` validates each color string against `^#([0-9a-fA-
 
 Rationale: Whole-TOML rejection would punish users for typos in 1 of 13 color fields; a single bad `primary = "red"` shouldn't make a 12-other-valid-colors file unusable. Matches ADR M9.5-03 partial-file fallback policy — both decisions favor "the user gets something working with their tweaks" over "the user gets clean errors and starts over." Aggregate validation surface (warn on N bad fields) deferred — if it becomes a real workflow gap, a `theme validate <file>` CLI command can land later without changing the loader's runtime contract.
 
-Status: implemented (M9.6 — `3762504` (T4 — hex regex in pickColor)). Plan: `docs/plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
+Status: implemented (M9.6 — `3762504` (T4 — hex regex in pickColor)). Plan: `plans/2026-05-16-phase-16-1-m9-6-interaction-polish.md`.
 
 ## ADR M10-01 — Parity audit by parallel Opus subagents reading import-list literally
 
-Decision: The M10 parity audit, required by Postmortem Rule 3 before any M11 default-flip, is conducted by 4 parallel Opus subagents. Each receives a ~23-import slice of `src/ui/terminalRepl.ts` (92 imports total) and reads the slice's source files independently — explicitly instructed NOT to trust the 24-subsystem prereq checkboxes and to verify wiring through `src/server/runtime.ts`, `src/server/sessionContext.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch, and `packages/tui/internal/`. Reports are synthesized into a single signed-off audit at `docs/state/<date>-tui-parity-audit.md`.
+Decision: The M10 parity audit, required by Postmortem Rule 3 before any M11 default-flip, is conducted by 4 parallel Opus subagents. Each receives a ~23-import slice of `src/ui/terminalRepl.ts` (92 imports total) and reads the slice's source files independently — explicitly instructed NOT to trust the 24-subsystem prereq checkboxes and to verify wiring through `src/server/runtime.ts`, `src/server/sessionContext.ts`, `src/server/routes/`, `src/cli/tuiLauncher.ts`, `src/main.ts`'s `--ui tui` branch, and `packages/tui/internal/`. Reports are synthesized into a single signed-off audit at `docs/07-history/state/<date>-tui-parity-audit.md`.
 
 Rationale: "Independently audited (not self-attested)" is the spirit of Rule 3 — the same agent that wired the new surface during M4-M8 is the one most likely to miss a gap by recall. Parallel dispatch gives 4 perspectives at no extra wall-time cost. The mechanical-by-file-read methodology means findings are reproducible on a future commit. Slice partitioning (23 imports × 4) keeps per-subagent context manageable and makes cross-slice synthesis straightforward.
 
-Status: implemented (M10 — `def43f9` (spec/plan) + 4 subagent reports synthesized into `docs/state/2026-05-16-tui-parity-audit.md`). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+Status: implemented (M10 — `def43f9` (spec/plan) + 4 subagent reports synthesized into `docs/07-history/state/2026-05-16-tui-parity-audit.md`). Plan: `plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
 
 ## ADR M10-02 — Server-mode semantic-suite parity via existing in-process test coverage, not a new wire-driven harness
 
@@ -757,7 +757,7 @@ Decision: M10's "semantic-suite identical pass set on both `--ui repl` and `--ui
 
 Rationale: The 180+ server-side integration tests already exercise every M4-M8-wired subsystem through the equivalent code path. Building a parallel infrastructure to drive the same semantic prompts through real HTTP would add maintenance burden without proportional confidence gain — the wire itself is thin (Hono routes → runtime methods), and the runtime methods are what the existing tests exercise. The semantic-suite-prompt format is also a poor fit for `app.request()`-style assertions; the existing per-subsystem tests have finer-grained, more durable assertions.
 
-Status: implemented (M10 — existing test suite serves as the both-paths coverage). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+Status: implemented (M10 — existing test suite serves as the both-paths coverage). Plan: `plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
 
 ## ADR M10-03 — Severity-classified gap disposition gates M11 on CRITICAL/HIGH only
 
@@ -765,7 +765,7 @@ Decision: Parity-audit findings are classified CRITICAL / HIGH / MEDIUM / LOW. C
 
 Rationale: Strict "any gap blocks M11" interpretation of Postmortem Rule 3 would stall M11 indefinitely on cosmetic deltas (a slightly different status emoji, an empty optional field). Severity classification lets the audit be honest about gaps without making M11 unreachable. The disposition rule is announced before the audit runs so finding-time severity calls aren't biased by "I want to ship."
 
-Status: implemented (M10 — applied to all 10 findings; 2 HIGH fixed in M10, 1 HIGH scope-bounded, 1 HIGH deferred as M11 prereq #40). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+Status: implemented (M10 — applied to all 10 findings; 2 HIGH fixed in M10, 1 HIGH scope-bounded, 1 HIGH deferred as M11 prereq #40). Plan: `plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
 
 ## ADR M10-04 — M10 absorbs cheap HIGH fixes inline; defers expensive HIGH fixes to M11 prereq backlog
 
@@ -773,7 +773,7 @@ Decision: When a HIGH gap surfaces during M10 audit, M10 fixes it inline if the 
 
 Rationale: M10 is the AUDIT milestone, not the fix-everything milestone. But cheap HIGH fixes during audit are higher-value than the same fix in a future milestone — the audit context is fresh, the test infrastructure is hot, and the user got the audit report quickly. The "< 1 session of work" line is the trade-off; anything beyond becomes its own milestone with its own plan/review cycle.
 
-Status: implemented (M10 — `53fda9e` HarnessInfo wire + `a892f71` resume repair wire; backlog item #40 opened for slash-dispatch). Plan: `docs/plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
+Status: implemented (M10 — `53fda9e` HarnessInfo wire + `a892f71` resume repair wire; backlog item #40 opened for slash-dispatch). Plan: `plans/2026-05-16-phase-16-1-m10-parity-audit.md`.
 
 ## ADR M10.5-01 — Server-mode slash dispatch via a single generic /commands route, dedicated routes preserved
 
@@ -781,7 +781,7 @@ Decision: M10.5 closes backlog #40 (M10-audit slice 1 HIGH gap blocking M11) by 
 
 Rationale: Approach A from the M10.5 brainstorm. Three plausible architectures considered: (A) generic /commands + dedicated existing routes, (B) per-command server routes for each of ~20 commands, (C) unified /commands handling EVERYTHING (including /compact + /skills). (B) was rejected for boilerplate cost; (C) was rejected because /compact's CompactResult JSON shape and /skills's shaped registry-list payload are richer than a generic `{output, error?, sideEffects?}` envelope and existing TUI consumers depend on those shapes (M9.6 cache-invalidation is keyed on /skills's wire shape). (A) reuses 95% of existing slash-dispatch logic from `src/commands/registry.ts:dispatchSlashCommand` with a thin Hono wrapper; the Go side's routing rule is mechanical and small.
 
-Status: implemented (M10.5 — `17d456b` (server route + builder + tests) + `d515b9f` (Go transport client + slash router + tests)). Spec: `docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`.
+Status: implemented (M10.5 — `17d456b` (server route + builder + tests) + `d515b9f` (Go transport client + slash router + tests)). Spec: `specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`.
 
 ## ADR M10.5-02 — JSON envelope { output, error?, sideEffects? }, not SSE streaming
 
@@ -789,7 +789,7 @@ Decision: The /commands route returns a single JSON envelope. `output` is the co
 
 Rationale: Most slash commands return a short string and have no side effects (/help, /cost, /tasks-list, etc.). Streaming via SSE would add protocol overhead for an N=1 event payload. The commands that DO take measurable time (/compact, /review consolidate) have their own dedicated routes that already stream when appropriate; /commands handles the cheap-and-fast remainder. The dual error channel (Go transport error vs envelope.error field) lets the TUI distinguish network/wire problems from command-level errors (unknown command, handler throw) and style them differently.
 
-Status: implemented (M10.5 — `17d456b` server schema + `d515b9f` Go decode). Spec: §6 (Error handling) of `docs/specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`.
+Status: implemented (M10.5 — `17d456b` server schema + `d515b9f` Go decode). Spec: §6 (Error handling) of `specs/2026-05-16-phase-16-1-m10-5-slash-dispatcher-design.md`.
 
 ## ADR M10.5-03 — Unwired commands return informative output, not server errors
 
@@ -817,7 +817,7 @@ Rationale: Pre-M11, `--ui tui` was opt-in — a user who explicitly opted in and
 
 Alternatives rejected: (a) Hard-fail with install hint — bad first-install UX; users have to do remediation BEFORE they can use sov, instead of being able to use the fallback and upgrade later. (b) Config-gated fallback (`tui.fallbackToRepl: true`) — most users wouldn't discover the config field, so behaves like (a) in practice. (c) Auto-install sov-tui on missing — opaque, slow, and outside the package's installer contract.
 
-Status: implemented (M11 — `5a1291d` at `src/main.ts:221-230`). Spec: §4.3 ("main.ts dispatch") and Risk #1 in §9. Smoke scenario 02 at `docs/state/2026-05-17-m11-smoke/02-missing-binary-fallback.transcript.txt` verifies REPL boots with the expected warning when the binary is moved aside.
+Status: implemented (M11 — `5a1291d` at `src/main.ts:221-230`). Spec: §4.3 ("main.ts dispatch") and Risk #1 in §9. Smoke scenario 02 at `docs/07-history/state/2026-05-17-m11-smoke/02-missing-binary-fallback.transcript.txt` verifies REPL boots with the expected warning when the binary is moved aside.
 
 ## ADR M11-03 — Scope discipline: no deprecation messaging on `--ui repl` in M11
 
@@ -837,7 +837,7 @@ Rationale: Decouples picker *state* (server: what to pick, what the options are)
 
 Alternatives rejected: (a) Separate HTTP route per command (`POST /sessions/:id/pickers/model`) — proliferates routes and breaks the M10.5 / ADR M10.5-01 unified-dispatcher principle. (b) Always emit `pickerOpen` unconditionally — would break the legacy REPL path that depends on `pick()` returning synchronously. (c) Pass a renderer function through `CommandContext` (REPL injects its terminal renderer; server injects a recorder) — over-generalized; commands shouldn't know about render surfaces.
 
-Status: implemented (M11.5 — commits `cd36c19` server wiring + `a1aae39` `/model` migration + `8db0a6d` `/resume` + `/export` migration). Spec: `docs/specs/2026-05-19-phase-16-1-m11-5-inline-picker-card-design.md` §4.1 + §6. Tests: `tests/server/commandContext.test.ts` (3 cases — capability defined, single-emit records, double-emit throws), `tests/commands/pickers.requestPicker.test.ts` (8 cases across /model, /resume, /export).
+Status: implemented (M11.5 — commits `cd36c19` server wiring + `a1aae39` `/model` migration + `8db0a6d` `/resume` + `/export` migration). Spec: `specs/2026-05-19-phase-16-1-m11-5-inline-picker-card-design.md` §4.1 + §6. Tests: `tests/server/commandContext.test.ts` (3 cases — capability defined, single-emit records, double-emit throws), `tests/commands/pickers.requestPicker.test.ts` (8 cases across /model, /resume, /export).
 
 ## ADR M11.5-02 — REPL stays on legacy pick() for M11.5; unified at M12
 
@@ -867,7 +867,7 @@ Rationale: Users hit the missing-binary fallback when they haven't trusted the p
 
 Alternatives rejected: (a) Warn unconditionally when `effectiveSurface === 'repl'` — punishes the soft-degradation case and stacks two warnings on the same line of stderr. (b) Warn only on `source === 'cli'` (skip env + config) — env and config are explicit user choices too, just expressed via different mechanisms; persistent opt-ins should hear the deprecation just as loudly. (c) Bundle the M12 message into the M11 fallback warning — conflates two independent concerns and couples the two milestones for no benefit.
 
-Status: implemented (M12 — commit `85e7271` wires the helper into `src/main.ts:215-225` between `resolveSurface` and the missing-binary fallback). Spec: `docs/specs/2026-05-19-phase-16-1-m12-repl-deprecation-design.md` §4.2 + §6. Smoke verified: scenario 05 at `docs/state/2026-05-19-m12-smoke/05-missing-binary-fallback-no-deprecation.transcript.txt` confirms the warning is absent on the fallback path.
+Status: implemented (M12 — commit `85e7271` wires the helper into `src/main.ts:215-225` between `resolveSurface` and the missing-binary fallback). Spec: `specs/2026-05-19-phase-16-1-m12-repl-deprecation-design.md` §4.2 + §6. Smoke verified: scenario 05 at `docs/07-history/state/2026-05-19-m12-smoke/05-missing-binary-fallback-no-deprecation.transcript.txt` confirms the warning is absent on the fallback path.
 
 ## ADR M12-02 — Deprecation warning suppression via env var only; no config field
 
@@ -879,7 +879,7 @@ The strict-equal-`'1'` semantics are intentional: `'0'`, empty string, `'true'`,
 
 Alternatives rejected: (a) `ui.suppressDeprecationWarning` config field — schema thrash for a one-milestone affordance; also commits the surface to the config schema's API contract. (b) No suppression at all — power users / scripted CI / users who can't migrate yet need an escape hatch; without one, the warning becomes noise users learn to ignore, devaluing future warnings. (c) Per-session in-memory acknowledgement (warning shown once then never again) — requires persistent state on disk for a one-line warning; overengineered.
 
-Status: implemented (M12 — `src/cli/replDeprecation.ts:36`). Spec: §4.1 + §6. Tests: `tests/cli/replDeprecation.test.ts` pins both the suppression-via-`'1'` and the no-suppression-for-other-values invariants. Smoke verified: scenario 04 at `docs/state/2026-05-19-m12-smoke/04-suppression-flag-silences-warning.transcript.txt` confirms the warning is absent when `SOV_NO_DEPRECATION_WARNING=1` is set alongside `--ui repl`.
+Status: implemented (M12 — `src/cli/replDeprecation.ts:36`). Spec: §4.1 + §6. Tests: `tests/cli/replDeprecation.test.ts` pins both the suppression-via-`'1'` and the no-suppression-for-other-values invariants. Smoke verified: scenario 04 at `docs/07-history/state/2026-05-19-m12-smoke/04-suppression-flag-silences-warning.transcript.txt` confirms the warning is absent when `SOV_NO_DEPRECATION_WARNING=1` is set alongside `--ui repl`.
 
 ## ADR M13-01 — Missing-binary fallback = hard error
 
@@ -898,7 +898,7 @@ $ echo $?
 
 Alternatives rejected: (a) Keep M11's REPL fallback — defeats the entire purpose of M13 (the REPL is gone). (b) Fallback to a different surface (e.g., a minimal printf-based interaction loop) — invents a new surface to maintain in place of the one being deleted; same cost, no benefit. (c) Auto-install sov-tui on missing — opaque, slow, and outside the package's installer contract; also assumes Go ≥ 1.24 on PATH, which is exactly the failure mode the user is hitting.
 
-Status: implemented (M13 — `1281222` (T1 collapse main.ts boot flow) + `d557877` (T1 post-review main.ts header refresh)). Spec: `docs/specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md` §5 (ADR M13-01) + §6 (new main.ts boot flow). Smoke verified: scenario 02 at `docs/state/2026-05-20-m13-smoke/02-missing-binary.txt` confirms exit 1 + the install-command stderr line when the binary is moved aside.
+Status: implemented (M13 — `1281222` (T1 collapse main.ts boot flow) + `d557877` (T1 post-review main.ts header refresh)). Spec: `specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md` §5 (ADR M13-01) + §6 (new main.ts boot flow). Smoke verified: scenario 02 at `docs/07-history/state/2026-05-20-m13-smoke/02-missing-binary.txt` confirms exit 1 + the install-command stderr line when the binary is moved aside.
 
 ## ADR M13-02 — Drop `ui.surface` from config schema
 
@@ -920,7 +920,7 @@ Rationale: Cleaner CLI surface. The `--ui` flag never had a non-default valid va
 
 Alternatives rejected: (a) Keep `--ui` accepted but only allow `--ui tui` — same logical issue as M13-02's "tolerant accepted-but-unused" rejected alternative; misleading and pure cruft. (b) Keep `SOV_UI` for backward compat with shell rc — invisible compatibility surface that the author has to remember exists; the value can be removed from shell rc in the same minute as upgrading. (c) Soft-warn on `SOV_UI` set in env — punishes the user with stderr noise on every boot until they fix their rc; harder to debug than a silent ignore.
 
-Status: implemented (M13 — `1281222` (T1 collapse main.ts boot flow drops the option + env reads) + `d597037` (T3 deletes `replDeprecation.ts` removing the `SOV_NO_DEPRECATION_WARNING` consumer)). Spec: §5 (ADR M13-03). Smoke verified: scenario 03 at `docs/state/2026-05-20-m13-smoke/03-unknown-flag.txt` confirms Commander's "unknown option" rejection on `sov --ui repl`.
+Status: implemented (M13 — `1281222` (T1 collapse main.ts boot flow drops the option + env reads) + `d597037` (T3 deletes `replDeprecation.ts` removing the `SOV_NO_DEPRECATION_WARNING` consumer)). Spec: §5 (ADR M13-03). Smoke verified: scenario 03 at `docs/07-history/state/2026-05-20-m13-smoke/03-unknown-flag.txt` confirms Commander's "unknown option" rejection on `sov --ui repl`.
 
 ## ADR M13-04 — Delete `src/cli/surfaceResolver.ts` outright
 

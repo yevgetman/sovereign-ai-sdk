@@ -9,4 +9,4 @@ bun run visual splash    # render one
 
 Output: `.harness/visual/output/<name>.png` (gitignored, regenerated on demand).
 
-**Full documentation:** [`docs/conventions/visual-tui-qa.md`](../../docs/conventions/visual-tui-qa.md) — the record of truth for configuration, scenario conventions, runner semantics, and workflow patterns.
+**Full documentation:** [`docs/05-conventions/visual-tui-qa.md`](../../docs/05-conventions/visual-tui-qa.md) — the record of truth for configuration, scenario conventions, runner semantics, and workflow patterns.

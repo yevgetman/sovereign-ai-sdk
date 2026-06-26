@@ -7,7 +7,7 @@ suites under `tests/`.
 This README is the developer-facing reference: architecture, isolation, layout,
 how to add a test, how to add a judge backend, porting guide. For the canonical
 inventory of which tests exist and what each one guards against, see
-[`docs/semantic-testing.md`](../../docs/semantic-testing.md) at the repo root.
+[`docs/06-testing/semantic-testing.md`](../../docs/06-testing/semantic-testing.md) at the repo root.
 
 ## What problem this solves
 

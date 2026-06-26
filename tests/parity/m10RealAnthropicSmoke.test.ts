@@ -23,7 +23,7 @@ import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 const SMOKE_ENABLED = process.env.SOV_M10_REAL_SMOKE === '1';
 const SOAK_DIR =
-  '/Users/julie/code/sovereign-ai-harness/docs/state/2026-05-16-tui-parity-audit-soak';
+  '/Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-16-tui-parity-audit-soak';
 
 async function runPrompt(
   app: ReturnType<typeof buildAppWithRuntime>,

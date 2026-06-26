@@ -8,21 +8,21 @@ This is **runtime code**. The business data it operates against lives in a separ
 
 The same runtime drives several run modes — pick by how you want to reach it:
 
-- **Local TUI (`sov`)** — the default. The Go Bubble Tea client backed by a per-invocation loopback server: interactive chat in your terminal. See [usage › Quick Start](docs/usage.md#quick-start).
-- **Headless line driver (`sov drive`)** — stdin/stdout, no TTY: pipe a prompt in, read events out. For scripting, semantic tests, and CI. See [usage › CLI Subcommands](docs/usage.md#cli-subcommands).
-- **OpenAI-compatible API (`sov serve`)** — a drop-in OpenAI HTTP backend (Open WebUI, LibreChat, the `openai` SDKs). Stateless completions. See [usage › OpenAI-compatible HTTP API](docs/usage.md#openai-compatible-http-api-sov-serve).
-- **Secure remote gateway (`sov gateway`)** — the harness's rich **native HTTP+SSE** protocol exposed off-loopback with bearer auth: turns, streaming, tool events, **permission prompts**, slash commands, skills. Ships a built-in **browser UI**, persistent **multi-session** hosting, **multi-user** principals (isolated sessions/memory/learning), and **Slack / Telegram / webhook channels**. The run-anywhere roadmap (A–F). See [usage › Remote gateway](docs/usage.md#remote-gateway-sov-gateway).
+- **Local TUI (`sov`)** — the default. The Go Bubble Tea client backed by a per-invocation loopback server: interactive chat in your terminal. See [usage › Quick Start](docs/03-cli-reference/usage.md#quick-start).
+- **Headless line driver (`sov drive`)** — stdin/stdout, no TTY: pipe a prompt in, read events out. For scripting, semantic tests, and CI. See [usage › CLI Subcommands](docs/03-cli-reference/usage.md#cli-subcommands).
+- **OpenAI-compatible API (`sov serve`)** — a drop-in OpenAI HTTP backend (Open WebUI, LibreChat, the `openai` SDKs). Stateless completions. See [usage › OpenAI-compatible HTTP API](docs/03-cli-reference/usage.md#openai-compatible-http-api-sov-serve).
+- **Secure remote gateway (`sov gateway`)** — the harness's rich **native HTTP+SSE** protocol exposed off-loopback with bearer auth: turns, streaming, tool events, **permission prompts**, slash commands, skills. Ships a built-in **browser UI**, persistent **multi-session** hosting, **multi-user** principals (isolated sessions/memory/learning), and **Slack / Telegram / webhook channels**. The run-anywhere roadmap (A–F). See [usage › Remote gateway](docs/03-cli-reference/usage.md#remote-gateway-sov-gateway).
 
 ## Status
 
-Current state lives in [`docs/state/`](docs/state/) — newest dated file is canonical.
+Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/state/2026-06-06-phase-f-channels.md`](docs/state/2026-06-06-phase-f-channels.md) — Phase F (channels) shipped; the run-anywhere roadmap (A–F) is COMPLETE. `docs/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/state/*.md | sort -r | head -1`.
-- **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/state/archive/`](docs/state/archive/).
+- **Latest snapshot:** [`docs/07-history/state/2026-06-06-phase-f-channels.md`](docs/07-history/state/2026-06-06-phase-f-channels.md) — Phase F (channels) shipped; the run-anywhere roadmap (A–F) is COMPLETE. `docs/07-history/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/07-history/state/*.md | sort -r | head -1`.
+- **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/07-history/state/archive/`](docs/07-history/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
 
-For day-to-day operation see [`docs/usage.md`](docs/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
+For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
 
 ## Install on a new machine
 
@@ -68,7 +68,7 @@ bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git
 
 # 2. Drop your provider key somewhere `sov` will see it
 export ANTHROPIC_API_KEY=sk-ant-...           # any login shell
-# or persist it in ~/.harness/credentials.json — see docs/usage.md
+# or persist it in ~/.harness/credentials.json — see docs/03-cli-reference/usage.md
 
 # 3. Run from anywhere
 sov                                           # generic-agent mode, no bundle
@@ -151,7 +151,7 @@ Flags: `-p, --profile <name>` (top-level — pin the run to `<harness-home>/prof
 
 `sov profile [list|create|use|show|import-default]` — manage profile-scoped state roots. `sov profile create work` makes `<harness-home>/profiles/work/`; `sov profile use work` pins it as the persisted active profile; `sov -p work chat …` is one-shot per-invocation. `sov profile import-default work` copies `<harness-home>/config.json` + `credentials.json` from the default root into the named profile (sessions/trajectories/memory stay clean). The active profile is persisted at `<harness-home>/active-profile`; remove or empty that file (or `sov profile use default`) to fall back to the unscoped root.
 
-See [`docs/usage.md`](docs/usage.md) for provider configuration, resume, context references, permissions, slash commands, memory, skills, compaction, common workflows, and troubleshooting.
+See [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md) for provider configuration, resume, context references, permissions, slash commands, memory, skills, compaction, common workflows, and troubleshooting.
 
 ### Global `sov` command (dev-mode)
 

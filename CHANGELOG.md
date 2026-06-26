@@ -2,8 +2,8 @@
 
 > **NOTE — frozen at Phase 13.3 (2026-05-06).** This file is no longer the
 > canonical phase history. For shipped state since Phase 13.4, see
-> `docs/state/2026-05-12.md` (canonical current snapshot) and the archived
-> snapshots under `docs/state/archive/`. The `CLAUDE.md` "Phases — where we
+> `docs/07-history/state/2026-05-12.md` (canonical current snapshot) and the archived
+> snapshots under `docs/07-history/state/archive/`. The `CLAUDE.md` "Phases — where we
 > are" section also carries a current-state summary. This file is preserved
 > for historical phase-by-phase narrative through 13.3 — the format never
 > got migrated forward when the state-of-build snapshot pattern took over
@@ -74,7 +74,7 @@ Seven landed pieces, ordered by build sequence:
 
 6. **on_delegation hook + DB lineage verification** (`src/runtime/scheduler.ts`). After successful child completion (terminal `completed` or `max_turns`), the scheduler calls `parent.memoryManager.onDelegation(prompt, summary)`. Errors and interrupts skip the hook. Hook errors route to `traceRecorder` rather than failing the scheduler return (preserves the parent turn even when the memory backend hiccups). Two integration tests use a real (in-memory) `SessionDb` to confirm `parent_session_id` flows through the live write path: one child correctly links via `getSession(childId).parentSessionId`; two delegations from the same parent both link.
 
-7. **Phase close + doc sweep** — README + CHANGELOG + CLAUDE.md + AGENTS.md status; `phase-10x-status.md` reflects 10.6 part 2b items as landed in Phase 13 (with shipped headlines updated); `docs/architecture.md` gains a Sub-Agent Runtime section + extension surfaces row for `src/agents/` + `src/runtime/`; `docs/extending.md` gains an "Add An Agent Definition" section; `docs/usage.md` capability-profile language flips from "re-scoped to" to "landed in"; two semantic tests (`16-agents.cases.ts`): `agents-bundle-default-discoverable` (registry discoverability + AgentTool surface presence) and `agents-explore-live-delegation` (end-to-end smoke through the full chain — AgentTool → scheduler → child session → AgentRunner → renderResult → parent consumption); `DECISIONS.md` retroactive entries for the in-memory v0 path lock, hand-curated v0 capability profiles, AgentRunner-not-in-REPL scope, name-only `allowedTools` filtering with deferred pattern enforcement, and the schema-patch fallback that drops AgentTool when no agents are loaded; testing-log entry.
+7. **Phase close + doc sweep** — README + CHANGELOG + CLAUDE.md + AGENTS.md status; `phase-10x-status.md` reflects 10.6 part 2b items as landed in Phase 13 (with shipped headlines updated); `docs/02-architecture/runtime-architecture.md` gains a Sub-Agent Runtime section + extension surfaces row for `src/agents/` + `src/runtime/`; `docs/04-extending/extending.md` gains an "Add An Agent Definition" section; `docs/03-cli-reference/usage.md` capability-profile language flips from "re-scoped to" to "landed in"; two semantic tests (`16-agents.cases.ts`): `agents-bundle-default-discoverable` (registry discoverability + AgentTool surface presence) and `agents-explore-live-delegation` (end-to-end smoke through the full chain — AgentTool → scheduler → child session → AgentRunner → renderResult → parent consumption); `DECISIONS.md` retroactive entries for the in-memory v0 path lock, hand-curated v0 capability profiles, AgentRunner-not-in-REPL scope, name-only `allowedTools` filtering with deferred pattern enforcement, and the schema-patch fallback that drops AgentTool when no agents are loaded; testing-log entry.
 
 Tests: 50 new unit cases across the phase (12 loader, 1 bundle-default smoke, 12 capability profile, 6 AgentRunner, 6 Semaphore, 4 LaneSemaphores, 4 exclusion set, 9 scheduler scenarios, 6 AgentTool surfaces, 2 registry schema patches, 5 on_delegation + DB lineage) + 2 new semantic cases (registry discoverability + live end-to-end delegation). Unit suite: 1267/1267. Semantic suite: 43/43 expected (live-delegation case adds ~30-60 s + ~$0.05 per run). Lint clean.
 
@@ -100,7 +100,7 @@ Suite total: **1181/1181 unit + 41/41 semantic**. Lint clean.
 
 Two items previously tracked as "Phase 10.6 part 2b deferred-because-premature" — per-model capability profile lookup and per-lane concurrency guards — are now Phase 13 deliverables. The router config has declared `maxConcurrentLocal` / `maxConcurrentFrontier` since Phase 10.6 part 1 but the harness has no parallel provider calls today; sub-agents (Phase 13) are the first surface that produces them, which makes Phase 13's scheduler the natural home for the per-lane semaphore primitive. Capability profiles get a second consumer in Phase 13: agent definitions can declare `role: explore` and have the runtime resolve to a real provider/model via the table, instead of every definition pinning a literal model id.
 
-Updates `harness-build-plan.md` (Phase 13 build items 4 and 10 now claim the deliverables; Phase 10.6 status line drops the deferred-leftover claim), `phase-10x-status.md` (drops the two deferred rows; replaces the "Deferred" subsection with a "Re-scoped to later phases" forwarding pointer; closes the 10.x lane with no remaining deferrals), CLAUDE.md / AGENTS.md / docs/usage.md (drop the deferred-because-premature framing). No code changes; this is purely a re-homing of two backlog items into the phase that has a real consumer for them.
+Updates `harness-build-plan.md` (Phase 13 build items 4 and 10 now claim the deliverables; Phase 10.6 status line drops the deferred-leftover claim), `phase-10x-status.md` (drops the two deferred rows; replaces the "Deferred" subsection with a "Re-scoped to later phases" forwarding pointer; closes the 10.x lane with no remaining deferrals), CLAUDE.md / AGENTS.md / docs/03-cli-reference/usage.md (drop the deferred-because-premature framing). No code changes; this is purely a re-homing of two backlog items into the phase that has a real consumer for them.
 
 ## Phase 10.8 — Default bundle + bundleless invocation + `sov init` - 2026-05-05
 
@@ -368,7 +368,7 @@ Verified by a unit test in `tests/config/rules.test.ts` and the failing semantic
 
 ## Semantic suite — run + extend policy documented - 2026-05-03
 
-Added a "When to run and when to extend" section to [`docs/semantic-testing.md`](docs/semantic-testing.md). Codifies a four-tier triage (skip / filtered / full / gate) with a concrete mapping table from changed source area → filter, plus rules for when to add a new test (new tool, new slash command, new permission rule path, new context surface, regression fix, phase completion). Brief pointer added to `CLAUDE.md` and `AGENTS.md`. The policy makes the suite's cost-benefit explicit so contributors don't either over-run it (per-commit) or under-run it (never).
+Added a "When to run and when to extend" section to [`docs/06-testing/semantic-testing.md`](docs/06-testing/semantic-testing.md). Codifies a four-tier triage (skip / filtered / full / gate) with a concrete mapping table from changed source area → filter, plus rules for when to add a new test (new tool, new slash command, new permission rule path, new context surface, regression fix, phase completion). Brief pointer added to `CLAUDE.md` and `AGENTS.md`. The policy makes the suite's cost-benefit explicit so contributors don't either over-run it (per-commit) or under-run it (never).
 
 ## Semantic suite — /rollback end-to-end (30/30 pass) - 2026-05-03
 
@@ -661,7 +661,7 @@ A session of UX hardening on top of Phase 10. Bundle resolution, conversation fr
 
 **Per-turn `[usage:]` gated behind debugMode.** Removed from default output (token usage still recorded to the DB and summarized in the goodbye box; the per-turn line was redundant noise).
 
-**Bundle-side companion.** `~/code/sovereign-ai-docs/state/CONTEXT.md` got a "How tool results reach the user" section telling the agent that tool output isn't auto-shown to the user — to display content, paste it into the reply text inside a code fence. Pairs with the harness's tool-result preview surfacing.
+**Bundle-side companion.** `~/code/sovereign-ai-docs/07-history/state/CONTEXT.md` got a "How tool results reach the user" section telling the agent that tool output isn't auto-shown to the user — to display content, paste it into the reply text inside a code fence. Pairs with the harness's tool-result preview surfacing.
 
 **Hardening.**
 - Fixed `exactOptionalPropertyTypes` typecheck failures that broke CI
