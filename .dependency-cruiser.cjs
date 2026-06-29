@@ -12,9 +12,10 @@
 // missed. The rule sets NO `dependencyTypes`/`dependencyTypesNot` filter, so
 // BOTH value and type edges are caught.
 //
-// NOTE (Task 1.6): this script is standalone (`bun run boundary`) and is NOT
-// wired into `lint` or the pre-commit gate — it is expected RED until Task 1.7
-// relocates the leaves and inverts the executor port.
+// NOTE (Task 1.7): all 47 open→proprietary crossings are resolved (GREEN), and
+// `boundary` is now WIRED INTO `bun run lint` (after biome) so the gate fails on
+// any new open→proprietary import. Run `bun run boundary` standalone for the
+// deterministic edge list.
 
 const manifest = require("./scripts/boundary-manifest.json");
 

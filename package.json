@@ -28,7 +28,7 @@
     "boundary": "bun --bun depcruise src --config .dependency-cruiser.cjs",
     "test": "bun test --timeout 20000",
     "test:semantic": "bun tests/semantic/run.ts",
-    "lint": "biome check src tests",
+    "lint": "biome check src tests && bun run boundary",
     "format": "biome format --write src tests",
     "typecheck": "tsc --noEmit",
     "tui:build": "bun run scripts/build-tui.ts",
