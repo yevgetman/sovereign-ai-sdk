@@ -34,6 +34,13 @@ import type { AssistantMessage, ContentBlock, Message, Terminal } from '../core/
 import type { ObserveInput } from '../learning/observer.js';
 import type { ObservationStatus } from '../learning/types.js';
 import type { TraceEvent } from '../trace/types.js';
+// Task 1.5 — the port contract moved to the OPEN `./executorPort.ts` so the open
+// scheduler stops value-importing this proprietary module. We import the two
+// shapes for local use and re-export them so historical importers that
+// referenced them from here keep working.
+import type { RunSubprocessExecutorOpts, SubprocessExecutorResult } from './executorPort.js';
+
+export type { RunSubprocessExecutorOpts, SubprocessExecutorResult } from './executorPort.js';
 
 /** Cap on the RETAINED subprocess stdout — we keep the most recent
  *  ≤ MAX_STDOUT_BYTES (the TAIL, see readCapped) so the terminal stream-json
@@ -82,41 +89,6 @@ export type LearningSink = { observe: (input: ObserveInput) => void };
  *  child's per-session TraceWriter), so replayed tool brackets land in the same
  *  destination(s) a native child's would. */
 export type TraceSink = (event: TraceEvent) => void;
-
-export type RunSubprocessExecutorOpts = {
-  /** The task prompt handed to `claude -p`. */
-  prompt: string;
-  /** Working directory the subprocess runs in — constrained to the runtime cwd
-   *  by the caller (the scheduler). */
-  cwd: string;
-  config: SubscriptionExecutorConfig;
-  /** Composed abort signal (parent signal ∧ per-child timeout) from the
-   *  scheduler. When it fires, the subprocess is killed and an error terminal
-   *  is returned. */
-  signal?: AbortSignal;
-  /** Injected for tests. Defaults to the real Bun.spawn wrapper. */
-  spawn?: SpawnFn;
-  /** OPTIONAL learning replay sink. When present, each `tool_use`/`tool_result`
-   *  pair parsed from the subprocess stream is replayed as a `LearningObservation`
-   *  so a delegated headless-Claude-Code turn feeds the learning loop exactly as
-   *  a native delegation does. Absent (e.g. learning disabled) ⇒ clean no-op —
-   *  the parser is byte-identical to the spike. */
-  learningObserver?: LearningSink;
-  /** OPTIONAL trace replay sink. When present, each replayed tool call records a
-   *  `tool_start` + (`tool_end` | `tool_error`) bracket, mirroring the
-   *  orchestrator's trace events. Absent ⇒ no-op. */
-  traceRecorder?: TraceSink;
-};
-
-/** The exact shape SubagentScheduler.delegate() consumes from `drainRunner`. */
-export type SubprocessExecutorResult = {
-  terminal: Terminal;
-  finalAssistant?: AssistantMessage;
-  iterationsUsed: number;
-  toolCallCount: number;
-  distinctToolNames: string[];
-  messages: Message[];
-};
 
 // --- Tool-vocabulary canonicalization (corpus co-clustering) ---------------
 //

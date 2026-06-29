@@ -75,6 +75,7 @@ import { RouterProvider } from '../router/provider.js';
 import { LaneSemaphores, type LaneSemaphoresOpts } from '../runtime/laneSemaphores.js';
 import { PathLockManager } from '../runtime/pathLock.js';
 import { SubagentScheduler } from '../runtime/scheduler.js';
+import { runSubprocessExecutor } from '../runtime/subprocessExecutor.js';
 import { loadSkills } from '../skills/loader.js';
 import type { SkillRegistry } from '../skills/types.js';
 import { TaskManager } from '../tasks/manager.js';
@@ -1385,6 +1386,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(userSettings.subscriptionExecutor !== undefined
       ? { subscriptionExecutor: userSettings.subscriptionExecutor }
       : {}),
+    // Task 1.5 — INJECT the real subscription-executor port. The open scheduler
+    // no longer value-imports the proprietary `runSubprocessExecutor` (it
+    // depends only on the `RunSubprocessExecutor` type from the open
+    // `executorPort.ts`); this proprietary→proprietary injection restores
+    // production behavior now that the open→proprietary default fallback is gone.
+    runSubprocessExecutor,
   });
 
   // M5 T7 — task manager. Wraps the SubagentScheduler with lifecycle

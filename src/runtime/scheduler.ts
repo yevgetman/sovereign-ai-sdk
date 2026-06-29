@@ -38,13 +38,9 @@ import type { TraceEvent } from '../trace/types.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
 import { AgentRunner } from './agentRunner.js';
+import type { RunSubprocessExecutor, SubprocessExecutorResult } from './executorPort.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
 import type { PathLockManager, PathScope } from './pathLock.js';
-import {
-  type RunSubprocessExecutorOpts,
-  type SubprocessExecutorResult,
-  runSubprocessExecutor as defaultRunSubprocessExecutor,
-} from './subprocessExecutor.js';
 
 /** SPIKE — the role that, when `subscriptionExecutor.enabled`, routes a
  *  delegation to a headless `claude -p` subprocess instead of the harness's
@@ -141,10 +137,14 @@ export type SubagentSchedulerOpts = {
    *  review, lifecycle) is byte-unchanged. Absent or `enabled !== true` →
    *  the branch is inert and every delegation takes the normal path. */
   subscriptionExecutor?: SubscriptionExecutorConfig;
-  /** SPIKE — injectable subprocess executor (tests feed canned JSONL). Defaults
-   *  to the real `runSubprocessExecutor`. Only consulted on the
-   *  subscription-executor branch. */
-  runSubprocessExecutor?: (opts: RunSubprocessExecutorOpts) => Promise<SubprocessExecutorResult>;
+  /** SPIKE — INJECTED subscription-executor port (tests feed canned JSONL; the
+   *  proprietary `buildRuntime` injects the real `runSubprocessExecutor`). Only
+   *  consulted on the subscription-executor branch — but REQUIRED there: with the
+   *  open→proprietary default fallback removed (Task 1.5), `delegate()` throws a
+   *  clear error if that branch is reached without this port injected. Optional
+   *  on the type so the many non-subprocess construction sites need not supply
+   *  it. */
+  runSubprocessExecutor?: RunSubprocessExecutor;
 };
 
 export type DelegateInput = {
@@ -406,11 +406,24 @@ export class SubagentScheduler {
 
         // Executor selection (`useSubprocessExecutor`) was hoisted to delegate()
         // entry so the write-lock decision could account for it; reused here.
+        //
+        // Task 1.5 — the subscription-executor is an INJECTED port now: the open
+        // scheduler no longer value-imports the proprietary `runSubprocessExecutor`,
+        // and there is NO implicit default. Resolve the port HERE, BEFORE the
+        // dispatch try, so a misconfiguration (subprocess branch reached without a
+        // port injected) fails LOUD as a thrown error — resolving inside the try
+        // would let the dispatch `catch` swallow it into an "interrupted" child.
+        const run = useSubprocessExecutor ? this.opts.runSubprocessExecutor : undefined;
+        if (useSubprocessExecutor && run === undefined) {
+          throw new Error(
+            'subscriptionExecutor.enabled but no runSubprocessExecutor port was injected into the scheduler',
+          );
+        }
+
         const startedAt = Date.now();
         let result: SubprocessExecutorResult;
         try {
           if (useSubprocessExecutor) {
-            const run = this.opts.runSubprocessExecutor ?? defaultRunSubprocessExecutor;
             // The subprocess executor returns an error terminal IN-BAND (never
             // throws), so it flows through the success tail below; a non-success
             // terminal simply skips the memory/review hooks (same as a normal
@@ -431,7 +444,8 @@ export class SubagentScheduler {
             //     exactly as the native path passes it to AgentRunner.
             // Both are optional: when learning is disabled / no trace sink
             // exists, the replay is a clean no-op (the spike's tests still pass).
-            result = await run({
+            // biome-ignore lint/style/noNonNullAssertion: guarded above — useSubprocessExecutor ⇒ run is defined
+            result = await run!({
               prompt: input.prompt,
               cwd: input.parentToolContext.cwd,
               // biome-ignore lint/style/noNonNullAssertion: guarded by useSubprocessExecutor (enabled === true ⇒ config present)
