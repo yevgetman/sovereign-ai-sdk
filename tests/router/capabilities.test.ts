@@ -9,7 +9,7 @@ import {
   CAPABILITY_TABLE,
   findCapableModel,
   getCapabilityProfile,
-} from '../../src/router/capabilities.js';
+} from '../../src/core/capabilities.js';
 
 describe('getCapabilityProfile', () => {
   test('returns a profile for a well-known anthropic model', () => {

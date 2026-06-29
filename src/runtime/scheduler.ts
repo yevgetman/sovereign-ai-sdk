@@ -25,13 +25,13 @@
 import { buildSubagentExclusions } from '../agents/exclusions.js';
 import type { AgentDefinition, AgentRegistry } from '../agents/types.js';
 import type { LaneConfig, SubscriptionExecutorConfig } from '../config/schema.js';
+import { findCapableModel } from '../core/capabilities.js';
 import type { AssistantMessage, SystemSegment, Terminal } from '../core/types.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
 import { wrapCanUseToolWithWriteScope } from '../permissions/writeScope.js';
 import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
-import { findCapableModel } from '../router/capabilities.js';
 import type { DelegationLifecycleEvent } from '../router/progressEvents.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
