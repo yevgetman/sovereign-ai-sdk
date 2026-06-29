@@ -26,7 +26,8 @@
     "^src/util/",
     "^src/trace/",
     "^src/trajectory/",
-    "^src/bundle/"
+    "^src/bundle/",
+    "^src/persistence/"
   ],
   "openSplitDirFiles": [
     "^src/tool/(?!registry\\.)",

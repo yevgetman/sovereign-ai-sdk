@@ -26,8 +26,16 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
-import type { SessionCost, SessionListEntry } from '../core/sessionPort.js';
+import type {
+  CreateSessionInput,
+  SaveMessageInput,
+  Session,
+  SessionCost,
+  SessionListEntry,
+  StoredMessage,
+} from '../core/sessionPort.js';
 import type { ContentBlock, SystemSegment, TokenUsage } from '../core/types.js';
+import type { SessionStore } from '../persistence/sessionStore.js';
 
 /** Default DB path. Resolved at call time so a profile-aware
  *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB
@@ -170,80 +178,20 @@ export type OpenDbOpts = {
   path?: string;
 };
 
-/** Required fields for creating a persisted session row. */
-export type CreateSessionInput = {
-  model: string;
-  provider: string;
-  /** Default 'cli'. Phase 16 adds 'telegram' / 'slack' / etc. */
-  platform?: string;
-  parentSessionId?: string;
-  title?: string;
-  systemPrompt?: SystemSegment[];
-  metadata?: Record<string, unknown>;
-  /** Phase 18 T8 — optional pre-supplied session id. When omitted, a
-   *  UUID is generated. When supplied (e.g. via X-Session-Id header on
-   *  the OpenAI-compatible surface), it becomes the row's primary key
-   *  so client-side conversation ids can drive both the wire response
-   *  id and the DB row. Callers must use {@link upsertSession} to
-   *  idempotently land a row when reuse is expected. */
-  sessionId?: string;
-  /** Phase E — owning principal id for the multi-user gateway. When
-   *  omitted the row is unowned (owner_id null) — the back-compat path
-   *  for the single-user CLI / cron / OpenAI surfaces. */
-  owner?: string;
+// `CreateSessionInput`, `SaveMessageInput`, `StoredMessage`, `Session`,
+// `SessionCost`, and `SessionListEntry` now live in open core
+// (`core/sessionPort.js`) so the open command contract (`CommandContext`) and
+// the open `SessionStore` port (`persistence/sessionStore.js`) can reference
+// them without importing this proprietary bun:sqlite store. Re-exported here for
+// existing importers (single source of truth).
+export type {
+  CreateSessionInput,
+  SaveMessageInput,
+  Session,
+  SessionCost,
+  SessionListEntry,
+  StoredMessage,
 };
-
-/** Message payload persisted into the session transcript. */
-export type SaveMessageInput = {
-  role: 'user' | 'assistant';
-  content: ContentBlock[];
-  toolCallId?: string;
-  toolCalls?: unknown;
-  tokenCount?: number;
-};
-
-/** Message row loaded from SQLite and decoded into runtime content blocks. */
-export type StoredMessage = {
-  id: number;
-  sessionId: string;
-  role: 'user' | 'assistant';
-  content: ContentBlock[];
-  toolCallId: string | null;
-  toolCalls: unknown;
-  tokenCount: number;
-  createdAt: number;
-};
-
-/** Session row loaded from SQLite, including usage and compaction counters. */
-export type Session = {
-  sessionId: string;
-  parentSessionId: string | null;
-  model: string;
-  provider: string;
-  platform: string;
-  createdAt: number;
-  lastUpdated: number;
-  title: string | null;
-  systemPrompt: SystemSegment[] | null;
-  schemaVersion: number;
-  metadata: Record<string, unknown>;
-  /** Phase E — owning principal id, or null for unowned rows. */
-  ownerId: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
-  estimatedCostUsd: number;
-  compactionInputTokens: number;
-  compactionOutputTokens: number;
-  estimatedCompactionCostUsd: number;
-};
-
-// `SessionCost` + `SessionListEntry` now live in open core (`core/sessionPort.js`)
-// so the open command contract (`CommandContext`) can reference them without
-// importing this proprietary bun:sqlite store. Re-exported here for existing
-// importers (single source of truth).
-export type { SessionCost, SessionListEntry };
 
 /** M8 T7 — snapshot for the `session_summary` SSE event's extended payload.
  *  Token fields fold chat + compaction lanes into the single goodbye-card
@@ -273,7 +221,13 @@ export type SearchOpts = {
   limit?: number;
 };
 
-export class SessionDb {
+// `SessionDb implements SessionStore` (Task 2.1) declares structural
+// conformance to the open turn/history-persistence port — the narrow subset the
+// open SDK persists through (lifecycle + save/load messages + recordTokenUsage).
+// The admin/search/routing/cleanup surface and the raw `handle` getter stay on
+// the concrete class, off the port. The `implements` clause makes a future drift
+// (a port method's signature changing on SessionDb) a typecheck failure.
+export class SessionDb implements SessionStore {
   private writeCount = 0;
 
   constructor(private readonly db: Database) {}
