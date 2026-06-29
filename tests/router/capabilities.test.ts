@@ -4,12 +4,12 @@
 // model). v0 entries are hand-curated; Phase 13.4 evals will refine them.
 
 import { describe, expect, test } from 'bun:test';
-import { contextLengthFor } from '../../src/providers/models.js';
 import {
   CAPABILITY_TABLE,
   findCapableModel,
   getCapabilityProfile,
 } from '../../src/core/capabilities.js';
+import { contextLengthFor } from '../../src/providers/models.js';
 
 describe('getCapabilityProfile', () => {
   test('returns a profile for a well-known anthropic model', () => {

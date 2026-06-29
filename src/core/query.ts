@@ -23,9 +23,9 @@ import {
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
-import { type TurnSummary, detectStall } from '../util/stall.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
+import { type TurnSummary, detectStall } from '../util/stall.js';
 import { runTools } from './orchestrator.js';
 import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
 import type {
