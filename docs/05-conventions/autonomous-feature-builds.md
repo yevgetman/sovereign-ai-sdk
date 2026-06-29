@@ -1,8 +1,8 @@
 # Autonomous feature builds (spec → plan → ship)
 
-## Building a feature → SOP-12 (inherited from the Firm apex)
+## Building a feature → SOP-12 (inherited from the Factory apex)
 
-This node's build procedure is the Firm's **apex SOP-12 — "Build a codebase"**, inherited via the firm
+This node's build procedure is the Factory's **apex SOP-12 — "Build a codebase"**, inherited via the factory
 governance cascade. It **supersedes the prior local `autonomous-feature-builds` procedure**, and the agent
 governing this node **must follow it for any code build, without being told**. Shape:
 
@@ -20,6 +20,6 @@ governing this node **must follow it for any code build, without being told**. S
 
 **This node's specifics:** quality gate = `bun run lint && bun run typecheck && bun run test`; specs →
 `specs/`, plans → `plans/` (this repo currently uses `specs/` + `plans/` — keep using those for
-now, migrate later per thefirm/docs/firm-plugin-roadmap.md; never `superpowers/`). Full text:
-`~/code/me/org/sop/12-build-a-codebase.md` (or `firm seed sovereign-ai`). It is **inherited, not copied** —
+now, migrate later per thefactory/docs/factory-plugin-roadmap.md; never `superpowers/`). Full text:
+`~/code/me/org/sop/12-build-a-codebase.md` (or `factory seed sovereign-ai`). It is **inherited, not copied** —
 the apex owns it; this node may *tighten* but never relax it.
