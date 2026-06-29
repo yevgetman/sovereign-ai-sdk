@@ -30,12 +30,18 @@
 // terminal when the cap is breached.
 
 import { randomUUID } from 'node:crypto';
+import type { TaskOutput } from '../core/taskPort.js';
 import type { Terminal } from '../core/types.js';
 import type { DaemonEventBus } from '../daemon/eventBus.js';
 import type { DaemonEvent } from '../daemon/types.js';
 import type { SubagentScheduler } from '../runtime/scheduler.js';
 import type { TaskStore, UpdateOnCompleteInput } from './store.js';
 import type { CreateTaskInput, TaskController, TaskRecord, TaskState } from './types.js';
+
+// TaskOutput is relocated to open core (src/core/taskPort.ts) so
+// `TaskManagerPort.output()` references it without a proprietary import.
+// Re-exported here so existing importers keep their `./manager.js` path.
+export type { TaskOutput };
 
 const PREVIEW_MAX_CHARS = 1024;
 
@@ -52,17 +58,6 @@ export type TaskManagerOpts = {
   store: TaskStore;
   scheduler: SubagentScheduler;
   bus?: DaemonEventBus;
-};
-
-export type TaskOutput = {
-  state: TaskState;
-  summary?: string;
-  iterationsUsed?: number;
-  toolCallCount?: number;
-  durationMs?: number;
-  terminalReason?: string;
-  childSessionId?: string;
-  resultPreview?: string;
 };
 
 export class TaskManager {

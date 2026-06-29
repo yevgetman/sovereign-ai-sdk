@@ -71,7 +71,7 @@ export type ToolContext = {
   /** Phase 13.2 — task system manager. Tools task_create / task_list /
    *  task_get / task_stop / task_output read this. When absent, those
    *  tools throw a clear error rather than failing silently. */
-  taskManager?: import('../tasks/manager.js').TaskManager;
+  taskManager?: import('./ports.js').TaskManagerPort;
   /** Phase 13.3 — review manager. core/query.ts calls onToolIteration after
    *  each successful tool call. ReviewManager guards by sessionId so
    *  sub-agent tool calls do not contaminate the parent's counter. */

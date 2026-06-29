@@ -4,10 +4,16 @@
 
 import { runSynthesizer } from '../learning/synthesizer.js';
 import type { SubagentScheduler } from '../runtime/scheduler.js';
+import type { ChildCompletionEvent } from '../tool/ports.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { runConsolidation } from './consolidate.js';
 import { type ReviewAgentName, runReviewFork } from './fork.js';
+
+// ChildCompletionEvent is relocated to open core (src/tool/ports.ts) so the
+// open `ReviewManagerPort` can name it without importing this proprietary
+// layer. Re-exported here so existing importers keep their `./manager.js` path.
+export type { ChildCompletionEvent };
 
 export interface ReviewThresholds {
   userTurnsForMemoryReview: number;
@@ -39,24 +45,6 @@ export interface ReviewPaths {
   /** Phase 13.4 — optional instinct corpus directory. Reviewer agents
    *  prefer it over raw trajectory slices when present. */
   instinctsDir?: string;
-}
-
-export interface ChildCompletionEvent {
-  childSessionId: string;
-  taskId: string;
-  traceId: string;
-  /** Phase 13.3+ throttle inputs — used by ReviewManager to skip trivial
-   *  children that produced no learnable signal. */
-  iterationsUsed?: number;
-  toolCallCount?: number;
-  /** Phase 13.4 follow-up (Item 7) — count of distinct tool names the
-   *  child invoked. ReviewManager uses this to triage skill-shaped
-   *  children (>= SKILL_SHAPED_MIN_TOOL_CALLS calls AND
-   *  >= SKILL_SHAPED_MIN_DISTINCT_TOOLS distinct tools fires
-   *  review-skill alongside review-memory). Optional for back-compat
-   *  with callers that haven't been updated yet — when absent, only
-   *  the default review-memory dispatch fires. */
-  distinctToolCount?: number;
 }
 
 export interface ReviewManagerOpts {

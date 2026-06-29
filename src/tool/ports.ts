@@ -3,34 +3,72 @@
 // `ToolContext` (src/tool/types.ts) is open core, so it must not import the
 // proprietary `tasks/`, `review/`, `learning/`, or `router/` layers. This file
 // holds the open structural PORTS that the proprietary concrete classes satisfy
-// structurally (zero behavioral change), plus two PURE router types relocated
-// out of the proprietary `router/` layer so open core can reference them
-// directly. The proprietary modules re-export the relocated types, inverting the
-// dependency so existing importers keep their path — the same pattern
-// `core/observePort.ts` uses for `ObserveInput`.
+// structurally (zero behavioral change) — `ReviewManagerPort`,
+// `LearningObserverPort`, and `TaskManagerPort` — plus PURE DTOs relocated out
+// of proprietary layers so open core can reference them directly:
+// `ChildCompletionEvent` (from `review/`), and the two router types (`LaneRegistry`,
+// `DelegationLifecycleEvent`, from `router/`). The task-port DTOs the
+// `TaskManagerPort` signatures reference live in `core/taskPort.ts`. The
+// proprietary modules re-export the relocated types, inverting the dependency so
+// existing importers keep their path — the same pattern `core/observePort.ts`
+// uses for `ObserveInput`.
 
 import type { LaneConfig } from '../config/schema.js';
 import type { ObserveInput } from '../core/observePort.js';
+import type { CreateTaskInput, TaskOutput, TaskRecord } from '../core/taskPort.js';
+
+/** Relocated from `src/review/manager.ts` — a pure DTO of primitives describing
+ *  a completed child delegation. It lives here so open core (`ReviewManagerPort`
+ *  below) can name it directly without importing the proprietary `review/`
+ *  layer; `review/manager.ts` re-exports it for its existing importers. */
+export interface ChildCompletionEvent {
+  childSessionId: string;
+  taskId: string;
+  traceId: string;
+  /** Phase 13.3+ throttle inputs — used by ReviewManager to skip trivial
+   *  children that produced no learnable signal. */
+  iterationsUsed?: number;
+  toolCallCount?: number;
+  /** Phase 13.4 follow-up (Item 7) — count of distinct tool names the
+   *  child invoked. ReviewManager uses this to triage skill-shaped
+   *  children (>= SKILL_SHAPED_MIN_TOOL_CALLS calls AND
+   *  >= SKILL_SHAPED_MIN_DISTINCT_TOOLS distinct tools fires
+   *  review-skill alongside review-memory). Optional for back-compat
+   *  with callers that haven't been updated yet — when absent, only
+   *  the default review-memory dispatch fires. */
+  distinctToolCount?: number;
+}
 
 /** Open port for the proprietary `ReviewManager` (src/review/manager.ts).
  *  Contains exactly the members invoked through a `ToolContext`-typed reference:
  *   - `onToolIteration` — core/query.ts, after each successful tool batch.
  *   - `onChildCompletion` — runtime/scheduler.ts, after a child delegation
  *     completes.
- *  The completion-event parameter is expressed as an inline primitive shape
- *  (mirroring `review/manager.ts`'s `ChildCompletionEvent`, a pure DTO) so the
- *  port references only primitives and stays open. The concrete class satisfies
- *  this structurally — method parameters are bivariant, and the shapes match. */
+ *  The completion-event parameter is the relocated `ChildCompletionEvent` DTO
+ *  (above) — a pure primitive shape, so the port stays open. The concrete class
+ *  satisfies this structurally — method parameters are bivariant, the shapes
+ *  match. */
 export interface ReviewManagerPort {
   onToolIteration(callerSessionId: string): void;
-  onChildCompletion(evt: {
-    childSessionId: string;
-    taskId: string;
-    traceId: string;
-    iterationsUsed?: number;
-    toolCallCount?: number;
-    distinctToolCount?: number;
-  }): void;
+  onChildCompletion(evt: ChildCompletionEvent): void;
+}
+
+/** Open port for the proprietary `TaskManager` (src/tasks/manager.ts).
+ *  Contains exactly the members invoked through a `ToolContext`-typed reference
+ *  (the task_create / task_get / task_list / task_stop / task_output tools):
+ *   - `create` — TaskCreateTool.
+ *   - `get` — TaskGetTool.
+ *   - `list` — TaskListTool.
+ *   - `stop` — TaskStopTool.
+ *   - `output` — TaskOutputTool.
+ *  Its signatures reference the relocated open task DTOs (core/taskPort.ts), so
+ *  the port stays open. The concrete class satisfies this structurally. */
+export interface TaskManagerPort {
+  create(input: CreateTaskInput): Promise<TaskRecord>;
+  get(id: string): TaskRecord | null;
+  list(parentSessionId: string, opts?: { includeAll?: boolean }): TaskRecord[];
+  stop(id: string): Promise<TaskRecord | null>;
+  output(id: string): TaskOutput | null;
 }
 
 /** Open port for the proprietary `LearningObserver` (src/learning/observer.ts).

@@ -6,41 +6,12 @@
 // Source of pattern: ../runtime/scheduler.ts SubagentScheduler. The task
 // system is a fire-and-forget, lifecycle-aware wrapper around it.
 
-import type { MemoryRuntime } from '../memory/provider.js';
-import type { CanUseTool } from '../permissions/types.js';
-import type { Tool, ToolContext } from '../tool/types.js';
-import type { TraceEvent } from '../trace/types.js';
-
-export type TaskState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timed_out';
-
-/** Persisted shape of one task row. ISO timestamps for human-readable
- *  inspection; SQLite stores these as REAL epoch seconds underneath but the
- *  store layer translates at the boundary so callers always see ISO. */
-export type TaskRecord = {
-  id: string;
-  parentSessionId: string;
-  childSessionId?: string;
-  agent: string;
-  prompt: string;
-  state: TaskState;
-  createdAt: string;
-  updatedAt: string;
-  traceId?: string;
-  resultPreview?: string;
-};
-
-/** Input shape for TaskManager.create(). Mirrors what AgentTool builds
- *  internally — the manager is the new client of SubagentScheduler. */
-export type CreateTaskInput = {
-  parentSessionId: string;
-  agentName: string;
-  prompt: string;
-  parentToolPool: Tool<unknown, unknown>[];
-  parentToolContext: ToolContext;
-  canUseTool?: CanUseTool;
-  memoryManager?: MemoryRuntime;
-  traceRecorder?: (event: TraceEvent) => void;
-};
+// TaskState, TaskRecord, and CreateTaskInput are relocated to open core
+// (src/core/taskPort.ts) so `ToolContext.taskManager`'s `TaskManagerPort` can
+// reference them without importing this proprietary layer. Re-exported here so
+// existing importers keep their `./types.js` path (single source of truth =
+// core/taskPort.ts).
+export type { CreateTaskInput, TaskRecord, TaskState } from '../core/taskPort.js';
 
 /** Live, in-memory bookkeeping for a single running task. Held in
  *  TaskManager's Map<taskId, TaskController>. Survives only as long as
