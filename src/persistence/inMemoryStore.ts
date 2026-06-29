@@ -93,7 +93,9 @@ export function createInMemorySessionStore(): SessionStore {
     // Owner scoping: a real principal only sees its own rows (and never an
     // unowned one); omitting `owner` returns the row regardless.
     if (owner !== undefined && session.ownerId !== owner) return null;
-    return session;
+    // Deep-copy on read (mirrors SessionDb, which decodes a fresh object per
+    // read) so a caller mutating the returned Session can't corrupt stored state.
+    return deepCopy(session);
   }
 
   function updateSessionModel(sessionId: string, model: string): void {
@@ -120,15 +122,22 @@ export function createInMemorySessionStore(): SessionStore {
     if (list === undefined) messagesBySession.set(sessionId, [stored]);
     else list.push(stored);
     // Mirror saveMessage's `UPDATE sessions SET last_updated` (guarded on row
-    // existence — saveMessage against a missing session still returns the id).
+    // existence). NOTE: unlike SessionDb — whose `PRAGMA foreign_keys = ON`
+    // makes the message INSERT throw an FK violation when the session row is
+    // missing — the in-memory store has no FK enforcement and is intentionally
+    // lenient here: it stores the message and returns its id even with no
+    // session row (the last_updated bump simply no-ops). This is out of the
+    // normal turn path, which always creates the session before any message.
     const session = sessions.get(sessionId);
     if (session !== undefined) sessions.set(sessionId, { ...session, lastUpdated: now });
     return id;
   }
 
   function loadMessages(sessionId: string): StoredMessage[] {
-    // Fresh array (id-ascending by construction); empty when the session has none.
-    return [...(messagesBySession.get(sessionId) ?? [])];
+    // Deep-copy each message (id-ascending by construction; mirrors SessionDb,
+    // which JSON-decodes a fresh row per read) so a caller mutating a returned
+    // message can't corrupt stored state. Empty when the session has none.
+    return (messagesBySession.get(sessionId) ?? []).map(deepCopy);
   }
 
   function recordTokenUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void {

@@ -10,6 +10,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { SessionDb } from '../../src/agent/sessionDb.js';
+import type { StoredMessage } from '../../src/core/sessionPort.js';
 import type { ContentBlock, TokenUsage } from '../../src/core/types.js';
 import { createInMemorySessionStore } from '../../src/persistence/inMemoryStore.js';
 import type { SessionStore } from '../../src/persistence/sessionStore.js';
@@ -158,6 +159,43 @@ describe('createInMemorySessionStore', () => {
     const unowned = store.createSession({ model: 'm', provider: 'p' });
     expect(store.getSession(unowned, 'alice')).toBeNull();
     expect(store.getSession(unowned)?.ownerId).toBeNull();
+  });
+
+  test('read methods return deep copies — caller mutation cannot corrupt the store', () => {
+    const store = createInMemorySessionStore();
+    const id = store.createSession({
+      model: 'm',
+      provider: 'p',
+      title: 'original',
+      metadata: { note: 'keep' },
+    });
+    store.saveMessage(id, { role: 'user', content: [textBlock('hello')] });
+
+    // Mutate the object getSession hands back (including a nested field).
+    const session = store.getSession(id);
+    expect(session).not.toBeNull();
+    if (session !== null) {
+      session.model = 'mutated';
+      session.title = 'tampered';
+      (session.metadata as { note: string }).note = 'tampered';
+    }
+
+    // Mutate the objects loadMessages hands back (the array AND a message's content).
+    const messages = store.loadMessages(id);
+    expect(messages).toHaveLength(1);
+    messages.push({} as StoredMessage);
+    const firstBlock = messages[0]?.content[0];
+    if (firstBlock !== undefined && firstBlock.type === 'text') firstBlock.text = 'tampered';
+
+    // A fresh read reflects none of those mutations — reads are isolated copies.
+    const reread = store.getSession(id);
+    expect(reread?.model).toBe('m');
+    expect(reread?.title).toBe('original');
+    expect(reread?.metadata).toEqual({ note: 'keep' });
+
+    const rereadMessages = store.loadMessages(id);
+    expect(rereadMessages).toHaveLength(1);
+    expect(rereadMessages[0]?.content).toEqual([textBlock('hello')]);
   });
 });
 
