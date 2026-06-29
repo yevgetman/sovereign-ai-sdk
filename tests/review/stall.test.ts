@@ -1,7 +1,7 @@
 // Phase 13.3 — unit tests for the pure stall / no-op detector.
 
 import { describe, expect, test } from 'bun:test';
-import { type TurnSummary, detectStall } from '../../src/review/stall.js';
+import { type TurnSummary, detectStall } from '../../src/util/stall.js';
 
 function turn(partial: Partial<TurnSummary> = {}): TurnSummary {
   return {

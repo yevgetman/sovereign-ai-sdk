@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { Bundle } from '../bundle/types.js';
-import { tryGitProjectId } from '../learning/project.js';
+import { tryGitProjectId } from '../util/project.js';
 
 export type ProjectScope = { kind: 'project'; id: string; name: string } | { kind: 'none' };
 

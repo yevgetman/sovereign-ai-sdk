@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { validatePrincipalId } from '../server/principals.js';
+import { validatePrincipalId } from '../util/principals.js';
 
 const PROJECTS_DIR_NAME = 'projects';
 const MAX_SLUG_LEN = 200;

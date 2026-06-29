@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
-import { validatePrincipalId } from '../server/principals.js';
+import { validatePrincipalId } from '../util/principals.js';
 
 export type MemoryFile = 'MEMORY.md' | 'USER.md';
 
