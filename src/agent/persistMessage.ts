@@ -9,14 +9,14 @@
 // this module never imports the heavy Runtime type (avoids a cycle); the live
 // Runtime matches it.
 
-import type { TranscriptStore } from '../transcript/store.js';
+import type { FileTranscriptStore } from '../transcript/store.js';
 import type { SaveMessageInput, SessionDb } from './sessionDb.js';
 
 export type PersistMessageHost = {
   sessionDb: SessionDb;
   /** Optional — surfaces without a runtime store (e.g. `sov config` standalone)
    *  simply persist to the DB. */
-  transcripts?: TranscriptStore;
+  transcripts?: FileTranscriptStore;
 };
 
 /** Persist a message to the DB and append it to the session transcript.

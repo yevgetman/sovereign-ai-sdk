@@ -24,7 +24,7 @@ import {
   isModelUnavailable,
 } from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
-import type { TranscriptStore } from '../transcript/store.js';
+import type { FileTranscriptStore } from '../transcript/store.js';
 
 const TOOL_RESULT_PRUNE_CHARS = 800;
 const DEFAULT_TAIL_TOKEN_BUDGET = 4_000;
@@ -63,7 +63,7 @@ export type CompactOptions = {
   /** 2026-06-15 — optional transcript store so the post-compaction child
    *  session's seeded messages (summary + preserved tail) land in the JSONL
    *  transcript too. Omitted by callers without a runtime store. */
-  transcripts?: TranscriptStore;
+  transcripts?: FileTranscriptStore;
   sessionId: string;
   model: string;
   providerName: string;

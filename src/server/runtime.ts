@@ -84,7 +84,7 @@ import { assembleToolPool } from '../tool/registry.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { HarnessInfoSnapshot } from '../tools/HarnessInfoTool.js';
 import { buildWorkflowRunTool } from '../tools/WorkflowRunTool.js';
-import { TranscriptStore } from '../transcript/store.js';
+import { FileTranscriptStore } from '../transcript/store.js';
 import { ApprovalQueue } from './approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from './compactor.js';
 import { PreflightError, SessionNotFoundError } from './errors.js';
@@ -335,7 +335,7 @@ export type Runtime = {
    *  `<base>[/users/<owner>]/projects/<slug(cwd)>/<sessionId>.jsonl` (the
    *  Claude-Code ergonomic). `persistMessage` routes every persisted message
    *  through it. Optional so the `sov config` standalone runtime can omit it. */
-  transcripts?: TranscriptStore;
+  transcripts?: FileTranscriptStore;
   toolPool: Tool<unknown, unknown>[];
   systemSegments: SystemSegment[];
   provider: LLMProvider;
@@ -1779,7 +1779,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         ? join(homedir(), transcriptsCfg.dir.slice(2))
         : transcriptsCfg.dir
       : harnessHome;
-  const transcriptStore = new TranscriptStore({
+  const transcriptStore = new FileTranscriptStore({
     enabled: transcriptsCfg.enabled,
     base: transcriptBase,
     redactSecrets: transcriptsCfg.redactSecrets,

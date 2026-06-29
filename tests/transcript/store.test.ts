@@ -1,10 +1,10 @@
-// TranscriptStore — runtime-level per-session writer cache (2026-06-15).
+// FileTranscriptStore — runtime-level per-session writer cache (2026-06-15).
 
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type TranscriptSessionInfo, TranscriptStore } from '../../src/transcript/store.js';
+import { FileTranscriptStore, type TranscriptSessionInfo } from '../../src/transcript/store.js';
 
 function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sov-tstore-'));
@@ -20,10 +20,10 @@ const session = (over: Partial<TranscriptSessionInfo> = {}): TranscriptSessionIn
   ...over,
 });
 
-describe('TranscriptStore', () => {
+describe('FileTranscriptStore', () => {
   test('records a message to a per-session file (enabled)', async () => {
     await withTmp(async (base) => {
-      const store = new TranscriptStore({
+      const store = new FileTranscriptStore({
         enabled: true,
         base,
         redactSecrets: true,
@@ -41,7 +41,7 @@ describe('TranscriptStore', () => {
 
   test('enabled:false is a complete no-op (no file written)', async () => {
     await withTmp(async (base) => {
-      const store = new TranscriptStore({
+      const store = new FileTranscriptStore({
         enabled: false,
         base,
         redactSecrets: true,
@@ -56,7 +56,7 @@ describe('TranscriptStore', () => {
 
   test('owner-scoped sessions land under users/<owner>/projects', async () => {
     await withTmp(async (base) => {
-      const store = new TranscriptStore({
+      const store = new FileTranscriptStore({
         enabled: true,
         base,
         redactSecrets: true,
@@ -71,7 +71,7 @@ describe('TranscriptStore', () => {
 
   test('reuses one writer per session (multiple messages → one file, accruing)', async () => {
     await withTmp(async (base) => {
-      const store = new TranscriptStore({
+      const store = new FileTranscriptStore({
         enabled: true,
         base,
         redactSecrets: true,
@@ -89,7 +89,7 @@ describe('TranscriptStore', () => {
   });
 
   test('projectsDir reflects enabled state', () => {
-    const on = new TranscriptStore({
+    const on = new FileTranscriptStore({
       enabled: true,
       base: '/hh',
       redactSecrets: true,
@@ -97,7 +97,7 @@ describe('TranscriptStore', () => {
       getSession: () => null,
     });
     expect(on.projectsDir).toBe('/hh/projects');
-    const off = new TranscriptStore({
+    const off = new FileTranscriptStore({
       enabled: false,
       base: '/hh',
       redactSecrets: true,

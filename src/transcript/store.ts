@@ -6,6 +6,7 @@
 // across every surface (turns / channels / OpenAI API / compaction).
 
 import type { ContentBlock, Role } from '../core/types.js';
+import type { TranscriptStore } from '../persistence/transcriptStore.js';
 import { transcriptsRoot } from './paths.js';
 import { TranscriptWriter } from './writer.js';
 
@@ -33,7 +34,13 @@ export type TranscriptStoreOpts = {
   log?: (message: string) => void;
 };
 
-export class TranscriptStore {
+// `FileTranscriptStore implements TranscriptStore` (Task 2.2) declares structural
+// conformance to the open transcript port — the narrow caller-facing surface the
+// open SDK records through (recordMessage / closeSession / closeAll). The
+// `projectsDir` getter and the per-session writer cache stay on the concrete
+// class, off the port. The `implements` clause makes a future drift (a port
+// method's signature changing on this class) a typecheck failure.
+export class FileTranscriptStore implements TranscriptStore {
   private readonly writers = new Map<string, TranscriptWriter | null>();
 
   constructor(private readonly opts: TranscriptStoreOpts) {}

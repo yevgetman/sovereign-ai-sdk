@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { persistMessage } from '../../src/agent/persistMessage.js';
 import type { SaveMessageInput, SessionDb } from '../../src/agent/sessionDb.js';
-import { TranscriptStore } from '../../src/transcript/store.js';
+import { FileTranscriptStore } from '../../src/transcript/store.js';
 
 function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sov-persist-'));
@@ -38,7 +38,7 @@ describe('persistMessage', () => {
   test('writes the DB row and the transcript line, returning the row id', async () => {
     await withTmp(async (base) => {
       const { db, calls } = stubDb();
-      const transcripts = new TranscriptStore({
+      const transcripts = new FileTranscriptStore({
         enabled: true,
         base,
         redactSecrets: true,

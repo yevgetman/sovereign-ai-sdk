@@ -107,7 +107,7 @@ const SETTING_SCOPES: Readonly<Record<string, ApplyScope>> = Object.freeze({
   //    VERIFICATION 2026-06-14, T4 — each consumer captures the value at
   //    boot/construction and never re-reads it for the live TUI turn) ──
   'debugMode.': 'restart', // transcript writer opened at session start
-  // The TranscriptStore is built once at runtime boot (resolveTranscriptsConfig
+  // The FileTranscriptStore is built once at runtime boot (resolveTranscriptsConfig
   // at buildRuntime); a new session picks up a config change only after restart.
   'transcripts.': 'restart',
   // maxTurns + behavior.* are NOT passed to query() by the live-TUI turns
