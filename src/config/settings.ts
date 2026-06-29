@@ -9,6 +9,7 @@ import type { HookConfig, HookEventName } from '../hooks/types.js';
 import { normalizeAliasForEnv } from '../mcp/auth.js';
 import { type McpServerConfig, isRemoteMcpConfig } from '../mcp/types.js';
 import { type PermissionRule, type PermissionRuleLayer, parsePermissionRules } from './rules.js';
+import type { Settings } from './schema.js';
 
 export const PermissionModeSchema = z.enum(['default', 'ask', 'bypass']);
 export type RuntimePermissionMode = z.infer<typeof PermissionModeSchema>;
@@ -131,6 +132,17 @@ export type LoadedPermissionSettings = {
 type LoadPermissionSettingsOpts = {
   cwd: string;
   harnessHome: string;
+  /** SDK config-object injection seam (Task 2.3). When an in-memory `Settings`
+   *  object is injected through `buildRuntime`, the runtime is config-file-free:
+   *  the layered `settings.json` files on disk are bypassed entirely. The
+   *  injected `Settings` (the `config.json` shape) carries NO permission rules /
+   *  `mcpServers` / `hooks` — those live ONLY in the layered `settings.json`
+   *  (the separate `RuntimeSettings` shape) — so an injected settings resolves
+   *  to the same result as "no `settings.json` on disk": empty layers / servers
+   *  / hooks. (`config.json`'s `permissionMode` still applies via buildRuntime's
+   *  permission cascade `userSettings` fallback.) When OMITTED — the disk-config
+   *  path — these loaders read `settings.json` exactly as before. */
+  settings?: Settings;
 };
 
 type SettingsPath = {
@@ -148,6 +160,11 @@ export function getPermissionSettingsPaths(opts: LoadPermissionSettingsOpts): Se
 }
 
 export function loadPermissionSettings(opts: LoadPermissionSettingsOpts): LoadedPermissionSettings {
+  // SDK injection (Task 2.3) — an injected `Settings` makes the runtime
+  // config-file-free, so the layered settings.json files are not read. The
+  // injected config.json shape has no permission RULES (only `permissionMode`,
+  // handled by buildRuntime's cascade), so this resolves to "no settings.json".
+  if (opts.settings !== undefined) return { mode: 'default', layers: [], sources: [] };
   const discovered: Array<{ source: string; settings: RuntimeSettings }> = [];
   for (const item of getPermissionSettingsPaths(opts)) {
     if (!existsSync(item.path)) continue;
@@ -220,6 +237,9 @@ export function mergeHookEvents(
  *  Code semantics — multiple settings files contribute additively, and
  *  blanket denial is achieved per-event via a hook script that exits 2). */
 export function loadHookSettings(opts: LoadPermissionSettingsOpts): LoadedHookSettings {
+  // SDK injection (Task 2.3) — injected settings ⇒ config-file-free runtime:
+  // no settings.json read. config.json carries no `hooks`, so this is empty.
+  if (opts.settings !== undefined) return { hooksByEvent: emptyHookMergeState(), sources: [] };
   let hooksByEvent = emptyHookMergeState();
   const sources: string[] = [];
   for (const item of getPermissionSettingsPaths(opts)) {
@@ -306,6 +326,9 @@ export function mergeMcpServers(
  *  are concatenated by alias. Duplicate aliases across layers are an error
  *  — the user must rename one or pick a single source. */
 export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedMcpServerSettings {
+  // SDK injection (Task 2.3) — injected settings ⇒ config-file-free runtime:
+  // no settings.json read. config.json carries no `mcpServers`, so this is empty.
+  if (opts.settings !== undefined) return { servers: {}, sources: [] };
   let state = emptyMcpMergeState();
   const sources: string[] = [];
   for (const item of getPermissionSettingsPaths(opts)) {

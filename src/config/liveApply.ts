@@ -345,11 +345,12 @@ const taskRoutingHotReloadHook: LiveApplyHook = async (_newValue, ctx) => {
 };
 
 /**
- * `webSearch.*` — VERIFIED read-on-demand. `src/tools/WebSearchTool.ts:61`
- * calls `readConfig()` at invoke time, so any change to
- * `webSearch.provider` / `webSearch.apiKey` / `webSearch.maxResults` is
- * picked up by the next tool invocation without restart. Hook just
- * confirms applied.
+ * `webSearch.*` — read-on-demand, preserved across Task 2.3. WebSearchTool no
+ * longer does an ambient `readConfig()`; it reads `ctx.webSearch`, which the
+ * per-turn ToolContext builder (`buildSessionToolContext`) re-reads from
+ * `config.json` each turn (unless an in-memory Settings was injected). So a
+ * change to `webSearch.provider` / `webSearch.apiKey` / `webSearch.maxResults`
+ * is still picked up by the next turn without restart. Hook just confirms applied.
  */
 const webSearchHook: LiveApplyHook = async (_newValue, ctx) => {
   if (ctx.commandCtx === undefined) return 'persisted-only';

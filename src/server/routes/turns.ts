@@ -24,6 +24,7 @@ import { type PersistMessageHost, persistMessage } from '../../agent/persistMess
 import { buildToolScope, filterParseableRules } from '../../commands/toolScope.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
+import { readConfig } from '../../config/store.js';
 import { expandContextReferences } from '../../context/references.js';
 import { query } from '../../core/query.js';
 import { repairMissingToolResults } from '../../core/transcriptRepair.js';
@@ -360,6 +361,14 @@ export function buildSessionToolContext(
   const activeToolNames = effectivePool.map((t) => t.name);
   const activeToolsets = inferActiveToolsets(activeToolNames);
   const filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
+  // Task 2.3 — source WebSearchTool's provider config for `ctx.webSearch` (the
+  // tool no longer reads config ambiently). An injected Settings (SDK seam,
+  // config-file-free) is used verbatim; otherwise re-read config.json per turn
+  // so live `webSearch.*` edits stay read-on-demand (byte-identical to the
+  // tool's prior invoke-time read, now relocated to the per-turn assembler).
+  const webSearch =
+    runtime.injectedSettings?.webSearch ??
+    readConfig({ harnessHome: runtime.harnessHome }).webSearch;
   return {
     cwd: runtime.cwd,
     sessionId,
@@ -386,6 +395,8 @@ export function buildSessionToolContext(
     skills: filteredSkills,
     activeToolNames,
     activeToolsets,
+    // Task 2.3 — WebSearchTool reads its provider config off `ctx.webSearch`.
+    ...(webSearch !== undefined ? { webSearch } : {}),
     // M7 T5 — per-session learning observer. Orchestrator reads this via
     // optional-chain after every tool call (src/core/orchestrator.ts:581).
     // Left off entirely when learning.disabled === true upstream.

@@ -3,7 +3,9 @@
 // {title, url, snippet} results that the model can then drill into via
 // WebFetch.
 //
-// Provider config (all optional, taken from `~/.harness/config.json`):
+// Provider config (all optional). The runtime/CLI assembler threads the
+// resolved `webSearch` slice onto the `ToolContext` (Task 2.3 — `ctx.webSearch`),
+// so this tool no longer does an ambient config-store read at call time:
 //   webSearch.provider: 'tavily' | 'brave'  — default 'tavily'
 //   webSearch.apiKey:   string              — provider API key
 //   webSearch.maxResults: int               — default cap (1–20)
@@ -13,7 +15,6 @@
 // returns a structured error pointing the user to docs/usage.md.
 
 import { z } from 'zod';
-import { readConfig } from '../config/store.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const DEFAULT_MAX_RESULTS = 5;
@@ -47,18 +48,27 @@ type Output = {
   results: WebSearchResult[];
 };
 
+// Mirrors the OPEN `Settings['webSearch']` slice threaded onto `ctx.webSearch`.
+// Props carry an explicit `| undefined` so the schema-derived slice (whose
+// optional fields include `undefined` under exactOptionalPropertyTypes) is
+// directly assignable.
 type WebSearchSettings = {
-  provider?: string;
-  apiKey?: string;
-  maxResults?: number;
+  provider?: string | undefined;
+  apiKey?: string | undefined;
+  maxResults?: number | undefined;
 };
 
-function resolveProviderSettings(env: NodeJS.ProcessEnv = process.env): {
+function resolveProviderSettings(
+  webSearch: WebSearchSettings | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): {
   provider: 'tavily' | 'brave';
   apiKey: string | undefined;
   configuredMax: number | undefined;
 } {
-  const settings = (readConfig() as { webSearch?: WebSearchSettings }).webSearch ?? {};
+  // Task 2.3 — config arrives via the ToolContext (`ctx.webSearch`), threaded
+  // from the resolved Settings by the assembler. No ambient disk read here.
+  const settings = webSearch ?? {};
   const explicit = settings.provider;
   const configKey = settings.apiKey;
   const tavilyEnv = env.TAVILY_API_KEY;
@@ -180,11 +190,11 @@ export const WebSearchTool = buildTool<Input, Output>({
   // and won't hit the no-key error path. The error path below is kept for
   // defense in depth (tests, programmatic use, mid-session config drift).
   // Setup: docs/usage.md § Web Tools.
-  isEnabled: () => resolveProviderSettings().apiKey !== undefined,
+  isEnabled: (ctx) => resolveProviderSettings(ctx?.webSearch).apiKey !== undefined,
   async call(input, ctx) {
     const env = (ctx as { env?: NodeJS.ProcessEnv }).env ?? process.env;
     const fetchImpl = (ctx as { fetchImpl?: typeof fetch }).fetchImpl ?? globalThis.fetch;
-    const { provider, apiKey, configuredMax } = resolveProviderSettings(env);
+    const { provider, apiKey, configuredMax } = resolveProviderSettings(ctx.webSearch, env);
     if (!apiKey) {
       throw new Error(
         `WebSearch needs an API key. Run \`sov config set webSearch.provider ${provider}\` and \`sov config set webSearch.apiKey <key>\`, or export ${

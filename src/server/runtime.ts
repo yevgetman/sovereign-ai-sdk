@@ -326,6 +326,16 @@ export type RuntimeOptions = {
    *  block process exit, but explicit opt-out is still safer for tests
    *  that drive their own clock or wait on side effects. */
   cronEnabled?: boolean;
+  /** Task 2.3 — SDK config-object injection. When supplied, the validated
+   *  `Settings` object is used DIRECTLY and the on-disk `config.json` is never
+   *  read: `buildRuntime` resolves config ONCE at the top
+   *  (`opts.settings ?? readConfig({ harnessHome })`) and threads that single
+   *  object to every config-consuming site (provider resolution, plugins,
+   *  taskRouting, webSearch) AND bypasses the layered `settings.json` loaders
+   *  (permissions / mcp / hooks). This is the seam the Phase-3 SDK (`createAgent`)
+   *  uses so an embedded agent needs no config file. When OMITTED, behavior is
+   *  byte-identical to before (one `readConfig({ harnessHome })` at boot). */
+  settings?: Settings;
 };
 
 export type Runtime = {
@@ -356,6 +366,12 @@ export type Runtime = {
   cwd: string;
   bundleRoot: string | undefined;
   harnessHome: string;
+  /** Task 2.3 — the `Settings` object injected via `RuntimeOptions.settings`,
+   *  or `undefined` for the disk-config path. Lets the per-turn ToolContext
+   *  builder source `webSearch` from the injected object (config-file-free)
+   *  while the omitted case re-reads `config.json` per turn (read-on-demand,
+   *  preserving live `webSearch.*` edits). */
+  injectedSettings?: Settings;
   /** Resolved-provider record kept so the server can re-introspect (model,
    *  context length, auth type) without rebuilding. */
   resolvedProvider: ResolvedProvider;
@@ -651,6 +667,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     throw new Error('captureFixturePath and replayFixturePath are mutually exclusive');
   }
   const harnessHome = opts.harnessHome ?? resolveHarnessHome();
+  // Task 2.3 — resolve config ONCE. An injected `Settings` (SDK seam) is used
+  // verbatim and fully bypasses disk; otherwise read `config.json` from the
+  // runtime's resolved home exactly as before. Every config-consuming site
+  // below threads THIS single object instead of re-reading disk (the boot path
+  // previously read config three+ times). The layered settings.json loaders
+  // (permissions / mcp / hooks) are bypassed only when `opts.settings` is
+  // injected — see the `opts.settings` spreads at their call sites.
+  const settings = opts.settings ?? readConfig({ harnessHome });
   const requestedBundleRoot = opts.bundleRoot ?? getDefaultBundlePath() ?? undefined;
   const bundle = await loadBundleIfPresent(requestedBundleRoot ?? null);
   // bundleRoot must track the bundle that actually loaded — keeping the
@@ -676,7 +700,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // disclosed hooks/mcp are surfaced (HarnessInfo) but NEVER wired.
   const { plugins, contributions: pluginContributions } = await loadPluginRuntime({
     harnessHome,
-    config: readConfig({ harnessHome }).plugins ?? {},
+    config: settings.plugins ?? {},
     warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
   });
 
@@ -713,7 +737,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // reconnected pool's tools flow into the next-turn snapshot + tool-pool
   // rebuild. The runtime literal's `mcpClientPool` field is also reassigned in
   // lockstep so external introspection (HarnessInfo / dispose) sees the live pool.
-  let mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
+  let mcpSettings = loadMcpServerSettings({
+    cwd: opts.cwd,
+    harnessHome,
+    ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+  });
   let mcpClientPool: McpClientPool | undefined =
     opts.mcpClientPool ??
     (Object.keys(mcpSettings.servers).length > 0
@@ -735,14 +763,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // Backlog #55 — read config from the runtime's resolved harnessHome (not
   // the process-global home) so a runtime built with an explicit harnessHome
   // (while $HARNESS_HOME is unset) reads ITS config, not ~/.harness/config.json.
-  const earlySettings = readConfig({ harnessHome });
   const taskRoutingEnabledAtBoot = resolveTaskRoutingEnabled(
     process.env.SOV_TASK_ROUTING_ENABLED,
-    earlySettings.taskRouting?.enabled,
+    settings.taskRouting?.enabled,
   );
   const toolVisibleAgents = computeToolVisibleAgents(agents, {
     taskRoutingEnabled: taskRoutingEnabledAtBoot,
-    subscriptionExecutorEnabled: earlySettings.subscriptionExecutor?.enabled === true,
+    subscriptionExecutorEnabled: settings.subscriptionExecutor?.enabled === true,
   });
 
   // Bare tool context — no memory/skills/scheduler/task manager/learning
@@ -754,6 +781,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     sessionId: 'pending',
     harnessHome,
     agents: toolVisibleAgents,
+    // Task 2.3 — thread webSearch config so WebSearchTool.isEnabled() gates
+    // visibility off `ctx.webSearch` (assembler-populated) instead of an
+    // ambient readConfig(). Tracks boot + reload assembly, as before.
+    ...(settings.webSearch !== undefined ? { webSearch: settings.webSearch } : {}),
   };
 
   // M10 audit fix — wire HarnessInfoTool into the server-mode tool pool.
@@ -766,7 +797,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   let finalToolPoolRef: Tool<unknown, unknown>[] = [];
   let systemSegmentsRef: SystemSegment[] = [];
   const harnessInfoSnapshot = (): HarnessInfoSnapshot => {
-    const ps = loadPermissionSettings({ cwd: opts.cwd, harnessHome });
+    const ps = loadPermissionSettings({
+      cwd: opts.cwd,
+      harnessHome,
+      ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    });
     const settingsPaths = getPermissionSettingsPaths({ cwd: opts.cwd, harnessHome });
     const presentSources = new Set(ps.sources);
     const liveByServer = new Map<string, string[]>();
@@ -872,8 +907,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // Phase 1 — pulled BEFORE the buildSystemSegments call so the
   // smart-router prompt body can flow into the parent system prompt when
   // `userSettings.taskRouting?.enabled === true`.
-  // Backlog #55 — scoped to the runtime's harnessHome (see earlySettings above).
-  const userSettings = readConfig({ harnessHome });
+  // Task 2.3 — alias the single resolved `settings` (resolved once at the top:
+  // injected object or one readConfig({ harnessHome })). The ~15 downstream
+  // `userSettings.*` reads below keep their name but now share that one object.
+  const userSettings = settings;
 
   // Phase B T2 — set the per-session SSE replay-ring default from
   // gateway.eventBufferSize so every bus minted at runtime (turns / events /
@@ -992,9 +1029,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     }
     const localResolved = resolveProvider(routerCfg.localProvider, routerCfg.localModel, {
       harnessHome,
+      settings,
     });
     const frontierResolved = resolveProvider(routerCfg.frontierProvider, routerCfg.frontierModel, {
       harnessHome,
+      settings,
     });
     routerAuditLogger = new RouterAuditLogger({
       harnessHome,
@@ -1047,6 +1086,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   } else {
     resolved = resolveProvider(opts.provider, opts.model, {
       harnessHome,
+      settings,
     });
   }
   // M8 T2 — capture wrapping for the non-replay paths. Replay already
@@ -1135,7 +1175,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       registry: laneRegistry,
       harnessHome,
       resolveProvider: async (laneProvider, laneModel, ropts) =>
-        resolveProvider(laneProvider, laneModel, { harnessHome: ropts.harnessHome }),
+        resolveProvider(laneProvider, laneModel, { harnessHome: ropts.harnessHome, settings }),
       preflight: async (popts) => {
         const probeResult = await preflightProvider({
           provider: popts.provider as LLMProvider,
@@ -1212,6 +1252,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const permissionSettings = loadPermissionSettings({
     cwd: opts.cwd,
     harnessHome,
+    ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
   });
   const permissionMode: PermissionMode =
     opts.permissionMode !== undefined && opts.permissionMode !== 'default'
@@ -1261,7 +1302,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // ~/.harness/shell-hooks-allowlist.json; once a genuine allow is recorded
   // there, the hook fires through that cached decision. Always built — first-
   // call cost with no hooks configured is one map lookup.
-  const hookSettings = loadHookSettings({ cwd: opts.cwd, harnessHome });
+  const hookSettings = loadHookSettings({
+    cwd: opts.cwd,
+    harnessHome,
+    ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+  });
   const hookConsentStore = buildFileConsentStore(join(harnessHome, 'shell-hooks-allowlist.json'));
   const hookConsent = buildConsentChecker({
     store: hookConsentStore,
@@ -1536,6 +1581,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       sessionId: 'pending',
       harnessHome,
       agents: freshVisibleAgents,
+      // Task 2.3 — keep WebSearchTool visibility tracking live config on reload.
+      ...(fresh.webSearch !== undefined ? { webSearch: fresh.webSearch } : {}),
     };
     const freshPool = assembleToolPool(freshToolCtx, {
       mcpTools,
@@ -1748,6 +1795,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       sessionId: 'pending',
       harnessHome,
       agents: freshVisibleAgents,
+      // Task 2.3 — keep WebSearchTool visibility tracking live config on reload.
+      ...(fresh.webSearch !== undefined ? { webSearch: fresh.webSearch } : {}),
     };
     const freshPool = assembleToolPool(freshToolCtx, {
       mcpTools,
@@ -1805,6 +1854,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     cwd: opts.cwd,
     bundleRoot,
     harnessHome,
+    // Task 2.3 — echo the injected Settings (undefined on the disk path) so the
+    // per-turn ToolContext builder can source webSearch from it (config-free)
+    // or fall back to a per-turn readConfig (read-on-demand) when absent.
+    ...(opts.settings !== undefined ? { injectedSettings: opts.settings } : {}),
     resolvedProvider: resolved,
     canUseTool,
     permissionMode,

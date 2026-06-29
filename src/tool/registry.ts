@@ -130,7 +130,9 @@ export function assembleToolPool(
   opts: AssembleToolPoolOpts = {},
 ): Tool<unknown, unknown>[] {
   const merged: Tool<unknown, unknown>[] = [...REGISTERED_TOOLS, ...(opts.mcpTools ?? [])];
-  const enabled = merged.filter((t) => t.isEnabled());
+  // Task 2.3 — pass the assembly ctx so config-gated tools (WebSearchTool reads
+  // `ctx.webSearch`) decide visibility from threaded config, not an ambient read.
+  const enabled = merged.filter((t) => t.isEnabled(ctx));
   // ToolSearch must see every deferred tool in the final pool — including
   // MCP tools — so its closure reads from the assembled list.
   const toolSearch = buildToolSearchTool(() =>

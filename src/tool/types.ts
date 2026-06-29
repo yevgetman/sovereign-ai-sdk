@@ -60,6 +60,13 @@ export type ToolContext = {
   sessionId: string;
   harnessHome?: string;
   signal?: AbortSignal;
+  /** Task 2.3 — WebSearch provider config (provider / apiKey / maxResults),
+   *  threaded from the resolved `Settings` by the runtime/CLI assembler so
+   *  WebSearchTool reads it off `ctx` instead of doing an ambient `readConfig()`
+   *  at call time. Uses the OPEN `Settings` slice so ToolContext stays fully
+   *  open. Absent when no webSearch config is present (the tool then falls back
+   *  to the `TAVILY_API_KEY` / `BRAVE_SEARCH_API_KEY` env vars). */
+  webSearch?: import('../config/schema.js').Settings['webSearch'];
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
   subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
   skills?: import('../skills/types.js').SkillRegistry;
@@ -200,7 +207,12 @@ export type ToolDef<I, O, P = void> = {
   affectedPaths?: (input: I) => string[];
 
   // Overridable; all have fail-closed defaults in buildTool().
-  isEnabled?: () => boolean;
+  /** Whether this tool is exposed in `<available-tools>`. Receives the
+   *  pool-assembly `ToolContext` (Task 2.3) so a tool can gate visibility on
+   *  threaded config (e.g. WebSearchTool reads `ctx.webSearch`) rather than an
+   *  ambient disk read. `ctx` is optional so zero-arg overrides + direct calls
+   *  stay valid. */
+  isEnabled?: (ctx?: ToolContext) => boolean;
   isReadOnly?: (input: I) => boolean;
   isConcurrencySafe?: (input: I) => boolean;
   isDestructive?: (input: I) => boolean;

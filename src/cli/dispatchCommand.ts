@@ -93,6 +93,9 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     memoryManager,
     agents: loadedAgents,
     projectScope,
+    // Task 2.3 — WebSearchTool reads its config off `ctx.webSearch` (no ambient
+    // readConfig); thread the slice from this surface's already-loaded settings.
+    ...(userSettings.webSearch !== undefined ? { webSearch: userSettings.webSearch } : {}),
   };
   const toolPool: Tool<unknown, unknown>[] = assembleToolPool(toolContext);
   const systemPrompt: SystemSegment[] = buildSystemSegments({

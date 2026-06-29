@@ -203,6 +203,9 @@ async function runMissionWakeLocked(
       memoryManager,
       agents: loadedAgents,
       projectScope,
+      // Task 2.3 — WebSearchTool reads its config off `ctx.webSearch` (no ambient
+      // readConfig); thread the slice from this surface's already-loaded settings.
+      ...(userSettings.webSearch !== undefined ? { webSearch: userSettings.webSearch } : {}),
     };
     const fullPool = assembleToolPool(preliminaryToolContext);
     const scoped = buildToolScope({
