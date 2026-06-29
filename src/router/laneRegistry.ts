@@ -1,10 +1,12 @@
 import type { LaneConfig, TaskRoutingConfig } from '../config/schema.js';
+import type { LaneRegistry } from '../tool/ports.js';
 import { resolveLane } from './lanes.js';
 
-export type LaneRegistry = {
-  lookup: (role: string) => LaneConfig | undefined;
-  entries: () => Array<{ name: string; config: LaneConfig }>;
-};
+// `LaneRegistry` is a pure type, relocated to open core (src/tool/ports.ts) so
+// `ToolContext` can reference it without importing this proprietary router
+// module. Re-exported here so existing importers (server/runtime.ts,
+// router/preflight.ts) keep their path; `buildLaneRegistry` below still returns it.
+export type { LaneRegistry };
 
 /** The canonical cost-lane role names the lane registry pre-resolves. Exported
  *  so workflow validation can reject a `task.lane` that isn't one of these

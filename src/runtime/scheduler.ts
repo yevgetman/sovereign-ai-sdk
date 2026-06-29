@@ -32,7 +32,7 @@ import type { CanUseTool } from '../permissions/types.js';
 import { wrapCanUseToolWithWriteScope } from '../permissions/writeScope.js';
 import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
-import type { DelegationLifecycleEvent } from '../router/progressEvents.js';
+import type { DelegationLifecycleEvent } from '../tool/ports.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { TraceWriter } from '../trace/writer.js';

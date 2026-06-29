@@ -32,43 +32,17 @@
 import { z } from 'zod';
 import type { AgentRegistry } from '../agents/types.js';
 import type { ServerEventBus } from '../server/eventBus.js';
+import type { DelegationLifecycleEvent } from '../tool/ports.js';
 
-/** Internal lifecycle event the scheduler fires through
- *  `delegationLifecycleRecorder`. Discriminated by `kind`. The runtime's
- *  synthesis closure consumes these and re-publishes them as one of the
- *  four delegator_* SSE events when they belong to the active delegator
- *  call graph. Non-router delegations (e.g., a parent dispatching `explore`
- *  directly) are dropped. */
-export type DelegationLifecycleEvent =
-  | {
-      kind: 'delegation_started';
-      childSessionId: string;
-      parentSessionId: string;
-      agentName: string;
-      laneName: string | null;
-      /** 2026-05-24 patch — lane's resolved provider, when the lane
-       *  was non-null. Forwarded onto the wire delegator_atom_started
-       *  event so the TUI can surface "anthropic/claude-haiku-4-5"
-       *  in debug mode. */
-      laneProvider: string | null;
-      /** Lane's resolved model — same purpose as `laneProvider`. */
-      laneModel: string | null;
-      promptPreview: string;
-    }
-  | {
-      kind: 'delegation_completed';
-      childSessionId: string;
-      parentSessionId: string;
-      agentName: string;
-      laneName: string | null;
-      /** Mirrors the started event so the completion line can surface
-       *  the same provider/model — saves the renderer from having to
-       *  cross-reference the started event. */
-      laneProvider: string | null;
-      laneModel: string | null;
-      success: boolean;
-      durationMs: number;
-    };
+// The internal lifecycle event the scheduler fires through
+// `delegationLifecycleRecorder` (discriminated by `kind`) is a pure primitive
+// union, relocated to open core (src/tool/ports.ts) so `ToolContext` and the
+// open scheduler can reference it without importing this proprietary router
+// module. The runtime's synthesis closure (below) consumes these and
+// re-publishes them as one of the four delegator_* SSE events when they belong
+// to the active delegator call graph. Re-exported here so existing importers
+// keep their path.
+export type { DelegationLifecycleEvent };
 
 // --- Wire-event Zod schemas -------------------------------------------------
 

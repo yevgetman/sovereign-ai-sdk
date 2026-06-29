@@ -75,7 +75,7 @@ export type ToolContext = {
   /** Phase 13.3 — review manager. core/query.ts calls onToolIteration after
    *  each successful tool call. ReviewManager guards by sessionId so
    *  sub-agent tool calls do not contaminate the parent's counter. */
-  reviewManager?: import('../review/manager.js').ReviewManager;
+  reviewManager?: import('./ports.js').ReviewManagerPort;
   /** Phase 13.3 T11 — when true, memory_propose skips the pending queue and
    *  appends the body directly to MEMORY.md / USER.md. */
   reviewAutoPromoteMemory?: boolean;
@@ -86,7 +86,7 @@ export type ToolContext = {
    *  ctx.learningObserver?.observe(...) after each tool call so every
    *  tool invocation lands in the per-project corpus. Fire-and-forget;
    *  never blocks the turn. */
-  learningObserver?: import('../learning/observer.js').LearningObserver;
+  learningObserver?: import('./ports.js').LearningObserverPort;
   /** Phase 13.4 follow-up (Item 19) — per-session project identity used
    *  by MemoryTool to route writes to global vs. per-project MEMORY.md.
    *  Set by the runtime at session boot via resolveProjectScope().
@@ -125,7 +125,7 @@ export type ToolContext = {
    *  so non-server callers (CLI utilities, isolated tests) that never
    *  build a lane registry stay valid; AgentTool falls through to the
    *  scheduler's existing fallback chain when this field is absent. */
-  laneRegistry?: import('../router/laneRegistry.js').LaneRegistry;
+  laneRegistry?: import('./ports.js').LaneRegistry;
   /** Phase 2 T4 — delegation lifecycle recorder. AgentTool threads this
    *  into `scheduler.delegate()` so the scheduler fires lifecycle events
    *  at start + completion of every child delegation. The runtime
@@ -134,9 +134,7 @@ export type ToolContext = {
    *  `src/router/progressEvents.ts`). Optional so non-server callers
    *  (CLI utilities, isolated tests) that don't need progress events
    *  stay valid; absent recorder == no lifecycle events emitted. */
-  delegationLifecycleRecorder?: (
-    event: import('../router/progressEvents.js').DelegationLifecycleEvent,
-  ) => void;
+  delegationLifecycleRecorder?: (event: import('./ports.js').DelegationLifecycleEvent) => void;
 };
 
 /** Structured tool output plus optional transcript messages injected after the result. */
