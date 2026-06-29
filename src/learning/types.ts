@@ -3,9 +3,13 @@
 // instinct corpus.
 
 import { z } from 'zod';
+import { type ObservationStatus, ObservationStatusSchema } from '../core/observePort.js';
 
-export const ObservationStatusSchema = z.enum(['success', 'error', 'denied', 'cancelled']);
-export type ObservationStatus = z.infer<typeof ObservationStatusSchema>;
+// `ObservationStatus` + its defining enum `ObservationStatusSchema` now live in
+// the open core (`core/observePort.js`). Imported for local use (ObservationSchema
+// below) and re-exported so existing learning importers keep their path unchanged.
+export { ObservationStatusSchema };
+export type { ObservationStatus };
 
 export const ObservationSchema = z
   .object({

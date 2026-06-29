@@ -8,10 +8,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { appendFile, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { ObserveInput } from '../core/observePort.js';
 import { redact } from '../trajectory/redact.js';
 import { ensureLearningDirs, observationsPath } from './paths.js';
 import { getProjectId } from './project.js';
-import type { Observation, ObservationStatus } from './types.js';
+import type { Observation } from './types.js';
+
+// `ObserveInput` now lives in the open core (`core/observePort.js`). Re-exported
+// so existing importers (runtime/subprocessExecutor, tests) keep their path.
+export type { ObserveInput };
 
 export interface LearningObserverOpts {
   harnessHome: string;
@@ -25,15 +30,6 @@ export interface LearningObserverOpts {
    *  the session's ownerId, never from caller input; validated at the path
    *  boundary in paths.ts. */
   userId?: string;
-}
-
-export interface ObserveInput {
-  toolName: string;
-  toolInput: unknown;
-  status: ObservationStatus;
-  durationMs: number;
-  observationEnvelope?: { status: 'success' | 'warning' | 'error'; summary: string };
-  traceId?: string;
 }
 
 const DEFAULT_BUFFER = 200;

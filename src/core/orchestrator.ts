@@ -17,11 +17,11 @@
 
 import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
 import type { HookRunner } from '../hooks/types.js';
-import type { ObservationStatus } from '../learning/types.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
 import type { TraceEvent } from '../trace/types.js';
+import type { ObservationStatus } from './observePort.js';
 import type { ContentBlock, Message, UserMessage } from './types.js';
 
 type TraceRecorder = (event: TraceEvent) => void;
