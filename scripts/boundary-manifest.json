@@ -1,0 +1,64 @@
+{
+  "$comment": [
+    "File-level open/proprietary partition for the open-core SDK boundary lint.",
+    "Authoritative source: specs/2026-06-29-sdk-open-core-extraction-design.md §4.",
+    "The lint rule (no-open-to-proprietary in .dependency-cruiser.cjs) forbids any",
+    "OPEN source file from importing (value OR type) a NON-OPEN file.",
+    "NON-OPEN = every src file that is not in the OPEN set below (proprietary dirs,",
+    "wrapper surfaces, the proprietary files inside otherwise-open split dirs, and",
+    "anything unclassified such as eval/evals).",
+    "Patterns are JS-regex strings matched against the repo-relative module path",
+    "(e.g. 'src/runtime/executorPort.ts'). Negative lookaheads carve the file-level",
+    "exceptions out of an otherwise-open directory."
+  ],
+  "openFullyDirs": [
+    "^src/core/",
+    "^src/tool/",
+    "^src/providers/",
+    "^src/mcp/",
+    "^src/hooks/",
+    "^src/skills/",
+    "^src/memory/",
+    "^src/transcript/",
+    "^src/loop/",
+    "^src/permissions/",
+    "^src/agents/",
+    "^src/context/",
+    "^src/tools/",
+    "^src/util/",
+    "^src/trace/",
+    "^src/trajectory/",
+    "^src/bundle/"
+  ],
+  "openSplitDirFiles": [
+    "^src/runtime/(?!subprocessExecutor\\.)",
+    "^src/compact/(?!compactor\\.)",
+    "^src/config/(?!liveApply\\.)",
+    "^src/commands/(?!(pluginOps|reviewOps|workflowOps|routingStats)\\.)"
+  ],
+  "openFilesInProprietaryDirs": [
+    "^src/router/capabilities\\."
+  ],
+  "openRootFiles": [
+    "^src/version\\."
+  ],
+  "openRootFilesNote": [
+    "src/version.ts is a trivial version-string leaf (imports only node builtins +",
+    "package.json, no internal src deps) consumed by open files (transcript/writer,",
+    "mcp/client); it is open-core. src/main.ts is the wrapper entrypoint → NON-OPEN."
+  ],
+  "proprietaryFilesNote": [
+    "Documented for readers — already excluded from OPEN by the negative lookaheads",
+    "above, so they fall into NON-OPEN automatically:",
+    "  src/runtime/subprocessExecutor.ts, src/compact/compactor.ts,",
+    "  src/config/liveApply.ts, src/commands/{pluginOps,reviewOps,workflowOps,routingStats}.ts"
+  ],
+  "proprietaryDirsNote": [
+    "Fully NON-OPEN (proprietary or wrapper) — not enumerated here because NON-OPEN",
+    "is the complement of OPEN. For readers:",
+    "  proprietary: learning, learning-layer, server, workflows, daemon, cron,",
+    "    channels, plugins, tasks, agent, review, router(rest), agent/sessionDb.",
+    "  wrapper (proprietary for this lint): cli, openai, mission, ui, main.ts.",
+    "  unclassified (treated NON-OPEN): eval, evals."
+  ]
+}
