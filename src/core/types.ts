@@ -5,7 +5,7 @@
 // Source of pattern: Claude Code (agent-harness-design-lessons.md § Lesson 1-6;
 // harness-build-plan.md § 0.3).
 
-import type { RecallResult } from '../learning-layer/ports.js';
+import type { RecallResult } from './recallPort.js';
 
 export type Role = 'user' | 'assistant';
 

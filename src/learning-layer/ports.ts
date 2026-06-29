@@ -40,21 +40,12 @@ export interface RecallContext {
   readonly userId?: string;
 }
 
-/** A single lesson the layer chose to surface (Recall output, for tracing/eval). */
-export interface RecalledLesson {
-  readonly id: string;
-  readonly trigger: string;
-  readonly action: string;
-  readonly confidence: number;
-}
-
-/** What the layer hands back to inject in front of the agent (Recall output). */
-export interface RecallResult {
-  /** Fenced, ready-to-inject text; empty string when nothing is relevant. */
-  readonly injectionText: string;
-  /** Structured provenance; never required by the host to act. */
-  readonly lessons: readonly RecalledLesson[];
-}
+// `RecalledLesson` + `RecallResult` (Recall output) now live in the open core
+// (`core/recallPort.ts`) — they're the return type of `RecallTurn`. Imported for
+// local use (RecallApi below) and re-exported so existing learning-layer
+// importers keep their import path unchanged.
+import type { RecallResult, RecalledLesson } from '../core/recallPort.js';
+export type { RecallResult, RecalledLesson };
 
 /** Options for a single model call (Reason). */
 export interface ReasonOptions {
