@@ -8,25 +8,13 @@
 // their own row-fetching logic.
 
 import type { Session } from '../agent/sessionDb.js';
+import type { LaneStats, RoutingStatsSnapshot } from '../core/routingPort.js';
 
-/** Per-lane aggregate stats for a set of routing-atom session rows. */
-export type LaneStats = {
-  count: number;
-  pctOfTotal: number;
-  successCount: number;
-  successRate: number;
-  avgDurationMs: number;
-  totalDurationMs: number;
-};
-
-/** Full stats snapshot returned by the aggregator. */
-export type RoutingStatsSnapshot = {
-  scope: 'session' | 'all';
-  totalAtoms: number;
-  byLane: Record<string, LaneStats>;
-  overallSuccessRate: number;
-  overallAvgDurationMs: number;
-};
+// `LaneStats` + `RoutingStatsSnapshot` now live in open core
+// (`core/routingPort.js`) so the open command contract
+// (`CommandContext.getRoutingStats`) can reference them without importing this
+// proprietary aggregator. Re-exported here for existing importers.
+export type { LaneStats, RoutingStatsSnapshot };
 
 /**
  * Aggregates routing-atom session rows into per-lane breakdowns.

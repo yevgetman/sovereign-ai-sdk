@@ -3,30 +3,13 @@
 // line). A fixed contract so emit + render never drift. Mirrors the delegation
 // progress-event pattern (src/router/progressEvents.ts).
 
-export type WorkflowEvent =
-  | { type: 'workflow_started'; workflow: string; phaseCount: number }
-  | { type: 'workflow_phase_started'; phaseId: string; index: number; taskCount: number }
-  | {
-      type: 'workflow_task_started';
-      phaseId: string;
-      index: number;
-      label: string;
-      lane?: string;
-    }
-  | {
-      type: 'workflow_task_complete';
-      phaseId: string;
-      index: number;
-      label: string;
-      ok: boolean;
-    }
-  | {
-      type: 'workflow_complete';
-      workflow: string;
-      ok: boolean;
-      durationMs: number;
-      phases: Array<{ phaseId: string; total: number; failed: number }>;
-    };
+import type { WorkflowEvent } from '../core/workflowPort.js';
+
+// `WorkflowEvent` now lives in open core (`core/workflowPort.js`) so the open
+// command contract (`CommandContext.workflows`) can reference the workflow
+// capability shape without importing this proprietary layer. Re-exported here
+// for existing importers.
+export type { WorkflowEvent };
 
 /** Sink the engine calls for each lifecycle event. Always optional at call
  *  sites — a no-op when the surface doesn't render progress. */

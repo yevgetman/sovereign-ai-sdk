@@ -1,19 +1,19 @@
 // Slash-command types. The registry is the single source of truth; every
 // future surface (TUI, Telegram, Slack) should render from these shapes.
 
-import type { SessionCost, SessionListEntry } from '../agent/sessionDb.js';
-import type { CompactResult } from '../compact/compactor.js';
 import type { ScopeBadge } from '../config/applyScope.js';
 import type { PermissionRuleLayer } from '../config/rules.js';
 import type { BudgetReport } from '../context/budget.js';
+import type { CompactResult } from '../core/compactPort.js';
+import type { RoutingStatsSnapshot } from '../core/routingPort.js';
+import type { SessionCost, SessionListEntry, SessionMetrics } from '../core/sessionPort.js';
 import type { ContentBlock, Message } from '../core/types.js';
+import type { WorkflowCommandCapability } from '../core/workflowPort.js';
 import type { ReasoningEffort } from '../providers/effort.js';
 import type { ApiMode } from '../providers/types.js';
-import type { RoutingStatsSnapshot } from '../router/stats.js';
 import type { SkillRegistry } from '../skills/types.js';
+import type { ReviewManagerCommandPort, TaskManagerPort } from '../tool/ports.js';
 import type { Tool } from '../tool/types.js';
-import type { SessionMetrics } from '../ui/sessionSummary.js';
-import type { WorkflowCommandCapability } from './workflowOps.js';
 
 /** One option in a server-emitted picker. M11.5. The optional
  *  `valueColumn` and `badge` are populated by the 2026-05-24 config UX
@@ -194,10 +194,12 @@ export type CommandContext = {
   requestCloseModal?: () => void;
   /** Phase 13.2 — task system manager. /tasks reads this directly to
    *  list / show / stop tasks for the current session. */
-  taskManager?: import('../tasks/manager.js').TaskManager;
+  taskManager?: TaskManagerPort;
   /** Phase 13.3 — review manager. Exposed so /review slash command and
-   *  propose tools can interact with the review system. */
-  reviewManager?: import('../review/manager.js').ReviewManager;
+   *  propose tools can interact with the review system. The open
+   *  `ReviewManagerCommandPort` carries exactly the members this surface
+   *  invokes; the proprietary `ReviewManager` satisfies it structurally. */
+  reviewManager?: ReviewManagerCommandPort;
   /** Phase 13.3 — harness-home root for review/* paths. /review reads this
    *  to locate $HARNESS_HOME/review/pending|approved|rejected/. */
   harnessHome?: string;

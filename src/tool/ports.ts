@@ -53,6 +53,23 @@ export interface ReviewManagerPort {
   onChildCompletion(evt: ChildCompletionEvent): void;
 }
 
+/** Wider open port for the proprietary `ReviewManager`, as referenced through a
+ *  `CommandContext`-typed reference (the `/review` slash command + the review
+ *  lifecycle the server surface drives). Extends `ReviewManagerPort` with the
+ *  additional members the command/surface layer invokes:
+ *   - `onUserTurn` — server turns route, per user turn.
+ *   - `runConsolidationPass` — the `/review` command (reviewOps.ts).
+ *   - `getDispatchSummary` — server sessionContext, for the goodbye card.
+ *   - `onSessionEnd` — server sessionContext, on session teardown.
+ *  All parameter/return shapes are primitives or pure records, so the port stays
+ *  open. The concrete class satisfies this structurally. */
+export interface ReviewManagerCommandPort extends ReviewManagerPort {
+  onUserTurn(callerSessionId: string): void;
+  runConsolidationPass(harnessHome: string): void;
+  getDispatchSummary(): { totalDispatched: number; byAgent: Record<string, number> };
+  onSessionEnd(): void;
+}
+
 /** Open port for the proprietary `TaskManager` (src/tasks/manager.ts).
  *  Contains exactly the members invoked through a `ToolContext`-typed reference
  *  (the task_create / task_get / task_list / task_stop / task_output tools):

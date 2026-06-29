@@ -3,7 +3,7 @@
 // rather than a silent null.
 
 import { z } from 'zod';
-import type { TaskRecord } from '../tasks/types.js';
+import type { TaskRecord } from '../core/taskPort.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const TaskGetInputSchema = z.object({

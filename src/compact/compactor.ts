@@ -3,6 +3,7 @@
 
 import { persistMessage } from '../agent/persistMessage.js';
 import type { SessionDb } from '../agent/sessionDb.js';
+import type { CompactResult } from '../core/compactPort.js';
 import {
   estimateMessageTokens,
   estimateMessagesTokens,
@@ -74,31 +75,10 @@ export type CompactOptions = {
   warn?: (message: string) => void;
 };
 
-export type CompactResult = {
-  parentSessionId: string;
-  newSessionId: string;
-  summary: string;
-  tail: Message[];
-  compactedMessages: number;
-  estimatedBeforeTokens: number;
-  estimatedAfterTokens: number;
-  usedAuxiliary: boolean;
-  auxiliaryProvider?: string;
-  auxiliaryModel?: string;
-  /** Backlog #36: true when compactSession short-circuited because the
-   *  entire history fit within the tail budget — `head` was empty so there
-   *  was nothing meaningful to summarize. The pre-fix behavior still ran
-   *  the summarizer + minted a child session, producing
-   *  `estimatedAfterTokens > estimatedBeforeTokens` (after = before +
-   *  summary-message overhead) which the TUI surfaced as a misleading
-   *  "auto-compacted — 2247→2318 tokens" marker. The fix returns a no-op
-   *  result with `parentSessionId === newSessionId`, the original history
-   *  echoed as `tail`, and `noOp: true` so callers can suppress the SSE
-   *  marker (proactive/recovery), the session-id pivot (TUI), and the
-   *  compaction-summary visual artifact. The flag is OPTIONAL — happy-path
-   *  results omit it (callers that don't check it continue working). */
-  noOp?: boolean;
-};
+// `CompactResult` now lives in open core (`core/compactPort.js`) so the open
+// command contract (`CommandContext.compact`) can reference it without importing
+// this proprietary compactor. Re-exported here for existing importers.
+export type { CompactResult };
 
 export type ProactiveCompactionInput = {
   messages: readonly Message[];

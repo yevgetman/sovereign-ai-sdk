@@ -3,7 +3,7 @@
 // the full history including terminal states.
 
 import { z } from 'zod';
-import type { TaskRecord } from '../tasks/types.js';
+import type { TaskRecord } from '../core/taskPort.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const TaskListInputSchema = z.object({

@@ -3,35 +3,13 @@
 // Designed to mirror the goodbye summary common in coding-CLI peers.
 
 import chalk from 'chalk';
+import type { SessionMetrics } from '../core/sessionPort.js';
 import { boxify } from './box.js';
 
-export type SessionMetrics = {
-  sessionId: string;
-  startedAtMs: number;
-  endedAtMs: number;
-  agentActiveMs: number;
-  apiTimeMs: number;
-  toolTimeMs: number;
-  toolCalls: number;
-  toolOk: number;
-  toolErr: number;
-  /** Cumulative token usage for the session (chat + compaction lanes
-   *  combined). Populated from sessionDb.getSessionCost just before the
-   *  summary renders. */
-  tokens?: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    estimatedCostUsd: number;
-  };
-  /** Phase 13.3 (B3) — count of review-fork dispatches that happened
-   *  during the session. Rendered as a "Reviews" section when nonzero. */
-  reviews?: {
-    totalDispatched: number;
-    byAgent: Record<string, number>;
-  };
-};
+// `SessionMetrics` now lives in open core (`core/sessionPort.js`) so the open
+// command contract (`CommandContext.getMetrics`) can reference it without
+// importing this wrapper renderer. Re-exported here for existing importers.
+export type { SessionMetrics };
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;

@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
+import type { SessionCost, SessionListEntry } from '../core/sessionPort.js';
 import type { ContentBlock, SystemSegment, TokenUsage } from '../core/types.js';
 
 /** Default DB path. Resolved at call time so a profile-aware
@@ -238,16 +239,11 @@ export type Session = {
   estimatedCompactionCostUsd: number;
 };
 
-export type SessionCost = {
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
-  estimatedCostUsd: number;
-  compactionInputTokens: number;
-  compactionOutputTokens: number;
-  estimatedCompactionCostUsd: number;
-};
+// `SessionCost` + `SessionListEntry` now live in open core (`core/sessionPort.js`)
+// so the open command contract (`CommandContext`) can reference them without
+// importing this proprietary bun:sqlite store. Re-exported here for existing
+// importers (single source of truth).
+export type { SessionCost, SessionListEntry };
 
 /** M8 T7 — snapshot for the `session_summary` SSE event's extended payload.
  *  Token fields fold chat + compaction lanes into the single goodbye-card
@@ -270,29 +266,6 @@ export type SessionCompaction = {
   parentSessionId: string;
   childSessionId: string;
   createdAt: number;
-};
-
-/** Lightweight session row for the `/resume` picker. Excludes the
- *  full system prompt and metadata blob — those are loaded on demand
- *  when the user picks a session, not when the list renders. */
-export type SessionListEntry = {
-  sessionId: string;
-  parentSessionId: string | null;
-  model: string;
-  provider: string;
-  platform: string;
-  createdAt: number;
-  lastUpdated: number;
-  /** Stored title if present, else the first user message (truncated). */
-  title: string | null;
-  /** Phase E — owning principal id, or null for unowned rows. */
-  ownerId: string | null;
-  /** Number of messages in the session. */
-  msgCount: number;
-  /** Total tokens (chat + cache + compaction lanes summed). */
-  totalTokens: number;
-  /** Total estimated cost (chat + compaction lanes summed). */
-  totalCostUsd: number;
 };
 
 export type SearchOpts = {

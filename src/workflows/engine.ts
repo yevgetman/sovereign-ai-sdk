@@ -24,6 +24,7 @@
 //   3. Return WorkflowResult; `finalText` is the last phase's text.
 
 import { loadPermissionSettings } from '../config/settings.js';
+import type { WorkflowResult } from '../core/workflowPort.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import type { AskResponse } from '../permissions/types.js';
 import { KNOWN_LANE_NAMES } from '../router/laneRegistry.js';
@@ -83,15 +84,11 @@ export type RunWorkflowOpts = {
   onEvent?: WorkflowEventSink;
 };
 
-export type WorkflowResult = {
-  ok: boolean;
-  phases: Record<string, unknown>;
-  finalText: string;
-  runSummary: {
-    phases: Array<{ phaseId: string; total: number; failed: number }>;
-    durationMs: number;
-  };
-};
+// `WorkflowResult` now lives in open core (`core/workflowPort.js`) so the open
+// command contract (`CommandContext.workflows`) can reference the workflow
+// capability shape without importing this proprietary engine. Re-exported here
+// for existing importers.
+export type { WorkflowResult };
 
 /** Coerce + validate raw args against the declared `def.args`. Required args
  *  must be present; missing-with-default fills the default; types coerce

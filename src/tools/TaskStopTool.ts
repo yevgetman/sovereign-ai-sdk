@@ -8,7 +8,7 @@
 // Only the parent session's tool pool exposes it.
 
 import { z } from 'zod';
-import type { TaskRecord } from '../tasks/types.js';
+import type { TaskRecord } from '../core/taskPort.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const TaskStopInputSchema = z.object({

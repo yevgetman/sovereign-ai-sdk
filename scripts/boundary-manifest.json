@@ -13,7 +13,6 @@
   ],
   "openFullyDirs": [
     "^src/core/",
-    "^src/tool/",
     "^src/providers/",
     "^src/mcp/",
     "^src/hooks/",
@@ -24,20 +23,21 @@
     "^src/permissions/",
     "^src/agents/",
     "^src/context/",
-    "^src/tools/",
     "^src/util/",
     "^src/trace/",
     "^src/trajectory/",
     "^src/bundle/"
   ],
   "openSplitDirFiles": [
+    "^src/tool/(?!registry\\.)",
+    "^src/tools/(?!(InstinctListTool|InstinctProposeTool|InstinctUpdateConfidenceTool|InstinctViewTool|MemoryProposeTool|SkillProposeTool|WorkflowRunTool)\\.)",
     "^src/runtime/(?!subprocessExecutor\\.)",
     "^src/compact/(?!compactor\\.)",
-    "^src/config/(?!liveApply\\.)",
-    "^src/commands/(?!(pluginOps|reviewOps|workflowOps|routingStats)\\.)"
+    "^src/config/(?!(liveApply|catalog)\\.)"
   ],
   "openFilesInProprietaryDirs": [
-    "^src/router/capabilities\\."
+    "^src/router/capabilities\\.",
+    "^src/commands/types\\."
   ],
   "openRootFiles": [
     "^src/version\\."
@@ -49,15 +49,28 @@
   ],
   "proprietaryFilesNote": [
     "Documented for readers — already excluded from OPEN by the negative lookaheads",
-    "above, so they fall into NON-OPEN automatically:",
+    "/ openFilesInProprietaryDirs carve-outs above, so they fall into NON-OPEN",
+    "automatically (Task 1.7):",
+    "  src/tool/registry.ts — the assembleToolPool tool-pool ASSEMBLER (a wrapper",
+    "    surface: the harness assembles its full pool incl. feature tools; the open",
+    "    SDK provides tool/buildTool + the generic tool primitives). No OPEN file",
+    "    imports it (all importers are cli/server/learning/review).",
+    "  src/tools/{InstinctListTool,InstinctProposeTool,InstinctUpdateConfidenceTool,",
+    "    InstinctViewTool,MemoryProposeTool,SkillProposeTool,WorkflowRunTool}.ts —",
+    "    FEATURE tools (learning / review / workflows). Generic tools (FileRead,",
+    "    Bash, Grep, Task*, Web*, Skill*, Memory, …) stay OPEN.",
     "  src/runtime/subprocessExecutor.ts, src/compact/compactor.ts,",
-    "  src/config/liveApply.ts, src/commands/{pluginOps,reviewOps,workflowOps,routingStats}.ts"
+    "  src/config/{liveApply,catalog}.ts (catalog = the /config command's data),",
+    "  src/commands/* EXCEPT src/commands/types.ts — the slash-command IMPLEMENTATIONS",
+    "    are a surface feature; types.ts (the command-type CONTRACT) is kept OPEN",
+    "    because the open slash loader skills/commands.ts depends on PromptCommand."
   ],
   "proprietaryDirsNote": [
     "Fully NON-OPEN (proprietary or wrapper) — not enumerated here because NON-OPEN",
     "is the complement of OPEN. For readers:",
     "  proprietary: learning, learning-layer, server, workflows, daemon, cron,",
-    "    channels, plugins, tasks, agent, review, router(rest), agent/sessionDb.",
+    "    channels, plugins, tasks, agent, review, router(rest), agent/sessionDb,",
+    "    commands(rest — all but types.ts).",
     "  wrapper (proprietary for this lint): cli, openai, mission, ui, main.ts.",
     "  unclassified (treated NON-OPEN): eval, evals."
   ]

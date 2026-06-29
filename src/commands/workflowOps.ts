@@ -18,30 +18,15 @@
 // type-checker. See `WorkflowCommandCapability` below for the exact contract.
 
 import chalk from 'chalk';
-import type { WorkflowResult } from '../workflows/engine.js';
-import type { WorkflowEvent } from '../workflows/events.js';
+import type { WorkflowCommandCapability, WorkflowSummary } from '../core/workflowPort.js';
 import type { CommandContext, SlashCommand } from './types.js';
 
-/** One workflow as surfaced by `/workflow list`. */
-export type WorkflowSummary = {
-  name: string;
-  description: string;
-  source: 'project' | 'user' | 'bundle';
-  phaseCount: number;
-};
-
-/** Runtime-bearing capability the surface supplies on CommandContext so
- *  `/workflow` can list + run workflows in the active session. The server
- *  command context (buildServerCommandContext) wires it; standalone /
- *  headless surfaces omit it. Mirrors the optional `getRoutingStats` hook. */
-export type WorkflowCommandCapability = {
-  list: () => Promise<WorkflowSummary[]>;
-  run: (
-    name: string,
-    args: Record<string, unknown>,
-    onEvent?: (event: WorkflowEvent) => void,
-  ) => Promise<WorkflowResult>;
-};
+// `WorkflowSummary` + `WorkflowCommandCapability` now live in open core
+// (`core/workflowPort.js`) so the open command contract
+// (`CommandContext.workflows`) can reference the capability shape without
+// importing this proprietary command surface. Re-exported here for existing
+// importers.
+export type { WorkflowCommandCapability, WorkflowSummary };
 
 /** Read the optional `workflows` capability off the context without requiring
  *  the field on the shared CommandContext type (added by the W7 seam). */

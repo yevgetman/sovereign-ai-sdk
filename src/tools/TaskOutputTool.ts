@@ -5,7 +5,7 @@
 // childSessionId if needed.
 
 import { z } from 'zod';
-import type { TaskOutput } from '../tasks/manager.js';
+import type { TaskOutput } from '../core/taskPort.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const TaskOutputInputSchema = z.object({

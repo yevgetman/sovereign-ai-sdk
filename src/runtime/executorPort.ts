@@ -5,12 +5,50 @@
 // `runSubprocessExecutor` (in `./subprocessExecutor.ts`) that satisfies it. The
 // scheduler imports ONLY from here (no open→proprietary value crossing); the
 // proprietary composition (`buildRuntime`) INJECTS the real implementation as
-// the `RunSubprocessExecutor` port. The spawn/learning/trace helper types stay
-// with the implementation; they're imported back here type-only (erased).
+// the `RunSubprocessExecutor` port. The spawn/learning/trace helper types are
+// the port's own dependency types, so they live HERE on the open port; the
+// proprietary implementation re-exports them for its existing importers.
 
 import type { SubscriptionExecutorConfig } from '../config/schema.js';
+import type { ObserveInput } from '../core/observePort.js';
 import type { AssistantMessage, Message, Terminal } from '../core/types.js';
-import type { LearningSink, SpawnFn, TraceSink } from './subprocessExecutor.js';
+import type { TraceEvent } from '../trace/types.js';
+
+/** The minimal subprocess handle surface the executor needs. Bun.spawn's
+ *  return value structurally satisfies it; tests inject a fake. Lives here on
+ *  the open PORT (not the proprietary implementation) so the port's own
+ *  dependency types are self-contained — the impl re-exports them. */
+export type SpawnedProc = {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  stdin: { write: (data: string | Uint8Array) => number; end: () => void };
+  exited: Promise<number>;
+  kill: (signal?: number) => void;
+};
+
+export type SpawnOpts = {
+  cwd: string;
+  signal?: AbortSignal;
+};
+
+/** Injectable spawn fn. Defaults to a thin Bun.spawn wrapper; tests pass a
+ *  fake that emits canned JSONL on stdout. */
+export type SpawnFn = (argv: string[], opts: SpawnOpts) => SpawnedProc;
+
+/** The minimal learning sink the executor needs — structurally satisfied by
+ *  `LearningObserver` (its `observe(input)` method). The replay constructs an
+ *  `ObserveInput` per tool call IDENTICAL in shape to what the orchestrator
+ *  builds in `src/core/orchestrator.ts`, so the synthesizer can't tell a
+ *  replayed observation from a native one. `ObserveInput` is the open
+ *  observe-port type. */
+export type LearningSink = { observe: (input: ObserveInput) => void };
+
+/** The minimal trace sink the executor needs — a `(event) => void` recorder.
+ *  The scheduler passes its `wrappedTraceRecorder` (the closure that tags the
+ *  event with the child sessionId and forks to BOTH the parent recorder and the
+ *  child's per-session TraceWriter), so replayed tool brackets land in the same
+ *  destination(s) a native child's would. */
+export type TraceSink = (event: TraceEvent) => void;
 
 export type RunSubprocessExecutorOpts = {
   /** The task prompt handed to `claude -p`. */

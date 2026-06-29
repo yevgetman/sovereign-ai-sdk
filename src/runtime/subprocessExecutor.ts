@@ -31,16 +31,32 @@
 
 import type { SubscriptionExecutorConfig } from '../config/schema.js';
 import type { AssistantMessage, ContentBlock, Message, Terminal } from '../core/types.js';
-import type { ObserveInput } from '../learning/observer.js';
 import type { ObservationStatus } from '../learning/types.js';
-import type { TraceEvent } from '../trace/types.js';
 // Task 1.5 — the port contract moved to the OPEN `./executorPort.ts` so the open
-// scheduler stops value-importing this proprietary module. We import the two
-// shapes for local use and re-export them so historical importers that
+// scheduler stops value-importing this proprietary module. Task 1.7 — its own
+// dependency shapes (SpawnFn / SpawnedProc / SpawnOpts / LearningSink / TraceSink)
+// moved there too (they reference the now-open ObserveInput / TraceEvent). We
+// import them for local use and re-export them so historical importers that
 // referenced them from here keep working.
-import type { RunSubprocessExecutorOpts, SubprocessExecutorResult } from './executorPort.js';
+import type {
+  LearningSink,
+  RunSubprocessExecutorOpts,
+  SpawnFn,
+  SpawnOpts,
+  SpawnedProc,
+  SubprocessExecutorResult,
+  TraceSink,
+} from './executorPort.js';
 
-export type { RunSubprocessExecutorOpts, SubprocessExecutorResult } from './executorPort.js';
+export type {
+  LearningSink,
+  RunSubprocessExecutorOpts,
+  SpawnFn,
+  SpawnOpts,
+  SpawnedProc,
+  SubprocessExecutorResult,
+  TraceSink,
+};
 
 /** Cap on the RETAINED subprocess stdout — we keep the most recent
  *  ≤ MAX_STDOUT_BYTES (the TAIL, see readCapped) so the terminal stream-json
@@ -56,39 +72,6 @@ const DEFAULT_BINARY = 'claude';
  *  interactive-only executor. Override with `plan` | `acceptEdits` | `default`
  *  for a constrained posture. */
 const DEFAULT_PERMISSION_MODE: SubscriptionExecutorConfig['permissionMode'] = 'bypass';
-
-/** The minimal subprocess handle surface this module needs. Bun.spawn's
- *  return value structurally satisfies it; tests inject a fake. */
-export type SpawnedProc = {
-  stdout: ReadableStream<Uint8Array>;
-  stderr: ReadableStream<Uint8Array>;
-  stdin: { write: (data: string | Uint8Array) => number; end: () => void };
-  exited: Promise<number>;
-  kill: (signal?: number) => void;
-};
-
-export type SpawnOpts = {
-  cwd: string;
-  signal?: AbortSignal;
-};
-
-/** Injectable spawn fn. Defaults to a thin Bun.spawn wrapper; tests pass a
- *  fake that emits canned JSONL on stdout. */
-export type SpawnFn = (argv: string[], opts: SpawnOpts) => SpawnedProc;
-
-/** The minimal learning sink this module needs — structurally satisfied by
- *  `LearningObserver` (its `observe(input)` method). The replay constructs an
- *  `ObserveInput` per tool call IDENTICAL in shape to what the orchestrator
- *  builds in `src/core/orchestrator.ts`, so the synthesizer can't tell a
- *  replayed observation from a native one. */
-export type LearningSink = { observe: (input: ObserveInput) => void };
-
-/** The minimal trace sink this module needs — a `(event) => void` recorder.
- *  The scheduler passes its `wrappedTraceRecorder` (the closure that tags the
- *  event with the child sessionId and forks to BOTH the parent recorder and the
- *  child's per-session TraceWriter), so replayed tool brackets land in the same
- *  destination(s) a native child's would. */
-export type TraceSink = (event: TraceEvent) => void;
 
 // --- Tool-vocabulary canonicalization (corpus co-clustering) ---------------
 //
