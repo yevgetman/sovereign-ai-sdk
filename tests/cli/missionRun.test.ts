@@ -12,12 +12,29 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+import { createAgent } from '../../src/agent/createAgent.js';
 import { runMissionInit } from '../../src/cli/missionInit.js';
 import {
   normalizePerWakeTurnBudget,
   resolveWakeMaxTurns,
   runMissionWake,
 } from '../../src/cli/missionRun.js';
+import {
+  type MicrocompactConfig,
+  buildMicrocompactConfig,
+} from '../../src/compact/microcompact.js';
+import { query } from '../../src/core/query.js';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  SystemSegment,
+} from '../../src/core/types.js';
+import type { CanUseTool } from '../../src/permissions/types.js';
+import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
+import { buildTool } from '../../src/tool/buildTool.js';
+import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 const MAIN_TS = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/main.ts');
 
@@ -155,5 +172,245 @@ describe('sov mission run — CLI registration (FIX 1)', () => {
     // Commander exits non-zero on a missing required option.
     expect(res.status).not.toBe(0);
     expect(`${res.stdout}${res.stderr}`).toContain('state-dir');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 4.1 — field-level parity for the createAgent() re-seat.
+//
+// `runMissionWake` previously drove its single turn with an inline `query()`;
+// it now drives the SAME turn through `createAgent().run()`. These tests pin
+// the brief's field-level parity rule — "identical agent loop EXCEPT the
+// ratified additions":
+//   A. The loop is unchanged: a mission-shaped turn through createAgent yields
+//      byte-identical stream events + the same final assistant as a direct
+//      query() drive with mission's prior param shape (cacheEnabled omitted —
+//      query() defaults it to the `true` mission passed).
+//   B. The parity-fix reaches the turn: a settings-derived `microcompactConfig`
+//      is HONORED (an aggressive config compacts; a disabled one does not),
+//      where the old inline call could only ever use query()'s built-in default.
+//   C. No capability is silently gained/lost: mission's bespoke tool-context
+//      flows through VERBATIM — an allowed tool still runs, and createAgent
+//      grafts on no learning/review the wake didn't already have.
+//
+// A deterministic scripted LLMProvider (a fresh instance per call — generators
+// are single-use) stands in for a real provider: no network, no disk.
+// ---------------------------------------------------------------------------
+
+function scriptedProvider(turns: StreamEvent[][]): LLMProvider {
+  const queue = [...turns];
+  return {
+    name: 'fake',
+    async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      const events = queue.shift();
+      if (!events) throw new Error('scriptedProvider: queue empty');
+      let last: AssistantMessage | undefined;
+      for (const ev of events) {
+        if (ev.type === 'assistant_message') last = ev.message;
+        yield ev;
+      }
+      return last ?? { role: 'assistant', content: [] };
+    },
+  };
+}
+
+const completedAnswer: AssistantMessage = {
+  role: 'assistant',
+  content: [{ type: 'text', text: 'MISSION_TRANSITION=continue done for now' }],
+};
+
+const completedTurn: StreamEvent[] = [
+  { type: 'message_start' },
+  { type: 'text_delta', text: 'MISSION_TRANSITION=continue done for now' },
+  { type: 'usage_delta', usage: { inputTokens: 5, outputTokens: 4 } },
+  { type: 'message_stop', stop_reason: 'end_turn' },
+  { type: 'assistant_message', message: completedAnswer },
+];
+
+function readToolUseTurn(id: string): StreamEvent[] {
+  const message: AssistantMessage = {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id, name: 'Read', input: { path: 'a.txt' } }],
+  };
+  return [
+    { type: 'message_start' },
+    { type: 'tool_use_delta', id, partial: '{"path":"a.txt"}' },
+    { type: 'message_stop', stop_reason: 'tool_use' },
+    { type: 'assistant_message', message },
+  ];
+}
+
+function makeReadTool(onCall?: (ctx: ToolContext) => void): Tool<unknown, unknown> {
+  return buildTool({
+    name: 'Read',
+    description: () => 'read a file',
+    inputSchema: z.object({ path: z.string() }),
+    async call(_input, ctx) {
+      onCall?.(ctx);
+      return { data: { content: 'ok' } };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
+type RunResultLike = ReturnType<typeof createAgent>['run'] extends (
+  ...args: never[]
+) => AsyncGenerator<unknown, infer R>
+  ? R
+  : never;
+
+async function drainAgent(
+  gen: AsyncGenerator<StreamEvent | Message, RunResultLike>,
+): Promise<{ events: (StreamEvent | Message)[]; result: RunResultLike }> {
+  const events: (StreamEvent | Message)[] = [];
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) return { events, result: step.value };
+    events.push(step.value);
+  }
+}
+
+async function drainEvents(
+  gen: AsyncGenerator<StreamEvent | Message, unknown>,
+): Promise<(StreamEvent | Message)[]> {
+  const events: (StreamEvent | Message)[] = [];
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) return events;
+    events.push(step.value);
+  }
+}
+
+const hasMicrocompactEvent = (events: (StreamEvent | Message)[]): boolean =>
+  events.some((e) => 'type' in e && e.type === 'microcompact');
+
+describe('sov mission run — re-seat onto createAgent (Task 4.1 field-level parity)', () => {
+  it('A. drives a mission-shaped turn with the SAME stream + final assistant as a direct query() (loop unchanged)', async () => {
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Wake #1: continue your mission.' }] },
+    ];
+    const systemPrompt: SystemSegment[] = [{ text: 'scheduled-mission agent', cacheable: true }];
+    const mc = buildMicrocompactConfig(undefined); // DEFAULT — identical on both sides.
+
+    // BEFORE: the inline query() drive with mission's prior param shape
+    // (cacheEnabled: true, as the old surface passed explicitly).
+    const directEvents = await drainEvents(
+      query({
+        provider: scriptedProvider([completedTurn]),
+        model: 'fake-model',
+        messages: history,
+        systemPrompt,
+        maxTokens: 4096,
+        maxTurns: 10,
+        cacheEnabled: true,
+        sessionId: 'mission-wake',
+        cwd: '/tmp/mission',
+        microcompactConfig: mc,
+      }),
+    );
+
+    // AFTER: the same turn re-seated onto createAgent. `cacheEnabled` is omitted
+    // — query() defaults it to `true`, the value mission passed — so the stream
+    // must be byte-identical.
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      systemPrompt,
+      cwd: '/tmp/mission',
+      maxTokens: 4096,
+      maxTurns: 10,
+      microcompactConfig: mc,
+    });
+    const { events, result } = await drainAgent(agent.run(history, { sessionId: 'mission-wake' }));
+
+    expect(events).toEqual(directEvents);
+    expect(result.finalAssistant).toEqual(completedAnswer);
+    expect(result.terminal.reason).toBe('completed');
+  });
+
+  it('B. honors a settings-derived microcompactConfig that reaches the turn (parity-fix)', async () => {
+    // A real second user-prompt boundary (`now read again`) sits after a prior
+    // large, compactable Read result — so a tool turn that fires INSIDE the loop
+    // exposes that older result to eviction when the config permits it.
+    const big = 'X'.repeat(4000);
+    const seed = (): Message[] => [
+      { role: 'user', content: [{ type: 'text', text: 'first prompt' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'r1', name: 'Read', input: { path: 'a' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'r1', content: big, is_error: false }],
+      },
+      { role: 'user', content: [{ type: 'text', text: 'now read again' }] },
+    ];
+    const toolContext: ToolContext = { cwd: '/tmp/mission', sessionId: 'mission-wake' };
+    const allowAll: CanUseTool = async () => ({ behavior: 'allow' });
+
+    const aggressive: MicrocompactConfig = {
+      enabled: true,
+      keepRecent: 0,
+      triggerThresholdPct: 0,
+      compactableTools: new Set(['Read']),
+    };
+
+    // Aggressive config → the older Read result is cleared mid-turn.
+    const agentOn = createAgent({
+      provider: scriptedProvider([readToolUseTurn('r2'), completedTurn]),
+      model: 'fake-model',
+      tools: [makeReadTool()],
+      maxTokens: 4096,
+      microcompactConfig: aggressive,
+    });
+    const { events: onEvents } = await drainAgent(
+      agentOn.run(seed(), { toolContext, canUseTool: allowAll, sessionId: 'mission-wake' }),
+    );
+    expect(hasMicrocompactEvent(onEvents)).toBe(true);
+
+    // Same turn + history, but a DISABLED config must NOT compact — proving the
+    // config (not query()'s built-in default) is what's honored.
+    const agentOff = createAgent({
+      provider: scriptedProvider([readToolUseTurn('r2'), completedTurn]),
+      model: 'fake-model',
+      tools: [makeReadTool()],
+      maxTokens: 4096,
+      microcompactConfig: { ...aggressive, enabled: false },
+    });
+    const { events: offEvents } = await drainAgent(
+      agentOff.run(seed(), { toolContext, canUseTool: allowAll, sessionId: 'mission-wake' }),
+    );
+    expect(hasMicrocompactEvent(offEvents)).toBe(false);
+  });
+
+  it('C. passes the bespoke tool-context VERBATIM: an allowed tool runs, no learning/review silently added', async () => {
+    let ranWith: ToolContext | undefined;
+    const bespoke: ToolContext = { cwd: '/tmp/mission', sessionId: 'mission-wake' };
+    const allowAll: CanUseTool = async () => ({ behavior: 'allow' });
+
+    const agent = createAgent({
+      provider: scriptedProvider([readToolUseTurn('t1'), completedTurn]),
+      model: 'fake-model',
+      tools: [
+        makeReadTool((ctx) => {
+          ranWith = ctx;
+        }),
+      ],
+      maxTokens: 4096,
+      microcompactConfig: buildMicrocompactConfig(undefined),
+    });
+    const { result } = await drainAgent(
+      agent.run('go', { toolContext: bespoke, canUseTool: allowAll, sessionId: 'mission-wake' }),
+    );
+
+    // The allowed tool actually ran (permission wiring intact) with mission's
+    // EXACT bespoke context — the same object, used verbatim.
+    expect(ranWith).toBe(bespoke);
+    // ...and createAgent grafted on no learning / review capability the wake
+    // did not already have.
+    expect(ranWith?.learningObserver).toBeUndefined();
+    expect(ranWith?.reviewManager).toBeUndefined();
+    expect(result.toolCallCount).toBe(1);
+    expect(result.distinctToolNames).toEqual(['Read']);
+    expect(result.terminal.reason).toBe('completed');
   });
 });

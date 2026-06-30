@@ -8,15 +8,16 @@
 
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createAgent } from '../agent/createAgent.js';
 import { loadAgents } from '../agents/loader.js';
 import { getDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
 import { buildToolScope } from '../commands/toolScope.js';
+import { buildMicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import { readConfig } from '../config/store.js';
-import { query } from '../core/query.js';
 import { buildSystemSegments } from '../core/systemPrompt.js';
-import type { ContentBlock, Message, SystemSegment, Terminal } from '../core/types.js';
+import type { ContentBlock, Message, SystemSegment } from '../core/types.js';
 import { touchLock } from '../cron/lockUtil.js';
 import { createDefaultMemoryManager } from '../memory/provider.js';
 import { resolveProjectScope } from '../memory/scope.js';
@@ -236,20 +237,25 @@ async function runMissionWakeLocked(
     const wakeMessage = `Wake #${wakeNumber}: please continue working on your mission. Read your mission goal, plan, and notes from the system prompt, then do one bounded piece of work.`;
     const history: Message[] = [{ role: 'user', content: [{ type: 'text', text: wakeMessage }] }];
 
-    const turnMessages: Message[] = [];
-    let terminal: Terminal | undefined;
-    const gen = query({
+    // Re-seat (Task 4.1, first (B)-surface): drive the wake's single turn
+    // through the SDK's `createAgent().run()` instead of an inline `query()`.
+    // The agent loop is IDENTICAL to the prior direct call — same provider /
+    // model / systemPrompt / tools / permissions / messages → same assistant
+    // output — EXCEPT this surface now also passes a settings-derived
+    // `microcompactConfig` (the CEO-ratified parity-fix), so a long autonomous
+    // wake honors the user's microcompaction config rather than relying only on
+    // query()'s built-in DEFAULT_MICROCOMPACT_CONFIG. Mission's bespoke
+    // tool-context is handed through VERBATIM via `perTurn.toolContext`, so the
+    // wake keeps EXACTLY its current tool / permission wiring and gains no
+    // learning / review / delegation it didn't already have. `cacheEnabled` is
+    // intentionally not re-passed: query() defaults it to `true` — the value
+    // this surface passed before — so the omission is parity-preserving.
+    const agent = createAgent({
       provider: resolved.transport,
       model: resolved.model,
-      messages: history,
       systemPrompt,
-      ...(toolPool.length > 0
-        ? {
-            tools: toolPool,
-            toolContext: preliminaryToolContext,
-            canUseTool: scoped.canUseTool,
-          }
-        : {}),
+      cwd: process.cwd(),
+      memoryManager,
       maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
       // FIX 1b — bound the wake by the mission's per-wake turn budget (capped by
       // the agent's own maxTurns), NOT query()'s 100-turn default. A user-level
@@ -258,39 +264,35 @@ async function runMissionWakeLocked(
         resolveWakeMaxTurns(missionFiles.state.perWakeTurnBudget, agentDef.maxTurns),
         userSettings.maxTurns ?? Number.POSITIVE_INFINITY,
       ),
-      cacheEnabled,
-      memoryManager,
+      // Parity-fix: this surface GAINS microcompaction tuned to the user's
+      // settings (it previously inherited query()'s DEFAULT_MICROCOMPACT_CONFIG).
+      microcompactConfig: buildMicrocompactConfig(userSettings.microcompaction),
+      ...(toolPool.length > 0 ? { tools: toolPool } : {}),
+    });
+    const gen = agent.run(history, {
       sessionId: 'mission-wake',
-      cwd: process.cwd(),
+      ...(toolPool.length > 0
+        ? { toolContext: preliminaryToolContext, canUseTool: scoped.canUseTool }
+        : {}),
     });
 
-    for (;;) {
-      const step = await gen.next();
-      if (step.done) {
-        terminal = step.value;
-        break;
-      }
-      const ev = step.value;
-      if (!ev || typeof ev !== 'object') continue;
-      if ('role' in ev) {
-        // tool_result carrier message between turns — accumulate into history
-        // so the next iteration's provider call sees the full conversation.
-        turnMessages.push(ev);
-        continue;
-      }
-      if (!('type' in ev)) continue;
-      if (ev.type === 'assistant_message') {
-        turnMessages.push(ev.message);
-      }
+    // Headless wake: stream events are not rendered anywhere — drain to the
+    // RunResult, which carries the final assistant message + terminal.
+    let step = await gen.next();
+    while (!step.done) {
+      step = await gen.next();
     }
+    const runResult = step.value;
+    const terminal = runResult.terminal;
 
     // Pull the last assistant text from this turn. `MISSION_TRANSITION=...`
     // and the optional `<mission-notes-update>` block live in the agent's
-    // final natural-language response, not in any tool result.
-    const lastAssistant = [...turnMessages].reverse().find((m) => m.role === 'assistant');
+    // final natural-language response (RunResult.finalAssistant), not in any
+    // tool result.
+    const finalAssistant = runResult.finalAssistant;
     const lastAssistantText =
-      lastAssistant?.role === 'assistant'
-        ? lastAssistant.content
+      finalAssistant !== undefined
+        ? finalAssistant.content
             .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
             .join('\n')
