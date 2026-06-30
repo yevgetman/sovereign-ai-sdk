@@ -5,6 +5,11 @@
   "private": true,
   "type": "module",
   "module": "src/main.ts",
+  "exports": {
+    ".": "./src/main.ts",
+    "./sdk": "./src/sdk.ts",
+    "./protocol": "./src/protocol/index.ts"
+  },
   "bin": {
     "sov": "./src/main.ts",
     "harness": "./src/main.ts"
