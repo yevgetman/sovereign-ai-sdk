@@ -7,7 +7,8 @@
 // session-DB factory.
 //
 // Scope deliberately narrow:
-//   - Child runs through AgentRunner (Phase 13.3).
+//   - Child runs through the open SDK's createAgent() turn loop (Task 4.5
+//     re-seat — pure parity; was `new AgentRunner(...)`, Phase 13.3).
 //   - Tool filtering: parent pool ∩ agent.allowedTools (matched by tool
 //     name OR alias) − SUBAGENT_EXCLUDED_TOOLS. Pattern constraints inside allowedTools
 //     entries (e.g. `Bash(git log *)`) are NOT enforced at this layer
@@ -22,6 +23,7 @@
 //     `{kind:'all'}` ≡ the whole tree) serialize — so model-driven delegation
 //     is unchanged while workflow tasks declaring disjoint paths parallelize.
 
+import { createAgent } from '../agent/createAgent.js';
 import { buildSubagentExclusions } from '../agents/exclusions.js';
 import type { AgentDefinition, AgentRegistry } from '../agents/types.js';
 import type { LaneConfig, SubscriptionExecutorConfig } from '../config/schema.js';
@@ -37,7 +39,6 @@ import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
-import { AgentRunner } from './agentRunner.js';
 import type { RunSubprocessExecutor, SubprocessExecutorResult } from './executorPort.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
 import type { PathLockManager, PathScope } from './pathLock.js';
@@ -468,24 +469,44 @@ export class SubagentScheduler {
               input.writeScope?.kind === 'globs'
                 ? wrapCanUseToolWithWriteScope(input.canUseTool, input.writeScope.globs)
                 : input.canUseTool;
-            const runner = new AgentRunner({
+            // Re-seat (Task 4.5 — the final + highest-risk (B)-surface): drive the
+            // NATIVE child turn through the open SDK's `createAgent().run()` instead
+            // of `new AgentRunner(...).run()`. PURE PARITY — every prior AgentRunner
+            // opt maps 1:1 onto AgentConfig/PerTurn with the SAME value, and NOTHING
+            // is added:
+            //   • NO `microcompactConfig` — the cron/channel parity-fix was ratified
+            //     ONLY for those surfaces; a sub-agent must keep AgentRunner's EXACT
+            //     request, which threaded no config → query()'s built-in
+            //     DEFAULT_MICROCOMPACT_CONFIG applies in BOTH paths (byte-identical).
+            //   • NO `sessionStore`/`transcripts` — the scheduler owns child
+            //     persistence + trajectory OUT-OF-BAND (the tail below); passing a
+            //     store to createAgent would DOUBLE-write.
+            // `parentSessionId` was AgentRunner result-echo only (it never reached
+            // query() and the scheduler never read it back from the result), so it
+            // has no createAgent counterpart — dropping it is behavior-preserving.
+            // The child ToolContext (carrying its inherited learningObserver) and the
+            // write-scope-wrapped canUseTool are handed through VERBATIM via `perTurn`,
+            // so the child keeps EXACTLY its tool + permission wiring. effort / recall
+            // / hookRunner / cwd / cacheEnabled stay UNSET (AgentRunner set none → the
+            // query() defaults hold identically).
+            const childAgent = createAgent({
               provider: resolved.transport as unknown as LLMProvider,
               model: resolved.model,
               systemPrompt,
               maxTokens: this.opts.maxTokens,
               tools,
-              toolContext: childToolContext,
-              ...(childCanUseTool !== undefined ? { canUseTool: childCanUseTool } : {}),
+              maxTurns: agent.maxTurns,
               ...(input.memoryManager !== undefined ? { memoryManager: input.memoryManager } : {}),
               ...(wrappedTraceRecorder !== undefined
                 ? { traceRecorder: wrappedTraceRecorder }
                 : {}),
-              maxTurns: agent.maxTurns,
-              sessionId: childSessionId,
-              parentSessionId: input.parentSessionId,
-              signal: composed,
             });
-            const gen = runner.run(input.prompt);
+            const gen = childAgent.run(input.prompt, {
+              sessionId: childSessionId,
+              toolContext: childToolContext,
+              signal: composed,
+              ...(childCanUseTool !== undefined ? { canUseTool: childCanUseTool } : {}),
+            });
             result = await drainRunner(gen);
           }
         } catch (err) {
