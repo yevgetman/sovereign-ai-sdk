@@ -55,6 +55,32 @@ function scriptedProvider(turns: StreamEvent[][]): LLMProvider {
   };
 }
 
+/** Like `scriptedProvider`, but captures every `ProviderRequest` it receives so
+ *  a test can assert what reached the provider (temperature, cacheEnabled). One
+ *  fresh instance per call. */
+function recordingProvider(turns: StreamEvent[][]): {
+  provider: LLMProvider;
+  requests: ProviderRequest[];
+} {
+  const queue = [...turns];
+  const requests: ProviderRequest[] = [];
+  const provider: LLMProvider = {
+    name: 'recording',
+    async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      requests.push(req);
+      const events = queue.shift();
+      if (!events) throw new Error('recordingProvider: queue empty');
+      let last: AssistantMessage | undefined;
+      for (const ev of events) {
+        if (ev.type === 'assistant_message') last = ev.message;
+        yield ev;
+      }
+      return last ?? { role: 'assistant', content: [] };
+    },
+  };
+  return { provider, requests };
+}
+
 const completedAnswer: AssistantMessage = {
   role: 'assistant',
   content: [{ type: 'text', text: 'final answer' }],
@@ -380,5 +406,107 @@ describe('createAgent', () => {
     expect(result.terminal.reason).toBe('completed');
     // The host context's learningObserver (not a built one) received the call.
     expect(calls).toContain('Echo');
+  });
+});
+
+// Task 4.4a — the three remaining per-turn QueryParams fields exposed on
+// createAgent. createAgent threads each via the same conditional spread as
+// microcompactConfig, so an absent value leaves query()'s default behavior
+// byte-identical. Observed at the provider-request boundary (temperature +
+// cacheEnabled, which query() forwards) and via terminal.reason (checkin).
+describe('createAgent — per-turn QueryParams completeness (temperature/cacheEnabled/maxToolCallsBeforeCheckin)', () => {
+  test('temperature: standing config reaches the provider request', async () => {
+    const { provider, requests } = recordingProvider([completedTurn]);
+    const agent = createAgent({ provider, model: 'fake-model', temperature: 0.2, maxTokens: 256 });
+    const { result } = await drain(agent.run('hello'));
+    expect(result.terminal.reason).toBe('completed');
+    expect(requests[0]?.temperature).toBe(0.2);
+  });
+
+  test('temperature: a per-turn override beats standing config', async () => {
+    const { provider, requests } = recordingProvider([completedTurn]);
+    const agent = createAgent({ provider, model: 'fake-model', temperature: 0.2, maxTokens: 256 });
+    await drain(agent.run('hello', { temperature: 0.9 }));
+    expect(requests[0]?.temperature).toBe(0.9);
+  });
+
+  test('cacheEnabled: false reaches the turn; omitting it preserves the true default', async () => {
+    // Explicit false threads through to the provider request.
+    const off = recordingProvider([completedTurn]);
+    const offAgent = createAgent({
+      provider: off.provider,
+      model: 'fake-model',
+      cacheEnabled: false,
+      maxTokens: 256,
+    });
+    await drain(offAgent.run('hello'));
+    expect(off.requests[0]?.cacheEnabled).toBe(false);
+
+    // Omitted → createAgent passes no cacheEnabled key, so query()'s default
+    // (true) reaches the provider unchanged.
+    const on = recordingProvider([completedTurn]);
+    const onAgent = createAgent({ provider: on.provider, model: 'fake-model', maxTokens: 256 });
+    await drain(onAgent.run('hello'));
+    expect(on.requests[0]?.cacheEnabled).toBe(true);
+  });
+
+  test('cacheEnabled: a per-turn false overrides a standing true', async () => {
+    const { provider, requests } = recordingProvider([completedTurn]);
+    const agent = createAgent({
+      provider,
+      model: 'fake-model',
+      cacheEnabled: true,
+      maxTokens: 256,
+    });
+    await drain(agent.run('hello', { cacheEnabled: false }));
+    expect(requests[0]?.cacheEnabled).toBe(false);
+  });
+
+  test('maxToolCallsBeforeCheckin: N pauses the turn loop with terminal reason checkin', async () => {
+    const { provider } = recordingProvider([echoToolUseTurn]);
+    const agent = createAgent({
+      provider,
+      model: 'fake-model',
+      tools: [makeEchoTool()],
+      maxToolCallsBeforeCheckin: 1,
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool'));
+    expect(result.terminal.reason).toBe('checkin');
+    expect(result.terminal.toolCallCount).toBe(1);
+  });
+
+  test('maxToolCallsBeforeCheckin: a per-turn override pauses where standing config would not', async () => {
+    const { provider } = recordingProvider([echoToolUseTurn]);
+    const agent = createAgent({
+      provider,
+      model: 'fake-model',
+      tools: [makeEchoTool()],
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool', { maxToolCallsBeforeCheckin: 1 }));
+    expect(result.terminal.reason).toBe('checkin');
+  });
+
+  test('regression guard: with none of the three set, query()s behavior is byte-identical (no temperature key, default cache, no check-in)', async () => {
+    const { provider, requests } = recordingProvider([echoToolUseTurn, completedTurn]);
+    const agent = createAgent({
+      provider,
+      model: 'fake-model',
+      tools: [makeEchoTool()],
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool'));
+
+    const req = requests[0];
+    expect(req).toBeDefined();
+    // temperature is forwarded conditionally by query(), so an absent value yields
+    // NO temperature key in the provider request — a 1:1 proof that createAgent
+    // injected no temperature into QueryParams.
+    expect(req && 'temperature' in req).toBe(false);
+    // cacheEnabled untouched → query()'s default (true) reaches the provider.
+    expect(req?.cacheEnabled).toBe(true);
+    // maxToolCallsBeforeCheckin absent → a tool-call turn does NOT check in.
+    expect(result.terminal.reason).toBe('completed');
   });
 });

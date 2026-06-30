@@ -85,6 +85,14 @@ export type AgentConfig = {
   hookRunner?: HookRunner;
   traceRecorder?: (e: TraceEvent) => void;
   effort?: ReasoningEffort;
+  /** Sampling temperature forwarded to the provider. Omit → query()/provider
+   *  default (no temperature key sent). */
+  temperature?: number;
+  /** Provider prompt-cache markers. Omit → query()'s default (enabled). */
+  cacheEnabled?: boolean;
+  /** Pause the turn loop after this many cumulative tool calls, returning
+   *  terminal reason 'checkin'. Omit → no check-in. */
+  maxToolCallsBeforeCheckin?: number;
   microcompactConfig?: MicrocompactConfig;
   maxTokens?: number;
   maxTurns?: number;
@@ -101,6 +109,9 @@ export type PerTurn = Partial<{
   tools: Tool<unknown, unknown>[];
   systemPrompt: SystemSegment[];
   effort: ReasoningEffort;
+  temperature: number;
+  cacheEnabled: boolean;
+  maxToolCallsBeforeCheckin: number;
   memoryManager: MemoryRuntime;
   recall: RecallTurn;
   observe: (i: ObserveInput) => void;
@@ -184,6 +195,15 @@ export function createAgent(config: AgentConfig): Agent {
     const recall = perTurn.recall ?? config.recall;
     const traceRecorder = perTurn.traceRecorder ?? config.traceRecorder;
     const microcompactConfig = perTurn.microcompactConfig ?? config.microcompactConfig;
+    // The remaining per-turn slice of QueryParams. `??` falls back only on
+    // nullish, so a per-turn `cacheEnabled: false` correctly wins over a
+    // standing `true`. Each is threaded via the same conditional spread as
+    // microcompactConfig below, so an absent value leaves query()'s default
+    // (temperature: unset; cacheEnabled: true; no check-in) byte-identical.
+    const temperature = perTurn.temperature ?? config.temperature;
+    const cacheEnabled = perTurn.cacheEnabled ?? config.cacheEnabled;
+    const maxToolCallsBeforeCheckin =
+      perTurn.maxToolCallsBeforeCheckin ?? config.maxToolCallsBeforeCheckin;
     const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     const gen = query({
@@ -194,6 +214,9 @@ export function createAgent(config: AgentConfig): Agent {
       maxTokens,
       sessionId,
       ...(effort !== undefined ? { effort } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
+      ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(toolContext !== undefined ? { toolContext } : {}),
       ...(perTurn.canUseTool !== undefined ? { canUseTool: perTurn.canUseTool } : {}),

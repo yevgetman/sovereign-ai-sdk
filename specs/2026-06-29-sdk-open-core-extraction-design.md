@@ -107,6 +107,8 @@ type AgentConfig = {                 // standing DEFAULTS
   recall?: RecallTurn; observe?: (i: ObserveInput) => void;
   memoryManager?: MemoryRuntime; hookRunner?: HookRunner;
   traceRecorder?: (e: TraceEvent) => void; effort?: ReasoningEffort;
+  temperature?: number; cacheEnabled?: boolean;     // per-turn QueryParams slice
+  maxToolCallsBeforeCheckin?: number;               // omit → no check-in
   microcompactConfig?: MicrocompactConfig; maxTokens?: number; maxTurns?: number;
 };
 // The per-turn override = the per-turn slice of QueryParams. Standing config
@@ -116,7 +118,9 @@ type AgentConfig = {                 // standing DEFAULTS
 type PerTurn = Partial<{
   signal: AbortSignal; canUseTool: CanUseTool; sessionId: string;
   provider: LLMProvider; model: string; tools: Tool[]; systemPrompt: SystemSegment[];
-  effort: ReasoningEffort; memoryManager: MemoryRuntime; recall: RecallTurn;
+  effort: ReasoningEffort; temperature: number; cacheEnabled: boolean;
+  maxToolCallsBeforeCheckin: number;
+  memoryManager: MemoryRuntime; recall: RecallTurn;
   observe: (i: ObserveInput) => void; traceRecorder: (e: TraceEvent) => void;
   microcompactConfig: MicrocompactConfig; toolContext: ToolContext;
 }>;
