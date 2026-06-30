@@ -37,6 +37,7 @@
     "^src/config/(?!(liveApply|catalog)\\.)"
   ],
   "openFilesInProprietaryDirs": [
+    "^src/agent/createAgent\\.",
     "^src/router/capabilities\\.",
     "^src/commands/types\\."
   ],
@@ -47,6 +48,14 @@
     "src/version.ts is a trivial version-string leaf (imports only node builtins +",
     "package.json, no internal src deps) consumed by open files (transcript/writer,",
     "mcp/client); it is open-core. src/main.ts is the wrapper entrypoint → NON-OPEN."
+  ],
+  "openFilesInProprietaryDirsAgentNote": [
+    "src/agent/createAgent.ts (Task 3.1) — the OPEN createAgent() assembler. It",
+    "lives under the otherwise-proprietary agent/ dir (alongside the bun:sqlite",
+    "SessionDb impl) but composes ONLY open primitives (query, resolveProvider,",
+    "Tool/ToolContext, the Phase-2 ports), so it is carved OPEN and the boundary",
+    "lint actively gates its imports. The rest of agent/ (sessionDb, persistMessage,",
+    "sessionRecovery) stays NON-OPEN."
   ],
   "proprietaryFilesNote": [
     "Documented for readers — already excluded from OPEN by the negative lookaheads",
