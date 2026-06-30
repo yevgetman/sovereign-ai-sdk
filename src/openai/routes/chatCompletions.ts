@@ -4,7 +4,8 @@
 // requested model against the runtime, builds an ephemeral session, maps
 // the request messages → internal Message[], appends any per-request
 // system text to the runtime's bootstrapped systemPrompt, and drives the
-// query() async generator to terminal.
+// open SDK's createAgent().run() async generator to terminal (Task 4.4 —
+// re-seated off the former inline query() call; the agent loop is identical).
 //
 // Two response shapes:
 //   - `stream === true` (T5): Hono's streamSSE wraps the generator and
@@ -26,10 +27,16 @@ import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { ZodError } from 'zod';
+import {
+  type Agent,
+  type AgentConfig,
+  type PerTurn,
+  type RunResult,
+  createAgent,
+} from '../../agent/createAgent.js';
 import { persistMessage } from '../../agent/persistMessage.js';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../../agents/exclusions.js';
 import { loadPermissionSettings } from '../../config/settings.js';
-import { query } from '../../core/query.js';
 import type {
   AssistantMessage,
   ContentBlock,
@@ -226,8 +233,23 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       (tool) => !SUBAGENT_EXCLUDED_TOOLS.has(tool.name),
     );
 
-    // 7) Construct the query() invocation. The same params drive both
-    // branches; the difference is who drains the generator.
+    // 7) Construct the turn drive. The same agent drives both branches; the
+    // difference is who drains the generator.
+    //
+    // Task 4.4 — re-seat the inline query() call onto the open SDK's
+    // createAgent().run(). Every param the inline query() passed maps 1:1 onto
+    // the standing AgentConfig / per-turn PerTurn slice with the SAME value —
+    // including the already-present `microcompactConfig` and the
+    // client-controlled `temperature` (Task 4.4a added temperature/cacheEnabled/
+    // maxToolCallsBeforeCheckin to the createAgent surface, unblocking this
+    // re-seat). The agent loop is IDENTICAL and run() yields query()'s
+    // StreamEvent | Message stream UNCHANGED (the stream-passthrough invariant),
+    // so the streaming + non-streaming response translators below are untouched
+    // apart from unwrapping the RunResult's nested `.terminal`. Splitting the
+    // params across AgentConfig (standing) vs PerTurn (per-turn) is only a
+    // packaging choice — createAgent merges them into the SAME QueryParams
+    // query() saw inline. cacheEnabled is left unset (inline passed none) so
+    // query()'s `true` default still applies on both paths.
     //
     // T10 — client-disconnect propagation. `c.req.raw.signal` is the
     // Web Fetch AbortSignal that fires when the OpenAI client closes
@@ -252,23 +274,29 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       clientSignal?.addEventListener('abort', () => abortController.abort(), { once: true });
     }
     const toolContext = buildSessionToolContext(runtime, sessionId, sessionCanUseTool);
-    const buildQuery = (): ReturnType<typeof query> =>
-      query({
-        provider: resolved.transport,
-        model: resolved.model,
-        messages,
-        systemPrompt,
-        tools: requestToolPool,
-        toolContext,
-        canUseTool: sessionCanUseTool,
-        maxTokens: parsed.max_tokens ?? runtime.maxTokens,
-        ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
-        signal: abortController.signal,
-        sessionId,
-        cwd: runtime.cwd,
-        hookRunner: runtime.hookRunner,
-        microcompactConfig: runtime.microcompactConfig,
-      });
+    const agentConfig: AgentConfig = {
+      provider: resolved.transport,
+      model: resolved.model,
+      systemPrompt,
+      tools: requestToolPool,
+      maxTokens: parsed.max_tokens ?? runtime.maxTokens,
+      cwd: runtime.cwd,
+      hookRunner: runtime.hookRunner,
+      microcompactConfig: runtime.microcompactConfig,
+    };
+    // The per-turn slice — the host-assembled toolContext is used VERBATIM,
+    // and `temperature` is spread conditionally exactly as the inline query()
+    // call did, so a request without it leaves query()'s no-temperature default
+    // byte-identical.
+    const perTurn: PerTurn = {
+      toolContext,
+      canUseTool: sessionCanUseTool,
+      signal: abortController.signal,
+      sessionId,
+      ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
+    };
+    const agent = createAgent(agentConfig);
+    const buildRun = (): ReturnType<Agent['run']> => agent.run(messages, perTurn);
 
     // 7.5) T8 — persist the latest user-role message from the request
     // (the prompt that drove this turn) BEFORE the model runs. Earlier
@@ -330,10 +358,10 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // real content (or a non-error terminal), we re-feed it into the
     // stream so nothing is dropped, and proceed exactly as before.
     if (parsed.stream === true) {
-      const gen = buildQuery();
-      let firstStep: IteratorResult<unknown, Terminal>;
+      const gen = buildRun();
+      let firstStep: IteratorResult<unknown, RunResult>;
       try {
-        firstStep = (await gen.next()) as IteratorResult<unknown, Terminal>;
+        firstStep = (await gen.next()) as IteratorResult<unknown, RunResult>;
       } catch (err) {
         // Defense-in-depth: an exception that escapes query() before the
         // first event (rather than being caught into a Terminal). Surface
@@ -343,11 +371,13 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         await runtime.disposeSession(sessionId);
         return buildProviderErrorResponse(c, err);
       }
-      if (firstStep.done === true && firstStep.value.reason === 'error') {
-        // Provider failed before emitting any event. Return a real non-200
-        // OpenAI error envelope rather than a 200 empty [DONE] stream.
+      if (firstStep.done === true && firstStep.value.terminal.reason === 'error') {
+        // Provider failed before emitting any event. createAgent caught the
+        // throw and surfaced it as RunResult.terminal{reason:'error'}; unwrap
+        // it and return a real non-200 OpenAI error envelope rather than a 200
+        // empty [DONE] stream (identical to the prior bare-Terminal check).
         await runtime.disposeSession(sessionId);
-        return buildProviderErrorResponse(c, firstStep.value.error);
+        return buildProviderErrorResponse(c, firstStep.value.terminal.error);
       }
 
       return streamSSE(c, async (stream) => {
@@ -377,15 +407,20 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         const feedFromFirstStep = async function* (): AsyncGenerator<unknown, unknown, void> {
           if (firstStep.done === true) {
             // Non-error terminal with no events (defensive — the mock and
-            // real providers always emit at least message_start). Return
-            // the terminal so translateStream finalizes cleanly.
-            return firstStep.value;
+            // real providers always emit at least message_start). Return the
+            // unwrapped Terminal (RunResult.terminal) so translateStream's
+            // deriveFinishReason still receives a real Terminal and finalizes
+            // cleanly.
+            return firstStep.value.terminal;
           }
           captureAssistant(firstStep.value);
           yield firstStep.value;
           for (;;) {
             const step = await gen.next();
-            if (step.done) return step.value;
+            // Unwrap RunResult.terminal — translateStream's deriveFinishReason
+            // reads `.reason` off a Terminal, preserving max_tokens/max_turns →
+            // 'length' parity.
+            if (step.done) return step.value.terminal;
             captureAssistant(step.value);
             yield step.value;
           }
@@ -472,12 +507,12 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     // never double-dispose. The session row stays in the DB so traces
     // and cost records are preserved.
     try {
-      const gen = buildQuery();
+      const gen = buildRun();
 
       let finalAssistant: AssistantMessage | undefined;
       let terminal: Terminal = {
         reason: 'error',
-        error: new Error('query() never terminated'),
+        error: new Error('agent run never terminated'),
       };
 
       // FIX 4 (#18) — accumulate usage across every provider call in the
@@ -492,7 +527,10 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       for (;;) {
         const step = await gen.next();
         if (step.done) {
-          terminal = step.value;
+          // Unwrap the RunResult's nested Terminal — createAgent converts a
+          // thrown provider exception into terminal{reason:'error'} too, so the
+          // H2(a) check below still fires and emits the SAME OpenAI envelope.
+          terminal = step.value.terminal;
           break;
         }
         const ev = step.value;

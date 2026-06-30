@@ -116,6 +116,13 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  the runtime) or absent (default 'off' / unset). Reset in test finally. */
   static lastEffort: import('./effort.js').ReasoningEffort | undefined = undefined;
 
+  /** Records the `temperature` value from the last stream() invocation.
+   *  The OpenAI-compatible server's createAgent re-seat (Task 4.4) tests
+   *  reset this to `undefined` before a turn, then assert the client-supplied
+   *  `temperature` was forwarded through createAgent → query() → provider
+   *  (or absent — the no-temperature default path). Reset in test finally. */
+  static lastTemperature: number | undefined = undefined;
+
   /** Counts every `stream()` invocation. Tests use this to verify the
    *  preflight call fired at boot (>= 1 after buildRuntime) or was skipped
    *  (=== 0 when opts.preflight === false). Reset in test finally blocks. */
@@ -202,6 +209,10 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     // assert it was forwarded (or omitted) into provider.stream(). `undefined`
     // when the caller omitted the field — the default-off byte-identical path.
     MockProvider.lastEffort = req.effort;
+    // Snapshot the `temperature` so the OpenAI createAgent re-seat tests can
+    // assert the client-supplied sampling temperature was forwarded (or that
+    // an absent temperature stays absent — the byte-identical default path).
+    MockProvider.lastTemperature = req.temperature;
     // Snapshot the messages array so resume-history regression tests can
     // assert the model saw prior turns.
     MockProvider.lastMessages = req.messages;
