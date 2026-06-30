@@ -20,13 +20,13 @@
 // once when the generator returns — as the turn boundary.
 
 import { Hono } from 'hono';
+import { createAgent } from '../../agent/createAgent.js';
 import { type PersistMessageHost, persistMessage } from '../../agent/persistMessage.js';
 import { buildToolScope, filterParseableRules } from '../../commands/toolScope.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
 import { readConfig } from '../../config/store.js';
 import { expandContextReferences } from '../../context/references.js';
-import { query } from '../../core/query.js';
 import { repairMissingToolResults } from '../../core/transcriptRepair.js';
 import type {
   AssistantMessage,
@@ -695,6 +695,33 @@ async function runTurnInBackground(
       agentRegistry: runtime.agents,
     });
 
+    // Task 7.1 — re-seat the turn driver onto the open SDK. The gateway now
+    // runs each turn through `createAgent().run()` instead of calling `query()`
+    // directly; the orchestration around it (SSE bus, persistMessage,
+    // compaction pivot, approval bridge, delegation recorder, the consumption
+    // loop) is byte-unchanged.
+    //
+    // STANDING config = the turn's LIVE values. Live-reload mutates
+    // runtime.{provider,model,systemSegments,hookRunner,toolPool,…} BETWEEN
+    // turns, never within one, so these are stable for the whole turn. Creating
+    // the agent ONCE PER TURN is exactly what preserves live-reload: a `/model`
+    // or `/hooks` change between turns is picked up by the next turn's fresh
+    // createAgent() (it reads the reloaded runtime refs here). `tools` is the
+    // SKILL-SCOPED pool (scope.tools) — a fresh filtered copy, never the shared
+    // runtime.toolPool. NOTE: createAgent has no sessionStore/transcripts ports
+    // wired here — the gateway owns persistence out-of-band via persistMessage,
+    // so passing a store would double-write (mirrors the scheduler re-seat).
+    const agent = createAgent({
+      provider: runtime.resolvedProvider.transport,
+      model: runtime.model,
+      systemPrompt: runtime.systemSegments,
+      tools: scope.tools,
+      hookRunner: runtime.hookRunner,
+      microcompactConfig: runtime.microcompactConfig,
+      maxTokens: runtime.maxTokens,
+      cwd: runtime.cwd,
+    });
+
     // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the
     // iteration once; if the resulting Terminal carries a
     // context-overflow error, run runtime.compact(), publish
@@ -718,70 +745,57 @@ async function runTurnInBackground(
       // post-compaction child).
       // Cancel the in-flight provider stream + tool loop when the bus is
       // disposed (SSE client disconnect or server.stop()). The bus aborts
-      // on close(); query() propagates the signal to the provider's
-      // streaming http request and tool calls cooperatively, so a stopped
-      // server doesn't leave background turns running.
-      const stream = query({
-        provider: runtime.resolvedProvider.transport,
-        model: runtime.model,
-        // Reasoning-depth level for THIS session, mutated live by `/effort`
-        // (backlog #57 — per-session on the SessionContext, not the shared
-        // runtime). 'off' (the default) → query() omits the key →
-        // byte-identical request. sessionCtx is the current session's context
-        // (re-fetched across the compaction-retry hop), so this stays correct.
+      // on close(); agent.run() forwards the signal to query(), which
+      // propagates it to the provider's streaming http request and tool
+      // calls cooperatively, so a stopped server doesn't leave background
+      // turns running.
+      //
+      // PER-HOP override = the values that vary across the compaction pivot
+      // WITHIN this turn (the recovery branch reassigns the outer `sessionId`
+      // let + re-fetches `sessionCtx`, then calls runOnce again). The standing
+      // agent (created once per turn above) carries provider/model/systemPrompt/
+      // tools/hookRunner/microcompactConfig/maxTokens/cwd; everything below is
+      // rebuilt fresh per hop and wins via PerTurn. `messages` is the run()
+      // input (first positional arg), not a PerTurn field.
+      const stream = agent.run(currentMessages, {
+        // Outer `sessionId` let — reassigned to the post-compaction child id
+        // across the recovery hop. The persistence key + hooks/trace target.
+        sessionId,
+        // Reasoning-depth for THIS session, mutated live by `/effort`
+        // (backlog #57 — per-session on the SessionContext). 'off' (the
+        // default) → createAgent omits the key → query() byte-identical
+        // request. sessionCtx is re-fetched across the compaction-retry hop,
+        // so this stays correct.
         effort: sessionCtx.effort,
-        messages: currentMessages,
-        systemPrompt: runtime.systemSegments,
-        // Feature B — the SKILL-SCOPED tool pool (a fresh copy; identity when
-        // unscoped). Never the shared runtime.toolPool when narrowed.
-        tools: scope.tools,
+        // Backlog #43 (D6 fix) — MEMORY.md injection on the server surface.
+        // `sessionCtx.memoryManager` is always present (built unconditionally
+        // in buildSessionContext).
+        memoryManager: sessionCtx.memoryManager,
+        // Learning-loop spike Phase 1 — per-session recall thunk. Present only
+        // when `learning.recall.enabled`; the conditional spread keeps the
+        // field absent otherwise (exactOptionalPropertyTypes + default-off).
+        ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
+        // PER-HOP because it's rebuilt with the pivoted `sessionId` (and the
+        // scoped pool sub-agents inherit). buildSessionToolContext re-reads the
+        // child SessionContext, so post-compaction tool calls target the child.
         toolContext: buildSessionToolContext(runtime, sessionId, scope.canUseTool, {
           delegationLifecycleRecorder,
           // Sub-agents forked mid-turn inherit the scoped pool.
           effectivePool: scope.tools,
         }),
-        // Backlog #43 (D6 fix) — the server/TUI surface previously OMITTED
-        // memoryManager from query(), so MEMORY.md never injected here (only
-        // CLI paths passed it). `sessionCtx.memoryManager` is always present
-        // (built unconditionally in buildSessionContext), so injection now
-        // fires on this surface too. MemoryManager is assignable to query()'s
-        // MemoryRuntime field.
-        memoryManager: sessionCtx.memoryManager,
-        // Learning-loop spike Phase 1 — per-session recall thunk. Present
-        // only when `learning.recall.enabled` is true; the conditional
-        // spread keeps the field absent otherwise (exactOptionalPropertyTypes
-        // discipline + default-off behavior). When set, query() runs it
-        // after memory injection and prepends recalled lessons to the latest
-        // user message.
-        ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
-        maxTokens: runtime.maxTokens,
-        sessionId,
-        cwd: runtime.cwd,
-        signal: turnSignal,
         // Session-scoped canUseTool: the `ask` callback emits a
         // permission_request event on this session's bus and awaits the
-        // matching POST /approvals/:requestId. Replaces the runtime-level
-        // deny placeholder (M3) with the live SSE bridge (M5 T5). Feature B
-        // wraps it as `scope.canUseTool` so an out-of-scope tool call on a
-        // scoped `/skill` turn is denied BEFORE the session gate runs
-        // (identity-wrapped — i.e. === sessionCanUseTool — when unscoped).
+        // matching POST /approvals/:requestId. Feature B wraps it as
+        // `scope.canUseTool` so an out-of-scope tool call on a scoped `/skill`
+        // turn is denied BEFORE the session gate runs (identity-wrapped — i.e.
+        // === sessionCanUseTool — when unscoped). PerTurn-only on createAgent
+        // (no standing canUseTool field), so it MUST ride the per-hop slice.
         canUseTool: scope.canUseTool,
-        // Forward the hook runner so UserPromptSubmit fires before turn 0,
-        // PreToolUse/PostToolUse fire around each tool call, and Stop fires
-        // at terminal. Constructed in buildRuntime (M5 T1); always present
-        // — a no-op when no hooks are configured.
-        hookRunner: runtime.hookRunner,
-        // Microcompaction config — buildRuntime always populates this from
-        // userSettings.microcompaction. Without it, query() would fall back
-        // to DEFAULT_MICROCOMPACT_CONFIG and ignore the user's settings.
-        microcompactConfig: runtime.microcompactConfig,
-        // M7 T3 — server-side trace recorder. Forwards every TraceEvent
-        // query() emits (turn_start, provider_request, provider_response,
-        // tool_start, tool_end, microcompact, …) into the per-session
-        // TraceWriter so the resulting JSONL captures a complete trace
-        // for `sov trace show`. The closure dereferences sessionCtx
+        // M7 T3 — server-side trace recorder. Forwards every TraceEvent into
+        // the per-session TraceWriter. The closure dereferences sessionCtx
         // dynamically, so post-compaction events land in the child's file.
         traceRecorder,
+        signal: turnSignal,
       });
 
       // M3 collapses all assistant output onto block 0. Per-block indexing
@@ -799,7 +813,14 @@ async function runTurnInBackground(
       while (true) {
         const result = await stream.next();
         if (result.done) {
-          return result.value;
+          // Task 7.1 — agent.run()'s generator-return is a `RunResult`, not a
+          // bare `Terminal`. Unwrap `.terminal` so runOnce keeps returning
+          // `Terminal | undefined` (the overflow-recovery branch + the
+          // turn_complete path below read it unchanged). The yielded
+          // `StreamEvent | Message` stream is byte-identical to query()'s by
+          // the createAgent stream-passthrough invariant, so the consumption
+          // loop is otherwise untouched.
+          return result.value.terminal;
         }
         const event = result.value;
 

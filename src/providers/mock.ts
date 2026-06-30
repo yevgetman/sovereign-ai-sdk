@@ -123,6 +123,13 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  (or absent — the no-temperature default path). Reset in test finally. */
   static lastTemperature: number | undefined = undefined;
 
+  /** Records the `model` id from the last stream() invocation. The gateway
+   *  createAgent re-seat (Task 7.1) live-reload test resets this before each
+   *  turn, then asserts the model the per-turn `createAgent` ran against
+   *  followed a between-turns `/model` swap — i.e. the fresh-per-turn agent
+   *  reads the LIVE `runtime.model`. Reset in test finally. */
+  static lastModel: string | undefined = undefined;
+
   /** Counts every `stream()` invocation. Tests use this to verify the
    *  preflight call fired at boot (>= 1 after buildRuntime) or was skipped
    *  (=== 0 when opts.preflight === false). Reset in test finally blocks. */
@@ -213,6 +220,10 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     // assert the client-supplied sampling temperature was forwarded (or that
     // an absent temperature stays absent — the byte-identical default path).
     MockProvider.lastTemperature = req.temperature;
+    // Snapshot the `model` so the gateway createAgent re-seat (Task 7.1)
+    // live-reload test can assert a between-turns model swap reached
+    // provider.stream() — proving the per-turn createAgent read runtime.model.
+    MockProvider.lastModel = req.model;
     // Snapshot the messages array so resume-history regression tests can
     // assert the model saw prior turns.
     MockProvider.lastMessages = req.messages;
