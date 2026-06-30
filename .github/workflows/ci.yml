@@ -1,0 +1,38 @@
+name: ci
+
+# Guards the open→proprietary boundary (and types) on every push to master and
+# every PR — not just at release. `bun run lint` runs biome AND the
+# dependency-cruiser boundary lint (`bun run boundary`), which is the
+# load-bearing open-core guarantee: open SDK code must never import proprietary
+# code. Without this, the boundary could silently regress on master between
+# releases (the release workflow only checks it at tag time). Deliberately
+# lightweight + deterministic (no test suite here — that runs in the release
+# preflight; this gate is fast and flake-free so it can block every push/PR).
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: lint + boundary + typecheck
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - run: bun install --frozen-lockfile
+      # `lint` = `biome check src tests && bun run boundary` (the boundary lint
+      # runs under `bun --bun depcruise`, so the runner's system node version is
+      # irrelevant — Bun's node-compat satisfies dependency-cruiser's engines).
+      - run: bun run lint
+      - run: bun run typecheck
