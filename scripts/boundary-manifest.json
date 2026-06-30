@@ -42,12 +42,16 @@
     "^src/commands/types\\."
   ],
   "openRootFiles": [
-    "^src/version\\."
+    "^src/version\\.",
+    "^src/sdk\\."
   ],
   "openRootFilesNote": [
     "src/version.ts is a trivial version-string leaf (imports only node builtins +",
     "package.json, no internal src deps) consumed by open files (transcript/writer,",
-    "mcp/client); it is open-core. src/main.ts is the wrapper entrypoint → NON-OPEN."
+    "mcp/client); it is open-core. src/main.ts is the wrapper entrypoint → NON-OPEN.",
+    "src/sdk.ts (Task 3.2) is the Contract #1 barrel — it re-exports ONLY the open",
+    "public surface, so it is classified OPEN and the boundary lint actively gates",
+    "its imports (a re-export of anything proprietary fails the gate, by design)."
   ],
   "openFilesInProprietaryDirsAgentNote": [
     "src/agent/createAgent.ts (Task 3.1) — the OPEN createAgent() assembler. It",
