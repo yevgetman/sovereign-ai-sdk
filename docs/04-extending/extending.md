@@ -2,6 +2,8 @@
 
 This guide covers common code changes. Keep changes narrow, preserve the async-generator turn loop, and prefer existing contracts over one-off paths.
 
+> **Respect the open/proprietary boundary.** The harness is a thin composition over an importable open-core SDK (`createAgent`, `src/sdk.ts`; see `docs/02-architecture/runtime-architecture.md` § "The SDK substrate"). Files classified open-core in `scripts/boundary-manifest.json` — the SDK barrel, `src/core/`, `src/providers/`, `src/protocol/`, `src/persistence/`, most of `src/tool/`, and more — **may not import proprietary code**. A file-level lint (`bun run boundary`, part of `bun run lint`) fails the build if they do. When you add to an open-core module, depend only on open primitives or an injected port; when you must reach proprietary state, do it from the wrapper (e.g. `src/server/`, `src/main.ts`) or behind a port, not from the open core.
+
 ## Add A Native Tool
 
 1. Create `src/tools/MyTool.ts` with a one-responsibility header comment.

@@ -17,7 +17,7 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/07-history/state/2026-06-06-phase-f-channels.md`](docs/07-history/state/2026-06-06-phase-f-channels.md) — Phase F (channels) shipped; the run-anywhere roadmap (A–F) is COMPLETE. `docs/07-history/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/07-history/state/*.md | sort -r | head -1`.
+- **Latest snapshot:** [`docs/07-history/state/2026-06-30-sdk-open-core-extraction.md`](docs/07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness is now a thin composition over an importable **open-core SDK** (`createAgent()`), with a file-level lint enforcing the open/proprietary boundary. `docs/07-history/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/07-history/state/*.md | sort -r | head -1`.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/07-history/state/archive/`](docs/07-history/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
@@ -181,7 +181,7 @@ To uninstall: `bun unlink` from the repo root, or `rm ~/.bun/bin/sov`.
 ```bash
 bun install
 bun run test       # fixture tests
-bun run lint       # biome
+bun run lint       # biome + the dependency-cruiser open→proprietary boundary check
 bun run typecheck  # tsc --noEmit
 bun run chat --version
 ```
@@ -194,11 +194,11 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 |---|---|---|
 | `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
-| `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult` | 0, 4 extensions |
+| `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult`; `buildToolContext.ts` — the open per-turn tool-context assembler | 0, 4 extensions, SDK extraction |
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + skill tools + WebFetch/WebSearch | 2 Bash, 4 file & search, 6.5 memory, 9/9.5 skills, 10.2 web |
 | `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
 | `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules, shell AST analysis for virtual tool mapping) | 3, 7, Qwen-B |
-| `src/agent/` | Session DB — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10 |
+| `src/agent/` | `createAgent.ts` — the open-core SDK assembler (the turn driver every surface runs on); plus the closed Session DB impl (`sessionDb.ts`) — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10, SDK extraction |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8, 10 |
 | `src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
 | `src/compact/` | Context-window compaction + microcompaction (per-part tool-result clearing) | 10, Qwen-A |
@@ -214,9 +214,14 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 | `src/server/` | Hono HTTP+SSE server backing the split-process TUI and the remote gateway; routes for sessions, turns, approvals, channels; multi-subscriber event bus; idle-session supervisor; bearer/principal auth + CORS; embedded web UI; on-disk SessionDb; preflight; CLI flag forwarding | 16.1, gateway A–F |
 | `src/channels/` | Inbound channel framework for `sov gateway` — Slack / Telegram / webhook adapters (verify → parse → deliver), the shared safe-by-default channel turn pipeline, env-first secret resolution, poll-loop listeners | gateway F |
 | `src/cli/` | `sov dispatch` (headless slash surface) + `sov-tui` launcher (Phase 16.1 spawn-and-supervise) | 16.0c, 16.1 |
+| `src/persistence/` | Injectable `SessionStore` / `TranscriptStore` ports with in-memory + no-op defaults (the SQLite `SessionDb` is the closed impl behind the port; no store → no disk) | SDK extraction |
+| `src/protocol/` | Contract #2 — the `sov-protocol` gateway wire types (events + endpoints) + a fetch-based typed client, pure `.d.ts`; the single source of truth the gateway, the Go TUI, and external clients share | SDK extraction |
+| `src/sdk.ts` | Contract #1 — the importable open-core SDK barrel (`createAgent` + the open tool/provider/port surface); re-exports only open code, exposed via the `package.json` `exports` map (`./sdk`, alongside `./protocol`) | SDK extraction |
 | `packages/tui/` | Go + Bubble Tea TUI client (`sov-tui`); communicates with `sov` via localhost HTTP+SSE | 16.1 |
 
 Empty directories are deliberate — they mark future phase landing zones.
+
+The **open/proprietary boundary** is machine-enforced: a file-level import check (`.dependency-cruiser.cjs` + `scripts/boundary-manifest.json`, run as `bun run boundary` inside `bun run lint`, and re-run in CI) fails the build if any open-core file imports proprietary code. `src/sdk.ts` and `src/protocol/` re-export only open code.
 
 ## License
 

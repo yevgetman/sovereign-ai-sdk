@@ -34,7 +34,7 @@ This file is a **lean router** — purpose, standing rules, and the session-boot
 
 1. **This file** (`CLAUDE.md`) — router and standing rules.
 2. **[`README.md`](README.md)** — repo intro, install, layout.
-3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-06-09-plugin-system-v1.md` — Plugin System v1, release v0.6.35; it also catches up the un-snapshotted post-Phase-F wave). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
+3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-06-30-sdk-open-core-extraction.md` — the harness is now a thin composition over an importable open-core SDK (`createAgent`), with a file-level lint enforcing the open/proprietary boundary). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
 4. **[`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md)** — open backlog items not in the canonical build plan (+ the running "last sync" log).
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -93,4 +93,5 @@ The `src/bundle/` subdirectory carries its own `src/bundle/README.md` for surfac
 - Don't put product-specific content under `src/` — Sovereign-AI-specific content belongs in the bundle.
 - Don't delete empty `src/` subdirectories — they mark phase landing zones.
 - Don't bypass the pre-commit gate with `--no-verify` unless you can name why.
+- Don't import proprietary code from open-core modules — the boundary lint (`bun run boundary`, part of `bun run lint`) enforces it; see `scripts/boundary-manifest.json`.
 - Don't dump content into `CLAUDE.md` — extend a conventions file and link to it.

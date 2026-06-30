@@ -30,7 +30,7 @@ The conceptual frame: what's settled and why.
 
 How the runtime is built.
 
-- [Runtime architecture](02-architecture/runtime-architecture.md) — request lifecycle, system prompt, tools, permissions, persistence, sub-agents, microcompaction, REPL/TUI layers, learning + review pipelines, trajectory capture, the OpenAI + native gateway server surfaces (auth, multi-client transport, supervisor, multi-user isolation, channels).
+- [Runtime architecture](02-architecture/runtime-architecture.md) — request lifecycle, the **SDK substrate** (`createAgent`) every surface runs on + the machine-enforced **open/proprietary boundary** and the `sov-protocol` wire contract, system prompt, tools, permissions, persistence (the injectable `SessionStore` port), sub-agents, microcompaction, REPL/TUI layers, learning + review pipelines, trajectory capture, the OpenAI + native gateway server surfaces (auth, multi-client transport, supervisor, multi-user isolation, channels).
 - [Subsystems overview](02-architecture/subsystems-overview.md) — the component-level atlas: every region of the codebase named and placed, with the invariants that hold across them.
 
 ## 03 — CLI reference
@@ -80,12 +80,13 @@ Audits, postmortems, and the chronological state-snapshot series. These are reco
 - **Postmortems** (`07-history/postmortems/`)
   - [Phase 16 revert](07-history/postmortems/2026-05-12-phase-16-revert.md) — the written-down lesson from the revert.
   - [Loop-detector orphaned tool_use](07-history/postmortems/loop-detector-orphaned-tool-use.md) — bug write-up + resolution.
-- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [Plugin System v1](07-history/state/2026-06-09-plugin-system-v1.md). Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
+- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [SDK open-core extraction](07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness now runs on `createAgent`. Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
 
 ## 08 — Roadmap
 
 Forward-looking but **not** committed (committed future-state is in `/specs/` + `/plans/`).
 
+- [SDK extraction — deferred work](08-roadmap/sdk-extraction-deferred-work.md) — what the open-core SDK inversion intentionally left for later (the physical `packages/` monorepo split + package publish, Node compatibility, SDK-docs polish).
 - **Backlog** (`08-roadmap/backlog/`)
   - [Post-Phase-13.4 backlog](08-roadmap/backlog/post-phase-13-4.md) — open items not in the canonical build plan (the record of truth for follow-ups). Plus the "last sync" running log.
   - [Phase-16 rebuild prerequisites](08-roadmap/backlog/phase-16-rebuild-prereqs.md) — the 24 subsystems the foreground TUI rebuild had to re-wire (24/24 complete).

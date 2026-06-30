@@ -2,7 +2,7 @@
 
 **A plain-language map of everything the harness is made of, down to the individual component.** This is an atlas for human readers: it names each major region, the subsystems inside it, and the individual pieces inside those — describing *what* each does and *why* it's there, never *how* it's coded. For the technical walkthrough see [`architecture.md`](docs/02-architecture/runtime-architecture.md); for hands-on use see [`usage.md`](docs/03-cli-reference/usage.md).
 
-*Compiled 2026-06-09 from a complete sweep of the codebase. Scale: ~56,000 lines of TypeScript across ~36 runtime subsystems, a separate Go terminal-UI program, a default "harness bundle," and ~3,600 tests. This version enumerates every individual component — the leaf level. (Pure wiring and type-definition files are folded in rather than listed, since they aren't things the harness is "composed of" so much as glue between them.)*
+*Compiled 2026-06-30 from a complete sweep of the codebase. Scale: ~379 TypeScript modules across ~36 runtime subsystems, a separate Go terminal-UI program, a default "harness bundle," and ~4,343 tests. As of the SDK open-core extraction (2026-06-30) the whole runtime is a thin composition over an importable **open-core SDK** — see Region 18. This version enumerates every individual component — the leaf level. (Pure wiring and type-definition files are folded in rather than listed, since they aren't things the harness is "composed of" so much as glue between them.)*
 
 ---
 
@@ -10,9 +10,9 @@
 
 A **coding-agent runtime** in the Claude Code mold. It reads a *bundle* of instructions and context as data, wraps a conversation around it, streams a language model, lets that model use tools, learns from what happens, and remembers the session. Two programs cooperate — a **runtime + server** (the brain) and a **terminal UI** (the face) — over a local connection that also powers a headless mode, a secure remote server, a standard API, and inbound chat channels.
 
-**The seventeen regions:**
+**The eighteen regions:**
 
-> **1** Core engine · **2** Providers · **3** Tools & permissions · **4** Sub-agents & routing · **5** Learning · **6** Persistence · **7** Configuration · **8** Extension surfaces · **9** Observability · **10** Run-anywhere surfaces · **11** Channels · **12** Scheduling · **13** Terminal UI · **14** Command line · **15** Distribution · **16** Testing · **17** Foundations
+> **1** Core engine · **2** Providers · **3** Tools & permissions · **4** Sub-agents & routing · **5** Learning · **6** Persistence · **7** Configuration · **8** Extension surfaces · **9** Observability · **10** Run-anywhere surfaces · **11** Channels · **12** Scheduling · **13** Terminal UI · **14** Command line · **15** Distribution · **16** Testing · **17** Foundations · **18** SDK substrate & open-core boundary
 
 ---
 
@@ -20,6 +20,7 @@ A **coding-agent runtime** in the Claude Code mold. It reads a *bundle* of instr
 
 The center of gravity: take a message, run the model, use tools, repeat.
 
+- **The agent assembler (`createAgent`)** — the open SDK front door that wraps the turn loop: hand it a standing configuration (provider, model, tools, system prompt) plus an optional per-turn override, and it drives one turn — passing back the model's live stream *unchanged* and a tidy structured result. **Every surface that runs a turn goes through it** — the gateway, the OpenAI API, cron, channels, missions, and sub-agents — so there is one turn-driver, not six. It composes only open pieces and reaches the closed parts (storage, learning) only through five injected **ports**: a **session store** (with an in-memory default), a **transcript store** (with a do-nothing default), **recall**, **observe**, and **trace**. Hand it none of them and a turn touches **no disk** — the property that lets the engine be embedded as a plain library. (Full picture: Region 18.)
 - **The turn loop** — the engine of a single exchange; streams the model and keeps going as long as it reaches for tools.
 - **The tool dispatcher** — runs the tools the model asks for: checks each is allowed, runs independent ones together, stops file-clashing ones from colliding, returns results in order.
 - **The internal message format** — one common shape for text, the model's private "thinking," tool requests, tool results, and images, so the rest of the system never sees a vendor's raw format.
@@ -98,7 +99,7 @@ The agent can spin up specialists and split work across cheaper and pricier mode
   - **The reference roster** — a read-only **explorer**, a claim **verifier**, a **planner**, the learning **reviewers**, the instinct **synthesizer**, the routing lanes (cheap / moderate / frontier / delegator), a **scheduled-mission** runner, and the **subscription-executor**.
 - **The scheduler** — the team manager: caps concurrent helpers, prevents write clashes, picks each helper's model, enforces timeouts, records lineage, and fires the learning hook when a helper finishes.
 - **Concurrency limiters** — the counters that cap how many helpers (and how many per cost lane) run at once.
-- **The runner** — the shared plumbing that actually drives a sub-agent (reused by cron, channels, and the API).
+- **The SDK driver** — every sub-agent runs its turn through the same agent assembler (`createAgent`, Region 1) every other surface uses; `drainRunner` is the small helper that collects a child's full stream into one result. (The old standalone `AgentRunner` wrapper class is gone — folded into the assembler.)
 - **The delegation tool's wiring** — closes the list of valid specialists to exactly those loaded, and hides delegation entirely when none are.
 - **Task routing:**
   - **The cost lanes** — cheap / moderate / frontier tiers, each possibly on a different model.
@@ -328,6 +329,17 @@ A single entry point exposes the full subcommand set:
 - **A standing set of invariants** — load-bearing rules upheld everywhere (the conversation engine's shape never changes underneath callers; the system prompt is frozen per session; external tools obey the same safety pipe as built-ins; cleanup never aborts on one failure; secret-scrubbing can't be switched off mid-session).
 - **Vendor-neutral by construction** — nothing product-specific is baked into the runtime, so the same engine can be white-labeled; the business identity lives in a separate documentation repo.
 - **The documentation map** — deeper docs for the runtime flow, daily operation, extension recipes, testing, and design principles, plus a running log of state snapshots, specs, plans, conventions, and postmortems.
+
+## 18. The SDK Substrate & Open-Core Boundary — the engine as a library, with a fence around it
+
+Underneath every surface sits **one importable agent core**, and a hard, machine-checked line separates the open part from the proprietary part. This is the substrate the whole harness composes over.
+
+- **The agent assembler (`createAgent`)** — the single front door to a turn (introduced in Region 1). It *is* the substrate: the gateway, the OpenAI API, cron, channels, missions, and sub-agents all drive their turns through it, so the harness is a thin composition over one engine rather than six hand-rolled turn loops. It adds only what a host genuinely needs on top of the raw loop — merging a per-turn override onto the standing config, optional persistence through the two store ports, and an adapter that lets a tool-observation function feed the learning system.
+- **The SDK barrel (`src/sdk.ts`)** — the public, importable surface: the one module an outside program imports to assemble an agent and run a turn (`createAgent`, the turn loop, the tool and provider shapes, the ports). It re-exports **only** open pieces — and the boundary lint (below) gates it, so it physically cannot leak the closed core. Importers reach it through the package's `exports` map (`./sdk`, alongside `./protocol`).
+- **The wire-protocol package (`src/protocol/`)** — "Contract #2": the gateway's over-the-wire message shapes plus a small typed client, shipped as pure type declarations. The server, the terminal UI, and outside clients all speak from this one definition instead of three drifting hand-copies.
+- **The five ports** — the narrow interfaces through which the open core reaches the closed core: a **session store** (in-memory by default; the SQLite store is a closed implementation *behind* this interface), a **transcript store** (a do-nothing default), **recall**, **observe**, and **trace**. The open core names the interface; the proprietary code supplies the implementation — so an embedder can run the engine with none of them and stay entirely open and disk-free.
+- **The boundary lint** — a file-level import check (`bun run boundary`, part of `bun run lint`, and re-run in CI) that **fails the build** if any open-core file imports proprietary code, measured against an explicit exception list (`scripts/boundary-manifest.json`). This is what keeps the open/proprietary line *real* rather than aspirational.
+- **The no-disk canary (`examples/embed/`)** — a tiny example program that assembles an agent and runs a turn with no session store, standing proof that the embeddable "touches no disk" default stays true.
 
 ---
 

@@ -151,7 +151,7 @@ The harness applies a permission-layer transformer to Write / Edit / NotebookEdi
 
 ### Sub-agents — 2 tests
 
-Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary wrapped in a `<subagent_result …>` envelope. The first test guards registry discoverability + the AgentTool surface (cheap, single-turn). The second is the end-to-end smoke for the full chain (parent → AgentTool → scheduler → child session → AgentRunner → child turns → renderResult → parent consumption); it adds the live-model layer that the unit + integration suites in `tests/runtime/scheduler*.test.ts` can't reach.
+Phase 13 ships agent-as-tool delegation: the model invokes `AgentTool` with a `subagent_type` (one of the loaded agents from `<bundle>/agents/`) and a prompt; the harness spawns a child session with a filtered toolset, runs it to terminal, and returns a bounded summary wrapped in a `<subagent_result …>` envelope. The first test guards registry discoverability + the AgentTool surface (cheap, single-turn). The second is the end-to-end smoke for the full chain (parent → AgentTool → scheduler → child session → createAgent → child turns → renderResult → parent consumption); it adds the live-model layer that the unit + integration suites in `tests/runtime/scheduler*.test.ts` can't reach.
 
 | ID | Guards against |
 |---|---|
