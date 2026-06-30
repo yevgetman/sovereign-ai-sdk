@@ -38,6 +38,7 @@ import { buildSkillCommands } from '../skills/commands.js';
 import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { runWorkflow } from '../workflows/engine.js';
 import { loadWorkflows } from '../workflows/loader.js';
+import { buildSessionToolContext } from './routes/turns.js';
 import type { Runtime } from './runtime.js';
 import { type SessionContext, rebuildSessionRecall } from './sessionContext.js';
 import { loadHistoryAsMessages } from './sessionId.js';
@@ -550,7 +551,12 @@ export function buildServerCommandContext(
           throw new Error(`unknown workflow '${name}' (try /workflow list)`);
         }
         return runWorkflow({
-          runtime,
+          host: {
+            cwd: runtime.cwd,
+            harnessHome: runtime.harnessHome,
+            scheduler: runtime.subagentScheduler,
+            buildToolContext: (sid, cut, opts) => buildSessionToolContext(runtime, sid, cut, opts),
+          },
           def: loaded.def,
           args,
           parentSessionId: sessionId,

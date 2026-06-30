@@ -17,9 +17,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { AssistantMessage, Terminal } from '../../src/core/types.js';
 import type { DelegateInput, DelegateResult } from '../../src/runtime/scheduler.js';
+import { buildSessionToolContext } from '../../src/server/routes/turns.js';
 import type { Runtime } from '../../src/server/runtime.js';
+import type { ToolContext } from '../../src/tool/types.js';
 import { runWorkflow, validateArgs } from '../../src/workflows/engine.js';
 import type { WorkflowEvent } from '../../src/workflows/events.js';
+import type { WorkflowHost } from '../../src/workflows/host.js';
 import type { WorkflowDef } from '../../src/workflows/types.js';
 
 /** A scripted reply for one agent: the final text it returns + an optional
@@ -131,6 +134,24 @@ function makeStubRuntime(
   } as unknown as Runtime;
 }
 
+/** Wrap the minimal Runtime stub into the narrow WorkflowHost the engine now
+ *  takes (Task 5.2). `buildToolContext` is wired to the SAME
+ *  `buildSessionToolContext` resolver the engine used to import + call directly,
+ *  so the end-to-end behavior is byte-identical — the engine now just receives
+ *  it through the handle instead of reaching into `server/routes/turns.ts`. */
+function makeStubHost(
+  delegate: (input: DelegateInput) => Promise<DelegateResult>,
+  agentNames: string[] = STUB_AGENT_NAMES,
+): WorkflowHost {
+  const runtime = makeStubRuntime(delegate, agentNames);
+  return {
+    cwd: runtime.cwd,
+    harnessHome: runtime.harnessHome,
+    scheduler: runtime.subagentScheduler,
+    buildToolContext: (sid, cut, opts) => buildSessionToolContext(runtime, sid, cut, opts),
+  };
+}
+
 const PARENT = 'wf-parent';
 
 describe('validateArgs', () => {
@@ -177,7 +198,7 @@ describe('runWorkflow — barrier ordering', () => {
       ],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -217,7 +238,7 @@ describe('runWorkflow — parallel fan-out is actually concurrent', () => {
       ],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -242,7 +263,7 @@ describe('runWorkflow — map fan-out', () => {
       ],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: { dims: ['bugs', 'security'] },
       parentSessionId: PARENT,
@@ -268,7 +289,7 @@ describe('runWorkflow — map fan-out', () => {
       ],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -302,7 +323,7 @@ describe('runWorkflow — output threading', () => {
       ],
     };
     const result = await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -326,7 +347,7 @@ describe('runWorkflow — output threading', () => {
       phases: [{ id: 'find', tasks: [{ agent: 'finder', prompt: 'go', output: 'json' }] }],
     };
     const result = await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -360,7 +381,7 @@ describe('runWorkflow — failure tolerance + writeScope', () => {
       ],
     };
     const result = await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -383,7 +404,7 @@ describe('runWorkflow — failure tolerance + writeScope', () => {
       ],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -419,7 +440,7 @@ describe('runWorkflow — review-fix regressions', () => {
       ],
     };
     const result = await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -436,7 +457,7 @@ describe('runWorkflow — review-fix regressions', () => {
       phases: [{ id: 'p', tasks: [{ agent: 'a', prompt: 'x', output: 'text' }] }],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(async (input) => {
+      host: makeStubHost(async (input) => {
         overrides.push(input.maxChildrenOverride);
         return {
           childSessionId: 'c',
@@ -475,7 +496,7 @@ describe('runWorkflow — review-fix regressions', () => {
       ],
     };
     const result = await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -497,7 +518,7 @@ describe('runWorkflow — review-fix regressions', () => {
     };
     await expect(
       runWorkflow({
-        runtime: makeStubRuntime(fake.delegate),
+        host: makeStubHost(fake.delegate),
         def,
         args: {},
         parentSessionId: PARENT,
@@ -514,7 +535,7 @@ describe('runWorkflow — review-fix regressions', () => {
     };
     await expect(
       runWorkflow({
-        runtime: makeStubRuntime(async () => {
+        host: makeStubHost(async () => {
           throw new Error('should not be called');
         }),
         def,
@@ -541,7 +562,7 @@ describe('runWorkflow — review-fix regressions', () => {
       ],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(fake.delegate),
+      host: makeStubHost(fake.delegate),
       def,
       args: {},
       parentSessionId: PARENT,
@@ -559,7 +580,7 @@ describe('runWorkflow — review-fix regressions', () => {
       phases: [{ id: 'p', tasks: [{ agent: 'a', prompt: 'x', output: 'text' }] }],
     };
     await runWorkflow({
-      runtime: makeStubRuntime(async (input) => {
+      host: makeStubHost(async (input) => {
         sawMemoryManager = input.memoryManager !== undefined;
         return {
           childSessionId: 'c',
@@ -579,5 +600,43 @@ describe('runWorkflow — review-fix regressions', () => {
       parentSessionId: PARENT,
     });
     expect(sawMemoryManager).toBe(true);
+  });
+});
+
+// Task 5.2 — the engine depends ONLY on the narrow WorkflowHost handle, not on a
+// Runtime god-object or a `server/routes/turns.ts` reach-around. This test drives
+// `runWorkflow` with a HAND-BUILT host: a mock scheduler + a stub
+// `buildToolContext` that fabricates a minimal ToolContext directly (no Runtime,
+// no `buildSessionToolContext`). If the engine still reached into the server or
+// typed its input as Runtime, this would not compile / would not run.
+describe('runWorkflow — narrow WorkflowHost handle', () => {
+  test('runs a workflow to completion driven only by a hand-built host', async () => {
+    const fake = makeRecordingDelegate({ w: { text: 'done' } });
+    let toolContextBuilds = 0;
+    const host: WorkflowHost = {
+      cwd: process.cwd(),
+      harnessHome: process.env.HARNESS_HOME ?? '/tmp',
+      scheduler: { delegate: fake.delegate, agentNames: () => ['w'] },
+      // Fabricated directly — no Runtime, no buildSessionToolContext. The engine
+      // only reads optional fields off this (parentToolPool / canUseTool /
+      // memoryManager), so a minimal context is sufficient.
+      buildToolContext: (_sessionId, canUseTool) => {
+        toolContextBuilds += 1;
+        return { parentToolPool: [], canUseTool } as unknown as ToolContext;
+      },
+    };
+    const def: WorkflowDef = {
+      name: 'narrow',
+      description: 'd',
+      phases: [{ id: 'p', tasks: [{ agent: 'w', prompt: 'go', output: 'text' }] }],
+    };
+
+    const result = await runWorkflow({ host, def, args: {}, parentSessionId: PARENT });
+
+    expect(result.ok).toBe(true);
+    expect(result.finalText).toBe('done');
+    expect(fake.calls.map((c) => c.agentName)).toEqual(['w']);
+    // The engine builds the parent ToolContext exactly once, via the handle.
+    expect(toolContextBuilds).toBe(1);
   });
 });

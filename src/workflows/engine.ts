@@ -2,7 +2,7 @@
 // docs/specs/2026-06-15-multi-agent-workflows-design.md).
 //
 // runWorkflow() is the ONLY new spawn orchestrator. It never spawns children
-// directly — it calls `runtime.subagentScheduler.delegate()` (THE child-spawn
+// directly — it calls `host.scheduler.delegate()` (THE child-spawn
 // path), inheriting provider/model resolution, lane routing, per-child
 // timeout, parent-child session lineage, traces, and the learning hook.
 //
@@ -30,10 +30,9 @@ import type { AskResponse } from '../permissions/types.js';
 import { KNOWN_LANE_NAMES } from '../router/laneRegistry.js';
 import type { PathScope } from '../runtime/pathLock.js';
 import type { DelegateInput, DelegateResult } from '../runtime/scheduler.js';
-import { buildSessionToolContext } from '../server/routes/turns.js';
-import type { Runtime } from '../server/runtime.js';
 import type { ToolContext } from '../tool/types.js';
 import type { WorkflowEventSink } from './events.js';
+import type { WorkflowHost } from './host.js';
 import { validateWorkflow } from './loader.js';
 import {
   type PhaseOutput,
@@ -76,7 +75,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 export type RunWorkflowOpts = {
-  runtime: Runtime;
+  host: WorkflowHost;
   def: WorkflowDef;
   args: Record<string, unknown>;
   parentSessionId: string;
@@ -142,10 +141,10 @@ function coerceArg(name: string, spec: ArgSpec, value: unknown): unknown {
  *  under. Mirrors cron/`sov drive`: layered allow/deny rules still apply, but
  *  any fall-through to `ask` auto-denies (a workflow has no interactive
  *  approver). Per-task `writes` enforcement is layered on inside delegate(). */
-function buildWorkflowCanUseTool(runtime: Runtime) {
+function buildWorkflowCanUseTool(host: WorkflowHost) {
   const permissionSettings = loadPermissionSettings({
-    cwd: runtime.cwd,
-    harnessHome: runtime.harnessHome,
+    cwd: host.cwd,
+    harnessHome: host.harnessHome,
   });
   const ask = async (): Promise<AskResponse> => 'deny';
   return buildCanUseTool({
@@ -396,7 +395,7 @@ function finalTextOf(output: PhaseOutput | undefined): string {
 
 /** Execute a declarative workflow. See the file header for the model. */
 export async function runWorkflow(opts: RunWorkflowOpts): Promise<WorkflowResult> {
-  const { runtime, def, parentSessionId, signal, onEvent } = opts;
+  const { host, def, parentSessionId, signal, onEvent } = opts;
   const startedAt = Date.now();
 
   // Semantic gate (2026-06-15 review fix M4): validate every `task.agent`,
@@ -405,11 +404,7 @@ export async function runWorkflow(opts: RunWorkflowOpts): Promise<WorkflowResult
   // surfaced as a confusing mid-run failure (or, for refs, an uncaught throw
   // out of a later phase) after earlier phases had already spent real work. Now
   // it fails fast at the start of the run on every surface (CLI / slash / tool).
-  const semanticErrors = validateWorkflow(
-    def,
-    runtime.subagentScheduler.agentNames(),
-    KNOWN_LANE_NAMES,
-  );
+  const semanticErrors = validateWorkflow(def, host.scheduler.agentNames(), KNOWN_LANE_NAMES);
   if (semanticErrors.length > 0) {
     throw new Error(`workflow '${def.name}' is invalid:\n  - ${semanticErrors.join('\n  - ')}`);
   }
@@ -418,10 +413,10 @@ export async function runWorkflow(opts: RunWorkflowOpts): Promise<WorkflowResult
 
   onEvent?.({ type: 'workflow_started', workflow: def.name, phaseCount: def.phases.length });
 
-  const canUseTool = buildWorkflowCanUseTool(runtime);
-  const parentToolContext = buildSessionToolContext(runtime, parentSessionId, canUseTool);
+  const canUseTool = buildWorkflowCanUseTool(host);
+  const parentToolContext = host.buildToolContext(parentSessionId, canUseTool);
   const runDelegate = (input: DelegateInput): Promise<DelegateResult> =>
-    runtime.subagentScheduler.delegate(input);
+    host.scheduler.delegate(input);
 
   const phaseOutputs: Record<string, PhaseOutput> = {};
   const runSummaryPhases: Array<{ phaseId: string; total: number; failed: number }> = [];

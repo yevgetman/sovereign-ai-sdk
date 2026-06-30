@@ -98,6 +98,7 @@ export async function runWorkflowRun(args: {
   const { runtime } = args;
   const { loadWorkflows } = await import('../workflows/loader.js');
   const { runWorkflow } = await import('../workflows/engine.js');
+  const { buildSessionToolContext } = await import('../server/routes/turns.js');
 
   const { byName } = await loadWorkflows({
     cwd: runtime.cwd,
@@ -124,7 +125,12 @@ export async function runWorkflowRun(args: {
 
   try {
     const result = await runWorkflow({
-      runtime,
+      host: {
+        cwd: runtime.cwd,
+        harnessHome: runtime.harnessHome,
+        scheduler: runtime.subagentScheduler,
+        buildToolContext: (sid, cut, opts) => buildSessionToolContext(runtime, sid, cut, opts),
+      },
       def: loaded.def,
       args: args.args,
       parentSessionId,
