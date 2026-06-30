@@ -19,7 +19,8 @@
 //   - run the turn under `buildChannelCanUseTool` — NEVER the local dev's
 //     layered allow-rules, NEVER bypass: an untrusted remote message can't ride
 //     a developer's `allow: Bash(*)` and any 'ask' fallthrough auto-denies;
-//   - drain the AgentRunner to terminal, extract the final assistant text;
+//   - drive the turn via the open SDK's `createAgent().run()` (Task 4.3 re-seat,
+//     was `AgentRunner`) to terminal, extract the final assistant text;
 //   - dispose the in-memory session context in a finally (reclaims trace/
 //     learning writers) WHILE the DB row persists for the next message.
 //
@@ -27,14 +28,18 @@
 // adapter's job (ChannelAdapter.deliver); this pipeline only produces the
 // reply text + the silent verdict.
 
+import { type AgentConfig, createAgent } from '../agent/createAgent.js';
 import { persistMessage } from '../agent/persistMessage.js';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
-import type { AssistantMessage } from '../core/types.js';
+import type { MicrocompactConfig } from '../compact/microcompact.js';
+import type { AssistantMessage, RecallTurn, SystemSegment } from '../core/types.js';
+import type { MemoryRuntime } from '../memory/provider.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import type { LLMProvider } from '../providers/types.js';
-import { AgentRunner } from '../runtime/agentRunner.js';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
 import { loadHistoryAsMessages } from '../server/sessionId.js';
+import type { Tool } from '../tool/types.js';
 import { assertChannelPermissionMode, buildChannelCanUseTool } from './permission.js';
 import { capSeededHistory } from './seedHistory.js';
 import { buildSessionKey } from './sessionKey.js';
@@ -45,9 +50,10 @@ import type { InboundMessage } from './types.js';
  *  respond on a channel by prefixing its reply. */
 const SILENT_PREFIX = '[silent]';
 
-/** Default cap on per-channel-turn agent iterations. Matches the AgentRunner
- *  built-in default but is set explicitly so a future config knob has a single
- *  place to thread through (mirrors DEFAULT_CRON_MAX_TURNS). */
+/** Default cap on per-channel-turn agent iterations. Set explicitly (and pinned
+ *  onto the createAgent config in `buildChannelAgentConfig`) so a future config
+ *  knob has a single place to thread through (mirrors DEFAULT_CRON_MAX_TURNS).
+ *  The same value the prior AgentRunner path passed. */
 const DEFAULT_CHANNEL_MAX_TURNS = 10;
 
 /** Fix 2(b) — user-facing fallback when a turn ends on a non-completed terminal
@@ -112,10 +118,10 @@ export type RunChannelTurnResult = {
   silent?: boolean;
 };
 
-/** Extract the final assistant text from an AgentRunner result: join all text
- *  blocks of the last assistant message, trim. Tool-use + thinking blocks are
- *  dropped — the channel recipient sees only the user-facing text. Mirrors the
- *  cron `extractFinalText` helper (src/cron/wiring.ts). */
+/** Extract the final assistant text from a run result: join all text blocks of
+ *  the last assistant message, trim. Tool-use + thinking blocks are dropped —
+ *  the channel recipient sees only the user-facing text. Mirrors the cron
+ *  `extractFinalText` helper (src/cron/wiring.ts). */
 function extractFinalText(assistant: AssistantMessage | undefined): string {
   if (!assistant) return '';
   return assistant.content
@@ -123,6 +129,68 @@ function extractFinalText(assistant: AssistantMessage | undefined): string {
     .map((block) => block.text)
     .join('\n')
     .trim();
+}
+
+/** The standing inputs one channel turn assembles its `createAgent` config from.
+ *  Every field maps 1:1 from the prior `AgentRunner` opts the channel path
+ *  passed, PLUS the one CEO-ratified parity-fix the AgentRunner surface
+ *  structurally could not carry: `microcompactConfig`. Kept as an explicit
+ *  primitive bag (not the live `Runtime`) so the field-level parity is
+ *  unit-testable in isolation, with no runtime spin-up. The per-turn slice
+ *  (sessionId / toolContext / canUseTool) is applied at `run()`, and the bounded
+ *  hydrated conversation history is the `run(input)` argument — neither belongs
+ *  here.
+ *
+ *  Deliberately ABSENT vs. the cron re-seat input (Task 4.2): no `transcripts`
+ *  and no `sessionStore`. Unlike cron — which neither persisted nor transcribed,
+ *  so its re-seat ADDED `transcripts` — the channel pipeline ALREADY persists AND
+ *  transcribes each turn's user + final-assistant message through its own
+ *  `persistMessage` calls (which write BOTH the DB row AND the JSONL transcript
+ *  line) OUTSIDE the agent loop. Routing a store through `createAgent` here would
+ *  DOUBLE-write (and additionally transcribe the hydrated history + intermediate
+ *  tool turns createAgent's `persistTurn` walks) — a regression, not parity. So
+ *  for channels the transcripts half of the parity-fix is already satisfied and
+ *  the genuine net-new addition is microcompaction alone. */
+export type ChannelAgentConfigInput = {
+  provider: LLMProvider;
+  model: string;
+  effort: ReasoningEffort;
+  systemPrompt: SystemSegment[];
+  maxTokens: number;
+  cwd: string;
+  tools: Tool<unknown, unknown>[];
+  memoryManager: MemoryRuntime;
+  recall?: RecallTurn;
+  /** Parity-fix — the runtime's settings-derived microcompaction config.
+   *  `AgentRunner` had no such field, so the channel path previously ran on
+   *  `query()`'s built-in `DEFAULT_MICROCOMPACT_CONFIG` regardless of the
+   *  operator's `microcompaction.*` settings; the turns route already threads
+   *  this exact value, and now so does the channel pipeline. */
+  microcompactConfig: MicrocompactConfig;
+};
+
+/** Assemble the standing `AgentConfig` for one channel turn. Pure (no I/O) so
+ *  the 1:1 mapping from the prior `AgentRunner` opts — and the ratified
+ *  microcompaction addition — is verifiable without a runtime. `recall` is
+ *  conditionally spread so an absent value stays absent, matching the
+ *  `...(x !== undefined ? { x } : {})` discipline of the prior AgentRunner opts.
+ *  `maxTurns` is pinned to the channel default the AgentRunner path also passed.
+ *  No `transcripts`/`sessionStore` are carried (see `ChannelAgentConfigInput`):
+ *  the channel pipeline owns its own persistence + transcription. */
+export function buildChannelAgentConfig(input: ChannelAgentConfigInput): AgentConfig {
+  return {
+    provider: input.provider,
+    model: input.model,
+    effort: input.effort,
+    systemPrompt: input.systemPrompt,
+    maxTokens: input.maxTokens,
+    maxTurns: DEFAULT_CHANNEL_MAX_TURNS,
+    cwd: input.cwd,
+    tools: input.tools,
+    memoryManager: input.memoryManager,
+    ...(input.recall !== undefined ? { recall: input.recall } : {}),
+    microcompactConfig: input.microcompactConfig,
+  };
 }
 
 /** Run one headless channel turn end-to-end: source the per-sender session,
@@ -220,8 +288,8 @@ async function runChannelTurnInner(args: {
     const toolContext = buildSessionToolContext(runtime, sessionId, canUseTool);
     // Fix 1 — the SAME per-session context the ToolContext above was built from.
     // It carries the owner-scoped memoryManager (always present) and the recall
-    // thunk (present only when recall is enabled), which we thread into the
-    // AgentRunner so a channel turn participates in the learning loop exactly
+    // thunk (present only when recall is enabled), which we thread into
+    // createAgent so a channel turn participates in the learning loop exactly
     // like the interactive turns route does. Without this, a channel turn never
     // injected MEMORY.md, never ran recall, and never wrote memory back.
     const sessionCtx = runtime.getSessionContext(sessionId);
@@ -251,36 +319,53 @@ async function runChannelTurnInner(args: {
       );
     }
 
-    const runner = new AgentRunner({
-      provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
-      model: runtime.model,
-      // Honor the operator's configured reasoning depth on channel turns.
-      // 'off' (default) → AgentRunner omits it → byte-identical request.
-      // Intentionally the runtime BOOT DEFAULT (backlog #57): a channel turn has
-      // no interactive session, and `/effort` no longer mutates this shared
-      // field, so channel senders can't shift depth via another principal.
-      effort: runtime.effort,
-      systemPrompt: runtime.systemSegments,
-      maxTokens: runtime.maxTokens,
-      tools: channelToolPool,
-      toolContext,
-      canUseTool,
-      maxTurns: DEFAULT_CHANNEL_MAX_TURNS,
-      sessionId,
-      cwd: runtime.cwd,
-      // Fix 1 — thread memory + recall (mirrors the turns route). memoryManager
-      // is always present; recall is conditionally spread so a recall-disabled
-      // session stays inert (matches `...(recall ? { recall } : {})`).
-      memoryManager: sessionCtx.memoryManager,
-      ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
-      // Seed the bounded hydrated history (prior turns + the new user message)
-      // instead of a single-message prompt seed.
-      initialMessages: hydratedMessages,
-    });
+    // Re-seat (Task 4.3, third (B)-surface): drive the channel turn through the
+    // open SDK's `createAgent().run()` instead of `new AgentRunner(...).run()`.
+    // The agent loop is IDENTICAL — every prior `AgentRunner` opt maps 1:1 to
+    // `AgentConfig`/`PerTurn` with the SAME value (see `buildChannelAgentConfig`)
+    // — EXCEPT the one CEO-ratified parity-fix the AgentRunner surface could not
+    // carry:
+    //   • microcompactConfig — the channel path previously ran on query()'s
+    //     built-in DEFAULT_MICROCOMPACT_CONFIG (AgentRunner dropped the field);
+    //     it now honors the operator's `microcompaction.*` settings via
+    //     `runtime.microcompactConfig`, exactly like the turns route.
+    // Unlike the cron re-seat (Task 4.2), NO `transcripts`/`sessionStore` is
+    // threaded: the channel pipeline ALREADY persists + transcribes each turn's
+    // user + final-assistant message via its own `persistMessage` calls (the new
+    // user message above, the assistant reply below), OUTSIDE the agent loop.
+    // Passing a store to createAgent would DOUBLE-write — so the transcripts half
+    // of the parity-fix is already satisfied here and only microcompaction is
+    // net-new (see `buildChannelAgentConfig`).
+    //
+    // The per-turn slice is handed through VERBATIM via `perTurn`: the canonical
+    // session-scoped ToolContext, the safe channel canUseTool, and the
+    // deterministic sessionId — so the channel keeps EXACTLY its current tool +
+    // permission + isolation wiring and gains no capability beyond the fix.
+    // Effort is the runtime BOOT DEFAULT (backlog #57): a channel turn has no
+    // interactive session and `/effort` no longer mutates this shared field, so
+    // channel senders can't shift depth via another principal. memory + recall
+    // mirror the turns route (recall conditionally spread so a recall-disabled
+    // session stays inert).
+    const agent = createAgent(
+      buildChannelAgentConfig({
+        provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
+        model: runtime.model,
+        effort: runtime.effort,
+        systemPrompt: runtime.systemSegments,
+        maxTokens: runtime.maxTokens,
+        cwd: runtime.cwd,
+        tools: channelToolPool,
+        memoryManager: sessionCtx.memoryManager,
+        ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
+        microcompactConfig: runtime.microcompactConfig,
+      }),
+    );
 
-    // The prompt arg is ignored when `initialMessages` is set (the new user
-    // message is already the tail of the hydrated seed); pass it for clarity.
-    const gen = runner.run(msg.text);
+    // Seed the bounded hydrated history (prior turns + the new user message) as
+    // the `run(input)` argument — createAgent copies a Message[] seed verbatim,
+    // the 1:1 replacement for AgentRunner's `initialMessages` (the `run(prompt)`
+    // string arg it then ignored). The per-turn overrides win at run().
+    const gen = agent.run(hydratedMessages, { sessionId, toolContext, canUseTool });
     let step: Awaited<ReturnType<typeof gen.next>>;
     for (;;) {
       step = await gen.next();
