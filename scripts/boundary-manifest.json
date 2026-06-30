@@ -12,6 +12,7 @@
     "exceptions out of an otherwise-open directory."
   ],
   "openFullyDirs": [
+    "^src/protocol/",
     "^src/core/",
     "^src/providers/",
     "^src/mcp/",
