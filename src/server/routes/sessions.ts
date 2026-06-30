@@ -25,6 +25,7 @@
 // / `sov drive` paths (which build the app without a supervisor) are untouched.
 
 import { Hono } from 'hono';
+import type { CreateSessionResponse } from '../../protocol/index.js';
 import type { AppVariables } from '../auth.js';
 import { disposeBus, peekBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
@@ -83,7 +84,10 @@ export function sessionsRoute(
         ...(runtime.bundleRoot !== undefined ? { bundleRoot: runtime.bundleRoot } : {}),
       },
     });
-    return c.json({ sessionId, createdAt: new Date().toISOString() }, 201);
+    return c.json(
+      { sessionId, createdAt: new Date().toISOString() } satisfies CreateSessionResponse,
+      201,
+    );
   });
 
   r.get('/sessions', (c) => {

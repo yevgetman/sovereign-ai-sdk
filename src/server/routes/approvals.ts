@@ -11,6 +11,7 @@
 //   404 — requestId unknown or already resolved/expired
 
 import { Hono } from 'hono';
+import type { PostApprovalRequest, PostApprovalResponse } from '../../protocol/index.js';
 import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
@@ -52,17 +53,9 @@ export function approvalsRoute(runtime: Runtime): Hono<{ Variables: AppVariables
     // Mirror the structured 400 every other body-reading route returns.
     // The 404-before-parse guard above still pre-empts this for unknown
     // requestIds; this only covers the valid-pending-requestId case.
-    let body: {
-      approved?: unknown;
-      always?: unknown;
-      updatedInput?: unknown;
-    };
+    let body: PostApprovalRequest;
     try {
-      body = (await c.req.json()) as {
-        approved?: unknown;
-        always?: unknown;
-        updatedInput?: unknown;
-      };
+      body = (await c.req.json()) as PostApprovalRequest;
     } catch {
       return c.json({ error: 'invalid JSON body' }, 400);
     }
@@ -82,7 +75,7 @@ export function approvalsRoute(runtime: Runtime): Hono<{ Variables: AppVariables
       ...(body.always === true ? { always: true } : {}),
       ...(body.updatedInput !== undefined ? { updatedInput: body.updatedInput } : {}),
     });
-    return c.json({ ok: true });
+    return c.json({ ok: true } satisfies PostApprovalResponse);
   });
 
   return r;

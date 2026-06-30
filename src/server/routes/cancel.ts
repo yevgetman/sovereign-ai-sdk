@@ -21,6 +21,7 @@
 // "I clicked ESC twice fast" race).
 
 import { Hono } from 'hono';
+import type { CancelTurnResponse } from '../../protocol/index.js';
 import type { AppVariables } from '../auth.js';
 import { getOrCreateBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
@@ -48,7 +49,7 @@ export function cancelRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     }
     const bus = getOrCreateBus(sessionId);
     const cancelled = bus.cancelCurrentTurn();
-    return c.json({ cancelled });
+    return c.json({ cancelled } satisfies CancelTurnResponse);
   });
 
   return r;

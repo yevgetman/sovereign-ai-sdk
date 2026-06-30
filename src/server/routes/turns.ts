@@ -39,6 +39,7 @@ import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { CanUseTool } from '../../permissions/types.js';
+import type { PostTurnRequest, PostTurnResponse } from '../../protocol/index.js';
 import { isContextOverflowError } from '../../providers/errors.js';
 import { estimateCostUsd } from '../../providers/pricing.js';
 import {
@@ -174,9 +175,9 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     // Mirror the structured 400 every other body-reading route returns
     // (chatCompletions.ts, commands.ts, skills.ts). Auth + the id/session
     // guards above run BEFORE this, so order is preserved.
-    let body: { text?: string; kind?: string };
+    let body: PostTurnRequest;
     try {
-      body = (await c.req.json()) as { text?: string; kind?: string };
+      body = (await c.req.json()) as PostTurnRequest;
     } catch {
       return c.json({ error: 'invalid JSON body' }, 400);
     }
@@ -259,7 +260,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
           error: `skill "${skillName}": every allowedTools entry is invalid (${invalidEntries}) — refusing to run (would otherwise run with no restriction)`,
           recoverable: false,
         });
-        return c.json({ accepted: true }, 202);
+        return c.json({ accepted: true } satisfies PostTurnResponse, 202);
       }
       if (parseableTools.length > 0) {
         skillScope = parseableTools;
@@ -288,7 +289,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
         recoverable: false,
       });
     });
-    return c.json({ accepted: true }, 202);
+    return c.json({ accepted: true } satisfies PostTurnResponse, 202);
   });
 
   return r;
