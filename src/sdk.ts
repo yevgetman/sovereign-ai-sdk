@@ -21,7 +21,6 @@
 //   - the delegation port (`Scheduler`/`delegate`, `DelegateInput`/`DelegateResult`,
 //     the `runSubprocessExecutor` port types, `LaneRegistry`,
 //     `DelegationLifecycleEvent`) — delegation-surface task;
-//   - `buildToolContext` (tool-context assembler) — promotion task;
 //   - canonical tool descriptors — subscription-executor task;
 //   - the MCP pool/factory port — MCP-pool task;
 //   - `buildToolScope` (skill-scoping) — still lives in proprietary
@@ -49,6 +48,10 @@ export type { Agent, AgentConfig, PerTurn, RunResult } from './agent/createAgent
 
 // ── Tools (tool/ + permissions/) ────────────────────────────────────────────
 export { buildTool } from './tool/buildTool.js';
+// Tool-context assembler (§5.1) — the OPEN pure assembly; the proprietary
+// per-session resolution stays in server/ and delegates to it.
+export { buildToolContext } from './tool/buildToolContext.js';
+export type { BuildToolContextInput } from './tool/buildToolContext.js';
 export type {
   PermissionBehavior,
   PermissionResult,

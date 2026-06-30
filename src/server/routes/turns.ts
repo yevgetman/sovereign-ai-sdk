@@ -46,7 +46,7 @@ import {
   synthesizeDelegationEvents,
 } from '../../router/progressEvents.js';
 import { expandSkillPrompt } from '../../skills/loader.js';
-import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
+import { buildToolContext } from '../../tool/buildToolContext.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import type { TraceEvent } from '../../trace/types.js';
 import type { AppVariables } from '../auth.js';
@@ -337,6 +337,12 @@ export function buildSessionToolContext(
     effectivePool?: Tool<unknown, unknown>[];
   } = {},
 ): ToolContext {
+  // Task 5.1 — the PROPRIETARY per-session resolution half. Resolve the inputs
+  // off the Runtime god-object + the per-session SessionContext, then delegate
+  // the pure assembly to the OPEN `buildToolContext`. The external signature +
+  // returned ToolContext are byte-identical to the pre-split version — every
+  // caller (gateway turns, openai, cron, channels, workflows) is unchanged.
+
   // M7 T5/T6 — pull the per-session subsystems off the SessionContext so
   // the orchestrator can call `ctx.learningObserver?.observe(...)` after
   // every tool call and (T6) `ctx.reviewManager` can guard review forks.
@@ -345,22 +351,9 @@ export function buildSessionToolContext(
   // Feature B — the pool this turn actually runs against. Defaults to the
   // shared runtime pool (every existing caller); the `/skill` path overrides
   // it with the skill-scoped copy. Read-only — never mutate runtime.toolPool.
+  // The open assembler derives skill visibility (activeToolNames /
+  // activeToolsets / filtered skills) from this same effective pool.
   const effectivePool = opts.effectivePool ?? runtime.toolPool;
-  // M8 T4 — per-turn skill visibility. The active toolset is derived
-  // from the EFFECTIVE pool (the same pool the turn's `query()` runs
-  // against) and fed into `inferActiveToolsets` + `filterSkillRegistry`
-  // so any skill gated on a tool the turn lacks (or is the fallback
-  // half of a primary/fallback pair whose primary is active) is dropped
-  // from the ToolContext.skills view the orchestrator sees. Filtering
-  // here — not at buildRuntime — keeps the registry on Runtime
-  // unfiltered for the T5 `/skillname` dispatch and the GET /skills
-  // route (which projects its own filtered view per request). The
-  // toolPool / activeToolNames / activeToolsets derivation happens per
-  // turn so visibility tracks any per-turn tool-pool changes (incl. the
-  // skill-scope narrowing).
-  const activeToolNames = effectivePool.map((t) => t.name);
-  const activeToolsets = inferActiveToolsets(activeToolNames);
-  const filteredSkills = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
   // Task 2.3 — source WebSearchTool's provider config for `ctx.webSearch` (the
   // tool no longer reads config ambiently). An injected Settings (SDK seam,
   // config-file-free) is used verbatim; otherwise re-read config.json per turn
@@ -369,70 +362,44 @@ export function buildSessionToolContext(
   const webSearch =
     runtime.injectedSettings?.webSearch ??
     readConfig({ harnessHome: runtime.harnessHome }).webSearch;
-  return {
+  return buildToolContext({
     cwd: runtime.cwd,
     sessionId,
     harnessHome: runtime.harnessHome,
     agents: runtime.agents,
-    ...(runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}),
+    // Conditional in the assembler (absent when no bundle is loaded): the
+    // optional `bundleRoot` field is `string | undefined`, so passing
+    // `runtime.bundle?.root` directly is byte-identical to the prior
+    // `runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}` spread.
+    bundleRoot: runtime.bundle?.root,
     subagentScheduler: runtime.subagentScheduler,
     taskManager: runtime.taskManager,
-    // Phase 2 T3 — expose the assembled lane registry so AgentTool can
-    // resolve the target agent's lane timeout at dispatch time and pass
-    // it as `perChildTimeoutMsOverride` into `scheduler.delegate()`.
-    // Always present on Runtime (built by `buildLaneRegistry`), so this
-    // is a direct passthrough rather than a conditional spread.
+    // Phase 2 T3 — the assembled lane registry (always present on Runtime).
     laneRegistry: runtime.laneRegistry,
-    // Feature B — forked sub-agents inherit the EFFECTIVE pool, so a child
-    // dispatched mid-`/skill`-turn is bounded by the skill's allowedTools
-    // (child ⊆ skill scope ⊆ runtime pool). Defaults to runtime.toolPool.
-    parentToolPool: effectivePool,
+    effectivePool,
+    // The UNFILTERED registry — the assembler filters it against the effective
+    // pool. Keeping the runtime registry unfiltered preserves the T5
+    // `/skillname` dispatch + the GET /skills route's own per-request view.
+    skills: runtime.skills,
     canUseTool: sessionCanUseTool,
-    // M8 T4 — filtered skill registry + active toolset/tool-name arrays
-    // so skill-aware tools (SkillTool, skills_list, skill_view) all see
-    // the same visibility surface. Threading the arrays here avoids
-    // re-deriving them at each tool call site.
-    skills: filteredSkills,
-    activeToolNames,
-    activeToolsets,
-    // Task 2.3 — WebSearchTool reads its provider config off `ctx.webSearch`.
-    ...(webSearch !== undefined ? { webSearch } : {}),
-    // M7 T5 — per-session learning observer. Orchestrator reads this via
-    // optional-chain after every tool call (src/core/orchestrator.ts:581).
-    // Left off entirely when learning.disabled === true upstream.
-    ...(sessionCtx.learningObserver !== undefined
-      ? { learningObserver: sessionCtx.learningObserver }
-      : {}),
-    // M7 T6 (placeholder — populated by T6) — per-session review manager.
-    // The optional spread keeps the shape stable across the T5/T6 hop.
-    ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
-    // M8 T3 — per-session subdirectory-hint dedup state. The orchestrator's
-    // `maybeAppendHints` call at src/core/orchestrator.ts:636-653 reads this
-    // after every successful tool result and appends ancestor AGENTS.md /
-    // CONTEXT.md / .cursorrules files exactly once per touched directory.
-    // Passed by reference so the dedup Set persists across the session's
-    // turn loop.
+    // M8 T3 — per-session subdirectory-hint dedup state (passed by reference so
+    // the dedup Set persists across the session's turn loop).
     subdirectoryHintState: sessionCtx.subdirectoryHintState,
-    // Backlog #43 (closed 2026-05-19) — per-session memory manager + project
-    // scope. MemoryTool's `ctx.memoryManager?.onMemoryWrite(...)` notifications
-    // now fire in server-mode (previously no-op), and ctx.projectScope routes
-    // writes to the correct global/per-project MEMORY.md when in a
-    // project (bundle or git repo).
+    // Backlog #43 — per-session memory manager + project scope.
     memoryManager: sessionCtx.memoryManager,
     projectScope: sessionCtx.projectScope,
-    // Phase E T6 — thread the owning principal onto the per-turn ToolContext
-    // so any synthesizer dispatched from this turn (and spread by the
-    // scheduler into its child) writes instincts under the user's learning
-    // namespace. Optional spread keeps the field absent for the implicit
-    // single principal (legacy / open mode) — byte-identical to today.
-    ...(sessionCtx.userId !== undefined ? { userId: sessionCtx.userId } : {}),
-    // Phase 2 T4 — optional spread keeps the field absent when no recorder
-    // was supplied (matches `exactOptionalPropertyTypes` discipline for
-    // every other optional field on ToolContext).
-    ...(opts.delegationLifecycleRecorder !== undefined
-      ? { delegationLifecycleRecorder: opts.delegationLifecycleRecorder }
-      : {}),
-  };
+    // Task 2.3 — WebSearchTool reads its provider config off `ctx.webSearch`.
+    webSearch,
+    // M7 T5 — per-session learning observer (undefined when learning disabled).
+    learningObserver: sessionCtx.learningObserver,
+    // M7 T6 — per-session review manager (undefined when review disabled).
+    reviewManager: sessionCtx.reviewManager,
+    // Phase E T6 — owning principal (undefined for the implicit single principal).
+    userId: sessionCtx.userId,
+    // Phase 2 T4 — per-turn delegation lifecycle recorder (undefined for callers
+    // with no SSE bus, e.g. cron + OpenAI).
+    delegationLifecycleRecorder: opts.delegationLifecycleRecorder,
+  });
 }
 
 async function runTurnInBackground(
