@@ -96,6 +96,16 @@ export type AgentConfig = {
   microcompactConfig?: MicrocompactConfig;
   maxTokens?: number;
   maxTurns?: number;
+  /** Error-propagation mode for a THROWN pre/in-loop op (memory injection,
+   *  recall, the UserPromptSubmit hook — the async ops query() runs OUTSIDE its
+   *  per-turn try/catch). Omit/`false` (the DEFAULT): a throw is CONVERTED to a
+   *  returned `terminal{reason:'error'}` — byte-identical to today + to
+   *  AgentRunner (cron/channels/sub-agents rely on this). `true`: the throw
+   *  PROPAGATES out of `run()`'s generator (the consumer's `.next()` rejects),
+   *  exactly like a direct `query()` drive — the gateway opts in so its outer
+   *  catch maps it to `turn_error`. In-loop errors are unaffected either way
+   *  (query() RETURNS those terminals; nothing is thrown). */
+  rethrow?: boolean;
 };
 
 /** The per-turn override slice — exactly the subset of `QueryParams` that varies
@@ -119,6 +129,8 @@ export type PerTurn = Partial<{
   microcompactConfig: MicrocompactConfig;
   /** A fully host-assembled tool context; used verbatim when supplied. */
   toolContext: ToolContext;
+  /** Per-turn override of the standing `rethrow` mode (see AgentConfig). */
+  rethrow: boolean;
 }>;
 
 /** The structured result of a `run()` (the promoted `AgentRunnerResult`),
@@ -205,6 +217,9 @@ export function createAgent(config: AgentConfig): Agent {
     const maxToolCallsBeforeCheckin =
       perTurn.maxToolCallsBeforeCheckin ?? config.maxToolCallsBeforeCheckin;
     const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    // Error-propagation mode: per-turn override wins, else standing config,
+    // else `false` (convert-to-terminal — byte-identical to today).
+    const rethrow = perTurn.rethrow ?? config.rethrow ?? false;
 
     const gen = query({
       provider,
@@ -273,6 +288,11 @@ export function createAgent(config: AgentConfig): Agent {
         yield ev;
       }
     } catch (err) {
+      // `rethrow: true` — do NOT convert the throw to a terminal. Re-throw so it
+      // propagates out of this generator (the consumer's `.next()` rejects),
+      // skipping persistence + the structured return, exactly like a direct
+      // query() drive. `false`/unset keeps the EXACT current behavior below.
+      if (rethrow) throw err;
       terminal = { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
     }
 

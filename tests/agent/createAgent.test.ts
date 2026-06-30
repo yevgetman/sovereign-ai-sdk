@@ -26,6 +26,7 @@ import type {
   StreamEvent,
   SystemSegment,
 } from '../../src/core/types.js';
+import type { MemoryRuntime } from '../../src/memory/provider.js';
 import type { CanUseTool } from '../../src/permissions/types.js';
 import { createInMemorySessionStore } from '../../src/persistence/inMemoryStore.js';
 import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
@@ -508,5 +509,92 @@ describe('createAgent — per-turn QueryParams completeness (temperature/cacheEn
     expect(req?.cacheEnabled).toBe(true);
     // maxToolCallsBeforeCheckin absent → a tool-call turn does NOT check in.
     expect(result.terminal.reason).toBe('completed');
+  });
+});
+
+// Task 7.2 — the `rethrow` option restores the pre-7.1 error-path byte-identity.
+// createAgent threads `memoryManager` to query(), which awaits its
+// `prefetchSnapshot` OUTSIDE query()'s per-turn try/catch (src/core/query.ts:
+// 74-76) — so a throw there ESCAPES the generator (one of the three pre-loop
+// throw ops, alongside the recall thunk + the UserPromptSubmit hook). The
+// DEFAULT (convert) turns that escape into a returned terminal{reason:'error'}
+// (matching AgentRunner — cron/channels/sub-agents depend on it); `rethrow: true`
+// lets it PROPAGATE out of run() exactly like a direct query() drive, which the
+// gateway opts into so its outer catch maps the throw to `turn_error`.
+describe('createAgent — rethrow (Task 7.2 error-path byte-identity)', () => {
+  const boom = new Error('memory injection boom');
+  /** A MemoryRuntime whose injection prefetch THROWS — the closest reachable
+   *  pre-loop throw createAgent threads into query(). */
+  function throwingMemory(): MemoryRuntime {
+    return {
+      async prefetchSnapshot(): Promise<string> {
+        throw boom;
+      },
+      async syncTurn(): Promise<void> {},
+      async onMemoryWrite(): Promise<void> {},
+      async onDelegation(): Promise<void> {},
+    };
+  }
+
+  test('rethrow unset → a thrown pre-loop op is CONVERTED to terminal{reason:error} (the default; byte-identical to today)', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      memoryManager: throwingMemory(),
+      maxTokens: 256,
+    });
+    // No throw escapes run(): the drive's try/catch converts it and returns a
+    // normal RunResult carrying the error terminal.
+    const { result } = await drain(agent.run('hello'));
+    expect(result.terminal.reason).toBe('error');
+    expect(result.terminal.error).toBe(boom);
+  });
+
+  test('rethrow: true (per-turn) → the SAME thrown pre-loop op PROPAGATES out of run() (consumer .next() rejects), NOT a returned terminal', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      memoryManager: throwingMemory(),
+      maxTokens: 256,
+    });
+    // The generator rejects — exactly like a direct query() drive.
+    await expect(drain(agent.run('hello', { rethrow: true }))).rejects.toThrow(
+      'memory injection boom',
+    );
+  });
+
+  test('rethrow: true via standing config is honored without a per-turn override', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      memoryManager: throwingMemory(),
+      rethrow: true,
+      maxTokens: 256,
+    });
+    await expect(drain(agent.run('hello'))).rejects.toThrow('memory injection boom');
+  });
+
+  test('a per-turn rethrow:false overrides a standing rethrow:true (convert wins for that turn)', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      memoryManager: throwingMemory(),
+      rethrow: true,
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hello', { rethrow: false }));
+    expect(result.terminal.reason).toBe('error');
+    expect(result.terminal.error).toBe(boom);
+  });
+
+  test('rethrow has NO effect on a normal (non-throwing) turn — completes + returns a RunResult either way', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hello', { rethrow: true }));
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.finalAssistant).toEqual(completedAnswer);
   });
 });

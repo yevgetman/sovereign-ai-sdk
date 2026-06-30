@@ -110,7 +110,9 @@ type AgentConfig = {                 // standing DEFAULTS
   temperature?: number; cacheEnabled?: boolean;     // per-turn QueryParams slice
   maxToolCallsBeforeCheckin?: number;               // omit → no check-in
   microcompactConfig?: MicrocompactConfig; maxTokens?: number; maxTurns?: number;
-};
+  rethrow?: boolean;                 // omit/false → convert a THROWN pre-loop op
+};                                   // to terminal{error} (byte-identical to AgentRunner);
+                                     // true → propagate it out of run() (gateway opts in → turn_error)
 // The per-turn override = the per-turn slice of QueryParams. Standing config
 // supplies defaults; PerTurn wins. This is how the gateway carries the
 // compaction pivot, live-reload, and per-turn port re-binding WITHOUT the SDK
@@ -123,6 +125,7 @@ type PerTurn = Partial<{
   memoryManager: MemoryRuntime; recall: RecallTurn;
   observe: (i: ObserveInput) => void; traceRecorder: (e: TraceEvent) => void;
   microcompactConfig: MicrocompactConfig; toolContext: ToolContext;
+  rethrow: boolean;                  // per-turn override of the standing rethrow mode
 }>;
 type Agent = {
   // Yields query()'s exact StreamEvent|Message stream UNCHANGED & in order

@@ -796,6 +796,16 @@ async function runTurnInBackground(
         // dynamically, so post-compaction events land in the child's file.
         traceRecorder,
         signal: turnSignal,
+        // Task 7.2 — opt OUT of createAgent's convert-throw-to-terminal default.
+        // The three pre-loop async ops query() runs OUTSIDE its per-turn
+        // try/catch (memory injection `prefetchSnapshot`, the recall thunk, the
+        // UserPromptSubmit hook) can THROW. With `rethrow: true` that throw
+        // propagates out of runOnce → the outer catch below → `turn_error`,
+        // byte-identical to the pre-7.1 direct-query() drive. Without it the
+        // SDK would swallow the throw into `terminal{reason:'error'}` →
+        // `turn_complete{finishReason:'error'}` (the 7.1 wire regression).
+        // In-loop errors are unaffected (query() RETURNS those terminals).
+        rethrow: true,
       });
 
       // M3 collapses all assistant output onto block 0. Per-block indexing
