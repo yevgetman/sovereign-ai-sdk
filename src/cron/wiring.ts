@@ -5,13 +5,15 @@
 // job. The three pluggable dependencies expected by `buildCronJobExecutor`
 // (runAgent / expandSkills / runScript) are wired here:
 //
-//   - runAgent: mints a child session row (metadata.kind='cron'), constructs
-//     an AgentRunner over a cron-filtered tool pool and a default-mode
+//   - runAgent: mints a child session row (metadata.kind='cron'), drives one
+//     turn via the open SDK's `createAgent().run()` (Task 4.2 re-seat, was
+//     `AgentRunner`) over a cron-filtered tool pool and a default-mode
 //     canUseTool whose `ask` callback auto-denies (matches `sov drive`
 //     headless policy — cron jobs never reach an interactive surface), drains
-//     the generator, and returns the final assistant text. The session is
-//     disposed in a finally block so trace writers and learning observers
-//     flush even on agent error.
+//     the generator, and returns the final assistant text. The re-seat also
+//     lands the ratified microcompaction + transcript parity-fixes (see
+//     `buildCronAgentConfig`). The session is disposed in a finally block so
+//     trace writers and learning observers flush even on agent error.
 //   - expandSkills: walks `job.skills`, looks each up in `runtime.skills.byName`,
 //     expands the body via `expandSkillPrompt`, and joins on `\n\n---\n\n`.
 //     Throws on unknown skill name (caught by the executor's try/catch).
@@ -25,15 +27,20 @@
 // (.py/.ts/.js/.sh) with direct exec as the fallback.
 
 import { isAbsolute, join, resolve } from 'node:path';
+import { type AgentConfig, createAgent } from '../agent/createAgent.js';
 import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
+import type { MicrocompactConfig } from '../compact/microcompact.js';
 import { loadPermissionSettings } from '../config/settings.js';
-import type { AssistantMessage } from '../core/types.js';
+import type { AssistantMessage, RecallTurn, SystemSegment } from '../core/types.js';
+import type { MemoryRuntime } from '../memory/provider.js';
 import { buildCanUseTool } from '../permissions/canUseTool.js';
 import type { AskResponse } from '../permissions/types.js';
+import type { TranscriptStore } from '../persistence/transcriptStore.js';
+import type { ReasoningEffort } from '../providers/effort.js';
 import type { LLMProvider } from '../providers/types.js';
-import { AgentRunner } from '../runtime/agentRunner.js';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
+import type { Tool } from '../tool/types.js';
 import { buildCronJobExecutor } from './execute.js';
 import { type CronRunResult, CronRunner } from './runner.js';
 import type { Job } from './types.js';
@@ -183,6 +190,60 @@ function extractFinalText(assistant: AssistantMessage | undefined): string {
     .trim();
 }
 
+/** The standing inputs one cron turn assembles its `createAgent` config from.
+ *  Every field maps 1:1 from the prior `AgentRunner` opts the cron path passed,
+ *  PLUS the two CEO-ratified parity-fixes (`microcompactConfig` + `transcripts`)
+ *  that the AgentRunner surface structurally could not carry. Kept as an
+ *  explicit primitive bag (not the live `Runtime`) so the field-level parity is
+ *  unit-testable in isolation, with no runtime spin-up. The per-turn slice
+ *  (sessionId / toolContext / canUseTool) is applied at `run()`, not here. */
+export type CronAgentConfigInput = {
+  provider: LLMProvider;
+  model: string;
+  effort: ReasoningEffort;
+  systemPrompt: SystemSegment[];
+  maxTokens: number;
+  cwd: string;
+  tools: Tool<unknown, unknown>[];
+  memoryManager: MemoryRuntime;
+  recall?: RecallTurn;
+  /** Parity-fix #1 — the runtime's settings-derived microcompaction config.
+   *  `AgentRunner` had no such field, so the cron path previously ran on
+   *  `query()`'s built-in `DEFAULT_MICROCOMPACT_CONFIG` regardless of the
+   *  operator's `microcompaction.*` settings; the turns route already threads
+   *  this exact value, and now so does cron. */
+  microcompactConfig: MicrocompactConfig;
+  /** Parity-fix #2 — the runtime's per-session transcript store, when present,
+   *  so a scheduled turn is transcribed like an interactive one. The old
+   *  AgentRunner path never persisted and cron never called `persistMessage`,
+   *  so a cron turn was never transcribed; passing the store closes that gap. */
+  transcripts?: TranscriptStore;
+};
+
+/** Assemble the standing `AgentConfig` for one cron turn. Pure (no I/O) so the
+ *  1:1 mapping from the prior `AgentRunner` opts — and the two ratified
+ *  additions — is verifiable without a runtime. Optional fields (`recall`,
+ *  `transcripts`) are conditionally spread so an absent value stays absent,
+ *  matching the `...(x !== undefined ? { x } : {})` discipline of the prior
+ *  AgentRunner opts. `maxTurns` is pinned to the cron default the AgentRunner
+ *  path also passed. */
+export function buildCronAgentConfig(input: CronAgentConfigInput): AgentConfig {
+  return {
+    provider: input.provider,
+    model: input.model,
+    effort: input.effort,
+    systemPrompt: input.systemPrompt,
+    maxTokens: input.maxTokens,
+    maxTurns: DEFAULT_CRON_MAX_TURNS,
+    cwd: input.cwd,
+    tools: input.tools,
+    memoryManager: input.memoryManager,
+    ...(input.recall !== undefined ? { recall: input.recall } : {}),
+    microcompactConfig: input.microcompactConfig,
+    ...(input.transcripts !== undefined ? { transcripts: input.transcripts } : {}),
+  };
+}
+
 /** Build a production CronRunner bound to the live Runtime. Caller owns the
  *  lifecycle: `runner.start()` arms the 60s tick interval, `runner.stop()`
  *  clears it. buildRuntime invokes both inside its own lifecycle (T7 step
@@ -252,32 +313,48 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // Phase-F channel fix closed for channels).
         const sessionCtx = runtime.getSessionContext(sessionId);
 
-        const runner = new AgentRunner({
-          provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
-          model: runtime.model,
-          // Honor the operator's configured reasoning depth on scheduled turns.
-          // 'off' (default) → AgentRunner omits it → byte-identical request.
-          // Intentionally the runtime BOOT DEFAULT (backlog #57): a scheduled
-          // job has no interactive session, and `/effort` no longer mutates this
-          // shared field, so cron is isolated from any principal's `/effort`.
-          effort: runtime.effort,
-          systemPrompt: runtime.systemSegments,
-          maxTokens: runtime.maxTokens,
-          tools: cronToolPool,
-          toolContext,
-          canUseTool,
-          maxTurns: DEFAULT_CRON_MAX_TURNS,
-          sessionId,
-          cwd: runtime.cwd,
-          // Thread memory + recall (mirrors the turns route + channel pipeline).
-          // memoryManager is always present; recall is conditionally spread so a
-          // recall-disabled session stays inert (matches the
-          // `...(recall ? { recall } : {})` discipline elsewhere).
-          memoryManager: sessionCtx.memoryManager,
-          ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
-        });
+        // Re-seat (Task 4.2, second (B)-surface): drive the cron turn through the
+        // open SDK's `createAgent().run()` instead of `new AgentRunner(...).run()`.
+        // The agent loop is IDENTICAL — every prior `AgentRunner` opt maps 1:1 to
+        // `AgentConfig`/`PerTurn` with the SAME value (see `buildCronAgentConfig`)
+        // — EXCEPT the two CEO-ratified parity-fixes the AgentRunner surface could
+        // not carry:
+        //   • microcompactConfig — cron previously ran on query()'s built-in
+        //     DEFAULT_MICROCOMPACT_CONFIG (AgentRunner dropped the field); it now
+        //     honors the operator's `microcompaction.*` settings via
+        //     `runtime.microcompactConfig`, exactly like the turns route.
+        //   • transcripts — AgentRunner never persisted and cron never called
+        //     `persistMessage`, so a scheduled turn was never transcribed; passing
+        //     `runtime.transcripts` writes the cron session's JSONL mirror like an
+        //     interactive turn. (No `sessionStore` is passed: cron never wrote
+        //     message rows before, so adding DB persistence would be a new
+        //     capability, not parity. The session ROW is still minted above.)
+        // The cron-filtered tool pool, the auto-deny canUseTool, and the
+        // session-scoped ToolContext are handed through VERBATIM via
+        // `perTurn.toolContext` / `perTurn.canUseTool`, so cron keeps EXACTLY its
+        // current tool + permission wiring and gains no capability beyond the two
+        // fixes. Effort is the runtime BOOT DEFAULT (backlog #57): a scheduled job
+        // has no interactive session, and `/effort` no longer mutates this shared
+        // field, so cron stays isolated from any principal's `/effort`. memory +
+        // recall mirror the turns route + channel pipeline (recall conditionally
+        // spread so a recall-disabled session stays inert).
+        const agent = createAgent(
+          buildCronAgentConfig({
+            provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
+            model: runtime.model,
+            effort: runtime.effort,
+            systemPrompt: runtime.systemSegments,
+            maxTokens: runtime.maxTokens,
+            cwd: runtime.cwd,
+            tools: cronToolPool,
+            memoryManager: sessionCtx.memoryManager,
+            ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
+            microcompactConfig: runtime.microcompactConfig,
+            ...(runtime.transcripts !== undefined ? { transcripts: runtime.transcripts } : {}),
+          }),
+        );
 
-        const gen = runner.run(prompt);
+        const gen = agent.run(prompt, { sessionId, toolContext, canUseTool });
         let final: Awaited<ReturnType<typeof gen.next>>;
         for (;;) {
           final = await gen.next();
