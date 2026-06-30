@@ -8,6 +8,29 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-06-30 — SDK open-core extraction finale: thin harness + §15 acceptance gate (v0.6.47, `sdk-extraction` branch)
+
+**Scope.** Phase 9.1 of the SDK open-core extraction (the strangler arc that re-seated every surface onto the importable `createAgent()` SDK). This build made the harness genuinely thin and confirmed the full §15 acceptance gate. Behavior-preserving: dead-code removal + stale-comment cleanup + docs only; `query()` / `createAgent()` / the surfaces are unchanged. Spec `specs/2026-06-29-sdk-open-core-extraction-design.md`.
+
+**What changed.** Removed the now-dead `AgentRunner` class + `AgentRunnerOpts`/`AgentRunnerResult` types (`src/runtime/agentRunner.ts`, deleted) and its orphaned test (`tests/runtime/agentRunner.test.ts`, deleted) — verified zero real callers after the Phase 4–7 re-seats. **Kept `drainRunner`** (lives in `scheduler.ts`, still drives the scheduler's `createAgent` native path). Tidied stale "was `new AgentRunner(...)`" / dead-symbol comments across `scheduler.ts`/`cron/wiring.ts`/`channels/pipeline.ts`/`subprocessExecutor.ts`/`createAgent.ts`; fixed a stray NUL byte in `src/hooks/runner.ts` (`skipKey` delimiter).
+
+**Commands run (real results).**
+- `bun run typecheck` — clean.
+- `bun run lint` (biome + boundary) — clean; **`bun run boundary` → 0 dependency violations** (379 modules, 1467 deps; zero open→proprietary).
+- `bun run test` — **4343 pass / 0 fail / 16 skip** across 443 files. Baseline before removal was 4351 pass across 444 files; the −8 tests / −1 file delta is **exactly** the removed dead-AgentRunner test file. No flake observed this run (`tuiLauncherIntegration` passed first try).
+- `grep -rn "class AgentRunner" src` → empty.
+
+**§15 acceptance coverage map (criterion → satisfying test).**
+- **§15.1 full gate (`lint && typecheck && test` green):** the three commands above.
+- **§15.2 boundary lint (0 open→proprietary):** `bun run boundary` (dependency-cruiser, `scripts/boundary-manifest.json`).
+- **§15.3 per-(B)-surface re-seat-equivalence:** `tests/server/turns.reseat.test.ts` (gateway), `tests/cron/wiring.reseat.test.ts`, `tests/channels/pipeline.reseat.test.ts`, `tests/runtime/scheduler.reseat.test.ts` (sub-agents).
+- **§15.4 harness-from-SDK + enumerated Go-TUI/gateway E2E:** tool turn + approval round-trip → `tests/server/gatewayEndToEnd.test.ts` (+ `tests/server/turns.test.ts`, `tests/server/approvals.test.ts`); recall → `tests/server/turns.recall.test.ts`; workflow → `tests/workflows/engine.test.ts` (+ `tests/tools/workflowRunTool.exclusion.test.ts`); micro compaction → `tests/server/turns.microcompact.test.ts` + `tests/server/turns.proactiveCompact.test.ts`; overflow compaction → `tests/server/turns.overflowRecovery.test.ts`; skill-scoped turn → `tests/server/skillScope.test.ts`; channel turn → `tests/channels/pipeline.reseat.test.ts`; cron turn → `tests/cron/wiring.reseat.test.ts`. **All scenarios already covered — no new test added (none genuinely uncovered; nothing duplicated).**
+- **§15.5 external-import / no-disk canary (8.1):** `tests/examples/embed.test.ts` (runEmbed completes a tool turn, temp cwd stays empty, SDK value-dep graph never reaches `bun:sqlite`/`agent/sessionDb`) + `tests/sdk/barrel.test.ts` (createAgent runs a no-disk turn from the barrel).
+- **§15.6 Contract surface-snapshots + stream-passthrough invariant (3.1):** `tests/sdk/surface.test.ts` + `tests/sdk/barrel.test.ts` (Contract #1 export guard), `tests/protocol/surface.test.ts` + `tests/protocol/conformance.test.ts` (Contract #2), `tests/agent/createAgent.test.ts` ("run() yields query()'s exact stream unchanged + in order").
+- **§15.7 `sov upgrade` clean:** the runtime did not change (dead-code/docs only), so no TUI rebuild was required; `sov upgrade` is a publish-time step, not exercised in this environment (see snapshot).
+
+**Regressions / follow-ups:** None. The remaining "prior AgentRunner opts" comments in the parity-doc blocks are accurate history and were intentionally kept.
+
 ## 2026-06-15 — Subscription-executor delegation bias (soft) (v0.6.47)
 
 **Scope.** Founder reported: subscription executor was enabled, but the agent built a web page inline and never delegated to the `claude -p` shell. Investigated the transcript `~/.harness/projects/-Users-yev/82e6f867-…jsonl` (19 records, Haiku 4.5): the model wrote `index.html`/`styles.css`/`script.js` via direct `FileWrite` calls + `StaticSiteValidate` — **no `AgentTool` invocation at all**. Root cause: enabling `subscriptionExecutor` only adds the role back to the model-visible Agent-tool enum (`computeToolVisibleAgents`) — it makes the role a *legal* delegation target but injects nothing into the parent system prompt, so the model has no bias to pick it (contrast `taskRouting`, which loads `smart-router.md` and *forces* delegation).
