@@ -1,7 +1,7 @@
 // SPIKE (off by default) — headless Claude Code sub-agent executor.
 //
-// `runSubprocessExecutor` is the alternative to `new AgentRunner(...)` +
-// `drainRunner(gen)` inside SubagentScheduler.delegate(): instead of driving
+// `runSubprocessExecutor` is the alternative to the native `createAgent().run()`
+// + `drainRunner(gen)` inside SubagentScheduler.delegate(): instead of driving
 // the harness's own turn loop against an API LLMProvider, it spawns a
 // `claude -p` subprocess that runs its OWN agentic loop and returns a summary.
 // It returns the EXACT shape `drainRunner` returns ({ terminal, finalAssistant,
@@ -10,7 +10,7 @@
 // review, SSE) is byte-unchanged.
 //
 // The seam is gated by config `subscriptionExecutor.enabled: false` — when off,
-// the scheduler never calls this and the normal AgentRunner path is untouched.
+// the scheduler never calls this and the normal createAgent path is untouched.
 //
 // PERMISSIONS: `permissionMode` translates to the subprocess's posture and
 // DEFAULTS to `bypass` → `--dangerously-skip-permissions`. A headless

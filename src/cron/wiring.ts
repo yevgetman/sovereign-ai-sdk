@@ -313,9 +313,8 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // Phase-F channel fix closed for channels).
         const sessionCtx = runtime.getSessionContext(sessionId);
 
-        // Re-seat (Task 4.2, second (B)-surface): drive the cron turn through the
-        // open SDK's `createAgent().run()` instead of `new AgentRunner(...).run()`.
-        // The agent loop is IDENTICAL — every prior `AgentRunner` opt maps 1:1 to
+        // The cron turn runs through the open SDK's `createAgent().run()`.
+        // The agent loop is IDENTICAL — every prior native turn-loop opt maps 1:1 to
         // `AgentConfig`/`PerTurn` with the SAME value (see `buildCronAgentConfig`)
         // — EXCEPT the two CEO-ratified parity-fixes the AgentRunner surface could
         // not carry:

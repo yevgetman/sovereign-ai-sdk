@@ -319,9 +319,8 @@ async function runChannelTurnInner(args: {
       );
     }
 
-    // Re-seat (Task 4.3, third (B)-surface): drive the channel turn through the
-    // open SDK's `createAgent().run()` instead of `new AgentRunner(...).run()`.
-    // The agent loop is IDENTICAL — every prior `AgentRunner` opt maps 1:1 to
+    // The channel turn runs through the open SDK's `createAgent().run()`.
+    // The agent loop is IDENTICAL — every prior native turn-loop opt maps 1:1 to
     // `AgentConfig`/`PerTurn` with the SAME value (see `buildChannelAgentConfig`)
     // — EXCEPT the one CEO-ratified parity-fix the AgentRunner surface could not
     // carry:

@@ -7,8 +7,8 @@
 // session-DB factory.
 //
 // Scope deliberately narrow:
-//   - Child runs through the open SDK's createAgent() turn loop (Task 4.5
-//     re-seat — pure parity; was `new AgentRunner(...)`, Phase 13.3).
+//   - Child runs through the open SDK's createAgent() turn loop (pure parity
+//     with the prior native turn loop the scheduler drove inline).
 //   - Tool filtering: parent pool ∩ agent.allowedTools (matched by tool
 //     name OR alias) − SUBAGENT_EXCLUDED_TOOLS. Pattern constraints inside allowedTools
 //     entries (e.g. `Bash(git log *)`) are NOT enforced at this layer
@@ -205,7 +205,7 @@ export type DelegateResult = {
   iterationsUsed: number;
   toolCallCount: number;
   /** Phase 13.4 follow-up (Item 7) — distinct tool names invoked by the
-   *  child, deduplicated and sorted. Threaded from AgentRunnerResult so
+   *  child, deduplicated and sorted. Threaded from the child's RunResult so
    *  ReviewManager can triage skill-shaped children downstream. Empty
    *  when the child never reached the runner (e.g. early-error paths). */
   distinctToolNames: string[];
@@ -469,26 +469,25 @@ export class SubagentScheduler {
               input.writeScope?.kind === 'globs'
                 ? wrapCanUseToolWithWriteScope(input.canUseTool, input.writeScope.globs)
                 : input.canUseTool;
-            // Re-seat (Task 4.5 — the final + highest-risk (B)-surface): drive the
-            // NATIVE child turn through the open SDK's `createAgent().run()` instead
-            // of `new AgentRunner(...).run()`. PURE PARITY — every prior AgentRunner
-            // opt maps 1:1 onto AgentConfig/PerTurn with the SAME value, and NOTHING
+            // The NATIVE child turn runs through the open SDK's
+            // `createAgent().run()`. PURE PARITY — every native turn-loop opt
+            // maps 1:1 onto AgentConfig/PerTurn with the SAME value, and NOTHING
             // is added:
             //   • NO `microcompactConfig` — the cron/channel parity-fix was ratified
-            //     ONLY for those surfaces; a sub-agent must keep AgentRunner's EXACT
-            //     request, which threaded no config → query()'s built-in
+            //     ONLY for those surfaces; a sub-agent must keep the prior native
+            //     loop's EXACT request, which threaded no config → query()'s built-in
             //     DEFAULT_MICROCOMPACT_CONFIG applies in BOTH paths (byte-identical).
             //   • NO `sessionStore`/`transcripts` — the scheduler owns child
             //     persistence + trajectory OUT-OF-BAND (the tail below); passing a
             //     store to createAgent would DOUBLE-write.
-            // `parentSessionId` was AgentRunner result-echo only (it never reached
+            // `parentSessionId` was a result-echo field only (it never reached
             // query() and the scheduler never read it back from the result), so it
             // has no createAgent counterpart — dropping it is behavior-preserving.
             // The child ToolContext (carrying its inherited learningObserver) and the
             // write-scope-wrapped canUseTool are handed through VERBATIM via `perTurn`,
             // so the child keeps EXACTLY its tool + permission wiring. effort / recall
-            // / hookRunner / cwd / cacheEnabled stay UNSET (AgentRunner set none → the
-            // query() defaults hold identically).
+            // / hookRunner / cwd / cacheEnabled stay UNSET (the prior native loop set
+            // none → the query() defaults hold identically).
             const childAgent = createAgent({
               provider: resolved.transport as unknown as LLMProvider,
               model: resolved.model,

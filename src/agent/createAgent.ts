@@ -8,9 +8,9 @@
 // never import `buildRuntime`, the gateway server, the scheduler-as-a-value, or
 // any other proprietary/wrapper module.
 //
-// It formalizes `AgentRunner` (src/runtime/agentRunner.ts) — the same turn loop
-// driver — and adds the three responsibilities the spec (§5.2) calls net-new
-// engine logic:
+// It is the SDK's turn-loop driver — the same query()-driving loop every
+// surface ran inline before the SDK extraction — and adds the three
+// responsibilities the spec (§5.2) calls net-new engine logic:
 //   1. Per-turn override merging: standing `AgentConfig` supplies defaults; a
 //      `PerTurn` slice (the per-turn parameters `query()` already accepts) wins.
 //      This is how a host (the gateway, later) carries the compaction pivot and
@@ -99,8 +99,8 @@ export type AgentConfig = {
   /** Error-propagation mode for a THROWN pre/in-loop op (memory injection,
    *  recall, the UserPromptSubmit hook — the async ops query() runs OUTSIDE its
    *  per-turn try/catch). Omit/`false` (the DEFAULT): a throw is CONVERTED to a
-   *  returned `terminal{reason:'error'}` — byte-identical to today + to
-   *  AgentRunner (cron/channels/sub-agents rely on this). `true`: the throw
+   *  returned `terminal{reason:'error'}` — byte-identical to today
+   *  (cron/channels/sub-agents rely on this). `true`: the throw
    *  PROPAGATES out of `run()`'s generator (the consumer's `.next()` rejects),
    *  exactly like a direct `query()` drive — the gateway opts in so its outer
    *  catch maps it to `turn_error`. In-loop errors are unaffected either way
@@ -133,8 +133,8 @@ export type PerTurn = Partial<{
   rethrow: boolean;
 }>;
 
-/** The structured result of a `run()` (the promoted `AgentRunnerResult`),
- *  returned as the generator's return value once the turn loop reaches terminal. */
+/** The structured result of a `run()`, returned as the generator's return
+ *  value once the turn loop reaches terminal. */
 export type RunResult = {
   sessionId: string;
   terminal: Terminal;
@@ -246,8 +246,8 @@ export function createAgent(config: AgentConfig): Agent {
     });
 
     // 8. Drive query(), yielding every event UNCHANGED + in order. Track the
-    //    structured result fields exactly as AgentRunner does, plus the latest
-    //    usage snapshot for cost accounting.
+    //    structured result fields exactly as the prior inline turn loop did,
+    //    plus the latest usage snapshot for cost accounting.
     let finalAssistant: AssistantMessage | undefined;
     let iterationsUsed = 0;
     let toolCallCount = 0;
@@ -341,7 +341,7 @@ function resolveRunProvider(
     settings !== undefined ? { settings } : {},
   );
   // `transport` is a `Transport`, which extends `LLMProvider`; the cast mirrors
-  // the existing AgentRunner call sites (scheduler/cron/channels).
+  // the createAgent call sites (scheduler/cron/channels).
   return resolved.transport as unknown as LLMProvider;
 }
 
