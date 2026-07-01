@@ -28,7 +28,7 @@ import type {
   PostTurnRequest,
   PostTurnResponse,
   ServerEvent,
-} from '../../src/protocol/index.js';
+} from '@yevgetman/sov-protocol';
 import type {
   DelegatorAtomCompleteEventSchema,
   DelegatorAtomStartedEventSchema,

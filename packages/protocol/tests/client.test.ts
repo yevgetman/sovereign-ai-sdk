@@ -16,8 +16,8 @@ import {
   postApproval,
   postTurn,
   streamEvents,
-} from '../../src/protocol/client.js';
-import type { ServerEvent } from '../../src/protocol/index.js';
+} from '@yevgetman/sov-protocol';
+import type { ServerEvent } from '@yevgetman/sov-protocol';
 
 const BASE = 'http://gateway.test';
 const TOKEN = 'tok-abc';

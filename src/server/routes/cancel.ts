@@ -20,8 +20,8 @@
 // TUI's client-side logic simple (no special-case handling for the
 // "I clicked ESC twice fast" race).
 
+import type { CancelTurnResponse } from '@yevgetman/sov-protocol';
 import { Hono } from 'hono';
-import type { CancelTurnResponse } from '../../protocol/index.js';
 import type { AppVariables } from '../auth.js';
 import { getOrCreateBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';

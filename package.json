@@ -8,8 +8,7 @@
   "module": "src/main.ts",
   "exports": {
     ".": "./src/main.ts",
-    "./sdk": "./src/sdk.ts",
-    "./protocol": "./src/protocol/index.ts"
+    "./sdk": "./src/sdk.ts"
   },
   "bin": {
     "sov": "./src/main.ts",

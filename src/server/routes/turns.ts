@@ -19,6 +19,7 @@
 // use the AsyncGenerator's return value (`Terminal`) — emitted exactly
 // once when the generator returns — as the turn boundary.
 
+import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol';
 import { Hono } from 'hono';
 import { createAgent } from '../../agent/createAgent.js';
 import { type PersistMessageHost, persistMessage } from '../../agent/persistMessage.js';
@@ -39,7 +40,6 @@ import { buildCanUseTool } from '../../permissions/canUseTool.js';
 import { wrapCanUseToolWithTransformers } from '../../permissions/inputTransformer.js';
 import { redactSecretsTransformer } from '../../permissions/redactSecretsTransformer.js';
 import type { CanUseTool } from '../../permissions/types.js';
-import type { PostTurnRequest, PostTurnResponse } from '../../protocol/index.js';
 import { isContextOverflowError } from '../../providers/errors.js';
 import { estimateCostUsd } from '../../providers/pricing.js';
 import {

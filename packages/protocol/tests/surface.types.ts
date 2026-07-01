@@ -45,7 +45,7 @@ import type {
   ToolUseStartEvent,
   TurnCompleteEvent,
   TurnErrorEvent,
-} from '../../src/protocol/index.js';
+} from '@yevgetman/sov-protocol';
 
 /** One optional slot per exported protocol TYPE. If any is removed/renamed in
  *  the barrel, this stops typechecking. Exported so it is never flagged unused. */

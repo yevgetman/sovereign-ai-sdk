@@ -10,8 +10,8 @@
 //   400 — body missing/invalid; `approved` must be a boolean
 //   404 — requestId unknown or already resolved/expired
 
+import type { PostApprovalRequest, PostApprovalResponse } from '@yevgetman/sov-protocol';
 import { Hono } from 'hono';
-import type { PostApprovalRequest, PostApprovalResponse } from '../../protocol/index.js';
 import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';

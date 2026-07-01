@@ -24,8 +24,8 @@
 // absent supervisor ⇒ byte-unchanged create behavior — so the TUI / `sov serve`
 // / `sov drive` paths (which build the app without a supervisor) are untouched.
 
+import type { CreateSessionResponse } from '@yevgetman/sov-protocol';
 import { Hono } from 'hono';
-import type { CreateSessionResponse } from '../../protocol/index.js';
 import type { AppVariables } from '../auth.js';
 import { disposeBus, peekBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';

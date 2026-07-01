@@ -1,8 +1,8 @@
 // GET /health — liveness check. Returns ok=true and the package version.
 // No auth, no side effects.
 
+import type { HealthResponse } from '@yevgetman/sov-protocol';
 import { Hono } from 'hono';
-import type { HealthResponse } from '../../protocol/index.js';
 import { VERSION as PKG_VERSION } from '../../version.js';
 
 const VERSION: string = process.env.SOV_VERSION ?? PKG_VERSION;

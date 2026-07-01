@@ -18,7 +18,7 @@
 // (extra key); reverted.
 
 import { describe, expect, test } from 'bun:test';
-import * as protocol from '../../src/protocol/index.js';
+import * as protocol from '@yevgetman/sov-protocol';
 
 /** The committed Contract #2 VALUE surface. Sorted to match
  *  `Object.keys(...).sort()` (UTF-16 order: uppercase `PROTOCOL_PATHS` precedes
