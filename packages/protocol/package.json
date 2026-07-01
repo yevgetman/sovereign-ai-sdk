@@ -1,0 +1,28 @@
+{
+  "name": "@yevgetman/sov-protocol",
+  "version": "0.1.0",
+  "description": "Sovereign AI gateway wire protocol — typed events, endpoints, and a fetch-based client (Contract #2).",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
+    "directory": "packages/protocol"
+  },
+  "files": ["dist", "LICENSE", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "bun run build"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@yevgetman/sov-sdk",
+  "version": "0.1.0",
+  "description": "The open-core Sovereign AI SDK — an embeddable createAgent() agent-loop engine for Node and Bun.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
+    "directory": "packages/sdk"
+  },
+  "files": ["dist", "LICENSE", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/sdk.d.ts",
+      "import": "./dist/sdk.js",
+      "default": "./dist/sdk.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "bun run build"
+  }
+}
