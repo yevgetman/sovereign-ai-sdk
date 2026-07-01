@@ -37,6 +37,9 @@
     "lint": "biome check src tests && bun run boundary",
     "format": "biome format --write src tests",
     "typecheck": "tsc --noEmit",
+    "build": "bun run build:protocol && bun run build:sdk",
+    "build:protocol": "cd packages/protocol && bun run build",
+    "build:sdk": "cd packages/sdk && bun run build",
     "tui:build": "bun run scripts/build-tui.ts",
     "visual": "bun run scripts/visual.ts",
     "postinstall": "bun run scripts/build-tui.ts"
