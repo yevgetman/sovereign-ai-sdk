@@ -1,6 +1,7 @@
 // Memory context fencing. The formatted block is prepended to the current
 // user message only; the frozen system prompt is never mutated.
 
+import { neutralizeFenceBody } from '../context/fenceGuard.js';
 import type { Message } from '../core/types.js';
 
 export const FENCE_PREAMBLE =
@@ -21,15 +22,22 @@ export function formatMemorySnapshot(parts: {
   nudge?: string;
 }): string {
   const chunks: string[] = [];
-  if (parts.user?.trim()) chunks.push(`<USER.md>\n${parts.user.trim()}\n</USER.md>`);
-  if (parts.memory?.trim()) chunks.push(`<MEMORY.md>\n${parts.memory.trim()}\n</MEMORY.md>`);
+  if (parts.user?.trim())
+    chunks.push(`<USER.md>\n${neutralizeFenceBody('USER.md', parts.user.trim())}\n</USER.md>`);
+  if (parts.memory?.trim())
+    chunks.push(
+      `<MEMORY.md>\n${neutralizeFenceBody('MEMORY.md', parts.memory.trim())}\n</MEMORY.md>`,
+    );
   if (parts.projectMemory?.content.trim()) {
     const name = escapeAttr(parts.projectMemory.name);
     chunks.push(
-      `<MEMORY.md scope="project" project="${name}">\n${parts.projectMemory.content.trim()}\n</MEMORY.md>`,
+      `<MEMORY.md scope="project" project="${name}">\n${neutralizeFenceBody('MEMORY.md', parts.projectMemory.content.trim())}\n</MEMORY.md>`,
     );
   }
-  if (parts.nudge?.trim()) chunks.push(`<memory-nudge>\n${parts.nudge.trim()}\n</memory-nudge>`);
+  if (parts.nudge?.trim())
+    chunks.push(
+      `<memory-nudge>\n${neutralizeFenceBody('memory-nudge', parts.nudge.trim())}\n</memory-nudge>`,
+    );
   if (chunks.length === 0) return '';
   return `${FENCE_PREAMBLE}\n<memory-context>\n${chunks.join('\n\n')}\n</memory-context>`;
 }
