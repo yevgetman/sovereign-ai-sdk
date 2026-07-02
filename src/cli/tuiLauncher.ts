@@ -300,11 +300,11 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // of the "?" placeholder. The TUI has no /sessions/:id pre-fetch yet
   // and the status_update event doesn't carry model/provider — passing
   // them as boot-time CLI args sidesteps both gaps.
-  // Phase 21: also forward the harness version (from src/version.ts)
+  // Phase 21: also forward the harness version (from src/wrapperVersion.ts)
   // so the splash card renders the runtime's actual version instead of
   // a hardcoded literal. The Go TUI can't read package.json or the
   // VERSION export, so the launcher is the sole bridge.
-  const { VERSION } = await import('../version.js');
+  const { VERSION } = await import('../wrapperVersion.js');
 
   // ux-fixes 2026-05-22 — forward the tool-output rendering mode +
   // truncation cap from user-settings so sov-tui's tool_result handler

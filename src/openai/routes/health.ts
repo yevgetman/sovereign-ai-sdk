@@ -2,7 +2,7 @@
 // Mirrors the TUI server's /health pattern: no auth, ok=true + version.
 
 import { Hono } from 'hono';
-import { VERSION as PKG_VERSION } from '../../version.js';
+import { VERSION as PKG_VERSION } from '../../wrapperVersion.js';
 
 const VERSION: string = process.env.SOV_VERSION ?? PKG_VERSION;
 

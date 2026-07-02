@@ -155,7 +155,7 @@ export async function runConfigOnlyMode(opts: ConfigOnlyOptions = {}): Promise<n
     return 0;
   }
 
-  const { VERSION } = await import('../version.js');
+  const { VERSION } = await import('../wrapperVersion.js');
   const tuiArgs = [
     '--port',
     String(booted.port),

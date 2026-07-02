@@ -27,8 +27,8 @@ import {
   writeConfig,
 } from './config/store.js';
 import type { PermissionMode } from './permissions/types.js';
-import { VERSION } from './version.js';
 import type { WorkflowEvent } from './workflows/events.js';
+import { VERSION } from './wrapperVersion.js';
 
 /**
  * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`
