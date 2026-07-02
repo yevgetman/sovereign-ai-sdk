@@ -280,4 +280,99 @@ describe('isShellCommandReadOnly', () => {
     expect(isShellCommandReadOnly('find . -exec rm {} +')).toBe(false);
     expect(isShellCommandReadOnly('find . -name "*.ts"')).toBe(true); // benign find still read
   });
+
+  // Audit F2 [HIGH] — git config/stash/branch/tag/remote are dual-mode: they
+  // read OR mutate depending on args. The first-token classifier wrongly put
+  // them in the unconditional read set, so `git config --global core.pager …`
+  // (→ RCE via a poisoned pager on a later `git log`), stash/branch/tag/remote
+  // mutations auto-ran under an `allow Read` policy. They must be arg-aware and
+  // fail closed (misclassify-as-write is safe; as-read is the vulnerability).
+  describe('git config is read-only only for pure gets', () => {
+    test('mutating forms are NOT read-only', () => {
+      expect(isShellCommandReadOnly("git config --global core.pager 'x'")).toBe(false);
+      expect(isShellCommandReadOnly('git config user.name foo')).toBe(false);
+      expect(isShellCommandReadOnly('git config --unset user.name')).toBe(false);
+      expect(isShellCommandReadOnly('git config --add core.editor vim')).toBe(false);
+      expect(isShellCommandReadOnly("git config alias.x '!sh -c evil'")).toBe(false);
+    });
+    test('pure get/list forms stay read-only', () => {
+      expect(isShellCommandReadOnly('git config --get user.name')).toBe(true);
+      expect(isShellCommandReadOnly('git config user.name')).toBe(true); // bare get
+      expect(isShellCommandReadOnly('git config -l')).toBe(true);
+      expect(isShellCommandReadOnly('git config --list')).toBe(true);
+    });
+  });
+
+  describe('git stash is read-only only for list/show', () => {
+    test('mutating forms are NOT read-only', () => {
+      expect(isShellCommandReadOnly('git stash clear')).toBe(false);
+      expect(isShellCommandReadOnly('git stash pop')).toBe(false);
+      expect(isShellCommandReadOnly('git stash')).toBe(false); // bare stash pushes
+      expect(isShellCommandReadOnly('git stash drop')).toBe(false);
+      expect(isShellCommandReadOnly('git stash apply')).toBe(false);
+    });
+    test('list/show stay read-only', () => {
+      expect(isShellCommandReadOnly('git stash list')).toBe(true);
+      expect(isShellCommandReadOnly('git stash show')).toBe(true);
+    });
+  });
+
+  describe('git branch is read-only only for pure list', () => {
+    test('create/delete/move forms are NOT read-only', () => {
+      expect(isShellCommandReadOnly('git branch -D main')).toBe(false);
+      expect(isShellCommandReadOnly('git branch newbranch')).toBe(false);
+      expect(isShellCommandReadOnly('git branch -d old')).toBe(false);
+      expect(isShellCommandReadOnly('git branch -m old new')).toBe(false);
+    });
+    test('list forms stay read-only', () => {
+      expect(isShellCommandReadOnly('git branch')).toBe(true);
+      expect(isShellCommandReadOnly('git branch --list')).toBe(true);
+      expect(isShellCommandReadOnly('git branch -a')).toBe(true);
+      expect(isShellCommandReadOnly('git branch -r')).toBe(true);
+      expect(isShellCommandReadOnly('git branch -v')).toBe(true);
+    });
+  });
+
+  describe('git tag is read-only only for list', () => {
+    test('create/delete forms are NOT read-only', () => {
+      expect(isShellCommandReadOnly('git tag -d v1')).toBe(false);
+      expect(isShellCommandReadOnly('git tag v1')).toBe(false);
+      expect(isShellCommandReadOnly('git tag -a v1 -m msg')).toBe(false);
+    });
+    test('list forms stay read-only', () => {
+      expect(isShellCommandReadOnly('git tag -l')).toBe(true);
+      expect(isShellCommandReadOnly('git tag')).toBe(true); // bare list
+      expect(isShellCommandReadOnly('git tag --list')).toBe(true);
+    });
+  });
+
+  describe('git remote is read-only only for bare/-v/show/get-url', () => {
+    test('add/remove/set-url forms are NOT read-only', () => {
+      expect(isShellCommandReadOnly('git remote add evil https://x')).toBe(false);
+      expect(isShellCommandReadOnly('git remote remove origin')).toBe(false);
+      expect(isShellCommandReadOnly('git remote set-url origin https://evil/x.git')).toBe(false);
+      expect(isShellCommandReadOnly('git remote rename a b')).toBe(false);
+    });
+    test('inspection forms stay read-only', () => {
+      expect(isShellCommandReadOnly('git remote')).toBe(true); // bare
+      expect(isShellCommandReadOnly('git remote -v')).toBe(true);
+      expect(isShellCommandReadOnly('git remote show origin')).toBe(true);
+      expect(isShellCommandReadOnly('git remote get-url origin')).toBe(true);
+    });
+  });
+
+  // Audit F24 [LOW] — `date -s`/`--set` writes the system clock; only a
+  // plain `date` read/format is read-only.
+  describe('date is read-only only without a set flag', () => {
+    test('setting the clock is NOT read-only', () => {
+      expect(isShellCommandReadOnly("date -s '2020-01-01'")).toBe(false);
+      expect(isShellCommandReadOnly("date --set='2020-01-01'")).toBe(false);
+      expect(isShellCommandReadOnly("date --set '2020-01-01'")).toBe(false);
+    });
+    test('plain date/format/flags stay read-only', () => {
+      expect(isShellCommandReadOnly('date')).toBe(true);
+      expect(isShellCommandReadOnly('date +%s')).toBe(true);
+      expect(isShellCommandReadOnly('date -u')).toBe(true);
+    });
+  });
 });

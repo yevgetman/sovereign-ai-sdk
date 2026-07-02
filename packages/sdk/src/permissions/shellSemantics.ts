@@ -79,22 +79,21 @@ const EDIT_COMMANDS = new Set(['rm', 'rmdir', 'chmod', 'chown', 'chgrp', 'trunca
 
 const WEB_COMMANDS = new Set(['curl', 'wget', 'fetch']);
 
+// Unconditionally read-only git subcommands. `config`, `stash`, `branch`,
+// `tag` and `remote` are NOT here: each is dual-mode (reads OR mutates
+// depending on args) and is classified arg-aware in analyzeGitCommand,
+// defaulting to a prompt. (audit F2)
 const GIT_READ_SUBCOMMANDS = new Set([
   'log',
   'status',
   'diff',
   'show',
-  'branch',
-  'remote',
-  'tag',
-  'stash',
   'blame',
   'shortlog',
   'rev-parse',
   'ls-files',
   'ls-tree',
   'describe',
-  'config',
 ]);
 
 const GIT_WRITE_SUBCOMMANDS = new Set([
@@ -197,6 +196,16 @@ function analyzeSegment(segment: string): VirtualOperation {
       : { kind: 'read', paths: extractPaths(args) };
   }
 
+  // `date` prints the clock (read) UNLESS it SETS the system clock via
+  // `-s`/`--set`/`--set=…`, which is a privileged system-state write. Fail
+  // closed to a prompt for the set form. (audit F24)
+  if (cmd === 'date') {
+    const setsClock = args.some((a) => a === '-s' || a === '--set' || a.startsWith('--set='));
+    return setsClock
+      ? { kind: 'exec', command: 'date' }
+      : { kind: 'read', paths: extractPaths(args) };
+  }
+
   if (cmd === 'git') {
     return analyzeGitCommand(args);
   }
@@ -221,9 +230,146 @@ function analyzeSegment(segment: string): VirtualOperation {
   return { kind: 'exec', command: cmd };
 }
 
+// config sub-flags that always mutate (set/unset/edit config).
+const GIT_CONFIG_WRITE_FLAGS = new Set([
+  '--unset',
+  '--unset-all',
+  '--add',
+  '--replace-all',
+  '--edit',
+  '-e',
+  '--rename-section',
+  '--remove-section',
+]);
+
+// config sub-flags that only read (get/list). A get takes at most one key
+// positional; a list needs none.
+const GIT_CONFIG_READ_FLAGS = new Set([
+  '--get',
+  '--get-all',
+  '--get-regexp',
+  '--get-urlmatch',
+  '--get-color',
+  '--get-colorbool',
+  '--list',
+  '-l',
+]);
+
+// `git config` reads ONLY for pure gets: an explicit --get*/--list/-l, or a
+// bare single-positional key (`git config user.name`) with no value token.
+// Anything with a value arg or a mutating flag → write. config.pager/editor/
+// sshCommand/alias.* are command-execution vectors, so default-deny. (F2)
+function isGitConfigReadOnly(subArgs: string[]): boolean {
+  if (subArgs.some((a) => GIT_CONFIG_WRITE_FLAGS.has(a))) return false;
+  if (subArgs.some((a) => GIT_CONFIG_READ_FLAGS.has(a))) return true;
+  const positionals = subArgs.filter((a) => !a.startsWith('-'));
+  return positionals.length === 1;
+}
+
+// `git stash` reads ONLY for `list`/`show`. Bare `stash` and push/pop/apply/
+// drop/clear/branch/store/create mutate the working tree or stash list. (F2)
+const GIT_STASH_READ_SUBCOMMANDS = new Set(['list', 'show']);
+function isGitStashReadOnly(subArgs: string[]): boolean {
+  const first = subArgs.find((a) => !a.startsWith('-'));
+  return first !== undefined && GIT_STASH_READ_SUBCOMMANDS.has(first);
+}
+
+// `git branch` sub-flags that create/delete/move/rename/rewire a branch.
+const GIT_BRANCH_WRITE_FLAGS = new Set([
+  '-d',
+  '-D',
+  '--delete',
+  '-m',
+  '-M',
+  '--move',
+  '-c',
+  '-C',
+  '--copy',
+  '-u',
+  '--set-upstream-to',
+  '--unset-upstream',
+  '--edit-description',
+  '-f',
+  '--force',
+]);
+
+// `git branch` reads ONLY as a pure list (bare, --list, -a/-r/-v). A positional
+// name (create) or any mutating flag → write/prompt. (F2)
+function isGitBranchReadOnly(subArgs: string[]): boolean {
+  if (subArgs.some((a) => GIT_BRANCH_WRITE_FLAGS.has(a))) return false;
+  const positionals = subArgs.filter((a) => !a.startsWith('-'));
+  return positionals.length === 0;
+}
+
+// `git tag` sub-flags that create/delete/sign/force a tag.
+const GIT_TAG_WRITE_FLAGS = new Set([
+  '-d',
+  '-D',
+  '--delete',
+  '-a',
+  '--annotate',
+  '-s',
+  '--sign',
+  '-m',
+  '--message',
+  '-F',
+  '--file',
+  '-f',
+  '--force',
+  '--create-reflog',
+]);
+
+// `git tag` reads ONLY as a list (-l/--list, or bare with no tag-name
+// positional). Create/delete → write/prompt. (F2)
+function isGitTagReadOnly(subArgs: string[]): boolean {
+  if (subArgs.some((a) => GIT_TAG_WRITE_FLAGS.has(a))) return false;
+  if (subArgs.some((a) => a === '-l' || a === '--list')) return true;
+  const positionals = subArgs.filter((a) => !a.startsWith('-'));
+  return positionals.length === 0;
+}
+
+// `git remote` reads ONLY when bare, `-v`/`--verbose`, or a `show`/`get-url`
+// subcommand. add/remove/rm/set-url/set-head/set-branches/rename/prune/update
+// → write/prompt. (F2)
+const GIT_REMOTE_READ_SUBCOMMANDS = new Set(['show', 'get-url']);
+function isGitRemoteReadOnly(subArgs: string[]): boolean {
+  const first = subArgs.find((a) => !a.startsWith('-'));
+  if (first === undefined) return true; // bare or only flags (e.g. -v)
+  return GIT_REMOTE_READ_SUBCOMMANDS.has(first);
+}
+
 function analyzeGitCommand(args: string[]): VirtualOperation {
-  const sub = args.find((a) => !a.startsWith('-'));
-  if (!sub) return { kind: 'read', paths: [] };
+  const subIndex = args.findIndex((a) => !a.startsWith('-'));
+  if (subIndex === -1) return { kind: 'read', paths: [] };
+  const sub = args[subIndex] as string;
+  const subArgs = args.slice(subIndex + 1);
+
+  // Dual-mode subcommands: read only for explicit read forms, otherwise a
+  // prompt (exec, not write) so a poisoned config value / ref mutation can
+  // never resolve against a blanket `allow Read` OR `allow Write` rule. (F2)
+  switch (sub) {
+    case 'config':
+      return isGitConfigReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git config' };
+    case 'stash':
+      return isGitStashReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git stash' };
+    case 'branch':
+      return isGitBranchReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git branch' };
+    case 'tag':
+      return isGitTagReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git tag' };
+    case 'remote':
+      return isGitRemoteReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git remote' };
+  }
+
   if (GIT_READ_SUBCOMMANDS.has(sub)) return { kind: 'read', paths: [] };
   if (GIT_WRITE_SUBCOMMANDS.has(sub)) return { kind: 'write', paths: [] };
   return { kind: 'exec', command: `git ${sub}` };
