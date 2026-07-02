@@ -80,6 +80,19 @@ export async function validateStaticSite(
   const absRoot = resolve(root);
   const entryPath = resolveUnder(absRoot, entry);
 
+  // Confinement: resolveUnder only strips leading slashes, so a `../` in `entry`
+  // survives and can point outside the site root. Reject it before any
+  // filesystem access — mirroring the ephemeral server's 403 branch — so the
+  // read/parse phase honors the same confinement the server phase promises (F26).
+  if (!isInside(absRoot, entryPath)) {
+    checks.push({
+      name: `entry exists: ${entry}`,
+      ok: false,
+      details: `entry escapes site root: ${entry}`,
+    });
+    return checks;
+  }
+
   const rootCheck = directoryCheck(absRoot);
   checks.push(rootCheck);
   if (!rootCheck.ok) return checks;
@@ -146,8 +159,11 @@ function resolveLocalReference(raw: string, htmlDir: string, root: string): Loca
   const target = normalized.startsWith('/')
     ? resolveUnder(root, normalized.slice(1))
     : resolve(htmlDir, normalized);
+  // Drop references that resolve outside the site root: their existence must not
+  // be probed and their raw token must not be reflected into the result (F26).
+  // (The two branches previously returned the identical object — a dead guard.)
   if (!isInside(root, target)) {
-    return { raw, path: target };
+    return null;
   }
   return { raw, path: target };
 }

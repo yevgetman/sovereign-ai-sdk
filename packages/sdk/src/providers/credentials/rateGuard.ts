@@ -207,17 +207,24 @@ function writeAtomic(path: string, state: RateLimitState): void {
 async function sleepSeconds(seconds: number, signal?: AbortSignal): Promise<void> {
   if (seconds <= 0) return;
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, seconds * 1000);
     const onAbort = () => {
       clearTimeout(timer);
       reject(new Error('aborted while waiting for provider rate-limit reset'));
     };
+    // Manage the listener symmetrically (mirrors semaphore.ts/pathLock.ts):
+    // remove it on the resolve path too. `{ once: true }` only auto-removes a
+    // listener that actually FIRES, so relying on it leaks one 'abort' listener
+    // per completed wait on a shared, long-lived signal (F25).
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, seconds * 1000);
     if (signal) {
       if (signal.aborted) {
         onAbort();
         return;
       }
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal.addEventListener('abort', onAbort); // no `{ once }`: removal is explicit on both paths
     }
   });
 }

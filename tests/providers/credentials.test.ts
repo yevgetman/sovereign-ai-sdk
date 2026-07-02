@@ -290,4 +290,34 @@ describe('RateLimitGuard', () => {
     expect(second).toBeGreaterThan(first);
     expect(second).toBeLessThan(60 * 60);
   });
+
+  // F25: a completed (non-aborted) rate-limit wait must remove its 'abort'
+  // listener from the (shared, long-lived) signal. Relying on { once: true } is
+  // insufficient — it only auto-removes a listener that actually FIRES, so each
+  // successful backoff leaks one listener on the signal.
+  test('a completed rate-limit wait removes its abort listener (no leak on a shared signal)', async () => {
+    const root = tempDir();
+    // Fixed clock: a tiny remaining cooldown so beforeRequest sleeps briefly and
+    // then RESOLVES (the non-abort path) instead of failing fast.
+    const guard = new RateLimitGuard('openai', { root, now: () => 100 });
+    guard.markRateLimited({ 'retry-after': '0.02' }, '429'); // exhausted_until = 100.02
+
+    // A minimal signal that records its 'abort' listeners so we can assert none
+    // survive a resolved sleep. sleepSeconds only touches .aborted +
+    // add/removeEventListener, so this stands in for a shared AbortSignal.
+    const abortListeners = new Set<() => void>();
+    const signal = {
+      aborted: false,
+      addEventListener: (_type: string, cb: () => void) => {
+        abortListeners.add(cb);
+      },
+      removeEventListener: (_type: string, cb: () => void) => {
+        abortListeners.delete(cb);
+      },
+    } as unknown as AbortSignal;
+
+    await guard.beforeRequest(signal);
+
+    expect(abortListeners.size).toBe(0);
+  });
 });

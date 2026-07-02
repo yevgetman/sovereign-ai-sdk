@@ -2,10 +2,13 @@
 // read-only permission behavior for static website artifacts.
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { StaticSiteValidateTool } from '@yevgetman/sov-sdk/tools/StaticSiteValidateTool';
+import {
+  StaticSiteValidateTool,
+  validateStaticSite,
+} from '@yevgetman/sov-sdk/tools/StaticSiteValidateTool';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-static-site-tool-'));
@@ -69,6 +72,28 @@ describe('StaticSiteValidateTool', () => {
       expect(result.data.ok).toBe(false);
       expect(js?.ok).toBe(false);
       expect(js?.details).toContain('app.js');
+    });
+  });
+
+  // F26: an `entry` containing `../` must not escape the site root. The read
+  // phase must honor the same confinement the ephemeral server phase already
+  // enforces (403), so an out-of-root file is neither read nor reflected.
+  test('rejects an entry that escapes the site root and does not read the out-of-root file', async () => {
+    await withTmp(async (base) => {
+      const site = join(base, 'site');
+      mkdirSync(site);
+      writeFileSync(join(site, 'index.html'), '<!doctype html>');
+      // A secret file OUTSIDE the site root, containing a distinctive href token
+      // that would be reflected into the checks if the file were read.
+      writeFileSync(join(base, 'secret.txt'), '<a href="LEAKED-REF-EXISTS.html">x</a>');
+
+      const checks = await validateStaticSite(site, '../secret.txt');
+
+      const entryCheck = checks.find((check) => check.name.startsWith('entry exists'));
+      expect(entryCheck?.ok).toBe(false);
+      expect(entryCheck?.details).toContain('escapes site root');
+      // The out-of-root file's contents must never surface in the result.
+      expect(JSON.stringify(checks)).not.toContain('LEAKED-REF');
     });
   });
 

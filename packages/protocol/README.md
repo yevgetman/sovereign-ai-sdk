@@ -54,8 +54,11 @@ The full client surface is six endpoint functions plus the stream:
 
 `streamEvents` accepts `{ lastEventId, signal }`: `lastEventId` is sent as the
 standard `Last-Event-ID` reconnect header (the gateway replays only events
-with a greater `seq`), and `signal` aborts the underlying fetch — the intended
-teardown.
+with a greater `seq`), and `signal` aborts a still-active read from outside.
+Breaking out of the loop early (the "stop on a terminal event" pattern above)
+is cleanly torn down on its own — the stream is cancelled and the underlying
+fetch/SSE connection closes — so you do not need to wire an `AbortSignal` purely
+for teardown.
 
 The client trusts the typed contract: runtime validation stays server-side
 (the gateway keeps its zod schemas), so this package carries no zod and no
