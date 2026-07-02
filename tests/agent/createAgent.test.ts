@@ -24,10 +24,12 @@ import type {
   Message,
   StreamEvent,
   SystemSegment,
+  TokenUsage,
 } from '@yevgetman/sov-sdk/core/types';
 import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
 import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
+import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -686,5 +688,178 @@ describe('createAgent — rethrow (Task 7.2 error-path byte-identity)', () => {
     const { result } = await drain(agent.run('hello', { rethrow: true }));
     expect(result.terminal.reason).toBe('completed');
     expect(result.finalAssistant).toEqual(completedAnswer);
+  });
+});
+
+// Task 4.2 — cross-call token-usage accumulation. A tool-loop run makes
+// MULTIPLE provider calls; within one call usage_delta events are
+// CUMULATIVE-FROM-ZERO (keep the last), across calls the per-call finals must
+// be SUMMED. The old code kept only the globally-last snapshot, silently
+// dropping every earlier call's tokens from recordTokenUsage. These tests use
+// usage-emitting variants of the shared fixtures (the originals emit no
+// usage_delta and stay untouched — single-call persist tests above pin the
+// unchanged single-call path).
+describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () => {
+  /** The echo tool-use turn, augmented with cumulative in-call usage deltas:
+   *  call 1's final is 12 in / 9 out. */
+  const usageEchoToolUseTurn: StreamEvent[] = [
+    { type: 'message_start' },
+    { type: 'usage_delta', usage: { inputTokens: 10, outputTokens: 5 } },
+    { type: 'tool_use_delta', id: 't1', partial: '{"text":"hi"}' },
+    { type: 'usage_delta', usage: { inputTokens: 12, outputTokens: 9 } },
+    { type: 'message_stop', stop_reason: 'tool_use' },
+    { type: 'assistant_message', message: echoToolUse },
+  ];
+
+  /** The final (post-tool) turn: call 2's final is 8 in / 4 out. */
+  const usageCompletedTurn: StreamEvent[] = [
+    { type: 'message_start' },
+    { type: 'usage_delta', usage: { inputTokens: 7, outputTokens: 3 } },
+    { type: 'text_delta', text: 'final answer' },
+    { type: 'usage_delta', usage: { inputTokens: 8, outputTokens: 4 } },
+    { type: 'message_stop', stop_reason: 'end_turn' },
+    { type: 'assistant_message', message: completedAnswer },
+  ];
+
+  /** Wrap the in-memory store so a test can assert the EXACT TokenUsage object
+   *  that reached recordTokenUsage (field split + absence, not just totals). */
+  function capturingStore(): {
+    store: SessionStore;
+    recorded: { usage: TokenUsage; costUsd: number }[];
+  } {
+    const inner = createInMemorySessionStore();
+    const recorded: { usage: TokenUsage; costUsd: number }[] = [];
+    const store: SessionStore = {
+      ...inner,
+      recordTokenUsage(sessionId, usage, estimatedCostUsd) {
+        recorded.push({ usage, costUsd: estimatedCostUsd });
+        inner.recordTokenUsage(sessionId, usage, estimatedCostUsd);
+      },
+    };
+    return { store, recorded };
+  }
+
+  test('a two-call tool loop records the SUM of per-call finals — not the last snapshot, not the naive delta-sum', async () => {
+    const { store, recorded } = capturingStore();
+    const agent = createAgent({
+      provider: scriptedProvider([usageEchoToolUseTurn, usageCompletedTurn]),
+      model: 'fake-model',
+      tools: [makeEchoTool()],
+      sessionStore: store,
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool', { sessionId: 'sess-4-2-sum' }));
+
+    expect(result.terminal.reason).toBe('completed');
+    // ONE recordTokenUsage per run, carrying the summed per-call finals:
+    // 12+8 = 20 in / 9+4 = 13 out. NOT 8/4 (the old last-snapshot bug) and NOT
+    // 37/21 (naively summing every cumulative delta double-counts).
+    expect(recorded.length).toBe(1);
+    expect(recorded[0]?.usage).toEqual({ inputTokens: 20, outputTokens: 13 });
+    // Fields no call reported stay ABSENT (no zero fabrication).
+    expect(recorded[0] !== undefined && 'cacheReadInputTokens' in recorded[0].usage).toBe(false);
+    expect(recorded[0] !== undefined && 'cacheCreationInputTokens' in recorded[0].usage).toBe(
+      false,
+    );
+    // The session row accumulated the same totals.
+    const session = store.getSession('sess-4-2-sum');
+    expect(session?.inputTokens).toBe(20);
+    expect(session?.outputTokens).toBe(13);
+  });
+
+  test('a cache field reported by only ONE call is summed correctly — neither dropped nor zero-fabricated', async () => {
+    // Call 1's message_start delta carries input + cacheRead; its second delta
+    // (the Anthropic message_delta shape) omits the cache field — last-seen is
+    // PER FIELD, so 40 survives within the call. Call 2 reports no cache
+    // fields at all.
+    const cacheToolUseTurn: StreamEvent[] = [
+      { type: 'message_start' },
+      { type: 'usage_delta', usage: { inputTokens: 10, cacheReadInputTokens: 40 } },
+      { type: 'tool_use_delta', id: 't1', partial: '{"text":"hi"}' },
+      { type: 'usage_delta', usage: { inputTokens: 12, outputTokens: 9 } },
+      { type: 'message_stop', stop_reason: 'tool_use' },
+      { type: 'assistant_message', message: echoToolUse },
+    ];
+    const { store, recorded } = capturingStore();
+    const agent = createAgent({
+      provider: scriptedProvider([cacheToolUseTurn, usageCompletedTurn]),
+      model: 'fake-model',
+      tools: [makeEchoTool()],
+      sessionStore: store,
+      maxTokens: 256,
+    });
+    await drain(agent.run('use the tool', { sessionId: 'sess-4-2-cache' }));
+
+    expect(recorded.length).toBe(1);
+    expect(recorded[0]?.usage).toEqual({
+      inputTokens: 20,
+      outputTokens: 13,
+      cacheReadInputTokens: 40,
+    });
+    // cacheCreationInputTokens was never reported by ANY call → still absent.
+    expect(recorded[0] !== undefined && 'cacheCreationInputTokens' in recorded[0].usage).toBe(
+      false,
+    );
+  });
+
+  test('a run whose provider emits NO usage_delta records nothing (recordTokenUsage skipped, as today)', async () => {
+    // The original fixtures emit no usage_delta — the pre-4.2 skip contract.
+    const { store, recorded } = capturingStore();
+    const agent = createAgent({
+      provider: scriptedProvider([
+        echoToolUseTurn,
+        [
+          { type: 'message_start' },
+          { type: 'text_delta', text: 'final answer' },
+          { type: 'message_stop', stop_reason: 'end_turn' },
+          { type: 'assistant_message', message: completedAnswer },
+        ],
+      ]),
+      model: 'fake-model',
+      tools: [makeEchoTool()],
+      sessionStore: store,
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool', { sessionId: 'sess-4-2-none' }));
+    expect(result.terminal.reason).toBe('completed');
+    expect(recorded.length).toBe(0);
+  });
+
+  test("a rehydration run records only THIS run's usage (no re-count of prior runs)", async () => {
+    // Interaction with the 4.1 dedup: run 2 rehydrates run 1's history, but the
+    // accumulator only ever sees run 2's live stream — run 1's tokens are not
+    // recorded twice. The session row holds run1 + run2 (store-side accumulate),
+    // each recordTokenUsage call carries only its own run.
+    const { store, recorded } = capturingStore();
+    const sessionId = 'sess-4-2-rehydrate';
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn, usageCompletedTurn]),
+      model: 'fake-model',
+      sessionStore: store,
+      maxTokens: 256,
+    });
+
+    await drain(agent.run('hello', { sessionId }));
+    expect(recorded[0]?.usage).toEqual({ inputTokens: 11, outputTokens: 7 });
+
+    const rehydrated: Message[] = store
+      .loadMessages(sessionId)
+      .map((m) =>
+        m.role === 'user'
+          ? { role: 'user', content: m.content }
+          : { role: 'assistant', content: m.content },
+      );
+    await drain(
+      agent.run([...rehydrated, { role: 'user', content: [{ type: 'text', text: 'and now?' }] }], {
+        sessionId,
+      }),
+    );
+
+    expect(recorded.length).toBe(2);
+    expect(recorded[1]?.usage).toEqual({ inputTokens: 8, outputTokens: 4 });
+    // Store-side totals: 11+8 / 7+4 — each run counted exactly once.
+    const session = store.getSession(sessionId);
+    expect(session?.inputTokens).toBe(19);
+    expect(session?.outputTokens).toBe(11);
   });
 });

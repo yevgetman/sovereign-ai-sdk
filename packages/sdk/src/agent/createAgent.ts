@@ -54,6 +54,11 @@ import type {
   Terminal,
   TokenUsage,
 } from '../core/types.js';
+import {
+  accumulateUsage,
+  createUsageAccumulator,
+  finalizeUsage,
+} from '../core/usageAccumulator.js';
 import type { HookRunner } from '../hooks/types.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
@@ -90,7 +95,9 @@ export type AgentConfig = {
    *  messages and the input's head is a verbatim copy of that stored history,
    *  only the new tail (a trailing new user message + this run's generated
    *  messages) is persisted; re-running with rehydrated history never
-   *  duplicates rows. A fresh session persists the seed too. */
+   *  duplicates rows. A fresh session persists the seed too. Fallback: a
+   *  NON-verbatim seed on an existing session re-appends everything (duplicates
+   *  possible) — verbatim rehydration is required for dedup. */
   sessionStore?: SessionStore;
   /** Omit → no transcript writes. */
   transcripts?: TranscriptStore;
@@ -263,12 +270,17 @@ export function createAgent(config: AgentConfig): Agent {
 
     // 8. Drive query(), yielding every event UNCHANGED + in order. Track the
     //    structured result fields exactly as the prior inline turn loop did,
-    //    plus the latest usage snapshot for cost accounting.
+    //    plus cross-call usage accumulation for cost accounting: a tool-loop
+    //    run makes MULTIPLE provider calls, and each call's usage_delta events
+    //    are cumulative-from-zero for THAT call only — the accumulator keeps
+    //    the last-seen value per field within a call (flushed at each
+    //    message_start) and sums the per-call finals, so recordTokenUsage
+    //    receives the whole run's tokens, not just the last call's snapshot.
     let finalAssistant: AssistantMessage | undefined;
     let iterationsUsed = 0;
     let toolCallCount = 0;
     const distinctTools = new Set<string>();
-    let latestUsage: TokenUsage | undefined;
+    let usageAcc = createUsageAccumulator();
     let terminal: Terminal = {
       reason: 'error',
       error: new Error('createAgent: never terminated'),
@@ -285,8 +297,8 @@ export function createAgent(config: AgentConfig): Agent {
         const ev = step.value;
         if (ev && typeof ev === 'object') {
           if ('type' in ev) {
+            usageAcc = accumulateUsage(usageAcc, ev);
             if (ev.type === 'message_stop') iterationsUsed += 1;
-            if (ev.type === 'usage_delta') latestUsage = ev.usage;
             if (ev.type === 'assistant_message') {
               finalAssistant = ev.message;
               messages.push(ev.message);
@@ -313,6 +325,11 @@ export function createAgent(config: AgentConfig): Agent {
     }
 
     // 9. Persistence — only when a port is supplied (no-disk default otherwise).
+    //    `finalizeUsage` flushes the trailing provider call and returns the
+    //    summed per-run total (undefined when the stream reported no usage —
+    //    recordTokenUsage stays skipped). The accumulator saw only THIS run's
+    //    live stream, so a rehydrated session never re-records prior runs'
+    //    tokens; the store's own accumulate (`col = col + ?`) does the rest.
     if (config.sessionStore !== undefined || config.transcripts !== undefined) {
       persistTurn({
         sessionStore: config.sessionStore,
@@ -323,7 +340,7 @@ export function createAgent(config: AgentConfig): Agent {
         systemPrompt,
         messages,
         seedCount: seedMessages.length,
-        usage: latestUsage,
+        usage: finalizeUsage(usageAcc),
       });
     }
 
