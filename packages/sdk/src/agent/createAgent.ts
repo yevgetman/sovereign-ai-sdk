@@ -18,6 +18,15 @@
 //      host computes `PerTurn`, the SDK runs it.
 //   2. Optional `SessionStore`/`TranscriptStore` persistence. Absent store →
 //      NO disk (the embeddable default): nothing is created, saved, or recorded.
+//      PERSISTENCE CONTRACT (Task 4.1): an input containing prior history is
+//      treated as REHYDRATION for an existing session — when the store already
+//      holds this sessionId's messages and the input's head matches that stored
+//      history verbatim, only the messages BEYOND the stored prefix (a trailing
+//      new user message + this run's generated messages) are persisted, so a
+//      stable-sessionId embedder never gets duplicate rows. A fresh session
+//      persists the full seed + generated messages (unchanged). A non-verbatim
+//      seed on an existing session persists everything (append; never a guess
+//      that drops content).
 //   3. The `observe` adapter: a plain `(i: ObserveInput) => void` function is
 //      wrapped into a `LearningObserverPort` object and placed on the
 //      `ToolContext.learningObserver`, where the orchestrator calls it after
@@ -35,6 +44,7 @@ import type { MicrocompactConfig } from '../compact/microcompact.js';
 import type { Settings } from '../config/schema.js';
 import type { ObserveInput } from '../core/observePort.js';
 import { query } from '../core/query.js';
+import type { StoredMessage } from '../core/sessionPort.js';
 import type {
   AssistantMessage,
   Message,
@@ -74,7 +84,13 @@ export type AgentConfig = {
   cwd?: string;
   /** Resolved settings OBJECT (not a path) — threaded into `resolveProvider`. */
   settings?: Settings;
-  /** Omit → no disk: nothing is persisted (the embeddable default). */
+  /** Omit → no disk: nothing is persisted (the embeddable default).
+   *  When supplied: an input containing prior history is treated as REHYDRATION
+   *  for an existing session — if the store already holds this sessionId's
+   *  messages and the input's head is a verbatim copy of that stored history,
+   *  only the new tail (a trailing new user message + this run's generated
+   *  messages) is persisted; re-running with rehydrated history never
+   *  duplicates rows. A fresh session persists the seed too. */
   sessionStore?: SessionStore;
   /** Omit → no transcript writes. */
   transcripts?: TranscriptStore;
@@ -306,6 +322,7 @@ export function createAgent(config: AgentConfig): Agent {
         providerName: provider.name,
         systemPrompt,
         messages,
+        seedCount: seedMessages.length,
         usage: latestUsage,
       });
     }
@@ -375,8 +392,18 @@ function resolveToolContext(
 
 /** Persist one completed turn through the injected ports, mirroring the
  *  gateway's `persistMessage` + `recordTokenUsage` at SessionStore granularity:
- *  upsert the session, save every message (seed user + assistants + tool-result
- *  user messages), mirror each to the transcript, and accumulate usage/cost. */
+ *  upsert the session, save the turn's messages, mirror each to the transcript,
+ *  and accumulate usage/cost.
+ *
+ *  Dedup contract (Task 4.1): when the store already holds rows for this
+ *  session AND the seed's head is a verbatim rehydration of that stored
+ *  history, saving starts AFTER the stored prefix — only the new tail (a
+ *  trailing new user message + this run's generated messages) is written, so a
+ *  stable-sessionId embedder never gets duplicate rows. A fresh session (empty
+ *  store) and a non-verbatim seed both save everything: the SDK never drops
+ *  content on a guess. With no SessionStore (transcripts-only, e.g. cron) there
+ *  is no history to consult — every message is mirrored, byte-identical to the
+ *  pre-4.1 behavior. */
 function persistTurn(opts: {
   sessionStore: SessionStore | undefined;
   transcripts: TranscriptStore | undefined;
@@ -385,6 +412,8 @@ function persistTurn(opts: {
   providerName: string;
   systemPrompt: SystemSegment[];
   messages: Message[];
+  /** Index where this run's NEW messages begin (the caller's seed length). */
+  seedCount: number;
   usage: TokenUsage | undefined;
 }): void {
   const {
@@ -395,6 +424,7 @@ function persistTurn(opts: {
     providerName,
     systemPrompt,
     messages,
+    seedCount,
     usage,
   } = opts;
 
@@ -407,8 +437,17 @@ function persistTurn(opts: {
     });
   }
 
+  // The dedup boundary: one loadMessages call on the persist path only.
+  let persistFrom = 0;
+  if (sessionStore !== undefined) {
+    const stored = sessionStore.loadMessages(sessionId);
+    if (stored.length > 0 && isRehydratedPrefix(stored, messages, seedCount)) {
+      persistFrom = stored.length;
+    }
+  }
+
   let seq = 0;
-  for (const msg of messages) {
+  for (const msg of messages.slice(persistFrom)) {
     const id =
       sessionStore !== undefined
         ? sessionStore.saveMessage(sessionId, { role: msg.role, content: msg.content })
@@ -420,4 +459,27 @@ function persistTurn(opts: {
   if (sessionStore !== undefined && usage !== undefined) {
     sessionStore.recordTokenUsage(sessionId, usage, estimateCostUsd(providerName, model, usage));
   }
+}
+
+/** True when the stored history is a VERBATIM prefix of this run's seed: every
+ *  stored row matches the message at the same index by role + content (deep
+ *  equality via JSON text — mirroring the store's own serialize/deserialize
+ *  round-trip, so history rehydrated from `loadMessages` compares equal).
+ *  Rehydration only makes sense within the SEED, so a stored history longer
+ *  than the seed never matches — a short fresh input (e.g. a new string prompt
+ *  under a reused sessionId) is new content to append, not a rehydration. */
+function isRehydratedPrefix(
+  stored: StoredMessage[],
+  messages: Message[],
+  seedCount: number,
+): boolean {
+  if (stored.length > seedCount) return false;
+  return stored.every((row, i) => {
+    const msg = messages[i];
+    return (
+      msg !== undefined &&
+      msg.role === row.role &&
+      JSON.stringify(msg.content) === JSON.stringify(row.content)
+    );
+  });
 }

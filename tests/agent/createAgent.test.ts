@@ -95,6 +95,21 @@ const completedTurn: StreamEvent[] = [
   { type: 'assistant_message', message: completedAnswer },
 ];
 
+const secondAnswer: AssistantMessage = {
+  role: 'assistant',
+  content: [{ type: 'text', text: 'second answer' }],
+};
+
+/** A second completed turn (distinct reply text) so a two-run test can tell
+ *  run 1's assistant output apart from run 2's. */
+const secondCompletedTurn: StreamEvent[] = [
+  { type: 'message_start' },
+  { type: 'text_delta', text: 'second answer' },
+  { type: 'usage_delta', usage: { inputTokens: 21, outputTokens: 9 } },
+  { type: 'message_stop', stop_reason: 'end_turn' },
+  { type: 'assistant_message', message: secondAnswer },
+];
+
 const echoToolUse: AssistantMessage = {
   role: 'assistant',
   content: [{ type: 'tool_use', id: 't1', name: 'Echo', input: { text: 'hi' } }],
@@ -310,6 +325,81 @@ describe('createAgent', () => {
     // recordTokenUsage accumulated the streamed usage_delta + a cost figure.
     expect(session?.inputTokens).toBe(11);
     expect(session?.outputTokens).toBe(7);
+  });
+
+  test('a stable-sessionId rehydration run persists only the new tail (no duplicate rows)', async () => {
+    // Task 4.1 — the persistTurn dedup contract. The canonical multi-turn
+    // embedder: run 1 seeds a fresh session; run 2 rehydrates the SAME store's
+    // history verbatim, appends a new user message, and runs under the SAME
+    // sessionId. The store must end up with the exact conversation — the
+    // rehydrated prefix must NOT be re-saved as duplicate rows.
+    const store = createInMemorySessionStore();
+    const sessionId = 'sess-4-1-rehydrate';
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn, secondCompletedTurn]),
+      model: 'fake-model',
+      sessionStore: store,
+      maxTokens: 256,
+    });
+
+    // Run 1 — fresh session: seed user message + assistant reply persisted.
+    await drain(agent.run('hello', { sessionId }));
+    expect(store.loadMessages(sessionId).length).toBe(2);
+
+    // Run 2 — rehydrate history FROM the store, append a new user message.
+    const rehydrated: Message[] = store
+      .loadMessages(sessionId)
+      .map((m) =>
+        m.role === 'user'
+          ? { role: 'user', content: m.content }
+          : { role: 'assistant', content: m.content },
+      );
+    const input: Message[] = [
+      ...rehydrated,
+      { role: 'user', content: [{ type: 'text', text: 'and now?' }] },
+    ];
+    await drain(agent.run(input, { sessionId }));
+
+    // The store holds the EXACT conversation sequence — no duplicate rows.
+    const persisted = store.loadMessages(sessionId).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    expect(persisted).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'final answer' }] },
+      { role: 'user', content: [{ type: 'text', text: 'and now?' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'second answer' }] },
+    ]);
+  });
+
+  test('a fresh (non-rehydrated) seed on an existing session appends without loss', async () => {
+    // Session reuse WITHOUT rehydration: run 2 passes a brand-new string input
+    // under the same sessionId. The seed is not the stored history, so nothing
+    // is treated as already-persisted — both new messages append (and nothing
+    // duplicates, since nothing was re-sent).
+    const store = createInMemorySessionStore();
+    const sessionId = 'sess-4-1-append';
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn, secondCompletedTurn]),
+      model: 'fake-model',
+      sessionStore: store,
+      maxTokens: 256,
+    });
+
+    await drain(agent.run('hello', { sessionId }));
+    await drain(agent.run('more please', { sessionId }));
+
+    const persisted = store.loadMessages(sessionId).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    expect(persisted).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'final answer' }] },
+      { role: 'user', content: [{ type: 'text', text: 'more please' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'second answer' }] },
+    ]);
   });
 
   test('an injected observe fn reaches ToolContext.learningObserver on a tool call', async () => {
