@@ -14,7 +14,7 @@
 // launcher) so the test deterministically gets the real buildRuntime
 // + startServer regardless of file ordering.
 
-import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import {
   chmodSync,
@@ -45,6 +45,39 @@ const MOCK_CHILD_EXIT_DELAY_MS = 100;
 // drain SSE to turn_complete, optionally POST an approval, and assert
 // without racing the launcher's settle/dispose path.
 const MOCK_CHILD_M5_TURN_DELAY_MS = 5000;
+
+// OUTGOING-leak defense (the header comment above covers the INCOMING
+// side): the suites below mock `node:child_process` (and the runtime/
+// server modules) and each restores defensively in its own hooks, but
+// bun's mock.module() persists across FILES in one `bun test` run — so
+// without a file-level afterAll the file can still EXIT with a fake
+// `node:child_process` installed. Downstream files that spawn real
+// subprocesses (hooks runner, skills inline-shell, GrepTool/BashTool,
+// openai tool-progress) would then get a fake ChildProcess (no pid, no
+// events, no .kill) and fail. Mirror tuiLauncher.test.ts: capture
+// spread-snapshots of the real modules BEFORE any suite mocks them and
+// re-install all three when the file finishes.
+let fileRealRuntimeModule: typeof import('../../src/server/runtime.js');
+let fileRealServerModule: typeof import('../../src/server/index.js');
+let fileRealChildProcessModule: typeof import('node:child_process');
+
+beforeAll(async () => {
+  // Snapshot ENUMERABLE keys at capture time so the afterAll restore
+  // hands bun's mock registry a plain object rather than a live module
+  // namespace (which bun 1.3.13 can mutate in place).
+  const rt = await import('../../src/server/runtime.js');
+  fileRealRuntimeModule = { ...rt } as typeof rt;
+  const sv = await import('../../src/server/index.js');
+  fileRealServerModule = { ...sv } as typeof sv;
+  const cp = await import('node:child_process');
+  fileRealChildProcessModule = { ...cp } as typeof cp;
+});
+
+afterAll(() => {
+  mock.module('../../src/server/runtime.js', () => fileRealRuntimeModule);
+  mock.module('../../src/server/index.js', () => fileRealServerModule);
+  mock.module('node:child_process', () => fileRealChildProcessModule);
+});
 
 describe('runTuiLauncher — end-to-end smoke', () => {
   let prevSovTuiBin: string | undefined;
