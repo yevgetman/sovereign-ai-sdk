@@ -2,9 +2,9 @@
 // and over-cap writes fail without truncating.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   MEMORY_CAPS,
   normalizeMemoryFile,
@@ -59,6 +59,24 @@ describe('bounded memory files', () => {
       expect(readMemoryFile('USER.md', dir).content).toBe('');
     });
   });
+
+  // D13 (audit F10/F16 sibling): memory holds arbitrary agent-recorded facts and
+  // must not be world-readable on a shared host — file 0600, dir 0700, matching
+  // the other HARNESS_HOME state sinks. chmod is a near no-op on Windows, so the
+  // mode assertion is Unix-only.
+  test.skipIf(process.platform === 'win32')(
+    'writes memory files 0600 and their dir 0700',
+    async () => {
+      await withTmp(async (dir) => {
+        const result = replaceMemoryFile('USER.md', 'sensitive dossier', dir);
+        expect(result.ok).toBe(true);
+        const filePath = join(dir, 'memory', 'USER.md');
+        // RED before fix: default umask leaves the file 0644 and the dir 0755.
+        expect(statSync(filePath).mode & 0o777).toBe(0o600);
+        expect(statSync(join(dir, 'memory')).mode & 0o777).toBe(0o700);
+      });
+    },
+  );
 });
 
 describe('per-project memory paths', () => {
@@ -127,4 +145,16 @@ describe('per-project memory paths', () => {
     replaceProjectMemoryFile('proj-a', 'project notes', home);
     expect(readMemoryFile('USER.md', home).content).toBe('user dossier');
   });
+
+  // D13: the same 0600/0700 tightening applies to per-project memory writers.
+  test.skipIf(process.platform === 'win32')(
+    'project memory files are 0600 and their dir 0700',
+    () => {
+      const result = replaceProjectMemoryFile('proj-perms', '# secret notes\n', home);
+      expect(result.ok).toBe(true);
+      const path = projectMemoryPath(home, 'proj-perms');
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(path)).mode & 0o777).toBe(0o700);
+    },
+  );
 });

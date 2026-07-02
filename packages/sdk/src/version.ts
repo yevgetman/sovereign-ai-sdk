@@ -34,13 +34,21 @@
 //      writer). To make that impossible, the git resolver runs ONLY when BOTH:
 //        (a) this module's directory is NOT under a `node_modules/` path
 //            segment (an installed dependency always is); AND
-//        (b) the git worktree that would be discovered actually OWNS the SDK's
-//            package root (its toplevel contains the resolved package.json dir).
+//        (b) the discovered git worktree IS the SDK's OWN repo — its toplevel
+//            either equals the package root (a standalone SDK checkout) or is a
+//            workspace root whose package.json declares the package root as a
+//            member (the monorepo dev layout). A consumer who VENDORS the SDK
+//            source into their OWN git repo (git subtree / manual copy, NOT
+//            under node_modules) is excluded here: their toplevel is their repo
+//            root and does not list the copied-in path as a workspace, so a
+//            mere "packageRoot is somewhere inside this worktree" test would
+//            have leaked THEIR HEAD. Requiring workspace ownership closes that.
 //      If either fails — installed as a dep, or the enclosing repo is not the
 //      SDK's own — the resolver short-circuits with NO subprocess and the bare
-//      package.json version is reported. Net: an installed npm consumer gets a
-//      deterministic `0.1.0` (no git spawn, no consumer SHA); a dev in the
-//      SDK's own checkout still gets the live `0.1.0-<sdkSHA>`.
+//      package.json version is reported. Net: an installed npm consumer AND a
+//      vendored-source consumer both get a deterministic `0.1.0` (no git spawn,
+//      no consumer SHA); a dev in the SDK's own checkout still gets the live
+//      `0.1.0-<sdkSHA>`.
 //
 // In Bun-compiled binary mode both sources return null (`.bun-tag` won't exist;
 // the git resolver is gated off — PKG_DIR sits in `/$bunfs/` with no package
@@ -48,7 +56,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SHORT_SHA_LENGTH = 7;
@@ -110,10 +118,52 @@ function isUnderNodeModules(dir: string): boolean {
   return dir.split(sep).includes('node_modules');
 }
 
-/** True when `child` is equal to or nested inside `parent`. */
-function isWithin(child: string, parent: string): boolean {
-  const rel = relative(resolve(parent), resolve(child));
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+/** Parse the `workspaces` field of a package.json into a list of path patterns.
+ *  Supports the npm/yarn array form (`["packages/*"]`) and the yarn-classic
+ *  object form (`{ packages: [...] }`). Anything else → empty. */
+function workspacePatterns(workspaces: unknown): string[] {
+  if (Array.isArray(workspaces)) {
+    return workspaces.filter((entry): entry is string => typeof entry === 'string');
+  }
+  if (workspaces !== null && typeof workspaces === 'object' && 'packages' in workspaces) {
+    const packages = (workspaces as { packages?: unknown }).packages;
+    if (Array.isArray(packages)) {
+      return packages.filter((entry): entry is string => typeof entry === 'string');
+    }
+  }
+  return [];
+}
+
+/** True when the workspace `pattern` declared at `top` resolves to `pkg`.
+ *  Handles an exact member (`packages/sdk`) and a single trailing `/*` glob
+ *  (`packages/*`, matched when `pkg`'s parent directory is the glob's base). */
+function workspacePatternMatches(top: string, pattern: string, pkg: string): boolean {
+  if (pattern.endsWith('/*')) {
+    return dirname(pkg) === resolve(top, pattern.slice(0, -2));
+  }
+  return resolve(top, pattern) === pkg;
+}
+
+/** True when the git worktree rooted at `toplevel` is the SDK's OWN repo: the
+ *  toplevel either IS the package root (a standalone SDK checkout) or is a
+ *  workspace root whose package.json declares the package root as a member (the
+ *  monorepo dev layout). A consumer who VENDORS the SDK source into their own
+ *  repo does neither — their toplevel is their repo root and does not list the
+ *  copied-in SDK path as a workspace — so the SHA gate stays closed and their
+ *  private HEAD never leaks (audit F17-19 sibling). */
+function gitToplevelOwnsSdk(toplevel: string, packageRoot: string): boolean {
+  const top = resolve(toplevel);
+  const pkg = resolve(packageRoot);
+  if (top === pkg) return true;
+  try {
+    const raw = readFileSync(join(top, 'package.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as { workspaces?: unknown };
+    return workspacePatterns(parsed.workspaces).some((pattern) =>
+      workspacePatternMatches(top, pattern, pkg),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** `git -C dir rev-parse --show-toplevel` → the enclosing worktree root, or
@@ -154,8 +204,10 @@ function gitShortHead(dir: string): string | null {
  *
  * Order: the SDK's own `.bun-tag` (always trusted) → a git short SHA, but the
  * git spawn happens ONLY from the SDK's own source checkout — `pkgDir` not
- * under `node_modules` AND the enclosing git worktree owns `packageRoot`.
- * Otherwise returns null (bare base version) with NO git subprocess.
+ * under `node_modules` AND the enclosing git worktree IS the SDK's own repo
+ * (its toplevel equals, or declares as a workspace member, `packageRoot`).
+ * A vendored source copy inside a consumer repo fails the ownership test and
+ * returns null (bare base version) with NO git subprocess.
  *
  * Exported for testability: pass a scratch `pkgDir`/`packageRoot` to exercise
  * the gate without relocating the module. The module-level VERSION export below
@@ -165,11 +217,14 @@ export function resolveShaSuffix(pkgDir: string, packageRoot: string | null): st
   const bunTagSha = resolveBunTagSha(packageRoot);
   if (bunTagSha !== null) return bunTagSha;
 
-  // Ownership gate: only ever read a git SHA from the SDK's OWN checkout.
+  // Ownership gate: only ever read a git SHA from the SDK's OWN checkout — the
+  // discovered worktree must BE the SDK's repo (toplevel === packageRoot, or the
+  // toplevel declares packageRoot as a workspace member). A consumer that
+  // vendors the source into their own repo fails this and never leaks their SHA.
   if (packageRoot === null) return null;
   if (isUnderNodeModules(pkgDir)) return null;
   const toplevel = gitToplevel(pkgDir);
-  if (toplevel === null || !isWithin(packageRoot, toplevel)) return null;
+  if (toplevel === null || !gitToplevelOwnsSdk(toplevel, packageRoot)) return null;
 
   return gitShortHead(pkgDir);
 }

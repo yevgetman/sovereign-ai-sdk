@@ -1,10 +1,11 @@
 // Bounded markdown memory files. Writes fail when over cap so the agent must
 // consolidate intentionally instead of appending forever.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
 import { validatePrincipalId } from '../util/principals.js';
+import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../util/secureFs.js';
 
 export type MemoryFile = 'MEMORY.md' | 'USER.md';
 
@@ -103,8 +104,12 @@ export function replaceMemoryFile(
       cap,
     };
   }
-  mkdirSync(memoryRoot(harnessHome, userId), { recursive: true });
-  writeFileSync(path, content, 'utf8');
+  // Memory holds arbitrary agent-recorded facts (MEMORY.md / USER.md); like the
+  // other HARNESS_HOME state sinks it must not be world-readable on a shared /
+  // multi-tenant host (audit F10/F16 — this sink was missed): dir 0700, file 0600.
+  secureMkdir(memoryRoot(harnessHome, userId));
+  writeFileSync(path, content, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+  chmodSafe(path, SECURE_FILE_MODE);
   return { ok: true, ...readMemoryFile(file, harnessHome, userId) };
 }
 
@@ -146,9 +151,10 @@ export function replaceProjectMemoryFile(
       cap,
     };
   }
-  mkdirSync(join(memoryRoot(harnessHome, userId), PROJECT_DIR_NAME, projectId), {
-    recursive: true,
-  });
-  writeFileSync(path, content, 'utf8');
+  // Same defense-in-depth as replaceMemoryFile: per-project memory is
+  // agent-recorded content — dir 0700, file 0600 (audit F10/F16).
+  secureMkdir(join(memoryRoot(harnessHome, userId), PROJECT_DIR_NAME, projectId));
+  writeFileSync(path, content, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+  chmodSafe(path, SECURE_FILE_MODE);
   return { ok: true, ...readProjectMemoryFile(projectId, harnessHome, userId) };
 }

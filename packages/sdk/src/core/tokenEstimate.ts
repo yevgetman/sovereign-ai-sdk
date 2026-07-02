@@ -9,7 +9,12 @@ const MESSAGE_OVERHEAD_TOKENS = 12;
 const SYSTEM_SEGMENT_OVERHEAD_TOKENS = 12;
 
 export function estimateTextTokens(text: string): number {
-  if (text.length === 0) return 0;
+  // Defensive: `text` is TYPED `string`, but the ContentBlock fields it reads
+  // (tool_result content, thinking, image source data, …) can be a non-string
+  // at RUNTIME — a consumer that rehydrates a session or replays a real
+  // Anthropic transcript carries wire shapes TS has erased. A non-string must
+  // yield a rough estimate, never a `.length` TypeError that aborts the turn.
+  if (typeof text !== 'string' || text.length === 0) return 0;
   return Math.max(1, Math.ceil(text.length / CHARS_PER_TOKEN));
 }
 
@@ -37,10 +42,19 @@ export function estimateBlockTokens(block: ContentBlock): number {
     );
   }
   if (block.type === 'tool_result') {
+    // `content` is TYPED `string`, but a rehydrated/replayed session can carry a
+    // non-string wire shape — an ARRAY of content blocks (image / structured
+    // results) or a MISSING body. This estimator runs FIRST on the compaction
+    // gate (shouldMicrocompact → estimateBlockTokens) BEFORE the compact-path
+    // guards, so it must tolerate the non-string case itself (F9 sibling).
+    // estimateJsonTokens coerces any value to a bounded estimate (0 for
+    // null/undefined, JSON length otherwise) without throwing.
     return (
       BLOCK_OVERHEAD_TOKENS +
       estimateTextTokens(block.tool_use_id) +
-      estimateTextTokens(block.content)
+      (typeof block.content === 'string'
+        ? estimateTextTokens(block.content)
+        : estimateJsonTokens(block.content))
     );
   }
   if (block.type === 'redacted_thinking') {

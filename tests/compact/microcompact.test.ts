@@ -92,6 +92,31 @@ describe('shouldMicrocompact', () => {
     const toolNames = buildToolNameMap(messages);
     expect(shouldMicrocompact(messages, DEFAULT_MICROCOMPACT_CONFIG, toolNames)).toBe(false);
   });
+
+  // F9 sibling (D15): the gate calls estimateBlockTokens on every compactable
+  // tool_result — including one whose `content` is a MISSING (undefined) body
+  // from a rehydrated/replayed session. That path runs BEFORE the compact-path
+  // guards, so it must not throw.
+  test('does not throw on a null/undefined-content compactable tool_result', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'prompt' }] },
+      toolUse('a', 'Read'),
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'a', content: undefined as unknown as string },
+        ],
+      },
+      toolUse('b', 'Read'),
+      toolResult('b', 'x'.repeat(2000)),
+    ];
+    const toolNames = buildToolNameMap(messages);
+    // RED before the D15 fix: estimateBlockTokens(undefined content) throws
+    // "undefined is not an object (evaluating 'text.length')" inside the gate.
+    expect(() =>
+      shouldMicrocompact(messages, DEFAULT_MICROCOMPACT_CONFIG, toolNames),
+    ).not.toThrow();
+  });
 });
 
 describe('microcompact', () => {
@@ -408,6 +433,46 @@ describe('microcompact — array-shaped tool_result content (F9)', () => {
       ),
     );
     expect(live.length).toBe(3);
+  });
+
+  // D16: the array-content case above is covered; the adjacent MISSING-body
+  // (undefined/null) case is the other non-string shape the guard must tolerate
+  // — pass it through untouched while string candidates still compact.
+  test('null/undefined-content tool_result is passed through untouched; strings still compact', () => {
+    const messages: Message[] = [];
+    for (let i = 0; i < 2; i++) {
+      const id = `pre-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `string content ${i} `.repeat(50)));
+    }
+    // A missing-body tool_result in the middle (rehydrated shape).
+    messages.push(toolUse('nul', 'Read'));
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'nul', content: undefined as unknown as string },
+      ],
+    });
+    for (let i = 0; i < 2; i++) {
+      const id = `post-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `string content post ${i} `.repeat(50)));
+    }
+    messages.push({ role: 'user', content: [{ type: 'text', text: 'next prompt' }] });
+
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 1 };
+
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+
+    // The missing-body block is never a candidate — it survives untouched.
+    const nullBlock = compacted
+      .flatMap((m) => m.content)
+      .find((b) => b.type === 'tool_result' && b.tool_use_id === 'nul');
+    expect(nullBlock?.type === 'tool_result' && nullBlock.content).toBeUndefined();
+
+    // The four string candidates still compact: keepRecent=1 -> 3 cleared.
+    expect(result.cleared).toBe(3);
   });
 });
 

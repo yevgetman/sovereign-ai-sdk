@@ -17,7 +17,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VERSION, composeVersion, resolveShaSuffix } from '@yevgetman/sov-sdk/version';
@@ -117,6 +117,44 @@ describe('resolveShaSuffix (ownership gate)', () => {
 
       const suffix = resolveShaSuffix(pkgDir, pkgRoot);
 
+      expect(suffix).toBeNull();
+      expect(suffix).not.toBe(consumerSha);
+      expect(composeVersion('0.1.0', suffix)).toBe('0.1.0');
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  // D14 (F17-19 sibling): a consumer who VENDORS the SDK source into their own
+  // git repo (git subtree / manual copy) lands the package OUTSIDE node_modules,
+  // so the node_modules gate does not fire. A "packageRoot is somewhere inside
+  // this worktree" test then matches the CONSUMER's repo and leaks their HEAD.
+  // The ownership gate must require the worktree to BE the SDK's own repo.
+  test('vendored (source-copied) into a consumer git repo — NOT under node_modules — yields NO sha suffix', () => {
+    // realpath the scratch base: `git rev-parse --show-toplevel` returns a
+    // symlink-resolved path (macOS tmpdir is /var → /private/var), so passing a
+    // non-real base would make the OLD lexical isWithin fail for the wrong reason
+    // (prefix mismatch) and mask the leak. Real paths reproduce the true bug.
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'sov-version-vendor-')));
+    try {
+      const consumerSha = initScratchGitRepo(scratch);
+      // The SDK source copied into the consumer's own tree — NOT node_modules.
+      const pkgRoot = join(scratch, 'vendor', 'sov-sdk');
+      const pkgDir = join(pkgRoot, 'src');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgRoot, 'package.json'),
+        JSON.stringify({ name: '@yevgetman/sov-sdk', version: '0.1.0' }),
+      );
+      // The consumer repo root does NOT declare the vendored path as a workspace.
+      writeFileSync(
+        join(scratch, 'package.json'),
+        JSON.stringify({ name: 'consumer-app', version: '9.9.9' }),
+      );
+
+      const suffix = resolveShaSuffix(pkgDir, pkgRoot);
+
+      // RED before fix: gitShortHead runs in the consumer repo → leaks consumerSha.
       expect(suffix).toBeNull();
       expect(suffix).not.toBe(consumerSha);
       expect(composeVersion('0.1.0', suffix)).toBe('0.1.0');

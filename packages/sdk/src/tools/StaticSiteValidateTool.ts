@@ -2,7 +2,7 @@
 // Catches missing local HTML references, JavaScript syntax errors, and
 // whether the entry page is servable without making the model shell out.
 
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { type Server, createServer } from 'node:http';
 import { dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
@@ -84,7 +84,10 @@ export async function validateStaticSite(
   // survives and can point outside the site root. Reject it before any
   // filesystem access — mirroring the ephemeral server's 403 branch — so the
   // read/parse phase honors the same confinement the server phase promises (F26).
-  if (!isInside(absRoot, entryPath)) {
+  // isInsideReal ALSO follows symlinks: an in-root symlink pointing out of the
+  // root escapes a purely-lexical check (existsSync/readFileSync follow it), so
+  // real-path containment is required (F26 sibling).
+  if (!isInsideReal(absRoot, entryPath)) {
     checks.push({
       name: `entry exists: ${entry}`,
       ok: false,
@@ -161,8 +164,10 @@ function resolveLocalReference(raw: string, htmlDir: string, root: string): Loca
     : resolve(htmlDir, normalized);
   // Drop references that resolve outside the site root: their existence must not
   // be probed and their raw token must not be reflected into the result (F26).
-  // (The two branches previously returned the identical object — a dead guard.)
-  if (!isInside(root, target)) {
+  // isInsideReal follows symlinks so an in-root symlink escaping the root is
+  // dropped too — otherwise its (out-of-root) target content leaks via the JS
+  // check's stderr (F26 sibling).
+  if (!isInsideReal(root, target)) {
     return null;
   }
   return { raw, path: target };
@@ -241,7 +246,7 @@ async function serverCheck(root: string, entry: string): Promise<Check> {
         url.pathname === '/' ? entry : url.pathname.replace(/^\/+/, ''),
       );
       const target = resolveUnder(root, requested);
-      if (!isInside(root, target)) {
+      if (!isInsideReal(root, target)) {
         res.writeHead(403);
         res.end('forbidden');
         return;
@@ -328,4 +333,31 @@ function resolveUnder(root: string, child: string): string {
 function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+// Real-path confinement. Lexical isInside() is not enough: existsSync/statSync/
+// readFileSync/createReadStream all FOLLOW symlinks, so a symlink INSIDE the
+// root pointing OUT of it passes a purely-lexical check yet reads an out-of-root
+// file (F26 sibling). Resolve BOTH the root and the target through the
+// filesystem, then test containment on the real paths. Notes:
+//   - The lexical check runs first as a cheap reject (and covers `../`).
+//   - The root is realpath'd too so a site under a symlinked tmpdir (macOS
+//     /var → /private/var) is not spuriously rejected — both sides are real.
+//   - A non-existent target can't be realpath'd (ENOENT); fall back to the
+//     lexical result — the caller's existence check rejects it downstream.
+function isInsideReal(root: string, target: string): boolean {
+  if (!isInside(root, target)) return false;
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    realRoot = root;
+  }
+  let realTarget: string;
+  try {
+    realTarget = realpathSync(target);
+  } catch {
+    return true;
+  }
+  return isInside(realRoot, realTarget);
 }

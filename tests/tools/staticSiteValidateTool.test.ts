@@ -2,7 +2,7 @@
 // read-only permission behavior for static website artifacts.
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -94,6 +94,52 @@ describe('StaticSiteValidateTool', () => {
       expect(entryCheck?.details).toContain('escapes site root');
       // The out-of-root file's contents must never surface in the result.
       expect(JSON.stringify(checks)).not.toContain('LEAKED-REF');
+    });
+  });
+
+  // F26 sibling (D10): the entry confinement was LEXICAL only — an in-root
+  // symlink pointing OUT of the root escaped it (existsSync/readFileSync follow
+  // symlinks). Real-path confinement must reject it before the target is read
+  // or its content reflected.
+  test('rejects an in-root symlink entry that escapes the site root (no out-of-root read/reflect)', async () => {
+    await withTmp(async (base) => {
+      const site = join(base, 'site');
+      mkdirSync(site);
+      writeFileSync(join(site, 'index.html'), '<!doctype html>');
+      // A secret OUTSIDE the site root whose href token would be reflected into
+      // the checks (as a "missing" reference) if the file were read.
+      writeFileSync(join(base, 'secret.html'), '<a href="SECRET-LEAK-TOKEN.html">x</a>');
+      // A symlink INSIDE the root pointing OUT of it — lexically confined,
+      // really an escape.
+      symlinkSync(join(base, 'secret.html'), join(site, 'evil.html'));
+
+      const checks = await validateStaticSite(site, 'evil.html', false);
+
+      const entryCheck = checks.find((check) => check.name.startsWith('entry exists'));
+      expect(entryCheck?.ok).toBe(false);
+      expect(entryCheck?.details).toContain('escapes site root');
+      // The out-of-root file's contents must never surface in the result.
+      expect(JSON.stringify(checks)).not.toContain('SECRET-LEAK-TOKEN');
+    });
+  });
+
+  test('drops an in-root symlink local reference that escapes the site root', async () => {
+    await withTmp(async (base) => {
+      const site = join(base, 'site');
+      mkdirSync(site);
+      // An out-of-root target that EXISTS; a symlinked reference points to it.
+      writeFileSync(join(base, 'outside.js'), 'const x = 1;\n');
+      symlinkSync(join(base, 'outside.js'), join(site, 'escape.js'));
+      writeFileSync(join(site, 'index.html'), '<!doctype html><script src="escape.js"></script>');
+
+      const checks = await validateStaticSite(site, 'index.html', false);
+      const refs = checks.find((check) => check.name === 'local references exist');
+
+      // RED before fix: the symlinked-out reference is confined only lexically,
+      // so it is included and probed (1 reference). GREEN: it is dropped so its
+      // out-of-root target is never handed to the reader (0 references).
+      expect(refs?.ok).toBe(true);
+      expect(refs?.details).toContain('0 local reference');
     });
   });
 
