@@ -196,11 +196,20 @@ function analyzeSegment(segment: string): VirtualOperation {
       : { kind: 'read', paths: extractPaths(args) };
   }
 
-  // `date` prints the clock (read) UNLESS it SETS the system clock via
-  // `-s`/`--set`/`--set=…`, which is a privileged system-state write. Fail
-  // closed to a prompt for the set form. (audit F24)
+  // `date` prints the clock (read) UNLESS it SETS the system clock: GNU
+  // `-s`/`--set`/`--set=…`, OR the BSD/macOS positional form
+  // `date [[[[[cc]yy]mm]dd]HH]MM[.ss]` (e.g. `date 010203042020`). A plain read
+  // only ever takes a `+FORMAT` operand, so ANY bare non-flag, non-`+FORMAT`
+  // positional is the BSD clock-set form. Fail closed to a prompt for either.
+  // (audit F24 + D12: this SDK ships on darwin where the positional form works.)
   if (cmd === 'date') {
-    const setsClock = args.some((a) => a === '-s' || a === '--set' || a.startsWith('--set='));
+    const setsClock = args.some(
+      (a) =>
+        a === '-s' ||
+        a === '--set' ||
+        a.startsWith('--set=') ||
+        (!a.startsWith('-') && !a.startsWith('+')),
+    );
     return setsClock
       ? { kind: 'exec', command: 'date' }
       : { kind: 'read', paths: extractPaths(args) };
@@ -230,6 +239,17 @@ function analyzeSegment(segment: string): VirtualOperation {
   return { kind: 'exec', command: cmd };
 }
 
+// Normalize a flag token to its matchable NAME so an allow/deny set can match
+// the attached-value forms git accepts: a long `--flag=value` → `--flag`, a
+// short attached `-xVALUE` → `-x`. Bare flags pass through unchanged. Matching
+// the raw token (e.g. `--set-upstream-to=origin/main`, `-uorigin/main`) against
+// a Set of bare flag names silently misses these — the D6 defect. (audit F2/D6)
+function normalizeFlag(a: string): string {
+  if (a.startsWith('--')) return a.split('=')[0] as string;
+  if (a.startsWith('-') && a.length > 2) return a.slice(0, 2);
+  return a;
+}
+
 // config sub-flags that always mutate (set/unset/edit config).
 const GIT_CONFIG_WRITE_FLAGS = new Set([
   '--unset',
@@ -255,15 +275,40 @@ const GIT_CONFIG_READ_FLAGS = new Set([
   '-l',
 ]);
 
+// config location/source flags that consume a following FILE/BLOB operand. That
+// operand is a source selector, NOT a config value, so it must not count toward
+// the value-positional tally that separates a get (`config key`) from a set
+// (`config key value`). Not counting it is the D9 over-prompt fix.
+const GIT_CONFIG_OPERAND_FLAGS = new Set(['-f', '--file', '--blob']);
+
 // `git config` reads ONLY for pure gets: an explicit --get*/--list/-l, or a
 // bare single-positional key (`git config user.name`) with no value token.
 // Anything with a value arg or a mutating flag → write. config.pager/editor/
 // sshCommand/alias.* are command-execution vectors, so default-deny. (F2)
 function isGitConfigReadOnly(subArgs: string[]): boolean {
-  if (subArgs.some((a) => GIT_CONFIG_WRITE_FLAGS.has(a))) return false;
-  if (subArgs.some((a) => GIT_CONFIG_READ_FLAGS.has(a))) return true;
-  const positionals = subArgs.filter((a) => !a.startsWith('-'));
-  return positionals.length === 1;
+  if (subArgs.some((a) => GIT_CONFIG_WRITE_FLAGS.has(normalizeFlag(a)))) return false;
+  if (subArgs.some((a) => GIT_CONFIG_READ_FLAGS.has(normalizeFlag(a)))) return true;
+
+  // Count value-positionals, skipping the operand a space-separated -f/--file/
+  // --blob consumes (`--file path key`). An attached `--file=path`/`-fpath`
+  // carries its operand inline and consumes no positional token.
+  const valuePositionals: string[] = [];
+  let skipNext = false;
+  for (const a of subArgs) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (a.startsWith('-')) {
+      const name = normalizeFlag(a);
+      if (GIT_CONFIG_OPERAND_FLAGS.has(name) && a === name) skipNext = true;
+      continue;
+    }
+    valuePositionals.push(a);
+  }
+  // A get names at most one key and no value; a second positional is the VALUE
+  // of a set (write). (`git config --file f key value` is still a write.)
+  return valuePositionals.length <= 1;
 }
 
 // `git stash` reads ONLY for `list`/`show`. Bare `stash` and push/pop/apply/
@@ -274,31 +319,66 @@ function isGitStashReadOnly(subArgs: string[]): boolean {
   return first !== undefined && GIT_STASH_READ_SUBCOMMANDS.has(first);
 }
 
-// `git branch` sub-flags that create/delete/move/rename/rewire a branch.
-const GIT_BRANCH_WRITE_FLAGS = new Set([
-  '-d',
-  '-D',
-  '--delete',
-  '-m',
-  '-M',
-  '--move',
-  '-c',
-  '-C',
-  '--copy',
-  '-u',
-  '--set-upstream-to',
-  '--unset-upstream',
-  '--edit-description',
-  '-f',
-  '--force',
+// `git branch` LIST/inspect flags — the ONLY forms that read. Everything else
+// (create/delete/move/copy/upstream/force/track/edit-description) mutates a ref.
+// Inverting to a read-flag WHITELIST (vs the old write-flag denylist) fails
+// closed: attached-value forms (`--set-upstream-to=x`, `-uorigin/main`) and
+// bundled short clusters can no longer smuggle a write past an exact-token
+// denylist. Long value-taking read flags (`--contains`, `--sort`, `--format`,
+// `--points-at`, `--merged`) are included so their attached `--flag=v` forms
+// still read; a space-separated value becomes a positional → prompt (as it did
+// pre-fix). (audit F2 + D6)
+const GIT_BRANCH_READ_LONG_FLAGS = new Set([
+  '--list',
+  '--all',
+  '--remotes',
+  '--verbose',
+  '--ignore-case',
+  '--omit-empty',
+  '--show-current',
+  '--color',
+  '--no-color',
+  '--column',
+  '--no-column',
+  '--abbrev',
+  '--no-abbrev',
+  '--sort',
+  '--format',
+  '--contains',
+  '--no-contains',
+  '--merged',
+  '--no-merged',
+  '--points-at',
 ]);
+// Short list/inspect flags — all boolean (none take a value), so a short cluster
+// reads only if EVERY char is one of these. `-u`/`-d`/`-D`/`-m`/… fall through
+// to write. (F2/D6)
+const GIT_BRANCH_READ_SHORT_FLAGS = new Set(['a', 'r', 'v', 'l', 'i']);
 
-// `git branch` reads ONLY as a pure list (bare, --list, -a/-r/-v). A positional
-// name (create) or any mutating flag → write/prompt. (F2)
+// `git branch` reads ONLY as a list: bare, or with recognized list flags, and
+// at most a single glob/name PATTERN positional under --list/-l. A bare name
+// positional (create) or any unrecognized flag → write/prompt (fail closed).
+// (F2 + D6 attached-value flags + D9 restore of `--list <pattern>`)
 function isGitBranchReadOnly(subArgs: string[]): boolean {
-  if (subArgs.some((a) => GIT_BRANCH_WRITE_FLAGS.has(a))) return false;
+  let hasListFlag = false;
+  for (const a of subArgs) {
+    if (!a.startsWith('-')) continue; // positional — tallied below
+    if (a.startsWith('--')) {
+      const name = a.split('=')[0] as string;
+      if (!GIT_BRANCH_READ_LONG_FLAGS.has(name)) return false; // fail closed
+      if (name === '--list') hasListFlag = true;
+    } else {
+      for (const ch of a.slice(1)) {
+        if (!GIT_BRANCH_READ_SHORT_FLAGS.has(ch)) return false; // fail closed
+      }
+      if (a.includes('l')) hasListFlag = true;
+    }
+  }
   const positionals = subArgs.filter((a) => !a.startsWith('-'));
-  return positionals.length === 0;
+  if (positionals.length === 0) return true;
+  // A positional reads ONLY as a listing pattern under --list/-l; a bare
+  // positional is a branch name (create) → write.
+  return hasListFlag && positionals.length === 1;
 }
 
 // `git tag` sub-flags that create/delete/sign/force a tag.
@@ -320,9 +400,10 @@ const GIT_TAG_WRITE_FLAGS = new Set([
 ]);
 
 // `git tag` reads ONLY as a list (-l/--list, or bare with no tag-name
-// positional). Create/delete → write/prompt. (F2)
+// positional). Create/delete → write/prompt. The write-flag check is normalized
+// so attached-value forms (`-mmsg`, `-Ffile`) still match the denylist. (F2/D6)
 function isGitTagReadOnly(subArgs: string[]): boolean {
-  if (subArgs.some((a) => GIT_TAG_WRITE_FLAGS.has(a))) return false;
+  if (subArgs.some((a) => GIT_TAG_WRITE_FLAGS.has(normalizeFlag(a)))) return false;
   if (subArgs.some((a) => a === '-l' || a === '--list')) return true;
   const positionals = subArgs.filter((a) => !a.startsWith('-'));
   return positionals.length === 0;

@@ -301,6 +301,19 @@ describe('isShellCommandReadOnly', () => {
       expect(isShellCommandReadOnly('git config -l')).toBe(true);
       expect(isShellCommandReadOnly('git config --list')).toBe(true);
     });
+    // D9 — a --file/-f scope operand must not be counted as a config VALUE, so a
+    // get against an explicit file (`git config --file f key`, no value) stays a
+    // read instead of over-prompting.
+    test('a --file/-f scope operand does not turn a get into a prompt', () => {
+      expect(isShellCommandReadOnly('git config --file /tmp/f user.name')).toBe(true);
+      expect(isShellCommandReadOnly('git config -f /tmp/f user.name')).toBe(true);
+      expect(isShellCommandReadOnly('git config --file=/tmp/f user.name')).toBe(true);
+    });
+    // …but a value AFTER the key is still a write even with a --file operand.
+    test('a --file get WITH a value is still a write', () => {
+      expect(isShellCommandReadOnly('git config --file /tmp/f user.name foo')).toBe(false);
+      expect(isShellCommandReadOnly('git config --file=/tmp/f user.name foo')).toBe(false);
+    });
   });
 
   describe('git stash is read-only only for list/show', () => {
@@ -324,12 +337,26 @@ describe('isShellCommandReadOnly', () => {
       expect(isShellCommandReadOnly('git branch -d old')).toBe(false);
       expect(isShellCommandReadOnly('git branch -m old new')).toBe(false);
     });
+    // D6 — attached-value write flags rewrite the CURRENT branch's upstream with
+    // no positional, so an exact-token denylist misses them. They MUST prompt.
+    test('attached-value upstream write flags are NOT read-only', () => {
+      expect(isShellCommandReadOnly('git branch --set-upstream-to=origin/main')).toBe(false);
+      expect(isShellCommandReadOnly('git branch -uorigin/main')).toBe(false);
+      expect(isShellCommandReadOnly('git branch -u origin/main')).toBe(false);
+      expect(isShellCommandReadOnly('git branch --unset-upstream')).toBe(false);
+    });
     test('list forms stay read-only', () => {
       expect(isShellCommandReadOnly('git branch')).toBe(true);
       expect(isShellCommandReadOnly('git branch --list')).toBe(true);
       expect(isShellCommandReadOnly('git branch -a')).toBe(true);
       expect(isShellCommandReadOnly('git branch -r')).toBe(true);
       expect(isShellCommandReadOnly('git branch -v')).toBe(true);
+      expect(isShellCommandReadOnly('git branch -vv')).toBe(true);
+    });
+    // D9 — listing WITH a glob/name pattern is still a read; must not over-prompt.
+    test('listing with a pattern positional stays read-only', () => {
+      expect(isShellCommandReadOnly("git branch --list 'feat/*'")).toBe(true);
+      expect(isShellCommandReadOnly("git branch -l 'x*'")).toBe(true);
     });
   });
 
@@ -338,11 +365,14 @@ describe('isShellCommandReadOnly', () => {
       expect(isShellCommandReadOnly('git tag -d v1')).toBe(false);
       expect(isShellCommandReadOnly('git tag v1')).toBe(false);
       expect(isShellCommandReadOnly('git tag -a v1 -m msg')).toBe(false);
+      // attached-value message flag still classifies write (normalized denylist)
+      expect(isShellCommandReadOnly('git tag -mmsg v1')).toBe(false);
     });
     test('list forms stay read-only', () => {
       expect(isShellCommandReadOnly('git tag -l')).toBe(true);
       expect(isShellCommandReadOnly('git tag')).toBe(true); // bare list
       expect(isShellCommandReadOnly('git tag --list')).toBe(true);
+      expect(isShellCommandReadOnly("git tag -l 'v1*'")).toBe(true); // list with pattern
     });
   });
 
@@ -362,12 +392,18 @@ describe('isShellCommandReadOnly', () => {
   });
 
   // Audit F24 [LOW] — `date -s`/`--set` writes the system clock; only a
-  // plain `date` read/format is read-only.
+  // plain `date` read/format is read-only. D12 — the BSD/macOS positional
+  // form `date [[[[cc]yy]mm]dd]HH]MM[.ss]` also sets the clock.
   describe('date is read-only only without a set flag', () => {
     test('setting the clock is NOT read-only', () => {
       expect(isShellCommandReadOnly("date -s '2020-01-01'")).toBe(false);
       expect(isShellCommandReadOnly("date --set='2020-01-01'")).toBe(false);
       expect(isShellCommandReadOnly("date --set '2020-01-01'")).toBe(false);
+    });
+    // D12 — BSD/macOS bare numeric positional sets the clock; must fail closed.
+    test('BSD numeric-positional clock-set is NOT read-only', () => {
+      expect(isShellCommandReadOnly('date 010203042020')).toBe(false);
+      expect(isShellCommandReadOnly('date 0101120024')).toBe(false);
     });
     test('plain date/format/flags stay read-only', () => {
       expect(isShellCommandReadOnly('date')).toBe(true);
