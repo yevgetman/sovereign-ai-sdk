@@ -86,6 +86,20 @@ const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_TIMEOUT_MS = 10_000;
 const SHELL_OUTPUT_CAP = 16 * 1024;
 
+/** Neutralize inline-shell sigils in a SUBSTITUTED environment value (session
+ *  id, skill dir, plugin root) before the `interpolateShellCommands` scan (F27).
+ *
+ *  Both inline-shell forms (`` `!cmd` `` and `` !`cmd` ``) REQUIRE a backtick, so
+ *  stripping backticks fully disarms both. Env values are injected into the body
+ *  BEFORE the scan, so an untrusted value (e.g. a caller-supplied sessionId) that
+ *  carries a backtick+`!` token would otherwise be scanned and executed via
+ *  spawnProc(bash). A literal backtick in a session id / skill dir path is NEVER
+ *  an author's intentional inline shell — those are written directly in the skill
+ *  BODY, which is deliberately NOT sanitized and keeps working. */
+function sanitizeInlineShellSigil(value: string): string {
+  return value.replace(/`/g, '');
+}
+
 export type LoadSkillsOptions = {
   harnessHome: string;
   cwd: string;
@@ -209,13 +223,17 @@ export async function expandSkillText(
   // bypassing the load-time guard (audit 2026-06-10). Interpolating the body
   // BEFORE merging args keeps the skill author's intentional inline shell while
   // making args inert text.
+  // Each env value is disarmed of inline-shell sigils (F27) so an untrusted
+  // value (notably a caller-supplied sessionId) can never inject a `` `!cmd` ``
+  // token into the string the shell scan runs over. The author's own inline
+  // shell lives in the body verbatim and is unaffected.
   const withEnv = text
-    .replace(/\$\{HARNESS_SKILL_DIR\}/g, () => skill.dir)
-    .replace(/\$\{HARNESS_SESSION_ID\}/g, () => opts.sessionId ?? '')
+    .replace(/\$\{HARNESS_SKILL_DIR\}/g, () => sanitizeInlineShellSigil(skill.dir))
+    .replace(/\$\{HARNESS_SESSION_ID\}/g, () => sanitizeInlineShellSigil(opts.sessionId ?? ''))
     // CC-compat: a plugin skill/command body names its bundled files via
     // ${CLAUDE_PLUGIN_ROOT}. Resolves to the plugin install dir for
     // plugin-sourced skills; '' otherwise (so the var never renders literally).
-    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, () => skill.pluginRoot ?? '');
+    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, () => sanitizeInlineShellSigil(skill.pluginRoot ?? ''));
 
   // Defense in depth: gate on the field AND re-check the source. Even a
   // mis-constructed plugin Skill with `allowShellInterpolation: true` must NOT

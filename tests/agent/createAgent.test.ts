@@ -502,6 +502,87 @@ describe('createAgent', () => {
   });
 });
 
+// F27 (audit 2026-07-01) — a caller-supplied sessionId is untrusted (it flows
+// verbatim into skill-prompt env substitution + is a persistence/path key). It
+// must be validated against a safe charset at the createAgent boundary. The
+// charset mirrors the transcript/trace filename sanitizers (which preserve the
+// `:` channel-key delimiter), so UUIDs and `agent:main:...` channel ids pass
+// unchanged while shell-sigil / traversal characters are rejected.
+describe('createAgent — sessionId boundary validation (F27)', () => {
+  test('rejects a caller-supplied sessionId carrying an inline-shell sigil', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    await expect(drain(agent.run('hi', { sessionId: '`!touch /tmp/pwn`' }))).rejects.toThrow(
+      /sessionId/,
+    );
+  });
+
+  test('rejects a caller-supplied sessionId with a path separator', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    await expect(drain(agent.run('hi', { sessionId: '../../etc/passwd' }))).rejects.toThrow(
+      /sessionId/,
+    );
+  });
+
+  test('accepts a UUID sessionId unchanged (the randomUUID default shape)', async () => {
+    const uuid = 'd2bb51f0-624d-494e-aa4c-f84b52ffb754';
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hi', { sessionId: uuid }));
+    expect(result.sessionId).toBe(uuid);
+  });
+
+  test('accepts a colon-delimited channel session id unchanged (regression guard)', async () => {
+    // A real gateway conversation key. If validation excluded `:`, this would
+    // break every Telegram/Slack channel session — the transcript/trace path
+    // sanitizers preserve `:`, so the boundary must too.
+    const channelId = 'agent:main:slack:dm:U1';
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hi', { sessionId: channelId }));
+    expect(result.sessionId).toBe(channelId);
+  });
+
+  test('accepts an SMS channel key with a `+` phone number unchanged (regression guard)', async () => {
+    // buildSessionKey embeds an externally-controlled chatId; an SMS chatId is a
+    // phone number carrying a leading `+` (`agent:main:sms:private:+15551234567`).
+    // A positive `[A-Za-z0-9._:-]` allowlist would wrongly reject this and break
+    // every phone/email-backed channel — the denylist must permit `+`/`@`.
+    const smsKey = 'agent:main:sms:private:+15551234567';
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hi', { sessionId: smsKey }));
+    expect(result.sessionId).toBe(smsKey);
+  });
+
+  test('mints a fresh UUID when no sessionId is supplied (default untouched)', async () => {
+    const agent = createAgent({
+      provider: scriptedProvider([completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hi'));
+    expect(result.sessionId).toMatch(/^[A-Za-z0-9._:-]+$/);
+    expect(result.sessionId.length).toBeGreaterThan(0);
+  });
+});
+
 // Task 4.4a — the three remaining per-turn QueryParams fields exposed on
 // createAgent. createAgent threads each via the same conditional spread as
 // microcompactConfig, so an absent value leaves query()'s default behavior

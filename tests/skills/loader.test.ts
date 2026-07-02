@@ -534,6 +534,72 @@ describe('expandSkillPrompt', () => {
       expect(expanded).toContain('go');
     });
   });
+
+  // F27 (audit 2026-07-01) — env values (sessionId, skill.dir) are substituted
+  // into the body BEFORE the inline-shell scan. An untrusted sessionId carrying
+  // a `` `!cmd` `` / `` !`cmd` `` sigil + a body referencing ${HARNESS_SESSION_ID}
+  // executed the command via spawnProc(bash). A literal backtick in an env value
+  // is never an author's intentional inline shell (those are written directly in
+  // the body), so the sigil must be neutralized in the SUBSTITUTED value.
+  test('does NOT run shell via a malicious sessionId substituted into the body', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'SID_PWNED.txt');
+      const skill = makeSkill({
+        path: join(dir, 'sid.md'),
+        realpath: join(dir, 'sid.md'),
+        dir, // real, existing cwd — the shell COULD run if the bug were present
+        allowShellInterpolation: true,
+        source: 'user',
+        body: 'Session: ${HARNESS_SESSION_ID}',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: `\`!touch ${marker}\``,
+      });
+      expect(existsSync(marker)).toBe(false); // shell did NOT run
+      expect(expanded).not.toContain('`'); // backtick sigil neutralized in output
+      expect(expanded).toContain('Session:'); // value still substituted (sans backticks)
+    });
+  });
+
+  test('a normal sessionId still substitutes AND the body’s own inline shell still runs', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'mix.md'),
+        realpath: join(dir, 'mix.md'),
+        dir,
+        allowShellInterpolation: true,
+        source: 'user',
+        body: "SESSION=${HARNESS_SESSION_ID} VAL=!`printf '%s' ready`",
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: 'session-abc123',
+      });
+      expect(expanded).toContain('SESSION=session-abc123'); // env substitution intact
+      expect(expanded).toContain('VAL=ready'); // author's inline shell still executes
+    });
+  });
+
+  test('neutralizes an inline-shell sigil in a substituted skill.dir (no command formed)', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'd.md'),
+        realpath: join(dir, 'd.md'),
+        // A skill dir name carrying an inline-shell sigil. Before the fix this
+        // token was scanned & executed (its cwd chdir fails → an error marker);
+        // after the fix the backticks are stripped so no command is ever formed.
+        dir: `${dir}/x\`!echo boom\``,
+        allowShellInterpolation: true,
+        source: 'user',
+        body: 'Dir=${HARNESS_SKILL_DIR}',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      expect(expanded).not.toContain('[inline-shell error'); // no command was run
+      expect(expanded).not.toContain('`'); // sigil neutralized
+      expect(expanded).toContain('!echo boom'); // remains inert literal text
+    });
+  });
 });
 
 describe('reloadSkill', () => {

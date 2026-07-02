@@ -71,6 +71,7 @@ import type { LLMProvider } from '../providers/types.js';
 import type { LearningObserverPort } from '../tool/ports.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
+import { validateSessionId } from '../util/sessionId.js';
 
 /** Fallback per-request token budget when `AgentConfig.maxTokens` is omitted.
  *  Matches the harness wrapper default (src/main.ts / src/server/runtime.ts). */
@@ -198,8 +199,12 @@ export function createAgent(config: AgentConfig): Agent {
         : [...input];
 
     // 3. Session id: per-turn override, else a fresh UUID. Threaded to query()
-    //    for hooks + used as the persistence key.
-    const sessionId = perTurn.sessionId ?? randomUUID();
+    //    for hooks + used as the persistence key AND substituted into skill
+    //    prompts (${HARNESS_SESSION_ID}). A caller-supplied id is UNTRUSTED, so
+    //    validate it against the safe charset at this boundary (F27); the minted
+    //    UUID needs no check (it is generated here and always matches).
+    const sessionId =
+      perTurn.sessionId !== undefined ? validateSessionId(perTurn.sessionId) : randomUUID();
 
     // 4. System prompt: per-turn override, else config; a string wraps into one
     //    non-cacheable segment; absent → empty.
