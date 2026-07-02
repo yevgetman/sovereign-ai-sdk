@@ -271,9 +271,19 @@ function screenBundleText(filename: string, text: string | null): string {
 }
 
 function staticDescription(tool: Tool<unknown, unknown>): string {
-  const result = tool.description(undefined as never);
-  if (result instanceof Promise) return tool.name;
-  return result.replace(/\s+/g, ' ').trim();
+  // The public Tool.description contract is `(input) => string | Promise<string>`,
+  // so a consumer may build a description from its input. Prompt assembly has no
+  // real input to pass at publication time, so calling `description(undefined)`
+  // on an input-dependent description can throw. Degrade to the tool name rather
+  // than crashing the whole turn's system-prompt assembly (mirrors the guard in
+  // context/budget.ts).
+  try {
+    const result = tool.description(undefined as never);
+    if (result instanceof Promise) return tool.name;
+    return result.replace(/\s+/g, ' ').trim();
+  } catch {
+    return tool.name;
+  }
 }
 
 function normalizeOptions(

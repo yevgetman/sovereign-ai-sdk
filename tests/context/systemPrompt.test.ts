@@ -46,6 +46,21 @@ function makeTool(): Tool<unknown, unknown> {
   }) as unknown as Tool<unknown, unknown>;
 }
 
+// A tool whose description is INPUT-DEPENDENT — valid per the Tool.description
+// contract `(input) => string`. Prompt assembly publishes descriptions by
+// calling `description(undefined)`, so reading a field off the absent input
+// throws. F13: one such consumer tool must never crash system-prompt assembly.
+function makeThrowingDescriptionTool(): Tool<unknown, unknown> {
+  return buildTool({
+    name: 'Search',
+    description: (input: { query: string }) => `Search for ${input.query}`,
+    inputSchema: z.object({ query: z.string() }),
+    async call(input) {
+      return { data: input };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
 function makeSkill(): Skill {
   return {
     name: 'simplify',
@@ -253,11 +268,36 @@ describe('buildSystemSegments', () => {
       expect(scopeSeg?.cacheable).toBe(false);
     });
   });
+
+  // F13 — a consumer tool with an input-dependent description that throws when
+  // called with the assembly's `undefined` input must not take down the whole
+  // turn's system-prompt assembly.
+  test('does not crash when a consumer tool has a throwing description (F13)', async () => {
+    await withTmp(async (dir) => {
+      const segments = buildSystemSegments({
+        tools: [makeThrowingDescriptionTool(), makeTool()],
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+      });
+      const tools = segments.find((s) => s.text.includes('<available-tools>'));
+      expect(tools).toBeDefined();
+      // Bad tool degrades to its name; good tool still renders normally.
+      expect(tools?.text).toContain('- Search: Search');
+      expect(tools?.text).toContain('- Echo: echo input');
+    });
+  });
 });
 
 describe('formatTools', () => {
   test('renders stable tool names and descriptions', () => {
     expect(formatTools([makeTool()])).toContain('- Echo: echo input');
+  });
+
+  test('falls back to the tool name when a description throws (F13)', () => {
+    const text = formatTools([makeThrowingDescriptionTool(), makeTool()]);
+    expect(text).toContain('- Search: Search');
+    expect(text).toContain('- Echo: echo input');
   });
 });
 

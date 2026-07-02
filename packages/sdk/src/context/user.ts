@@ -2,9 +2,10 @@
 // files are applied from repository root toward the current directory so the
 // most-specific instructions appear last.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { readBoundedUtf8 } from './boundedRead.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 
 const CONTEXT_FILENAMES = ['AGENTS.md', 'CONTEXT.md', '.cursorrules'] as const;
@@ -71,7 +72,9 @@ function readScreenedFile(
 ): UserContextFile {
   let raw = '';
   try {
-    raw = readFileSync(path, 'utf8');
+    // Bounded read: cap allocation so a multi-GB context file can't OOM the
+    // turn before screenContextFile truncates it (mirrors references.ts).
+    raw = readBoundedUtf8(path);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { path, displayPath: display, text: blockPlaceholder(display, reason), blocked: true };
