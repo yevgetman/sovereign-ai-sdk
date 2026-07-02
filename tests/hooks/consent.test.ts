@@ -2,8 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildConsentChecker, buildFileConsentStore, consentKey } from '../../src/hooks/consent.js';
-import type { AskResponse, AskUser } from '../../src/permissions/types.js';
+import {
+  buildConsentChecker,
+  buildFileConsentStore,
+  consentKey,
+} from '@yevgetman/sov-sdk/hooks/consent';
+import type { AskResponse, AskUser } from '@yevgetman/sov-sdk/permissions/types';
 
 function scriptAsker(queue: AskResponse[]): { ask: AskUser; calls: number } {
   let i = 0;

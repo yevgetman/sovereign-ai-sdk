@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { redactSecretsTransformer } from '@yevgetman/sov-sdk/permissions/redactSecretsTransformer';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { redactSecretsTransformer } from '../../src/permissions/redactSecretsTransformer.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool } from '../../src/tool/types.js';
 
 function fakeTool(name: string, aliases?: readonly string[]): Tool<unknown, unknown> {
   return buildTool({

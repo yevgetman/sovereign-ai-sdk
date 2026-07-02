@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { LEARNING_ONLY_TOOLS, assembleToolPool } from '../../src/tool/registry.js';
-import type { ToolContext } from '../../src/tool/types.js';
 
 describe('LEARNING_ONLY_TOOLS pool isolation', () => {
   test('main agent pool excludes all 4 instinct tools', () => {

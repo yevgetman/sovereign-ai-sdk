@@ -72,8 +72,11 @@ export function shippedBundlePath(
   try {
     const metaUrl = opts.metaUrl ?? import.meta.url;
     const realMain = realpathSync(fileURLToPath(metaUrl));
-    // src/bundle/defaultBundle.ts → walk up three levels to the repo root
-    return join(dirname(dirname(dirname(realMain))), 'bundle-default');
+    // packages/sdk/src/bundle/defaultBundle.ts → walk up five levels to the
+    // repo root (Phase 3 move; the pre-move src/bundle/ needed three).
+    // packages/sdk/dist/bundle/defaultBundle.js sits at the same depth, so a
+    // built checkout resolves identically.
+    return join(dirname(dirname(dirname(dirname(dirname(realMain))))), 'bundle-default');
   } catch {
     return null;
   }

@@ -8,10 +8,10 @@
 // The agent's maxTurns / restricted toolset are enforced by its
 // definition file in bundle-default/agents/, not by this helper.
 
-import type { SubagentScheduler } from '../runtime/scheduler.js';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { LEARNING_ONLY_TOOLS, REVIEW_ONLY_TOOLS } from '../tool/registry.js';
-import type { Tool, ToolContext } from '../tool/types.js';
-import type { TraceEvent } from '../trace/types.js';
 
 export type ReviewAgentName = 'review-memory' | 'review-skill' | 'review-consolidate';
 

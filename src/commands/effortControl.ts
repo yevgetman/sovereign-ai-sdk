@@ -19,12 +19,12 @@
 // on a multi-user gateway from changing another principal's depth. This file is
 // purely the user-facing surface; it never touches the provider wire.
 
+import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import {
   REASONING_EFFORTS,
   type ReasoningEffort,
   modelSupportsReasoning,
-} from '../providers/effort.js';
-import type { CommandContext, LocalCommand } from './types.js';
+} from '@yevgetman/sov-sdk/providers/effort';
 
 const USAGE = '/effort [off|low|medium|high|max]';
 

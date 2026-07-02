@@ -34,8 +34,8 @@ import type {
   DelegatorAtomStartedEventSchema,
   DelegatorCompleteEventSchema,
   DelegatorPlanEventSchema,
-} from '../../src/router/progressEvents.js';
-import type { ServerEventSchema } from '../../src/server/schema.js';
+} from '../../../src/router/progressEvents.js';
+import type { ServerEventSchema } from '../../../src/server/schema.js';
 
 /** Bidirectional type-equality: resolves to `true` iff A and B are mutually
  *  assignable, otherwise `never` (so `const x: AssertEq<A, B> = true` fails to

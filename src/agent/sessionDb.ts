@@ -25,7 +25,7 @@ import { Database, SQLiteError } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { resolveHarnessHome } from '../config/paths.js';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
   CreateSessionInput,
   SaveMessageInput,
@@ -33,9 +33,9 @@ import type {
   SessionCost,
   SessionListEntry,
   StoredMessage,
-} from '../core/sessionPort.js';
-import type { ContentBlock, SystemSegment, TokenUsage } from '../core/types.js';
-import type { SessionStore } from '../persistence/sessionStore.js';
+} from '@yevgetman/sov-sdk/core/sessionPort';
+import type { ContentBlock, SystemSegment, TokenUsage } from '@yevgetman/sov-sdk/core/types';
+import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 
 /** Default DB path. Resolved at call time so a profile-aware
  *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB

@@ -9,7 +9,7 @@
 // `parsePermissionRule` ("missing closing )") — failing the whole /skill turn.
 
 import { describe, expect, test } from 'bun:test';
-import { splitCommaList } from '../../src/skills/frontmatter.js';
+import { splitCommaList } from '@yevgetman/sov-sdk/skills/frontmatter';
 
 describe('splitCommaList', () => {
   test('splits a plain comma list', () => {

@@ -18,13 +18,16 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CanUseTool } from '../../src/permissions/types.js';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import type { SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
+import { inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
+import {
+  type BuildToolContextInput,
+  buildToolContext,
+} from '@yevgetman/sov-sdk/tool/buildToolContext';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { buildSessionToolContext } from '../../src/server/routes/turns.js';
 import { buildRuntime } from '../../src/server/runtime.js';
-import type { SkillRegistry } from '../../src/skills/types.js';
-import { inferActiveToolsets } from '../../src/skills/visibility.js';
-import { type BuildToolContextInput, buildToolContext } from '../../src/tool/buildToolContext.js';
-import type { Tool } from '../../src/tool/types.js';
 
 // A trivial canUseTool stand-in — the assembler only records the reference.
 const noopCanUseTool: CanUseTool = async () => ({ behavior: 'allow', updatedInput: {} });

@@ -30,11 +30,11 @@
 // terminal when the cap is breached.
 
 import { randomUUID } from 'node:crypto';
-import type { TaskOutput } from '../core/taskPort.js';
-import type { Terminal } from '../core/types.js';
+import type { TaskOutput } from '@yevgetman/sov-sdk/core/taskPort';
+import type { Terminal } from '@yevgetman/sov-sdk/core/types';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
 import type { DaemonEventBus } from '../daemon/eventBus.js';
 import type { DaemonEvent } from '../daemon/types.js';
-import type { SubagentScheduler } from '../runtime/scheduler.js';
 import type { TaskStore, UpdateOnCompleteInput } from './store.js';
 import type { CreateTaskInput, TaskController, TaskRecord, TaskState } from './types.js';
 

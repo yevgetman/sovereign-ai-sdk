@@ -44,7 +44,7 @@ export interface RecallContext {
 // (`core/recallPort.ts`) — they're the return type of `RecallTurn`. Imported for
 // local use (RecallApi below) and re-exported so existing learning-layer
 // importers keep their import path unchanged.
-import type { RecallResult, RecalledLesson } from '../core/recallPort.js';
+import type { RecallResult, RecalledLesson } from '@yevgetman/sov-sdk/core/recallPort';
 export type { RecallResult, RecalledLesson };
 
 /** Options for a single model call (Reason). */

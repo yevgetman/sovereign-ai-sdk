@@ -11,10 +11,10 @@ import {
   readProjectMemoryFile,
   replaceMemoryFile,
   replaceProjectMemoryFile,
-} from '../../src/memory/bounded.js';
-import type { ProjectScope } from '../../src/memory/scope.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import { MemoryTool } from '../../src/tools/MemoryTool.js';
+} from '@yevgetman/sov-sdk/memory/bounded';
+import type { ProjectScope } from '@yevgetman/sov-sdk/memory/scope';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { MemoryTool } from '@yevgetman/sov-sdk/tools/MemoryTool';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-memory-tool-'));

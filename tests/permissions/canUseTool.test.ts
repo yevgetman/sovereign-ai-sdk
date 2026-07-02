@@ -3,12 +3,12 @@
 // ask→allow/always/deny).
 
 import { describe, expect, test } from 'bun:test';
+import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
+import type { AskResponse, AskUser, PermissionResult } from '@yevgetman/sov-sdk/permissions/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { BashTool } from '@yevgetman/sov-sdk/tools/BashTool';
 import { z } from 'zod';
-import { buildCanUseTool } from '../../src/permissions/canUseTool.js';
-import type { AskResponse, AskUser, PermissionResult } from '../../src/permissions/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
-import { BashTool } from '../../src/tools/BashTool.js';
 
 const ctx: ToolContext = {
   cwd: process.cwd(),

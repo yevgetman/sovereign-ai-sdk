@@ -2,7 +2,7 @@
 // at minimum the recursion guard and the parent-side control plane.
 
 import { describe, expect, test } from 'bun:test';
-import { SUBAGENT_EXCLUDED_TOOLS } from '../../src/agents/exclusions.js';
+import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
 
 describe('SUBAGENT_EXCLUDED_TOOLS', () => {
   test('blocks recursive sub-agent spawning', () => {

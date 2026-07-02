@@ -8,8 +8,8 @@ import {
   getDraft,
   recordModification,
   takeBaselineForDiscard,
-} from '../../src/config/draftManager.js';
-import type { Settings } from '../../src/config/schema.js';
+} from '@yevgetman/sov-sdk/config/draftManager';
+import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 
 describe('ConfigDraftManager', () => {
   const SESSION = 'session-test';

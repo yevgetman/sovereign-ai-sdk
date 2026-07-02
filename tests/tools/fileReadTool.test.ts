@@ -5,8 +5,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import type { ToolContext } from '../../src/tool/types.js';
-import { FileReadTool } from '../../src/tools/FileReadTool.js';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { FileReadTool } from '@yevgetman/sov-sdk/tools/FileReadTool';
 
 function makeCtx(cwd: string): ToolContext {
   return { cwd, bundleRoot: cwd, sessionId: 'test' };

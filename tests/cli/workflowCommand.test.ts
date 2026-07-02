@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import {
   formatWorkflowLine,
   parseArgPairs,
@@ -22,7 +23,6 @@ import {
   runWorkflowRun,
   runWorkflowShow,
 } from '../../src/cli/workflowCommand.js';
-import { MockProvider } from '../../src/providers/mock.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { WorkflowEvent } from '../../src/workflows/events.js';
 

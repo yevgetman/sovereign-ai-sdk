@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { redactSecrets } from '../../src/permissions/secretRedactor.js';
+import { redactSecrets } from '@yevgetman/sov-sdk/permissions/secretRedactor';
 
 describe('redactSecrets — pattern coverage', () => {
   test('empty string returns no hits', () => {

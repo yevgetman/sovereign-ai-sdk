@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import type { CanUseTool } from '../../src/permissions/types.js';
-import { buildToolScope, filterParseableRules } from '../../src/tool/toolScope.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
-import { BashTool } from '../../src/tools/BashTool.js';
-import { FileReadTool } from '../../src/tools/FileReadTool.js';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { BashTool } from '@yevgetman/sov-sdk/tools/BashTool';
+import { FileReadTool } from '@yevgetman/sov-sdk/tools/FileReadTool';
 
 const ctx: ToolContext = {
   cwd: process.cwd(),

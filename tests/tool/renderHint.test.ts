@@ -2,9 +2,9 @@
 // The field is optional and falls through `buildTool()` to the returned `Tool`.
 
 import { describe, expect, test } from 'bun:test';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { RenderHint } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { RenderHint } from '../../src/tool/types.js';
 
 describe('renderHint', () => {
   test('Tool carries the renderHint declared on its ToolDef', () => {

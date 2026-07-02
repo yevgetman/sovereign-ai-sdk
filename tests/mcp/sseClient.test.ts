@@ -9,8 +9,8 @@
 // regression guard.
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { buildMcpClientPool } from '../../src/mcp/client.js';
-import type { McpClientPool } from '../../src/mcp/types.js';
+import { buildMcpClientPool } from '@yevgetman/sov-sdk/mcp/client';
+import type { McpClientPool } from '@yevgetman/sov-sdk/mcp/types';
 import { type SseEchoServer, startSseEchoServer } from './fixtures/sse-echo-server.js';
 
 // The legacy-SSE client transport drives the SDK's `EventSource` over a GET

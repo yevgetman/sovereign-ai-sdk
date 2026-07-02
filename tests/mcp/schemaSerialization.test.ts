@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { toToolSchemas } from '../../src/mcp/schemaSerialization.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool } from '../../src/tool/types.js';
 
 function nativeTool(): Tool<unknown, unknown> {
   return buildTool({

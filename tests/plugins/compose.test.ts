@@ -19,12 +19,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { expandSkillPrompt, loadSkills } from '@yevgetman/sov-sdk/skills/loader';
 import { composePluginContributions } from '../../src/plugins/compose.js';
 import { buildConsentRecord, writeConsent } from '../../src/plugins/consent.js';
 import { hashPluginTree } from '../../src/plugins/integrity.js';
 import { loadPlugins } from '../../src/plugins/loader.js';
 import type { LoadedPlugin } from '../../src/plugins/types.js';
-import { expandSkillPrompt, loadSkills } from '../../src/skills/loader.js';
 
 let home: string;
 

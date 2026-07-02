@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { ReviewManager } from '../../src/review/manager.js';
-import type { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 describe('ReviewManager wiring contract', () => {
   test('foreign sessionId guard prevents child-session contamination', async () => {

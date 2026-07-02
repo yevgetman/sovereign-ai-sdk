@@ -15,9 +15,9 @@
 // Net effect: Bash / Write / Edit (which self-check 'ask') are denied, while
 // read-only / permissionless tools (which self-check 'allow') still run.
 
-import type { PermissionRuleLayer } from '../config/rules.js';
-import { buildCanUseTool } from '../permissions/canUseTool.js';
-import type { AskUser, CanUseTool } from '../permissions/types.js';
+import type { PermissionRuleLayer } from '@yevgetman/sov-sdk/config/rules';
+import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
+import type { AskUser, CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
 
 /** Permission modes a channel turn may run under. `bypass` is intentionally
  *  excluded — see assertChannelPermissionMode. */

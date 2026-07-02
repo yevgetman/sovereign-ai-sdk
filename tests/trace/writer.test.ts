@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { TraceEvent } from '../../src/trace/types.js';
-import { TraceWriter, findTracePath } from '../../src/trace/writer.js';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
+import { TraceWriter, findTracePath } from '@yevgetman/sov-sdk/trace/writer';
 
 let home: string;
 

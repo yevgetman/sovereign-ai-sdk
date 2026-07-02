@@ -27,20 +27,20 @@
 // (.py/.ts/.js/.sh) with direct exec as the fallback.
 
 import { isAbsolute, join, resolve } from 'node:path';
-import { type AgentConfig, createAgent } from '../agent/createAgent.js';
-import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
-import type { MicrocompactConfig } from '../compact/microcompact.js';
-import { loadPermissionSettings } from '../config/settings.js';
-import type { AssistantMessage, RecallTurn, SystemSegment } from '../core/types.js';
-import type { MemoryRuntime } from '../memory/provider.js';
-import { buildCanUseTool } from '../permissions/canUseTool.js';
-import type { AskResponse } from '../permissions/types.js';
-import type { TranscriptStore } from '../persistence/transcriptStore.js';
-import type { ReasoningEffort } from '../providers/effort.js';
-import type { LLMProvider } from '../providers/types.js';
+import { type AgentConfig, createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
+import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
+import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
+import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
+import type { AssistantMessage, RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
+import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
+import type { AskResponse } from '@yevgetman/sov-sdk/permissions/types';
+import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptStore';
+import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
-import type { Tool } from '../tool/types.js';
 import { buildCronJobExecutor } from './execute.js';
 import { type CronRunResult, CronRunner } from './runner.js';
 import type { Job } from './types.js';
@@ -395,7 +395,7 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
       // their dir from the registry entry — we pass through the runtime
       // cwd via the SkillExpansionOptions below for consistency with the
       // turn-time expansion path.
-      const { expandSkillPrompt } = await import('../skills/loader.js');
+      const { expandSkillPrompt } = await import('@yevgetman/sov-sdk/skills/loader');
       const expansions: string[] = [];
       for (const name of skills) {
         const skill = runtime.skills.byName.get(name);

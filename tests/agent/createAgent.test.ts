@@ -16,22 +16,22 @@
 // generator is single-use) stands in for a real provider — no network, no disk.
 
 import { describe, expect, test } from 'bun:test';
-import { z } from 'zod';
-import { createAgent } from '../../src/agent/createAgent.js';
-import type { ObserveInput } from '../../src/core/observePort.js';
-import { query } from '../../src/core/query.js';
+import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
+import type { ObserveInput } from '@yevgetman/sov-sdk/core/observePort';
+import { query } from '@yevgetman/sov-sdk/core/query';
 import type {
   AssistantMessage,
   Message,
   StreamEvent,
   SystemSegment,
-} from '../../src/core/types.js';
-import type { MemoryRuntime } from '../../src/memory/provider.js';
-import type { CanUseTool } from '../../src/permissions/types.js';
-import { createInMemorySessionStore } from '../../src/persistence/inMemoryStore.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
+} from '@yevgetman/sov-sdk/core/types';
+import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { z } from 'zod';
 
 // --- Scripted provider + drains -------------------------------------------
 

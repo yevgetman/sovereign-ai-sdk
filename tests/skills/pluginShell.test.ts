@@ -11,8 +11,8 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { expandSkillPrompt } from '../../src/skills/loader.js';
-import type { Skill, SkillSource } from '../../src/skills/types.js';
+import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
+import type { Skill, SkillSource } from '@yevgetman/sov-sdk/skills/types';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-plugin-shell-'));

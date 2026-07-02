@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readMemoryFile } from '../../src/memory/bounded.js';
-import type { ToolContext } from '../../src/tool/types.js';
+import { readMemoryFile } from '@yevgetman/sov-sdk/memory/bounded';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { MemoryProposeTool } from '../../src/tools/MemoryProposeTool.js';
 
 function makeCtx(home: string, sessionId = 'sess-audit-1'): ToolContext {

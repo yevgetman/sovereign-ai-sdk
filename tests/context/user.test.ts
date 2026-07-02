@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatUserContext, getUserContext } from '../../src/context/user.js';
+import { formatUserContext, getUserContext } from '@yevgetman/sov-sdk/context/user';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-user-context-'));

@@ -15,8 +15,8 @@
 // are categorized here. That fallback is the safety net — never delete
 // it.
 
+import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { LIVE_APPLY_HOOKS, type LiveApplyHook } from './liveApply.js';
-import type { Settings } from './schema.js';
 
 /**
  * Editor types. Drive the renderer choice in the dispatcher:
@@ -33,7 +33,9 @@ export type ConfigEditor =
       /** 2026-05-24 patch — settings-aware choices, evaluated at picker-
        *  render time. Used by `defaultModel` to scope choices to the
        *  active `defaultProvider`'s known model list. */
-      dynamicChoices?: (settings: import('./schema.js').Settings) => readonly string[];
+      dynamicChoices?: (
+        settings: import('@yevgetman/sov-sdk/config/schema').Settings,
+      ) => readonly string[];
       /** 2026-05-24 patch — when true, the choices picker includes a
        *  "↪ type custom value…" sentinel. Selecting it reroutes to an
        *  inputCard so the user can type a value outside the known list. */

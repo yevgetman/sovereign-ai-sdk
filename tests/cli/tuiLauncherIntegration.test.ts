@@ -27,8 +27,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MockProvider } from '../../src/providers/mock.js';
-import type { Transport } from '../../src/providers/types.js';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
+import type { Transport } from '@yevgetman/sov-sdk/providers/types';
 import type { Runtime, RuntimeOptions } from '../../src/server/runtime.js';
 import { type ServerEvent, parseServerEvent } from '../../src/server/schema.js';
 import { MicrocompactTransport, wrapTransportWithOverflow } from '../helpers/transportWrappers.js';

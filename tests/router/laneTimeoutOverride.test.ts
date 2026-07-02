@@ -17,13 +17,13 @@
 // Spec: docs/specs/2026-05-23-multi-provider-task-routing-design.md
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
 import type {
   DelegateInput,
   DelegateResult,
   SubagentScheduler,
-} from '../../src/runtime/scheduler.js';
-import type { ToolContext } from '../../src/tool/types.js';
+} from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 
 function makeAgent(overrides: Partial<AgentDefinition>): AgentDefinition {
   return {
@@ -106,7 +106,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
       subagentScheduler: stubScheduler as unknown as SubagentScheduler,
     };
 
-    const { AgentTool } = await import('../../src/tools/AgentTool.js');
+    const { AgentTool } = await import('@yevgetman/sov-sdk/tools/AgentTool');
     const result = await AgentTool.call(
       { subagent_type: 'cheap-task', prompt: 'do work' } as never,
       ctx as ToolContext,
@@ -131,7 +131,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
       subagentScheduler: stubScheduler as unknown as SubagentScheduler,
     };
 
-    const { AgentTool } = await import('../../src/tools/AgentTool.js');
+    const { AgentTool } = await import('@yevgetman/sov-sdk/tools/AgentTool');
     await AgentTool.call(
       { subagent_type: 'explore', prompt: 'do work' } as never,
       ctx as ToolContext,
@@ -159,7 +159,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
       subagentScheduler: stubScheduler as unknown as SubagentScheduler,
     };
 
-    const { AgentTool } = await import('../../src/tools/AgentTool.js');
+    const { AgentTool } = await import('@yevgetman/sov-sdk/tools/AgentTool');
     await AgentTool.call(
       { subagent_type: 'unknown-role-agent', prompt: 'do work' } as never,
       ctx as ToolContext,
@@ -192,7 +192,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
       subagentScheduler: stubScheduler as unknown as SubagentScheduler,
     };
 
-    const { AgentTool } = await import('../../src/tools/AgentTool.js');
+    const { AgentTool } = await import('@yevgetman/sov-sdk/tools/AgentTool');
     await AgentTool.call(
       { subagent_type: 'model-pinned', prompt: 'do work' } as never,
       ctx as ToolContext,

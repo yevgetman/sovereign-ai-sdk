@@ -1,12 +1,12 @@
 // Ollama transport tests. No live Ollama daemon required.
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import {
   type OllamaChatChunk,
   OllamaProvider,
   translateOllamaStream,
-} from '../../src/providers/ollama.js';
+} from '@yevgetman/sov-sdk/providers/ollama';
 
 async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;

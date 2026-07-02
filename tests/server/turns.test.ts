@@ -16,7 +16,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MockProvider } from '../../src/providers/mock.js';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
 import { buildRuntime } from '../../src/server/runtime.js';
@@ -364,7 +364,7 @@ describe('turns route — effort (reasoning depth) propagation', () => {
       const eventsRes = await app.request(`/sessions/${sessionId}/events`);
       await eventsRes.text();
       const props = MockProvider as typeof MockProvider;
-      const captured: import('../../src/providers/effort.js').ReasoningEffort | undefined =
+      const captured: import('@yevgetman/sov-sdk/providers/effort').ReasoningEffort | undefined =
         props.lastEffort;
       expect(captured).toBe('high');
 
@@ -382,7 +382,7 @@ describe('turns route — effort (reasoning depth) propagation', () => {
       await (await app.request(`/sessions/${sessionId2}/events`)).text();
       // Read through the typed `props` alias (not MockProvider.lastEffort
       // directly) so TS doesn't narrow to `undefined` from the reset above.
-      const captured2: import('../../src/providers/effort.js').ReasoningEffort | undefined =
+      const captured2: import('@yevgetman/sov-sdk/providers/effort').ReasoningEffort | undefined =
         props.lastEffort;
       expect(captured2).toBe('off');
     } finally {
@@ -415,7 +415,7 @@ describe('turns route — effort (reasoning depth) propagation', () => {
       const eventsRes = await app.request(`/sessions/${sessionId}/events`);
       await eventsRes.text();
       const props = MockProvider as typeof MockProvider;
-      const captured: import('../../src/providers/effort.js').ReasoningEffort | undefined =
+      const captured: import('@yevgetman/sov-sdk/providers/effort').ReasoningEffort | undefined =
         props.lastEffort;
       // runtime.effort is 'off' → query() forwards effort:'off'; the adapter
       // treats 'off' as no thinking, so the wire request is byte-identical.

@@ -6,7 +6,7 @@
 // concurrency partitioning all run unchanged; only the underlying
 // `call()` is canned.
 
-import type { Tool, ToolContext } from '../../tool/types.js';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { ReplayFixture, ReplayToolResult } from './types.js';
 
 /** Wrap `baseTools` so each tool's `call()` returns the next captured

@@ -4,6 +4,7 @@
 // every path is a valid SettingsSchema dotpath.
 
 import { describe, expect, test } from 'bun:test';
+import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 import {
   CONFIG_CATALOG,
   type ConfigGroup,
@@ -15,7 +16,6 @@ import {
   listUnmanagedKeys,
 } from '../../src/config/catalog.js';
 import { LIVE_APPLY_HOOKS } from '../../src/config/liveApply.js';
-import { SettingsSchema } from '../../src/config/schema.js';
 
 const REQUIRED_GROUP_IDS = [
   'general',
@@ -215,7 +215,7 @@ describe('config catalog', () => {
     const settings = {
       defaultProvider: 'anthropic',
       futureExp: { something: 'experimental' },
-    } as unknown as import('../../src/config/schema.js').Settings;
+    } as unknown as import('@yevgetman/sov-sdk/config/schema').Settings;
     const unmanaged = listUnmanagedKeys(settings);
     expect(unmanaged).toContain('futureExp');
     expect(unmanaged).not.toContain('defaultProvider');

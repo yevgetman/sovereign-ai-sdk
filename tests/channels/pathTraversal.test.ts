@@ -25,13 +25,13 @@ import { createHmac } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import { MockProvider } from '../../src/providers/mock.js';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
+import { TraceWriter } from '@yevgetman/sov-sdk/trace/writer';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { __test_resetAllBuses } from '../../src/server/eventBus.js';
 import type { ChannelsConfig } from '../../src/server/routes/channels.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { Runtime } from '../../src/server/runtime.js';
-import { TraceWriter } from '../../src/trace/writer.js';
 
 const SECRET = 'whsec_traversal';
 const PRINCIPAL = 'wh-bot';

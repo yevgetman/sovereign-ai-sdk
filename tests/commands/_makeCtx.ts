@@ -3,9 +3,9 @@
 // no-op defaults live here so adding new fields to CommandContext
 // doesn't ripple to every test.
 
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
+import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { COMMANDS, buildCommandRegistry } from '../../src/commands/registry.js';
-import type { CommandContext } from '../../src/commands/types.js';
-import type { ReasoningEffort } from '../../src/providers/effort.js';
 
 export function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
   let model = 'claude-sonnet-4-6';

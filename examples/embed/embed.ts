@@ -1,7 +1,7 @@
 // examples/embed/embed.ts — the Task 8.1 external-style consumer canary.
 //
 // This is what an embedding host looks like: it imports the OPEN SDK from the
-// barrel (`../../src/sdk.js`, the `./sdk` subpath in the Phase-8 exports map) and
+// package barrel (`@yevgetman/sov-sdk`, resolved through the exports map) and
 // nothing else, wires a deterministic offline echo provider + one trivial tool,
 // and runs a single turn to a final assistant message — with NO disk. It needs
 // no API key (the provider is a scripted mock) and writes no files (the only
@@ -11,15 +11,15 @@
 // `tests/examples/embed.test.ts` drives `runEmbed()` and additionally asserts
 // the SDK barrel's runtime dependency graph never reaches `bun:sqlite`.
 
-import { z } from 'zod';
-import { buildTool, createAgent, createInMemorySessionStore } from '../../src/sdk.js';
+import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
 import type {
   AssistantMessage,
   LLMProvider,
   RunResult,
   StreamEvent,
   Tool,
-} from '../../src/sdk.js';
+} from '@yevgetman/sov-sdk';
+import { z } from 'zod';
 
 /** The one user turn this canary runs. */
 export const EMBED_QUESTION = 'echo this please';

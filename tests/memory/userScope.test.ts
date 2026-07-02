@@ -21,9 +21,9 @@ import {
   projectMemoryPath,
   replaceMemoryFile,
   replaceProjectMemoryFile,
-} from '../../src/memory/bounded.js';
-import { createDefaultMemoryManager } from '../../src/memory/provider.js';
-import type { ProjectScope } from '../../src/memory/scope.js';
+} from '@yevgetman/sov-sdk/memory/bounded';
+import { createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
+import type { ProjectScope } from '@yevgetman/sov-sdk/memory/scope';
 
 const PROJECT_ID = 'proj1';
 const PROJECT_SCOPE: ProjectScope = { kind: 'project', id: PROJECT_ID, name: 'p' };

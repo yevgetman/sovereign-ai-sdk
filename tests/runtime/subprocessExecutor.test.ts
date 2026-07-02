@@ -12,7 +12,8 @@
 //     --dangerously-skip-permissions; plan/acceptEdits/default -> --permission-mode
 
 import { describe, expect, test } from 'bun:test';
-import type { SubscriptionExecutorConfig } from '../../src/config/schema.js';
+import type { SubscriptionExecutorConfig } from '@yevgetman/sov-sdk/config/schema';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import type { ObserveInput } from '../../src/learning/observer.js';
 import {
   type SpawnFn,
@@ -20,7 +21,6 @@ import {
   canonicalizeToolForObservation,
   runSubprocessExecutor,
 } from '../../src/runtime/subprocessExecutor.js';
-import type { TraceEvent } from '../../src/trace/types.js';
 
 /** Build a fake spawn fn that emits the given JSONL lines on stdout, then
  *  exits with `exitCode`. Records the argv it was called with so tests can

@@ -20,16 +20,16 @@
 // still producing its error DelegateResult (createAgent throw→terminal == case a).
 
 import { describe, expect, test } from 'bun:test';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { ResolvedProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { LaneSemaphores } from '@yevgetman/sov-sdk/runtime/laneSemaphores';
+import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
+import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import type { ResolvedProvider } from '../../src/providers/resolver.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
-import { PathLockManager } from '../../src/runtime/pathLock.js';
-import { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
   return {

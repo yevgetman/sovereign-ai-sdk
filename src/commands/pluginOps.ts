@@ -11,8 +11,9 @@
 // it refuses with a clear "install requires a terminal" message.
 
 import { join } from 'node:path';
-import type { PluginsConfig, Settings } from '../config/schema.js';
-import { readConfig, resolveConfigPath, writeConfig } from '../config/store.js';
+import type { CommandContext, LocalCommand, SlashCommand } from '@yevgetman/sov-sdk/commands/types';
+import type { PluginsConfig, Settings } from '@yevgetman/sov-sdk/config/schema';
+import { readConfig, resolveConfigPath, writeConfig } from '@yevgetman/sov-sdk/config/store';
 import { countHooks, describeMcpHosts, plural } from '../plugins/disclosure.js';
 import {
   type InstallPluginResult,
@@ -23,7 +24,6 @@ import {
 import { type PluginLoaderConfig, loadPlugins } from '../plugins/loader.js';
 import { countPluginComponents, statusOfPlugin } from '../plugins/snapshot.js';
 import type { LoadedPlugin } from '../plugins/types.js';
-import type { CommandContext, LocalCommand, SlashCommand } from './types.js';
 
 /** A plugin name must be a lowercase hyphen-separated slug — matches the
  *  manifest regex + the install/uninstall path-traversal guard. Used here to

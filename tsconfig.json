@@ -3,6 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "customConditions": ["bun"],
     "allowImportingTsExtensions": false,
     "allowJs": false,
     "strict": true,
@@ -23,6 +24,6 @@
     "lib": ["ESNext"],
     "types": ["bun-types"]
   },
-  "include": ["src/**/*", "tests/**/*"],
+  "include": ["src/**/*", "tests/**/*", "packages/*/src/**/*", "packages/*/tests/**/*"],
   "exclude": ["node_modules", "dist"]
 }

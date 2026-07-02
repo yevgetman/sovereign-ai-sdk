@@ -6,8 +6,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import type { ToolContext } from '../../src/tool/types.js';
-import { GlobTool } from '../../src/tools/GlobTool.js';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { GlobTool } from '@yevgetman/sov-sdk/tools/GlobTool';
 import { summarizeToolResult } from '../../src/ui/toolFooter.js';
 
 function makeCtx(cwd: string): ToolContext {

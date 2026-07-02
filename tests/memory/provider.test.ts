@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { replaceMemoryFile, replaceProjectMemoryFile } from '../../src/memory/bounded.js';
+import { replaceMemoryFile, replaceProjectMemoryFile } from '@yevgetman/sov-sdk/memory/bounded';
 import {
   BuiltinMarkdownMemoryProvider,
   MemoryManager,
   type MemoryProvider,
   createDefaultMemoryManager,
-} from '../../src/memory/provider.js';
+} from '@yevgetman/sov-sdk/memory/provider';
 
 function external(id: string): MemoryProvider {
   return {

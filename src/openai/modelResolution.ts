@@ -28,8 +28,8 @@
 // also surfaced by GET /v1/models (T7) and in the InvalidModelError
 // message.
 
-import { resolveProvider } from '../providers/resolver.js';
-import type { LLMProvider } from '../providers/types.js';
+import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import type { Runtime } from '../server/runtime.js';
 
 /** Supported model names for the OpenAI server's `model` field.

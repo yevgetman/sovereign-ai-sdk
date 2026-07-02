@@ -8,8 +8,8 @@ import {
   CAPABILITY_TABLE,
   findCapableModel,
   getCapabilityProfile,
-} from '../../src/core/capabilities.js';
-import { contextLengthFor } from '../../src/providers/models.js';
+} from '@yevgetman/sov-sdk/core/capabilities';
+import { contextLengthFor } from '@yevgetman/sov-sdk/providers/models';
 
 describe('getCapabilityProfile', () => {
   test('returns a profile for a well-known anthropic model', () => {

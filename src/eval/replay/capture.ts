@@ -11,9 +11,9 @@
 // turn N's tools run after turn N's provider stream and before turn
 // N+1's provider stream).
 
-import type { AssistantMessage, StreamEvent } from '../../core/types.js';
-import type { LLMProvider, ProviderRequest } from '../../providers/types.js';
-import type { Tool, ToolContext } from '../../tool/types.js';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { ReplayFixture, ReplayToolResult, ReplayTurn } from './types.js';
 
 export type CaptureMeta = {

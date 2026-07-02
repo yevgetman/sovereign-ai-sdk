@@ -18,8 +18,8 @@
 import { type Dirent, existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
-import { guardSkillLoad, guardSkillText } from '../skills/guard.js';
-import { assertNoSymlinkEscape, copySkillTree } from '../skills/symlinkGuard.js';
+import { guardSkillLoad, guardSkillText } from '@yevgetman/sov-sdk/skills/guard';
+import { assertNoSymlinkEscape, copySkillTree } from '@yevgetman/sov-sdk/skills/symlinkGuard';
 import { buildConsentRecord, writeConsent } from './consent.js';
 import {
   type ComponentScan,

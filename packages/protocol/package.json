@@ -13,9 +13,10 @@
     "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
     "directory": "packages/protocol"
   },
-  "files": ["dist", "LICENSE", "README.md"],
+  "files": ["dist", "src", "LICENSE", "README.md"],
   "exports": {
     ".": {
+      "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"

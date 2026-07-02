@@ -29,13 +29,13 @@
 // blocks), a terminal `result` event (is_error + num_turns + result text),
 // plus noise frames (system/hook_*, rate_limit_event, user tool_result).
 
-import type { SubscriptionExecutorConfig } from '../config/schema.js';
-import type { AssistantMessage, ContentBlock, Message, Terminal } from '../core/types.js';
-import type { ObservationStatus } from '../learning/types.js';
-// Canonical tool-identity data (aliases / key renames / noise drops) — the
-// OPEN single source of truth this proprietary module derives its observation
-// canonicalization from (proprietary→open import: allowed direction).
-import { aliasToNativeName, dropsFor, renamesFor } from '../tool/descriptors.js';
+import type { SubscriptionExecutorConfig } from '@yevgetman/sov-sdk/config/schema';
+import type {
+  AssistantMessage,
+  ContentBlock,
+  Message,
+  Terminal,
+} from '@yevgetman/sov-sdk/core/types';
 // Task 1.5 — the port contract moved to the OPEN `./executorPort.ts` so the open
 // scheduler stops value-importing this proprietary module. Task 1.7 — its own
 // dependency shapes (SpawnFn / SpawnedProc / SpawnOpts / LearningSink / TraceSink)
@@ -50,7 +50,12 @@ import type {
   SpawnedProc,
   SubprocessExecutorResult,
   TraceSink,
-} from './executorPort.js';
+} from '@yevgetman/sov-sdk/runtime/executorPort';
+// Canonical tool-identity data (aliases / key renames / noise drops) — the
+// OPEN single source of truth this proprietary module derives its observation
+// canonicalization from (proprietary→open import: allowed direction).
+import { aliasToNativeName, dropsFor, renamesFor } from '@yevgetman/sov-sdk/tool/descriptors';
+import type { ObservationStatus } from '../learning/types.js';
 
 export type {
   LearningSink,

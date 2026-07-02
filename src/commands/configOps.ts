@@ -35,7 +35,39 @@
 //     honest 'restart' toast [amber]); no hook ⇒ the declared scope's toast.
 //   - Every toast NAMES the setting (the dotpath).
 
-import { describeScope, scopeFor } from '../config/applyScope.js';
+import type {
+  CommandContext,
+  InputOpenConfig,
+  PickerOpenConfig,
+  PickerOpenItem,
+} from '@yevgetman/sov-sdk/commands/types';
+import { describeScope, scopeFor } from '@yevgetman/sov-sdk/config/applyScope';
+import {
+  commitDraft,
+  ensureDraft,
+  recordModification,
+  takeBaselineForDiscard,
+} from '@yevgetman/sov-sdk/config/draftManager';
+import {
+  BUILTIN_PRESETS,
+  type PresetShape,
+  applyPresetToSettings,
+  findBuiltinPreset,
+  readSavedPresets,
+  snapshotCurrentAsPreset,
+  validatePresetName,
+} from '@yevgetman/sov-sdk/config/presets';
+import {
+  formatValue,
+  getAt,
+  parseValueLiteral,
+  readConfig,
+  redactSecrets,
+  resolveConfigPath,
+  setAt,
+  unsetAt,
+  writeConfig,
+} from '@yevgetman/sov-sdk/config/store';
 import {
   CONFIG_CATALOG,
   type ConfigEditor,
@@ -47,34 +79,7 @@ import {
   listRootMenuGroups,
   listUnmanagedKeys,
 } from '../config/catalog.js';
-import {
-  commitDraft,
-  ensureDraft,
-  recordModification,
-  takeBaselineForDiscard,
-} from '../config/draftManager.js';
 import type { LiveApplySideEffect } from '../config/liveApply.js';
-import {
-  BUILTIN_PRESETS,
-  type PresetShape,
-  applyPresetToSettings,
-  findBuiltinPreset,
-  readSavedPresets,
-  snapshotCurrentAsPreset,
-  validatePresetName,
-} from '../config/presets.js';
-import {
-  formatValue,
-  getAt,
-  parseValueLiteral,
-  readConfig,
-  redactSecrets,
-  resolveConfigPath,
-  setAt,
-  unsetAt,
-  writeConfig,
-} from '../config/store.js';
-import type { CommandContext, InputOpenConfig, PickerOpenConfig, PickerOpenItem } from './types.js';
 
 // ──────────────────────────────────────────────────────────────────────
 // Side-effect relay — bridges LiveApplySideEffect to CommandContext
@@ -1056,7 +1061,7 @@ async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string
   if (ctx.rebuildTaskRouting !== undefined) {
     await ctx.rebuildTaskRouting();
     liveApplied = true;
-    const { detectActivePreset } = await import('../config/presets.js');
+    const { detectActivePreset } = await import('@yevgetman/sov-sdk/config/presets');
     const freshSettings = readConfig();
     const preset = detectActivePreset(freshSettings) ?? '';
     if (ctx.recordTaskRouterChange !== undefined) {

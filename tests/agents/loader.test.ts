@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAgents } from '../../src/agents/loader.js';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-agents-'));

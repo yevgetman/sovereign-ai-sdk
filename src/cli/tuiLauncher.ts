@@ -314,7 +314,7 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // forwarded as --verbose-raw so the Go side can print raw
   // untruncated output below either mode's rendering.
   // Spec: docs/specs/2026-05-22-tui-tool-call-abstraction-design.md.
-  const { readConfig } = await import('../config/store.js');
+  const { readConfig } = await import('@yevgetman/sov-sdk/config/store');
   const userSettings = readConfig();
   const toolOutputMode = userSettings.ui?.toolOutput?.mode ?? 'compact';
   const toolOutputInlineLines = userSettings.ui?.toolOutput?.inlineLines ?? 10;
@@ -325,7 +325,7 @@ export async function runTuiLauncher(opts: TuiLaunchOptions): Promise<number> {
   // preset is in effect, when detectable). detectActivePreset returns
   // undefined when routing is off; the TUI then falls back to the
   // default profile-name display.
-  const { detectActivePreset } = await import('../config/presets.js');
+  const { detectActivePreset } = await import('@yevgetman/sov-sdk/config/presets');
   const activePreset = detectActivePreset(userSettings);
 
   const tuiArgs = [

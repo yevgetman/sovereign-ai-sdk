@@ -5,9 +5,9 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import chalk from 'chalk';
 import { stringify as stringifyYaml } from 'yaml';
-import { resolveHarnessHome } from '../config/paths.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import type { Instinct } from '../learning/types.js';
 

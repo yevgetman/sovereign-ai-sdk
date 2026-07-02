@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { buildToolSearchTool, matchTools } from '@yevgetman/sov-sdk/tools/ToolSearchTool';
 import { z } from 'zod';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool } from '../../src/tool/types.js';
-import { buildToolSearchTool, matchTools } from '../../src/tools/ToolSearchTool.js';
 
 function deferredTool(
   name: string,

@@ -3,9 +3,9 @@
 // also exercise the registry wiring (alias resolution, dispatch flow).
 
 import { describe, expect, test } from 'bun:test';
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import chalk from 'chalk';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
-import type { Skill } from '../../src/skills/types.js';
 import { makeCtx } from './_makeCtx.js';
 
 chalk.level = 1;

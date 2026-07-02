@@ -4,13 +4,18 @@
 // together. Subprocess behavior is covered by tests/hooks/runner.test.ts.
 
 import { describe, expect, test } from 'bun:test';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type {
+  HookEvent,
+  HookEventName,
+  HookResult,
+  HookRunner,
+} from '@yevgetman/sov-sdk/hooks/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { query } from '../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
-import type { HookEvent, HookEventName, HookResult, HookRunner } from '../../src/hooks/types.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 function fakeHookRunner(scripted: Partial<Record<HookEventName, HookResult[]>> = {}): {
   runner: HookRunner;

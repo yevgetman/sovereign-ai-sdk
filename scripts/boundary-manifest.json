@@ -1,92 +1,24 @@
 {
   "$comment": [
-    "File-level open/proprietary partition for the open-core SDK boundary lint.",
-    "Authoritative source: specs/2026-06-29-sdk-open-core-extraction-design.md §4.",
-    "The lint rule (no-open-to-proprietary in .dependency-cruiser.cjs) forbids any",
-    "OPEN source file from importing (value OR type) a NON-OPEN file.",
-    "NON-OPEN = every src file that is not in the OPEN set below (proprietary dirs,",
-    "wrapper surfaces, the proprietary files inside otherwise-open split dirs, and",
-    "anything unclassified such as eval/evals).",
-    "Patterns are JS-regex strings matched against the repo-relative module path",
-    "(e.g. 'src/runtime/executorPort.ts'). Negative lookaheads carve the file-level",
-    "exceptions out of an otherwise-open directory."
+    "Open/proprietary partition for the open-core SDK boundary lint — POST-MOVE",
+    "(Phase 3 of the consumable-packaging build). The partition is now PHYSICAL:",
+    "the OPEN set is the entire source trees of the two extracted packages",
+    "(packages/sdk/src, packages/protocol/src); everything under the repo root",
+    "src/ is the proprietary wrapper/harness. The pre-move file-level regex",
+    "enumeration (openFullyDirs / openSplitDirFiles / openFilesInProprietaryDirs /",
+    "openRootFiles over ^src/) is obsolete — the carved-out proprietary files",
+    "(tool/registry.ts, the feature tools, subprocessExecutor.ts, compactor.ts,",
+    "config/{liveApply,catalog}.ts, commands minus types.ts, agent minus",
+    "createAgent.ts, router minus capabilities.ts) stayed BEHIND in root src/.",
+    "",
+    "The lint rule (no-open-to-proprietary in .dependency-cruiser.cjs) compiles",
+    "this manifest: no open-package source file may depend (value OR type) on",
+    "wrapper code, in EITHER form — a relative path escaping the package (which",
+    "resolves under ^src/) or the root package name (@yevgetman/sov, whether it",
+    "appears unresolved as the raw specifier or resolved through node_modules).",
+    "The Bun-residual guard (packages/sdk/tests/bunResidual.test.ts) scans the",
+    "same two package dirs, hardcoded there by the same by-construction logic."
   ],
-  "openFullyDirs": [
-    "^src/protocol/",
-    "^src/core/",
-    "^src/providers/",
-    "^src/mcp/",
-    "^src/hooks/",
-    "^src/skills/",
-    "^src/memory/",
-    "^src/transcript/",
-    "^src/loop/",
-    "^src/permissions/",
-    "^src/agents/",
-    "^src/context/",
-    "^src/util/",
-    "^src/trace/",
-    "^src/trajectory/",
-    "^src/bundle/",
-    "^src/persistence/"
-  ],
-  "openSplitDirFiles": [
-    "^src/tool/(?!registry\\.)",
-    "^src/tools/(?!(InstinctListTool|InstinctProposeTool|InstinctUpdateConfidenceTool|InstinctViewTool|MemoryProposeTool|SkillProposeTool|WorkflowRunTool)\\.)",
-    "^src/runtime/(?!subprocessExecutor\\.)",
-    "^src/compact/(?!compactor\\.)",
-    "^src/config/(?!(liveApply|catalog)\\.)"
-  ],
-  "openFilesInProprietaryDirs": [
-    "^src/agent/createAgent\\.",
-    "^src/router/capabilities\\.",
-    "^src/commands/types\\."
-  ],
-  "openRootFiles": [
-    "^src/version\\.",
-    "^src/sdk\\."
-  ],
-  "openRootFilesNote": [
-    "src/version.ts is a trivial version-string leaf (imports only node builtins +",
-    "package.json, no internal src deps) consumed by open files (transcript/writer,",
-    "mcp/client); it is open-core. src/main.ts is the wrapper entrypoint → NON-OPEN.",
-    "src/sdk.ts (Task 3.2) is the Contract #1 barrel — it re-exports ONLY the open",
-    "public surface, so it is classified OPEN and the boundary lint actively gates",
-    "its imports (a re-export of anything proprietary fails the gate, by design)."
-  ],
-  "openFilesInProprietaryDirsAgentNote": [
-    "src/agent/createAgent.ts (Task 3.1) — the OPEN createAgent() assembler. It",
-    "lives under the otherwise-proprietary agent/ dir (alongside the bun:sqlite",
-    "SessionDb impl) but composes ONLY open primitives (query, resolveProvider,",
-    "Tool/ToolContext, the Phase-2 ports), so it is carved OPEN and the boundary",
-    "lint actively gates its imports. The rest of agent/ (sessionDb, persistMessage,",
-    "sessionRecovery) stays NON-OPEN."
-  ],
-  "proprietaryFilesNote": [
-    "Documented for readers — already excluded from OPEN by the negative lookaheads",
-    "/ openFilesInProprietaryDirs carve-outs above, so they fall into NON-OPEN",
-    "automatically (Task 1.7):",
-    "  src/tool/registry.ts — the assembleToolPool tool-pool ASSEMBLER (a wrapper",
-    "    surface: the harness assembles its full pool incl. feature tools; the open",
-    "    SDK provides tool/buildTool + the generic tool primitives). No OPEN file",
-    "    imports it (all importers are cli/server/learning/review).",
-    "  src/tools/{InstinctListTool,InstinctProposeTool,InstinctUpdateConfidenceTool,",
-    "    InstinctViewTool,MemoryProposeTool,SkillProposeTool,WorkflowRunTool}.ts —",
-    "    FEATURE tools (learning / review / workflows). Generic tools (FileRead,",
-    "    Bash, Grep, Task*, Web*, Skill*, Memory, …) stay OPEN.",
-    "  src/runtime/subprocessExecutor.ts, src/compact/compactor.ts,",
-    "  src/config/{liveApply,catalog}.ts (catalog = the /config command's data),",
-    "  src/commands/* EXCEPT src/commands/types.ts — the slash-command IMPLEMENTATIONS",
-    "    are a surface feature; types.ts (the command-type CONTRACT) is kept OPEN",
-    "    because the open slash loader skills/commands.ts depends on PromptCommand."
-  ],
-  "proprietaryDirsNote": [
-    "Fully NON-OPEN (proprietary or wrapper) — not enumerated here because NON-OPEN",
-    "is the complement of OPEN. For readers:",
-    "  proprietary: learning, learning-layer, server, workflows, daemon, cron,",
-    "    channels, plugins, tasks, agent, review, router(rest), agent/sessionDb,",
-    "    commands(rest — all but types.ts).",
-    "  wrapper (proprietary for this lint): cli, openai, mission, ui, main.ts.",
-    "  unclassified (treated NON-OPEN): eval, evals."
-  ]
+  "openPackageDirs": ["^packages/sdk/src/", "^packages/protocol/src/"],
+  "forbiddenWrapperTargets": ["^src/", "(^|node_modules/)@yevgetman/sov(/|$)"]
 }

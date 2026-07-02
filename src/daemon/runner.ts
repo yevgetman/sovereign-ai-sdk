@@ -3,8 +3,12 @@
 // programmatic entry point; the `sov daemon` CLI command wraps it with signal
 // handlers and an indefinite wait.
 
-import { resolveHarnessHome } from '../config/paths.js';
-import { type LockHandle, readLockInfo, tryAcquireLock } from '../config/profileLock.js';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import {
+  type LockHandle,
+  readLockInfo,
+  tryAcquireLock,
+} from '@yevgetman/sov-sdk/config/profileLock';
 import { ApprovalQueue } from './approvalQueue.js';
 import { DaemonEventBus } from './eventBus.js';
 import { SessionCache } from './sessionCache.js';

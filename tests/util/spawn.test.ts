@@ -7,7 +7,11 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KILLED_EXIT_CODE, SPAWN_FAILURE_EXIT_CODE, spawnProc } from '../../src/util/spawn.js';
+import {
+  KILLED_EXIT_CODE,
+  SPAWN_FAILURE_EXIT_CODE,
+  spawnProc,
+} from '@yevgetman/sov-sdk/util/spawn';
 
 describe('spawnProc', () => {
   test('captures stdout via Web-stream Response and resolves exit 0', async () => {

@@ -15,7 +15,7 @@ import {
   getProfileHome,
   resolveHarnessHome,
   setActiveProfile,
-} from '../../src/config/paths.js';
+} from '@yevgetman/sov-sdk/config/paths';
 
 let home: string;
 let savedHome: string | undefined;

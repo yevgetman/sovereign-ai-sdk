@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import type { Settings } from '../../src/config/schema.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import { WebSearchTool } from '../../src/tools/WebSearchTool.js';
+import type { Settings } from '@yevgetman/sov-sdk/config/schema';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { WebSearchTool } from '@yevgetman/sov-sdk/tools/WebSearchTool';
 
 // Task 2.3 — WebSearchTool no longer reads `~/.harness/config.json` ambiently.
 // Its provider config arrives on the ToolContext (`ctx.webSearch`), threaded

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { SettingsSchema } from '../../src/config/schema.js';
+import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 
 describe('settings.review block', () => {
   test('accepts all fields including childReviewEveryN and minIntervalMs', () => {

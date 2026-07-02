@@ -11,7 +11,7 @@
 // contract so future refactors can't reintroduce a non-spec value.
 
 import { describe, expect, test } from 'bun:test';
-import type { Terminal } from '../../src/core/types.js';
+import type { Terminal } from '@yevgetman/sov-sdk/core/types';
 import { mapTerminalToFinishReason } from '../../src/openai/routes/chatCompletions.js';
 
 describe('mapTerminalToFinishReason (H3 — OpenAI spec compliance)', () => {

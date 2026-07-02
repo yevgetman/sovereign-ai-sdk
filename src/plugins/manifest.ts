@@ -12,8 +12,8 @@
 // purely for disclosure (well-formed accepted, malformed rejected) and are
 // NEVER executed in v1. Do not duplicate those definitions.
 
+import { HooksSettingsSchema, McpServerConfigSchema } from '@yevgetman/sov-sdk/config/settings';
 import { z } from 'zod';
-import { HooksSettingsSchema, McpServerConfigSchema } from '../config/settings.js';
 
 /** A plugin name must be a lowercase, hyphen-separated slug — the install dir
  *  segment and the inter-plugin sort key. */

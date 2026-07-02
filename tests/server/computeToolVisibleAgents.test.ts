@@ -4,7 +4,7 @@
 // the pre-existing task-routing-role gating is preserved.
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
 import { computeToolVisibleAgents } from '../../src/server/runtime.js';
 
 function agent(name: string, role?: string): AgentDefinition {

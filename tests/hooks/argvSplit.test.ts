@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ArgvSplitError, argvSplit } from '../../src/hooks/argvSplit.js';
+import { ArgvSplitError, argvSplit } from '@yevgetman/sov-sdk/hooks/argvSplit';
 
 describe('argvSplit', () => {
   test('splits on whitespace', () => {

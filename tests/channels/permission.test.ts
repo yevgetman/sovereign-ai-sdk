@@ -19,18 +19,18 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
+import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
+import type { AskUser } from '@yevgetman/sov-sdk/permissions/types';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { BashTool } from '@yevgetman/sov-sdk/tools/BashTool';
+import { FileEditTool } from '@yevgetman/sov-sdk/tools/FileEditTool';
+import { FileReadTool } from '@yevgetman/sov-sdk/tools/FileReadTool';
+import { FileWriteTool } from '@yevgetman/sov-sdk/tools/FileWriteTool';
 import {
   assertChannelPermissionMode,
   buildChannelCanUseTool,
 } from '../../src/channels/permission.js';
-import { loadPermissionSettings } from '../../src/config/settings.js';
-import { buildCanUseTool } from '../../src/permissions/canUseTool.js';
-import type { AskUser } from '../../src/permissions/types.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
-import { BashTool } from '../../src/tools/BashTool.js';
-import { FileEditTool } from '../../src/tools/FileEditTool.js';
-import { FileReadTool } from '../../src/tools/FileReadTool.js';
-import { FileWriteTool } from '../../src/tools/FileWriteTool.js';
 
 const ctx: ToolContext = {
   cwd: process.cwd(),

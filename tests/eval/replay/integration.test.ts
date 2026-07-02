@@ -8,14 +8,19 @@
 // in query.ts / orchestrator.ts).
 
 import { describe, expect, test } from 'bun:test';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  Terminal,
+} from '@yevgetman/sov-sdk/core/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { query } from '../../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../../src/core/types.js';
 import { ReplayProvider } from '../../../src/eval/replay/provider.js';
 import { wrapToolsForReplay } from '../../../src/eval/replay/toolPool.js';
 import type { ReplayFixture } from '../../../src/eval/replay/types.js';
-import { buildTool } from '../../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../../src/tool/types.js';
 
 function makeRead(): Tool<unknown, unknown> {
   return buildTool({

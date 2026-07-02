@@ -2,8 +2,13 @@
 // future Ink, Telegram, and Slack surfaces should all use this registry
 // rather than re-declaring command lists.
 
+import type {
+  CommandContext,
+  CommandDispatchResult,
+  SlashCommand,
+} from '@yevgetman/sov-sdk/commands/types';
+import { formatUsd } from '@yevgetman/sov-sdk/providers/pricing';
 import chalk from 'chalk';
-import { formatUsd } from '../providers/pricing.js';
 import { visibleWidth } from '../ui/box.js';
 import { dispatchConfigCommand } from './configOps.js';
 import { effortCommand } from './effortControl.js';
@@ -14,7 +19,6 @@ import { REVIEW_OPS_COMMANDS } from './reviewOps.js';
 import { routingStatsCommand } from './routingStats.js';
 import { SESSION_OPS_COMMANDS } from './sessionOps.js';
 import { TASK_OPS_COMMANDS } from './taskOps.js';
-import type { CommandContext, CommandDispatchResult, SlashCommand } from './types.js';
 import { WORKFLOW_OPS_COMMANDS } from './workflowOps.js';
 
 /** Static category labels for /help. Skill-generated commands fall into

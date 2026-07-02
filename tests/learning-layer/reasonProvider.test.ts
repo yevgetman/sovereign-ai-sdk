@@ -1,7 +1,7 @@
 // tests/learning-layer/reasonProvider.test.ts
 import { afterEach, describe, expect, test } from 'bun:test';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { createProviderReason } from '../../src/learning-layer/adapters/harness/reasonProvider.js';
-import { MockProvider } from '../../src/providers/mock.js';
 
 // The MockProvider's only sanctioned way to emit an arbitrary canned string
 // (rather than the default "Hello world.") is its scripted-entry path: a

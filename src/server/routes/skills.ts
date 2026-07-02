@@ -30,10 +30,10 @@
 // response for no rendering benefit).
 
 import { join } from 'node:path';
+import { importSkill, installSkill, uninstallSkill } from '@yevgetman/sov-sdk/skills/install';
+import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { importSkill, installSkill, uninstallSkill } from '../../skills/install.js';
-import { filterSkillRegistry, inferActiveToolsets } from '../../skills/visibility.js';
 import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';

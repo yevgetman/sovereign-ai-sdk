@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { TaskRoutingConfig } from '../../src/config/schema.js';
+import type { TaskRoutingConfig } from '@yevgetman/sov-sdk/config/schema';
 import { buildLaneRegistry } from '../../src/router/laneRegistry.js';
 
 describe('LaneRegistry', () => {

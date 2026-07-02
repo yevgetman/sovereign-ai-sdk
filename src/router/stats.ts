@@ -7,8 +7,8 @@
 // `/routing-stats` command and any future surface compose this with
 // their own row-fetching logic.
 
+import type { LaneStats, RoutingStatsSnapshot } from '@yevgetman/sov-sdk/core/routingPort';
 import type { Session } from '../agent/sessionDb.js';
-import type { LaneStats, RoutingStatsSnapshot } from '../core/routingPort.js';
 
 // `LaneStats` + `RoutingStatsSnapshot` now live in open core
 // (`core/routingPort.js`) so the open command contract

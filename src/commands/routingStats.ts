@@ -5,9 +5,9 @@
 // The aggregator + sessionDb queries live elsewhere; this file is the
 // argument-parsing + rendering shell.
 
+import type { LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import chalk from 'chalk';
 import type { RoutingStatsSnapshot } from '../router/stats.js';
-import type { LocalCommand } from './types.js';
 
 export const routingStatsCommand: LocalCommand = {
   type: 'local',

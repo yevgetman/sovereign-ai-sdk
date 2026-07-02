@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { ContentBlock, Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import {
   type CompactSummarizerInput,
@@ -7,7 +8,6 @@ import {
   pruneToolResultsForCompaction,
   shouldCompactProactively,
 } from '../../src/compact/compactor.js';
-import type { ContentBlock, Message, SystemSegment } from '../../src/core/types.js';
 
 const text = (value: string): ContentBlock => ({ type: 'text', text: value });
 

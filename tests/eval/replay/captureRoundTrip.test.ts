@@ -6,9 +6,17 @@
 // load-bearing test that proves capture and replay agree.
 
 import { describe, expect, test } from 'bun:test';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  Terminal,
+} from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { query } from '../../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../../src/core/types.js';
 import {
   CapturingProvider,
   createCaptureSink,
@@ -16,9 +24,6 @@ import {
 } from '../../../src/eval/replay/capture.js';
 import { ReplayProvider } from '../../../src/eval/replay/provider.js';
 import { wrapToolsForReplay } from '../../../src/eval/replay/toolPool.js';
-import type { LLMProvider, ProviderRequest } from '../../../src/providers/types.js';
-import { buildTool } from '../../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../../src/tool/types.js';
 
 const ctx: ToolContext = {
   cwd: '/tmp',

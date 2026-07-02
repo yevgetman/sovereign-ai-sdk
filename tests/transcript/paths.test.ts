@@ -1,7 +1,11 @@
 // Transcript path/slug resolution + traversal containment (2026-06-15).
 
 import { describe, expect, test } from 'bun:test';
-import { resolveTranscriptPath, slugifyCwd, transcriptsRoot } from '../../src/transcript/paths.js';
+import {
+  resolveTranscriptPath,
+  slugifyCwd,
+  transcriptsRoot,
+} from '@yevgetman/sov-sdk/transcript/paths';
 
 describe('transcriptsRoot', () => {
   test('no owner → legacy top-level projects dir', () => {

@@ -5,7 +5,7 @@
 // global limits apply regardless of who issues the request.
 
 import { describe, expect, test } from 'bun:test';
-import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
+import { LaneSemaphores } from '@yevgetman/sov-sdk/runtime/laneSemaphores';
 
 describe('LaneSemaphores', () => {
   test('separate lanes have independent capacity', async () => {

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAgents } from '../../src/agents/loader.js';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
 
 const BUNDLE_DEFAULT_ROOT = join(import.meta.dir, '..', '..', 'bundle-default');
 

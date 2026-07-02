@@ -2,9 +2,9 @@
 // Phase 13.4 — `harness learning prune` CLI handler. Drops sub-threshold
 // instincts past their aging window via the pure shouldPrune() helper.
 
+import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import chalk from 'chalk';
-import { loadSettings } from '../config/loader.js';
-import { resolveHarnessHome } from '../config/paths.js';
 import { shouldPrune } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { GLOBAL_PROJECT_ID } from '../learning/paths.js';

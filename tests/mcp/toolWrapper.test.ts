@@ -2,8 +2,8 @@
 // coverage lives in tests/mcp/client.test.ts.
 
 import { describe, expect, test } from 'bun:test';
-import { wrapMcpTool } from '../../src/mcp/toolWrapper.js';
-import type { McpClientPool, McpToolMeta } from '../../src/mcp/types.js';
+import { wrapMcpTool } from '@yevgetman/sov-sdk/mcp/toolWrapper';
+import type { McpClientPool, McpToolMeta } from '@yevgetman/sov-sdk/mcp/types';
 
 function fakePool(behavior: {
   call?: (

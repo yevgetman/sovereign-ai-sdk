@@ -28,18 +28,18 @@
 // adapter's job (ChannelAdapter.deliver); this pipeline only produces the
 // reply text + the silent verdict.
 
-import { type AgentConfig, createAgent } from '../agent/createAgent.js';
+import { type AgentConfig, createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
+import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
+import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
+import type { AssistantMessage, RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
+import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { persistMessage } from '../agent/persistMessage.js';
-import { SUBAGENT_EXCLUDED_TOOLS } from '../agents/exclusions.js';
-import type { MicrocompactConfig } from '../compact/microcompact.js';
-import type { AssistantMessage, RecallTurn, SystemSegment } from '../core/types.js';
-import type { MemoryRuntime } from '../memory/provider.js';
-import type { ReasoningEffort } from '../providers/effort.js';
-import type { LLMProvider } from '../providers/types.js';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
 import { loadHistoryAsMessages } from '../server/sessionId.js';
-import type { Tool } from '../tool/types.js';
 import { assertChannelPermissionMode, buildChannelCanUseTool } from './permission.js';
 import { capSeededHistory } from './seedHistory.js';
 import { buildSessionKey } from './sessionKey.js';

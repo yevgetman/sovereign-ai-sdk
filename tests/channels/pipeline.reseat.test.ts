@@ -33,6 +33,12 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
+import type { RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import {
   type ChannelAgentConfigInput,
   buildChannelAgentConfig,
@@ -40,14 +46,8 @@ import {
 } from '../../src/channels/pipeline.js';
 import { buildSessionKey } from '../../src/channels/sessionKey.js';
 import type { InboundMessage } from '../../src/channels/types.js';
-import type { MicrocompactConfig } from '../../src/compact/microcompact.js';
-import type { RecallTurn, SystemSegment } from '../../src/core/types.js';
-import type { MemoryRuntime } from '../../src/memory/provider.js';
-import { MockProvider } from '../../src/providers/mock.js';
-import type { LLMProvider } from '../../src/providers/types.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { Runtime } from '../../src/server/runtime.js';
-import type { Tool } from '../../src/tool/types.js';
 
 // ── Part A — buildChannelAgentConfig field-level parity (unit) ─────────────────
 

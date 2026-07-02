@@ -9,8 +9,8 @@ import {
   readSavedPresets,
   snapshotCurrentAsPreset,
   validatePresetName,
-} from '../../src/config/presets.js';
-import type { Settings } from '../../src/config/schema.js';
+} from '@yevgetman/sov-sdk/config/presets';
+import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 
 describe('BUILTIN_PRESETS', () => {
   test('ships the three documented presets', () => {

@@ -13,8 +13,8 @@
 // tests in sov.test.ts model the same shapes with a fake fetch.)
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, ContentBlock, StreamEvent } from '../../src/core/types.js';
-import { SovProvider } from '../../src/providers/sov.js';
+import type { AssistantMessage, ContentBlock, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { SovProvider } from '@yevgetman/sov-sdk/providers/sov';
 
 const ENGINE = process.env.SOV_ENGINE_URL;
 const MODEL = process.env.SOV_ENGINE_MODEL ?? 'mlx-community/Qwen3-4B-4bit';

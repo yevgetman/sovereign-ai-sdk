@@ -27,8 +27,8 @@
 // client replaying the harness's own streamed tool_calls without results)
 // gets a synthetic result rather than a 400.
 
-import { repairMissingToolResults } from '../../core/transcriptRepair.js';
-import type { ContentBlock, Message } from '../../core/types.js';
+import { repairMissingToolResults } from '@yevgetman/sov-sdk/core/transcriptRepair';
+import type { ContentBlock, Message } from '@yevgetman/sov-sdk/core/types';
 import type { ChatMessage, ChatRequest, ToolCall } from './schema.js';
 
 export type RequestToMessagesResult = {

@@ -6,8 +6,8 @@
 // de-duplicates names that collide after sanitization.
 
 import { describe, expect, test } from 'bun:test';
-import { wrapMcpTool, wrapMcpTools } from '../../src/mcp/toolWrapper.js';
-import type { McpClientPool, McpToolMeta } from '../../src/mcp/types.js';
+import { wrapMcpTool, wrapMcpTools } from '@yevgetman/sov-sdk/mcp/toolWrapper';
+import type { McpClientPool, McpToolMeta } from '@yevgetman/sov-sdk/mcp/types';
 
 const NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 

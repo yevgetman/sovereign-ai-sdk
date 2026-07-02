@@ -11,7 +11,7 @@
 // reference them without importing this proprietary layer. Re-exported here so
 // existing importers keep their `./types.js` path (single source of truth =
 // core/taskPort.ts).
-export type { CreateTaskInput, TaskRecord, TaskState } from '../core/taskPort.js';
+export type { CreateTaskInput, TaskRecord, TaskState } from '@yevgetman/sov-sdk/core/taskPort';
 
 /** Live, in-memory bookkeeping for a single running task. Held in
  *  TaskManager's Map<taskId, TaskController>. Survives only as long as

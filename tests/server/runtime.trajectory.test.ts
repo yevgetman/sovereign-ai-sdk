@@ -14,8 +14,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
-import type { ApiMode, ProviderRequest, ToolSchema, Transport } from '../../src/providers/types.js';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type {
+  ApiMode,
+  ProviderRequest,
+  ToolSchema,
+  Transport,
+} from '@yevgetman/sov-sdk/providers/types';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 

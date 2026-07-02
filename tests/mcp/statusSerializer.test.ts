@@ -3,7 +3,7 @@
 // headers); stdio servers keep { transport, command, args }.
 
 import { describe, expect, test } from 'bun:test';
-import { serializeMcpServerConfig } from '../../src/mcp/auth.js';
+import { serializeMcpServerConfig } from '@yevgetman/sov-sdk/mcp/auth';
 
 describe('serializeMcpServerConfig', () => {
   test('stdio serializes transport + command + args', () => {

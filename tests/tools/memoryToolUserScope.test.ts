@@ -12,10 +12,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readMemoryFile } from '../../src/memory/bounded.js';
-import type { ProjectScope } from '../../src/memory/scope.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import { MemoryTool } from '../../src/tools/MemoryTool.js';
+import { readMemoryFile } from '@yevgetman/sov-sdk/memory/bounded';
+import type { ProjectScope } from '@yevgetman/sov-sdk/memory/scope';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { MemoryTool } from '@yevgetman/sov-sdk/tools/MemoryTool';
 
 describe('MemoryTool — per-user isolation (Phase E C1)', () => {
   let home: string;

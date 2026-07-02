@@ -3,14 +3,14 @@
 // recorder array (no real LLM, no real disk).
 
 import { describe, expect, test } from 'bun:test';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { z } from 'zod';
-import { query } from '../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
-import type { CanUseTool } from '../../src/permissions/types.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
-import type { TraceEvent } from '../../src/trace/types.js';
 
 function scriptedTurns(turns: StreamEvent[][]): LLMProvider {
   const queue = [...turns];

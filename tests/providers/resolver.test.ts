@@ -5,8 +5,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CredentialUnavailableError } from '../../src/providers/errors.js';
-import { resolveProvider } from '../../src/providers/resolver.js';
+import { CredentialUnavailableError } from '@yevgetman/sov-sdk/providers/errors';
+import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
 
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), 'harness-provider-test-'));

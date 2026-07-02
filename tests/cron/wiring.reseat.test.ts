@@ -27,8 +27,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { MicrocompactConfig } from '../../src/compact/microcompact.js';
-import type { RecallTurn, SystemSegment } from '../../src/core/types.js';
+import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
+import type { RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
+import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptStore';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { addJob } from '../../src/cron/jobs.js';
 import { getJob } from '../../src/cron/jobs.js';
 import {
@@ -36,13 +41,8 @@ import {
   buildCronAgentConfig,
   createProductionCronRunner,
 } from '../../src/cron/wiring.js';
-import type { MemoryRuntime } from '../../src/memory/provider.js';
-import type { TranscriptStore } from '../../src/persistence/transcriptStore.js';
-import { MockProvider } from '../../src/providers/mock.js';
-import type { LLMProvider } from '../../src/providers/types.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { Runtime } from '../../src/server/runtime.js';
-import type { Tool } from '../../src/tool/types.js';
 
 // ── Part A — buildCronAgentConfig field-level parity (unit) ───────────────────
 

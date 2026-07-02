@@ -13,7 +13,7 @@ import {
   loadHookSettings,
   loadMcpServerSettings,
   loadPermissionSettings,
-} from '../../src/config/settings.js';
+} from '@yevgetman/sov-sdk/config/settings';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 describe('Settings injection — layered settings.json loaders bypass disk when injected', () => {

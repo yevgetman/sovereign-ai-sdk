@@ -6,7 +6,7 @@
 // `bypassPermissions` is NOT a valid config token.
 
 import { describe, expect, test } from 'bun:test';
-import { SettingsSchema } from '../../src/config/schema.js';
+import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 
 describe('SettingsSchema — subscriptionExecutor block', () => {
   test('absent block parses (off by default) — empty config does not enable it', () => {

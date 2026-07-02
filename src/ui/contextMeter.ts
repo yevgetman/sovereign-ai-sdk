@@ -20,7 +20,7 @@
 // same data via a separate `shouldCompactProactively` path that has
 // always lived in src/compact/.
 
-import type { TokenUsage } from '../core/types.js';
+import type { TokenUsage } from '@yevgetman/sov-sdk/core/types';
 
 export type ContextZone = 'ok' | 'warn' | 'danger';
 

@@ -1,5 +1,5 @@
-import type { LaneConfig, TaskRoutingConfig } from '../config/schema.js';
-import type { LaneRegistry } from '../tool/ports.js';
+import type { LaneConfig, TaskRoutingConfig } from '@yevgetman/sov-sdk/config/schema';
+import type { LaneRegistry } from '@yevgetman/sov-sdk/tool/ports';
 import { resolveLane } from './lanes.js';
 
 // `LaneRegistry` is a pure type, relocated to open core (src/tool/ports.ts) so

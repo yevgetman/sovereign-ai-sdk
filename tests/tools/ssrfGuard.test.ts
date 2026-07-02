@@ -7,7 +7,7 @@ import {
   isPrivateHost,
   normalizeMappedIpv4,
   resolvePinnedTarget,
-} from '../../src/tools/ssrfGuard';
+} from '@yevgetman/sov-sdk/tools/ssrfGuard';
 
 describe('ssrfGuard — normalizeMappedIpv4', () => {
   test('extracts embedded IPv4 from dotted and hex IPv4-mapped IPv6', () => {

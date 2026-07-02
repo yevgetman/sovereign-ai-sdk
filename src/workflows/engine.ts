@@ -23,14 +23,14 @@
 //          NOT abort the phase.
 //   3. Return WorkflowResult; `finalText` is the last phase's text.
 
-import { loadPermissionSettings } from '../config/settings.js';
-import type { WorkflowResult } from '../core/workflowPort.js';
-import { buildCanUseTool } from '../permissions/canUseTool.js';
-import type { AskResponse } from '../permissions/types.js';
+import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
+import type { WorkflowResult } from '@yevgetman/sov-sdk/core/workflowPort';
+import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
+import type { AskResponse } from '@yevgetman/sov-sdk/permissions/types';
+import type { PathScope } from '@yevgetman/sov-sdk/runtime/pathLock';
+import type { DelegateInput, DelegateResult } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { KNOWN_LANE_NAMES } from '../router/laneRegistry.js';
-import type { PathScope } from '../runtime/pathLock.js';
-import type { DelegateInput, DelegateResult } from '../runtime/scheduler.js';
-import type { ToolContext } from '../tool/types.js';
 import type { WorkflowEventSink } from './events.js';
 import type { WorkflowHost } from './host.js';
 import { validateWorkflow } from './loader.js';

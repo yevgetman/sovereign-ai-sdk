@@ -14,7 +14,7 @@ import {
   emptyMcpMergeState,
   mergeHookEvents,
   mergeMcpServers,
-} from '../../src/config/settings.js';
+} from '@yevgetman/sov-sdk/config/settings';
 
 describe('mergeHookEvents', () => {
   test('concatenates events across layers, preserving call order, immutably', () => {

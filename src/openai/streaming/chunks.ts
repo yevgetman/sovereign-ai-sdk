@@ -27,7 +27,7 @@
 //     wire shape. Mirrors `buildProgressPayload`'s framing-free contract:
 //     the route owns `event:` / `data:` framing.
 
-import type { TokenUsage } from '../../core/types.js';
+import type { TokenUsage } from '@yevgetman/sov-sdk/core/types';
 import type {
   DelegatorAtomCompleteEvent,
   DelegatorAtomStartedEvent,

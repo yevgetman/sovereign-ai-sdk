@@ -5,9 +5,9 @@
 // per turn — thousands over a long-lived gateway session.
 
 import { describe, expect, test } from 'bun:test';
-import type { HookConsentChecker } from '../../src/hooks/consent.js';
-import { buildHookRunner } from '../../src/hooks/runner.js';
-import type { HookConfig, HookEvent, HookEventName } from '../../src/hooks/types.js';
+import type { HookConsentChecker } from '@yevgetman/sov-sdk/hooks/consent';
+import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
+import type { HookConfig, HookEvent, HookEventName } from '@yevgetman/sov-sdk/hooks/types';
 
 const skipAll: HookConsentChecker = async () => 'skip';
 

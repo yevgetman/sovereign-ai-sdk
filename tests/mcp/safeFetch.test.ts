@@ -4,7 +4,7 @@
 // in remoteClient.test.ts.
 
 import { describe, expect, test } from 'bun:test';
-import { buildSafeFetch } from '../../src/mcp/safeFetch.js';
+import { buildSafeFetch } from '@yevgetman/sov-sdk/mcp/safeFetch';
 
 type Hop = { url: string; headers: Record<string, string> };
 

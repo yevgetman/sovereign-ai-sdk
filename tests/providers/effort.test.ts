@@ -14,7 +14,7 @@ import {
   anthropicThinkingFor,
   modelSupportsReasoning,
   openAiReasoningFor,
-} from '../../src/providers/effort.js';
+} from '@yevgetman/sov-sdk/providers/effort';
 
 /** Narrow the optional thinking block; fails loudly if absent. */
 function budgetOf(result: AnthropicThinking): number {

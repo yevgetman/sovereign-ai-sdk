@@ -8,7 +8,7 @@
 //       branch fires 'applied' only when ctx.providerName matches.
 
 import { describe, expect, test } from 'bun:test';
-import type { CommandContext } from '../../src/commands/types.js';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import { LIVE_APPLY_HOOKS, type LiveApplySideEffect } from '../../src/config/liveApply.js';
 import { makeCtx } from '../commands/_makeCtx.js';
 

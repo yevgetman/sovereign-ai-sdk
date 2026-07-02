@@ -17,27 +17,27 @@
 //   3. On stdin EOF or after `/quit` runs: clean exit, return 0.
 
 import { createInterface } from 'node:readline/promises';
-import { loadAgents } from '../agents/loader.js';
-import { loadBundleIfPresent } from '../bundle/loader.js';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
+import { loadBundleIfPresent } from '@yevgetman/sov-sdk/bundle/loader';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
+import { readConfig } from '@yevgetman/sov-sdk/config/store';
+import { auditContextBudget } from '@yevgetman/sov-sdk/context/budget';
+import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
+import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import { createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
+import { resolveProjectScope } from '@yevgetman/sov-sdk/memory/scope';
+import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import type { ApiMode } from '@yevgetman/sov-sdk/providers/types';
+import { buildSkillCommands } from '@yevgetman/sov-sdk/skills/commands';
+import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
-import type { CommandContext } from '../commands/types.js';
-import { resolveHarnessHome } from '../config/paths.js';
-import { loadPermissionSettings } from '../config/settings.js';
-import { readConfig } from '../config/store.js';
-import { auditContextBudget } from '../context/budget.js';
-import { buildSystemSegments } from '../core/systemPrompt.js';
-import type { SystemSegment } from '../core/types.js';
-import { createDefaultMemoryManager } from '../memory/provider.js';
-import { resolveProjectScope } from '../memory/scope.js';
 import { loadPluginRuntime } from '../plugins/runtime.js';
-import type { ReasoningEffort } from '../providers/effort.js';
-import { resolveProvider } from '../providers/resolver.js';
-import type { ApiMode } from '../providers/types.js';
-import { buildSkillCommands } from '../skills/commands.js';
-import { loadSkills } from '../skills/loader.js';
-import { filterSkillRegistry, inferActiveToolsets } from '../skills/visibility.js';
 import { assembleToolPool } from '../tool/registry.js';
-import type { Tool, ToolContext } from '../tool/types.js';
 import { buildDispatchConfirm } from './dispatchConfirm.js';
 
 export const READY_MARKER = '--- ready ---';

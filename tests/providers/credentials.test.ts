@@ -4,12 +4,12 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CredentialPool } from '../../src/providers/credentials/pool.js';
+import { CredentialPool } from '@yevgetman/sov-sdk/providers/credentials/pool';
 import {
   RateLimitGuard,
   RateLimitGuardError,
   resetTimeFromHeaders,
-} from '../../src/providers/credentials/rateGuard.js';
+} from '@yevgetman/sov-sdk/providers/credentials/rateGuard';
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'harness-credential-test-'));

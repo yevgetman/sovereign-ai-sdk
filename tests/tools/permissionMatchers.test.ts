@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { matchesPathPermissionPattern } from '../../src/tools/permissionMatchers.js';
+import { matchesPathPermissionPattern } from '@yevgetman/sov-sdk/tools/permissionMatchers';
 
 describe('matchesPathPermissionPattern', () => {
   test('expands leading home shorthands before matching paths and patterns', () => {

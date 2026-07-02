@@ -5,14 +5,13 @@
 // mode coupling and can be unit-tested without a TTY.
 
 import { spawnSync } from 'node:child_process';
+import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
+import { formatBudgetReport } from '@yevgetman/sov-sdk/context/budget';
 import chalk from 'chalk';
-import { formatBudgetReport } from '../context/budget.js';
 import { boxify } from '../ui/box.js';
 import { renderSessionSummary } from '../ui/sessionSummary.js';
+import { VERSION as PKG_VERSION } from '../wrapperVersion.js';
 import { dispatchConfigCommand } from './configOps.js';
-import type { CommandContext, LocalCommand } from './types.js';
-
-const PKG_VERSION = '0.0.1';
 
 export const aboutCommand: LocalCommand = {
   type: 'local',

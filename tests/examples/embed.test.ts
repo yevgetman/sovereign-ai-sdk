@@ -3,9 +3,9 @@
 // Two proofs that the OPEN SDK is a real, importable, NO-DISK surface:
 //   1. The external-style consumer (examples/embed/embed.ts) runs a full turn
 //      against a scripted offline provider — dispatching one tool — and yields a
-//      final assistant message, all from the `../../src/sdk.js` barrel.
+//      final assistant message, all from the `@yevgetman/sov-sdk` barrel.
 //   2. The open core never pulls SQLite. We cruise the RUNTIME (value) dependency
-//      graph of `src/sdk.ts` with dependency-cruiser and assert NO module in it
+//      graph of `packages/sdk/src/sdk.ts` with dependency-cruiser and assert NO module in it
 //      resolves to `bun:sqlite` or to `agent/sessionDb` — `import type`-only
 //      crossings erase, so this catches a real value import of the closed
 //      SessionDb. As a belt-and-suspenders check we also run an in-memory turn in
@@ -47,7 +47,7 @@ describe('examples/embed canary — Contract #1 no-disk consumer', () => {
       enhancedResolveOptions: { extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'] },
     };
 
-    const report = await cruise(['src/sdk.ts'], cruiseOptions);
+    const report = await cruise(['packages/sdk/src/sdk.ts'], cruiseOptions);
     const output = report.output;
     const parsed = typeof output === 'string' ? JSON.parse(output) : output;
     const modules = (parsed as { modules: CruiseModule[] }).modules;

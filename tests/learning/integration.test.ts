@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { Tool, ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
 import { getLearningStatus } from '../../src/cli/learningStatus.js';
 import { confidenceFromEvidence } from '../../src/learning/confidence.js';
 import { InstinctStore } from '../../src/learning/instinctStore.js';
@@ -16,8 +18,6 @@ import { __test_resetProjectIdCache, getProjectId } from '../../src/learning/pro
 import { findPromotionCandidates } from '../../src/learning/promotion.js';
 import { runSynthesizer } from '../../src/learning/synthesizer.js';
 import type { Instinct } from '../../src/learning/types.js';
-import type { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import type { Tool, ToolContext, ToolResult } from '../../src/tool/types.js';
 import { InstinctProposeTool } from '../../src/tools/InstinctProposeTool.js';
 import { InstinctUpdateConfidenceTool } from '../../src/tools/InstinctUpdateConfidenceTool.js';
 

@@ -15,11 +15,11 @@
 // tmp HARNESS_HOME so the headless canUseTool builds cleanly.
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, Terminal } from '../../src/core/types.js';
-import type { DelegateInput, DelegateResult } from '../../src/runtime/scheduler.js';
+import type { AssistantMessage, Terminal } from '@yevgetman/sov-sdk/core/types';
+import type { DelegateInput, DelegateResult } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { buildSessionToolContext } from '../../src/server/routes/turns.js';
 import type { Runtime } from '../../src/server/runtime.js';
-import type { ToolContext } from '../../src/tool/types.js';
 import { runWorkflow, validateArgs } from '../../src/workflows/engine.js';
 import type { WorkflowEvent } from '../../src/workflows/events.js';
 import type { WorkflowHost } from '../../src/workflows/host.js';

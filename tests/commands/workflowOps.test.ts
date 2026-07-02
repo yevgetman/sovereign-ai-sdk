@@ -3,8 +3,8 @@
 // is stubbed so the command logic is tested without a live engine.
 
 import { describe, expect, test } from 'bun:test';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
-import type { CommandContext } from '../../src/commands/types.js';
 import type { WorkflowCommandCapability, WorkflowSummary } from '../../src/commands/workflowOps.js';
 import { dispatchWorkflowCommand, parseArgPairs } from '../../src/commands/workflowOps.js';
 import type { WorkflowResult } from '../../src/workflows/engine.js';

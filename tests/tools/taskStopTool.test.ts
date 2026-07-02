@@ -3,9 +3,9 @@
 // with the id and the (possibly still-running) record is returned.
 
 import { describe, expect, test } from 'bun:test';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
+import { TaskStopTool } from '@yevgetman/sov-sdk/tools/TaskStopTool';
 import type { TaskRecord } from '../../src/tasks/types.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
-import { TaskStopTool } from '../../src/tools/TaskStopTool.js';
 
 const record: TaskRecord = {
   id: 't-1',

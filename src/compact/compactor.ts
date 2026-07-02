@@ -1,30 +1,30 @@
 // Context-window compaction. Splits a long session into an immutable parent
 // plus a child carrying a guarded handoff summary and recent tail.
 
-import { persistMessage } from '../agent/persistMessage.js';
-import type { SessionDb } from '../agent/sessionDb.js';
-import type { CompactResult } from '../core/compactPort.js';
+import type { CompactResult } from '@yevgetman/sov-sdk/core/compactPort';
 import {
   estimateMessageTokens,
   estimateMessagesTokens,
   estimateSystemPromptTokens,
   estimateTextTokens,
-} from '../core/tokenEstimate.js';
+} from '@yevgetman/sov-sdk/core/tokenEstimate';
 import type {
   AssistantMessage,
   ContentBlock,
   Message,
   SystemSegment,
   TokenUsage,
-} from '../core/types.js';
-import { auxiliaryClient } from '../providers/auxiliary.js';
+} from '@yevgetman/sov-sdk/core/types';
+import { auxiliaryClient } from '@yevgetman/sov-sdk/providers/auxiliary';
 import {
   NoAuxiliaryAvailableError,
   isContextOverflowError,
   isModelUnavailable,
-} from '../providers/errors.js';
-import { estimateCostUsd } from '../providers/pricing.js';
-import type { FileTranscriptStore } from '../transcript/store.js';
+} from '@yevgetman/sov-sdk/providers/errors';
+import { estimateCostUsd } from '@yevgetman/sov-sdk/providers/pricing';
+import type { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
+import { persistMessage } from '../agent/persistMessage.js';
+import type { SessionDb } from '../agent/sessionDb.js';
 
 const TOOL_RESULT_PRUNE_CHARS = 800;
 const DEFAULT_TAIL_TOKEN_BUDGET = 4_000;

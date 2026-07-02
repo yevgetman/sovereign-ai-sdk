@@ -2,15 +2,15 @@
 // threshold flagging, classification, and report formatting.
 
 import { describe, expect, test } from 'bun:test';
-import { z } from 'zod';
 import {
   DEFAULT_BUDGET_THRESHOLDS,
   auditContextBudget,
   formatBudgetReport,
-} from '../../src/context/budget.js';
-import type { Skill } from '../../src/skills/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool } from '../../src/tool/types.js';
+} from '@yevgetman/sov-sdk/context/budget';
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { z } from 'zod';
 
 function makeTool(
   name: string,

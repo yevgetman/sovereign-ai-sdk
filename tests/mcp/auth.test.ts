@@ -2,8 +2,12 @@
 // injectable `env` map so the real process.env is never touched.
 
 import { describe, expect, test } from 'bun:test';
-import { normalizeAliasForEnv, redactUrlAuth, resolveMcpHeaders } from '../../src/mcp/auth.js';
-import type { McpServerConfig } from '../../src/mcp/types.js';
+import {
+  normalizeAliasForEnv,
+  redactUrlAuth,
+  resolveMcpHeaders,
+} from '@yevgetman/sov-sdk/mcp/auth';
+import type { McpServerConfig } from '@yevgetman/sov-sdk/mcp/types';
 
 function httpCfg(extra: Partial<Extract<McpServerConfig, { type: 'http' }>> = {}): McpServerConfig {
   return { type: 'http', url: 'https://mcp.example.com/v1', ...extra };

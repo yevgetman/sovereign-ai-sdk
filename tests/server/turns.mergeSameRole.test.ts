@@ -4,7 +4,7 @@
 // 400 on Anthropic ("roles must alternate") when resumed.
 
 import { describe, expect, test } from 'bun:test';
-import type { Message } from '../../src/core/types.js';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import { mergeConsecutiveSameRoleMessages } from '../../src/server/routes/turns.js';
 
 describe('mergeConsecutiveSameRoleMessages (#36)', () => {

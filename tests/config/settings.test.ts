@@ -8,7 +8,7 @@ import {
   loadHookSettings,
   loadMcpServerSettings,
   loadPermissionSettings,
-} from '../../src/config/settings.js';
+} from '@yevgetman/sov-sdk/config/settings';
 
 const roots: string[] = [];
 

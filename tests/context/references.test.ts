@@ -5,8 +5,8 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expandContextReferences } from '../../src/context/references.js';
-import type { LookupImpl } from '../../src/tools/ssrfGuard.js';
+import { expandContextReferences } from '@yevgetman/sov-sdk/context/references';
+import type { LookupImpl } from '@yevgetman/sov-sdk/tools/ssrfGuard';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-references-'));

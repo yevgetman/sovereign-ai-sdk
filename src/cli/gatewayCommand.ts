@@ -1,13 +1,13 @@
 // Phase A T6 — `sov gateway` long-lived entrypoint serving the native HTTP+SSE protocol with auth + CORS.
 
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import { type Settings, SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
+import { readRawConfig } from '@yevgetman/sov-sdk/config/store';
 import {
   type ChannelListeners,
   buildChannelListeners,
   resolveChannelsConfig,
 } from '../channels/listeners.js';
-import { resolveHarnessHome } from '../config/paths.js';
-import { type Settings, SettingsSchema } from '../config/schema.js';
-import { readRawConfig } from '../config/store.js';
 import { assertGatewaySafe } from '../server/gatewaySafety.js';
 import { startServer } from '../server/index.js';
 import { buildRuntime } from '../server/runtime.js';

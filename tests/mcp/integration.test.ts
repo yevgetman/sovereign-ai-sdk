@@ -10,15 +10,15 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { query } from '../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
-import { buildMcpClientPool } from '../../src/mcp/client.js';
-import { toToolSchemas } from '../../src/mcp/schemaSerialization.js';
-import { wrapMcpTool } from '../../src/mcp/toolWrapper.js';
-import type { McpClientPool } from '../../src/mcp/types.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { buildMcpClientPool } from '@yevgetman/sov-sdk/mcp/client';
+import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
+import { wrapMcpTool } from '@yevgetman/sov-sdk/mcp/toolWrapper';
+import type { McpClientPool } from '@yevgetman/sov-sdk/mcp/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { assembleToolPool } from '../../src/tool/registry.js';
-import type { ToolContext } from '../../src/tool/types.js';
 
 const FIXTURE = join(__dirname, 'fixtures', 'echo-server.ts');
 

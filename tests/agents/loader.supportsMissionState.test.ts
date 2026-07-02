@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAgents } from '../../src/agents/loader.js';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
 
 function makeAgentFile(agentsDir: string, name: string, content: string): void {
   mkdirSync(agentsDir, { recursive: true });
@@ -51,7 +51,7 @@ Plain system prompt.`,
   });
 
   test('scheduled-mission bundle agent has supportsMissionState: true', async () => {
-    const { getDefaultBundlePath } = await import('../../src/bundle/defaultBundle.js');
+    const { getDefaultBundlePath } = await import('@yevgetman/sov-sdk/bundle/defaultBundle');
     const bundleRoot = getDefaultBundlePath();
     if (!bundleRoot) return; // skip if no default bundle
     const registry = await loadAgents({

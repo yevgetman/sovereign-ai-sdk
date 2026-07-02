@@ -194,11 +194,11 @@ type SideEffectsBag = {
   // Slice D / T7 — /effort <level> records the new reasoning-depth
   // level (off|low|medium|high|max) so the TUI updates its status
   // chrome. Parallels modelChanged.
-  effortChanged?: import('../../providers/effort.js').ReasoningEffort;
-  pickerOpen?: import('../../commands/types.js').PickerOpenConfig;
+  effortChanged?: import('@yevgetman/sov-sdk/providers/effort').ReasoningEffort;
+  pickerOpen?: import('@yevgetman/sov-sdk/commands/types').PickerOpenConfig;
   themeChanged?: string;
   // 2026-05-24 — Config UX rebuild surfaces these in addition to pickerOpen.
-  inputOpen?: import('../../commands/types.js').InputOpenConfig;
+  inputOpen?: import('@yevgetman/sov-sdk/commands/types').InputOpenConfig;
   verboseChanged?: boolean;
   taskRouterChanged?: string;
   // 2026-05-24 patch — /clear sets this to true to wipe scrollback.

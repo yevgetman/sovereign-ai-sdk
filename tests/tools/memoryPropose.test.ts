@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { parseMemoryProposal } from '../../src/review/proposal.js';
-import type { ToolContext } from '../../src/tool/types.js';
 import { MemoryProposeTool } from '../../src/tools/MemoryProposeTool.js';
 import type { MemoryProposeOutput } from '../../src/tools/MemoryProposeTool.js';
 

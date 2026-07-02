@@ -3,11 +3,11 @@
 // the next captured result keyed by (toolName, callIndex).
 
 import { describe, expect, test } from 'bun:test';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import { wrapToolsForReplay } from '../../../src/eval/replay/toolPool.js';
 import type { ReplayFixture } from '../../../src/eval/replay/types.js';
-import { buildTool } from '../../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../../src/tool/types.js';
 
 function makeEcho(): Tool<unknown, unknown> {
   return buildTool({

@@ -3,9 +3,9 @@
 // the default-vs-include_all filter path.
 
 import { describe, expect, test } from 'bun:test';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
+import { TaskListTool } from '@yevgetman/sov-sdk/tools/TaskListTool';
 import type { TaskRecord } from '../../src/tasks/types.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
-import { TaskListTool } from '../../src/tools/TaskListTool.js';
 
 function makeStubManager(records: TaskRecord[]): NonNullable<ToolContext['taskManager']> {
   return {

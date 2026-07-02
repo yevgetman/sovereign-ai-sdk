@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import { createClearedChildSession } from '../../src/agent/sessionRecovery.js';
-import type { SystemSegment } from '../../src/core/types.js';
 
 function openMem(): SessionDb {
   return SessionDb.open({ path: ':memory:' });

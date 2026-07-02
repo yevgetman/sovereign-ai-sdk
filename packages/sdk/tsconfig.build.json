@@ -5,6 +5,7 @@
     "declaration": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    "customConditions": [],
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"]

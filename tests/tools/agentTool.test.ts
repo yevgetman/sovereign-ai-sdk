@@ -4,11 +4,11 @@
 // behavior is tested separately in tests/runtime/scheduler.test.ts.
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import type { AssistantMessage } from '../../src/core/types.js';
-import type { DelegateInput } from '../../src/runtime/scheduler.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
-import { AgentTool } from '../../src/tools/AgentTool.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { AssistantMessage } from '@yevgetman/sov-sdk/core/types';
+import type { DelegateInput } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
+import { AgentTool } from '@yevgetman/sov-sdk/tools/AgentTool';
 
 function makeAgent(name: string): AgentDefinition {
   return {

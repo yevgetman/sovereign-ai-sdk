@@ -5,7 +5,7 @@ import {
   CONTEXT_SIZE_LIMIT,
   blockPlaceholder,
   screenContextFile,
-} from '../../src/context/injectionDefense.js';
+} from '@yevgetman/sov-sdk/context/injectionDefense';
 
 describe('screenContextFile', () => {
   test('blocks explicit prompt-injection text', () => {

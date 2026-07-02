@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { ToolContext } from '../../src/tool/types.js';
-import { WebFetchTool, htmlToText } from '../../src/tools/WebFetchTool.js';
-import type { LookupImpl } from '../../src/tools/ssrfGuard.js';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { WebFetchTool, htmlToText } from '@yevgetman/sov-sdk/tools/WebFetchTool';
+import type { LookupImpl } from '@yevgetman/sov-sdk/tools/ssrfGuard';
 
 const ctxBase: Partial<ToolContext> = {
   cwd: '/tmp',

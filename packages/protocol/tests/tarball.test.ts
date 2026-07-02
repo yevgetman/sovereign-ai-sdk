@@ -1,6 +1,15 @@
-// Tarball-contents assertion (spec §9.2): the packed npm artifact must ship
-// ONLY compiled dist + LICENSE + README + package.json — never .ts source or
-// any proprietary path. Guards the `files` allow-list.
+// Tarball-contents assertion (spec §9.2, rebased in Phase 3): the packed npm
+// artifact must ship ONLY compiled dist + the open src tree + LICENSE + README
+// + package.json — never tests, configs, or any proprietary path.
+//
+// Why src/ ships (Phase 3, the dual-condition exports map): the `"bun"` export
+// condition points at ./src/*.ts so Bun consumers (and the in-repo dev loop)
+// run the TypeScript source directly with no build step, while `types`/`import`
+// point Node consumers at compiled dist. An INSTALLED bun consumer resolves the
+// bun condition inside the tarball, so the source tree must be in it — the
+// consumer canary (scripts/canary/run-consumer-canary.ts) proves both runtimes.
+// The whole package is MIT open-core by construction; shipping its source is
+// intentional, and the allow-list below still guards against everything else.
 import { beforeAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -13,19 +22,21 @@ beforeAll(() => {
   execFileSync('bun', ['run', 'build'], { cwd: pkgDir });
 });
 
-test('protocol tarball ships only dist + license + readme + package.json', () => {
+test('protocol tarball ships only dist + src + license + readme + package.json', () => {
   const out = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: pkgDir }).toString();
   const paths: string[] = JSON.parse(out)[0].files.map((f: { path: string }) => f.path);
 
-  const allowed = /^(dist\/.*\.(js|d\.ts)|LICENSE|README\.md|package\.json)$/;
+  const allowed = /^(dist\/.*\.(js|d\.ts)|src\/.*\.ts|LICENSE|README\.md|package\.json)$/;
   const bad = paths.filter((p) => !allowed.test(p));
   expect(bad).toEqual([]);
 
-  // ...and the compiled entry actually ships (not an empty tarball).
+  // ...and both entry forms actually ship (not an empty tarball).
   expect(paths).toContain('dist/index.js');
   expect(paths).toContain('dist/index.d.ts');
+  expect(paths).toContain('src/index.ts');
 
-  // Belt-and-suspenders: no TypeScript source, no src/ tree.
-  expect(paths.some((p) => /\.ts$/.test(p) && !/\.d\.ts$/.test(p))).toBe(false);
-  expect(paths.some((p) => p.startsWith('src/'))).toBe(false);
+  // Belt-and-suspenders: no tests, no build config, nothing outside the pair
+  // of shipped trees.
+  expect(paths.some((p) => p.startsWith('tests/'))).toBe(false);
+  expect(paths.some((p) => /tsconfig/.test(p))).toBe(false);
 });

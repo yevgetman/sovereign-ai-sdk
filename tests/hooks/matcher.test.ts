@@ -4,8 +4,8 @@
 // pipe-alternation ("Edit|Write"). The matcher must reconcile both.
 
 import { describe, expect, test } from 'bun:test';
-import { matchesHook } from '../../src/hooks/matcher.js';
-import type { HookConfig, HookEvent } from '../../src/hooks/types.js';
+import { matchesHook } from '@yevgetman/sov-sdk/hooks/matcher';
+import type { HookConfig, HookEvent } from '@yevgetman/sov-sdk/hooks/types';
 
 function preEvent(toolName: string): HookEvent {
   return {

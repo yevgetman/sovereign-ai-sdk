@@ -13,14 +13,14 @@
 //   - the new orphan catalog fields are present + findable.
 
 import { describe, expect, test } from 'bun:test';
-import type { CommandContext } from '../../src/commands/types.js';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
+import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { findGroup, findItem, listUnmanagedKeys } from '../../src/config/catalog.js';
 import {
   LIVE_APPLY_HOOKS,
   type LiveApplyHook,
   type LiveApplySideEffect,
 } from '../../src/config/liveApply.js';
-import type { Settings } from '../../src/config/schema.js';
 import { makeCtx } from '../commands/_makeCtx.js';
 
 /** Guarded accessor — LIVE_APPLY_HOOKS indexes to `LiveApplyHook | undefined`

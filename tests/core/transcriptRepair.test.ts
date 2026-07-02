@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { repairMissingToolResults } from '../../src/core/transcriptRepair.js';
-import type { Message } from '../../src/core/types.js';
+import { repairMissingToolResults } from '@yevgetman/sov-sdk/core/transcriptRepair';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 
 describe('repairMissingToolResults', () => {
   test('inserts an error tool_result after an orphaned assistant tool_use', () => {

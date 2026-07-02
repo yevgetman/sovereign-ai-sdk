@@ -29,10 +29,10 @@
 // Plan: docs/plans/2026-05-23-phase-2-task-routing.md (T4)
 // Spec: docs/specs/2026-05-23-multi-provider-task-routing-design.md
 
+import type { AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { DelegationLifecycleEvent } from '@yevgetman/sov-sdk/tool/ports';
 import { z } from 'zod';
-import type { AgentRegistry } from '../agents/types.js';
 import type { ServerEventBus } from '../server/eventBus.js';
-import type { DelegationLifecycleEvent } from '../tool/ports.js';
 
 // The internal lifecycle event the scheduler fires through
 // `delegationLifecycleRecorder` (discriminated by `kind`) is a pure primitive

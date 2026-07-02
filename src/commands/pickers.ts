@@ -14,10 +14,10 @@
 // /model uses the same provider→model mapping that configMenu.ts
 // uses. Both are kept in sync via a tiny shared registry.
 
-import { readConfig, resolveConfigPath, setAt, writeConfig } from '../config/store.js';
+import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
+import { readConfig, resolveConfigPath, setAt, writeConfig } from '@yevgetman/sov-sdk/config/store';
 import { type PickerItem, pick } from '../ui/picker.js';
 import { type Theme, isThemeName, listThemes, setTheme, theme } from '../ui/theme.js';
-import type { CommandContext, LocalCommand } from './types.js';
 
 /** Provider → models registry. Mirrors configMenu.ts's PROVIDER_MODELS
  *  but exported so /model and the config picker stay in sync. */

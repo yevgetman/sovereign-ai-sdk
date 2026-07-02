@@ -15,36 +15,39 @@
 // Source of pattern: Claude Code src/tools.ts (assembleToolPool +
 // patchSchemasAgainstAvailable).
 
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { AgentTool } from '@yevgetman/sov-sdk/tools/AgentTool';
+import { BashTool } from '@yevgetman/sov-sdk/tools/BashTool';
+import { FileEditTool } from '@yevgetman/sov-sdk/tools/FileEditTool';
+import { FileReadTool } from '@yevgetman/sov-sdk/tools/FileReadTool';
+import { FileWriteTool } from '@yevgetman/sov-sdk/tools/FileWriteTool';
+import { GlobTool } from '@yevgetman/sov-sdk/tools/GlobTool';
+import { GrepTool } from '@yevgetman/sov-sdk/tools/GrepTool';
+import {
+  type HarnessInfoSnapshot,
+  buildHarnessInfoTool,
+} from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
+import { MemoryTool } from '@yevgetman/sov-sdk/tools/MemoryTool';
+import { SkillManageTool } from '@yevgetman/sov-sdk/tools/SkillManageTool';
+import { SkillTool } from '@yevgetman/sov-sdk/tools/SkillTool';
+import { SkillsListTool } from '@yevgetman/sov-sdk/tools/SkillsListTool';
+import { SkillsViewTool } from '@yevgetman/sov-sdk/tools/SkillsViewTool';
+import { StaticSiteValidateTool } from '@yevgetman/sov-sdk/tools/StaticSiteValidateTool';
+import { TaskCreateTool } from '@yevgetman/sov-sdk/tools/TaskCreateTool';
+import { TaskGetTool } from '@yevgetman/sov-sdk/tools/TaskGetTool';
+import { TaskListTool } from '@yevgetman/sov-sdk/tools/TaskListTool';
+import { TaskOutputTool } from '@yevgetman/sov-sdk/tools/TaskOutputTool';
+import { TaskStopTool } from '@yevgetman/sov-sdk/tools/TaskStopTool';
+import { buildToolSearchTool } from '@yevgetman/sov-sdk/tools/ToolSearchTool';
+import { WebFetchTool } from '@yevgetman/sov-sdk/tools/WebFetchTool';
+import { WebSearchTool } from '@yevgetman/sov-sdk/tools/WebSearchTool';
 import { z } from 'zod';
-import { AgentTool } from '../tools/AgentTool.js';
-import { BashTool } from '../tools/BashTool.js';
-import { FileEditTool } from '../tools/FileEditTool.js';
-import { FileReadTool } from '../tools/FileReadTool.js';
-import { FileWriteTool } from '../tools/FileWriteTool.js';
-import { GlobTool } from '../tools/GlobTool.js';
-import { GrepTool } from '../tools/GrepTool.js';
-import { type HarnessInfoSnapshot, buildHarnessInfoTool } from '../tools/HarnessInfoTool.js';
 import { InstinctListTool } from '../tools/InstinctListTool.js';
 import { InstinctProposeTool } from '../tools/InstinctProposeTool.js';
 import { InstinctUpdateConfidenceTool } from '../tools/InstinctUpdateConfidenceTool.js';
 import { InstinctViewTool } from '../tools/InstinctViewTool.js';
 import { MemoryProposeTool } from '../tools/MemoryProposeTool.js';
-import { MemoryTool } from '../tools/MemoryTool.js';
-import { SkillManageTool } from '../tools/SkillManageTool.js';
 import { SkillProposeTool } from '../tools/SkillProposeTool.js';
-import { SkillTool } from '../tools/SkillTool.js';
-import { SkillsListTool } from '../tools/SkillsListTool.js';
-import { SkillsViewTool } from '../tools/SkillsViewTool.js';
-import { StaticSiteValidateTool } from '../tools/StaticSiteValidateTool.js';
-import { TaskCreateTool } from '../tools/TaskCreateTool.js';
-import { TaskGetTool } from '../tools/TaskGetTool.js';
-import { TaskListTool } from '../tools/TaskListTool.js';
-import { TaskOutputTool } from '../tools/TaskOutputTool.js';
-import { TaskStopTool } from '../tools/TaskStopTool.js';
-import { buildToolSearchTool } from '../tools/ToolSearchTool.js';
-import { WebFetchTool } from '../tools/WebFetchTool.js';
-import { WebSearchTool } from '../tools/WebSearchTool.js';
-import type { Tool, ToolContext } from './types.js';
 
 const REGISTERED_TOOLS = [
   BashTool,
@@ -229,7 +232,7 @@ function rewriteSubagentTypeSchema(
  *  predicate, so the model sees the trigger guidance in the schema. */
 function buildSubagentTypeDescription(
   agentNames: string[],
-  registry: import('../agents/types.js').AgentRegistry | undefined,
+  registry: import('@yevgetman/sov-sdk/agents/types').AgentRegistry | undefined,
 ): string {
   const header =
     'The name of the loaded sub-agent to delegate to. Pick the one whose ' +

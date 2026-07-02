@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { expandHomePath, resolveToolPath } from '../../src/tools/pathUtils.js';
+import { expandHomePath, resolveToolPath } from '@yevgetman/sov-sdk/tools/pathUtils';
 
 describe('tool path utilities', () => {
   test('expandHomePath expands only leading home shorthands', () => {

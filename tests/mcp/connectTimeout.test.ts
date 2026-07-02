@@ -9,7 +9,7 @@
 // touching real timers or the global event loop.
 
 import { describe, expect, test } from 'bun:test';
-import { connectWithTimeout } from '../../src/mcp/client.js';
+import { connectWithTimeout } from '@yevgetman/sov-sdk/mcp/client';
 
 type FakeClient = { connect: (transport: unknown) => Promise<void> };
 

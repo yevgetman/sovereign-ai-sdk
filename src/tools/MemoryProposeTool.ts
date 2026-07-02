@@ -6,12 +6,12 @@
 
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import { hashSource, newProposalId } from '../review/idHelpers.js';
 import { ensureReviewDirs, proposalPath } from '../review/paths.js';
 import { type MemoryProposal, serializeMemoryProposal } from '../review/proposal.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 const MemoryProposeInputSchema = z.object({
   target: z.enum(['MEMORY.md', 'USER.md']),

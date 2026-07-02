@@ -6,12 +6,12 @@
 // names (claude-*, gpt-*) is deferred to T9.
 
 import { describe, expect, test } from 'bun:test';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import {
   InvalidModelError,
   SUPPORTED_MODELS,
   resolveModelForRequest,
 } from '../../src/openai/modelResolution.js';
-import type { LLMProvider } from '../../src/providers/types.js';
 import type { Runtime } from '../../src/server/runtime.js';
 
 function makeMinimalRuntime(): Runtime {

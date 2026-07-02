@@ -3,8 +3,8 @@
 // Lists per-project instinct counts + confidence histogram + last
 // synthesis timestamp.
 
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import chalk from 'chalk';
-import { resolveHarnessHome } from '../config/paths.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { GLOBAL_PROJECT_ID } from '../learning/paths.js';
 import type { Instinct, InstinctDomain } from '../learning/types.js';

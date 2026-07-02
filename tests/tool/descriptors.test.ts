@@ -13,9 +13,11 @@
 //      cannot silently corrupt alias resolution (Map building is last-wins).
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import { CANONICAL_TOOL_DESCRIPTORS } from '../../src/tool/descriptors.js';
-import { aliasToNativeName, dropsFor, renamesFor } from '../../src/tool/descriptors.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import { CANONICAL_TOOL_DESCRIPTORS } from '@yevgetman/sov-sdk/tool/descriptors';
+import { aliasToNativeName, dropsFor, renamesFor } from '@yevgetman/sov-sdk/tool/descriptors';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { HarnessInfoSnapshot } from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
 // The FULL tool registry is the canonical native-name source for the Task-2.9
 // alias-shadow invariant below. src/tool/registry.ts is PROPRIETARY — tests are
 // not boundary-gated (the dependency-cruiser `no-open-to-proprietary` rule
@@ -26,8 +28,6 @@ import {
   REVIEW_ONLY_TOOLS,
   assembleToolPool,
 } from '../../src/tool/registry.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import type { HarnessInfoSnapshot } from '../../src/tools/HarnessInfoTool.js';
 import { WORKFLOW_RUN_TOOL_NAME } from '../../src/tools/WorkflowRunTool.js';
 
 // ── The executor's ORIGINAL hardcoded literals (frozen expectation) ─────────
@@ -242,9 +242,9 @@ describe('canonical tool descriptors — table invariants', () => {
   test('descriptor aliases mirror the aliases declared on the open tool defs', async () => {
     // The tool defs in src/tools/ are the AUTHORITATIVE alias truth; the
     // descriptor table must agree with them (FileRead:['Read'], etc.).
-    const { FileReadTool } = await import('../../src/tools/FileReadTool.js');
-    const { FileWriteTool } = await import('../../src/tools/FileWriteTool.js');
-    const { FileEditTool } = await import('../../src/tools/FileEditTool.js');
+    const { FileReadTool } = await import('@yevgetman/sov-sdk/tools/FileReadTool');
+    const { FileWriteTool } = await import('@yevgetman/sov-sdk/tools/FileWriteTool');
+    const { FileEditTool } = await import('@yevgetman/sov-sdk/tools/FileEditTool');
     for (const tool of [FileReadTool, FileWriteTool, FileEditTool]) {
       const descriptor = CANONICAL_TOOL_DESCRIPTORS.find((entry) => entry.name === tool.name);
       expect(descriptor?.aliases).toEqual(tool.aliases as string[]);

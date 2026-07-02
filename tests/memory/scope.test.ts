@@ -7,9 +7,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Bundle } from '../../src/bundle/types.js';
+import type { Bundle } from '@yevgetman/sov-sdk/bundle/types';
+import { resolveProjectScope } from '@yevgetman/sov-sdk/memory/scope';
 import { __test_resetProjectIdCache } from '../../src/learning/project.js';
-import { resolveProjectScope } from '../../src/memory/scope.js';
 
 interface FakeBundleOverrides {
   root?: string;

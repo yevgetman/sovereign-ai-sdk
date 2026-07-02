@@ -5,9 +5,9 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import { persistMessage } from '../../src/agent/persistMessage.js';
 import type { SaveMessageInput, SessionDb } from '../../src/agent/sessionDb.js';
-import { FileTranscriptStore } from '../../src/transcript/store.js';
 
 function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sov-persist-'));

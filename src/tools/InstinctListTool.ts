@@ -2,11 +2,11 @@
 // LEARNING_ONLY_TOOLS pool; injected into synthesizer + review-fork
 // child pools. Never reaches the main agent.
 
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { type Instinct, InstinctDomainSchema, InstinctScopeSchema } from '../learning/types.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 const InstinctListInputSchema = z.object({
   project_id: z.string().min(1),

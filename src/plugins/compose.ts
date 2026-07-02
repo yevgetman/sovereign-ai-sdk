@@ -25,11 +25,11 @@
 import { type Dirent, existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
-import type { PromptCommand } from '../commands/types.js';
-import { buildSkillCommands } from '../skills/commands.js';
-import { loadSkillFromPath } from '../skills/loader.js';
-import type { SkillRoot } from '../skills/loader.js';
-import type { Skill } from '../skills/types.js';
+import type { PromptCommand } from '@yevgetman/sov-sdk/commands/types';
+import { buildSkillCommands } from '@yevgetman/sov-sdk/skills/commands';
+import { loadSkillFromPath } from '@yevgetman/sov-sdk/skills/loader';
+import type { SkillRoot } from '@yevgetman/sov-sdk/skills/loader';
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import { isPluginActive } from './loader.js';
 import { isWithin } from './pathContainment.js';
 import type { DisclosedComponent, LoadedPlugin, PluginContributions } from './types.js';

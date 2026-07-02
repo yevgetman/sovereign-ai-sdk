@@ -3,7 +3,7 @@ import {
   analyzeShellCommand,
   isShellCommandReadOnly,
   splitShellSegments,
-} from '../../src/permissions/shellSemantics.js';
+} from '@yevgetman/sov-sdk/permissions/shellSemantics';
 
 describe('splitShellSegments', () => {
   test('splits on &&', () => {

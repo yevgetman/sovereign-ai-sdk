@@ -15,9 +15,9 @@
 // asserts exact agreement rather than one-sided containment.
 
 import { describe, expect, test } from 'bun:test';
+import { WRITE_SCOPE_PICOMATCH_OPTIONS } from '@yevgetman/sov-sdk/permissions/writeScope';
+import { scopesOverlap } from '@yevgetman/sov-sdk/runtime/pathLock';
 import picomatch from 'picomatch';
-import { WRITE_SCOPE_PICOMATCH_OPTIONS } from '../../src/permissions/writeScope.js';
-import { scopesOverlap } from '../../src/runtime/pathLock.js';
 
 /** (glob, cwd-relative path) rows. Expectations are generated from Bun.Glob at
  *  test time — no hand-maintained expected column to rot. Rows cover: globstar

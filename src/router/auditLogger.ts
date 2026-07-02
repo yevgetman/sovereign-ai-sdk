@@ -13,8 +13,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { resolveHarnessHome } from '../config/paths.js';
-import { redact } from '../trajectory/redact.js';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import { redact } from '@yevgetman/sov-sdk/trajectory/redact';
 import type { Lane } from './types.js';
 
 const ROUTER_DIR_NAME = 'router';

@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { basename } from 'node:path';
-import { tryGitProjectId } from '../util/project.js';
+import { tryGitProjectId } from '@yevgetman/sov-sdk/util/project';
 
 // `tryGitProjectId` was relocated to src/util/project.ts (open-core
 // relocation); it is re-exported here so proprietary importers keep working

@@ -7,9 +7,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { HookConsentChecker } from '../../src/hooks/consent.js';
-import { buildHookRunner } from '../../src/hooks/runner.js';
-import type { HookConfig, HookEventName } from '../../src/hooks/types.js';
+import type { HookConsentChecker } from '@yevgetman/sov-sdk/hooks/consent';
+import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
+import type { HookConfig, HookEventName } from '@yevgetman/sov-sdk/hooks/types';
 
 let workDir: string;
 

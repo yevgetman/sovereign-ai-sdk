@@ -28,12 +28,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Message } from '../../src/core/types.js';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { createFsPersist } from '../../src/learning-layer/adapters/harness/persistFs.js';
 import { serializeInstinct } from '../../src/learning/instinctSerde.js';
 import { __test_resetProjectIdCache, getProjectId } from '../../src/learning/project.js';
 import type { Instinct } from '../../src/learning/types.js';
-import { MockProvider } from '../../src/providers/mock.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 

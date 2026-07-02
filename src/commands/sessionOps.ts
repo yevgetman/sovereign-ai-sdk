@@ -13,10 +13,14 @@
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type {
+  CommandContext,
+  LocalCommand,
+  PromptCommand,
+} from '@yevgetman/sov-sdk/commands/types';
+import type { ContentBlock, Message } from '@yevgetman/sov-sdk/core/types';
 import chalk from 'chalk';
-import type { ContentBlock, Message } from '../core/types.js';
 import { type PickerItem, pick } from '../ui/picker.js';
-import type { CommandContext, LocalCommand, PromptCommand } from './types.js';
 
 export type ExportFormat = 'md' | 'jsonl' | 'json';
 

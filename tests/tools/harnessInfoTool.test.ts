@@ -3,7 +3,10 @@
 // fresh on every call (so live MCP / tool-pool state stays current).
 
 import { describe, expect, test } from 'bun:test';
-import { type HarnessInfoSnapshot, buildHarnessInfoTool } from '../../src/tools/HarnessInfoTool.js';
+import {
+  type HarnessInfoSnapshot,
+  buildHarnessInfoTool,
+} from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
 
 const ctx = {
   cwd: process.cwd(),

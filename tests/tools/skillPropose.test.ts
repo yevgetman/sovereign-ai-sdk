@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
 import { parse as parseYaml } from 'yaml';
 import { parseSkillProposalMeta } from '../../src/review/proposal.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
 import { type SkillProposeOutput, SkillProposeTool } from '../../src/tools/SkillProposeTool.js';
 
 function makeCtx(home: string): ToolContext {

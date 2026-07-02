@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Skill, SkillRegistry } from '../../src/skills/types.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import { SkillTool } from '../../src/tools/SkillTool.js';
+import type { Skill, SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { SkillTool } from '@yevgetman/sov-sdk/tools/SkillTool';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-skill-tool-'));

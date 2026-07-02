@@ -1,10 +1,10 @@
 // Phase 13.4 — fetch a single instinct's frontmatter + body. Read-only.
 
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import { InstinctStore } from '../learning/instinctStore.js';
 import type { Instinct } from '../learning/types.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 const InstinctViewInputSchema = z.object({
   project_id: z.string().min(1),

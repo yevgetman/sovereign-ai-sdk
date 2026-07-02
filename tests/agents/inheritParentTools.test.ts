@@ -10,9 +10,12 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SUBAGENT_EXCLUDED_TOOLS, buildSubagentExclusions } from '../../src/agents/exclusions.js';
-import { loadAgents } from '../../src/agents/loader.js';
-import type { AgentDefinition } from '../../src/agents/types.js';
+import {
+  SUBAGENT_EXCLUDED_TOOLS,
+  buildSubagentExclusions,
+} from '@yevgetman/sov-sdk/agents/exclusions';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
+import type { AgentDefinition } from '@yevgetman/sov-sdk/agents/types';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-agents-'));

@@ -4,8 +4,13 @@
 // agent loop runs deterministically against canned events.
 
 import { describe, expect, test } from 'bun:test';
-import { query } from '../../../src/core/query.js';
-import type { AssistantMessage, Message, StreamEvent, Terminal } from '../../../src/core/types.js';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  Terminal,
+} from '@yevgetman/sov-sdk/core/types';
 import { ReplayProvider } from '../../../src/eval/replay/provider.js';
 import type { ReplayFixture } from '../../../src/eval/replay/types.js';
 

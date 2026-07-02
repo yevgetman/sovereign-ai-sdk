@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { estimateCostUsd, formatUsd } from '../../src/providers/pricing.js';
+import { estimateCostUsd, formatUsd } from '@yevgetman/sov-sdk/providers/pricing';
 
 describe('provider pricing helpers', () => {
   test('estimates known model cost including cache lanes', () => {

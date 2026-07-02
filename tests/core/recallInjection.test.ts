@@ -1,7 +1,7 @@
 // tests/core/recallInjection.test.ts
 import { describe, expect, test } from 'bun:test';
-import { injectRecallIntoLatestUserMessage } from '../../src/core/recallInjection.js';
-import type { Message } from '../../src/core/types.js';
+import { injectRecallIntoLatestUserMessage } from '@yevgetman/sov-sdk/core/recallInjection';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 
 const userMsg = (text: string): Message =>
   ({ role: 'user', content: [{ type: 'text', text }] }) as Message;

@@ -5,8 +5,8 @@
 // and trace writer all run unchanged. Only the provider boundary is
 // stubbed.
 
-import type { AssistantMessage, StreamEvent } from '../../core/types.js';
-import type { LLMProvider, ProviderRequest } from '../../providers/types.js';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import type { ReplayFixture } from './types.js';
 
 export type ReplayProviderOpts = {

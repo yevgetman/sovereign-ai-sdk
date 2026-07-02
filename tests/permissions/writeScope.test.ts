@@ -1,9 +1,9 @@
 // Write-scope enforcement guard (2026-06-15 multi-agent workflows).
 
 import { describe, expect, test } from 'bun:test';
-import type { CanUseTool } from '../../src/permissions/types.js';
-import { wrapCanUseToolWithWriteScope } from '../../src/permissions/writeScope.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import { wrapCanUseToolWithWriteScope } from '@yevgetman/sov-sdk/permissions/writeScope';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 
 const ctx = { cwd: '/work' } as unknown as ToolContext;
 

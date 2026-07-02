@@ -6,15 +6,15 @@
 // (`→ Bash(ls -la)` etc.). These tests just check the unwrapped string.
 
 import { describe, expect, test } from 'bun:test';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { AgentTool } from '@yevgetman/sov-sdk/tools/AgentTool';
+import { BashTool } from '@yevgetman/sov-sdk/tools/BashTool';
+import { FileEditTool } from '@yevgetman/sov-sdk/tools/FileEditTool';
+import { FileReadTool } from '@yevgetman/sov-sdk/tools/FileReadTool';
+import { FileWriteTool } from '@yevgetman/sov-sdk/tools/FileWriteTool';
+import { GlobTool } from '@yevgetman/sov-sdk/tools/GlobTool';
+import { GrepTool } from '@yevgetman/sov-sdk/tools/GrepTool';
 import type { z } from 'zod';
-import type { Tool } from '../../src/tool/types.js';
-import { AgentTool } from '../../src/tools/AgentTool.js';
-import { BashTool } from '../../src/tools/BashTool.js';
-import { FileEditTool } from '../../src/tools/FileEditTool.js';
-import { FileReadTool } from '../../src/tools/FileReadTool.js';
-import { FileWriteTool } from '../../src/tools/FileWriteTool.js';
-import { GlobTool } from '../../src/tools/GlobTool.js';
-import { GrepTool } from '../../src/tools/GrepTool.js';
 
 // Cast each Tool to a permissive shape so we can call displayInput
 // with the real input types without re-importing each Input definition.

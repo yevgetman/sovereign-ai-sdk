@@ -11,7 +11,7 @@ import {
   isContextOverflowError,
   isModelUnavailable,
   isRateLimited,
-} from '../../src/providers/errors.js';
+} from '@yevgetman/sov-sdk/providers/errors';
 
 describe('isContextOverflowError', () => {
   // Verified via live probe (2026-05-15) — backlog #35.

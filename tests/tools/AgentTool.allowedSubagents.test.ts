@@ -8,10 +8,10 @@
 // these tests focus on AgentTool's enforcement of the policy.
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import type { DelegateInput } from '../../src/runtime/scheduler.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import { AgentTool } from '../../src/tools/AgentTool.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { DelegateInput } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { AgentTool } from '@yevgetman/sov-sdk/tools/AgentTool';
 
 function makeAgent(name: string, allowedSubagents: string[] = []): AgentDefinition {
   return {

@@ -9,7 +9,7 @@
 // this module never imports the heavy Runtime type (avoids a cycle); the live
 // Runtime matches it.
 
-import type { FileTranscriptStore } from '../transcript/store.js';
+import type { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import type { SaveMessageInput, SessionDb } from './sessionDb.js';
 
 export type PersistMessageHost = {

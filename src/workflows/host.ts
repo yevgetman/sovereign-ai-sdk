@@ -13,10 +13,10 @@
 // Every member type is open-core (permissions / tool / runtime ports), so this
 // handle carries no proprietary surface.
 
-import type { CanUseTool } from '../permissions/types.js';
-import type { Scheduler } from '../runtime/scheduler.js';
-import type { DelegationLifecycleEvent } from '../tool/ports.js';
-import type { Tool, ToolContext } from '../tool/types.js';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import type { Scheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { DelegationLifecycleEvent } from '@yevgetman/sov-sdk/tool/ports';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 
 export type WorkflowHost = {
   /** Working directory — sourced for the headless permission settings. */

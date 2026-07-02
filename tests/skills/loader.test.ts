@@ -7,9 +7,9 @@ import {
   expandSkillPrompt,
   loadSkills,
   reloadSkill,
-} from '../../src/skills/loader.js';
-import type { Skill } from '../../src/skills/types.js';
-import { filterSkillRegistry, inferActiveToolsets } from '../../src/skills/visibility.js';
+} from '@yevgetman/sov-sdk/skills/loader';
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
+import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-skills-'));

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 describe('delegator agent definition', () => {
   test('loads with correct frontmatter and prompt', async () => {
-    const { loadAgents } = await import('../../src/agents/loader.js');
+    const { loadAgents } = await import('@yevgetman/sov-sdk/agents/loader');
     const result = await loadAgents({
       cwd: process.cwd(),
       harnessHome: '/tmp/nonexistent-home',

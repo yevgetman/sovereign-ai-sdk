@@ -53,7 +53,7 @@
 // removal breaks typecheck) is the type half.
 
 import { describe, expect, test } from 'bun:test';
-import * as sdk from '../../src/sdk.js';
+import * as sdk from '@yevgetman/sov-sdk';
 import type {
   Agent,
   AgentConfig,
@@ -189,7 +189,7 @@ import type {
   Transport,
   UserMessage,
   ValidationResult,
-} from '../../src/sdk.js';
+} from '@yevgetman/sov-sdk';
 
 /** The committed 0.1.0 VALUE surface (Contract #1). Adding/removing/renaming a
  *  value export in src/sdk.ts must update THIS list in the same commit —

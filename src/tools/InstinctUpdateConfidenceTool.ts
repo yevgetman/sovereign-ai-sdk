@@ -2,13 +2,13 @@
 // contradiction to an existing instinct. All confidence math flows
 // through the pure functions in src/learning/confidence.ts.
 
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import { confidenceFromEvidence, contradict } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { loadConfidenceTuning } from '../learning/tuning.js';
 import type { Instinct } from '../learning/types.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 const InstinctUpdateConfidenceInputSchema = z.object({
   id: z.string().min(1),

@@ -9,16 +9,16 @@
 // the assertion shape exactly as specified.
 
 import { describe, expect, it } from 'bun:test';
+import type { Terminal } from '@yevgetman/sov-sdk/core/types';
+import type { DelegateInput, DelegateResult } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
-import type { Terminal } from '../../src/core/types.js';
 import { DaemonEventBus } from '../../src/daemon/eventBus.js';
 import type { DaemonEvent } from '../../src/daemon/types.js';
-import type { DelegateInput, DelegateResult } from '../../src/runtime/scheduler.js';
-import type { SubagentScheduler } from '../../src/runtime/scheduler.js';
 import { TaskManager } from '../../src/tasks/manager.js';
 import { TaskStore } from '../../src/tasks/store.js';
 import type { CreateTaskInput } from '../../src/tasks/types.js';
-import type { ToolContext } from '../../src/tool/types.js';
 
 const baseToolContext: ToolContext = { cwd: process.cwd(), sessionId: 'parent' };
 

@@ -6,7 +6,7 @@
 // the tool-only assistant message).
 
 import { describe, expect, test } from 'bun:test';
-import type { ContentBlock } from '../../../src/core/types.js';
+import type { ContentBlock } from '@yevgetman/sov-sdk/core/types';
 import { blocksToOpenAI } from '../../../src/openai/mapping/blocksToOpenAI.js';
 
 describe('blocksToOpenAI', () => {

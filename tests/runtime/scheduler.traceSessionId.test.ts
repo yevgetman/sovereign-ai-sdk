@@ -2,7 +2,7 @@
 // so every emitted event carries the child's sessionId.
 
 import { describe, expect, test } from 'bun:test';
-import type { TraceEvent } from '../../src/trace/types.js';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 
 // Test the WRAPPER LOGIC directly. The full scheduler integration test is
 // out of scope; here we want to prove the wrapper transforms events

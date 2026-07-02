@@ -4,8 +4,8 @@ import {
   estimateMessagesTokens,
   estimateSystemPromptTokens,
   estimateTextTokens,
-} from '../../src/core/tokenEstimate.js';
-import type { Message } from '../../src/core/types.js';
+} from '@yevgetman/sov-sdk/core/tokenEstimate';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 
 describe('token estimator', () => {
   test('uses a cheap four-character text estimate', () => {

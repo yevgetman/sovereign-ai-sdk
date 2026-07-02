@@ -14,9 +14,9 @@
 // 'persisted-only'. Per-hook notes below capture WHY a given field is or
 // isn't read-on-demand by its consumer.
 
-import type { CommandContext } from '../commands/types.js';
-import type { ReasoningEffort } from '../providers/effort.js';
-import type { ApiMode } from '../providers/types.js';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
+import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import type { ApiMode } from '@yevgetman/sov-sdk/providers/types';
 import { setTheme } from '../ui/theme.js';
 
 /**
@@ -336,8 +336,8 @@ const taskRoutingHotReloadHook: LiveApplyHook = async (_newValue, ctx) => {
   if (ctx.commandCtx === undefined) return 'persisted-only';
   if (ctx.commandCtx.rebuildTaskRouting === undefined) return 'persisted-only';
   await ctx.commandCtx.rebuildTaskRouting();
-  const { readConfig } = await import('./store.js');
-  const { detectActivePreset } = await import('./presets.js');
+  const { readConfig } = await import('@yevgetman/sov-sdk/config/store');
+  const { detectActivePreset } = await import('@yevgetman/sov-sdk/config/presets');
   const fresh = readConfig();
   const preset = detectActivePreset(fresh) ?? '';
   ctx.recordSideEffect?.({ taskRouterChanged: preset });

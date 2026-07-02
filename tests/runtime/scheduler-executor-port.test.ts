@@ -16,15 +16,15 @@
 //      falling back to a default real-subprocess executor (the removed crossing).
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import type { ResolvedProvider } from '../../src/providers/resolver.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
-import type { PathLockManager, PathScope } from '../../src/runtime/pathLock.js';
-import { SubagentScheduler } from '../../src/runtime/scheduler.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { ResolvedProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { LaneSemaphores } from '@yevgetman/sov-sdk/runtime/laneSemaphores';
+import type { PathLockManager, PathScope } from '@yevgetman/sov-sdk/runtime/pathLock';
+import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { SubprocessExecutorResult } from '../../src/runtime/subprocessExecutor.js';
-import type { ToolContext } from '../../src/tool/types.js';
 
 function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
   return {

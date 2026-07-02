@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AskResponse } from '../../src/permissions/types.js';
+import type { AskResponse } from '@yevgetman/sov-sdk/permissions/types';
 import { buildSessionToolContext } from '../../src/server/routes/turns.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 

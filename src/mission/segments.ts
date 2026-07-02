@@ -1,7 +1,7 @@
 // src/mission/segments.ts
 // Prompt segment builders for scheduled-mission system prompt injection (Phase 13.5).
 
-import type { SystemSegment } from '../core/types.js';
+import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import type { MissionFiles, WakeLogEntry } from './types.js';
 
 export type BuildMissionSegmentsOpts = {

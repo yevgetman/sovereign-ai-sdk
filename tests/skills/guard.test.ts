@@ -3,7 +3,7 @@
 // skills, so each pattern needs both happy-path AND no-trigger coverage.
 
 import { describe, expect, test } from 'bun:test';
-import { guardSkillText } from '../../src/skills/guard.js';
+import { guardSkillText } from '@yevgetman/sov-sdk/skills/guard';
 
 describe('guardSkillText — destructive-operation patterns', () => {
   // The trust tier matters: cwd/.harness/skills/ and <harness-home>/skills/

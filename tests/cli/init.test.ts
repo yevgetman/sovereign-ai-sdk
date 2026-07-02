@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadBundle } from '../../src/bundle/loader.js';
+import { loadBundle } from '@yevgetman/sov-sdk/bundle/loader';
 import { formatInitResult, runInit } from '../../src/cli/init.js';
 
 let cwd: string;

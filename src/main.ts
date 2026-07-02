@@ -7,14 +7,13 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
-import { getDefaultBundlePath } from './bundle/defaultBundle.js';
-import { parseProfileFlag } from './cli/profileFlag.js';
+import { getDefaultBundlePath } from '@yevgetman/sov-sdk/bundle/defaultBundle';
 import {
   DEFAULT_PROFILE_NAME,
   assertProfileName,
   getActiveProfile,
   getBaseHome,
-} from './config/paths.js';
+} from '@yevgetman/sov-sdk/config/paths';
 import {
   formatValue,
   getAt,
@@ -25,8 +24,9 @@ import {
   setAt,
   unsetAt,
   writeConfig,
-} from './config/store.js';
-import type { PermissionMode } from './permissions/types.js';
+} from '@yevgetman/sov-sdk/config/store';
+import type { PermissionMode } from '@yevgetman/sov-sdk/permissions/types';
+import { parseProfileFlag } from './cli/profileFlag.js';
 import type { WorkflowEvent } from './workflows/events.js';
 import { VERSION } from './wrapperVersion.js';
 
@@ -315,8 +315,8 @@ async function main(argv: string[]): Promise<void> {
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
     .option('--no-preflight', 'skip the startup provider health check')
     .action(async (opts) => {
-      const { readConfig } = await import('./config/store.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { readConfig } = await import('@yevgetman/sov-sdk/config/store');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const { buildRuntime } = await import('./server/runtime.js');
       const { createOpenAIServer } = await import('./openai/server.js');
 
@@ -481,7 +481,7 @@ async function main(argv: string[]): Promise<void> {
     .command('show')
     .description('Print the active profile name')
     .action(async () => {
-      const { getActiveProfile: getActive } = await import('./config/paths.js');
+      const { getActiveProfile: getActive } = await import('@yevgetman/sov-sdk/config/paths');
       process.stdout.write(`${getActive()}\n`);
     });
 
@@ -747,7 +747,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--script <path>', 'pre-agent script (relative to <harness-home>/cron/scripts/)')
     .action(async (opts) => {
       const { runCronAdd, formatJobLine } = await import('./cli/cronCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const job = runCronAdd(resolveHarnessHome(), {
         schedule: opts.schedule,
         prompt: opts.prompt,
@@ -764,7 +764,7 @@ async function main(argv: string[]): Promise<void> {
     .description('List all cron jobs')
     .action(async () => {
       const { runCronList, formatJobLine } = await import('./cli/cronCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const jobs = runCronList(resolveHarnessHome());
       if (jobs.length === 0) {
         process.stdout.write('no cron jobs\n');
@@ -778,7 +778,7 @@ async function main(argv: string[]): Promise<void> {
     .description('Show full detail for a cron job')
     .action(async (id: string) => {
       const { runCronShow } = await import('./cli/cronCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const job = runCronShow(resolveHarnessHome(), id);
       if (!job) {
         process.stderr.write(`no job with id ${id}\n`);
@@ -792,7 +792,7 @@ async function main(argv: string[]): Promise<void> {
     .description('Pause a cron job (job stays in the registry; tick skips it)')
     .action(async (id: string) => {
       const { runCronPause } = await import('./cli/cronCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const job = runCronPause(resolveHarnessHome(), id);
       if (!job) {
         process.stderr.write(`no job ${id}\n`);
@@ -806,7 +806,7 @@ async function main(argv: string[]): Promise<void> {
     .description('Resume a paused cron job')
     .action(async (id: string) => {
       const { runCronResume } = await import('./cli/cronCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const job = runCronResume(resolveHarnessHome(), id);
       if (!job) {
         process.stderr.write(`no job ${id}\n`);
@@ -820,7 +820,7 @@ async function main(argv: string[]): Promise<void> {
     .description('Delete a cron job')
     .action(async (id: string) => {
       const { runCronDelete } = await import('./cli/cronCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const ok = runCronDelete(resolveHarnessHome(), id);
       if (!ok) {
         process.stderr.write(`no job ${id}\n`);
@@ -837,7 +837,7 @@ async function main(argv: string[]): Promise<void> {
       // of its nextRunAt or enabled flag. Accept an 8-char id prefix (the form
       // `sov cron list` prints) by resolving it to the full id first, matching
       // show/pause/resume/delete (audit 2026-06-10).
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const home = resolveHarnessHome();
       const { resolveCronJobId } = await import('./cli/cronCommand.js');
       let fullId: string;
@@ -869,7 +869,7 @@ async function main(argv: string[]): Promise<void> {
     .command('tick')
     .description('Manually run one tick cycle against every due job (debugging)')
     .action(async () => {
-      const { resolveHarnessHome } = await import('./config/paths.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
       const { buildRuntime } = await import('./server/runtime.js');
       const { createProductionCronRunner } = await import('./cron/wiring.js');
       const runtime = await buildRuntime({ cwd: process.cwd(), cronEnabled: false });
@@ -893,9 +893,9 @@ async function main(argv: string[]): Promise<void> {
     .description('List available workflows (project > user > bundle)')
     .action(async () => {
       const { runWorkflowList, formatWorkflowLine } = await import('./cli/workflowCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
-      const { getDefaultBundlePath } = await import('./bundle/defaultBundle.js');
-      const { loadBundleIfPresent } = await import('./bundle/loader.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
+      const { getDefaultBundlePath } = await import('@yevgetman/sov-sdk/bundle/defaultBundle');
+      const { loadBundleIfPresent } = await import('@yevgetman/sov-sdk/bundle/loader');
       const bundle = await loadBundleIfPresent(getDefaultBundlePath());
       const entries = await runWorkflowList({
         cwd: process.cwd(),
@@ -914,9 +914,9 @@ async function main(argv: string[]): Promise<void> {
     .description('Show the full definition for a workflow')
     .action(async (name: string) => {
       const { runWorkflowShow } = await import('./cli/workflowCommand.js');
-      const { resolveHarnessHome } = await import('./config/paths.js');
-      const { getDefaultBundlePath } = await import('./bundle/defaultBundle.js');
-      const { loadBundleIfPresent } = await import('./bundle/loader.js');
+      const { resolveHarnessHome } = await import('@yevgetman/sov-sdk/config/paths');
+      const { getDefaultBundlePath } = await import('@yevgetman/sov-sdk/bundle/defaultBundle');
+      const { loadBundleIfPresent } = await import('@yevgetman/sov-sdk/bundle/loader');
       const bundle = await loadBundleIfPresent(getDefaultBundlePath());
       const loaded = await runWorkflowShow(name, {
         cwd: process.cwd(),

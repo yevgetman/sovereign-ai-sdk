@@ -9,11 +9,11 @@
 // the SessionStore port — the future-proofing guard the brief asks for.
 
 import { describe, expect, test } from 'bun:test';
+import type { StoredMessage } from '@yevgetman/sov-sdk/core/sessionPort';
+import type { ContentBlock, TokenUsage } from '@yevgetman/sov-sdk/core/types';
+import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
+import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import type { SessionDb } from '../../src/agent/sessionDb.js';
-import type { StoredMessage } from '../../src/core/sessionPort.js';
-import type { ContentBlock, TokenUsage } from '../../src/core/types.js';
-import { createInMemorySessionStore } from '../../src/persistence/inMemoryStore.js';
-import type { SessionStore } from '../../src/persistence/sessionStore.js';
 
 const textBlock = (t: string): ContentBlock => ({ type: 'text', text: t });
 

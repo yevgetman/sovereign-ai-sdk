@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { StaticSiteValidateTool } from '../../src/tools/StaticSiteValidateTool.js';
+import { StaticSiteValidateTool } from '@yevgetman/sov-sdk/tools/StaticSiteValidateTool';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-static-site-tool-'));

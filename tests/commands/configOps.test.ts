@@ -7,13 +7,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { __test__, dispatchConfigCommand } from '../../src/commands/configOps.js';
 import type {
   CommandContext,
   InputOpenConfig,
   PickerOpenConfig,
-} from '../../src/commands/types.js';
-import { __resetAllDrafts } from '../../src/config/draftManager.js';
+} from '@yevgetman/sov-sdk/commands/types';
+import { __resetAllDrafts } from '@yevgetman/sov-sdk/config/draftManager';
+import { __test__, dispatchConfigCommand } from '../../src/commands/configOps.js';
 import { makeCtx } from './_makeCtx.js';
 
 type Capture = {

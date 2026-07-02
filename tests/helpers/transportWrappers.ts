@@ -28,9 +28,19 @@
 //      .ts and MicrocompactSmokeTransport in
 //      tests/cli/tuiLauncherIntegration.test.ts.
 
+import type {
+  AssistantMessage,
+  ContentBlock,
+  Message,
+  StreamEvent,
+} from '@yevgetman/sov-sdk/core/types';
+import type {
+  ApiMode,
+  ProviderRequest,
+  ToolSchema,
+  Transport,
+} from '@yevgetman/sov-sdk/providers/types';
 import { compressionSystemPrompt } from '../../src/compact/compactor.js';
-import type { AssistantMessage, ContentBlock, Message, StreamEvent } from '../../src/core/types.js';
-import type { ApiMode, ProviderRequest, ToolSchema, Transport } from '../../src/providers/types.js';
 
 /**
  * Wraps an existing transport so the summarize-shaped call (detected by the

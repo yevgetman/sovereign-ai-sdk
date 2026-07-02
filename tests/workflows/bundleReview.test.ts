@@ -10,8 +10,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
 import { parse as parseYaml } from 'yaml';
-import { loadAgents } from '../../src/agents/loader.js';
 import { WorkflowDefSchema } from '../../src/workflows/types.js';
 
 const BUNDLE_DEFAULT_ROOT = join(import.meta.dir, '..', '..', 'bundle-default');

@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadSkillFromPath } from '../../src/skills/loader.js';
-import type { ToolContext } from '../../src/tool/types.js';
+import { loadSkillFromPath } from '@yevgetman/sov-sdk/skills/loader';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { SkillProposeTool } from '../../src/tools/SkillProposeTool.js';
 
 const AGENT_CREATED_CLASSIFICATION = {

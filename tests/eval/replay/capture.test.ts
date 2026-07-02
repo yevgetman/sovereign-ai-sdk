@@ -3,16 +3,16 @@
 // + error-path recording.
 
 import { describe, expect, test } from 'bun:test';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import type { AssistantMessage, StreamEvent } from '../../../src/core/types.js';
 import {
   CapturingProvider,
   createCaptureSink,
   wrapToolsForCapture,
 } from '../../../src/eval/replay/capture.js';
-import type { LLMProvider, ProviderRequest } from '../../../src/providers/types.js';
-import { buildTool } from '../../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../../src/tool/types.js';
 
 const COMPLETED: AssistantMessage = {
   role: 'assistant',

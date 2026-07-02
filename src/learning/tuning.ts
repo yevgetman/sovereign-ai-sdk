@@ -3,7 +3,7 @@
 // ConfidenceTuning interface in confidence.ts. Kept separate so
 // confidence.ts remains I/O-free (loadSettings reads disk).
 
-import { loadSettings } from '../config/loader.js';
+import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
 import type { ConfidenceTuning } from './confidence.js';
 
 /** Build a ConfidenceTuning from settings.learning.* — only includes

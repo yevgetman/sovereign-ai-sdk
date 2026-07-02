@@ -10,16 +10,16 @@
 
 import { describe, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import { wrapMcpTool } from '../../src/mcp/toolWrapper.js';
-import type { McpCallResult, McpClientPool, McpToolMeta } from '../../src/mcp/types.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import { wrapMcpTool } from '@yevgetman/sov-sdk/mcp/toolWrapper';
+import type { McpCallResult, McpClientPool, McpToolMeta } from '@yevgetman/sov-sdk/mcp/types';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { HarnessInfoSnapshot } from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
 import {
   LEARNING_ONLY_TOOLS,
   REVIEW_ONLY_TOOLS,
   assembleToolPool,
 } from '../../src/tool/registry.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
-import type { HarnessInfoSnapshot } from '../../src/tools/HarnessInfoTool.js';
 
 function fakeAgentRegistry(): AgentRegistry {
   const agent: AgentDefinition = {

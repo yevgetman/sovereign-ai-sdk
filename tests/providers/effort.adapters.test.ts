@@ -7,12 +7,12 @@
 // constructed with a dummy key / fetch only so the method is reachable.
 
 import { describe, expect, test } from 'bun:test';
-import type { Message, SystemSegment } from '../../src/core/types.js';
-import { AnthropicProvider } from '../../src/providers/anthropic.js';
-import { MAX_TOKENS_CEILING } from '../../src/providers/effort.js';
-import { OpenAIProvider } from '../../src/providers/openai.js';
-import { SovProvider } from '../../src/providers/sov.js';
-import type { ProviderRequest } from '../../src/providers/types.js';
+import type { Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import { AnthropicProvider } from '@yevgetman/sov-sdk/providers/anthropic';
+import { MAX_TOKENS_CEILING } from '@yevgetman/sov-sdk/providers/effort';
+import { OpenAIProvider } from '@yevgetman/sov-sdk/providers/openai';
+import { SovProvider } from '@yevgetman/sov-sdk/providers/sov';
+import type { ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 
 const MESSAGES: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
 const SYSTEM: SystemSegment[] = [{ text: 'be helpful', cacheable: false }];

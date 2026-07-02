@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { TaskRoutingConfig } from '../../src/config/schema.js';
+import type { TaskRoutingConfig } from '@yevgetman/sov-sdk/config/schema';
 import { LANE_DEFAULTS, resolveLane } from '../../src/router/lanes.js';
 
 describe('resolveLane', () => {

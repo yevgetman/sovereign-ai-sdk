@@ -5,10 +5,10 @@
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { resolveMcpHeaders } from '../../src/mcp/auth.js';
-import { buildMcpClientPool, sanitizeConnectError } from '../../src/mcp/client.js';
-import { buildSafeFetch } from '../../src/mcp/safeFetch.js';
-import type { McpClientPool, McpServerConfig } from '../../src/mcp/types.js';
+import { resolveMcpHeaders } from '@yevgetman/sov-sdk/mcp/auth';
+import { buildMcpClientPool, sanitizeConnectError } from '@yevgetman/sov-sdk/mcp/client';
+import { buildSafeFetch } from '@yevgetman/sov-sdk/mcp/safeFetch';
+import type { McpClientPool, McpServerConfig } from '@yevgetman/sov-sdk/mcp/types';
 import { type HttpEchoServer, startHttpEchoServer } from './fixtures/http-echo-server.js';
 import { type RedirectFixture, startRedirectFixture } from './fixtures/redirect-server.js';
 

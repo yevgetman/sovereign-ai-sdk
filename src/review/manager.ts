@@ -2,11 +2,11 @@
 // fire-and-forgets review-fork dispatches via SubagentScheduler. Triggers
 // snapshot state and never block the parent's main turn.
 
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ChildCompletionEvent } from '@yevgetman/sov-sdk/tool/ports';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { runSynthesizer } from '../learning/synthesizer.js';
-import type { SubagentScheduler } from '../runtime/scheduler.js';
-import type { ChildCompletionEvent } from '../tool/ports.js';
-import type { Tool, ToolContext } from '../tool/types.js';
-import type { TraceEvent } from '../trace/types.js';
 import { runConsolidation } from './consolidate.js';
 import { type ReviewAgentName, runReviewFork } from './fork.js';
 

@@ -13,7 +13,7 @@ import {
   getProfileHome,
   getProfilesRoot,
   setActiveProfile,
-} from '../config/paths.js';
+} from '@yevgetman/sov-sdk/config/paths';
 
 /** Files copied by `sov profile import-default`. Sessions/trajectories/memory
  *  stay empty in the new profile by design — a profile is meant to scope

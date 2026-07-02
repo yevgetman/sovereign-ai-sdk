@@ -4,16 +4,16 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { z } from 'zod';
-import type { Bundle } from '../../src/bundle/types.js';
+import type { Bundle } from '@yevgetman/sov-sdk/bundle/types';
 import {
   buildSystemSegments,
   formatSkillsIndex,
   formatTools,
-} from '../../src/context/systemPrompt.js';
-import type { Skill } from '../../src/skills/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool } from '../../src/tool/types.js';
+} from '@yevgetman/sov-sdk/context/systemPrompt';
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { z } from 'zod';
 
 function makeBundle(root: string): Bundle {
   return {

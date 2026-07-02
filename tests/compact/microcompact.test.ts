@@ -6,8 +6,8 @@ import {
   buildToolNameMap,
   microcompact,
   shouldMicrocompact,
-} from '../../src/compact/microcompact.js';
-import type { Message } from '../../src/core/types.js';
+} from '@yevgetman/sov-sdk/compact/microcompact';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 
 function toolUse(id: string, name: string): Message {
   return {

@@ -19,7 +19,7 @@ import {
   isDefaultBundlePath,
   shippedBundlePath,
   userOverridePath,
-} from '../../src/bundle/defaultBundle.js';
+} from '@yevgetman/sov-sdk/bundle/defaultBundle';
 
 let savedHome: string | undefined;
 let home: string;

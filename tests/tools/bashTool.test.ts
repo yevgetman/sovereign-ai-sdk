@@ -9,7 +9,7 @@ import {
   isBashError,
   isReadOnlyBashCommand,
   matchesBashPermissionPattern,
-} from '../../src/tools/BashTool.js';
+} from '@yevgetman/sov-sdk/tools/BashTool';
 
 const ctx = {
   cwd: process.cwd(),

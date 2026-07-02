@@ -3,7 +3,7 @@
 // (open-core relocation); it is re-exported here so proprietary importers keep
 // working unchanged.
 
-export { validatePrincipalId } from '../util/principals.js';
+export { validatePrincipalId } from '@yevgetman/sov-sdk/util/principals';
 
 /** A resolved gateway principal — the public identity attached to a request
  *  once its bearer token has been matched. The token itself is never carried

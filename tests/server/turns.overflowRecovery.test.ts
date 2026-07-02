@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Transport } from '../../src/providers/types.js';
+import type { Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import { wrapTransportWithOverflow } from '../helpers/transportWrappers.js';

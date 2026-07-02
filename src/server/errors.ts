@@ -2,7 +2,7 @@
 // module so tests + tuiLauncher can `instanceof`-check without pulling
 // in the full runtime boot transitive surface.
 
-import type { ProviderPreflightKind } from '../providers/preflight.js';
+import type { ProviderPreflightKind } from '@yevgetman/sov-sdk/providers/preflight';
 
 export class SessionNotFoundError extends Error {
   readonly sessionId: string;

@@ -29,8 +29,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { buildOpenAIApp } from '../../src/openai/app.js';
-import { MockProvider } from '../../src/providers/mock.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 describe('POST /v1/chat/completions with tool calls', () => {

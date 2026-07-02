@@ -10,9 +10,9 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
 import { renderExport } from '../../src/commands/sessionOps.js';
-import type { Message } from '../../src/core/types.js';
 import { makeCtx } from './_makeCtx.js';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {

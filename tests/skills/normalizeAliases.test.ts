@@ -7,8 +7,8 @@
 // when both share the depth-aware splitter.
 
 import { describe, expect, test } from 'bun:test';
-import { normalizeImportedFrontmatter } from '../../src/skills/install.js';
-import { normalizeFrontmatterAliases } from '../../src/skills/loader.js';
+import { normalizeImportedFrontmatter } from '@yevgetman/sov-sdk/skills/install';
+import { normalizeFrontmatterAliases } from '@yevgetman/sov-sdk/skills/loader';
 
 function loaderAllowedTools(raw: unknown): unknown {
   const out = normalizeFrontmatterAliases(raw);

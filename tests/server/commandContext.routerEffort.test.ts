@@ -9,7 +9,7 @@
 // while leaving the non-router path byte-identical.
 
 import { describe, expect, test } from 'bun:test';
-import { modelSupportsReasoning } from '../../src/providers/effort.js';
+import { modelSupportsReasoning } from '@yevgetman/sov-sdk/providers/effort';
 import { resolveEffortApiMode } from '../../src/server/commandContext.js';
 
 describe('resolveEffortApiMode (#32)', () => {

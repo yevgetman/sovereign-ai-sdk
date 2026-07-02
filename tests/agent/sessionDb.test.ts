@@ -3,8 +3,8 @@
 // isolated.
 
 import { describe, expect, test } from 'bun:test';
+import type { ContentBlock, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
-import type { ContentBlock, SystemSegment } from '../../src/core/types.js';
 
 function openMem(): SessionDb {
   return SessionDb.open({ path: ':memory:' });

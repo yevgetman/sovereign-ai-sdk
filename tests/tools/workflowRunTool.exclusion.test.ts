@@ -5,10 +5,10 @@
 // untrusted remote surfaces. Spec §"Invocation surfaces".
 
 import { describe, expect, test } from 'bun:test';
-import { SUBAGENT_EXCLUDED_TOOLS } from '../../src/agents/exclusions.js';
+import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { Runtime } from '../../src/server/runtime.js';
 import { assembleToolPool } from '../../src/tool/registry.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 import { WORKFLOW_RUN_TOOL_NAME, buildWorkflowRunTool } from '../../src/tools/WorkflowRunTool.js';
 
 describe('workflow_run exclusion', () => {

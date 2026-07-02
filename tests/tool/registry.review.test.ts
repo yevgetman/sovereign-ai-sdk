@@ -2,8 +2,8 @@
 // the main agent's pool and present in REVIEW_ONLY_TOOLS.
 
 import { describe, expect, test } from 'bun:test';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { REVIEW_ONLY_TOOLS, assembleToolPool } from '../../src/tool/registry.js';
-import type { ToolContext } from '../../src/tool/types.js';
 
 describe('review-only tools are not in the main agent pool', () => {
   test('assembleToolPool excludes memory_propose and skill_propose', () => {

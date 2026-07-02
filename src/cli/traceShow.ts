@@ -6,8 +6,8 @@
 // Pure formatter (`formatTrace`) + IO wrapper (`showTrace`) for testability.
 
 import { readFileSync } from 'node:fs';
-import type { TraceEvent } from '../trace/types.js';
-import { findTracePath } from '../trace/writer.js';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
+import { findTracePath } from '@yevgetman/sov-sdk/trace/writer';
 
 export type ShowTraceOpts = {
   sessionId: string;
@@ -158,7 +158,7 @@ function renderEvent(event: TraceEvent): string | null {
   }
 }
 
-function formatUsage(usage: import('../core/types.js').TokenUsage): string {
+function formatUsage(usage: import('@yevgetman/sov-sdk/core/types').TokenUsage): string {
   const parts: string[] = [];
   if (usage.inputTokens !== undefined) parts.push(`in ${usage.inputTokens}`);
   if (usage.outputTokens !== undefined) parts.push(`out ${usage.outputTokens}`);

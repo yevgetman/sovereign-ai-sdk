@@ -4,7 +4,10 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FileTranscriptStore, type TranscriptSessionInfo } from '../../src/transcript/store.js';
+import {
+  FileTranscriptStore,
+  type TranscriptSessionInfo,
+} from '@yevgetman/sov-sdk/transcript/store';
 
 function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sov-tstore-'));

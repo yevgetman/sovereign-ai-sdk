@@ -2,8 +2,11 @@
 // Phase 13.4 — types and Zod schemas for the observation stream and
 // instinct corpus.
 
+import {
+  type ObservationStatus,
+  ObservationStatusSchema,
+} from '@yevgetman/sov-sdk/core/observePort';
 import { z } from 'zod';
-import { type ObservationStatus, ObservationStatusSchema } from '../core/observePort.js';
 
 // `ObservationStatus` + its defining enum `ObservationStatusSchema` now live in
 // the open core (`core/observePort.js`). Imported for local use (ObservationSchema

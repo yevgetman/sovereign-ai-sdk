@@ -24,8 +24,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { createOpenAIServer } from '../../src/openai/server.js';
-import { MockProvider } from '../../src/providers/mock.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 describe('POST /v1/chat/completions — abort on client disconnect', () => {

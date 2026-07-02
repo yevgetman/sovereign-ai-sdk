@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import chalk from 'chalk';
 import { TASK_OPS_COMMANDS } from '../../src/commands/taskOps.js';
-import type { CommandContext } from '../../src/commands/types.js';
 import type { TaskRecord } from '../../src/tasks/types.js';
 import { makeCtx } from './_makeCtx.js';
 

@@ -10,8 +10,8 @@
 // derived from the prior turn's history); only what the provider
 // produced + what the tools produced.
 
-import type { StreamEvent } from '../../core/types.js';
-import type { ToolObservation } from '../../tool/types.js';
+import type { StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { ToolObservation } from '@yevgetman/sov-sdk/tool/types';
 
 /** Result captured from a real `tool.call()` invocation. The wrapper's
  *  job at replay time is to return this exactly (or throw the captured

@@ -2,9 +2,9 @@
 // through ReviewManager → runReviewFork → scheduler.delegate.
 
 import { describe, expect, test } from 'bun:test';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { ReviewManager } from '../../src/review/manager.js';
-import type { SubagentScheduler } from '../../src/runtime/scheduler.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 describe('ReviewManager abort propagation (B4)', () => {
   test('signal passed at construction is the same one observed by scheduler.delegate', async () => {

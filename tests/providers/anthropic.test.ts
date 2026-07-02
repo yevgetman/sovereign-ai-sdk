@@ -10,14 +10,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import type { RawMessageStreamEvent } from '@anthropic-ai/sdk/resources/messages/messages';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import {
   messagesToSdk,
   normalizeAnthropicError,
   systemToSdk,
   translateAnthropicStream,
-} from '../../src/providers/anthropic.js';
-import { ProviderHttpError } from '../../src/providers/errors.js';
+} from '@yevgetman/sov-sdk/providers/anthropic';
+import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
 
 async function loadFixture(name: string): Promise<RawMessageStreamEvent[]> {
   const path = join(process.cwd(), 'fixtures', name);

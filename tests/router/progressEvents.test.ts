@@ -11,7 +11,7 @@
 // Spec: docs/specs/2026-05-23-multi-provider-task-routing-design.md
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentRegistry } from '../../src/agents/types.js';
+import type { AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
 import {
   DelegatorAtomCompleteEventSchema,
   DelegatorAtomStartedEventSchema,

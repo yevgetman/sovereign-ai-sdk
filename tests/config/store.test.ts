@@ -12,7 +12,7 @@ import {
   setAt,
   unsetAt,
   writeConfig,
-} from '../../src/config/store.js';
+} from '@yevgetman/sov-sdk/config/store';
 
 describe('config store', () => {
   let dir: string;

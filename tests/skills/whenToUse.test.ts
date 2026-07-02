@@ -3,7 +3,7 @@
 // semicolon-splitter used by SkillsListTool to surface multi-trigger arrays.
 
 import { describe, expect, test } from 'bun:test';
-import { splitWhenToUseTriggers, validateWhenToUse } from '../../src/skills/whenToUse.js';
+import { splitWhenToUseTriggers, validateWhenToUse } from '@yevgetman/sov-sdk/skills/whenToUse';
 
 describe('validateWhenToUse', () => {
   test('accepts a clean predicate trigger', () => {

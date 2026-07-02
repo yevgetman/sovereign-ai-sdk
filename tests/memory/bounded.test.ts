@@ -13,7 +13,7 @@ import {
   readProjectMemoryFile,
   replaceMemoryFile,
   replaceProjectMemoryFile,
-} from '../../src/memory/bounded.js';
+} from '@yevgetman/sov-sdk/memory/bounded';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-memory-'));

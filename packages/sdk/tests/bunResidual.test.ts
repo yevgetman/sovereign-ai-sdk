@@ -2,9 +2,10 @@
 //
 // The Phase-2 shims (spawn → node:child_process, Bun.Glob → picomatch/tinyglobby,
 // Bun.serve/Bun.file → node:http) removed every Bun global from the OPEN file
-// set. This test keeps it that way: it recomputes the open set from the same
-// manifest the boundary lint consumes (scripts/boundary-manifest.json, see
-// .dependency-cruiser.cjs) and fails with file:line for any `Bun.` usage or
+// set. This test keeps it that way: post-move (Phase 3) the OPEN set is BY
+// CONSTRUCTION the whole source trees of the two extracted packages
+// (packages/sdk/src + packages/protocol/src — no manifest regex application
+// needed), and the guard fails with file:line for any `Bun.` usage or
 // `bun:`/`'bun'` import that creeps back into open-core source.
 //
 // Comment content is exempt (doc-comments legitimately reference Bun for parity
@@ -18,16 +19,13 @@
 // the failure mode is a single line, not runaway state.
 
 import { describe, expect, test } from 'bun:test';
-import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import manifest from '../../scripts/boundary-manifest.json';
 
-const REPO_ROOT = resolve(import.meta.dir, '..', '..');
+const REPO_ROOT = resolve(import.meta.dir, '..', '..', '..');
 
-/** src/protocol/ moved to the extracted package (Task 1.x); its manifest
- *  pattern is retained for history, so the package dir is scanned directly. */
-const PROTOCOL_PACKAGE_DIR = 'packages/protocol/src';
+/** The open packages: their ENTIRE src trees are open-core by construction. */
+const OPEN_PACKAGE_DIRS = ['packages/sdk/src', 'packages/protocol/src'] as const;
 
 const SOURCE_FILE_PATTERN = /\.tsx?$/;
 
@@ -37,24 +35,8 @@ const FORBIDDEN_TOKEN_PATTERNS: readonly { name: string; pattern: RegExp }[] = [
   { name: 'bun import', pattern: /from\s+['"]bun[:'"]/ },
 ];
 
-/** OPEN = the same union .dependency-cruiser.cjs compiles into its `from` set. */
-const OPEN_PATTERNS: readonly RegExp[] = [
-  ...manifest.openFullyDirs,
-  ...manifest.openSplitDirFiles,
-  ...manifest.openFilesInProprietaryDirs,
-  ...manifest.openRootFiles,
-].map((pattern) => new RegExp(pattern));
-
-function gitLsFiles(pathspec: string): string[] {
-  const stdout = execFileSync('git', ['ls-files', pathspec], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  });
-  return stdout.split('\n').filter((line) => line.length > 0);
-}
-
-function listProtocolPackageFiles(): string[] {
-  const entries = readdirSync(join(REPO_ROOT, PROTOCOL_PACKAGE_DIR), {
+function listPackageFiles(packageDir: string): string[] {
+  const entries = readdirSync(join(REPO_ROOT, packageDir), {
     recursive: true,
     withFileTypes: true,
   });
@@ -65,11 +47,9 @@ function listProtocolPackageFiles(): string[] {
 }
 
 function collectOpenFiles(): string[] {
-  const openSrc = gitLsFiles('src').filter(
-    (file) => SOURCE_FILE_PATTERN.test(file) && OPEN_PATTERNS.some((re) => re.test(file)),
-  );
-  const protocolPkg = listProtocolPackageFiles().filter((file) => SOURCE_FILE_PATTERN.test(file));
-  return [...openSrc, ...protocolPkg].sort();
+  return OPEN_PACKAGE_DIRS.flatMap(listPackageFiles)
+    .filter((file) => SOURCE_FILE_PATTERN.test(file))
+    .sort();
 }
 
 type LexState = 'code' | 'lineComment' | 'blockComment' | 'single' | 'double' | 'template';
@@ -191,10 +171,12 @@ describe('Bun-residual guard — the open file set stays Bun-global-free', () =>
 
   test('the open set is populated (the guard cannot silently scan nothing)', () => {
     expect(openFiles.length).toBeGreaterThan(50);
-    expect(openFiles).toContain('src/tools/StaticSiteValidateTool.ts');
-    expect(openFiles).toContain('src/util/spawn.ts');
+    expect(openFiles).toContain('packages/sdk/src/tools/StaticSiteValidateTool.ts');
+    expect(openFiles).toContain('packages/sdk/src/util/spawn.ts');
     expect(openFiles).toContain('packages/protocol/src/index.ts');
-    // Proprietary carve-outs must stay OUT of the scanned set.
+    // Proprietary carve-outs stayed BEHIND in the root src/ tree — the scanned
+    // set never reaches src/ at all.
+    expect(openFiles.some((file) => file.startsWith('src/'))).toBe(false);
     expect(openFiles).not.toContain('src/runtime/subprocessExecutor.ts');
     expect(openFiles).not.toContain('src/agent/sessionDb.ts');
   });

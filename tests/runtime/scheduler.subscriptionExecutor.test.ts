@@ -11,23 +11,23 @@
 // new branch.
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
+import type { ResolvedProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { LaneSemaphores } from '@yevgetman/sov-sdk/runtime/laneSemaphores';
+import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
+import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import type { LearningObserver, ObserveInput } from '../../src/learning/observer.js';
-import type { MemoryRuntime } from '../../src/memory/provider.js';
-import type { ResolvedProvider } from '../../src/providers/resolver.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { LaneSemaphores } from '../../src/runtime/laneSemaphores.js';
-import { PathLockManager } from '../../src/runtime/pathLock.js';
-import { SubagentScheduler } from '../../src/runtime/scheduler.js';
 import {
   type RunSubprocessExecutorOpts,
   type SpawnFn,
   type SubprocessExecutorResult,
   runSubprocessExecutor,
 } from '../../src/runtime/subprocessExecutor.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import type { TraceEvent } from '../../src/trace/types.js';
 
 function makeAgent(over: Partial<AgentDefinition> = {}): AgentDefinition {
   return {

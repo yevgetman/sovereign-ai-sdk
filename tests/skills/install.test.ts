@@ -11,8 +11,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installSkill, uninstallSkill } from '../../src/skills/install.js';
-import { loadSkills } from '../../src/skills/loader.js';
+import { installSkill, uninstallSkill } from '@yevgetman/sov-sdk/skills/install';
+import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
 
 let tmpHome: string;
 let userSkills: string;

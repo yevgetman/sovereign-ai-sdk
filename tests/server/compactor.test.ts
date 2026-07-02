@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Message } from '../../src/core/types.js';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 describe('server compactor primitive', () => {

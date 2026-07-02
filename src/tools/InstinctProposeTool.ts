@@ -5,13 +5,13 @@
 // pure functions in src/learning/confidence.ts.
 
 import { randomBytes } from 'node:crypto';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import { confidenceFromEvidence } from '../learning/confidence.js';
 import { InstinctStore } from '../learning/instinctStore.js';
 import { loadConfidenceTuning } from '../learning/tuning.js';
 import { type Instinct, InstinctDomainSchema, InstinctScopeSchema } from '../learning/types.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 const InstinctProposeInputSchema = z.object({
   trigger: z.string().min(1),

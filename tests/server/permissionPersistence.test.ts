@@ -23,12 +23,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { appendProjectLocalPermissionRule } from '@yevgetman/sov-sdk/config/settings';
+import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
+import type { AskUser } from '@yevgetman/sov-sdk/permissions/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { appendProjectLocalPermissionRule } from '../../src/config/settings.js';
-import { buildCanUseTool } from '../../src/permissions/canUseTool.js';
-import type { AskUser } from '../../src/permissions/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 function makeFileWriteTool(): Tool<unknown, unknown> {
   const inputSchema = z.object({ path: z.string() });

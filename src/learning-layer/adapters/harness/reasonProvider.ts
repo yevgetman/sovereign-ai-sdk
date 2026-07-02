@@ -2,8 +2,8 @@
 // Adapter #1 Reason port — a thin prompt-in/text-out wrapper over the harness
 // provider stream. SEAM ONLY (design decision D8): defined + tested now, not
 // yet consumed by the synthesizer; that migration is deferred to a later phase.
-import type { Message, SystemSegment } from '../../../core/types.js';
-import type { LLMProvider, ProviderRequest } from '../../../providers/types.js';
+import type { Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import type { ReasonOptions, ReasonPort } from '../../ports.js';
 
 /** Provider request requires a maxTokens; fall back to this when the caller

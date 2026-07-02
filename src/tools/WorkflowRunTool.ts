@@ -19,10 +19,10 @@
 // workflows). The exclusion is the single enforcement point — every non-
 // interactive child pool already filters against that set.
 
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
 import type { Runtime } from '../server/runtime.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 export const WORKFLOW_RUN_TOOL_NAME = 'workflow_run';
 

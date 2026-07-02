@@ -12,9 +12,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { guardSkillLoad } from '@yevgetman/sov-sdk/skills/guard';
 import { readConsent, verifyConsent } from '../../src/plugins/consent.js';
 import { installPlugin, uninstallPlugin } from '../../src/plugins/install.js';
-import { guardSkillLoad } from '../../src/skills/guard.js';
 
 let tmpRoot: string;
 let pluginsRoot: string;

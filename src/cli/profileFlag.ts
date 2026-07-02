@@ -6,7 +6,7 @@
 // site in main.ts before any module that captures HARNESS_HOME at load time;
 // this module returns just the parsed name + a cleaned argv copy.
 
-import { DEFAULT_PROFILE_NAME, assertProfileName } from '../config/paths.js';
+import { DEFAULT_PROFILE_NAME, assertProfileName } from '@yevgetman/sov-sdk/config/paths';
 
 const TOP_LEVEL_SUBCOMMANDS = new Set(['chat', 'config', 'upgrade', 'profile', 'help']);
 

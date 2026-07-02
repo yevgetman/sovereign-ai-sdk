@@ -1,4 +1,4 @@
-import type { LaneConfig, TaskRoutingConfig } from '../config/schema.js';
+import type { LaneConfig, TaskRoutingConfig } from '@yevgetman/sov-sdk/config/schema';
 
 export const LANE_DEFAULTS: Record<'cheap-task' | 'moderate-task' | 'frontier-task', LaneConfig> = {
   'cheap-task': {

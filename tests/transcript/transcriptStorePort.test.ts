@@ -3,9 +3,9 @@
 // structurally and that the no-op default discards every call safely.
 
 import { describe, expect, test } from 'bun:test';
-import { createNoopTranscriptStore } from '../../src/persistence/noopTranscriptStore.js';
-import type { TranscriptStore } from '../../src/persistence/transcriptStore.js';
-import { FileTranscriptStore } from '../../src/transcript/store.js';
+import { createNoopTranscriptStore } from '@yevgetman/sov-sdk/persistence/noopTranscriptStore';
+import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptStore';
+import { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 
 describe('TranscriptStore port', () => {
   test('FileTranscriptStore structurally satisfies the TranscriptStore port', () => {

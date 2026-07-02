@@ -8,8 +8,13 @@
 // pools) remain unchanged. Each child provider is itself a fully-resolved
 // LLMProvider — the router just chooses between them.
 
-import type { AssistantMessage, Message, StreamEvent, SystemSegment } from '../core/types.js';
-import type { LLMProvider, ProviderRequest } from '../providers/types.js';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  SystemSegment,
+} from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { type RouterAuditLogger, hashPrompt } from './auditLogger.js';
 import { classify } from './classifier.js';
 import type { RouterConfig } from './types.js';

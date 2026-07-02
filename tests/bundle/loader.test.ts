@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadBundle, loadBundleIfPresent } from '../../src/bundle/loader.js';
+import { loadBundle, loadBundleIfPresent } from '@yevgetman/sov-sdk/bundle/loader';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-bundle-'));

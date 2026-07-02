@@ -15,8 +15,9 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
+import type { CommandContext, SlashCommand } from '@yevgetman/sov-sdk/commands/types';
+import { MEMORY_CAPS, type MemoryFile } from '@yevgetman/sov-sdk/memory/bounded';
 import chalk from 'chalk';
-import { MEMORY_CAPS, type MemoryFile } from '../memory/bounded.js';
 import { type ReviewState, proposalPath, reviewDir, skillProposalDir } from '../review/paths.js';
 import {
   parseConsolidationProposal,
@@ -26,7 +27,6 @@ import {
   serializeMemoryProposal,
   serializeSkillProposalMeta,
 } from '../review/proposal.js';
-import type { CommandContext, SlashCommand } from './types.js';
 
 const STATE_COLORS = {
   pending: chalk.yellow,

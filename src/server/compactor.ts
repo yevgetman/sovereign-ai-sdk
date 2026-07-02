@@ -9,6 +9,7 @@
 // Consumers: T3 (proactive check in turns route), T4 (overflow recovery in
 // turns route), T5 (POST /sessions/:id/compact route).
 
+import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
 import {
   COMPACTION_SUMMARY_MAX_TOKENS,
   type CompactResult,
@@ -16,7 +17,6 @@ import {
   compactSession,
   compressionSystemPrompt,
 } from '../compact/compactor.js';
-import type { AssistantMessage, Message } from '../core/types.js';
 import type { Runtime } from './runtime.js';
 
 export type ServerCompactor = (

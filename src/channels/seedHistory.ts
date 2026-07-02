@@ -24,8 +24,8 @@
 // with a tool_result), then run `repairMissingToolResults` to synthesize any
 // tool_result still missing for a tool_use INSIDE the retained window.
 
-import { repairMissingToolResults } from '../core/transcriptRepair.js';
-import type { ContentBlock, Message } from '../core/types.js';
+import { repairMissingToolResults } from '@yevgetman/sov-sdk/core/transcriptRepair';
+import type { ContentBlock, Message } from '@yevgetman/sov-sdk/core/types';
 
 /** Default cap on the number of prior messages seeded into a channel turn.
  *  ~40 messages is a generous chat window (≈20 back-and-forth turns) that

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MockProvider } from '../../src/providers/mock.js';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 describe('buildRuntime', () => {

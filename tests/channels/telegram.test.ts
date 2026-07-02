@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import {
   type TelegramTransport,
   type TelegramUpdate,
@@ -32,7 +33,6 @@ import {
 import { buildChannelListeners } from '../../src/channels/listeners.js';
 import { buildSessionKey } from '../../src/channels/sessionKey.js';
 import type { InboundMessage } from '../../src/channels/types.js';
-import { MockProvider } from '../../src/providers/mock.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { Runtime } from '../../src/server/runtime.js';
 

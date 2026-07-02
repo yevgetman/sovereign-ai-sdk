@@ -8,18 +8,21 @@
 
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createAgent } from '../agent/createAgent.js';
-import { loadAgents } from '../agents/loader.js';
-import { getDefaultBundlePath } from '../bundle/defaultBundle.js';
-import { loadBundleIfPresent } from '../bundle/loader.js';
-import { buildMicrocompactConfig } from '../compact/microcompact.js';
-import { resolveHarnessHome } from '../config/paths.js';
-import { readConfig } from '../config/store.js';
-import { buildSystemSegments } from '../core/systemPrompt.js';
-import type { ContentBlock, Message, SystemSegment } from '../core/types.js';
+import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
+import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
+import { getDefaultBundlePath } from '@yevgetman/sov-sdk/bundle/defaultBundle';
+import { loadBundleIfPresent } from '@yevgetman/sov-sdk/bundle/loader';
+import { buildMicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import { readConfig } from '@yevgetman/sov-sdk/config/store';
+import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
+import type { ContentBlock, Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
+import { createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
+import { resolveProjectScope } from '@yevgetman/sov-sdk/memory/scope';
+import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import { buildToolScope } from '@yevgetman/sov-sdk/tool/toolScope';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { touchLock } from '../cron/lockUtil.js';
-import { createDefaultMemoryManager } from '../memory/provider.js';
-import { resolveProjectScope } from '../memory/scope.js';
 import { applyTransition, shouldRun } from '../mission/fsm.js';
 import { lockPath, missionMdPath, notesMdPath, stateJsonPath } from '../mission/paths.js';
 import { buildMissionSegments } from '../mission/segments.js';
@@ -30,10 +33,7 @@ import {
   releaseLock,
   writeMissionState,
 } from '../mission/state.js';
-import { resolveProvider } from '../providers/resolver.js';
 import { assembleToolPool } from '../tool/registry.js';
-import { buildToolScope } from '../tool/toolScope.js';
-import type { Tool, ToolContext } from '../tool/types.js';
 
 const MISSION_AGENT_NAME = 'scheduled-mission';
 const DEFAULT_MAX_TOKENS = 4096;

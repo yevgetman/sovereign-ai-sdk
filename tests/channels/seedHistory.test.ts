@@ -9,8 +9,8 @@
 //   - repair any tool_use left WITHOUT a tool_result inside the retained window.
 
 import { describe, expect, test } from 'bun:test';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import { DEFAULT_MAX_SEEDED_MESSAGES, capSeededHistory } from '../../src/channels/seedHistory.js';
-import type { Message } from '../../src/core/types.js';
 
 function userText(text: string): Message {
   return { role: 'user', content: [{ type: 'text', text }] };

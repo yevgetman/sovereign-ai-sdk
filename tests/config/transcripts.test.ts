@@ -1,7 +1,7 @@
 // resolveTranscriptsConfig — read-site defaults + legacy fallback (2026-06-15).
 
 import { describe, expect, test } from 'bun:test';
-import { type Settings, resolveTranscriptsConfig } from '../../src/config/schema.js';
+import { type Settings, resolveTranscriptsConfig } from '@yevgetman/sov-sdk/config/schema';
 
 const settings = (over: Partial<Settings> = {}): Settings => over as Settings;
 

@@ -3,9 +3,9 @@
 // the throws-on-null-output path (manager.output returned null).
 
 import { describe, expect, test } from 'bun:test';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
+import { TaskOutputTool } from '@yevgetman/sov-sdk/tools/TaskOutputTool';
 import type { TaskOutput } from '../../src/tasks/manager.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
-import { TaskOutputTool } from '../../src/tools/TaskOutputTool.js';
 
 function makeStubManager(output: TaskOutput | null): NonNullable<ToolContext['taskManager']> {
   return {

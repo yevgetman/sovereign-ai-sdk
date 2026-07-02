@@ -2,12 +2,12 @@
 // and prepend to the current user text only.
 
 import { describe, expect, test } from 'bun:test';
-import type { Message } from '../../src/core/types.js';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import {
   FENCE_PREAMBLE,
   formatMemorySnapshot,
   injectMemoryIntoLatestUserMessage,
-} from '../../src/memory/injection.js';
+} from '@yevgetman/sov-sdk/memory/injection';
 
 describe('memory injection', () => {
   test('formats fenced memory context', () => {

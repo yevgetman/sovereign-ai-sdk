@@ -21,13 +21,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { CredentialUnavailableError } from '@yevgetman/sov-sdk/providers/errors';
 import { __test_resetProjectIdCache } from '../../src/learning/project.js';
 import {
   InvalidModelError,
   SUPPORTED_MODELS,
   resolveModelForRequest,
 } from '../../src/openai/modelResolution.js';
-import { CredentialUnavailableError } from '../../src/providers/errors.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 let home: string;

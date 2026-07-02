@@ -1,14 +1,14 @@
 // Provider preflight tests. Uses fake providers so no live API is required.
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import { ProviderHttpError } from '../../src/providers/errors.js';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
 import {
   classifyProviderPreflightError,
   preflightProvider,
   preflightToolCalling,
-} from '../../src/providers/preflight.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
+} from '@yevgetman/sov-sdk/providers/preflight';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 
 function provider(
   fn: (req: ProviderRequest) => AsyncGenerator<StreamEvent, AssistantMessage>,

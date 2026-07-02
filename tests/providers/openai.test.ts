@@ -2,13 +2,13 @@
 // message/tool conversion and stream-chunk normalization.
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import {
   type OpenAIChatChunk,
   OpenAIProvider,
   messagesToOpenAI,
   translateOpenAIStream,
-} from '../../src/providers/openai.js';
+} from '@yevgetman/sov-sdk/providers/openai';
 
 async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;

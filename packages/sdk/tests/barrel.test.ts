@@ -1,8 +1,8 @@
 // Task 3.2 — the importability proof for the `src/sdk.ts` barrel.
 //
 // This is the external-consumer smoke: everything is imported FROM THE BARREL
-// (`../../src/sdk.js`), not the deep modules — exactly as a downstream package
-// consumer would `import { createAgent } from '@yevgetman/sov-sdk'`. It proves
+// (`@yevgetman/sov-sdk`, through the package exports map), not the deep
+// modules — exactly as a downstream package consumer would. It proves
 // the Contract #1 surface is intact and that a bare turn runs with NO DISK:
 //   1. Build an agent from a mock `LLMProvider` + a simple `buildTool` tool and
 //      `run("hi")` with NO `sessionStore` → it completes and yields a final
@@ -16,12 +16,11 @@
 // barrel + the scripted in-memory provider built here.
 
 import { describe, expect, test } from 'bun:test';
-import { z } from 'zod';
 // IMPORTANT: import from the BARREL, not the deep modules — that is the proof.
 // (`ProviderRequest` joined the public surface in Task 2.9: it is the param of
 // `LLMProvider.stream()`, so a custom-provider embedder must be able to name
 // it. Imported from the barrel like everything else.)
-import type { ProviderRequest as Req } from '../../src/sdk.js';
+import type { ProviderRequest as Req } from '@yevgetman/sov-sdk';
 import {
   SubagentScheduler,
   buildMcpClientPool,
@@ -33,7 +32,7 @@ import {
   findCapableModel,
   query,
   resolveProvider,
-} from '../../src/sdk.js';
+} from '@yevgetman/sov-sdk';
 import type {
   Agent,
   AgentConfig,
@@ -66,7 +65,8 @@ import type {
   ToolScope,
   TraceSink,
   TranscriptStore,
-} from '../../src/sdk.js';
+} from '@yevgetman/sov-sdk';
+import { z } from 'zod';
 
 /** A fresh mock `LLMProvider` that replays one canned StreamEvent[] per
  *  successive `stream()` call (generators are single-use → one per turn). */

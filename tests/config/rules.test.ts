@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { z } from 'zod';
 import {
   parsePermissionRule,
   parsePermissionRules,
   ruleMatchesTool,
   wildcardMatches,
-} from '../../src/config/rules.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool } from '../../src/tool/types.js';
+} from '@yevgetman/sov-sdk/config/rules';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { z } from 'zod';
 
 function probeTool(): Tool<unknown, unknown> {
   return buildTool({

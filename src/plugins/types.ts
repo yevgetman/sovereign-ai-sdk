@@ -9,8 +9,8 @@
 // opt-in allow-list decision (S4). Unknown CC-only manifest keys are disclosed
 // via `ignored`, never silently dropped.
 
-import type { PromptCommand } from '../commands/types.js';
-import type { SkillRoot } from '../skills/loader.js';
+import type { PromptCommand } from '@yevgetman/sov-sdk/commands/types';
+import type { SkillRoot } from '@yevgetman/sov-sdk/skills/loader';
 import type { PluginManifest } from './manifest.js';
 
 /** A plugin discovered on disk, with its parsed manifest and the load-time

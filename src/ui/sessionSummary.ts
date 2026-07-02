@@ -2,8 +2,8 @@
 // session id, tool-call counts, success rate, and timing breakdown.
 // Designed to mirror the goodbye summary common in coding-CLI peers.
 
+import type { SessionMetrics } from '@yevgetman/sov-sdk/core/sessionPort';
 import chalk from 'chalk';
-import type { SessionMetrics } from '../core/sessionPort.js';
 import { boxify } from './box.js';
 
 // `SessionMetrics` now lives in open core (`core/sessionPort.js`) so the open

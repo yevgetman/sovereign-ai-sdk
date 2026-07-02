@@ -4,8 +4,8 @@
 // containing both text and tool_use blocks.
 
 import { describe, expect, test } from 'bun:test';
-import type { Message } from '../../src/core/types.js';
-import { toShareGPT, transcriptToShareGPT } from '../../src/trajectory/shareGpt.js';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
+import { toShareGPT, transcriptToShareGPT } from '@yevgetman/sov-sdk/trajectory/shareGpt';
 
 describe('toShareGPT', () => {
   test('maps user text to {from: human}', () => {

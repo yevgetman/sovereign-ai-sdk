@@ -2,11 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { loadSkills } from '../../src/skills/loader.js';
-import type { ToolContext } from '../../src/tool/types.js';
-import { SkillManageTool } from '../../src/tools/SkillManageTool.js';
-import { SkillsListTool } from '../../src/tools/SkillsListTool.js';
-import { SkillsViewTool } from '../../src/tools/SkillsViewTool.js';
+import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { SkillManageTool } from '@yevgetman/sov-sdk/tools/SkillManageTool';
+import { SkillsListTool } from '@yevgetman/sov-sdk/tools/SkillsListTool';
+import { SkillsViewTool } from '@yevgetman/sov-sdk/tools/SkillsViewTool';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-progressive-skills-'));

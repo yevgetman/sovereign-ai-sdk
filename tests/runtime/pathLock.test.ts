@@ -1,7 +1,7 @@
 // PathLockManager — path-granular write lock (2026-06-15 multi-agent workflows).
 
 import { describe, expect, test } from 'bun:test';
-import { PathLockManager, scopesOverlap } from '../../src/runtime/pathLock.js';
+import { PathLockManager, scopesOverlap } from '@yevgetman/sov-sdk/runtime/pathLock';
 
 const globs = (...g: string[]) => ({ kind: 'globs' as const, globs: g });
 const ALL = { kind: 'all' as const };

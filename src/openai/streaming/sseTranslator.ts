@@ -50,7 +50,7 @@
 // successful response. T5 wraps pre-stream errors in an OpenAI error
 // envelope; in-stream errors fall through to the final-stop+DONE close.
 
-import type { ContentBlock, StreamEvent, Terminal } from '../../core/types.js';
+import type { ContentBlock, StreamEvent, Terminal } from '@yevgetman/sov-sdk/core/types';
 import type { ChunkCtx, UsageAccumulator } from './chunks.js';
 import {
   DONE_MARKER,

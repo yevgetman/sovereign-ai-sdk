@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SettingsSchema } from '../../src/config/schema.js';
+import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 import { buildConsentRecord, writeConsent } from '../../src/plugins/consent.js';
 import { hashPluginTree } from '../../src/plugins/integrity.js';
 import { isPluginActive, loadPlugins } from '../../src/plugins/loader.js';

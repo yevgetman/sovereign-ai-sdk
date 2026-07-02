@@ -17,9 +17,12 @@
 // owner-scoped file stays self-contained; the seam adds the field for the
 // type-checker. See `WorkflowCommandCapability` below for the exact contract.
 
+import type { CommandContext, SlashCommand } from '@yevgetman/sov-sdk/commands/types';
+import type {
+  WorkflowCommandCapability,
+  WorkflowSummary,
+} from '@yevgetman/sov-sdk/core/workflowPort';
 import chalk from 'chalk';
-import type { WorkflowCommandCapability, WorkflowSummary } from '../core/workflowPort.js';
-import type { CommandContext, SlashCommand } from './types.js';
 
 // `WorkflowSummary` + `WorkflowCommandCapability` now live in open core
 // (`core/workflowPort.js`) so the open command contract

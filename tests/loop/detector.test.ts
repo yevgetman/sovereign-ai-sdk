@@ -3,7 +3,7 @@
 // wins over action-stagnation wins over content-loop.
 
 import { describe, expect, test } from 'bun:test';
-import { LoopDetectorState } from '../../src/loop/detector.js';
+import { LoopDetectorState } from '@yevgetman/sov-sdk/loop/detector';
 
 describe('LoopDetectorState — consecutive-identical tool calls', () => {
   test('does not fire below threshold', () => {

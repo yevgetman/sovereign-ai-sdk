@@ -3,7 +3,7 @@
 // line). A fixed contract so emit + render never drift. Mirrors the delegation
 // progress-event pattern (src/router/progressEvents.ts).
 
-import type { WorkflowEvent } from '../core/workflowPort.js';
+import type { WorkflowEvent } from '@yevgetman/sov-sdk/core/workflowPort';
 
 // `WorkflowEvent` now lives in open core (`core/workflowPort.js`) so the open
 // command contract (`CommandContext.workflows`) can reference the workflow

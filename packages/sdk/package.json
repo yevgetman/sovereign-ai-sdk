@@ -13,18 +13,33 @@
     "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
     "directory": "packages/sdk"
   },
-  "files": ["dist", "LICENSE", "README.md"],
+  "files": ["dist", "src", "LICENSE", "README.md"],
   "exports": {
     ".": {
+      "bun": "./src/sdk.ts",
       "types": "./dist/sdk.d.ts",
       "import": "./dist/sdk.js",
       "default": "./dist/sdk.js"
     },
     "./*": {
+      "bun": "./src/*.ts",
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",
       "default": "./dist/*.js"
     }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "picomatch": "^4.0.4",
+    "tinyglobby": "^0.2.17",
+    "yaml": "^2.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/picomatch": "^4.0.3",
+    "typescript": "^5.6.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

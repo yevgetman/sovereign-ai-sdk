@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PickerOpenConfig } from '../../src/commands/types.js';
+import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
 import { __test_resetProjectIdCache } from '../../src/learning/project.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';

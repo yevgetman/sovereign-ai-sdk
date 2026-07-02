@@ -5,8 +5,8 @@
 // channel surfaces as `thinking` (proving translateOpenAIStream reuse).
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, StreamEvent } from '../../src/core/types.js';
-import { SovProvider } from '../../src/providers/sov.js';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { SovProvider } from '@yevgetman/sov-sdk/providers/sov';
 
 /** Build a fake `fetch` that records the request and replays SSE `lines`. */
 function fakeFetch(lines: string[]): {

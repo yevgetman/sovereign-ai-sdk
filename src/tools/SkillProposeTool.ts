@@ -7,13 +7,13 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { hashSource, newProposalId } from '../review/idHelpers.js';
 import { ensureReviewDirs, skillProposalDir } from '../review/paths.js';
 import { type SkillProposalMeta, serializeSkillProposalMeta } from '../review/proposal.js';
-import { buildTool } from '../tool/buildTool.js';
-import type { Tool } from '../tool/types.js';
 
 const SkillProposeInputSchema = z.object({
   skillName: z

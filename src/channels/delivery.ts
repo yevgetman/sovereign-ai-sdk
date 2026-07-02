@@ -8,7 +8,7 @@
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveHarnessHome } from '../config/paths.js';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type { DeliveryResult } from './types.js';
 
 const SILENT_PREFIX = '[silent]';

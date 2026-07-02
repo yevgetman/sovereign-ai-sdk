@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
+import { TraceWriter } from '@yevgetman/sov-sdk/trace/writer';
 import { formatTrace, parseTraceFile, showTrace } from '../../src/cli/traceShow.js';
-import type { TraceEvent } from '../../src/trace/types.js';
-import { TraceWriter } from '../../src/trace/writer.js';
 
 const ISO = '2026-05-04T20:00:00.000Z';
 

@@ -2,7 +2,7 @@
 // don't depend on the import-time HARNESS_REDACT_SECRETS snapshot.
 
 import { describe, expect, test } from 'bun:test';
-import { isRedactionEnabled, redactForce } from '../../src/trajectory/redact.js';
+import { isRedactionEnabled, redactForce } from '@yevgetman/sov-sdk/trajectory/redact';
 
 describe('redactForce', () => {
   test('redacts Anthropic API keys', () => {

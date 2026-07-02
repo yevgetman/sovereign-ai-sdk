@@ -6,9 +6,9 @@
 // server-mode branch without touching the legacy path.
 
 import { describe, expect, test } from 'bun:test';
+import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
-import type { PickerOpenConfig } from '../../src/commands/types.js';
-import type { Message } from '../../src/core/types.js';
 import { makeCtx } from './_makeCtx.js';
 
 describe('/model — requestPicker branch (M11.5 T3)', () => {

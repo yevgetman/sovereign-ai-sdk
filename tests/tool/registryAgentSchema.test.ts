@@ -3,10 +3,10 @@
 // when no agents are loaded.
 
 import { describe, expect, test } from 'bun:test';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { z } from 'zod';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
 import { assembleToolPool } from '../../src/tool/registry.js';
-import type { ToolContext } from '../../src/tool/types.js';
 
 function makeAgent(name: string, overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {

@@ -5,8 +5,8 @@
 // non-strict relaxations.
 
 import { describe, expect, test } from 'bun:test';
-import { SettingsSchema } from '../../src/config/schema.js';
-import { REASONING_EFFORTS } from '../../src/providers/effort.js';
+import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
+import { REASONING_EFFORTS } from '@yevgetman/sov-sdk/providers/effort';
 
 describe('SettingsSchema — strict mode', () => {
   test('rejects unknown top-level keys', () => {

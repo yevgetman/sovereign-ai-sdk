@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TranscriptWriter } from '../../src/transcript/writer.js';
+import { TranscriptWriter } from '@yevgetman/sov-sdk/transcript/writer';
 
 function withTmp<T>(fn: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), 'sov-transcript-'));

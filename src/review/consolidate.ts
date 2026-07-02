@@ -9,9 +9,9 @@
 // follow-ups).
 
 import { join } from 'node:path';
-import type { SubagentScheduler } from '../runtime/scheduler.js';
-import type { Tool, ToolContext } from '../tool/types.js';
-import type { TraceEvent } from '../trace/types.js';
+import type { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { runReviewFork } from './fork.js';
 
 export interface RunConsolidationOpts {

@@ -13,7 +13,7 @@
 // string. Some SDKs strictly type-check this. We mirror that contract
 // exactly: if no text blocks contributed, `content` is `null`.
 
-import type { ContentBlock } from '../../core/types.js';
+import type { ContentBlock } from '@yevgetman/sov-sdk/core/types';
 
 export type OpenAIToolCall = {
   id: string;

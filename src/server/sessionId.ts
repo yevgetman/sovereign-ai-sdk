@@ -14,8 +14,8 @@
 // route) would diverge the model's pre-compaction view from the turn-time
 // view — keeping a single helper guarantees the projection stays aligned.
 
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import type { SessionDb } from '../agent/sessionDb.js';
-import type { Message } from '../core/types.js';
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 

@@ -3,9 +3,9 @@
 // the throws-on-unknown-id path.
 
 import { describe, expect, test } from 'bun:test';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
+import { TaskGetTool } from '@yevgetman/sov-sdk/tools/TaskGetTool';
 import type { TaskRecord } from '../../src/tasks/types.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
-import { TaskGetTool } from '../../src/tools/TaskGetTool.js';
 
 const record: TaskRecord = {
   id: 't-1',

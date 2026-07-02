@@ -3,8 +3,8 @@
 // let this test flip without a deliberate decision.
 
 import { describe, expect, test } from 'bun:test';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import { z } from 'zod';
-import { buildTool } from '../../src/tool/buildTool.js';
 
 describe('buildTool — fail-closed defaults', () => {
   const minimalDef = {

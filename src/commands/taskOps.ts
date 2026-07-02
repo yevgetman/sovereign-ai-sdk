@@ -2,9 +2,9 @@
 // user's POV: list active tasks (default), show one, stop one, or list
 // all (including terminal states). Tab-completion is out of scope for v0.
 
+import type { CommandContext, SlashCommand } from '@yevgetman/sov-sdk/commands/types';
 import chalk from 'chalk';
 import type { TaskRecord, TaskState } from '../tasks/types.js';
-import type { CommandContext, SlashCommand } from './types.js';
 
 const STATE_COLOR: Record<TaskState, (s: string) => string> = {
   queued: chalk.yellow,

@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import chalk from 'chalk';
 import { REVIEW_OPS_COMMANDS } from '../../src/commands/reviewOps.js';
-import type { CommandContext } from '../../src/commands/types.js';
 import {
   serializeConsolidationProposal,
   serializeMemoryProposal,

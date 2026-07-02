@@ -9,9 +9,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
+import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { buildOpenAIApp } from '../../src/openai/app.js';
-import { ProviderHttpError } from '../../src/providers/errors.js';
-import { MockProvider } from '../../src/providers/mock.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 describe('POST /v1/chat/completions (non-streaming)', () => {

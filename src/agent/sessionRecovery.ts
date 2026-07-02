@@ -1,6 +1,6 @@
 // Session recovery helpers for durable local escape hatches such as /clear.
 
-import type { SystemSegment } from '../core/types.js';
+import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import type { CreateSessionInput, SessionDb } from './sessionDb.js';
 
 export type CreateClearedChildSessionInput = {

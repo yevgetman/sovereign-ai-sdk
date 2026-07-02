@@ -3,10 +3,10 @@
 // agents registry, unknown agent), and the structured-output path.
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
+import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
+import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
+import { TaskCreateTool } from '@yevgetman/sov-sdk/tools/TaskCreateTool';
 import type { CreateTaskInput, TaskRecord } from '../../src/tasks/types.js';
-import type { ToolContext, ToolResult } from '../../src/tool/types.js';
-import { TaskCreateTool } from '../../src/tools/TaskCreateTool.js';
 
 function makeAgent(name: string): AgentDefinition {
   return {

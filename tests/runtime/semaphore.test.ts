@@ -4,7 +4,7 @@
 // (when the daemon lands in Phase 16) extends but does not replace this.
 
 import { describe, expect, test } from 'bun:test';
-import { Semaphore } from '../../src/runtime/semaphore.js';
+import { Semaphore } from '@yevgetman/sov-sdk/runtime/semaphore';
 
 describe('Semaphore', () => {
   test('allows up to max concurrent holders', async () => {

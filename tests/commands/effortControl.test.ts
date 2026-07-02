@@ -9,9 +9,9 @@
 // their context — so these exercise the registered command end-to-end.
 
 import { describe, expect, test } from 'bun:test';
+import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
+import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { COMMAND_REGISTRY, dispatchSlashCommand } from '../../src/commands/registry.js';
-import type { PickerOpenConfig } from '../../src/commands/types.js';
-import type { ReasoningEffort } from '../../src/providers/effort.js';
 import { makeCtx } from './_makeCtx.js';
 
 describe('/effort — explicit level applies immediately', () => {

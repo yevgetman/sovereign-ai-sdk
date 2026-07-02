@@ -10,9 +10,9 @@
 // child row's ownerId matches the parent's owner.
 
 import { describe, expect, test } from 'bun:test';
+import type { Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import { compactSession } from '../../src/compact/compactor.js';
-import type { Message, SystemSegment } from '../../src/core/types.js';
 
 const text = (value: string) => ({ type: 'text' as const, text: value });
 

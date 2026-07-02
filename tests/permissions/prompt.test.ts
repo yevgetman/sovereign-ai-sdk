@@ -2,7 +2,7 @@
 // serializeAskUser + previewToolInput. canUseTool.ts is their only consumer.
 
 import { describe, expect, test } from 'bun:test';
-import { previewToolInput, serializeAskUser } from '../../src/permissions/prompt.js';
+import { previewToolInput, serializeAskUser } from '@yevgetman/sov-sdk/permissions/prompt';
 
 describe('previewToolInput', () => {
   test('renders Bash commands directly', () => {

@@ -5,7 +5,7 @@
 // closing the transport so a stdio child is reaped, not orphaned.
 
 import { describe, expect, test } from 'bun:test';
-import { connectAndList, connectWithTimeout } from '../../src/mcp/client.js';
+import { connectAndList, connectWithTimeout } from '@yevgetman/sov-sdk/mcp/client';
 
 type Calls = { transportClosed: number; clientClosed: number };
 

@@ -6,12 +6,12 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Message } from '../../src/core/types.js';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import {
   buildTrajectoryRecord,
   tryWriteTrajectory,
   writeTrajectory,
-} from '../../src/trajectory/writer.js';
+} from '@yevgetman/sov-sdk/trajectory/writer';
 
 const META = {
   sessionId: 'session-1',

@@ -4,7 +4,7 @@
 // transport on ANY failure, while leaving a healthy connection untouched.
 
 import { describe, expect, test } from 'bun:test';
-import { connectAndList } from '../../src/mcp/client.js';
+import { connectAndList } from '@yevgetman/sov-sdk/mcp/client';
 
 type Calls = { transportClosed: number; clientClosed: number };
 

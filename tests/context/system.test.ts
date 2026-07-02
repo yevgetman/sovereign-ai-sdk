@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatSystemContext, getSystemContext } from '../../src/context/system.js';
+import { formatSystemContext, getSystemContext } from '@yevgetman/sov-sdk/context/system';
 
 describe('getSystemContext', () => {
   test('captures date, cwd, shell, os, and git snapshot fields', () => {

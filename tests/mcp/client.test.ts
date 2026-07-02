@@ -5,8 +5,8 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { buildMcpClientPool, isPrivateHost } from '../../src/mcp/client.js';
-import type { McpClientPool } from '../../src/mcp/types.js';
+import { buildMcpClientPool, isPrivateHost } from '@yevgetman/sov-sdk/mcp/client';
+import type { McpClientPool } from '@yevgetman/sov-sdk/mcp/types';
 
 const FIXTURE = join(__dirname, 'fixtures', 'echo-server.ts');
 

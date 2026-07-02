@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ResolvedProvider } from '../../src/providers/resolver.js';
+import type { ResolvedProvider } from '@yevgetman/sov-sdk/providers/resolver';
 import {
   buildRuntime,
   resolveLaneSemaphoresOpts,

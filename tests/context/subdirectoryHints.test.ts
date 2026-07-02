@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import {
   appendSubdirectoryHints,
   createSubdirectoryHintState,
-} from '../../src/context/subdirectoryHints.js';
+} from '@yevgetman/sov-sdk/context/subdirectoryHints';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-hints-'));

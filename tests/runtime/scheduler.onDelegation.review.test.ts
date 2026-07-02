@@ -3,7 +3,7 @@
 // complete (their completion would re-fire onChildCompletion → infinite loop).
 
 import { describe, expect, test } from 'bun:test';
-import { shouldFireReviewOnDelegation } from '../../src/runtime/scheduler.js';
+import { shouldFireReviewOnDelegation } from '@yevgetman/sov-sdk/runtime/scheduler';
 
 describe('shouldFireReviewOnDelegation — recursion guard', () => {
   test('returns true for non-review agents that completed', () => {

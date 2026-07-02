@@ -2,9 +2,9 @@
 // surfaces (no picker — pickers need a TTY and are exercised via
 // the live REPL). Run with: bun run tests/_smoke/wave2-smoke.ts
 
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import chalk from 'chalk';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
-import type { Skill } from '../../src/skills/types.js';
 import { makeCtx } from '../commands/_makeCtx.js';
 
 const fakeSkill = (name: string, description: string, source: Skill['source']): Skill => ({

@@ -12,29 +12,29 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
+import {
+  type MicrocompactConfig,
+  buildMicrocompactConfig,
+} from '@yevgetman/sov-sdk/compact/microcompact';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  SystemSegment,
+} from '@yevgetman/sov-sdk/core/types';
+import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
-import { createAgent } from '../../src/agent/createAgent.js';
 import { runMissionInit } from '../../src/cli/missionInit.js';
 import {
   normalizePerWakeTurnBudget,
   resolveWakeMaxTurns,
   runMissionWake,
 } from '../../src/cli/missionRun.js';
-import {
-  type MicrocompactConfig,
-  buildMicrocompactConfig,
-} from '../../src/compact/microcompact.js';
-import { query } from '../../src/core/query.js';
-import type {
-  AssistantMessage,
-  Message,
-  StreamEvent,
-  SystemSegment,
-} from '../../src/core/types.js';
-import type { CanUseTool } from '../../src/permissions/types.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
-import { buildTool } from '../../src/tool/buildTool.js';
-import type { Tool, ToolContext } from '../../src/tool/types.js';
 
 const MAIN_TS = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/main.ts');
 

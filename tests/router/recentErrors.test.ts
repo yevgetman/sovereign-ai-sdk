@@ -7,8 +7,8 @@
 // `frontier` once the threshold is crossed.
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, Message, StreamEvent } from '../../src/core/types.js';
-import type { LLMProvider, ProviderRequest } from '../../src/providers/types.js';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { RouterProvider } from '../../src/router/provider.js';
 import type { RouterConfig } from '../../src/router/types.js';
 

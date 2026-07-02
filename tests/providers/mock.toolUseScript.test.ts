@@ -11,9 +11,14 @@
 // The script cursor is a static field; each test resets it in `afterEach`.
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { AssistantMessage, ContentBlock, Message, StreamEvent } from '../../src/core/types.js';
-import { MockProvider, type ToolCallScript } from '../../src/providers/mock.js';
-import type { ProviderRequest } from '../../src/providers/types.js';
+import type {
+  AssistantMessage,
+  ContentBlock,
+  Message,
+  StreamEvent,
+} from '@yevgetman/sov-sdk/core/types';
+import { MockProvider, type ToolCallScript } from '@yevgetman/sov-sdk/providers/mock';
+import type { ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 
 function baseRequest(messages: Message[]): ProviderRequest {
   return {

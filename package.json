@@ -7,8 +7,7 @@
   "type": "module",
   "module": "src/main.ts",
   "exports": {
-    ".": "./src/main.ts",
-    "./sdk": "./src/sdk.ts"
+    ".": "./src/main.ts"
   },
   "bin": {
     "sov": "./src/main.ts",
@@ -30,7 +29,7 @@
     "eval:website": "bun src/evals/websiteBuildEval.ts",
     "eval:learning": "bun run src/learning-layer/eval/runner.ts",
     "eval:synthesis-audit": "bun run src/learning-layer/eval/synthesisAudit.ts",
-    "boundary": "bun --bun depcruise src --config .dependency-cruiser.cjs",
+    "boundary": "bun --bun depcruise packages/sdk/src packages/protocol/src --config .dependency-cruiser.cjs",
     "test": "bun test --timeout 20000",
     "test:semantic": "bun tests/semantic/run.ts",
     "lint": "biome check src tests packages && bun run boundary",

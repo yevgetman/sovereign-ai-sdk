@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
+import { buildSkillCommands } from '@yevgetman/sov-sdk/skills/commands';
+import type { Skill, SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
 import {
   COMMANDS,
   COMMAND_REGISTRY,
@@ -9,9 +12,6 @@ import {
   dispatchSlashCommand,
   parseSlashCommand,
 } from '../../src/commands/registry.js';
-import type { CommandContext } from '../../src/commands/types.js';
-import { buildSkillCommands } from '../../src/skills/commands.js';
-import type { Skill, SkillRegistry } from '../../src/skills/types.js';
 import { makeCtx as baseMakeCtx } from './_makeCtx.js';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
