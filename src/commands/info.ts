@@ -7,6 +7,8 @@
 import { spawnSync } from 'node:child_process';
 import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import { formatBudgetReport } from '@yevgetman/sov-sdk/context/budget';
+import { safeStaticToolDescription } from '@yevgetman/sov-sdk/tool/staticDescription';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import chalk from 'chalk';
 import { boxify } from '../ui/box.js';
 import { renderSessionSummary } from '../ui/sessionSummary.js';
@@ -162,19 +164,16 @@ export function formatTools(ctx: CommandContext): string {
   return lines.join('\n');
 }
 
-/** Synchronously describe a tool. Tool.description takes the tool input
- *  (some tools customize their description per call); for the listing
- *  we pass an empty object — most tools ignore it and return their
- *  static description. Async description() is treated as no-op since
- *  /tools needs to render synchronously. */
-function describeTool(tool: { description: (input: unknown) => string | Promise<string> }): string {
-  try {
-    const result = tool.description({});
-    if (typeof result !== 'string') return '';
-    return result.split('\n')[0] ?? '';
-  } catch {
-    return '';
-  }
+/** Synchronously describe a tool for the /tools listing. Delegates to the SDK's
+ *  shared `safeStaticToolDescription`, the single guard for resolving a
+ *  `(input) => string | Promise<string>` description in a synchronous context:
+ *  it degrades a throwing / async / non-string description to the tool name and
+ *  — critically — attaches a no-op `.catch()` to any returned Promise so an
+ *  async-REJECTING description can never surface as an unhandled rejection that
+ *  crashes the process (the class the SDK closed at its four static call sites;
+ *  this render helper is the fifth). We keep only the first line for the listing. */
+function describeTool(tool: Tool<unknown, unknown>): string {
+  return safeStaticToolDescription(tool).split('\n')[0] ?? '';
 }
 
 export function formatSkills(ctx: CommandContext): string {

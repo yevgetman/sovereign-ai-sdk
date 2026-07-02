@@ -790,8 +790,44 @@ function isGitRemoteReadOnly(subArgs: string[]): boolean {
 // dual-mode fix, which left the always-read subcommands trusting every arg.)
 const GIT_OUTPUT_FILE_FLAG: FlagFamily = { long: ['--output'] };
 
+// git's GLOBAL options (parsed by git.c's handle_options BEFORE the subcommand)
+// that take a SPACE-SEPARATED bareword operand — the NEXT token, which does NOT
+// start with '-'. A naive "first token not starting with '-' is the subcommand"
+// scan misreads that operand AS the subcommand: set it to a read-subcommand name
+// (`git -C log checkout -- f.txt`) and the REAL destructive subcommand
+// (`checkout`) is hidden, so the segment auto-approves as read under `allow
+// Read` while git actually discards work. The attached forms (`--git-dir=…`,
+// `-c name=val` bundled) already start with '-' and are handled by the ordinary
+// leading-flag skip; the GAP is only the space-separated operand, so each of
+// these ALSO consumes its following token. (round-7 [HIGH])
+const GIT_GLOBAL_VALUE_OPTIONS = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--super-prefix',
+  '--attr-source',
+  '--config-env',
+]);
+
+// Index of the TRUE subcommand: the first bareword that is NOT the operand of a
+// leading value-taking global option. Boolean global flags (`--no-pager`, `-p`,
+// `--bare`, …) and attached value forms (`--git-dir=d`) are skipped one token at
+// a time; a recognized value-option consumes its space-separated operand too.
+// Returns -1 when only global options are present (bare `git`). (round-7)
+function gitSubcommandIndex(args: string[]): number {
+  let i = 0;
+  while (i < args.length) {
+    const tok = args[i] as string;
+    if (!tok.startsWith('-')) return i;
+    i += GIT_GLOBAL_VALUE_OPTIONS.has(tok) ? 2 : 1;
+  }
+  return -1;
+}
+
 function analyzeGitCommand(args: string[]): VirtualOperation {
-  const subIndex = args.findIndex((a) => !a.startsWith('-'));
+  const subIndex = gitSubcommandIndex(args);
   if (subIndex === -1) return { kind: 'read', paths: [] };
   const sub = args[subIndex] as string;
   const subArgs = args.slice(subIndex + 1);
@@ -827,6 +863,15 @@ function analyzeGitCommand(args: string[]): VirtualOperation {
     // `--output=<file>` / `--output <file>` flag, so it is NOT read-only when
     // present. Fail closed to a prompt. (round-4 E1)
     if (subArgs.some((a) => matchesFlagFamily(a, GIT_OUTPUT_FILE_FLAG))) {
+      return { kind: 'exec', command: `git ${sub}` };
+    }
+    // Defense-in-depth (round-7): a read subcommand trailed by a BARE
+    // write-subcommand token is the fingerprint of a real subcommand hidden
+    // behind a global value-option this parser does not yet consume (a future
+    // git global option). Fail closed to a prompt rather than trust the read.
+    // Only an exact bare match trips it (`checkout`), never a path/ref carrying
+    // the name (`origin/checkout`, `checkout.md`), so legit reads keep flowing.
+    if (subArgs.some((a) => !a.startsWith('-') && GIT_WRITE_SUBCOMMANDS.has(a))) {
       return { kind: 'exec', command: `git ${sub}` };
     }
     return { kind: 'read', paths: [] };

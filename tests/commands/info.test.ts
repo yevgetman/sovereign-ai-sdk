@@ -3,6 +3,7 @@
 // also exercise the registry wiring (alias resolution, dispatch flow).
 
 import { describe, expect, test } from 'bun:test';
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import chalk from 'chalk';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
@@ -61,6 +62,38 @@ describe('/tools', () => {
     const result = await dispatchSlashCommand('/tools', makeCtx());
     if (result.kind !== 'local') throw new Error('expected local');
     expect(strip(result.output)).toContain('no tools registered');
+  });
+
+  // Round-7 [HIGH] — the /tools render helper resolved each tool's description
+  // synchronously and, on a Promise return, dropped it WITHOUT a `.catch()`.
+  // A third-party tool whose async description rejects on the sentinel input
+  // left an unhandled promise rejection that terminates the process (exit 1 on
+  // Node ≥15 AND bun). /tools must render without crashing, degrading the entry
+  // to the tool name (never leaking the rejection).
+  test('does not crash on a tool whose async description rejects', async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (err: unknown): void => {
+      rejections.push(err);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const badTool = {
+        name: 'boomtool',
+        description: async (): Promise<string> => {
+          throw new Error('async description boom');
+        },
+      } as unknown as CommandContext['tools'][number];
+      const ctx = makeCtx({ tools: [badTool] });
+      const result = await dispatchSlashCommand('/tools', ctx);
+      if (result.kind !== 'local') throw new Error('expected local');
+      // Let any dropped rejection surface on the macrotask queue.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(rejections).toEqual([]);
+      // The tool still lists (degraded to its name), never crashing.
+      expect(strip(result.output)).toContain('boomtool');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 });
 

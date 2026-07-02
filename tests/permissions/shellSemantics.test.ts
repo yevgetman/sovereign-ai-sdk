@@ -455,6 +455,53 @@ describe('isShellCommandReadOnly', () => {
     });
   });
 
+  // Round-7 [HIGH] — git's GLOBAL options that precede the subcommand and take
+  // a SPACE-SEPARATED bareword operand (`-C <path>`, `--git-dir <path>`,
+  // `--work-tree <path>`, `--namespace <name>`, `--super-prefix <path>`,
+  // `--attr-source <tree>`, `-c <name=value>`, `--config-env <name=env>`) were
+  // not consumed: the old "first token not starting with '-'" scan misread the
+  // operand as the subcommand. An attacker sets the operand to a READ-subcommand
+  // name so the REAL destructive subcommand that follows is hidden — e.g.
+  // `git -C log checkout -- f.txt` reads `log` (READ) while git actually runs
+  // `git checkout -- f.txt` and DESTROYS uncommitted work. Under `allow Read`
+  // these auto-approved with no prompt. Fix: parse the global options (consuming
+  // each value-option's operand) FIRST, then classify the true subcommand;
+  // defense-in-depth also fails a read subcommand closed when a bare
+  // write-subcommand token trails it (the fingerprint of a subcommand hidden
+  // behind an UNHANDLED global value-option).
+  describe('git global value-options no longer hide the subcommand (round-7)', () => {
+    test('a read-subcommand-name operand hiding a real WRITE subcommand is NOT read-only', () => {
+      expect(isShellCommandReadOnly('git -C log checkout -- f.txt')).toBe(false);
+      expect(isShellCommandReadOnly('git -C log reset --hard HEAD')).toBe(false);
+      expect(isShellCommandReadOnly('git -C diff clean -fdx')).toBe(false);
+      expect(isShellCommandReadOnly('git -C show push origin main')).toBe(false);
+      expect(isShellCommandReadOnly('git --namespace log checkout main')).toBe(false);
+      expect(isShellCommandReadOnly('git --git-dir log push origin main')).toBe(false);
+      expect(isShellCommandReadOnly('git --work-tree log checkout main')).toBe(false);
+      expect(isShellCommandReadOnly('git --super-prefix log checkout main')).toBe(false);
+      expect(isShellCommandReadOnly('git --attr-source log checkout main')).toBe(false);
+      // -c takes a name=value operand; the true subcommand behind it is a write.
+      expect(isShellCommandReadOnly('git -c user.name=x commit -m y')).toBe(false);
+    });
+    // Defense-in-depth: even when the value-option operand is NOT a read-subcommand
+    // name, a bare write-subcommand token trailing a read subcommand fails closed
+    // (guards against a value-option this parser does not yet consume).
+    test('a bare write-subcommand token trailing a read subcommand fails closed', () => {
+      expect(isShellCommandReadOnly('git --namespace x log checkout main')).toBe(false);
+      expect(isShellCommandReadOnly('git --git-dir d log push origin main')).toBe(false);
+      expect(isShellCommandReadOnly('git -c user.name=x log commit -m y')).toBe(false);
+    });
+    test('legit reads with a value-option operand stay read-only (no over-prompt)', () => {
+      expect(isShellCommandReadOnly('git -C /path log --oneline')).toBe(true);
+      expect(isShellCommandReadOnly('git -C /path status')).toBe(true);
+      expect(isShellCommandReadOnly('git --git-dir=d log')).toBe(true); // attached
+      expect(isShellCommandReadOnly('git --git-dir d log')).toBe(true); // space-separated
+      expect(isShellCommandReadOnly('git -c core.pager=less log')).toBe(true);
+      expect(isShellCommandReadOnly('git log --oneline')).toBe(true);
+      expect(isShellCommandReadOnly('git status')).toBe(true);
+    });
+  });
+
   // Audit F24 [LOW] — `date -s`/`--set` writes the system clock; only a
   // plain `date` read/format is read-only. D12 — the BSD/macOS positional
   // form `date [[[[cc]yy]mm]dd]HH]MM[.ss]` also sets the clock.
