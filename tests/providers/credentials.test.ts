@@ -1,7 +1,8 @@
 // Credential pool and rate-limit guard tests.
 
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CredentialPool } from '@yevgetman/sov-sdk/providers/credentials/pool';
@@ -383,5 +384,40 @@ describe('RateLimitGuard', () => {
     await guard.beforeRequest(signal);
 
     expect(abortListeners.size).toBe(0);
+  });
+});
+
+// C2: merely IMPORTING the SDK must not touch disk. The credential pool used to
+// eager-eval `DEFAULT_CREDENTIAL_STATE_PATH = getDefaultCredentialStatePath()`
+// at module load, which calls resolveHarnessHome() → unconditional
+// mkdirSync(HARNESS_HOME). Because createAgent → resolver → pool, importing the
+// SDK created (or, under a read-only home, THREW on) HARNESS_HOME before any
+// run() — defeating the no-disk contract. The eager const is removed.
+describe('SDK import is disk-free (no import-time HARNESS_HOME mkdir)', () => {
+  const REPO_ROOT = join(import.meta.dir, '..', '..');
+
+  test('importing the SDK barrel neither creates HARNESS_HOME nor throws', () => {
+    const base = mkdtempSync(join(tmpdir(), 'sov-import-home-'));
+    // A child path that deliberately does NOT exist: a disk-free import must
+    // leave it uncreated even though HARNESS_HOME points at it.
+    const freshHome = join(base, 'nonexistent-home');
+    try {
+      const result = spawnSync('bun', ['-e', "await import('@yevgetman/sov-sdk')"], {
+        cwd: REPO_ROOT,
+        env: { ...process.env, HARNESS_HOME: freshHome },
+        encoding: 'utf-8',
+      });
+      // No throw at import time (the eager const used to mkdir here).
+      expect(result.status).toBe(0);
+      // No disk touch: HARNESS_HOME was never created by the import.
+      expect(existsSync(freshHome)).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('credentials/pool no longer exports the eager DEFAULT_CREDENTIAL_STATE_PATH const', async () => {
+    const poolModule = await import('@yevgetman/sov-sdk/providers/credentials/pool');
+    expect('DEFAULT_CREDENTIAL_STATE_PATH' in poolModule).toBe(false);
   });
 });

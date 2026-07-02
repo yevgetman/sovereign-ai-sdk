@@ -62,9 +62,11 @@ export function getDefaultCredentialStatePath(): string {
   return join(resolveHarnessHome(), 'credentials.json');
 }
 
-/** @deprecated Eager const; profile-aware callers should use
- *  `getDefaultCredentialStatePath()`. Retained for backward compat. */
-export const DEFAULT_CREDENTIAL_STATE_PATH = getDefaultCredentialStatePath();
+// NB: no eager module-level default-path const. Resolving it at import time
+// called resolveHarnessHome() → unconditional mkdirSync(HARNESS_HOME), so
+// merely importing the SDK (createAgent → resolver → pool) touched disk before
+// any run() — and threw under a read-only home. Callers resolve lazily via
+// getDefaultCredentialStatePath() instead (audit C2 — no import-time disk).
 const DEFAULT_COOLDOWN_SECONDS = 60 * 60;
 /** A 401/403 is auto-deny-worthy but not necessarily permanent (transient
  *  proxy/org 403, or a key the user is about to rotate). Lock out for a bounded

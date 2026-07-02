@@ -163,6 +163,42 @@ describe('resolveShaSuffix (ownership gate)', () => {
     }
   });
 
+  // C8 (F17-19 sibling): a consumer monorepo with a BROAD workspaces glob
+  // (`packages/*`) that vendors the SDK source as a first-class workspace
+  // member (NOT under node_modules) makes the workspace-membership ownership
+  // test pass — so the previous gate emitted the CONSUMER's private HEAD. The
+  // ownership test must instead require the SDK's OWN canonical layout.
+  test('vendored as a WORKSPACE MEMBER of a consumer monorepo (broad glob) yields NO sha suffix', () => {
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'sov-version-ws-member-')));
+    try {
+      const consumerSha = initScratchGitRepo(scratch);
+      // The SDK source vendored as a workspace package — NOT node_modules.
+      const pkgRoot = join(scratch, 'packages', 'sov-sdk');
+      const pkgDir = join(pkgRoot, 'src');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgRoot, 'package.json'),
+        JSON.stringify({ name: '@yevgetman/sov-sdk', version: '0.1.0' }),
+      );
+      // The broad glob makes the vendored path a workspace member of the
+      // consumer's own repo — the exact layout the old gate mis-owned.
+      writeFileSync(
+        join(scratch, 'package.json'),
+        JSON.stringify({ name: 'consumer-monorepo', version: '9.9.9', workspaces: ['packages/*'] }),
+      );
+
+      const suffix = resolveShaSuffix(pkgDir, pkgRoot);
+
+      // RED before fix: gitToplevelOwnsSdk matched the workspace glob and
+      // gitShortHead ran in the consumer repo → leaked consumerSha.
+      expect(suffix).toBeNull();
+      expect(suffix).not.toBe(consumerSha);
+      expect(composeVersion('0.1.0', suffix)).toBe('0.1.0');
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   test("the SDK's own source checkout still resolves a live sha suffix (no dev regression)", () => {
     // The live dev layout: PKG_DIR = packages/sdk/src, package root =
     // packages/sdk, both owned by the enclosing monorepo git worktree.

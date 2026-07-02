@@ -72,7 +72,12 @@ function describeToStatic(tool: Tool<unknown, unknown>): string {
       // Lazily-async descriptions aren't supported yet — fall back to the name.
       return tool.name;
     }
-    return result;
+    // Fail CLOSED on a non-string return (a misbehaving consumer description
+    // returning a number/object/null): degrade to the tool name rather than
+    // leaking the raw value into the provider `tools[].description`, which the
+    // model request rejects at the API boundary. Mirrors the sibling guard in
+    // tools/ToolSearchTool.ts (describeStatic).
+    return typeof result === 'string' ? result : tool.name;
   } catch {
     return tool.name;
   }
