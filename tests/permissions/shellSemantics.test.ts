@@ -391,6 +391,34 @@ describe('isShellCommandReadOnly', () => {
     });
   });
 
+  // Round-4 E1 [HIGH] — the ALWAYS-READ git subcommands (diff/log/show/shortlog/
+  // blame) honor the diff-pipeline `--output=<file>` / `--output <file>` flag,
+  // which CREATES/TRUNCATES an arbitrary file. Returning read for every arg
+  // auto-approved `git diff --output=PRECIOUS.txt` under `allow Read` while
+  // clobbering the target (empirically reproduced, git 2.50.1). The output-file
+  // flag must fail closed to a prompt — sibling of the F2 dual-mode fix, which
+  // rebuilt fail-closed parsing for config/stash/branch/tag/remote but left the
+  // always-read subcommands trusting every arg.
+  describe('git read-subcommands with --output=<file> are NOT read-only (E1)', () => {
+    test('--output=<file> and space-separated --output <file> are NOT read-only', () => {
+      expect(isShellCommandReadOnly('git diff --output=x')).toBe(false);
+      expect(isShellCommandReadOnly('git diff --output x')).toBe(false);
+      expect(isShellCommandReadOnly('git log --output=x')).toBe(false);
+      expect(isShellCommandReadOnly('git show --output=x')).toBe(false);
+      expect(isShellCommandReadOnly('git shortlog --output=x')).toBe(false);
+      expect(isShellCommandReadOnly('git blame --output=x f.txt')).toBe(false);
+    });
+    // No over-prompt: legit reads of the same subcommands stay read.
+    test('legit reads stay read-only (no over-prompt regression)', () => {
+      expect(isShellCommandReadOnly('git diff HEAD~1')).toBe(true);
+      expect(isShellCommandReadOnly('git diff --stat')).toBe(true);
+      expect(isShellCommandReadOnly('git log --oneline')).toBe(true);
+      expect(isShellCommandReadOnly('git show HEAD')).toBe(true);
+      expect(isShellCommandReadOnly('git blame f.txt')).toBe(true);
+      expect(isShellCommandReadOnly('git shortlog -sn')).toBe(true);
+    });
+  });
+
   // Audit F24 [LOW] — `date -s`/`--set` writes the system clock; only a
   // plain `date` read/format is read-only. D12 — the BSD/macOS positional
   // form `date [[[[cc]yy]mm]dd]HH]MM[.ss]` also sets the clock.

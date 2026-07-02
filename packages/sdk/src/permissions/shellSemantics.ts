@@ -519,6 +519,17 @@ function isGitRemoteReadOnly(subArgs: string[]): boolean {
   return GIT_REMOTE_READ_SUBCOMMANDS.has(first);
 }
 
+// The ALWAYS-READ subcommands (diff/log/show/shortlog/blame — the diff family)
+// honor `--output=<file>` / `--output <file>`, which CREATES/TRUNCATES an
+// arbitrary file: a write masquerading as a read. An always-read subcommand
+// trusting every arg auto-approved `git diff --output=PRECIOUS.txt` under
+// `allow Read` while clobbering the target (reproduced, git 2.50.1). The long
+// matcher covers `--output` and its inline `--output=v`; a space-separated
+// `--output f` still matches on the `--output` token itself. Fail closed to a
+// prompt on ANY read subcommand carrying it. (round-4 E1 — sibling of the F2
+// dual-mode fix, which left the always-read subcommands trusting every arg.)
+const GIT_OUTPUT_FILE_FLAG: FlagFamily = { long: ['--output'] };
+
 function analyzeGitCommand(args: string[]): VirtualOperation {
   const subIndex = args.findIndex((a) => !a.startsWith('-'));
   if (subIndex === -1) return { kind: 'read', paths: [] };
@@ -551,7 +562,15 @@ function analyzeGitCommand(args: string[]): VirtualOperation {
         : { kind: 'exec', command: 'git remote' };
   }
 
-  if (GIT_READ_SUBCOMMANDS.has(sub)) return { kind: 'read', paths: [] };
+  if (GIT_READ_SUBCOMMANDS.has(sub)) {
+    // Even an always-read subcommand writes a file via the diff-pipeline
+    // `--output=<file>` / `--output <file>` flag, so it is NOT read-only when
+    // present. Fail closed to a prompt. (round-4 E1)
+    if (subArgs.some((a) => matchesFlagFamily(a, GIT_OUTPUT_FILE_FLAG))) {
+      return { kind: 'exec', command: `git ${sub}` };
+    }
+    return { kind: 'read', paths: [] };
+  }
   if (GIT_WRITE_SUBCOMMANDS.has(sub)) return { kind: 'write', paths: [] };
   return { kind: 'exec', command: `git ${sub}` };
 }
