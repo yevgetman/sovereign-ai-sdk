@@ -18,13 +18,7 @@
 //
 // Surfaces named in §5.1 but NOT yet exported here (added by later tasks — they
 // either do not exist as an open module yet or live in a proprietary file):
-//   - the delegation port (`Scheduler`/`delegate`, `DelegateInput`/`DelegateResult`,
-//     the `runSubprocessExecutor` port types, `LaneRegistry`,
-//     `DelegationLifecycleEvent`) — delegation-surface task;
-//   - canonical tool descriptors — subscription-executor task;
-//   - the MCP pool/factory port — MCP-pool task;
-//   - `buildToolScope` (skill-scoping) — still lives in proprietary
-//     `src/commands/toolScope.ts`; cannot be re-exported from an OPEN barrel.
+//   - canonical tool descriptors — subscription-executor task.
 
 // ── Agent loop (core/) ──────────────────────────────────────────────────────
 export { query } from './core/query.js';
@@ -67,6 +61,40 @@ export type {
   ReviewManagerPort,
   TaskManagerPort,
 } from './tool/ports.js';
+// Turn-scoped tool restrictions (skill/command scoping) — relocated OPEN to
+// src/tool/toolScope.ts (formerly proprietary-by-location src/commands/).
+export { buildToolScope } from './tool/toolScope.js';
+export type { ToolScope } from './tool/toolScope.js';
+
+// ── Delegation (runtime/scheduler + the executor / lane ports) ──────────────
+// `SubagentScheduler` is the open in-process child-spawn implementation;
+// `Scheduler` is the narrow port the workflow engine (and any embedder)
+// consumes — delegate() + agentNames() only.
+export { SubagentScheduler } from './runtime/scheduler.js';
+export type {
+  DelegateInput,
+  DelegateResult,
+  Scheduler,
+  SubagentSchedulerOpts,
+} from './runtime/scheduler.js';
+// The subscription-executor PORT contract (the impl stays proprietary; the
+// composition root injects it as `RunSubprocessExecutor`).
+export type {
+  LearningSink,
+  RunSubprocessExecutor,
+  RunSubprocessExecutorOpts,
+  SpawnFn,
+  SpawnOpts,
+  SpawnedProc,
+  SubprocessExecutorResult,
+  TraceSink,
+} from './runtime/executorPort.js';
+// Relocated pure delegation DTOs (the open homes of the router/review shapes).
+export type {
+  ChildCompletionEvent,
+  DelegationLifecycleEvent,
+  LaneRegistry,
+} from './tool/ports.js';
 
 // ── Providers (providers/) ──────────────────────────────────────────────────
 export { resolveProvider } from './providers/resolver.js';
@@ -74,9 +102,9 @@ export type { ResolvedProvider } from './providers/resolver.js';
 export type { LLMProvider } from './providers/types.js';
 export type { ReasoningEffort } from './providers/effort.js';
 
-// ── MCP (mcp/) — client entrypoint + public types (pool port is a later task) ─
+// ── MCP (mcp/) — client entrypoint, pool-factory port + public types ────────
 export { buildMcpClientPool } from './mcp/client.js';
-export type { BuildMcpClientPoolOpts } from './mcp/client.js';
+export type { BuildMcpClientPoolOpts, McpClientPoolFactory } from './mcp/client.js';
 export { isRemoteMcpConfig } from './mcp/types.js';
 export type {
   McpCallResult,

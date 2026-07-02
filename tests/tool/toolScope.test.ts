@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { buildToolScope, filterParseableRules } from '../../src/commands/toolScope.js';
 import type { CanUseTool } from '../../src/permissions/types.js';
+import { buildToolScope, filterParseableRules } from '../../src/tool/toolScope.js';
 import type { Tool, ToolContext } from '../../src/tool/types.js';
 import { BashTool } from '../../src/tools/BashTool.js';
 import { FileReadTool } from '../../src/tools/FileReadTool.js';

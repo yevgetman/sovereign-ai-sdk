@@ -22,7 +22,10 @@ import { z } from 'zod';
 import type { ProviderRequest as Req } from '../../src/providers/types.js';
 // IMPORTANT: import from the BARREL, not the deep modules — that is the proof.
 import {
+  SubagentScheduler,
+  buildMcpClientPool,
   buildTool,
+  buildToolScope,
   createAgent,
   createInMemorySessionStore,
   createNoopTranscriptStore,
@@ -35,15 +38,32 @@ import type {
   AgentConfig,
   AssistantMessage,
   CanUseTool,
+  ChildCompletionEvent,
+  DelegateInput,
+  DelegateResult,
+  DelegationLifecycleEvent,
   LLMProvider,
+  LaneRegistry,
+  LearningSink,
+  McpClientPoolFactory,
   Message,
   PerTurn,
   RunResult,
+  RunSubprocessExecutor,
+  RunSubprocessExecutorOpts,
+  Scheduler,
   SessionStore,
+  SpawnFn,
+  SpawnOpts,
+  SpawnedProc,
   StreamEvent,
+  SubagentSchedulerOpts,
+  SubprocessExecutorResult,
   SystemSegment,
   Tool,
   ToolContext,
+  ToolScope,
+  TraceSink,
   TranscriptStore,
 } from '../../src/sdk.js';
 
@@ -210,6 +230,50 @@ describe('sdk barrel — Contract #1 importability', () => {
     // (CanUseTool, SystemSegment, ToolContext, Message, etc.): if any were
     // missing from the barrel, this file would not typecheck.
     const _typeWitness: [CanUseTool?, SystemSegment?, ToolContext?, Message?] = [];
+    expect(_typeWitness).toEqual([]);
+  });
+
+  test('the delegation / MCP-factory / tool-scope surface is on the barrel (Task 2.5)', () => {
+    // New value exports are live bindings.
+    expect(typeof SubagentScheduler).toBe('function');
+    expect(typeof buildToolScope).toBe('function');
+
+    // `SubagentScheduler` satisfies the narrow `Scheduler` port (the named form
+    // of the `Pick<SubagentScheduler, 'delegate' | 'agentNames'>` surface the
+    // workflow engine consumes) — typecheck-only witness.
+    const schedulerWitness: Scheduler = {} as SubagentScheduler;
+    expect(typeof schedulerWitness).toBe('object');
+
+    // `buildMcpClientPool` satisfies the injectable pool-factory port.
+    const factoryWitness: McpClientPoolFactory = buildMcpClientPool;
+    expect(typeof factoryWitness).toBe('function');
+
+    // `buildToolScope` returns the exported `ToolScope` shape.
+    const scope: ToolScope = buildToolScope({
+      allowedTools: undefined,
+      tools: [],
+      canUseTool: async () => ({ behavior: 'allow' as const }),
+    });
+    expect(scope.tools).toEqual([]);
+
+    // Type-only surface (typecheck-only witness): the delegation port DTOs, the
+    // subscription-executor port contract, and the relocated router/review DTOs.
+    const _typeWitness: [
+      ChildCompletionEvent?,
+      DelegateInput?,
+      DelegateResult?,
+      DelegationLifecycleEvent?,
+      LaneRegistry?,
+      LearningSink?,
+      RunSubprocessExecutor?,
+      RunSubprocessExecutorOpts?,
+      SpawnFn?,
+      SpawnOpts?,
+      SpawnedProc?,
+      SubagentSchedulerOpts?,
+      SubprocessExecutorResult?,
+      TraceSink?,
+    ] = [];
     expect(_typeWitness).toEqual([]);
   });
 });

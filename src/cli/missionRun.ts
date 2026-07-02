@@ -12,7 +12,6 @@ import { createAgent } from '../agent/createAgent.js';
 import { loadAgents } from '../agents/loader.js';
 import { getDefaultBundlePath } from '../bundle/defaultBundle.js';
 import { loadBundleIfPresent } from '../bundle/loader.js';
-import { buildToolScope } from '../commands/toolScope.js';
 import { buildMicrocompactConfig } from '../compact/microcompact.js';
 import { resolveHarnessHome } from '../config/paths.js';
 import { readConfig } from '../config/store.js';
@@ -33,6 +32,7 @@ import {
 } from '../mission/state.js';
 import { resolveProvider } from '../providers/resolver.js';
 import { assembleToolPool } from '../tool/registry.js';
+import { buildToolScope } from '../tool/toolScope.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 
 const MISSION_AGENT_NAME = 'scheduled-mission';

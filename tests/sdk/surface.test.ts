@@ -28,13 +28,20 @@ import type {
   BuildMcpClientPoolOpts,
   BuildToolContextInput,
   CanUseTool,
+  ChildCompletionEvent,
   ContentBlock,
+  DelegateInput,
+  DelegateResult,
+  DelegationLifecycleEvent,
   HookRunner,
   LLMProvider,
+  LaneRegistry,
   LearningObserverPort,
+  LearningSink,
   LoadSkillsOptions,
   McpCallResult,
   McpClientPool,
+  McpClientPoolFactory,
   McpHttpServerConfig,
   McpRemoteServerFields,
   McpServerConfig,
@@ -59,14 +66,22 @@ import type {
   ResolvedProvider,
   ReviewManagerPort,
   RunResult,
+  RunSubprocessExecutor,
+  RunSubprocessExecutorOpts,
+  Scheduler,
   SessionStore,
   Skill,
   SkillExpansionOptions,
   SkillRegistry,
   SkillSource,
   SkillTrustTier,
+  SpawnFn,
+  SpawnOpts,
+  SpawnedProc,
   StopReason,
   StreamEvent,
+  SubagentSchedulerOpts,
+  SubprocessExecutorResult,
   SystemSegment,
   TaskManagerPort,
   Terminal,
@@ -75,7 +90,9 @@ import type {
   ToolContext,
   ToolDef,
   ToolObservation,
+  ToolScope,
   TraceEvent,
+  TraceSink,
   TranscriptStore,
   UserMessage,
 } from '../../src/sdk.js';
@@ -84,11 +101,13 @@ import type {
  *  export in src/sdk.ts must update THIS list in the same commit. Sorted to
  *  match `Object.keys(...).sort()` (enumeration order is not guaranteed). */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
+  'SubagentScheduler',
   'buildHookRunner',
   'buildMcpClientPool',
   'buildSkillCommands',
   'buildTool',
   'buildToolContext',
+  'buildToolScope',
   'createAgent',
   'createInMemorySessionStore',
   'createNoopTranscriptStore',
@@ -134,13 +153,20 @@ type TypeSurfaceWitness = {
   buildMcpClientPoolOpts?: BuildMcpClientPoolOpts;
   buildToolContextInput?: BuildToolContextInput;
   canUseTool?: CanUseTool;
+  childCompletionEvent?: ChildCompletionEvent;
   contentBlock?: ContentBlock;
+  delegateInput?: DelegateInput;
+  delegateResult?: DelegateResult;
+  delegationLifecycleEvent?: DelegationLifecycleEvent;
   hookRunner?: HookRunner;
+  laneRegistry?: LaneRegistry;
   learningObserverPort?: LearningObserverPort;
+  learningSink?: LearningSink;
   llmProvider?: LLMProvider;
   loadSkillsOptions?: LoadSkillsOptions;
   mcpCallResult?: McpCallResult;
   mcpClientPool?: McpClientPool;
+  mcpClientPoolFactory?: McpClientPoolFactory;
   mcpHttpServerConfig?: McpHttpServerConfig;
   mcpRemoteServerFields?: McpRemoteServerFields;
   mcpServerConfig?: McpServerConfig;
@@ -165,14 +191,22 @@ type TypeSurfaceWitness = {
   resolvedProvider?: ResolvedProvider;
   reviewManagerPort?: ReviewManagerPort;
   runResult?: RunResult;
+  runSubprocessExecutor?: RunSubprocessExecutor;
+  runSubprocessExecutorOpts?: RunSubprocessExecutorOpts;
+  scheduler?: Scheduler;
   sessionStore?: SessionStore;
   skill?: Skill;
   skillExpansionOptions?: SkillExpansionOptions;
   skillRegistry?: SkillRegistry;
   skillSource?: SkillSource;
   skillTrustTier?: SkillTrustTier;
+  spawnedProc?: SpawnedProc;
+  spawnFn?: SpawnFn;
+  spawnOpts?: SpawnOpts;
   stopReason?: StopReason;
   streamEvent?: StreamEvent;
+  subagentSchedulerOpts?: SubagentSchedulerOpts;
+  subprocessExecutorResult?: SubprocessExecutorResult;
   systemSegment?: SystemSegment;
   taskManagerPort?: TaskManagerPort;
   terminal?: Terminal;
@@ -181,7 +215,9 @@ type TypeSurfaceWitness = {
   toolContext?: ToolContext;
   toolDef?: ToolDef<unknown, unknown>;
   toolObservation?: ToolObservation;
+  toolScope?: ToolScope;
   traceEvent?: TraceEvent;
+  traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;
   userMessage?: UserMessage;
 };

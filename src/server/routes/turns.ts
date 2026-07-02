@@ -23,7 +23,6 @@ import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol'
 import { Hono } from 'hono';
 import { createAgent } from '../../agent/createAgent.js';
 import { type PersistMessageHost, persistMessage } from '../../agent/persistMessage.js';
-import { buildToolScope, filterParseableRules } from '../../commands/toolScope.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { appendProjectLocalPermissionRule, loadPermissionSettings } from '../../config/settings.js';
 import { readConfig } from '../../config/store.js';
@@ -48,6 +47,7 @@ import {
 } from '../../router/progressEvents.js';
 import { expandSkillPrompt } from '../../skills/loader.js';
 import { buildToolContext } from '../../tool/buildToolContext.js';
+import { buildToolScope, filterParseableRules } from '../../tool/toolScope.js';
 import type { RenderHint, Tool, ToolContext } from '../../tool/types.js';
 import type { TraceEvent } from '../../trace/types.js';
 import type { AppVariables } from '../auth.js';

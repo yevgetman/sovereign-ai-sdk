@@ -212,7 +212,17 @@ export type DelegateResult = {
   durationMs: number;
 };
 
-export class SubagentScheduler {
+/** The narrow delegation PORT (Contract #1) — the named form of the
+ *  `Pick<SubagentScheduler, 'delegate' | 'agentNames'>` surface the workflow
+ *  engine consumes (src/workflows/host.ts). `SubagentScheduler` is the open
+ *  in-process implementation (the `implements` clause pins the fit at compile
+ *  time); an embedder may supply any object with the same two members. */
+export interface Scheduler {
+  delegate(input: DelegateInput): Promise<DelegateResult>;
+  agentNames(): string[];
+}
+
+export class SubagentScheduler implements Scheduler {
   private childCounts = new Map<string, number>();
 
   constructor(private readonly opts: SubagentSchedulerOpts) {}

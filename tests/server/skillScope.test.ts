@@ -21,12 +21,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildToolScope } from '../../src/commands/toolScope.js';
 import type { CanUseTool } from '../../src/permissions/types.js';
 import { MockProvider } from '../../src/providers/mock.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildSessionToolContext } from '../../src/server/routes/turns.js';
 import { buildRuntime } from '../../src/server/runtime.js';
+import { buildToolScope } from '../../src/tool/toolScope.js';
 
 function seedSkill(home: string, name: string, frontmatter: string, body = 'Do the thing.'): void {
   mkdirSync(join(home, '.harness', 'skills'), { recursive: true });

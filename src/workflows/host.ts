@@ -14,7 +14,7 @@
 // handle carries no proprietary surface.
 
 import type { CanUseTool } from '../permissions/types.js';
-import type { SubagentScheduler } from '../runtime/scheduler.js';
+import type { Scheduler } from '../runtime/scheduler.js';
 import type { DelegationLifecycleEvent } from '../tool/ports.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 
@@ -24,8 +24,9 @@ export type WorkflowHost = {
   /** Harness home — sourced for the headless permission settings. */
   harnessHome: string;
   /** The open child-spawn port surface: the engine only delegates children and
-   *  lists agent names (the semantic gate). Narrowed from the full scheduler. */
-  scheduler: Pick<SubagentScheduler, 'delegate' | 'agentNames'>;
+   *  lists agent names (the semantic gate). The named `Scheduler` port is the
+   *  exact narrowing this field was built on (formerly a `Pick<...>`). */
+  scheduler: Scheduler;
   /** Resolve the per-session parent ToolContext the workflow runs under. The
    *  signature matches `buildSessionToolContext` minus its leading `Runtime`, so
    *  a caller wires it as a drop-in:

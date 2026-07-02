@@ -49,6 +49,15 @@ export type BuildMcpClientPoolOpts = {
   env?: Record<string, string | undefined>;
 };
 
+/** The injectable MCP pool-factory PORT (Contract #1). `buildMcpClientPool`
+ *  satisfies it structurally (its options-default makes the parameter
+ *  effectively optional); the proprietary gateway keeps its per-session
+ *  hot-swap LOGIC and injects through this type, so the open core never
+ *  imports the swap machinery. Defined HERE (not types.ts) because it names
+ *  `BuildMcpClientPoolOpts` — defining it in types.ts would create a
+ *  types↔client import cycle (client.ts already imports from types.ts). */
+export type McpClientPoolFactory = (opts: BuildMcpClientPoolOpts) => Promise<McpClientPool>;
+
 type ActiveConnection = {
   name: string;
   client: Client;
