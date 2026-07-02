@@ -41,6 +41,12 @@ const FORBIDDEN_SPECIFIERS: ReadonlyArray<{ label: string; pattern: RegExp }> = 
   // Exact-package only: a quote or '/' must follow `sov`, so this never fires
   // on '@yevgetman/sov-sdk' or '@yevgetman/sov-protocol'.
   { label: "an import of the proprietary wrapper '@yevgetman/sov'", pattern: /['"]@yevgetman\/sov['"/]/ },
+  // Any QUOTED dynamic import of a bun: module (not just sqlite). Static forms
+  // of other bun: modules would fail under Node outright, but a lazily-evaluated
+  // dynamic import could hide until a Node consumer hits that code path.
+  // Quoted-form only (same backtick trade-off as above); `import(` + quote +
+  // `bun:` never appears in prose.
+  { label: "a dynamic import of a 'bun:' module", pattern: /import\(\s*['"]bun:/ },
 ];
 
 // Standing self-test (Task 3.7 review fast-follow): the purity gate's failure
@@ -60,6 +66,11 @@ function selfTestForbiddenSpecifiers(): void {
     },
     { text: "import { createAgent } from '@yevgetman/sov-sdk';", expectMatch: [] },
     { text: "import { health } from '@yevgetman/sov-protocol';", expectMatch: [] },
+    {
+      text: "const ffi = await import('bun:ffi');",
+      expectMatch: ["a dynamic import of a 'bun:' module"],
+    },
+    { text: "await import('@yevgetman/sov-sdk/config/loader');", expectMatch: [] },
     // Mirrors the real prose comment in packages/sdk/src/core/sessionPort.ts —
     // backticked, not quoted, so it must NOT trip either pattern.
     {

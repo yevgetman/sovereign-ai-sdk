@@ -86,6 +86,12 @@ Expected contents (and nothing else) — the same allow-list the tarball tests
 `dist`/`src`/the three root files. Note `prepack` runs `rm -rf dist && bun
 run build`, so pack output is always a fresh build.
 
+**Before publishing:** both package READMEs link `[STABILITY.md](../../STABILITY.md)`
+— a relative path that is dead on npmjs.com (STABILITY.md is not in the tarball).
+Convert those links to absolute GitHub URLs (they 404 until the repo flips public
+— acceptable; the READMEs' inline "Public surface & versioning" summaries carry
+the essentials meanwhile) or add STABILITY.md to each package's `files`.
+
 ## 3. Publish
 
 **Auth prerequisites (one-time):**
