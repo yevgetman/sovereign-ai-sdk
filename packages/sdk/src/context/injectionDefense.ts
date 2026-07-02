@@ -9,8 +9,15 @@ const THREAT_PATTERNS = [
   /curl\s+.+\|\s*(?:ba)?sh/i,
 ] as const;
 
+// Zero-width / joiner / BOM controls, the legacy bidi embedding+override block
+// (U+202A-U+202E), the bidi isolates (U+2066-U+2069: LRI/RLI/FSI/PDI), and the
+// Unicode Tag block (U+E0000-U+E007F) -- the "ASCII smuggling" vector where each
+// ASCII byte b is hidden as codepoint 0xE0000+b: invisible to a human reviewer
+// but read literally by the model. Kept as an alternation (not a character class)
+// so biome's noMisleadingCharacterClass does not flag the ZWJ; the `u` flag is
+// required for the \u{...} Tag-block range.
 const INVISIBLE_UNICODE =
-  /(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u202A|\u202B|\u202C|\u202D|\u202E)/u;
+  /(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u202A|\u202B|\u202C|\u202D|\u202E|\u2066|\u2067|\u2068|\u2069|[\u{E0000}-\u{E007F}])/u;
 
 export const CONTEXT_SIZE_LIMIT = 20_000;
 
