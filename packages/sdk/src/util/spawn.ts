@@ -25,10 +25,14 @@ export type { SpawnedProc } from '../runtime/executorPort.js';
 export const SPAWN_FAILURE_EXIT_CODE = 127;
 
 /** Exit code reported when the child died on a signal (abort/kill) and Node
- *  therefore reports a `null` exit code. Exported so callers (and the
- *  pre-aborted-signal short-circuit's tests) can assert against it directly
- *  instead of a bare `1`. */
-export const KILLED_EXIT_CODE = 1;
+ *  therefore reports a `null` exit code. `143` = POSIX 128+SIGTERM, matching
+ *  the original `Bun.spawn` semantics a signal death produced. Crucially it is
+ *  distinct from ripgrep's 0/1/2 codes: GrepTool treats exit `1` as its
+ *  "no matches, not an error" sentinel, so a bare `1` here would let a
+ *  signal-killed rg (OOM/SIGKILL/turn-cancel) be silently reported to the model
+ *  as an authoritative "no matches". Exported so callers (and the pre-aborted-
+ *  signal short-circuit's tests) can assert against it directly. */
+export const KILLED_EXIT_CODE = 143;
 
 /** Options accepted by `spawnProc` — a drop-in superset of what the Bun.spawn
  *  call sites passed. Stdout/stderr are ALWAYS piped (the `SpawnedProc`
@@ -79,6 +83,9 @@ export function spawnProc(argv: string[], opts: SpawnProcOpts = {}): SpawnedProc
         end: (): void => {},
       },
       exited: Promise.resolve(KILLED_EXIT_CODE),
+      // No real child ran, so there is no OS signal name — but the aborted
+      // upstream signal is the caller's own detectable "this was cancelled".
+      signalCode: null,
       kill: (): void => {},
     };
   }
@@ -95,13 +102,22 @@ export function spawnProc(argv: string[], opts: SpawnProcOpts = {}): SpawnedProc
     throw new Error('spawnProc: piped stdout/stderr missing on spawned child');
   }
 
+  // The signal name the child died on ('SIGKILL', 'SIGTERM', …), captured from
+  // the 'close' event and readable via the `signalCode` getter below by the
+  // time `exited` resolves (both are set in the same 'close' callback). Lets
+  // GrepTool distinguish a signal kill from a genuine exit code.
+  let signalCode: NodeJS.Signals | null = null;
+
   // Without an 'error' listener a spawn failure (ENOENT) or an abort would
   // crash the process as an unhandled EventEmitter error. When the process
   // never spawned (`pid` undefined) 'close' is not guaranteed — resolve here;
   // otherwise 'close' carries the real exit code and wins the (idempotent)
   // resolve race.
   const exited = new Promise<number>((resolve) => {
-    child.on('close', (code) => resolve(code ?? KILLED_EXIT_CODE));
+    child.on('close', (code, signal) => {
+      if (signal) signalCode = signal;
+      resolve(code ?? KILLED_EXIT_CODE);
+    });
     child.on('error', () => {
       if (child.pid === undefined) resolve(SPAWN_FAILURE_EXIT_CODE);
     });
@@ -135,6 +151,11 @@ export function spawnProc(argv: string[], opts: SpawnProcOpts = {}): SpawnedProc
           end: (): void => {},
         },
     exited,
+    // Getter so the value stays live (set in the 'close' callback) yet the
+    // property is read-only to callers — no external mutation.
+    get signalCode(): NodeJS.Signals | null {
+      return signalCode;
+    },
     kill: (signal?: number): void => {
       child.kill(signal);
     },

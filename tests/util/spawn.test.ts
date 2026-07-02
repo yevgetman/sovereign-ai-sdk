@@ -66,7 +66,14 @@ describe('spawnProc', () => {
     expect(exitCode).toBe(0);
   });
 
-  test('AbortSignal kills the child; exited resolves non-zero without rejecting', async () => {
+  test('KILLED_EXIT_CODE is 143 (POSIX 128+SIGTERM), never colliding with rg 0/1/2', () => {
+    // A signal-killed child must resolve to 143 — NOT 1 — so GrepTool's
+    // `exitCode !== 0 && exitCode !== 1` no-match sentinel can never absorb a
+    // kill as an authoritative "no matches" (F15).
+    expect(KILLED_EXIT_CODE).toBe(143);
+  });
+
+  test('AbortSignal kills the child; exited resolves 143 and signalCode is exposed', async () => {
     const ctl = new AbortController();
     const proc = spawnProc(['bash', '-c', 'sleep 30'], {
       stdout: 'pipe',
@@ -77,7 +84,11 @@ describe('spawnProc', () => {
     // Intentionally does NOT drain stdout/stderr — exited must not hang on
     // unconsumed pipes (call sites rely on `await proc.exited` resolving).
     const exitCode = await proc.exited;
-    expect(exitCode).not.toBe(0);
+    // 128+SIGTERM: matches the original Bun.spawn semantics a killed child had.
+    expect(exitCode).toBe(143);
+    // The shim surfaces WHY the child ended so callers (GrepTool) can tell a
+    // kill from a genuine exit code rather than inferring it from the number.
+    expect(proc.signalCode).toBe('SIGTERM');
   });
 
   test('nonexistent binary resolves exited non-zero (no crash, no reject)', async () => {
@@ -108,6 +119,9 @@ describe('spawnProc', () => {
       });
       const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
       expect(exitCode).toBe(KILLED_EXIT_CODE);
+      // Pin the concrete value too: the pre-aborted short-circuit resolves 143,
+      // not a bare 1 that GrepTool would read as "no matches".
+      expect(exitCode).toBe(143);
       expect(stdout).toBe('');
       // No process was ever spawned — the child never ran, so it never
       // created the marker file.

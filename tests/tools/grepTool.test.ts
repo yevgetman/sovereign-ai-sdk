@@ -20,8 +20,8 @@ async function isRgAvailable(): Promise<boolean> {
   }
 }
 
-function makeCtx(cwd: string): ToolContext {
-  return { cwd, bundleRoot: cwd, sessionId: 'test' };
+function makeCtx(cwd: string, signal?: AbortSignal): ToolContext {
+  return { cwd, bundleRoot: cwd, sessionId: 'test', ...(signal ? { signal } : {}) };
 }
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -119,6 +119,32 @@ dscribe('GrepTool', () => {
       expect(result.data.truncated).toBe(false);
       const rendered = GrepTool.renderResult?.(result.data);
       expect(rendered?.content).toBe('(no matches)');
+    });
+  });
+
+  // F15 — a ripgrep killed by a signal (upstream turn-cancel, OOM/SIGKILL,
+  // external kill) must NEVER be reported to the model as an authoritative
+  // "no matches". With an already-aborted upstream signal the spawn shim
+  // short-circuits (exited=143), and GrepTool must THROW an explicit
+  // interrupted/incomplete error rather than returning {matches:[]}.
+  test('a cancelled search throws (never reported as "no matches")', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'a.txt'), 'apple\nbanana\n');
+      const ctl = new AbortController();
+      ctl.abort(); // upstream turn-cancel already fired
+      await expect(GrepTool.call({ pattern: 'banana' }, makeCtx(dir, ctl.signal))).rejects.toThrow(
+        /interrupted|incomplete|killed/i,
+      );
+    });
+  });
+
+  // F15 regression — a GENUINE ripgrep error (exit 2, e.g. an invalid regex)
+  // must still throw, not be swallowed as "no matches".
+  test('a ripgrep error (invalid regex, exit 2) still throws', async () => {
+    await withTmp(async (dir) => {
+      writeFileSync(join(dir, 'a.txt'), 'apple\n');
+      // '[' is an unclosed character class → ripgrep exits 2 with a parse error.
+      await expect(GrepTool.call({ pattern: '[' }, makeCtx(dir))).rejects.toThrow();
     });
   });
 
