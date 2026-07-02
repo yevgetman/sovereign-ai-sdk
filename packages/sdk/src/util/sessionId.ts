@@ -14,12 +14,18 @@
 // we reject ONLY the characters that are dangerous at the sinks the sessionId
 // reaches and that never appear in a legitimate id.
 
-/** Backtick + path separators: the backtick is the inline-shell sigil
- *  (`` `!cmd` `` / `` !`cmd` ``) that made an untrusted sessionId an RCE once
- *  substituted into a skill body (F27); `/` and `\` are path separators
- *  (traversal into the transcript/trace FS sinks — defense-in-depth over their
- *  own filename sanitizers). */
-const SESSION_ID_UNSAFE_CHAR_RE = /[`/\\]/;
+/** Shell metacharacters + whitespace + path separators. The backtick is the
+ *  inline-shell sigil (`` `!cmd` `` / `` !`cmd` ``), but a backtick-only denylist
+ *  is not enough (R1): once a sessionId is substituted INSIDE a skill author's own
+ *  inline-shell span, `` $ ( ) ; | & < > `` and whitespace let an untrusted value
+ *  form `$(…)` command substitution or shell words with no backtick — an RCE. So
+ *  we reject the whole shell-dangerous set here at the boundary (defense in depth
+ *  with the loader's own value sanitizer). `/` and `\` remain rejected as path
+ *  separators (traversal into the transcript/trace FS sinks). Every char that a
+ *  legitimate id carries — `: + . _ - @` and alphanumerics — is deliberately
+ *  ABSENT from this class, so UUIDs and channel keys like
+ *  `agent:main:sms:private:+15551234567` still pass unchanged. */
+const SESSION_ID_UNSAFE_CHAR_RE = /[`$()<>;|&\s/\\]/;
 
 /** ASCII control characters (NUL..US and DEL) — never part of a legitimate id;
  *  rejected to block path/log injection. Checked by code point rather than a
@@ -46,7 +52,7 @@ export function validateSessionId(sessionId: string): string {
     hasControlChar(sessionId);
   if (isUnsafe) {
     throw new Error(
-      `invalid sessionId ${JSON.stringify(sessionId)}: must be non-empty and must not contain a backtick, path separator, '..' traversal, or control character`,
+      `invalid sessionId ${JSON.stringify(sessionId)}: must be non-empty and must not contain a shell metacharacter (\` $ ( ) ; | & < >), whitespace, a path separator, '..' traversal, or control character`,
     );
   }
   return sessionId;

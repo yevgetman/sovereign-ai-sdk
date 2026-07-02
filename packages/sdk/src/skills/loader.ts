@@ -86,18 +86,25 @@ const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_TIMEOUT_MS = 10_000;
 const SHELL_OUTPUT_CAP = 16 * 1024;
 
-/** Neutralize inline-shell sigils in a SUBSTITUTED environment value (session
- *  id, skill dir, plugin root) before the `interpolateShellCommands` scan (F27).
+/** Neutralize shell metacharacters in a SUBSTITUTED environment value (session
+ *  id, skill dir, plugin root) before the `interpolateShellCommands` scan
+ *  (F27 + R1).
  *
- *  Both inline-shell forms (`` `!cmd` `` and `` !`cmd` ``) REQUIRE a backtick, so
- *  stripping backticks fully disarms both. Env values are injected into the body
- *  BEFORE the scan, so an untrusted value (e.g. a caller-supplied sessionId) that
- *  carries a backtick+`!` token would otherwise be scanned and executed via
- *  spawnProc(bash). A literal backtick in a session id / skill dir path is NEVER
- *  an author's intentional inline shell — those are written directly in the skill
- *  BODY, which is deliberately NOT sanitized and keeps working. */
+ *  Env values are injected into the body BEFORE the scan, so an untrusted value
+ *  (e.g. a caller-supplied sessionId) that lands INSIDE a shell-executed span
+ *  becomes shell input. Stripping only the backtick (the original F27 belt) is
+ *  insufficient: when a skill AUTHOR legitimately wraps the placeholder in their
+ *  own inline-shell sigil (a natural pattern — `` !`echo ${HARNESS_SESSION_ID}` ``),
+ *  a value carrying `$(…)` command substitution or `${…}` expansion — NO backtick
+ *  needed — is interpolated straight into the executed command (R1: an RCE via
+ *  `$(touch …)`). So we strip the full metachar class `` [` $ \] ``, which kills
+ *  the backtick sigil AND `$(…)` / `${…}` once substituted. These env values are
+ *  session ids / filesystem paths / plugin roots — identifiers and paths that
+ *  never legitimately contain a shell metacharacter, so stripping is safe. The
+ *  author's own inline shell lives in the skill BODY, which is deliberately NOT
+ *  sanitized and keeps working. */
 function sanitizeInlineShellSigil(value: string): string {
-  return value.replace(/`/g, '');
+  return value.replace(/[`$\\]/g, '');
 }
 
 export type LoadSkillsOptions = {

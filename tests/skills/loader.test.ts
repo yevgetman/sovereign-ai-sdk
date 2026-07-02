@@ -600,6 +600,63 @@ describe('expandSkillPrompt', () => {
       expect(expanded).toContain('!echo boom'); // remains inert literal text
     });
   });
+
+  // R1 (audit 2026-07-02) — the F27 sibling. Stripping ONLY backticks left the
+  // shell's OTHER substitution grammars open. When a skill AUTHOR legitimately
+  // wraps the placeholder in THEIR OWN inline-shell sigil (a natural pattern:
+  // `` !`echo ${HARNESS_SESSION_ID}` ``), an untrusted sessionId supplies just the
+  // COMMAND-SUBSTITUTION body `$(touch MARKER)` — no backtick needed. It survived
+  // both the backtick-only sanitizer and the backtick-only validator, so after
+  // substitution the body became `` !`echo $(touch MARKER)` `` and bash executed
+  // the command substitution → marker created (RCE). The sanitizer must neutralize
+  // the value for the SHELL context — strip `$` and backslash in addition to the
+  // backtick — so `$(…)` / `${…}` can never form once interpolated.
+  test('does NOT run shell via $()-substitution in a sessionId wrapped by the author’s own sigil', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'SID_SUBST_PWNED.txt');
+      const skill = makeSkill({
+        path: join(dir, 'wrap.md'),
+        realpath: join(dir, 'wrap.md'),
+        dir, // real, existing cwd — the shell COULD run if the bug were present
+        allowShellInterpolation: true,
+        source: 'user',
+        // The AUTHOR's own inline-shell sigil around the placeholder.
+        body: 'VAL=!`echo ${HARNESS_SESSION_ID}`',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: `$(touch ${marker})`,
+      });
+      expect(existsSync(marker)).toBe(false); // command substitution did NOT run
+      expect(expanded).not.toContain('$('); // `$(` neutralized in output
+    });
+  });
+
+  test('strips every shell metachar ($ backtick backslash) from a substituted sessionId', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'meta.md'),
+        realpath: join(dir, 'meta.md'),
+        dir,
+        allowShellInterpolation: true,
+        source: 'user',
+        // No sigil in the body: assert the SUBSTITUTION layer itself neutralizes
+        // the value, independent of any shell execution. Covers the $(…), ${…},
+        // and backtick variants in one deterministic check.
+        body: 'Session: [${HARNESS_SESSION_ID}]',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: '$(id)${HOME}`whoami`\\x',
+      });
+      // Every command-substitution / expansion / escape metachar removed; only the
+      // inert residue survives — so nothing can be interpolated by a later scan.
+      expect(expanded).toBe('Session: [(id){HOME}whoamix]');
+      expect(expanded).not.toContain('$');
+      expect(expanded).not.toContain('`');
+      expect(expanded).not.toContain('\\');
+    });
+  });
 });
 
 describe('reloadSkill', () => {
