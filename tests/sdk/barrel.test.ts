@@ -17,10 +17,11 @@
 
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-// `ProviderRequest` is intentionally NOT on the public surface (§5.1) — the mock
-// provider's stream() param shape is pinned via the deep type here.
-import type { ProviderRequest as Req } from '../../src/providers/types.js';
 // IMPORTANT: import from the BARREL, not the deep modules — that is the proof.
+// (`ProviderRequest` joined the public surface in Task 2.9: it is the param of
+// `LLMProvider.stream()`, so a custom-provider embedder must be able to name
+// it. Imported from the barrel like everything else.)
+import type { ProviderRequest as Req } from '../../src/sdk.js';
 import {
   SubagentScheduler,
   buildMcpClientPool,

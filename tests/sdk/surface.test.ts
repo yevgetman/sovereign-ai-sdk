@@ -1,10 +1,19 @@
-// Task 8.1 — the Contract #1 SURFACE SNAPSHOT for the `src/sdk.ts` barrel.
+// ═══════════════════════════════════════════════════════════════════════════
+// THE 0.1.0 SEMVER CONTRACT (Task 2.9 — the FREEZE).
+//
+// This snapshot IS the published surface contract of the open SDK barrel
+// (`src/sdk.ts` → `@yevgetman/sov-sdk`), frozen at 0.1.0:
+//   • REMOVING or RENAMING any export listed below (value OR type) is a
+//     BREAKING change → major version bump.
+//   • ADDING an export is additive → minor version bump (update the snapshot
+//     in the same commit, deliberately).
+// The Phase-3 move into packages/sdk must carry this surface over UNCHANGED.
+// ═══════════════════════════════════════════════════════════════════════════
 //
 // This is the deliberate-change gate on the public SDK surface (`./sdk`): it
 // pins the EXACT sorted set of runtime VALUE exports the barrel ships, so any
 // accidental addition / removal / rename of an export fails CI until the
-// expected list below is updated ON PURPOSE. It is the Phase-8 promotion of the
-// "representative slice" guard in tests/sdk/barrel.test.ts to a full snapshot.
+// expected list below is updated ON PURPOSE.
 //
 // Two halves:
 //   1. VALUE surface — `Object.keys(* as sdk)` enumerates exactly the runtime
@@ -17,29 +26,78 @@
 //
 // GUARD VERIFIED (Task 8.1): temporarily adding a dummy `export const __x = 1`
 // to src/sdk.ts makes the value assertion FAIL (extra key); reverted.
+//
+// ── Documented EXCLUSIONS (Task 2.9 dangling-ref sweep) ─────────────────────
+// Every type referenced by a public field/method signature of the surface is
+// itself on the barrel, EXCEPT the following, excluded deliberately:
+//   • `CommandContext` (src/commands/types.ts) — the parameter of
+//     `PromptCommand.getPromptForCommand`. It is the HOST-SURFACE services
+//     record (~40 fields of REPL/TUI/server hooks: pickers, config live-apply,
+//     session metrics, review/task ports…). Embedders RECEIVE PromptCommands
+//     from `buildSkillCommands` and hand them to a host dispatcher; they never
+//     construct a CommandContext. Exporting it would drag ~18 wrapper-surface
+//     types (PickerOpenConfig, ScopeBadge, BudgetReport, SessionMetrics,
+//     RoutingStatsSnapshot, WorkflowCommandCapability, …) into this frozen
+//     contract. Nameable when genuinely needed via
+//     `Parameters<PromptCommand['getPromptForCommand']>[1]`.
+//   • `zod` schema types (`ToolDef.inputSchema` / `outputSchema`: `z.ZodType`)
+//     — an EXTERNAL package's types; consumers import them from `zod`.
+//   • Ambient globals (`AbortSignal`, `ReadableStream`, `Set`,
+//     `NodeJS.ProcessEnv`) — provided by the platform/lib types, not the SDK.
+// Everything else exported by open modules but NOT referenced by any public
+// surface signature stays OFF the barrel by design — module-internal helpers
+// (`shouldFireReviewOnDelegation`, `filterParseableRules`, `scopesOverlap`,
+// `HookOutput`, `PermissionRule`/`PermissionRuleLayer`, zod schema VALUES,
+// effort-budget constants, …). The exact-equality assertion below enforces
+// this for values; the witness (which references EVERY exported type — a
+// removal breaks typecheck) is the type half.
 
 import { describe, expect, test } from 'bun:test';
 import * as sdk from '../../src/sdk.js';
 import type {
   Agent,
   AgentConfig,
+  AgentDefinition,
+  AgentRegistry,
+  AgentSource,
+  AgentTrustTier,
+  ApiMode,
   AssistantMessage,
+  AuthType,
   BuildHookRunnerOpts,
   BuildMcpClientPoolOpts,
   BuildToolContextInput,
   CanUseTool,
   CanonicalToolDescriptor,
+  CapabilityProfile,
+  CapabilityRole,
   ChildCompletionEvent,
   ContentBlock,
+  CreateSessionInput,
+  CreateTaskInput,
   DelegateInput,
   DelegateResult,
   DelegationLifecycleEvent,
+  HookCommandSpec,
+  HookConfig,
+  HookConsentChecker,
+  HookConsentDecision,
+  HookConsentOutcome,
+  HookEvent,
+  HookEventName,
+  HookEventOf,
+  HookResult,
   HookRunner,
   LLMProvider,
+  LaneConfig,
+  LaneName,
   LaneRegistry,
+  LaneSemaphores,
+  LaneSemaphoresOpts,
   LearningObserverPort,
   LearningSink,
   LoadSkillsOptions,
+  LoopDetectionInfo,
   McpCallResult,
   McpClientPool,
   McpClientPoolFactory,
@@ -53,56 +111,94 @@ import type {
   MemoryRuntime,
   Message,
   MicrocompactConfig,
+  MicrocompactInfo,
   ObservationStatus,
   ObserveInput,
+  ParsedPermissionRule,
+  PathLockManager,
+  PathScope,
   PerTurn,
   PermissionBehavior,
+  PermissionDecision,
   PermissionResult,
+  ProjectScope,
   PromptCommand,
+  ProviderPurpose,
+  ProviderRequest,
   QueryParams,
   ReasoningEffort,
   RecallResult,
   RecallTurn,
+  RecalledLesson,
   RemoteMcpServerConfig,
+  RenderHint,
+  ResolveProviderOpts,
+  ResolvedPermissionResult,
   ResolvedProvider,
   ReviewManagerPort,
+  Role,
+  RouteDecisionInfo,
   RunResult,
   RunSubprocessExecutor,
   RunSubprocessExecutorOpts,
+  SaveMessageInput,
   Scheduler,
+  Session,
   SessionStore,
+  Settings,
   Skill,
+  SkillClassification,
   SkillExpansionOptions,
+  SkillGuardDecision,
+  SkillGuardFinding,
+  SkillGuardLevel,
+  SkillHarnessMetadata,
   SkillRegistry,
+  SkillRoot,
   SkillSource,
   SkillTrustTier,
   SpawnFn,
   SpawnOpts,
   SpawnedProc,
   StopReason,
+  StoredMessage,
   StreamEvent,
+  SubagentScheduler,
   SubagentSchedulerOpts,
+  SubdirectoryHintState,
   SubprocessExecutorResult,
+  SubscriptionExecutorConfig,
   SystemSegment,
   TaskManagerPort,
+  TaskOutput,
+  TaskRecord,
+  TaskState,
   Terminal,
   TokenUsage,
   Tool,
+  ToolChoice,
   ToolContext,
   ToolDef,
   ToolObservation,
+  ToolResult,
+  ToolSchema,
   ToolScope,
   TraceEvent,
   TraceSink,
   TranscriptStore,
+  Transport,
   UserMessage,
+  ValidationResult,
 } from '../../src/sdk.js';
 
-/** The committed Contract #1 VALUE surface. Adding/removing/renaming a value
- *  export in src/sdk.ts must update THIS list in the same commit. Sorted to
- *  match `Object.keys(...).sort()` (enumeration order is not guaranteed). */
+/** The committed 0.1.0 VALUE surface (Contract #1). Adding/removing/renaming a
+ *  value export in src/sdk.ts must update THIS list in the same commit —
+ *  removal/rename = major bump, addition = minor bump. Sorted to match
+ *  `Object.keys(...).sort()` (enumeration order is not guaranteed). */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'CANONICAL_TOOL_DESCRIPTORS',
+  'LaneSemaphores',
+  'PathLockManager',
   'SubagentScheduler',
   'aliasToNativeName',
   'buildHookRunner',
@@ -125,7 +221,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'resolveProvider',
 ];
 
-describe('sdk barrel — Contract #1 surface snapshot', () => {
+describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
   test('the value exports equal the committed snapshot exactly', () => {
     const actual = Object.keys(sdk).sort();
     expect(actual).toEqual([...EXPECTED_VALUE_EXPORTS]);
@@ -147,29 +243,54 @@ describe('sdk barrel — Contract #1 surface snapshot', () => {
 });
 
 /** Typecheck-only witness: one optional slot per documented `export type` from
- *  the barrel. A removed/renamed type breaks compilation here — the type-surface
- *  half of the snapshot (values are erased at runtime; types are not, so they
- *  need a compile-time pin). */
+ *  the barrel (class exports appear via their instance types — their NAMES are
+ *  pinned by the value snapshot above). A removed/renamed type breaks
+ *  compilation here — the type-surface half of the 0.1.0 contract (values are
+ *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
   agent?: Agent;
   agentConfig?: AgentConfig;
+  agentDefinition?: AgentDefinition;
+  agentRegistry?: AgentRegistry;
+  agentSource?: AgentSource;
+  agentTrustTier?: AgentTrustTier;
+  apiMode?: ApiMode;
   assistantMessage?: AssistantMessage;
+  authType?: AuthType;
   buildHookRunnerOpts?: BuildHookRunnerOpts;
   buildMcpClientPoolOpts?: BuildMcpClientPoolOpts;
   buildToolContextInput?: BuildToolContextInput;
   canonicalToolDescriptor?: CanonicalToolDescriptor;
   canUseTool?: CanUseTool;
+  capabilityProfile?: CapabilityProfile;
+  capabilityRole?: CapabilityRole;
   childCompletionEvent?: ChildCompletionEvent;
   contentBlock?: ContentBlock;
+  createSessionInput?: CreateSessionInput;
+  createTaskInput?: CreateTaskInput;
   delegateInput?: DelegateInput;
   delegateResult?: DelegateResult;
   delegationLifecycleEvent?: DelegationLifecycleEvent;
+  hookCommandSpec?: HookCommandSpec;
+  hookConfig?: HookConfig;
+  hookConsentChecker?: HookConsentChecker;
+  hookConsentDecision?: HookConsentDecision;
+  hookConsentOutcome?: HookConsentOutcome;
+  hookEvent?: HookEvent;
+  hookEventName?: HookEventName;
+  hookEventOfStop?: HookEventOf<'Stop'>;
+  hookResult?: HookResult;
   hookRunner?: HookRunner;
+  laneConfig?: LaneConfig;
+  laneName?: LaneName;
   laneRegistry?: LaneRegistry;
+  laneSemaphores?: LaneSemaphores;
+  laneSemaphoresOpts?: LaneSemaphoresOpts;
   learningObserverPort?: LearningObserverPort;
   learningSink?: LearningSink;
   llmProvider?: LLMProvider;
   loadSkillsOptions?: LoadSkillsOptions;
+  loopDetectionInfo?: LoopDetectionInfo;
   mcpCallResult?: McpCallResult;
   mcpClientPool?: McpClientPool;
   mcpClientPoolFactory?: McpClientPoolFactory;
@@ -183,47 +304,82 @@ type TypeSurfaceWitness = {
   memoryRuntime?: MemoryRuntime;
   message?: Message;
   microcompactConfig?: MicrocompactConfig;
+  microcompactInfo?: MicrocompactInfo;
   observationStatus?: ObservationStatus;
   observeInput?: ObserveInput;
+  parsedPermissionRule?: ParsedPermissionRule;
+  pathLockManager?: PathLockManager;
+  pathScope?: PathScope;
   permissionBehavior?: PermissionBehavior;
+  permissionDecision?: PermissionDecision;
   permissionResult?: PermissionResult;
   perTurn?: PerTurn;
+  projectScope?: ProjectScope;
   promptCommand?: PromptCommand;
+  providerPurpose?: ProviderPurpose;
+  providerRequest?: ProviderRequest;
   queryParams?: QueryParams;
   reasoningEffort?: ReasoningEffort;
+  recalledLesson?: RecalledLesson;
   recallResult?: RecallResult;
   recallTurn?: RecallTurn;
   remoteMcpServerConfig?: RemoteMcpServerConfig;
+  renderHint?: RenderHint;
+  resolvedPermissionResult?: ResolvedPermissionResult;
   resolvedProvider?: ResolvedProvider;
+  resolveProviderOpts?: ResolveProviderOpts;
   reviewManagerPort?: ReviewManagerPort;
+  role?: Role;
+  routeDecisionInfo?: RouteDecisionInfo;
   runResult?: RunResult;
   runSubprocessExecutor?: RunSubprocessExecutor;
   runSubprocessExecutorOpts?: RunSubprocessExecutorOpts;
+  saveMessageInput?: SaveMessageInput;
   scheduler?: Scheduler;
+  session?: Session;
   sessionStore?: SessionStore;
+  settings?: Settings;
   skill?: Skill;
+  skillClassification?: SkillClassification;
   skillExpansionOptions?: SkillExpansionOptions;
+  skillGuardDecision?: SkillGuardDecision;
+  skillGuardFinding?: SkillGuardFinding;
+  skillGuardLevel?: SkillGuardLevel;
+  skillHarnessMetadata?: SkillHarnessMetadata;
   skillRegistry?: SkillRegistry;
+  skillRoot?: SkillRoot;
   skillSource?: SkillSource;
   skillTrustTier?: SkillTrustTier;
   spawnedProc?: SpawnedProc;
   spawnFn?: SpawnFn;
   spawnOpts?: SpawnOpts;
   stopReason?: StopReason;
+  storedMessage?: StoredMessage;
   streamEvent?: StreamEvent;
+  subagentScheduler?: SubagentScheduler;
   subagentSchedulerOpts?: SubagentSchedulerOpts;
+  subdirectoryHintState?: SubdirectoryHintState;
   subprocessExecutorResult?: SubprocessExecutorResult;
+  subscriptionExecutorConfig?: SubscriptionExecutorConfig;
   systemSegment?: SystemSegment;
   taskManagerPort?: TaskManagerPort;
+  taskOutput?: TaskOutput;
+  taskRecord?: TaskRecord;
+  taskState?: TaskState;
   terminal?: Terminal;
   tokenUsage?: TokenUsage;
   tool?: Tool<unknown, unknown>;
+  toolChoice?: ToolChoice;
   toolContext?: ToolContext;
   toolDef?: ToolDef<unknown, unknown>;
   toolObservation?: ToolObservation;
+  toolResult?: ToolResult<unknown>;
+  toolSchema?: ToolSchema;
   toolScope?: ToolScope;
   traceEvent?: TraceEvent;
   traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;
+  transport?: Transport;
   userMessage?: UserMessage;
+  validationResult?: ValidationResult;
 };

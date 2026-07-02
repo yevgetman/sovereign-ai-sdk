@@ -13,12 +13,22 @@
 //      cannot silently corrupt alias resolution (Map building is last-wins).
 
 import { describe, expect, test } from 'bun:test';
+import type { AgentDefinition, AgentRegistry } from '../../src/agents/types.js';
+import { CANONICAL_TOOL_DESCRIPTORS } from '../../src/tool/descriptors.js';
+import { aliasToNativeName, dropsFor, renamesFor } from '../../src/tool/descriptors.js';
+// The FULL tool registry is the canonical native-name source for the Task-2.9
+// alias-shadow invariant below. src/tool/registry.ts is PROPRIETARY — tests are
+// not boundary-gated (the dependency-cruiser `no-open-to-proprietary` rule
+// applies `from: src/**` OPEN files only), so THIS TEST imports it rather than
+// the open descriptors module ever doing so.
 import {
-  CANONICAL_TOOL_DESCRIPTORS,
-  aliasToNativeName,
-  dropsFor,
-  renamesFor,
-} from '../../src/tool/descriptors.js';
+  LEARNING_ONLY_TOOLS,
+  REVIEW_ONLY_TOOLS,
+  assembleToolPool,
+} from '../../src/tool/registry.js';
+import type { ToolContext } from '../../src/tool/types.js';
+import type { HarnessInfoSnapshot } from '../../src/tools/HarnessInfoTool.js';
+import { WORKFLOW_RUN_TOOL_NAME } from '../../src/tools/WorkflowRunTool.js';
 
 // ── The executor's ORIGINAL hardcoded literals (frozen expectation) ─────────
 // Copied VERBATIM from src/runtime/subprocessExecutor.ts as of commit 1f86c10
@@ -133,6 +143,98 @@ describe('canonical tool descriptors — table invariants', () => {
     for (const descriptor of CANONICAL_TOOL_DESCRIPTORS) {
       for (const [from, to] of Object.entries(descriptor.inputKeyRenames ?? {})) {
         expect(from).not.toBe(to);
+      }
+    }
+  });
+
+  // Fixtures for the full-registry shadow test: a minimal agent registry (so
+  // patchSchemasAgainstAvailable keeps AgentTool + task_create in the pool) and
+  // a HarnessInfo snapshot factory (so HarnessInfoTool enters it). Mirrors
+  // tests/tool/renderHintCoverage.test.ts.
+  function fakeAgentRegistry(): AgentRegistry {
+    const agent: AgentDefinition = {
+      name: 'fake-agent',
+      description: 'test fixture agent for the alias-shadow invariant',
+      systemPrompt: 'you are a test fixture',
+      allowedTools: [],
+      maxTurns: 1,
+      readOnly: true,
+      supportsMissionState: false,
+      inheritParentTools: false,
+      allowedSubagents: [],
+      path: '/dev/null/fake-agent.md',
+      realpath: '/dev/null/fake-agent.md',
+      dir: '/dev/null',
+      source: 'project',
+      trustTier: 'trusted',
+    };
+    return { agents: [agent], byName: new Map([[agent.name, agent]]) };
+  }
+
+  function fakeHarnessInfoSnapshot(): HarnessInfoSnapshot {
+    return {
+      permissionMode: 'default',
+      settingsLayers: [],
+      mcpServers: [],
+      tools: { native: [], mcp: [] },
+      slashCommands: [],
+      agents: [],
+    };
+  }
+
+  test('no descriptor alias shadows ANY native tool name in the FULL registry', () => {
+    // Task 2.9 (inherited from the 2.6 review) — the narrower shadow test above
+    // only checks names IN the descriptor table; this one checks the whole
+    // native vocabulary, so e.g. adding `aliases: ['Grep']` (Grep is native but
+    // has no descriptor) fails here. Alias resolution rewrites a foreign name
+    // to `descriptor.name`; an alias that equals ANY native name would silently
+    // hijack calls to that real tool.
+    //
+    // The native-name set is built from the same canonical sources the
+    // renderHint-coverage test uses: the assembled pool (with a fake agent
+    // registry + harnessInfoSnapshot + webSearch config so the conditional
+    // tools — AgentTool, task_create, HarnessInfo, WebSearch — all enter it)
+    // plus the review-only / learning-only sets and the runtime-bound
+    // `workflow_run` (its name constant; the tool itself needs a live Runtime).
+    const ctx: ToolContext = {
+      cwd: process.cwd(),
+      sessionId: 'descriptor-shadow-test',
+      agents: fakeAgentRegistry(),
+      webSearch: { provider: 'tavily', apiKey: 'tvly-test' },
+    };
+    const pool = assembleToolPool(ctx, { harnessInfoSnapshot: fakeHarnessInfoSnapshot });
+    const nativeNames = new Set<string>([
+      ...pool.map((tool) => tool.name),
+      ...REVIEW_ONLY_TOOLS.map((tool) => tool.name),
+      ...LEARNING_ONLY_TOOLS.map((tool) => tool.name),
+      WORKFLOW_RUN_TOOL_NAME,
+    ]);
+    // Sanity: the set really carries the full breadth — if pool assembly ever
+    // stops surfacing these, the coverage this test thinks it has disappears.
+    const expectedBreadth = [
+      'AgentTool',
+      'Bash',
+      'FileEdit',
+      'FileRead',
+      'FileWrite',
+      'Glob',
+      'Grep',
+      'HarnessInfo',
+      'ToolSearch',
+      'WebFetch',
+      'WebSearch',
+      'instinct_list',
+      'memory_propose',
+      'skill_propose',
+      'task_create',
+      'workflow_run',
+    ];
+    for (const name of expectedBreadth) {
+      expect(nativeNames.has(name)).toBe(true);
+    }
+    for (const descriptor of CANONICAL_TOOL_DESCRIPTORS) {
+      for (const alias of descriptor.aliases ?? []) {
+        expect(nativeNames.has(alias)).toBe(false);
       }
     }
   });

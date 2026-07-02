@@ -100,7 +100,10 @@ export type LoadSkillsOptions = {
   warn?: (message: string) => void;
 };
 
-type SkillClassification = {
+/** The (source, trustTier) pair a skill root stamps on its skills. Exported
+ *  (Task 2.9) because the public `SkillRoot.classify` signature references it —
+ *  every type reachable from the SDK barrel surface must be nameable. */
+export type SkillClassification = {
   source: SkillSource;
   trustTier: SkillTrustTier;
 };

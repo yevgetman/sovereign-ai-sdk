@@ -1,3 +1,6 @@
+// THE 0.1.0 SEMVER CONTRACT (Task 2.9): this snapshot is the frozen Contract #2
+// surface — removing/renaming a listed export = major bump; additions = minor.
+//
 // Task 8.1 — the Contract #2 SURFACE SNAPSHOT for the `src/protocol/index.ts`
 // barrel (the `./protocol` subpath = "the wire types + client").
 //

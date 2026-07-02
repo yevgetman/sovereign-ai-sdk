@@ -1,3 +1,6 @@
+// THE 0.1.0 SEMVER CONTRACT (Task 2.9): this witness is the frozen Contract #2
+// TYPE surface — removing/renaming a listed export = major bump; additions = minor.
+//
 // Task 8.1 — the Contract #2 TYPE-surface snapshot (typecheck-only).
 //
 // This is NOT a `.test.ts` (bun does not run it); it is compiled by

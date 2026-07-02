@@ -17,15 +17,23 @@
 //     (verbatimModuleSyntax / isolatedModules).
 //
 // Every surface named in §5.1 is now exported here (Task 2.6 closed the last
-// gap — the canonical tool descriptors).
+// gap — the canonical tool descriptors). Task 2.9 then closed the reviewer-
+// found NAMEABILITY gaps and froze the surface as the 0.1.0 semver contract
+// (tests/sdk/surface.test.ts): every type referenced by a public field/method
+// signature of an exported surface is itself nameable from this barrel —
+// "lean in concepts, complete in parameters".
 
 // ── Agent loop (core/) ──────────────────────────────────────────────────────
 export { query } from './core/query.js';
 export type {
   AssistantMessage,
   ContentBlock,
+  LoopDetectionInfo,
   Message,
+  MicrocompactInfo,
   QueryParams,
+  Role,
+  RouteDecisionInfo,
   StopReason,
   StreamEvent,
   SystemSegment,
@@ -48,18 +56,34 @@ export type { BuildToolContextInput } from './tool/buildToolContext.js';
 export type {
   PermissionBehavior,
   PermissionResult,
+  RenderHint,
   Tool,
   ToolContext,
   ToolDef,
   ToolObservation,
+  ToolResult,
+  ValidationResult,
 } from './tool/types.js';
-export type { CanUseTool } from './permissions/types.js';
+// `ResolvedPermissionResult` is CanUseTool's return type (Task 2.9 —
+// referenced types must be nameable).
+export type { CanUseTool, ResolvedPermissionResult } from './permissions/types.js';
 // Open port interfaces that ToolContext binds (impls stay proprietary).
 export type {
   LearningObserverPort,
   ReviewManagerPort,
   TaskManagerPort,
 } from './tool/ports.js';
+// The task DTOs `TaskManagerPort`'s method signatures reference (Task 2.9).
+export type {
+  CreateTaskInput,
+  TaskOutput,
+  TaskRecord,
+  TaskState,
+} from './core/taskPort.js';
+// ToolContext / BuildToolContextInput field types (Task 2.9): the memory
+// project-scope tag and the subdirectory-hint state.
+export type { ProjectScope } from './memory/scope.js';
+export type { SubdirectoryHintState } from './context/subdirectoryHints.js';
 // Turn-scoped tool restrictions (skill/command scoping) — relocated OPEN to
 // src/tool/toolScope.ts (formerly proprietary-by-location src/commands/).
 export { buildToolScope } from './tool/toolScope.js';
@@ -86,6 +110,31 @@ export type {
   Scheduler,
   SubagentSchedulerOpts,
 } from './runtime/scheduler.js';
+// Task 2.9 — the types that make `SubagentScheduler` genuinely CONSTRUCTIBLE
+// from the barrel alone (every SubagentSchedulerOpts / DelegateInput field is
+// nameable). `LaneSemaphores` and `PathLockManager` are REQUIRED opts fields
+// and classes, so they are VALUE exports — embedders must `new` them.
+export { LaneSemaphores } from './runtime/laneSemaphores.js';
+export type { LaneName, LaneSemaphoresOpts } from './runtime/laneSemaphores.js';
+export { PathLockManager } from './runtime/pathLock.js';
+export type { PathScope } from './runtime/pathLock.js';
+// The agent registry the scheduler resolves delegations against (also a
+// ToolContext / BuildToolContextInput field).
+export type {
+  AgentDefinition,
+  AgentRegistry,
+  AgentSource,
+  AgentTrustTier,
+} from './agents/types.js';
+// Open config shapes referenced by the public surface (Task 2.9):
+//   - `LaneConfig` — LaneRegistry.lookup/entries + SubagentSchedulerOpts.resolveLane.
+//   - `SubscriptionExecutorConfig` — RunSubprocessExecutorOpts.config.
+//   - `Settings` — AgentConfig.settings / ResolveProviderOpts.settings /
+//     ToolContext.webSearch (an indexed sub-shape). Type-only: the shape is
+//     supplied BY embedders, so it must be nameable.
+export type { LaneConfig, Settings, SubscriptionExecutorConfig } from './config/schema.js';
+// `ParsedPermissionRule` — ToolScope.rules element type (Task 2.9).
+export type { ParsedPermissionRule } from './config/rules.js';
 // The subscription-executor PORT contract (the impl stays proprietary; the
 // composition root injects it as `RunSubprocessExecutor`).
 export type {
@@ -107,8 +156,24 @@ export type {
 
 // ── Providers (providers/) ──────────────────────────────────────────────────
 export { resolveProvider } from './providers/resolver.js';
-export type { ResolvedProvider } from './providers/resolver.js';
-export type { LLMProvider } from './providers/types.js';
+export type {
+  ProviderPurpose,
+  ResolveProviderOpts,
+  ResolvedProvider,
+} from './providers/resolver.js';
+// Task 2.9 — `ProviderRequest` is the parameter of `LLMProvider.stream()`: an
+// embedder implementing a custom provider must name it (and its closure —
+// ToolSchema / ToolChoice). `Transport` + `AuthType` are ResolvedProvider
+// fields; `ApiMode` is a Transport field.
+export type {
+  ApiMode,
+  AuthType,
+  LLMProvider,
+  ProviderRequest,
+  ToolChoice,
+  ToolSchema,
+  Transport,
+} from './providers/types.js';
 export type { ReasoningEffort } from './providers/effort.js';
 
 // ── MCP (mcp/) — client entrypoint, pool-factory port + public types ────────
@@ -131,15 +196,36 @@ export type {
 // ── Hooks (hooks/) — runner factory + HookRunner ────────────────────────────
 export { buildHookRunner } from './hooks/runner.js';
 export type { BuildHookRunnerOpts } from './hooks/runner.js';
-export type { HookRunner } from './hooks/types.js';
+// Task 2.9 — HookRunner's own signature types (event name/payload/result) and
+// BuildHookRunnerOpts' config + consent-gate types.
+export type {
+  HookCommandSpec,
+  HookConfig,
+  HookEvent,
+  HookEventName,
+  HookEventOf,
+  HookResult,
+  HookRunner,
+} from './hooks/types.js';
+export type {
+  HookConsentChecker,
+  HookConsentDecision,
+  HookConsentOutcome,
+} from './hooks/consent.js';
 
 // ── Skills / slash commands (skills/ + commands/) ───────────────────────────
 export { expandSkillPrompt, expandSkillText, loadSkills } from './skills/loader.js';
-export type { LoadSkillsOptions } from './skills/loader.js';
+// `SkillRoot` is LoadSkillsOptions.extraRoots' element type;
+// `SkillClassification` is SkillRoot.classify's return type (Task 2.9).
+export type { LoadSkillsOptions, SkillClassification, SkillRoot } from './skills/loader.js';
 export { buildSkillCommands } from './skills/commands.js';
 export type {
   Skill,
   SkillExpansionOptions,
+  SkillGuardDecision,
+  SkillGuardFinding,
+  SkillGuardLevel,
+  SkillHarnessMetadata,
   SkillRegistry,
   SkillSource,
   SkillTrustTier,
@@ -154,12 +240,24 @@ export type { TranscriptStore } from './persistence/transcriptStore.js';
 // ── Persistence (session) ───────────────────────────────────────────────────
 export { createInMemorySessionStore } from './persistence/inMemoryStore.js';
 export type { SessionStore } from './persistence/sessionStore.js';
+// The session DTOs `SessionStore`'s method signatures reference (Task 2.9).
+export type {
+  CreateSessionInput,
+  SaveMessageInput,
+  Session,
+  StoredMessage,
+} from './core/sessionPort.js';
 
 // ── Injected-port types (impls stay proprietary) ────────────────────────────
 export type { RecallTurn } from './core/types.js';
-export type { RecallResult } from './core/recallPort.js';
+// `RecalledLesson` is RecallResult.lessons' element type (Task 2.9).
+export type { RecallResult, RecalledLesson } from './core/recallPort.js';
 export type { ObservationStatus, ObserveInput } from './core/observePort.js';
-export type { TraceEvent } from './trace/types.js';
+// `PermissionDecision` is the permission_check TraceEvent variant's field type.
+export type { PermissionDecision, TraceEvent } from './trace/types.js';
 
 // ── Capability resolution ───────────────────────────────────────────────────
 export { findCapableModel } from './core/capabilities.js';
+// `CapabilityProfile` is findCapableModel's return type; `CapabilityRole` its
+// recommendedRoles element type (Task 2.9).
+export type { CapabilityProfile, CapabilityRole } from './core/capabilities.js';
