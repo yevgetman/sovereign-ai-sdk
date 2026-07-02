@@ -3,6 +3,10 @@ import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { buildToolSearchTool, matchTools } from '@yevgetman/sov-sdk/tools/ToolSearchTool';
 import { z } from 'zod';
+import {
+  asyncRejectingDescriptionTool,
+  collectUnhandledRejections,
+} from '../helpers/asyncDescription.js';
 
 function deferredTool(
   name: string,
@@ -115,6 +119,18 @@ describe('ToolSearchTool', () => {
     // Throwing tool falls back to its name; the other serializes normally.
     expect(matched[0]?.description).toBe('mcp__throws__search');
     expect(matched[1]?.description).toBe('reads a file');
+  });
+
+  // G3: an async description that REJECTS must not leave a process-killing
+  // unhandled rejection on the tool-search path. describeStatic degrades it to
+  // the tool name via the shared safeStaticToolDescription helper.
+  test('async-rejecting description degrades to the name without an unhandled rejection', async () => {
+    const rejections = await collectUnhandledRejections(() => {
+      const matched = matchTools('', [asyncRejectingDescriptionTool('mcp__evil__search')]);
+      expect(matched.map((t) => t.name)).toEqual(['mcp__evil__search']);
+      expect(matched[0]?.description).toBe('mcp__evil__search');
+    });
+    expect(rejections).toEqual([]);
   });
 
   test('Tool wrapper: call() routes through the live getter', async () => {

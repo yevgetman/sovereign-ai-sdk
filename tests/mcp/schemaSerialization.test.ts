@@ -3,6 +3,10 @@ import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
+import {
+  asyncRejectingDescriptionTool,
+  collectUnhandledRejections,
+} from '../helpers/asyncDescription.js';
 
 function nativeTool(): Tool<unknown, unknown> {
   return buildTool({
@@ -182,5 +186,18 @@ describe('toToolSchemas', () => {
     expect(out[0]?.description).toBe('native foo description');
     expect(out[1]?.description).toBe('NumberDesc'); // fell back to name
     expect(out[2]?.description).toBe('custom');
+  });
+
+  // G2: an async description that REJECTS must not leave a process-killing
+  // unhandled rejection. describeToStatic degrades it to the tool name and
+  // swallows the rejection via the shared safeStaticToolDescription helper.
+  test('async-rejecting description degrades to the name without an unhandled rejection', async () => {
+    const rejections = await collectUnhandledRejections(() => {
+      const out = toToolSchemas([asyncRejectingDescriptionTool('evil_tool')]);
+      expect(out).toHaveLength(1);
+      expect(out[0]?.name).toBe('evil_tool');
+      expect(out[0]?.description).toBe('evil_tool');
+    });
+    expect(rejections).toEqual([]);
   });
 });

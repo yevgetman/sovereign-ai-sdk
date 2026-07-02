@@ -17,6 +17,7 @@ import type { Bundle } from '../bundle/types.js';
 import { estimateJsonTokens, estimateTextTokens } from '../core/tokenEstimate.js';
 import type { SystemSegment } from '../core/types.js';
 import type { Skill } from '../skills/types.js';
+import { safeStaticToolDescription } from '../tool/staticDescription.js';
 import type { Tool } from '../tool/types.js';
 
 export type ComponentKind =
@@ -209,13 +210,13 @@ function estimateToolSchemaTokens(tool: Tool<unknown, unknown>): number {
   // size. MCP tools carry inputJSONSchema; native tools' Zod is
   // converted to JSON schema upstream — use a coarse JSON estimate so
   // the rough order of magnitude is right.
-  let total = 0;
-  try {
-    const desc = tool.description(undefined as never);
-    if (typeof desc === 'string') total += estimateTextTokens(desc);
-  } catch {
-    // Some tools' description is input-dependent; skip rather than fail audit.
-  }
+  //
+  // Resolve the description through the shared crash-safe helper: an
+  // input-dependent throw, an async (possibly rejecting) description, or a
+  // non-string return all degrade to the tool name — the same string the
+  // provider request actually carries here — so the audit can never leave an
+  // unhandled rejection that crashes the process (see tool/staticDescription.ts).
+  let total = estimateTextTokens(safeStaticToolDescription(tool));
   if (tool.inputJSONSchema !== undefined) {
     total += estimateJsonTokens(tool.inputJSONSchema);
   } else {

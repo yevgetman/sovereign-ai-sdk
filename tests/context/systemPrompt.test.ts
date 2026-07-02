@@ -14,6 +14,10 @@ import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
+import {
+  asyncRejectingDescriptionTool,
+  collectUnhandledRejections,
+} from '../helpers/asyncDescription.js';
 
 function makeBundle(root: string): Bundle {
   return {
@@ -298,6 +302,27 @@ describe('formatTools', () => {
     const text = formatTools([makeThrowingDescriptionTool(), makeTool()]);
     expect(text).toContain('- Search: Search');
     expect(text).toContain('- Echo: echo input');
+  });
+
+  // G1: an async description that REJECTS must not leave a process-killing
+  // unhandled rejection on the per-turn system-prompt path. formatTools
+  // degrades it to the tool name via the shared safeStaticToolDescription helper.
+  test('async-rejecting description degrades to the name without an unhandled rejection', async () => {
+    const rejections = await collectUnhandledRejections(() => {
+      const text = formatTools([asyncRejectingDescriptionTool('Boomer'), makeTool()]);
+      expect(text).toContain('- Boomer: Boomer');
+      expect(text).toContain('- Echo: echo input');
+    });
+    expect(rejections).toEqual([]);
+  });
+
+  test('buildSystemSegments tolerates an async-rejecting tool description', async () => {
+    const rejections = await collectUnhandledRejections(() => {
+      const segments = buildSystemSegments({ tools: [asyncRejectingDescriptionTool('Boomer')] });
+      const tools = segments.find((s) => s.text.includes('<available-tools>'));
+      expect(tools?.text).toContain('- Boomer: Boomer');
+    });
+    expect(rejections).toEqual([]);
   });
 });
 

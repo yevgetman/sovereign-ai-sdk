@@ -14,6 +14,7 @@
 
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { safeStaticToolDescription } from '../tool/staticDescription.js';
 import type { Tool } from '../tool/types.js';
 
 const inputSchema = z.object({
@@ -123,14 +124,9 @@ function toMatch(tool: Tool<unknown, unknown>): Output['matched'][number] {
 }
 
 function describeStatic(tool: Tool<unknown, unknown>): string {
-  // A consumer tool's description may be input-dependent and throw on the
-  // `undefined` publication sentinel; degrade to the tool name rather than
-  // crashing the lookup (mirrors describeToStatic in mcp/schemaSerialization.ts
-  // and the guards in context/systemPrompt.ts + context/budget.ts).
-  try {
-    const result = tool.description(undefined as never);
-    return typeof result === 'string' ? result : tool.name;
-  } catch {
-    return tool.name;
-  }
+  // Static, crash-safe resolution shared with schemaSerialization / systemPrompt
+  // / budget: an input-dependent throw, an async (possibly rejecting)
+  // description, or a non-string return all degrade to the tool name without
+  // crashing the lookup (see tool/staticDescription.ts).
+  return safeStaticToolDescription(tool);
 }

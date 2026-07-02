@@ -5,6 +5,7 @@ import type { Bundle } from '../bundle/types.js';
 import type { SystemSegment } from '../core/types.js';
 import type { ProjectScope } from '../memory/scope.js';
 import type { Skill } from '../skills/types.js';
+import { safeStaticToolDescription } from '../tool/staticDescription.js';
 import type { Tool } from '../tool/types.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 import { formatSystemContext, getSystemContext } from './system.js';
@@ -271,19 +272,13 @@ function screenBundleText(filename: string, text: string | null): string {
 }
 
 function staticDescription(tool: Tool<unknown, unknown>): string {
-  // The public Tool.description contract is `(input) => string | Promise<string>`,
-  // so a consumer may build a description from its input. Prompt assembly has no
-  // real input to pass at publication time, so calling `description(undefined)`
-  // on an input-dependent description can throw. Degrade to the tool name rather
-  // than crashing the whole turn's system-prompt assembly (mirrors the guard in
-  // context/budget.ts).
-  try {
-    const result = tool.description(undefined as never);
-    if (result instanceof Promise) return tool.name;
-    return result.replace(/\s+/g, ' ').trim();
-  } catch {
-    return tool.name;
-  }
+  // Static, crash-safe resolution shared with schemaSerialization / ToolSearch /
+  // budget: an input-dependent throw, an async (possibly rejecting) description,
+  // or a non-string return all degrade to the tool name without crashing the
+  // turn's system-prompt assembly (see tool/staticDescription.ts). The
+  // `<available-tools>` list wants a single-line form, so normalize whitespace
+  // on the resolved string.
+  return safeStaticToolDescription(tool).replace(/\s+/g, ' ').trim();
 }
 
 function normalizeOptions(

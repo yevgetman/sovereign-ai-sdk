@@ -11,6 +11,10 @@ import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
+import {
+  asyncRejectingDescriptionTool,
+  collectUnhandledRejections,
+} from '../helpers/asyncDescription.js';
 
 function makeTool(
   name: string,
@@ -117,6 +121,20 @@ describe('auditContextBudget', () => {
     const c = r.components.find((c) => c.kind === 'tool-schema');
     // Native heuristic adds 200 tokens; overridden thresholds flag it extreme.
     expect(c?.bloat).toBe('extreme');
+  });
+
+  // G5: estimateToolSchemaTokens must not leave a process-killing unhandled
+  // rejection when a tool's description is async and REJECTS. The description is
+  // resolved through the shared safeStaticToolDescription helper (degrading to
+  // the tool name) so the audit completes and the rejection is swallowed.
+  test('async-rejecting tool description does not leave an unhandled rejection', async () => {
+    const rejections = await collectUnhandledRejections(() => {
+      const r = auditContextBudget({ tools: [asyncRejectingDescriptionTool('evil_tool')] });
+      const c = r.components.find((comp) => comp.kind === 'tool-schema');
+      expect(c?.name).toBe('evil_tool');
+      expect(typeof c?.tokens).toBe('number');
+    });
+    expect(rejections).toEqual([]);
   });
 });
 
