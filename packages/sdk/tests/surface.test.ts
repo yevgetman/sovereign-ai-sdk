@@ -7,6 +7,8 @@
 //     BREAKING change → major version bump.
 //   • ADDING an export is additive → minor version bump (update the snapshot
 //     in the same commit, deliberately).
+//   • Only export NAMES are frozen — type SHAPES are not: a shape change
+//     compiles clean here and is semver-judged at change time.
 // The Phase-3 move into packages/sdk must carry this surface over UNCHANGED.
 // ═══════════════════════════════════════════════════════════════════════════
 //
@@ -22,7 +24,8 @@
 //   2. TYPE surface — a typecheck-only witness references every documented
 //      `export type` name. If a type is removed or renamed in the barrel, this
 //      file stops typechecking (`bun run typecheck` fails) — the type-erasure
-//      blind spot the value snapshot cannot see.
+//      blind spot the value snapshot cannot see. Type ADDITIONS are caught at
+//      runtime by the barrel-parse test below (set-equality with the witness).
 //
 // GUARD VERIFIED (Task 8.1): temporarily adding a dummy `export const __x = 1`
 // to src/sdk.ts makes the value assertion FAIL (extra key); reverted.
@@ -53,6 +56,9 @@
 // removal breaks typecheck) is the type half.
 
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as sdk from '@yevgetman/sov-sdk';
 import type {
   Agent,
@@ -239,6 +245,42 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
     // runtime body just keeps biome/bun happy.
     const witness: TypeSurfaceWitness = {} as TypeSurfaceWitness;
     expect(typeof witness).toBe('object');
+  });
+
+  test('every barrel `export type` name is witnessed — a type ADDITION fails here', () => {
+    // The witness catches type REMOVALS (typecheck breaks), but a NEW
+    // `export type` on the barrel would compile without touching this file —
+    // and its later removal would then be unguarded. So: parse the barrel's
+    // `export type { ... }` blocks and require SET-EQUALITY with the names this
+    // file imports (minus the classes, which the VALUE snapshot already pins).
+    const here = dirname(fileURLToPath(import.meta.url));
+    const barrel = readFileSync(join(here, '..', 'src', 'sdk.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, ''); // strip comments before parsing
+    // Parser premise (a barrel INVARIANT): sdk.ts is RE-EXPORT ONLY. A local
+    // `export type X =` / `export interface X` would evade the brace parser
+    // below, so its absence is asserted first.
+    expect(barrel.match(/export\s+(type|interface)\s+[A-Za-z_$]/)).toBeNull();
+    const exported = [...barrel.matchAll(/export\s+type\s*\{([^}]*)\}/g)]
+      .flatMap((m) => (m[1] ?? '').split(','))
+      .map(
+        (name) =>
+          name
+            .trim()
+            .split(/\s+as\s+/)
+            .pop() ?? '',
+      )
+      .filter((name) => name.length > 0)
+      .sort();
+    const witnessImport = readFileSync(fileURLToPath(import.meta.url), 'utf8').match(
+      /import type \{([^}]*)\} from '@yevgetman\/sov-sdk'/,
+    );
+    const witnessed = (witnessImport?.[1] ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0 && !EXPECTED_VALUE_EXPORTS.includes(name))
+      .sort();
+    expect(exported).toEqual(witnessed);
   });
 });
 

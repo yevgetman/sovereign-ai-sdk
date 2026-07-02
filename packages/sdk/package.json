@@ -26,7 +26,8 @@
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",
       "default": "./dist/*.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -43,6 +44,6 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "bun run build"
+    "prepack": "rm -rf dist && bun run build"
   }
 }
