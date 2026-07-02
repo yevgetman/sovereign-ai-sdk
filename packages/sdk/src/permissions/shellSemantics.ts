@@ -145,6 +145,94 @@ const TRANSPARENT_PREFIXES = new Set([
 
 const UNSAFE_PATTERNS = /\$\(|`|<\(|>\(/;
 
+// ---------------------------------------------------------------------------
+// Flag-family matching (attached-suffix / long / long=value / cluster forms)
+// ---------------------------------------------------------------------------
+// A write-capable flag rarely appears only as its bare short token. The same
+// capability is reachable as an attached short suffix (`-i.bak`, `-oFILE`), a
+// long flag (`--in-place`, `--output`), a long flag with an inline value
+// (`--in-place=.bak`, `--output=out`), or bundled inside a short cluster
+// (`-ni`, `-uoFILE`). An exact-token check (`args.includes('-i')`,
+// `args.indexOf('-o')`) sees ONLY the bare short form and silently classifies
+// every other form read — a permission-RELAXATION vulnerability, since a
+// destructive in-place edit / file overwrite then resolves against `allow Read`
+// with no prompt. This matcher recognizes the whole family so each handler can
+// fail closed (edit/write/exec) on ANY member. It is the sibling of the git D6
+// fix (41af0e8), which rebuilt git flag parsing for exactly this attached-value
+// class but left sed/sort/date/fd/tree on the naive exact-token check. (audit
+// C3/C4)
+type FlagFamily = {
+  /** Long flag names, e.g. `--in-place`. Matches the exact token AND the
+   *  `--name=value` inline-value form. A space-separated value (`--output f`)
+   *  is a separate positional token — the flag token itself still matches. */
+  long: string[];
+  /** Option characters, e.g. 'i' (sed) or 'xX' (fd, either). Each character is a
+   *  family member; the attached form `-i.bak` is the char at position 0 of the
+   *  short cluster followed by its value. */
+  short?: string;
+  /** Also match a member character ANYWHERE inside a bundled short cluster
+   *  (`-ni`, `-uoFILE`), not just position 0. Enable ONLY when the character is
+   *  unambiguous for the command — no other short flag takes a value that could
+   *  contain it. Safe for sed `-i` (in-place is `i`'s sole meaning) and sort/fd
+   *  `-o`/`-x`; NOT safe for date `-s` (`-Iseconds` carries an 's' in `-I`'s
+   *  value), so date is left position-0. Fail-closed direction: enabling this
+   *  can only over-prompt a contrived value collision, never miss a write. */
+  shortInCluster?: boolean;
+};
+
+// Does a single token belong to a flag family, in any of its attached/long/
+// cluster forms? Non-flag tokens (positionals) never match.
+function matchesFlagFamily(token: string, family: FlagFamily): boolean {
+  if (!token.startsWith('-')) return false;
+  if (token.startsWith('--')) {
+    const name = token.split('=')[0] as string;
+    return family.long.includes(name);
+  }
+  const short = family.short;
+  if (short === undefined) return false;
+  const chars = token.slice(1);
+  if (chars.length === 0) return false;
+  if (family.shortInCluster) {
+    for (const ch of chars) {
+      if (short.includes(ch)) return true;
+    }
+    return false;
+  }
+  return short.includes(chars.charAt(0));
+}
+
+// `sed` edits IN PLACE for `-i`/`-i.bak`/`-iSUFFIX` (BSD/macOS attach the
+// suffix) and GNU `--in-place`/`--in-place=.bak`. `i` means only in-place, so
+// any short cluster carrying it (`-ni`) edits too. (audit C3 — this SDK ships on
+// darwin where `-i.bak`/`-i ''` is THE in-place idiom.)
+const SED_INPLACE_FLAG: FlagFamily = { long: ['--in-place'], short: 'i', shortInCluster: true };
+
+// `sort` writes (truncates) a file for `-o`/`-oFILE`, `--output`/`--output=FILE`
+// or a space-separated `--output FILE`. `o` is unambiguous for sort, so a
+// cluster (`-uoFILE`) writes too. (audit C4)
+const SORT_OUTPUT_FLAG: FlagFamily = { long: ['--output'], short: 'o', shortInCluster: true };
+
+// `date` SETS the clock for `-s`/`-sSTRING`, `--set`/`--set=STRING`. NOT
+// cluster-matched: `-Iseconds` carries an 's' inside `-I`'s value. (audit F24/D12)
+const DATE_SET_FLAG: FlagFamily = { long: ['--set'], short: 's' };
+
+// `fd` runs an arbitrary command per/across results via `-x`/`--exec` and
+// `-X`/`--exec-batch` — the same exec vector as `find -exec`, but `fd` was a
+// plain read command with no such guard, so `fd -x rm {}` auto-approved under
+// `allow Read`. Demote to exec (prompt). (audit C3-sibling: a read command with
+// a writer/exec flag.)
+const FD_EXEC_FLAG: FlagFamily = {
+  long: ['--exec', '--exec-batch'],
+  short: 'xX',
+  shortInCluster: true,
+};
+
+// `tree` redirects its listing to a file with `-o FILE`/`-oFILE`/`--output FILE`/
+// `--output=FILE`, overwriting it — while classified a plain read. Position-0
+// only (`-o…`): tree's `-P`/`-I` pattern flags can carry an 'o' in their value.
+// (audit C4-sibling.)
+const TREE_OUTPUT_FLAG: FlagFamily = { long: ['--output'], short: 'o' };
+
 export function analyzeShellCommand(command: string): VirtualOperation[] {
   if (UNSAFE_PATTERNS.test(command)) return [{ kind: 'unsafe' }];
 
@@ -185,13 +273,12 @@ function analyzeSegment(segment: string): VirtualOperation {
   }
 
   if (cmd === 'sed') {
-    return args.includes('-i')
+    return args.some((a) => matchesFlagFamily(a, SED_INPLACE_FLAG))
       ? { kind: 'edit', paths: extractPaths(args) }
       : { kind: 'read', paths: extractPaths(args) };
   }
   if (cmd === 'sort') {
-    const oIdx = args.indexOf('-o');
-    return oIdx !== -1
+    return args.some((a) => matchesFlagFamily(a, SORT_OUTPUT_FLAG))
       ? { kind: 'edit', paths: extractPaths(args) }
       : { kind: 'read', paths: extractPaths(args) };
   }
@@ -205,10 +292,9 @@ function analyzeSegment(segment: string): VirtualOperation {
   if (cmd === 'date') {
     const setsClock = args.some(
       (a) =>
-        a === '-s' ||
-        a === '--set' ||
-        a.startsWith('--set=') ||
-        (!a.startsWith('-') && !a.startsWith('+')),
+        // GNU `-s`/`-sSTRING`/`--set`/`--set=STRING` (attached short included via
+        // the family matcher), OR the BSD/macOS positional clock-set form.
+        matchesFlagFamily(a, DATE_SET_FLAG) || (!a.startsWith('-') && !a.startsWith('+')),
     );
     return setsClock
       ? { kind: 'exec', command: 'date' }
@@ -224,6 +310,20 @@ function analyzeSegment(segment: string): VirtualOperation {
   // write files. Any of these makes the segment non-read (audit C3).
   if (cmd === 'find' && args.some((a) => FIND_DESTRUCTIVE_PRIMARIES.has(a))) {
     return { kind: 'exec', command: 'find' };
+  }
+
+  // `fd` is find's modern sibling and a read tool ONLY without an exec primary.
+  // `-x`/`--exec` (per-result) and `-X`/`--exec-batch` (all results) run an
+  // arbitrary command, so they demote fd to exec like `find -exec`. (audit
+  // C3-sibling — fd was a plain READ_COMMANDS member with no exec guard.)
+  if (cmd === 'fd' && args.some((a) => matchesFlagFamily(a, FD_EXEC_FLAG))) {
+    return { kind: 'exec', command: 'fd' };
+  }
+
+  // `tree` prints a listing (read) UNLESS `-o FILE`/`-oFILE`/`--output=FILE`
+  // redirects it to a file, overwriting the target. (audit C4-sibling.)
+  if (cmd === 'tree' && args.some((a) => matchesFlagFamily(a, TREE_OUTPUT_FLAG))) {
+    return { kind: 'write', paths: extractPaths(args) };
   }
 
   if (READ_COMMANDS.has(cmd)) {

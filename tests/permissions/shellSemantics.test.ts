@@ -411,4 +411,62 @@ describe('isShellCommandReadOnly', () => {
       expect(isShellCommandReadOnly('date -u')).toBe(true);
     });
   });
+
+  // Audit C3/C4 [HIGH] — a write-capable flag is reachable as an attached short
+  // suffix (`-i.bak`, `-oFILE`), a long flag (`--in-place`, `--output`), or a
+  // long flag with a value (`--in-place=.bak`, `--output=out`). The old exact-
+  // token checks (`args.includes('-i')`, `args.indexOf('-o')`) saw ONLY the bare
+  // short token, so every other form auto-approved a destructive in-place edit /
+  // file overwrite under `allow Read`. Fail closed: ANY family member → non-read.
+  describe('attached/long write-flag forms are NOT read-only (C3/C4 class)', () => {
+    test('sed in-place: attached suffix, long, long=value, clustered', () => {
+      expect(isShellCommandReadOnly('sed -i.bak s/a/b/ f')).toBe(false);
+      expect(isShellCommandReadOnly('sed --in-place s/a/b/ f')).toBe(false);
+      expect(isShellCommandReadOnly('sed --in-place=.bak s/a/b/ f')).toBe(false);
+      expect(isShellCommandReadOnly('sed -i.bak -e s/a/b/ f')).toBe(false);
+      expect(isShellCommandReadOnly('sed -ni s/a/b/ f')).toBe(false); // clustered -n -i
+    });
+    test('sort output-to-file: attached, long, long=value, clustered, absolute', () => {
+      expect(isShellCommandReadOnly('sort -oout.txt in.txt')).toBe(false);
+      expect(isShellCommandReadOnly('sort --output out.txt in.txt')).toBe(false);
+      expect(isShellCommandReadOnly('sort --output=out.txt in.txt')).toBe(false);
+      expect(isShellCommandReadOnly('sort -uo out.txt in.txt')).toBe(false); // clustered -u -o
+      expect(isShellCommandReadOnly('sort --output=/etc/passwd /dev/null')).toBe(false);
+      expect(isShellCommandReadOnly('sort -o/etc/passwd /dev/null')).toBe(false);
+    });
+    test('date clock-set: attached short -sVALUE (sibling of -s/--set)', () => {
+      expect(isShellCommandReadOnly('date -s@1500000000')).toBe(false);
+    });
+    test('fd exec: -x/-X/--exec/--exec-batch run arbitrary commands (find-sibling)', () => {
+      expect(isShellCommandReadOnly('fd -x rm {}')).toBe(false);
+      expect(isShellCommandReadOnly('fd -X rm')).toBe(false);
+      expect(isShellCommandReadOnly('fd --exec rm')).toBe(false);
+      expect(isShellCommandReadOnly('fd --exec-batch rm')).toBe(false);
+      expect(isShellCommandReadOnly('fd -e ts -x rm')).toBe(false); // exec flag after -e
+    });
+    test('tree output-to-file: -o FILE / -oFILE / --output overwrite (sort-sibling)', () => {
+      expect(isShellCommandReadOnly('tree -o out.txt')).toBe(false);
+      expect(isShellCommandReadOnly('tree -oout.txt')).toBe(false);
+      expect(isShellCommandReadOnly('tree --output out.txt')).toBe(false);
+      expect(isShellCommandReadOnly('tree --output=/etc/passwd')).toBe(false);
+    });
+
+    // No over-prompt: legitimate read forms of the same commands STAY read.
+    test('legit read forms stay read (no over-prompt regression)', () => {
+      expect(isShellCommandReadOnly('sed s/a/b/ f')).toBe(true);
+      expect(isShellCommandReadOnly('sed -e s/a/b/ f')).toBe(true);
+      expect(isShellCommandReadOnly('sed -n /p/ f')).toBe(true);
+      expect(isShellCommandReadOnly('sort in.txt')).toBe(true);
+      expect(isShellCommandReadOnly('sort -r in')).toBe(true);
+      expect(isShellCommandReadOnly('sort -u in')).toBe(true);
+      expect(isShellCommandReadOnly('fd pattern')).toBe(true);
+      expect(isShellCommandReadOnly('fd -e ts src')).toBe(true);
+      expect(isShellCommandReadOnly('tree src')).toBe(true);
+      // `date -Iseconds` carries an 's' inside -I's value — must NOT read as a
+      // clock-set (proves the date family is position-0, not cluster-matched).
+      expect(isShellCommandReadOnly('date -Iseconds')).toBe(true);
+      expect(isShellCommandReadOnly('date')).toBe(true);
+      expect(isShellCommandReadOnly('date +%s')).toBe(true);
+    });
+  });
 });
