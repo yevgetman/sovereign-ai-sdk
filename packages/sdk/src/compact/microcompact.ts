@@ -77,6 +77,11 @@ export function microcompact(
       const ref = clearable.find((r) => r.blockIndex === bi);
       if (!ref) return block;
       if (block.type !== 'tool_result') return block;
+      // Defense-in-depth mirror of collectCompactableRefs: never overwrite a
+      // non-string (array-shaped) tool_result body. Such blocks are excluded
+      // from `refs` above, so this is only reachable if that guard changes —
+      // keep it so a legal replayed transcript can never be corrupted here.
+      if (typeof block.content !== 'string') return block;
       const placeholder = `[Tool result cleared — ${ref.toolName}]`;
       const saved = ref.tokens - estimateBlockTokens({ ...block, content: placeholder });
       if (saved > 0) tokensSaved += saved;
@@ -139,6 +144,14 @@ function collectCompactableRefs(
       if (block.is_error) continue;
       const name = toolNames.get(block.tool_use_id);
       if (!name || !compactableTools.has(name)) continue;
+      // A tool_result whose `content` is an array of blocks (image /
+      // structured results) is a legal Anthropic wire shape that reaches us
+      // when a consumer seeds/rehydrates a session or replays a real
+      // transcript. The internal type says `string`, but TS is erased at
+      // runtime. Such content has no `.startsWith` and is not the giant
+      // text-blob case microcompaction targets, so treat it as
+      // non-compactable and pass it through untouched (never a candidate).
+      if (typeof block.content !== 'string') continue;
       if (block.content.startsWith('[Tool result cleared')) continue;
       refs.push({
         messageIndex: mi,
