@@ -1,0 +1,14 @@
+{
+  "name": "sov-sdk-embed-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example consumer of @yevgetman/sov-sdk: a no-disk, no-key agent turn with a scripted offline provider and one tool. In-repo it resolves through the workspace; standalone it is exactly what an external consumer installs.",
+  "scripts": {
+    "start": "bun embed.ts"
+  },
+  "dependencies": {
+    "@yevgetman/sov-sdk": "^0.1.0",
+    "zod": "^3.24.0"
+  }
+}
