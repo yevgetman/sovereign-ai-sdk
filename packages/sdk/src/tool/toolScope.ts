@@ -12,7 +12,8 @@ import type { Tool } from '../tool/types.js';
 
 export type ToolScope = {
   rules: ParsedPermissionRule[];
-  tools: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  tools: Tool<any, any>[];
   canUseTool: CanUseTool;
 };
 
@@ -49,7 +50,8 @@ export function filterParseableRules(
 
 export function buildToolScope(opts: {
   allowedTools: readonly string[] | undefined;
-  tools: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  tools: Tool<any, any>[];
   canUseTool: CanUseTool;
 }): ToolScope {
   if (!opts.allowedTools || opts.allowedTools.length === 0) {

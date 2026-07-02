@@ -16,6 +16,10 @@
 // generator is single-use) stands in for a real provider — no network, no disk.
 
 import { describe, expect, test } from 'bun:test';
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import type { ObserveInput } from '@yevgetman/sov-sdk/core/observePort';
 import { query } from '@yevgetman/sov-sdk/core/query';
@@ -82,6 +86,32 @@ function recordingProvider(turns: StreamEvent[][]): {
     },
   };
   return { provider, requests };
+}
+
+/** A provider whose `stream()` runs a `finally` when its generator is finalized
+ *  — on normal completion OR on an early `.return()`. Lets a test prove that
+ *  abandoning run()'s stream (a `break` with NO abort) propagates teardown into
+ *  query()/provider.stream and closes the upstream socket promptly (F7). One
+ *  fresh instance per call (generators are single-use). */
+function finalizerProvider(turns: StreamEvent[][], onFinalize: () => void): LLMProvider {
+  const queue = [...turns];
+  return {
+    name: 'finalizer',
+    async *stream(_req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      try {
+        const events = queue.shift();
+        if (!events) throw new Error('finalizerProvider: queue empty');
+        let last: AssistantMessage | undefined;
+        for (const ev of events) {
+          if (ev.type === 'assistant_message') last = ev.message;
+          yield ev;
+        }
+        return last ?? { role: 'assistant', content: [] };
+      } finally {
+        onFinalize();
+      }
+    },
+  };
 }
 
 const completedAnswer: AssistantMessage = {
@@ -942,5 +972,125 @@ describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () =>
     const session = store.getSession(sessionId);
     expect(session?.inputTokens).toBe(19);
     expect(session?.outputTokens).toBe(11);
+  });
+
+  // --- F6: a STRING config provider resolves with NO disk (the README promise).
+  test('a string config provider resolves without creating/reading HARNESS_HOME (F6)', async () => {
+    // Point HARNESS_HOME at a path that does NOT exist. A disk-free provider
+    // resolution (README "no disk, no server") must never mkdir it.
+    const home = join(tmpdir(), `sov-f6-${randomUUID()}`);
+    const prevHome = process.env.HARNESS_HOME;
+    const prevConfig = process.env.HARNESS_CONFIG;
+    process.env.HARNESS_HOME = home;
+    // Force the resolveHarnessHome()/config.json path (not an explicit config).
+    // `delete` is the only correct way to UNSET an env var — `= undefined` stores
+    // the string "undefined" in process.env.
+    // biome-ignore lint/performance/noDelete: env-var unset requires delete (one-off test cleanup).
+    delete process.env.HARNESS_CONFIG;
+    try {
+      expect(existsSync(home)).toBe(false);
+      // An UNKNOWN provider name makes resolveProvider throw deterministically
+      // AFTER the settings-load seam — no network, no credential dependency. The
+      // mkdir, if any, happens inside loadSettings() BEFORE that throw, so the
+      // directory's existence is a clean witness for "did resolution touch disk".
+      const agent = createAgent({ provider: 'totally-unknown-provider-xyz', model: 'x' });
+      await agent
+        .run('hi')
+        .next()
+        .then(
+          () => {
+            throw new Error('expected string-provider resolution to throw');
+          },
+          () => {
+            /* expected: unknown provider */
+          },
+        );
+      // Load-bearing: resolving the string provider created NO ~/.harness.
+      expect(existsSync(home)).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+      if (prevConfig !== undefined) process.env.HARNESS_CONFIG = prevConfig;
+    }
+  });
+
+  // --- F7: early abandonment of run() finalizes the inner query()/provider.stream.
+  test('breaking the stream early (no abort) finalizes query()/provider.stream + skips persistence (F7)', async () => {
+    let finalized = false;
+    const store = createInMemorySessionStore();
+    const agent = createAgent({
+      provider: finalizerProvider([completedTurn], () => {
+        finalized = true;
+      }),
+      model: 'fake-model',
+      maxTokens: 256,
+      sessionStore: store,
+    });
+    let seen = 0;
+    // Abandon after the FIRST event WITHOUT firing an abort signal — the `break`
+    // makes `for await` call the outer generator's `.return()` while it is
+    // suspended at `yield ev`, with provider.stream still mid-stream.
+    for await (const _ev of agent.run('hi', { sessionId: 'f7-abandon' })) {
+      seen += 1;
+      if (seen === 1) break;
+    }
+    expect(seen).toBe(1);
+    // GREEN after the fix: teardown propagated into query() (its for-await closes
+    // provider.stream), so the finally ran. RED before: the inner generator is
+    // orphaned until GC and `finalized` stays false.
+    expect(finalized).toBe(true);
+    // Persistence must NOT run for an abandoned turn (it lives AFTER the loop).
+    expect(store.loadMessages('f7-abandon')).toHaveLength(0);
+  });
+
+  test('normal completion still delivers every event AND persists the turn (F7 no-regression)', async () => {
+    let finalized = false;
+    const store = createInMemorySessionStore();
+    const events: (StreamEvent | Message)[] = [];
+    const agent = createAgent({
+      provider: finalizerProvider([completedTurn], () => {
+        finalized = true;
+      }),
+      model: 'fake-model',
+      maxTokens: 256,
+      sessionStore: store,
+    });
+    for await (const ev of agent.run('hi', { sessionId: 'f7-normal' })) {
+      events.push(ev);
+    }
+    // The finally's `gen.return()` is a harmless no-op on an already-done
+    // generator: every scripted event is delivered unchanged...
+    expect(finalized).toBe(true);
+    expect(events).toEqual(completedTurn);
+    // ...and persistence still runs on the normal path.
+    expect(store.loadMessages('f7-normal').length).toBeGreaterThan(0);
+  });
+
+  // --- F8: a specifically-typed buildTool() composes with NO double-cast.
+  test('buildTool() flows into createAgent({tools}) + run({tools}) with NO cast (F8 typecheck witness)', async () => {
+    // The load-bearing assertion is at COMPILE time (`bun run typecheck`): the
+    // specific Tool<{text},{echoed}> from buildTool() must be assignable to
+    // AgentConfig.tools / PerTurn.tools with NO `as unknown as
+    // Tool<unknown, unknown>` double-cast (which silently erased type safety).
+    // If those fields regress to Tool<unknown,unknown>[], tsc fails here (TS2322).
+    const echoTool = buildTool({
+      name: 'Echo',
+      description: () => 'echo input',
+      inputSchema: z.object({ text: z.string() }),
+      async call(input) {
+        return { data: { echoed: input.text } };
+      },
+    });
+    const agent = createAgent({
+      provider: scriptedProvider([echoToolUseTurn, completedTurn]),
+      model: 'fake-model',
+      maxTokens: 256,
+      tools: [echoTool], // ← no cast (AgentConfig.tools)
+    });
+    const { result } = await drain(agent.run('use it', { tools: [echoTool] })); // ← no cast (PerTurn.tools)
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.toolCallCount).toBe(1);
+    expect(result.distinctToolNames).toEqual(['Echo']);
   });
 });

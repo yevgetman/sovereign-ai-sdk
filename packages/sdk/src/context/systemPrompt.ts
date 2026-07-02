@@ -12,7 +12,8 @@ import { formatUserContext, getUserContext } from './user.js';
 
 export type BuildSystemSegmentsOptions = {
   bundle?: Bundle;
-  tools?: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  tools?: Tool<any, any>[];
   skills?: Skill[];
   cwd?: string;
   now?: Date;
@@ -213,7 +214,8 @@ export function buildSystemSegments(
   return cacheEnabled ? segments : segments.map((segment) => ({ ...segment, cacheable: false }));
 }
 
-export function formatTools(tools: Tool<unknown, unknown>[]): string {
+// biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+export function formatTools(tools: Tool<any, any>[]): string {
   if (tools.length === 0) return '';
   const lines = tools.map((tool) => {
     const description = staticDescription(tool);

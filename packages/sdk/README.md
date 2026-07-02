@@ -29,7 +29,7 @@ This is the same pattern as the repo's `examples/embed/embed.ts` canary.
 ```ts
 // quickstart.ts — run with `bun quickstart.ts` (or compile with tsc for Node)
 import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
-import type { AssistantMessage, LLMProvider, StreamEvent, Tool } from '@yevgetman/sov-sdk';
+import type { AssistantMessage, LLMProvider, StreamEvent } from '@yevgetman/sov-sdk';
 import { z } from 'zod';
 
 // One tool: echoes its `text` input back.
@@ -90,7 +90,7 @@ const agent = createAgent({
   model: 'echo-model',
   systemPrompt: 'You echo what you are given.',
   maxTokens: 256,
-  tools: [echoTool as unknown as Tool<unknown, unknown>],
+  tools: [echoTool],
   // In-memory persistence: the turn touches no disk. Omit `sessionStore` for a
   // fully stateless turn, or implement the `SessionStore` port to own storage.
   sessionStore: createInMemorySessionStore(),

@@ -58,7 +58,8 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     cacheEnabled = true,
   } = params;
 
-  const toolPool: Tool<unknown, unknown>[] = tools ?? [];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  const toolPool: Tool<any, any>[] = tools ?? [];
   const toolCtx: ToolContext | undefined = params.toolContext;
   const canUseTool = params.canUseTool;
   const hookRunner = params.hookRunner;

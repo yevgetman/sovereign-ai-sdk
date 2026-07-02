@@ -24,7 +24,8 @@ const DEFERRED_PASSTHROUGH_SCHEMA = {
   additionalProperties: true,
 };
 
-export function toToolSchemas(tools: Tool<unknown, unknown>[]): ProviderToolSchema[] {
+// biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+export function toToolSchemas(tools: Tool<any, any>[]): ProviderToolSchema[] {
   return tools.map((t) => buildOne(t));
 }
 

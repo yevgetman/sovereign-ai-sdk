@@ -58,7 +58,8 @@ type Partition =
 export async function* runTools(
   blocks: ToolUseBlock[],
   ctx: ToolContext,
-  tools: Tool<unknown, unknown>[],
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  tools: Tool<any, any>[],
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
   traceRecorder?: TraceRecorder,

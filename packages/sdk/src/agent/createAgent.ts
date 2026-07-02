@@ -84,7 +84,13 @@ export type AgentConfig = {
   /** Provider name resolved via `resolveProvider`, or a concrete `LLMProvider`. */
   provider: string | LLMProvider;
   model: string;
-  tools?: Tool<unknown, unknown>[];
+  // `Tool<any, any>[]` lets a specifically-typed buildTool() compose without an
+  // `as unknown as Tool<unknown, unknown>` cast (audit F8): `unknown` is
+  // contravariantly rejected under strictFunctionTypes, while `any` is bivariant
+  // — the same looseness the old unknown+double-cast had, but cast-free for the
+  // embedder. Threaded as `Tool<any, any>[]` through the whole tool surface.
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8).
+  tools?: Tool<any, any>[];
   /** A string is wrapped into a single non-cacheable `SystemSegment`. */
   systemPrompt?: SystemSegment[] | string;
   cwd?: string;
@@ -140,7 +146,8 @@ export type PerTurn = Partial<{
   sessionId: string;
   provider: LLMProvider;
   model: string;
-  tools: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see AgentConfig.tools.
+  tools: Tool<any, any>[];
   systemPrompt: SystemSegment[];
   effort: ReasoningEffort;
   temperature: number;
@@ -327,6 +334,23 @@ export function createAgent(config: AgentConfig): Agent {
       // query() drive. `false`/unset keeps the EXACT current behavior below.
       if (rethrow) throw err;
       terminal = { reason: 'error', error: err instanceof Error ? err : new Error(String(err)) };
+    } finally {
+      // Early-abandon teardown (audit F7). A consumer may abandon the stream
+      // early — `for await (const ev of agent.run(...)) { if (cond) break; }`
+      // WITHOUT firing an abort signal — which `.return()`s this generator while
+      // it is suspended at `yield ev`. Because we drive query() MANUALLY (not
+      // `yield*`), teardown does NOT auto-propagate, so query()'s
+      // `for await (const event of provider.stream(...))` is left suspended and
+      // the upstream provider fetch/ReadableStream socket leaks until GC.
+      // Forward finalization so provider.stream() is closed promptly. On normal
+      // completion and the error/rethrow paths this targets an ALREADY-DONE
+      // generator — a harmless no-op — so events, the post-loop persistence, and
+      // the RunResult are byte-identical. Persistence stays AFTER this block, so
+      // an abandoned turn (which unwinds through the finally without reaching it)
+      // is never persisted. The `Terminal` cast is inert: `.return()` requires an
+      // arg of the generator's TReturn, but the finalization value is DISCARDED
+      // (never read) — we only need query()'s finalizers to run.
+      await gen.return(undefined as unknown as Terminal);
     }
 
     // 9. Persistence — only when a port is supplied (no-disk default otherwise).
@@ -374,11 +398,14 @@ function resolveRunProvider(
 ): LLMProvider {
   if (perTurnProvider !== undefined) return perTurnProvider;
   if (typeof configProvider !== 'string') return configProvider;
-  const resolved = resolveProvider(
-    configProvider,
-    model,
-    settings !== undefined ? { settings } : {},
-  );
+  // No-disk contract (audit F6): resolveProvider does `opts.settings ??
+  // loadSettings(...)`, and loadSettings mkdir's + reads ~/.harness. Passing an
+  // explicit settings object (even an empty one) is NON-nullish, so it
+  // short-circuits `??` and the disk is never touched — matching the
+  // object-provider path and the README "no disk" default. A bare string
+  // provider must resolve WITHOUT reading disk-backed settings the embedder
+  // never opted into.
+  const resolved = resolveProvider(configProvider, model, { settings: settings ?? {} });
   // `transport` is a `Transport`, which extends `LLMProvider`; the cast mirrors
   // the createAgent call sites (scheduler/cron/channels).
   return resolved.transport as unknown as LLMProvider;
@@ -397,7 +424,8 @@ function toSystemSegments(sp: SystemSegment[] | string | undefined): SystemSegme
  *  undefined when neither tools nor an observer are in play. */
 function resolveToolContext(
   provided: ToolContext | undefined,
-  tools: Tool<unknown, unknown>[] | undefined,
+  // biome-ignore lint/suspicious/noExplicitAny: threads the cast-free tool array (F8).
+  tools: Tool<any, any>[] | undefined,
   cwd: string,
   sessionId: string,
   learningObserver: LearningObserverPort | undefined,

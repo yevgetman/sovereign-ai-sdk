@@ -153,7 +153,9 @@ export type DelegateInput = {
   prompt: string;
   parentSessionId: string;
   parentSignal?: AbortSignal;
-  parentToolPool: Tool<unknown, unknown>[];
+  // A specifically-typed Tool<I,O> flows in without an `as unknown as` cast (F8).
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8).
+  parentToolPool: Tool<any, any>[];
   parentToolContext: ToolContext;
   canUseTool?: CanUseTool;
   /** 2026-06-15 multi-agent workflows — the child's declared write scope for
