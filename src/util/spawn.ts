@@ -25,8 +25,10 @@ export type { SpawnedProc } from '../runtime/executorPort.js';
 export const SPAWN_FAILURE_EXIT_CODE = 127;
 
 /** Exit code reported when the child died on a signal (abort/kill) and Node
- *  therefore reports a `null` exit code. */
-const KILLED_EXIT_CODE = 1;
+ *  therefore reports a `null` exit code. Exported so callers (and the
+ *  pre-aborted-signal short-circuit's tests) can assert against it directly
+ *  instead of a bare `1`. */
+export const KILLED_EXIT_CODE = 1;
 
 /** Options accepted by `spawnProc` — a drop-in superset of what the Bun.spawn
  *  call sites passed. Stdout/stderr are ALWAYS piped (the `SpawnedProc`
@@ -59,6 +61,27 @@ export type SpawnProcOpts = {
 export function spawnProc(argv: string[], opts: SpawnProcOpts = {}): SpawnedProc {
   const [command, ...args] = argv;
   if (!command) throw new Error('spawnProc: argv must contain at least a command');
+
+  // A signal that is ALREADY aborted before we ever call spawn is a runtime
+  // divergence otherwise: under Node, node:child_process.spawn refuses to
+  // spawn a pre-aborted signal and reports it via the async 'error' path,
+  // which this shim's 'error' handler maps to SPAWN_FAILURE_EXIT_CODE (127) —
+  // a misleading "command not found" for a command that was never looked up.
+  // Under Bun, Bun.spawn ignores a pre-aborted signal and the child runs to
+  // completion. Neither matches "this call was already cancelled" — short-
+  // circuit deterministically instead of spawning at all.
+  if (opts.signal?.aborted) {
+    return {
+      stdout: new ReadableStream<Uint8Array>({ start: (controller) => controller.close() }),
+      stderr: new ReadableStream<Uint8Array>({ start: (controller) => controller.close() }),
+      stdin: {
+        write: (data: string | Uint8Array): number => Buffer.byteLength(data),
+        end: (): void => {},
+      },
+      exited: Promise.resolve(KILLED_EXIT_CODE),
+      kill: (): void => {},
+    };
+  }
 
   const child = nodeSpawn(command, args, {
     ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),

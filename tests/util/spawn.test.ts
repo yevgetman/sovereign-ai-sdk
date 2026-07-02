@@ -4,10 +4,10 @@
 // (a Node Readable would fail there at runtime with no compile error).
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnProc } from '../../src/util/spawn.js';
+import { KILLED_EXIT_CODE, SPAWN_FAILURE_EXIT_CODE, spawnProc } from '../../src/util/spawn.js';
 
 describe('spawnProc', () => {
   test('captures stdout via Web-stream Response and resolves exit 0', async () => {
@@ -82,7 +82,34 @@ describe('spawnProc', () => {
       stderr: 'pipe',
     });
     const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-    expect(exitCode).not.toBe(0);
+    // Pin the exact load-bearing value, not just "non-zero": GrepTool and
+    // StaticSiteValidateTool branch on `exitCode === SPAWN_FAILURE_EXIT_CODE`
+    // to produce their actionable "binary not found" messages — a runtime that
+    // resolved spawn-failure to 1 instead would silently degrade a missing
+    // ripgrep to "(no matches)" rather than surfacing the real problem.
+    expect(exitCode).toBe(SPAWN_FAILURE_EXIT_CODE);
     expect(stdout).toBe('');
+  });
+
+  test('pre-aborted signal short-circuits: no spawn, exited resolves KILLED_EXIT_CODE', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sovereign-spawn-'));
+    const marker = join(dir, 'should-not-exist');
+    try {
+      const ctl = new AbortController();
+      ctl.abort();
+      const proc = spawnProc(['bash', '-c', `touch ${marker}`], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        signal: ctl.signal,
+      });
+      const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      expect(exitCode).toBe(KILLED_EXIT_CODE);
+      expect(stdout).toBe('');
+      // No process was ever spawned — the child never ran, so it never
+      // created the marker file.
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
