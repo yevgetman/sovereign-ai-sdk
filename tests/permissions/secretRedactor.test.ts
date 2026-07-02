@@ -173,6 +173,48 @@ describe('redactSecrets — false-positive guards', () => {
   });
 });
 
+describe('redactSecrets — PEM ReDoS regression (audit D7 / F5 sibling)', () => {
+  // Audit D7: the private-key-block pattern used an UNBOUNDED lazy inner span
+  // (`[\s\S]+?`), which is O(n^2) on attacker/model-controllable Write/Edit
+  // content carrying many `-----BEGIN … PRIVATE KEY-----` markers with NO
+  // matching `-----END` — each BEGIN position rescans to end-of-input. Against
+  // the pre-fix pattern this payload was pathologically slow (n=10k ≈ 0.76s,
+  // n=40k ≈ 12s here); the shared bounded ({0,8192}?) form is linear and returns
+  // in a few tens of ms. redactSecrets runs on the full tool INPUT, so this must
+  // never block the event loop.
+  test('does not catastrophically backtrack on many BEGIN-without-END markers', () => {
+    const payload = '-----BEGIN RSA PRIVATE KEY-----\n'.repeat(10_000);
+    const started = Date.now();
+    const result = redactSecrets(payload);
+    const elapsed = Date.now() - started;
+    // No matching END exists, so nothing is redacted — but it must return fast.
+    expect(result.hits).toEqual([]);
+    expect(result.redacted).toBe(payload);
+    expect(elapsed).toBeLessThan(100);
+  });
+
+  test('does not backtrack on a near-miss END (BEGIN + truncated END, no full close)', () => {
+    const payload = '-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY----\n'.repeat(5_000);
+    const started = Date.now();
+    redactSecrets(payload);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
+
+  test('still redacts a genuine multi-line PEM block after the ReDoS fix', () => {
+    const pem = [
+      '-----BEGIN RSA PRIVATE KEY-----',
+      'MIIEpAIBAAKCAQEAxGENUINEkeyBODYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      '-----END RSA PRIVATE KEY-----',
+    ].join('\n');
+    const result = redactSecrets(`pre\n${pem}\npost`);
+    expect(result.hits[0]?.kind).toBe('private-key-block');
+    expect(result.redacted).not.toContain('MIIEpAIBAAKCAQEAxGENUINE');
+    expect(result.redacted).toContain('pre');
+    expect(result.redacted).toContain('post');
+    expect(result.redacted).toContain('<REDACTED:private-key-block>');
+  });
+});
+
 describe('redactSecrets — bypass via env var', () => {
   let originalEnv: string | undefined;
 

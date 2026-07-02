@@ -9,7 +9,10 @@
 // false negatives leak secrets into trajectory archives that may be
 // committed to a repo.
 
-import { compileVendorSecretPatterns } from '../redaction/secretPatterns.js';
+import {
+  compilePemPrivateKeyPattern,
+  compileVendorSecretPatterns,
+} from '../redaction/secretPatterns.js';
 
 /** Snapshotted at import time per Invariant #15. */
 const REDACTION_ENABLED: boolean = (() => {
@@ -71,17 +74,16 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   // Common credential file paths (we don't read them; we redact references to them).
   { name: 'aws-creds-path', regex: /\B~\/\.aws\/credentials\b/g },
   { name: 'ssh-private', regex: /\B~\/\.ssh\/id_(rsa|ed25519|ecdsa|dsa)(\.pub)?\b/g },
-  // PEM-style private key blocks. The inner span is BOUNDED ({0,8192}?) rather
-  // than an unbounded lazy `[\s\S]*?`: an unbounded lazy span is O(n^2) on
-  // attacker-controlled content with many `BEGIN` markers and no matching `END`
-  // — each BEGIN position rescans to end-of-input (audit F5, a multi-MB payload
-  // blocked the event loop for ~100s). 8192 chars comfortably covers a real
-  // private-key block (an RSA-8192 PEM is ~6.4KB), so genuine keys still redact
-  // while the per-BEGIN scan is O(1) → the whole pass is linear.
-  {
-    name: 'pem-private',
-    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z ]*PRIVATE KEY-----/g,
-  },
+  // PEM-style private key blocks. Sourced from the SHARED catalog
+  // (redaction/secretPatterns.ts) so this redactor and the tool-input redactor
+  // (permissions/secretRedactor.ts) use ONE linear, ReDoS-safe pattern. The
+  // inner span is BOUNDED ({0,8192}?) rather than an unbounded lazy `[\s\S]*?`:
+  // an unbounded lazy span is O(n^2) on attacker-controlled content with many
+  // `BEGIN` markers and no matching `END` — each BEGIN rescans to end-of-input
+  // (audit F5/D7, a multi-MB payload blocked the event loop for ~100s). 8192
+  // chars comfortably covers a real private-key block (an RSA-8192 PEM is
+  // ~6.4KB), so genuine keys still redact while the per-BEGIN scan is O(1).
+  { name: 'pem-private', regex: compilePemPrivateKeyPattern() },
 ];
 
 /** Apply every pattern. Returns a copy with `[REDACTED]` (or

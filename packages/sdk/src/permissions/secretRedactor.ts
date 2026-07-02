@@ -13,7 +13,10 @@
 // Bypass: set HARNESS_REDACTION=off to disable globally. Tests that
 // legitimately need to exercise redaction-skipping use that env var.
 
-import { compileVendorSecretPatterns } from '../redaction/secretPatterns.js';
+import {
+  compilePemPrivateKeyPattern,
+  compileVendorSecretPatterns,
+} from '../redaction/secretPatterns.js';
 
 export type SecretKind =
   | 'github-oauth' // gh[oprsu]_ + 36+ chars
@@ -84,12 +87,13 @@ const PATTERNS: readonly PatternSpec[] = [
   { kind: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g },
 
   // PEM-style private key blocks. Multi-line, includes the surrounding
-  // BEGIN/END markers. RSA, OPENSSH, EC, DSA, or generic.
-  {
-    kind: 'private-key-block',
-    pattern:
-      /-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED |PGP |PRIVATE )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |DSA |EC |OPENSSH |ENCRYPTED |PGP |PRIVATE )?PRIVATE KEY-----/g,
-  },
+  // BEGIN/END markers (RSA, OPENSSH, EC, DSA, or generic). Sourced from the
+  // SHARED catalog (redaction/secretPatterns.ts) so this redactor and the
+  // persistent-artifact redactor (trajectory/redact.ts) use ONE linear,
+  // ReDoS-safe pattern — the bounded inner span ({0,8192}?) cannot drift back to
+  // the quadratic unbounded lazy form in one redactor while the other stays
+  // fixed (audit D7, F5 sibling).
+  { kind: 'private-key-block', pattern: compilePemPrivateKeyPattern() },
 ];
 
 /** Scan a string for known secret patterns and return redaction info. */

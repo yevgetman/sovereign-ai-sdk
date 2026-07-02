@@ -52,3 +52,31 @@ export const VENDOR_SECRET_PATTERNS: readonly VendorSecretPattern[] = [
 export function compileVendorSecretPatterns(): Array<{ name: string; regex: RegExp }> {
   return VENDOR_SECRET_PATTERNS.map((p) => ({ name: p.name, regex: new RegExp(p.source, 'g') }));
 }
+
+/**
+ * Shared PEM / private-key-block pattern SOURCE (flag-less). Kept HERE — the one
+ * source of truth — so both redactors consume the SAME linear form and it can
+ * never drift back to a quadratic one in one redactor while the other stays fixed
+ * (audit D7: exactly that drift — F5 bounded the span in trajectory/redact.ts but
+ * left permissions/secretRedactor.ts unbounded).
+ *
+ * The inner span is BOUNDED (`{0,8192}?`) rather than an unbounded lazy
+ * `[\s\S]+?`/`[\s\S]*?`: an unbounded lazy span is O(n^2) on attacker-controlled
+ * content carrying many `-----BEGIN … PRIVATE KEY-----` markers with no matching
+ * `-----END` — each BEGIN position rescans to end-of-input (a multi-MB payload
+ * blocked the event loop for ~100s). 8192 chars comfortably covers a real key
+ * block (an RSA-8192 PEM is ~6.4KB), so genuine keys still redact while the
+ * per-BEGIN scan is O(1) → the whole pass is linear. The `[A-Z ]*` label class
+ * (RSA / DSA / EC / OPENSSH / ENCRYPTED / PGP / plain) is a single bounded
+ * quantifier over a literal-terminated run — no nested/overlapping quantifiers.
+ */
+export const PEM_PRIVATE_KEY_BLOCK_SOURCE = String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z ]*PRIVATE KEY-----`;
+
+/**
+ * Compile a FRESH global RegExp for the shared PEM private-key-block pattern.
+ * Returns a new instance per call so its `lastIndex` is never shared between the
+ * two redactors.
+ */
+export function compilePemPrivateKeyPattern(): RegExp {
+  return new RegExp(PEM_PRIVATE_KEY_BLOCK_SOURCE, 'g');
+}
