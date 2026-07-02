@@ -9,17 +9,13 @@
 // alternative therefore matches when it equals the canonical name, the wildcard
 // `*`, OR an alias that resolves to (or from) the canonical name.
 
+// Alias → canonical resolution comes from the canonical tool descriptors
+// (src/tool/descriptors.ts) — the single source of truth mirroring the
+// `aliases:` declarations on the harness tools in src/tools/ (FileReadTool
+// `aliases:['Read']`, etc.). Tools without an alias (Bash/Grep/Glob/MCP/…)
+// match by their name directly.
+import { aliasToNativeName } from '../tool/descriptors.js';
 import type { HookConfig, HookEvent } from './types.js';
-
-/** Alias → canonical tool name. Mirrors the `aliases:` declarations on the
- *  harness tools in src/tools/ (FileReadTool `aliases:['Read']`, etc.) — kept
- *  in sync with `CLAUDE_TO_NATIVE_TOOL_NAME` in runtime/subprocessExecutor.ts.
- *  Tools without an alias (Bash/Grep/Glob/MCP/…) match by their name directly. */
-const ALIAS_TO_CANONICAL: Readonly<Record<string, string>> = {
-  Read: 'FileRead',
-  Write: 'FileWrite',
-  Edit: 'FileEdit',
-};
 
 export function matchesHook(config: HookConfig, event: HookEvent): boolean {
   if (event.hookEventName === 'PreToolUse' || event.hookEventName === 'PostToolUse') {
@@ -41,10 +37,10 @@ function matchesToolName(matcher: string, toolName: string): boolean {
     if (alt === '*') return true;
     if (alt === toolName) return true;
     // Operator wrote an alias ("Edit") → resolve it to the canonical name.
-    if (ALIAS_TO_CANONICAL[alt] === toolName) return true;
+    if (aliasToNativeName(alt) === toolName) return true;
     // Defensive symmetry: operator wrote the canonical name while the event
     // somehow carries the alias — resolve the event's name and compare.
-    if (ALIAS_TO_CANONICAL[toolName] === alt) return true;
+    if (aliasToNativeName(toolName) === alt) return true;
   }
   return false;
 }

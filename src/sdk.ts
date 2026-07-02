@@ -16,9 +16,8 @@
 //   - `.js` specifiers; `export type` for every type-only re-export
 //     (verbatimModuleSyntax / isolatedModules).
 //
-// Surfaces named in §5.1 but NOT yet exported here (added by later tasks — they
-// either do not exist as an open module yet or live in a proprietary file):
-//   - canonical tool descriptors — subscription-executor task.
+// Every surface named in §5.1 is now exported here (Task 2.6 closed the last
+// gap — the canonical tool descriptors).
 
 // ── Agent loop (core/) ──────────────────────────────────────────────────────
 export { query } from './core/query.js';
@@ -65,6 +64,16 @@ export type {
 // src/tool/toolScope.ts (formerly proprietary-by-location src/commands/).
 export { buildToolScope } from './tool/toolScope.js';
 export type { ToolScope } from './tool/toolScope.js';
+// Canonical tool descriptors — the single source of truth for foreign→native
+// tool identity (aliases, input-key renames, noise-key drops). The proprietary
+// subscription-executor derives its observation canonicalization from these.
+export {
+  CANONICAL_TOOL_DESCRIPTORS,
+  aliasToNativeName,
+  dropsFor,
+  renamesFor,
+} from './tool/descriptors.js';
+export type { CanonicalToolDescriptor } from './tool/descriptors.js';
 
 // ── Delegation (runtime/scheduler + the executor / lane ports) ──────────────
 // `SubagentScheduler` is the open in-process child-spawn implementation;

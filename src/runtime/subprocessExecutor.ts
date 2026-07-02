@@ -32,6 +32,10 @@
 import type { SubscriptionExecutorConfig } from '../config/schema.js';
 import type { AssistantMessage, ContentBlock, Message, Terminal } from '../core/types.js';
 import type { ObservationStatus } from '../learning/types.js';
+// Canonical tool-identity data (aliases / key renames / noise drops) — the
+// OPEN single source of truth this proprietary module derives its observation
+// canonicalization from (proprietary→open import: allowed direction).
+import { aliasToNativeName, dropsFor, renamesFor } from '../tool/descriptors.js';
 // Task 1.5 — the port contract moved to the OPEN `./executorPort.ts` so the open
 // scheduler stops value-importing this proprietary module. Task 1.7 — its own
 // dependency shapes (SpawnFn / SpawnedProc / SpawnOpts / LearningSink / TraceSink)
@@ -83,44 +87,14 @@ const DEFAULT_PERMISSION_MODE: SubscriptionExecutorConfig['permissionMode'] = 'b
 // `messages[]` and the trace stay verbatim (those are fidelity/operational
 // records of what Claude actually did).
 //
-// Grounding (claude v2.1.168, captured live):
-//   Read   name='Read'  input={ file_path, offset?, limit? }   (native: FileRead / { path, … })
-//   Write  name='Write' input={ file_path, content }           (native: FileWrite / { path, content })
-//   Edit   name='Edit'  input={ file_path, old_string, … }     (native: FileEdit / { path, … })
-//   Bash   name='Bash'  input={ command, description?, … }      (native: Bash / { command, … } — no description)
-//   Grep   name='Grep'  input={ pattern, … }                    (native: Grep — matches)
-//   Glob   name='Glob'  input={ pattern, … }                    (native: Glob — matches)
-// The native names/keys are the AUTHORITATIVE ones declared on the harness
-// tools in src/tools/ (FileReadTool has `name:'FileRead', aliases:['Read']`,
-// input key `path`; etc.). An UNMAPPED tool (Task, WebFetch, MCP tools, …)
-// has no native equivalent and passes through unchanged.
-
-/** Claude tool name → harness native name. Tools absent from this map keep
- *  their Claude name (Bash/Grep/Glob already match; Task/WebFetch/MCP have no
- *  native equivalent). */
-const CLAUDE_TO_NATIVE_TOOL_NAME: Readonly<Record<string, string>> = {
-  Read: 'FileRead',
-  Write: 'FileWrite',
-  Edit: 'FileEdit',
-};
-
-/** Per-canonical-tool top-level input-key renames (Claude key → native key).
- *  Keyed by the CANONICAL (post-rename) tool name. */
-const INPUT_KEY_RENAMES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  FileRead: { file_path: 'path' },
-  FileWrite: { file_path: 'path' },
-  FileEdit: { file_path: 'path' },
-};
-
-/** Per-canonical-tool top-level input keys to DROP from the observation — a
- *  Claude-only noise field with no native counterpart that would otherwise
- *  split the input hash from an equivalent native call. Load-bearing values are
- *  never dropped. Keyed by the CANONICAL tool name. */
-const INPUT_KEYS_TO_DROP: Readonly<Record<string, readonly string[]>> = {
-  // A native Bash carries no `description`; Claude adds one. Drop it so a
-  // delegated Bash co-identifies with a native Bash on the same command.
-  Bash: ['description'],
-};
+// The MAPPING DATA (aliases, key renames, noise-key drops — with the captured
+// grounding table) lives in the OPEN src/tool/descriptors.ts (Task 2.6): the
+// executor's former hardcoded const maps were the last place tool-identity
+// knowledge sat outside the open SDK. This module only APPLIES the descriptors
+// via the derived lookup helpers; tests/tool/descriptors.test.ts pins the
+// derived content byte-identical to the original literals. An UNMAPPED tool
+// (Task, WebFetch, MCP tools, …) has no native equivalent and passes through
+// unchanged.
 
 /** Canonicalize a replayed Claude Code tool call to the harness's native tool
  *  vocabulary FOR OBSERVATION PURPOSES ONLY. Pure + immutable: returns a new
@@ -136,14 +110,14 @@ export function canonicalizeToolForObservation(
   name: string,
   input: unknown,
 ): { name: string; input: unknown } {
-  const canonicalName = CLAUDE_TO_NATIVE_TOOL_NAME[name] ?? name;
+  const canonicalName = aliasToNativeName(name) ?? name;
   // Only object inputs can have keys renamed/dropped. Non-objects (null,
   // strings, arrays) pass through — only the name is mapped.
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     return { name: canonicalName, input };
   }
-  const renames = INPUT_KEY_RENAMES[canonicalName];
-  const drops = INPUT_KEYS_TO_DROP[canonicalName];
+  const renames = renamesFor(canonicalName);
+  const drops = dropsFor(canonicalName);
   if (renames === undefined && drops === undefined) {
     // Name may have changed, but the input shape needs no rewrite.
     return { name: canonicalName, input };

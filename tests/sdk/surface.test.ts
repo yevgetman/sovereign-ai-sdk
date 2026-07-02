@@ -28,6 +28,7 @@ import type {
   BuildMcpClientPoolOpts,
   BuildToolContextInput,
   CanUseTool,
+  CanonicalToolDescriptor,
   ChildCompletionEvent,
   ContentBlock,
   DelegateInput,
@@ -101,7 +102,9 @@ import type {
  *  export in src/sdk.ts must update THIS list in the same commit. Sorted to
  *  match `Object.keys(...).sort()` (enumeration order is not guaranteed). */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
+  'CANONICAL_TOOL_DESCRIPTORS',
   'SubagentScheduler',
+  'aliasToNativeName',
   'buildHookRunner',
   'buildMcpClientPool',
   'buildSkillCommands',
@@ -111,12 +114,14 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createAgent',
   'createInMemorySessionStore',
   'createNoopTranscriptStore',
+  'dropsFor',
   'expandSkillPrompt',
   'expandSkillText',
   'findCapableModel',
   'isRemoteMcpConfig',
   'loadSkills',
   'query',
+  'renamesFor',
   'resolveProvider',
 ];
 
@@ -152,6 +157,7 @@ type TypeSurfaceWitness = {
   buildHookRunnerOpts?: BuildHookRunnerOpts;
   buildMcpClientPoolOpts?: BuildMcpClientPoolOpts;
   buildToolContextInput?: BuildToolContextInput;
+  canonicalToolDescriptor?: CanonicalToolDescriptor;
   canUseTool?: CanUseTool;
   childCompletionEvent?: ChildCompletionEvent;
   contentBlock?: ContentBlock;
