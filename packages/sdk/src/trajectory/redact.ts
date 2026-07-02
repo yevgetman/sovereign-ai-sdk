@@ -74,12 +74,14 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   // PEM-style private key blocks. Sourced from the SHARED catalog
   // (redaction/secretPatterns.ts) so this redactor and the tool-input redactor
   // (permissions/secretRedactor.ts) use ONE linear, ReDoS-safe pattern. The
-  // inner span is BOUNDED ({0,8192}?) rather than an unbounded lazy `[\s\S]*?`:
+  // inner span is BOUNDED ({0,6144}?) rather than an unbounded lazy `[\s\S]*?`:
   // an unbounded lazy span is O(n^2) on attacker-controlled content with many
   // `BEGIN` markers and no matching `END` — each BEGIN rescans to end-of-input
-  // (audit F5/D7, a multi-MB payload blocked the event loop for ~100s). 8192
-  // chars comfortably covers a real private-key block (an RSA-8192 PEM is
-  // ~6.4KB), so genuine keys still redact while the per-BEGIN scan is O(1).
+  // (audit F5/D7, a multi-MB payload blocked the event loop for ~100s). 6144
+  // chars comfortably covers a realistic private-key block (RSA/EC bodies run
+  // ~1.6–3.2KB base64), so genuine keys still redact while the per-BEGIN scan is
+  // bounded; the window was trimmed from 8192 for time headroom under the cap
+  // (audit G6).
   { name: 'pem-private', regex: compilePemPrivateKeyPattern() },
 ];
 

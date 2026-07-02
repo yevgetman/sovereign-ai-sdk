@@ -121,17 +121,22 @@ export function compileProviderKeyPatterns(): Array<{ name: string; regex: RegEx
  * (audit D7: exactly that drift — F5 bounded the span in trajectory/redact.ts but
  * left permissions/secretRedactor.ts unbounded).
  *
- * The inner span is BOUNDED (`{0,8192}?`) rather than an unbounded lazy
+ * The inner span is BOUNDED (`{0,6144}?`) rather than an unbounded lazy
  * `[\s\S]+?`/`[\s\S]*?`: an unbounded lazy span is O(n^2) on attacker-controlled
  * content carrying many `-----BEGIN … PRIVATE KEY-----` markers with no matching
  * `-----END` — each BEGIN position rescans to end-of-input (a multi-MB payload
- * blocked the event loop for ~100s). 8192 chars comfortably covers a real key
- * block (an RSA-8192 PEM is ~6.4KB), so genuine keys still redact while the
- * per-BEGIN scan is O(1) → the whole pass is linear. The `[A-Z ]*` label class
- * (RSA / DSA / EC / OPENSSH / ENCRYPTED / PGP / plain) is a single bounded
- * quantifier over a literal-terminated run — no nested/overlapping quantifiers.
+ * blocked the event loop for ~100s). The window was 8192, but at the 256 KiB
+ * scan cap that still cost ~104ms worst-case (over the 100ms bar); 6144 restores
+ * headroom (audit G6). 6144 chars comfortably covers a realistic RSA/EC
+ * private-key block — bodies run ~1.6–3.2KB base64 (even RSA-4096 is ~3.2KB) —
+ * so genuine keys still redact while the per-BEGIN scan is bounded → the whole
+ * pass is linear. (An atypical RSA-8192 block is ~6.4KB and exceeds the window
+ * by design: the window is kept just above realistic key sizes to bound cost.)
+ * The `[A-Z ]*` label class (RSA / DSA / EC / OPENSSH / ENCRYPTED / PGP / plain)
+ * is a single bounded quantifier over a literal-terminated run — no
+ * nested/overlapping quantifiers.
  */
-export const PEM_PRIVATE_KEY_BLOCK_SOURCE = String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z ]*PRIVATE KEY-----`;
+export const PEM_PRIVATE_KEY_BLOCK_SOURCE = String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,6144}?-----END [A-Z ]*PRIVATE KEY-----`;
 
 /**
  * Compile a FRESH global RegExp for the shared PEM private-key-block pattern.
@@ -147,17 +152,20 @@ export function compilePemPrivateKeyPattern(): RegExp {
  * (audit C9). Redaction runs on the event loop against attacker/MCP-influenceable
  * tool-result content with no upstream size cap. Even the linearized PEM pattern
  * has a large per-input constant (each `-----BEGIN … PRIVATE KEY-----` marker
- * with no nearby `END` costs an 8192-char bounded scan), so a many-MB payload of
+ * with no nearby `END` costs a bounded per-BEGIN scan), so a many-MB payload of
  * BEGIN-spam blocks the loop for hundreds of ms. Capping the SCANNED length makes
  * worst-case wall-time bounded and pattern-independent — no present or future
  * pattern can go pathological on a huge input.
  *
- * 256 KiB keeps the worst-case adversarial pass comfortably under the 100ms
- * acceptance bar (~33ms measured) with headroom for slower hosts, while being
- * far larger than any realistic single secret or tool-result line. Each redactor
+ * 128 KiB (audit G6 — lowered from 256 KiB). At 256 KiB the worst-case
+ * adversarial pass measured ~104ms on node v25 — OVER the 100ms bar with no
+ * headroom (the "~33ms" claimed here before was falsified). Halving the cap
+ * (paired with the 8192→6144 PEM window) brings the same worst case to ~39ms on
+ * node / ~14ms on bun — true headroom under the bar — while 128 KiB stays far
+ * larger than any realistic single secret or tool-result line. Each redactor
  * decides its own over-cap tail policy: the persistent (committed-archive)
  * redactor DROPS the unscanned tail with a marker (it must never emit unredacted
  * bytes); the tool-input redactor PRESERVES the tail verbatim (it rewrites file
  * content and must never truncate a write) but scans only the prefix.
  */
-export const MAX_REDACTION_INPUT_BYTES = 262144;
+export const MAX_REDACTION_INPUT_BYTES = 131072;

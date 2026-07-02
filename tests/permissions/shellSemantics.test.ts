@@ -209,6 +209,25 @@ describe('analyzeShellCommand', () => {
     expect(analyzeShellCommand('grep pattern file 2>&1')[0]?.kind).toBe('read');
   });
 
+  // Audit G4 [HIGH] — the bash `[N]>&WORD` form redirects BOTH stdout+stderr to
+  // WORD when WORD is a FILENAME (truncate/create), semantically identical to
+  // `&>file`. The fd-duplication exclusion `[^&\s]` dropped it, so a write
+  // masquerading as a read auto-approved under `allow Read` and clobbered the
+  // target. `>&FILE` must be a write; numeric/`-` operands stay fd-dups.
+  test('[N]>&FILE redirect is a file write, not read', () => {
+    expect(analyzeShellCommand('ls >&out.txt')[0]?.kind).toBe('write');
+    expect(analyzeShellCommand('ls 1>&out')[0]?.kind).toBe('write');
+    expect(analyzeShellCommand('echo x >&sink')[0]?.kind).toBe('write');
+    expect(analyzeShellCommand('cat x >&/etc/hosts')[0]?.kind).toBe('write');
+  });
+
+  test('[N]>&NUMBER / >&- fd-duplications are NOT file writes', () => {
+    expect(analyzeShellCommand('ls >&1')[0]?.kind).toBe('read');
+    expect(analyzeShellCommand('grep x file 2>&1')[0]?.kind).toBe('read');
+    expect(analyzeShellCommand('cat a 1>&2')[0]?.kind).toBe('read');
+    expect(analyzeShellCommand('ls >&-')[0]?.kind).toBe('read');
+  });
+
   test('compound: read && read is all read', () => {
     const ops = analyzeShellCommand('cat a && cat b');
     expect(ops.every((op) => op.kind === 'read')).toBe(true);
@@ -266,6 +285,23 @@ describe('isShellCommandReadOnly', () => {
   test('redirect on read command returns false', () => {
     expect(isShellCommandReadOnly('grep pattern file > out')).toBe(false);
     expect(isShellCommandReadOnly('grep pattern file >out')).toBe(false); // no space
+  });
+
+  // Audit G4 [HIGH] — `[N]>&FILE` (WORD is a filename) overwrites the target, so
+  // it must NOT resolve read-only; the numeric/`-` fd-dup forms still may.
+  test('[N]>&FILE write-redirect is not read-only, fd-dups still are', () => {
+    // writes → not read-only
+    expect(isShellCommandReadOnly('ls >&out.txt')).toBe(false);
+    expect(isShellCommandReadOnly('ls 1>&out')).toBe(false);
+    expect(isShellCommandReadOnly('echo x >&sink')).toBe(false);
+    expect(isShellCommandReadOnly('git log -p >&out')).toBe(false);
+    expect(isShellCommandReadOnly('cat x >&/etc/hosts')).toBe(false);
+    // fd-duplications and plain reads → still read-only (no regression)
+    expect(isShellCommandReadOnly('ls >&1')).toBe(true);
+    expect(isShellCommandReadOnly('grep x file 2>&1')).toBe(true);
+    expect(isShellCommandReadOnly('cat a 1>&2')).toBe(true);
+    expect(isShellCommandReadOnly('ls >&-')).toBe(true);
+    expect(isShellCommandReadOnly('ls -la')).toBe(true);
   });
 
   // Audit 2026-06-10 C2/C3 — these feed the Bash→virtual-Read rule path; a

@@ -688,11 +688,23 @@ function tokenizeSegment(segment: string): TokenizeResult {
   // Output redirect to a file: `> out`, `>>out` (no space — previously
   // slipped through and let `cat x >out` be classified read), `2> err`,
   // `&> all`. Fd-duplications (`2>&1`, `>&2`) target no file and are excluded.
-  if (/(?:\d*|&)>>?\s*[^&\s]/.test(raw)) {
+  //
+  // The bash `[N]>&WORD` form is a SECOND file-redirect when WORD is a filename
+  // (`>&out`, `1>&out`): it points BOTH stdout+stderr at that file
+  // (truncate/create), exactly like `&>file`. The `[^&\s]` above excludes it as
+  // if it were an fd-duplication, so a write masqueraded as a read and
+  // auto-approved under `allow Read`, clobbering the target (audit G4). Treat
+  // `[N]>&WORD` as a write when WORD is a filename; keep numeric operands
+  // (`2>&1`, `>&2`) and the fd-close `>&-` as fd-dups (lookahead excludes a
+  // following digit/`-`/whitespace).
+  if (/(?:\d*|&)>>?\s*[^&\s]/.test(raw) || /\d*>&\s*(?![-\d\s])\S/.test(raw)) {
     redirectsToFile = true;
   }
 
   const cleaned = raw
+    // Strip `[N]>&FILE` first so its filename operand is removed rather than
+    // surfacing as a spurious positional path. Same fd-dup exclusion as above.
+    .replace(/\d*>&\s*(?![-\d\s])\S+/g, ' ')
     .replace(/\d*>>?\s*\S+/g, ' ')
     .replace(/&>\s*\S+/g, ' ')
     .replace(/<\s*\S+/g, ' ');

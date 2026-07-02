@@ -101,9 +101,10 @@ const PATTERNS: readonly PatternSpec[] = [
   // BEGIN/END markers (RSA, OPENSSH, EC, DSA, or generic). Sourced from the
   // SHARED catalog (redaction/secretPatterns.ts) so this redactor and the
   // persistent-artifact redactor (trajectory/redact.ts) use ONE linear,
-  // ReDoS-safe pattern — the bounded inner span ({0,8192}?) cannot drift back to
+  // ReDoS-safe pattern — the bounded inner span ({0,6144}?) cannot drift back to
   // the quadratic unbounded lazy form in one redactor while the other stays
-  // fixed (audit D7, F5 sibling).
+  // fixed (audit D7, F5 sibling; window trimmed 8192→6144 for time headroom in
+  // audit G6).
   { kind: 'private-key-block', pattern: compilePemPrivateKeyPattern() },
 ];
 

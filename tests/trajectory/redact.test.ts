@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { redactSecrets } from '@yevgetman/sov-sdk/permissions/secretRedactor';
+import { MAX_REDACTION_INPUT_BYTES } from '@yevgetman/sov-sdk/redaction/secretPatterns';
 import { isRedactionEnabled, redactForce } from '@yevgetman/sov-sdk/trajectory/redact';
 
 describe('redactForce', () => {
@@ -243,7 +244,8 @@ describe('redactForce — input-size cap (audit C9 ReDoS defense)', () => {
   });
 
   test('a large benign input under the cap is preserved verbatim', () => {
-    const benign = 'x'.repeat(200 * 1024); // 200 KiB, no secrets, under the cap
+    // Derive from the cap so this stays valid if the cap is retuned (audit G6).
+    const benign = 'x'.repeat(MAX_REDACTION_INPUT_BYTES - 1024); // just under the cap
     expect(redactForce(benign)).toBe(benign);
   });
 });
