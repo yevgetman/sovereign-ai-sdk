@@ -273,9 +273,7 @@ function analyzeSegment(segment: string): VirtualOperation {
   }
 
   if (cmd === 'sed') {
-    return args.some((a) => matchesFlagFamily(a, SED_INPLACE_FLAG))
-      ? { kind: 'edit', paths: extractPaths(args) }
-      : { kind: 'read', paths: extractPaths(args) };
+    return analyzeSed(args);
   }
   if (cmd === 'sort') {
     return args.some((a) => matchesFlagFamily(a, SORT_OUTPUT_FLAG))
@@ -337,6 +335,268 @@ function analyzeSegment(segment: string): VirtualOperation {
   if (WEB_COMMANDS.has(cmd)) return { kind: 'web', urls: extractUrls(args) };
 
   return { kind: 'exec', command: cmd };
+}
+
+// ---------------------------------------------------------------------------
+// sed script analysis (round-6 residual)
+// ---------------------------------------------------------------------------
+// `sed` is NOT read-only merely because it lacks the `-i` in-place flag: the
+// sed SCRIPT itself carries commands that WRITE a file (`w FILE`/`W FILE`
+// standalone, or a trailing `w`/`W` flag on `s///w FILE` — both BSD+GNU) or
+// (GNU) EXECUTE a shell command (`e`/`Ne`/`s///e`). Any of these auto-approved a
+// file write / command exec under `allow Read` when the handler trusted the
+// script (reproduced on darwin: `sed 's/a/b/w F' in` and `sed 'w F' in` created
+// F). This is the same "write masquerading as read" class as git --output,
+// [N]>&FILE and sed -i. Fail closed: read ONLY when NO script token carries a
+// write/exec command, and treat `-f <scriptfile>` (external, unknowable script)
+// as exec.
+//
+// The write/exec letters must be parsed STRUCTURALLY, never substring-matched: a
+// `w` inside an s-command PATTERN/REPLACEMENT (`s/w/x/`) is NOT the w command —
+// the w command is a standalone command (after an optional address) or a FLAG
+// after the s-command's closing delimiter.
+
+/** What a parsed sed SCRIPT does beyond reading. */
+type SedScriptDanger = { write: boolean; exec: boolean };
+
+function analyzeSed(args: string[]): VirtualOperation {
+  const inPlace = args.some((a) => matchesFlagFamily(a, SED_INPLACE_FLAG));
+  const { scripts, hasScriptFile } = collectSedScripts(args);
+
+  // An external `-f <scriptfile>` script is unknowable → fail closed to a prompt.
+  if (hasScriptFile) return { kind: 'exec', command: 'sed' };
+
+  let write = inPlace;
+  let exec = false;
+  for (const script of scripts) {
+    const danger = scanSedScript(script);
+    write = write || danger.write;
+    exec = exec || danger.exec;
+  }
+
+  if (exec) return { kind: 'exec', command: 'sed' };
+  if (write) return { kind: 'edit', paths: extractPaths(args) };
+  return { kind: 'read', paths: extractPaths(args) };
+}
+
+/** Separate the sed SCRIPT token(s) from flags and input files. The script is
+ *  the FIRST non-flag arg UNLESS `-e`/`--expression` (inline scripts) or
+ *  `-f`/`--file` (external script file) is used, in which case every positional
+ *  is an input FILE. Handles attached (`-eSCRIPT`), long (`--expression=…`),
+ *  and space-separated (`-e SCRIPT`) forms, and consumes the value operands of
+ *  `-e`/`-f`/`-l` so a following operand is never mis-read as the script. */
+function collectSedScripts(args: string[]): { scripts: string[]; hasScriptFile: boolean } {
+  const scripts: string[] = [];
+  let hasScriptFile = false;
+  let sawScriptSource = false;
+  let tookPositionalScript = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq === -1 ? a : a.slice(0, eq);
+      const inlineVal = eq === -1 ? undefined : a.slice(eq + 1);
+      if (name === '--expression') {
+        sawScriptSource = true;
+        if (inlineVal !== undefined) scripts.push(inlineVal);
+        else if (i + 1 < args.length) scripts.push(args[++i] as string);
+      } else if (name === '--file') {
+        sawScriptSource = true;
+        hasScriptFile = true;
+        if (inlineVal === undefined && i + 1 < args.length) i++; // consume FILE
+      } else if (name === '--line-length' && inlineVal === undefined && i + 1 < args.length) {
+        i++; // consume numeric operand
+      }
+      continue;
+    }
+
+    if (a.startsWith('-') && a.length > 1) {
+      const parsed = parseSedShortCluster(a, args[i + 1]);
+      if (parsed.script !== undefined) {
+        scripts.push(parsed.script);
+        sawScriptSource = true;
+      }
+      if (parsed.isFileSource) {
+        hasScriptFile = true;
+        sawScriptSource = true;
+      }
+      if (parsed.consumedNext) i++;
+      continue;
+    }
+
+    // Positional. The first (absent an -e/-f source) is the script; the rest are
+    // input files.
+    if (!sawScriptSource && !tookPositionalScript) {
+      scripts.push(a);
+      tookPositionalScript = true;
+    }
+  }
+
+  return { scripts, hasScriptFile };
+}
+
+/** Parse a short-flag cluster for its script/file source. `-e`/`-f`/`-l` take a
+ *  value that is either the REST of the cluster (attached) or the NEXT token.
+ *  Boolean flags (`n r E s u z a`) are skipped; `i` (in-place, handled by the
+ *  caller's `inPlace` check) stops the cluster with its attached suffix. */
+function parseSedShortCluster(
+  token: string,
+  next: string | undefined,
+): { script?: string; isFileSource?: boolean; consumedNext: boolean } {
+  const chars = token.slice(1);
+  for (let k = 0; k < chars.length; k++) {
+    const c = chars.charAt(k);
+    const rest = chars.slice(k + 1);
+    if (c === 'e') {
+      if (rest.length > 0) return { script: rest, consumedNext: false };
+      return next !== undefined ? { script: next, consumedNext: true } : { consumedNext: false };
+    }
+    if (c === 'f') {
+      if (rest.length > 0) return { isFileSource: true, consumedNext: false };
+      return { isFileSource: true, consumedNext: next !== undefined };
+    }
+    if (c === 'l') {
+      // line-length value: attached rest, or the next token.
+      return { consumedNext: rest.length === 0 && next !== undefined };
+    }
+    if (c === 'i') {
+      // in-place: GNU carries the suffix attached; BSD's optional suffix is a
+      // separate arg that tokenizes to empty and is dropped. Never consume next.
+      return { consumedNext: false };
+    }
+    // boolean flag — keep scanning the cluster.
+  }
+  return { consumedNext: false };
+}
+
+/** Scan a sed script for write (`w`/`W`) and exec (`e`) commands, walking it
+ *  command-by-command so a w/W/e is recognized ONLY as a real command (after an
+ *  optional address) or as an s-command flag — never as a letter inside a
+ *  pattern, replacement, or other operand. Mis-parses bias toward OVER-detecting
+ *  (a prompt), never under (a silent write). */
+function scanSedScript(script: string): SedScriptDanger {
+  const n = script.length;
+  let write = false;
+  let exec = false;
+  let i = 0;
+
+  const isSeparator = (c: string): boolean =>
+    c === ';' || c === '\n' || c === '\r' || c === ' ' || c === '\t' || c === '{' || c === '}';
+
+  const skipToLineEnd = (from: number): number => {
+    let j = from;
+    while (j < n && script.charAt(j) !== '\n' && script.charAt(j) !== '\r') j++;
+    return j;
+  };
+
+  // Skip an s/y command's `DELIM<a>DELIM<b>DELIM` body, honoring `\`-escaped
+  // delimiters. `cmdIdx` points at the command char; returns the index just
+  // after the third (closing) delimiter (= start of the s-flags), or n.
+  const skipDelimitedBody = (cmdIdx: number): number => {
+    const delim = script.charAt(cmdIdx + 1);
+    if (delim === '') return n;
+    let j = cmdIdx + 2;
+    let seen = 1;
+    while (j < n && seen < 3) {
+      const c = script.charAt(j);
+      if (c === '\\') {
+        j += 2;
+        continue;
+      }
+      if (c === delim) seen++;
+      j++;
+    }
+    return j;
+  };
+
+  // Skip up to two addresses (`/re/`, `\cREc`, N, $, ranges with `,`) plus a
+  // trailing `!` negation and blanks, returning the index of the command char.
+  const skipAddresses = (from: number): number => {
+    let j = from;
+    for (let a = 0; a < 2; a++) {
+      if (j >= n) break;
+      const c = script.charAt(j);
+      if (c === '/') {
+        j++;
+        while (j < n && script.charAt(j) !== '/') j += script.charAt(j) === '\\' ? 2 : 1;
+        if (j < n) j++;
+      } else if (c === '\\') {
+        const d = script.charAt(j + 1);
+        j += 2;
+        while (j < n && script.charAt(j) !== d) j += script.charAt(j) === '\\' ? 2 : 1;
+        if (j < n) j++;
+      } else if ((c >= '0' && c <= '9') || c === '$') {
+        j++;
+        while (j < n && /[0-9~+]/.test(script.charAt(j))) j++;
+      } else {
+        break;
+      }
+      if (script.charAt(j) === ',') {
+        j++;
+        continue;
+      }
+      break;
+    }
+    while (
+      j < n &&
+      (script.charAt(j) === '!' || script.charAt(j) === ' ' || script.charAt(j) === '\t')
+    )
+      j++;
+    return j;
+  };
+
+  while (i < n) {
+    while (i < n && isSeparator(script.charAt(i))) i++;
+    if (i >= n) break;
+    i = skipAddresses(i);
+    if (i >= n) break;
+    const cmd = script.charAt(i);
+    if (cmd === 's') {
+      // After the closing delimiter, scan the flag chars. A `w`/`W` flag writes
+      // (its filename runs to end-of-line); a GNU `e` flag executes.
+      let j = skipDelimitedBody(i);
+      while (j < n && !isSeparator(script.charAt(j))) {
+        const f = script.charAt(j);
+        if (f === 'w' || f === 'W') {
+          write = true;
+          j = skipToLineEnd(j);
+          break;
+        }
+        if (f === 'e') exec = true;
+        j++;
+      }
+      i = j;
+    } else if (cmd === 'y') {
+      i = skipDelimitedBody(i);
+    } else if (cmd === 'w' || cmd === 'W') {
+      write = true;
+      i = skipToLineEnd(i);
+    } else if (cmd === 'e') {
+      exec = true;
+      i = skipToLineEnd(i);
+    } else if (
+      cmd === 'a' ||
+      cmd === 'i' ||
+      cmd === 'c' ||
+      cmd === 'r' ||
+      cmd === 'R' ||
+      cmd === ':' ||
+      cmd === 'b' ||
+      cmd === 't' ||
+      cmd === 'T' ||
+      cmd === '#'
+    ) {
+      // Commands whose operand (text / filename / label / comment) runs to the
+      // end of the line — skip it so its content is never re-scanned.
+      i = skipToLineEnd(i);
+    } else {
+      i++;
+    }
+  }
+
+  return { write, exec };
 }
 
 // Normalize a flag token to its matchable NAME so an allow/deny set can match

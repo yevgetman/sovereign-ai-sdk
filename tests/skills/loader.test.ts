@@ -608,9 +608,13 @@ describe('expandSkillPrompt', () => {
   // COMMAND-SUBSTITUTION body `$(touch MARKER)` — no backtick needed. It survived
   // both the backtick-only sanitizer and the backtick-only validator, so after
   // substitution the body became `` !`echo $(touch MARKER)` `` and bash executed
-  // the command substitution → marker created (RCE). The sanitizer must neutralize
-  // the value for the SHELL context — strip `$` and backslash in addition to the
-  // backtick — so `$(…)` / `${…}` can never form once interpolated.
+  // the command substitution → marker created (RCE). The class-fix SINGLE-QUOTES
+  // every substituted value at exec, so `$(…)` / `${…}` / backtick inside a
+  // single-quoted (or bare) context is inert DATA — the command substitution can
+  // never form. (Round-6 replaced the `$`/backslash STRIP with single-quoting so
+  // a legit path containing `$` is no longer corrupted; the `$(…)` now survives as
+  // inert ECHOED text rather than being removed — marker-absence is the security
+  // property, not char-removal.)
   test('does NOT run shell via $()-substitution in a sessionId wrapped by the author’s own sigil', async () => {
     await withTmp(async (dir) => {
       const marker = join(dir, 'SID_SUBST_PWNED.txt');
@@ -628,7 +632,7 @@ describe('expandSkillPrompt', () => {
         sessionId: `$(touch ${marker})`,
       });
       expect(existsSync(marker)).toBe(false); // command substitution did NOT run
-      expect(expanded).not.toContain('$('); // `$(` neutralized in output
+      expect(expanded).toContain('$(touch'); // survived as inert, single-quoted echoed data
     });
   });
 
@@ -712,6 +716,79 @@ describe('expandSkillPrompt', () => {
       const expanded = await expandSkillPrompt(skill, { cwd: dir });
       // Single-quoting preserves the space so the path echoes intact (bare
       // word-splitting would mangle it) and the author's inline shell still runs.
+      expect(expanded).toContain(`DIR=${skillDir}`);
+      expect(expanded).not.toContain('[inline-shell error');
+    });
+  });
+
+  // Round-6 (audit 2026-07-02) — the C1 sibling for the AUTHOR-DOUBLE-QUOTE span.
+  // Env values are single-quoted, which neutralizes a BARE placeholder, but when
+  // a skill AUTHOR wraps the placeholder in THEIR OWN double quotes
+  // (`cat "${HARNESS_SKILL_DIR}/x"` — a natural pattern), the wrapping single
+  // quotes become LITERAL inside the double-quoted string, so a value carrying a
+  // `"` + a command separator terminates the author's string and injects a new
+  // command. The class-fix additionally STRIPS the double-quote char from every
+  // substituted env value so it can never terminate an author's double-quoted
+  // string. Requires the attacker to also author the skill body (no priv-esc, so
+  // LOW/defense-in-depth), but closed anyway.
+  test('does NOT run shell via a "-breakout in a skill.dir wrapped by the author’s own DOUBLE quotes', async () => {
+    await withTmp(async (dir) => {
+      // The skill dir NAME carries a double-quote + `;touch pwned;` payload. It
+      // must exist (a valid spawn cwd) so an ENOENT can't mask the fix. `touch
+      // pwned` has no slash → fits one path component; the marker lands in the
+      // spawn cwd (= skill.dir).
+      const skillDir = join(dir, 'foo";touch pwned;echo "bar');
+      mkdirSync(skillDir, { recursive: true });
+      const marker = join(skillDir, 'pwned');
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        // The AUTHOR wraps the placeholder in their OWN double quotes.
+        body: 'VAL=!`cat "${HARNESS_SKILL_DIR}/x"`',
+      });
+      await expandSkillPrompt(skill, { cwd: dir });
+      expect(existsSync(marker)).toBe(false); // the `;touch pwned;` never executed
+    });
+  });
+
+  test('a bare-placeholder value stays inert (single-quote context) after the "-strip change', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'BARE_PWNED.txt');
+      const skill = makeSkill({
+        path: join(dir, 'bare.md'),
+        realpath: join(dir, 'bare.md'),
+        dir,
+        allowShellInterpolation: true,
+        source: 'user',
+        body: 'VAL=!`echo ${HARNESS_SESSION_ID}`',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: `; touch ${marker} ;`,
+      });
+      expect(existsSync(marker)).toBe(false); // separator inert inside single quotes
+      expect(expanded).toContain('; touch'); // echoed as inert literal data
+    });
+  });
+
+  test('a legit skill.dir containing $ substitutes without corruption (no $-strip)', async () => {
+    await withTmp(async (dir) => {
+      const skillDir = join(dir, 'a$stuff', 'x');
+      mkdirSync(skillDir, { recursive: true });
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        body: 'DIR=!`echo ${HARNESS_SKILL_DIR}`',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      // Single-quoting keeps `$stuff` inert AND intact — the path is NOT corrupted
+      // by a `$`-strip (which the old command-context sanitizer would have done).
       expect(expanded).toContain(`DIR=${skillDir}`);
       expect(expanded).not.toContain('[inline-shell error');
     });

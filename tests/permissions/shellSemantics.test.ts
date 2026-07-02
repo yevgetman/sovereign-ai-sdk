@@ -534,3 +534,60 @@ describe('isShellCommandReadOnly', () => {
     });
   });
 });
+
+// A sed SCRIPT can WRITE an arbitrary file (`w FILE`/`W FILE` standalone, or a
+// trailing `w`/`W` flag on `s///w FILE`) or (GNU) EXECUTE a shell command (`e`
+// command, or the `s///e` flag) — even without `-i`. The old handler demoted
+// ONLY on the `-i` in-place FLAG and trusted the script, so `sed 's/a/b/w F' in`
+// / `sed 'w F' in` / `sed '1e CMD' in` auto-approved a file write / (GNU) command
+// exec under `allow Read` (reproduced on darwin). The script is parsed
+// structurally: a `w`/`W`/`e` must be a COMMAND (after an optional address) or a
+// FLAG after the s-command's closing delimiter — never merely the letter
+// appearing in a pattern/replacement/other operand. (round-6 residual)
+describe('sed script write/exec commands are NOT read-only', () => {
+  test('s///w FILE trailing write flag is edit (not read)', () => {
+    expect(isShellCommandReadOnly("sed 's/a/b/w /tmp/x' f")).toBe(false);
+    expect(analyzeShellCommand("sed 's/a/b/w /tmp/x' f")[0]?.kind).toBe('edit');
+  });
+  test('standalone w command writes a file → edit', () => {
+    expect(isShellCommandReadOnly("sed 'w /tmp/x' f")).toBe(false);
+    expect(analyzeShellCommand("sed 'w /tmp/x' f")[0]?.kind).toBe('edit');
+  });
+  test('standalone W command writes a file → edit', () => {
+    expect(isShellCommandReadOnly("sed 'W /tmp/x' f")).toBe(false);
+  });
+  test('addressed w command (/re/w FILE) is edit', () => {
+    expect(isShellCommandReadOnly("sed -n '/re/w /tmp/x' f")).toBe(false);
+    expect(analyzeShellCommand("sed -n '/re/w /tmp/x' f")[0]?.kind).toBe('edit');
+  });
+  test('addressed e command (1e CMD) executes → exec (prompt)', () => {
+    expect(isShellCommandReadOnly("sed '1e touch /tmp/x' f")).toBe(false);
+    expect(analyzeShellCommand("sed '1e touch /tmp/x' f")[0]?.kind).toBe('exec');
+  });
+  test('s///e execute flag → exec (prompt)', () => {
+    expect(isShellCommandReadOnly("sed 's/a/b/e' f")).toBe(false);
+    expect(analyzeShellCommand("sed 's/a/b/e' f")[0]?.kind).toBe('exec');
+  });
+  test('a write/exec command inside a -e expression is caught', () => {
+    expect(isShellCommandReadOnly("sed -e 'w /tmp/x' f")).toBe(false);
+    expect(isShellCommandReadOnly("sed -e 's/a/b/e' f")).toBe(false);
+  });
+  test('-f <scriptfile> has an unknowable script → exec (fail closed)', () => {
+    expect(isShellCommandReadOnly('sed -f script.sed f')).toBe(false);
+    expect(analyzeShellCommand('sed -f script.sed f')[0]?.kind).toBe('exec');
+    expect(isShellCommandReadOnly('sed --file=script.sed f')).toBe(false);
+  });
+
+  // No over-classify: benign scripts whose PATTERN/REPLACEMENT merely CONTAIN
+  // the letters w/W/e stay read — the w/e must be a command or an s-flag.
+  test('benign scripts stay read (no over-prompt regression)', () => {
+    expect(isShellCommandReadOnly("sed 's/a/b/' f")).toBe(true);
+    expect(isShellCommandReadOnly('sed s/a/b/ f')).toBe(true);
+    expect(isShellCommandReadOnly("sed -e 's/a/b/' f")).toBe(true);
+    expect(isShellCommandReadOnly("sed -n '/re/p' f")).toBe(true);
+    expect(isShellCommandReadOnly("sed 's/w/x/' f")).toBe(true); // w in pattern
+    expect(isShellCommandReadOnly("sed 's/a/we/' f")).toBe(true); // w,e in replacement
+    expect(isShellCommandReadOnly("sed '/foo/d' f")).toBe(true);
+    expect(isShellCommandReadOnly("sed 'y/abc/def/' f")).toBe(true); // e in y target
+  });
+});
