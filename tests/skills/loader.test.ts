@@ -657,6 +657,65 @@ describe('expandSkillPrompt', () => {
       expect(expanded).not.toContain('\\');
     });
   });
+
+  // C1 (audit 2026-07-02) — the R1 sibling on the SKILL.DIR channel. sessionId is
+  // additionally guarded by validateSessionId (rejects shell metachars), but
+  // skill.dir (= dirname(path)) is fed to the SAME substitution with NO boundary
+  // validator, so the command-separator class `` ; | & ( ) < > `` (and newline)
+  // survived into an author's inline-shell span. A project skill shipped in a
+  // directory named `x;touch pwned;` (the payload lives in the directory NAME,
+  // which the load-time guard never inspects — it scans body/reference CONTENTS
+  // only) with a benign body echoing ${HARNESS_SKILL_DIR} inside the author's own
+  // sigil expanded to `` !`echo <dir>;touch pwned;` `` → bash ran `touch pwned`.
+  // The class-fix single-quotes every substituted env value at exec so ANY value
+  // (any metachar, spaces, newline) is inert shell DATA.
+  test('does NOT run shell via a ;-command-separator in a substituted skill.dir wrapped by the author’s own sigil (C1)', async () => {
+    await withTmp(async (dir) => {
+      // A REAL skill dir whose NAME carries a command-separator payload. `touch
+      // pwned` has no slash so it fits in one path component (the C1 constraint),
+      // and the dir must exist so it is a valid spawn cwd (an ENOENT would mask
+      // whether the fix, not the environment, suppressed the injection).
+      const skillDir = join(dir, 'x;touch pwned;');
+      mkdirSync(skillDir, { recursive: true });
+      // The injected `touch pwned` runs with cwd = skill.dir, so the marker would
+      // land inside skillDir.
+      const marker = join(skillDir, 'pwned');
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        // The AUTHOR's own inline-shell sigil around the placeholder — a natural
+        // pattern the guard never inspects.
+        body: 'VAL=!`echo ${HARNESS_SKILL_DIR}`',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      expect(existsSync(marker)).toBe(false); // the `;touch pwned;` never executed
+      expect(expanded).not.toContain('[inline-shell error'); // nor a broken command
+      expect(expanded).toContain('x;touch pwned;'); // dir echoed as inert literal data
+    });
+  });
+
+  test('a legitimate skill.dir WITH SPACES substitutes correctly and the author’s inline shell still runs (regression)', async () => {
+    await withTmp(async (dir) => {
+      const skillDir = join(dir, 'my skills', 'x');
+      mkdirSync(skillDir, { recursive: true });
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        body: 'DIR=!`echo ${HARNESS_SKILL_DIR}`',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      // Single-quoting preserves the space so the path echoes intact (bare
+      // word-splitting would mangle it) and the author's inline shell still runs.
+      expect(expanded).toContain(`DIR=${skillDir}`);
+      expect(expanded).not.toContain('[inline-shell error');
+    });
+  });
 });
 
 describe('reloadSkill', () => {
