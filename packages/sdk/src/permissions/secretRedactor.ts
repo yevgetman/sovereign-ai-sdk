@@ -13,6 +13,8 @@
 // Bypass: set HARNESS_REDACTION=off to disable globally. Tests that
 // legitimately need to exercise redaction-skipping use that env var.
 
+import { compileVendorSecretPatterns } from '../redaction/secretPatterns.js';
+
 export type SecretKind =
   | 'github-oauth' // gh[oprsu]_ + 36+ chars
   | 'github-fine-grained' // github_pat_ + 82 chars
@@ -66,22 +68,15 @@ const PATTERNS: readonly PatternSpec[] = [
   // AWS access key ID is exactly AKIA + 16 base32-ish chars.
   { kind: 'aws-access-key-id', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
 
-  // Stripe secret keys: sk_ or rk_ (restricted), live or test mode.
-  // Real keys are 24+ chars after the prefix; accept 16+ for
-  // forward-compat and shorter test fixtures that still look real.
-  { kind: 'stripe-secret-live', pattern: /\b[sr]k_live_[A-Za-z0-9]{16,}\b/g },
-  { kind: 'stripe-secret-test', pattern: /\b[sr]k_test_[A-Za-z0-9]{16,}\b/g },
-
-  // Stripe publishable keys (pk_) — also rotateable, less catastrophic
-  // but worth redacting in artifacts.
-  { kind: 'stripe-publishable', pattern: /\bpk_(?:live|test)_[A-Za-z0-9]{16,}\b/g },
-
-  // Slack: xoxb-, xoxa-, xoxp-, xoxr-, xoxs-, xoxe-. Format is
-  // xox[type]-NNNN-NNNN-NNNN-hash; the trailing segment varies.
-  { kind: 'slack-token', pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g },
-
-  // Google API keys: AIza + 35 chars.
-  { kind: 'google-api-key', pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  // Stripe secret/publishable, Slack, and Google formats come from the SHARED
+  // catalog (redaction/secretPatterns.ts) so the persistent-artifact redactor
+  // (trajectory/redact.ts) recognizes the identical set — the two can no longer
+  // drift apart (audit F4). Order is preserved: stripe-secret-live,
+  // stripe-secret-test, stripe-publishable, slack-token, google-api-key.
+  ...compileVendorSecretPatterns().map(({ name, regex }) => ({
+    kind: name as SecretKind,
+    pattern: regex,
+  })),
 
   // JWTs: three base64url segments separated by dots, header starting
   // with `eyJ` (the base64 of `{"`). We require the second segment to

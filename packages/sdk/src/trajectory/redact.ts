@@ -9,6 +9,8 @@
 // false negatives leak secrets into trajectory archives that may be
 // committed to a repo.
 
+import { compileVendorSecretPatterns } from '../redaction/secretPatterns.js';
+
 /** Snapshotted at import time per Invariant #15. */
 const REDACTION_ENABLED: boolean = (() => {
   const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
@@ -44,6 +46,13 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   { name: 'github-fg-pat', regex: /\bgithub_pat_[a-zA-Z0-9_]{50,}\b/g },
   // AWS access key id.
   { name: 'aws-access-key', regex: /\bAKIA[0-9A-Z]{16}\b/g },
+  // Vendor formats shared with permissions/secretRedactor.ts (single source of
+  // truth in redaction/secretPatterns.ts): Stripe secret `[sr]k_live_/[sr]k_test_`
+  // (underscore form — the OpenAI `sk-` hyphen pattern above does NOT match it),
+  // Stripe publishable `pk_...`, Slack `xox[abprs]-`, Google `AIza...`. Closes
+  // the audit-F4 asymmetry so a token known to the tool-input redactor is also
+  // stripped from the persistent transcript/trace JSONL.
+  ...compileVendorSecretPatterns(),
   // Generic bearer tokens.
   { name: 'bearer', regex: /\bBearer\s+[a-zA-Z0-9_\-\.=]{16,}/g },
   // JWT-ish three-segment base64.
@@ -62,10 +71,16 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   // Common credential file paths (we don't read them; we redact references to them).
   { name: 'aws-creds-path', regex: /\B~\/\.aws\/credentials\b/g },
   { name: 'ssh-private', regex: /\B~\/\.ssh\/id_(rsa|ed25519|ecdsa|dsa)(\.pub)?\b/g },
-  // PEM-style private key blocks.
+  // PEM-style private key blocks. The inner span is BOUNDED ({0,8192}?) rather
+  // than an unbounded lazy `[\s\S]*?`: an unbounded lazy span is O(n^2) on
+  // attacker-controlled content with many `BEGIN` markers and no matching `END`
+  // — each BEGIN position rescans to end-of-input (audit F5, a multi-MB payload
+  // blocked the event loop for ~100s). 8192 chars comfortably covers a real
+  // private-key block (an RSA-8192 PEM is ~6.4KB), so genuine keys still redact
+  // while the per-BEGIN scan is O(1) → the whole pass is linear.
   {
     name: 'pem-private',
-    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z ]*PRIVATE KEY-----/g,
   },
 ];
 
