@@ -5,9 +5,13 @@
 // package.json `exports` map → compiled dist) resolves for a real external app
 // — not the in-repo source. Run via `bun run canary`.
 //
+// After install it also runs the shipped-artifact purity check (spec §9.4)
+// against the REAL installed tree — the published artifact must never import
+// `bun:sqlite` or the proprietary wrapper.
+//
 // Node-API-only (no Bun globals) so it is itself runtime-agnostic.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +25,39 @@ interface CanarySpec {
   consumer: string;
   token: string;
   extraInstalls?: string[];
+}
+
+// Shipped-artifact purity (spec §9.4), checked against the INSTALLED package
+// tree (dist AND src) — the real artifact, not repo source. Patterns match
+// quoted module specifiers only, so prose mentions in comments/docs cannot
+// false-positive: every real import/require/dynamic-import form quotes the
+// specifier.
+const FORBIDDEN_SPECIFIERS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
+  { label: "a 'bun:sqlite' import", pattern: /['"]bun:sqlite['"]/ },
+  // Exact-package only: a quote or '/' must follow `sov`, so this never fires
+  // on '@yevgetman/sov-sdk' or '@yevgetman/sov-protocol'.
+  { label: "an import of the proprietary wrapper '@yevgetman/sov'", pattern: /['"]@yevgetman\/sov['"/]/ },
+];
+
+function listFilesRecursively(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? listFilesRecursively(path) : [path];
+  });
+}
+
+function assertShippedArtifactPure(scratch: string, pkgName: string): void {
+  const installed = join(scratch, 'node_modules', pkgName);
+  const offences = listFilesRecursively(installed).flatMap((file) => {
+    const text = readFileSync(file, 'utf8');
+    return FORBIDDEN_SPECIFIERS.filter(({ pattern }) => pattern.test(text)).map(
+      ({ label }) => `${file} contains ${label}`,
+    );
+  });
+  if (offences.length > 0) {
+    throw new Error(`${pkgName} shipped-artifact purity check FAILED:\n  ${offences.join('\n  ')}`);
+  }
+  console.log(`  ✔ ${pkgName} installed artifact is pure (no bun:sqlite, no wrapper imports)`);
 }
 
 function packTarball(pkgDir: string): string {
@@ -43,6 +80,7 @@ function runCanary(spec: CanarySpec): void {
         cwd: scratch,
         stdio: 'ignore',
       });
+      assertShippedArtifactPure(scratch, spec.name);
       copyFileSync(spec.consumer, join(scratch, 'consumer.mjs'));
       for (const runtime of ['node', 'bun']) {
         const out = execFileSync(runtime, ['consumer.mjs'], { cwd: scratch }).toString();
@@ -66,5 +104,14 @@ runCanary({
   consumer: join(here, 'protocol-consumer.mjs'),
   token: 'PROTOCOL_OK',
 });
-// SDK canary is registered in Phase 3 once the core package exists.
+runCanary({
+  name: '@yevgetman/sov-sdk',
+  pkgDir: join(repo, 'packages/sdk'),
+  consumer: join(here, 'sdk-consumer.mjs'),
+  token: 'SDK_OK',
+  // The consumer imports zod DIRECTLY (for its tool's input schema), so the
+  // scratch app declares its own copy; the SDK's runtime deps arrive with the
+  // tarball install itself.
+  extraInstalls: ['zod@^3.24.0'],
+});
 console.log('All consumer canaries passed.');

@@ -41,11 +41,10 @@ jobs:
     name: open packages (build + canary + publish dry-run)
     runs-on: ubuntu-22.04
     timeout-minutes: 10
-    # Proves the open packages are consumable as PUBLISHED artifacts: build →
-    # tarball-contents assertion → install-from-tarball canary under both node
-    # and bun → publish dry-run. (The SDK core package + its canary/dry-run are
-    # wired here in Phase 3, and the depcruise boundary rebase for
-    # packages/sdk/src lands with the core move — protocol is a dep-less leaf.)
+    # Proves the open packages (protocol + sdk) are consumable as PUBLISHED
+    # artifacts: build → tarball-contents assertions → install-from-tarball
+    # canary under both node and bun (which also runs the shipped-artifact
+    # purity check against the installed trees) → publish dry-runs.
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -55,8 +54,10 @@ jobs:
         with:
           node-version: '20'
       - run: bun install --frozen-lockfile
-      - run: bun run build:protocol
-      - run: bun test packages/protocol/tests
+      - run: bun run build
+      - run: bun test packages/protocol/tests packages/sdk/tests
       - run: bun run canary
       - name: protocol publish dry-run
         run: cd packages/protocol && npm publish --dry-run
+      - name: sdk publish dry-run
+        run: cd packages/sdk && npm publish --dry-run
