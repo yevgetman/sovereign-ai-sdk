@@ -123,6 +123,14 @@ function toMatch(tool: Tool<unknown, unknown>): Output['matched'][number] {
 }
 
 function describeStatic(tool: Tool<unknown, unknown>): string {
-  const result = tool.description(undefined as never);
-  return typeof result === 'string' ? result : tool.name;
+  // A consumer tool's description may be input-dependent and throw on the
+  // `undefined` publication sentinel; degrade to the tool name rather than
+  // crashing the lookup (mirrors describeToStatic in mcp/schemaSerialization.ts
+  // and the guards in context/systemPrompt.ts + context/budget.ts).
+  try {
+    const result = tool.description(undefined as never);
+    return typeof result === 'string' ? result : tool.name;
+  } catch {
+    return tool.name;
+  }
 }

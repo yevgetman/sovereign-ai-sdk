@@ -22,6 +22,23 @@ function deferredTool(
   }) as unknown as Tool<unknown, unknown>;
 }
 
+// A deferred tool whose description is input-dependent — valid per the public
+// `(input) => string` contract — so it throws when describeStatic calls it with
+// the `undefined` publication sentinel.
+function throwingDescriptionTool(name: string): Tool<unknown, unknown> {
+  return buildTool({
+    name,
+    // biome-ignore lint/suspicious/noExplicitAny: input-dependent description under test
+    description: (i: any) => `Search ${i.mode}`,
+    inputSchema: z.unknown(),
+    inputJSONSchema: { type: 'object', properties: { x: { type: 'string' } } },
+    shouldDefer: true,
+    async call() {
+      return { data: 'ok' };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
 const ctx = {
   cwd: process.cwd(),
   sessionId: 'test',
@@ -85,6 +102,19 @@ describe('ToolSearchTool', () => {
       type: 'object',
       properties: { x: { type: 'string' } },
     });
+  });
+
+  test('throwing input-dependent description degrades to the tool name instead of crashing', () => {
+    const tools = [
+      throwingDescriptionTool('mcp__throws__search'),
+      deferredTool('mcp__ok__read', 'reads a file', 'read'),
+    ];
+    expect(() => matchTools('', tools)).not.toThrow();
+    const matched = matchTools('', tools);
+    expect(matched.map((t) => t.name)).toEqual(['mcp__throws__search', 'mcp__ok__read']);
+    // Throwing tool falls back to its name; the other serializes normally.
+    expect(matched[0]?.description).toBe('mcp__throws__search');
+    expect(matched[1]?.description).toBe('reads a file');
   });
 
   test('Tool wrapper: call() routes through the live getter', async () => {

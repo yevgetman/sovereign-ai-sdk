@@ -48,6 +48,21 @@ function jsonSchemaButNotDeferredTool(): Tool<unknown, unknown> {
   }) as unknown as Tool<unknown, unknown>;
 }
 
+// A consumer tool whose description is input-dependent — valid per the public
+// `(input) => string` Tool contract — and therefore throws when the provider
+// tool-schema path calls it with the `undefined` publication sentinel.
+function throwingDescriptionTool(): Tool<unknown, unknown> {
+  return buildTool({
+    // biome-ignore lint/suspicious/noExplicitAny: input-dependent description under test
+    description: (i: any) => `Search ${i.mode}`,
+    name: 'ThrowingDesc',
+    inputSchema: z.object({ mode: z.string() }),
+    async call(input) {
+      return { data: input };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
 describe('toToolSchemas', () => {
   test('native tool: Zod input schema is converted', () => {
     const out = toToolSchemas([nativeTool()]);
@@ -85,5 +100,36 @@ describe('toToolSchemas', () => {
       'mcp__github__create_issue',
       'CustomJSONSchemaTool',
     ]);
+  });
+
+  test('throwing input-dependent description degrades to the tool name instead of crashing', () => {
+    expect(() => toToolSchemas([throwingDescriptionTool()])).not.toThrow();
+    const out = toToolSchemas([throwingDescriptionTool()]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.name).toBe('ThrowingDesc');
+    expect(out[0]?.description).toBe('ThrowingDesc');
+    // The input schema still serializes normally.
+    expect(out[0]?.input_schema).toEqual({
+      type: 'object',
+      properties: { mode: { type: 'string' } },
+      required: ['mode'],
+    });
+  });
+
+  test('one throwing tool in a mixed pool does not stop the others from serializing', () => {
+    const out = toToolSchemas([
+      nativeTool(),
+      throwingDescriptionTool(),
+      jsonSchemaButNotDeferredTool(),
+    ]);
+    expect(out.map((t) => t.name)).toEqual(['NativeFoo', 'ThrowingDesc', 'CustomJSONSchemaTool']);
+    expect(out[0]?.description).toBe('native foo description');
+    expect(out[1]?.description).toBe('ThrowingDesc'); // fell back to name
+    expect(out[2]?.description).toBe('custom');
+  });
+
+  test('regression: normal input-independent function descriptions still serialize', () => {
+    const out = toToolSchemas([nativeTool()]);
+    expect(out[0]?.description).toBe('native foo description');
   });
 });

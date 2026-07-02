@@ -62,15 +62,20 @@ function describeToStatic(tool: Tool<unknown, unknown>): string {
   // `Tool.description` is `(input) => string | Promise<string>` — the input
   // shaping lets per-call tools tune their description (Claude Code pattern).
   // For schema-publication we need a static description, so we call with
-  // `undefined` (valid for tools that ignore the argument). Tools that
-  // actually use the input during schema construction must expose a static
-  // fallback; Phase 2 tools don't.
-  const result = tool.description(undefined as never);
-  if (result instanceof Promise) {
-    // Lazily-async descriptions aren't supported yet — fall back to the name.
+  // `undefined` (valid for tools that ignore the argument). A consumer tool
+  // whose description is input-dependent can throw on the `undefined` sentinel;
+  // degrade to the tool name rather than crashing the whole provider request
+  // (mirrors the guards in context/systemPrompt.ts and context/budget.ts).
+  try {
+    const result = tool.description(undefined as never);
+    if (result instanceof Promise) {
+      // Lazily-async descriptions aren't supported yet — fall back to the name.
+      return tool.name;
+    }
+    return result;
+  } catch {
     return tool.name;
   }
-  return result;
 }
 
 /**
