@@ -1,6 +1,6 @@
 // Minimal argv tokenizer for hook command strings. Settings.json carries each
 // hook command as a single string (`"command": "~/bin/audit.sh --verbose"`),
-// but Bun.spawn requires an argv array and shell:false (Invariant #13). This
+// but spawnProc requires an argv array and shell:false (Invariant #13). This
 // splits the string into argv with quote and escape semantics that match the
 // common subset users actually write — without invoking a shell.
 //

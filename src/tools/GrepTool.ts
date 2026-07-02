@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext, ToolObservation } from '../tool/types.js';
+import { SPAWN_FAILURE_EXIT_CODE, type SpawnedProc, spawnProc } from '../util/spawn.js';
 import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
@@ -107,9 +108,9 @@ async function runGrep(
   const timer = setTimeout(() => timeoutCtl.abort(), DEFAULT_TIMEOUT_MS);
   const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeoutCtl.signal]) : timeoutCtl.signal;
 
-  let proc: ReturnType<typeof Bun.spawn>;
+  let proc: SpawnedProc;
   try {
-    proc = Bun.spawn(['rg', ...args], {
+    proc = spawnProc(['rg', ...args], {
       cwd: ctx.cwd,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -123,11 +124,8 @@ async function runGrep(
     );
   }
 
-  // `stdout: 'pipe'` and `stderr: 'pipe'` guarantee these are ReadableStreams,
-  // but Bun's spawn return type widens to `number | ReadableStream | undefined`
-  // because the same overload covers FD-redirect modes. Narrow at the call site.
-  const stdoutStream = proc.stdout as ReadableStream<Uint8Array>;
-  const stderrStream = proc.stderr as ReadableStream<Uint8Array>;
+  const stdoutStream = proc.stdout;
+  const stderrStream = proc.stderr;
   let stdout: { text: string; truncated: boolean };
   let stderr: { text: string; truncated: boolean };
   let exitCode: number;
@@ -146,6 +144,15 @@ async function runGrep(
   if (timeoutCtl.signal.aborted) {
     throw new Error(
       `ripgrep timed out after ${DEFAULT_TIMEOUT_MS}ms — narrow the regex or scope (path/glob).`,
+    );
+  }
+
+  // A missing rg binary surfaces as the shim's spawn-failure exit code (the
+  // sync try/catch above no longer sees it — node:child_process reports spawn
+  // failures asynchronously). Keep the actionable install message.
+  if (exitCode === SPAWN_FAILURE_EXIT_CODE && stderr.text.trim().length === 0) {
+    throw new Error(
+      'failed to spawn ripgrep: command not found. Install with: brew install ripgrep (macOS) or apt install ripgrep (Debian/Ubuntu).',
     );
   }
 

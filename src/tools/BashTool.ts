@@ -28,6 +28,7 @@ import {
 } from '../permissions/shellSemantics.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext, ToolObservation } from '../tool/types.js';
+import { spawnProc } from '../util/spawn.js';
 
 /** Bash commands deemed read-only and safe to run in parallel with other
  *  read-only operations. Anything not on this list is treated as a writer
@@ -358,7 +359,7 @@ async function runBash(
 
   const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeoutCtl.signal]) : timeoutCtl.signal;
 
-  const proc = Bun.spawn(['bash', '-c', input.command], {
+  const proc = spawnProc(['bash', '-c', input.command], {
     cwd: ctx.cwd,
     stdout: 'pipe',
     stderr: 'pipe',

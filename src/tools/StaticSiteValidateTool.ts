@@ -6,6 +6,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { SPAWN_FAILURE_EXIT_CODE, spawnProc } from '../util/spawn.js';
 import { resolveToolPath } from './pathUtils.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
@@ -185,7 +186,7 @@ async function javascriptCheck(refs: LocalReference[]): Promise<Check> {
 
 async function runNodeCheck(path: string): Promise<{ ok: boolean; details: string }> {
   try {
-    const proc = Bun.spawn(['node', '--check', path], {
+    const proc = spawnProc(['node', '--check', path], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -195,6 +196,12 @@ async function runNodeCheck(path: string): Promise<{ ok: boolean; details: strin
       proc.exited,
     ]);
     const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+    // A missing node binary surfaces as the shim's spawn-failure exit code
+    // (node:child_process reports spawn failures asynchronously, so the catch
+    // below no longer sees them) — keep the "unavailable" wording.
+    if (exitCode === SPAWN_FAILURE_EXIT_CODE && output.length === 0) {
+      return { ok: false, details: 'node --check unavailable: command not found' };
+    }
     return { ok: exitCode === 0, details: exitCode === 0 ? 'node --check passed' : output };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

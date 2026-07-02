@@ -17,6 +17,7 @@
 // stderr in the next user-prompt cycle (stderr is logged to console.error
 // when a hook misbehaves) but their work isn't blocked.
 
+import { type SpawnedProc, spawnProc } from '../util/spawn.js';
 import { argvSplit } from './argvSplit.js';
 import type { HookConsentChecker } from './consent.js';
 import { matchesHook } from './matcher.js';
@@ -201,9 +202,9 @@ async function runOne(
     ? AbortSignal.any([opts.signal, timeoutCtl.signal])
     : timeoutCtl.signal;
 
-  let proc: ReturnType<typeof Bun.spawn>;
+  let proc: SpawnedProc;
   try {
-    proc = Bun.spawn(argv, {
+    proc = spawnProc(argv, {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
@@ -219,15 +220,13 @@ async function runOne(
   }
 
   try {
-    // Write payload to stdin. With stdin: 'pipe', Bun returns a FileSink
-    // (write/end API), not a WritableStream.
-    const stdin = proc.stdin as { write: (data: string | Uint8Array) => number; end: () => void };
-    stdin.write(JSON.stringify(payload));
-    stdin.end();
+    // Write payload to stdin (FileSink-style write/end surface on SpawnedProc).
+    proc.stdin.write(JSON.stringify(payload));
+    proc.stdin.end();
 
     const [stdout, stderr, exitCode] = await Promise.all([
-      readCapped(proc.stdout as ReadableStream<Uint8Array>),
-      readCapped(proc.stderr as ReadableStream<Uint8Array>),
+      readCapped(proc.stdout),
+      readCapped(proc.stderr),
       proc.exited,
     ]);
 

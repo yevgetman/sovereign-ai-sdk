@@ -7,6 +7,7 @@ import { readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { spawnProc } from '../util/spawn.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
 import type {
@@ -201,7 +202,7 @@ export async function expandSkillText(
   // Trusted environment variables (skill dir, session id, plugin root) are
   // substituted first. Model/user `args` are merged LAST and are NEVER passed
   // through shell interpolation — substituting them before interpolation let a
-  // `` `!cmd` `` in args execute via Bun.spawn(bash) with no permission prompt,
+  // `` `!cmd` `` in args execute via spawnProc(bash) with no permission prompt,
   // bypassing the load-time guard (audit 2026-06-10). Interpolating the body
   // BEFORE merging args keeps the skill author's intentional inline shell while
   // making args inert text.
@@ -389,7 +390,7 @@ async function runInterpolationCommand(command: string, cwd: string): Promise<st
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), SHELL_TIMEOUT_MS);
   try {
-    const proc = Bun.spawn(['bash', '-lc', command], {
+    const proc = spawnProc(['bash', '-lc', command], {
       cwd,
       stdout: 'pipe',
       stderr: 'pipe',
