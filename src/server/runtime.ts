@@ -683,6 +683,16 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // (permissions / mcp / hooks) are bypassed only when `opts.settings` is
   // injected — see the `opts.settings` spreads at their call sites.
   const settings = opts.settings ?? readConfig({ harnessHome });
+  // Task 4.3 — the raw injected settings, captured for the scheduler's
+  // child-provider resolution + the live-reload closures below
+  // (reresolveProvider / reloadHooks / reloadMcpServers / rebuildTaskRouting).
+  // LOCKED reload semantics: when settings were injected, those paths RE-APPLY
+  // the injected object instead of reading disk — an injected-settings embed is
+  // fully disk-free even when it delegates sub-agents or live-reloads. When NOT
+  // injected (`injected === undefined`), every guard below collapses to the
+  // exact pre-existing call expression, so the disk path is structurally
+  // unchanged.
+  const injected = opts.settings;
   const requestedBundleRoot = opts.bundleRoot ?? getDefaultBundlePath() ?? undefined;
   const bundle = await loadBundleIfPresent(requestedBundleRoot ?? null);
   // bundleRoot must track the bundle that actually loaded — keeping the
@@ -1373,7 +1383,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     agents,
     laneSemaphores,
     pathLock,
-    resolveProvider: (name, model) => resolveProvider(name, model, { harnessHome }),
+    // Task 4.3 — injected-settings runtimes resolve child providers from the
+    // injected object (disk-free); otherwise the resolver keeps its own disk
+    // fallback exactly as before.
+    resolveProvider: (name, model) =>
+      resolveProvider(name, model, {
+        harnessHome,
+        ...(injected !== undefined ? { settings: injected } : {}),
+      }),
     createChildSession: (input) => {
       // Phase 2 T1 — pick the metadata shape based on the routing attribution
       // hints the scheduler computes for us.
@@ -1560,7 +1577,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const cacheEnabled = opts.cacheEnabled !== false;
   const rebuildTaskRouting = async (): Promise<void> => {
     // Backlog #55 — hot-reload from the runtime's harnessHome, not the global.
-    const fresh = readConfig({ harnessHome });
+    // Task 4.3 — injected settings are re-applied verbatim (no disk read).
+    const fresh = injected ?? readConfig({ harnessHome });
     const freshEnabled = resolveTaskRoutingEnabled(
       process.env.SOV_TASK_ROUTING_ENABLED,
       fresh.taskRouting?.enabled,
@@ -1640,7 +1658,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     providerOverride?: string,
     modelOverride?: string,
   ): Promise<void> => {
-    const fresh = readConfig({ harnessHome });
+    // Task 4.3 — injected settings are re-applied verbatim (no disk read).
+    const fresh = injected ?? readConfig({ harnessHome });
     const nextProviderName = providerOverride ?? runtime.resolvedProvider.transport.name;
     const useRouterNow =
       nextProviderName === 'router' ||
@@ -1651,13 +1670,17 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       if (!routerCfg) {
         throw new Error('reresolveProvider: provider:router requires a `router` block in config');
       }
+      // Task 4.3 — the injected-settings path threads `injected` so lane
+      // resolution is disk-free. The disk path passes NO settings, exactly as
+      // before (the resolver keeps its own disk fallback).
       const localResolved = resolveProvider(routerCfg.localProvider, routerCfg.localModel, {
         harnessHome,
+        ...(injected !== undefined ? { settings: injected } : {}),
       });
       const frontierResolved = resolveProvider(
         routerCfg.frontierProvider,
         routerCfg.frontierModel,
-        { harnessHome },
+        { harnessHome, ...(injected !== undefined ? { settings: injected } : {}) },
       );
       const routerProvider = new RouterProvider({
         config: {
@@ -1746,7 +1769,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // config and reassign runtime.hookRunner (read by reference per turn). Mirrors
   // buildRuntime's hook wiring: same consent store + non-interactive checker.
   const reloadHooks = async (): Promise<void> => {
-    const freshHookSettings = loadHookSettings({ cwd: opts.cwd, harnessHome });
+    // Task 4.3 — same conditional spread as the boot-time loadHookSettings
+    // call: injected settings ⇒ no settings.json read; otherwise unchanged.
+    const freshHookSettings = loadHookSettings({
+      cwd: opts.cwd,
+      harnessHome,
+      ...(injected !== undefined ? { settings: injected } : {}),
+    });
     const freshConsentStore = buildFileConsentStore(
       join(harnessHome, 'shell-hooks-allowlist.json'),
     );
@@ -1770,7 +1799,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // is never severed mid-turn (this runs between turns).
   const reloadMcpServers = async (): Promise<void> => {
     const previousPool = mcpClientPool;
-    mcpSettings = loadMcpServerSettings({ cwd: opts.cwd, harnessHome });
+    // Task 4.3 — same conditional spread as the boot-time loadMcpServerSettings
+    // call: injected settings ⇒ no settings.json read; otherwise unchanged.
+    mcpSettings = loadMcpServerSettings({
+      cwd: opts.cwd,
+      harnessHome,
+      ...(injected !== undefined ? { settings: injected } : {}),
+    });
     mcpClientPool =
       Object.keys(mcpSettings.servers).length > 0
         ? await buildMcpClientPool({
@@ -1788,7 +1823,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
 
     // Recompute tool visibility from fresh config (same flags rebuildTaskRouting
     // uses) and reassemble the pool with the new MCP tools, mutating in place.
-    const fresh = readConfig({ harnessHome });
+    // Task 4.3 — injected settings are re-applied verbatim (no disk read).
+    const fresh = injected ?? readConfig({ harnessHome });
     const freshEnabled = resolveTaskRoutingEnabled(
       process.env.SOV_TASK_ROUTING_ENABLED,
       fresh.taskRouting?.enabled,

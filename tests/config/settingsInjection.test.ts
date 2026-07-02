@@ -135,3 +135,169 @@ describe('Settings injection — buildRuntime threads the injected object, bypas
     }
   });
 });
+
+// Task 4.3 — the scheduler's child-provider resolution + the four live-reload
+// closures (reresolveProvider / reloadHooks / reloadMcpServers /
+// rebuildTaskRouting) must RE-APPLY the injected settings instead of reading
+// disk, so an injected-settings embed that delegates sub-agents or live-reloads
+// stays fully disk-free. Technique: the on-disk config.json + settings.json are
+// MALFORMED JSON, and HARNESS_CONFIG points at the malformed config.json so
+// BOTH config-read fallbacks (readConfig's harnessHome fallback AND
+// resolveProvider→loadSettings' env fallback) would throw a parse error on any
+// read — success IS the proof that disk was never touched. The no-injection
+// controls prove the closures still read disk exactly as before.
+describe('Settings injection — scheduler + live-reload closures are disk-free when injected', () => {
+  let home: string;
+  let cwd: string;
+  const prevConfig = process.env.HARNESS_CONFIG;
+
+  // The scheduler stores its construction opts as `private readonly opts`.
+  // Cast through unknown to invoke the resolveProvider closure buildRuntime
+  // wired in — same introspection precedent as runtime.subagent.test.ts.
+  type SchedulerInternals = {
+    opts: { resolveProvider: (name: string, model: string | undefined) => { model: string } };
+  };
+
+  const INJECTED = {
+    defaultModel: 'injected-model',
+    router: { localProvider: 'ollama', frontierProvider: 'ollama' },
+  };
+
+  const corruptDisk = (): void => {
+    writeFileSync(join(home, 'config.json'), '{ this is not json');
+    writeFileSync(join(home, 'settings.json'), '{ this is not json');
+  };
+
+  const buildInjected = (): ReturnType<typeof buildRuntime> =>
+    buildRuntime({
+      harnessHome: home,
+      cwd,
+      provider: 'ollama', // keyless; no network when preflight is off
+      preflight: false,
+      cronEnabled: false,
+      settings: INJECTED,
+    });
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'inject-reload-home-'));
+    cwd = mkdtempSync(join(tmpdir(), 'inject-reload-cwd-'));
+    process.env.HARNESS_CONFIG = join(home, 'config.json');
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+  });
+
+  test('boot with injected settings succeeds despite malformed disk config (disk-free boot)', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      expect(runtime.model).toBe('injected-model');
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('scheduler child-provider resolution resolves from injected settings, never disk', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      const { opts } = runtime.subagentScheduler as unknown as SchedulerInternals;
+      // The closure buildRuntime handed the scheduler — the exact seam a
+      // delegated sub-agent's provider resolution goes through.
+      const resolved = opts.resolveProvider('ollama', undefined);
+      expect(resolved.model).toBe('injected-model');
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('reresolveProvider() re-applies injected settings (single-provider branch, no disk read)', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      expect(runtime.reresolveProvider).toBeDefined();
+      await runtime.reresolveProvider?.();
+      expect(runtime.model).toBe('injected-model');
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('reresolveProvider("router") resolves lanes from injected settings (router branch, no disk read)', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      await runtime.reresolveProvider?.('router');
+      // Both lanes resolve their model from the injected defaultModel — the
+      // synthetic "<local> | <frontier>" model string proves it.
+      expect(runtime.model).toBe('injected-model | injected-model');
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('reloadHooks() with injected settings never reads settings.json', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      const before = runtime.hookRunner;
+      await runtime.reloadHooks?.();
+      expect(runtime.hookRunner).toBeDefined();
+      expect(runtime.hookRunner).not.toBe(before);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('reloadMcpServers() with injected settings never reads disk', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      await runtime.reloadMcpServers?.();
+      expect(runtime.toolPool.length).toBeGreaterThan(0);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('rebuildTaskRouting() with injected settings never reads disk', async () => {
+    corruptDisk();
+    const runtime = await buildInjected();
+    try {
+      await runtime.rebuildTaskRouting();
+      expect(runtime.toolPool.length).toBeGreaterThan(0);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('control — without injection every closure still reads disk (throws on malformed config)', async () => {
+    // Boot against a VALID disk config, then corrupt it: each closure's
+    // subsequent throw proves its disk read is structurally unchanged.
+    writeFileSync(join(home, 'config.json'), JSON.stringify({ defaultModel: 'disk-model' }));
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({}));
+    const runtime = await buildRuntime({
+      harnessHome: home,
+      cwd,
+      provider: 'ollama',
+      preflight: false,
+      cronEnabled: false,
+    });
+    try {
+      expect(runtime.model).toBe('disk-model');
+      corruptDisk();
+      await expect(runtime.rebuildTaskRouting()).rejects.toThrow();
+      await expect(runtime.reresolveProvider?.()).rejects.toThrow();
+      await expect(runtime.reloadHooks?.()).rejects.toThrow();
+      await expect(runtime.reloadMcpServers?.()).rejects.toThrow();
+      const { opts } = runtime.subagentScheduler as unknown as SchedulerInternals;
+      expect(() => opts.resolveProvider('ollama', undefined)).toThrow();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+});
