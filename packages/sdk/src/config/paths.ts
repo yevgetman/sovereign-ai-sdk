@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
+import { SECURE_DIR_MODE } from '../util/secureFs.js';
 
 /** Reserved profile name used to point at the unscoped default state
  *  root (i.e., `<base>/` itself). The `default` name maps to the same
@@ -33,7 +34,13 @@ const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
  *  single stat. */
 export function resolveHarnessHome(env: NodeJS.ProcessEnv = process.env): string {
   const root = resolve(env.HARNESS_HOME ?? join(homedir(), '.harness'));
-  mkdirSync(root, { recursive: true });
+  // The state root holds conversation/state artifacts — create it 0700 so other
+  // local uids cannot traverse into it (audit F10). A create-time `mode` (not an
+  // unconditional chmod) is used deliberately: this is a hot path called all
+  // over the runtime, and force-chmod'ing the shared root on every call would be
+  // wasteful and would override an operator's deliberate perms on an existing
+  // root. Owner bits survive the default 022 umask (0o700 & ~022 === 0o700).
+  mkdirSync(root, { recursive: true, mode: SECURE_DIR_MODE });
   return root;
 }
 
@@ -61,14 +68,15 @@ export function getProfileHome(name: string): string {
   if (name === DEFAULT_PROFILE_NAME) return getBaseHome();
   assertProfileName(name);
   const dir = join(getBaseHome(), 'profiles', name);
-  mkdirSync(dir, { recursive: true });
+  // A per-profile root is itself a full state root — create it 0700 (audit F10).
+  mkdirSync(dir, { recursive: true, mode: SECURE_DIR_MODE });
   return dir;
 }
 
 /** The directory holding all named profiles: `<base>/profiles/`. */
 export function getProfilesRoot(): string {
   const dir = join(getBaseHome(), 'profiles');
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: SECURE_DIR_MODE });
   return dir;
 }
 

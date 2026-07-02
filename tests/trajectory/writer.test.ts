@@ -3,7 +3,7 @@
 // the fire-and-forget tryWriteTrajectory wrapper.
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Message } from '@yevgetman/sov-sdk/core/types';
@@ -127,6 +127,24 @@ describe('writeTrajectory', () => {
       expect(recs.map((r) => r.sessionId)).toEqual(['session-1', 'session-2']);
     });
   });
+
+  // Audit F10 — samples.jsonl / failed.jsonl hold the full ShareGPT transcript;
+  // they must not be world-readable on a shared host: file 0600, dir 0700.
+  test.skipIf(process.platform === 'win32')(
+    'creates the trajectory file 0600 and the trajectories dir 0700',
+    async () => {
+      await withTmp(async (dir) => {
+        const result = await writeTrajectory({
+          messages: SIMPLE_MESSAGES,
+          terminal: { reason: 'completed' },
+          metadata: META,
+          artifactsRoot: dir,
+        });
+        expect(statSync(result.path).mode & 0o777).toBe(0o600);
+        expect(statSync(join(dir, 'trajectories')).mode & 0o777).toBe(0o700);
+      });
+    },
+  );
 
   test('redacts secrets in the on-disk record (Invariant #15)', async () => {
     await withTmp(async (dir) => {

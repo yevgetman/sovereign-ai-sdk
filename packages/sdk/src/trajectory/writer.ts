@@ -12,10 +12,10 @@
 // record never blocks the user-facing session — Invariant #10
 // (learning loop is additive and non-blocking).
 
-import { mkdirSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Message, Terminal } from '../core/types.js';
+import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../util/secureFs.js';
 import { redact } from './redact.js';
 import { type ShareGPTRecord, transcriptToShareGPT } from './shareGpt.js';
 
@@ -92,11 +92,17 @@ export function buildTrajectoryRecord(opts: WriteOpts): TrajectoryRecord {
 export async function writeTrajectory(opts: WriteOpts): Promise<WriteResult> {
   const record = buildTrajectoryRecord(opts);
   const bucket: 'samples' | 'failed' = record.completed ? 'samples' : 'failed';
+  // samples.jsonl / failed.jsonl hold the full ShareGPT transcript. Create the
+  // trajectories dir 0700 and the file 0600 so other local uids cannot read it
+  // (audit F10). These files accumulate across sessions, so chmod on every
+  // session close (cheap — once per session) also tightens a file an older
+  // version left 0644.
   const dir = join(opts.artifactsRoot, 'trajectories');
-  mkdirSync(dir, { recursive: true });
+  secureMkdir(dir);
   const path = join(dir, `${bucket}.jsonl`);
   const line = `${redact(JSON.stringify(record))}\n`;
-  await appendFile(path, line, 'utf8');
+  await appendFile(path, line, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+  chmodSafe(path, SECURE_FILE_MODE);
   return { path, bucket, bytes: Buffer.byteLength(line, 'utf8') };
 }
 

@@ -1,9 +1,10 @@
 // Cross-session rate-limit guard. A 429 in one process writes a shared JSON
 // sentinel so other sessions pause or fail fast instead of amplifying retries.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '../../config/paths.js';
+import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../../util/secureFs.js';
 
 export type HeaderLike = Headers | Record<string, string | null | undefined>;
 
@@ -191,9 +192,15 @@ function parseRetryAfter(value: string | null, now: number): number | null {
 }
 
 function writeAtomic(path: string, state: RateLimitState): void {
-  mkdirSync(dirname(path), { recursive: true });
+  // Keep the whole state root uniform (audit F10): dir 0700, file 0600. The tmp
+  // file's 0600 mode survives the atomic rename onto `path`.
+  secureMkdir(dirname(path));
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: SECURE_FILE_MODE,
+  });
+  chmodSafe(tmp, SECURE_FILE_MODE);
   renameSync(tmp, path);
 }
 

@@ -8,11 +8,12 @@
 // queued; callers should `await close()` at session end so the queue
 // drains before process exit.
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { join, dirname as pathDirname, resolve, sep } from 'node:path';
 import { resolveHarnessHome } from '../config/paths.js';
 import { redact } from '../trajectory/redact.js';
+import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../util/secureFs.js';
 import type { TraceEvent } from './types.js';
 
 const TRACES_DIR_NAME = 'traces';
@@ -83,10 +84,16 @@ export class TraceWriter {
     const line = `${redact(JSON.stringify(tagged))}\n`;
     this.writeChain = this.writeChain.then(async () => {
       try {
-        if (!existsSync(this.path)) {
-          mkdirSync(dirname(this.path), { recursive: true });
+        // Trace JSONL carries full (redacted) event payloads incl. tool I/O.
+        // Create the traces dir 0700 and the file 0600 so other local uids
+        // cannot read it on a shared host (audit F10).
+        const creating = !existsSync(this.path);
+        if (creating) {
+          secureMkdir(dirname(this.path));
         }
-        await appendFile(this.path, line, 'utf8');
+        await appendFile(this.path, line, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+        // `mode` applies only on create; tighten once on first append.
+        if (creating) chmodSafe(this.path, SECURE_FILE_MODE);
         this.appended++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

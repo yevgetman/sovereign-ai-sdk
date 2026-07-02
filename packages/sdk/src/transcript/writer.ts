@@ -8,11 +8,12 @@
 // JSON-line append on a sequential write chain and returns immediately. A
 // file-system error is logged (or swallowed) and NEVER blocks a turn.
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ContentBlock, Role } from '../core/types.js';
 import { redact } from '../trajectory/redact.js';
+import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../util/secureFs.js';
 import { VERSION } from '../version.js';
 import { resolveTranscriptPath, transcriptsRoot } from './paths.js';
 
@@ -115,10 +116,17 @@ export class TranscriptWriter {
     const line = `${this.redactOn ? redact(json) : json}\n`;
     this.writeChain = this.writeChain.then(async () => {
       try {
-        if (!existsSync(this.path)) {
-          mkdirSync(dirname(this.path), { recursive: true });
+        // The JSONL holds the full conversation (prompts, model output, tool
+        // I/O incl. file contents + bash output). Create the project dir 0700
+        // and the file 0600 so other local uids cannot read it (audit F16).
+        const creating = !existsSync(this.path);
+        if (creating) {
+          secureMkdir(dirname(this.path));
         }
-        await appendFile(this.path, line, 'utf8');
+        await appendFile(this.path, line, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+        // appendFile's `mode` only applies on create; tighten once on first
+        // append (cheap — not on the per-message hot path thereafter).
+        if (creating) chmodSafe(this.path, SECURE_FILE_MODE);
         this.appended++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

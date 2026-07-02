@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   buildConsentChecker,
   buildFileConsentStore,
@@ -106,6 +106,26 @@ describe('consent', () => {
 
     rmSync(path, { force: true });
   });
+
+  // Audit F10 — the shell-hook allowlist discloses which hook commands the
+  // operator approved; it must not be world-readable: file 0600, dir 0700.
+  // Point the store at a not-yet-existing nested dir so persist() must mkdir it.
+  test.skipIf(process.platform === 'win32')(
+    'persists the allowlist file 0600 and creates its dir 0700',
+    async () => {
+      const base = mkdtempSync(join(tmpdir(), 'hook-consent-perm-'));
+      const path = join(base, 'nested', 'allowlist.json');
+      const store = buildFileConsentStore(path);
+      const asker = scriptAsker(['allow']);
+      const check = buildConsentChecker({ store, ask: asker.ask, interactive: true });
+
+      await check('PreToolUse', '/x.sh');
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(path)).mode & 0o777).toBe(0o700);
+
+      rmSync(base, { recursive: true, force: true });
+    },
+  );
 
   test('store reads existing decisions from a pre-populated file', () => {
     const path = tmpFile();
