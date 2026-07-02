@@ -16,10 +16,24 @@
 
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import picomatch from 'picomatch';
 import { isReadOnlyBashCommand } from '../tools/BashTool.js';
 import type { CanUseTool, ResolvedPermissionResult } from './types.js';
 
 const GLOB_CHARS = /[*?[\]{}]/;
+
+/** picomatch options pinned to `Bun.Glob.match` parity (2026-07-01, Task 2.2 —
+ *  the matcher previously WAS Bun.Glob; Node compatibility forced the swap, and
+ *  because this gate is a SECURITY boundary the replacement must be neither
+ *  more permissive nor more restrictive). Empirically verified row-by-row by
+ *  tests/permissions/writeScopeGlobParity.test.ts, which generates expectations
+ *  from Bun.Glob at test time:
+ *  - `dot: true` — Bun.Glob matches dotfiles with `*`/`**` (`'*'` matches
+ *    `.env`); picomatch's default (dot: false) would silently NARROW the scope.
+ *  - `strictSlashes: true` — Bun.Glob does NOT match the bare base directory
+ *    with a trailing globstar (`'src/**'` vs `'src'` is false); picomatch's
+ *    default would WIDEN the gate to the base path itself. */
+export const WRITE_SCOPE_PICOMATCH_OPTIONS = { dot: true, strictSlashes: true } as const;
 
 /** Tools that write under `$HARNESS_HOME` (harness state — memory, agent-created
  *  skills), NOT the project tree. Their `affectedPaths` return bare markers
@@ -45,7 +59,7 @@ function toCwdRelative(p: string, cwd: string): string {
  *  matched only the literal `migrations`, denying every write under it). */
 function matchesGlob(glob: string, rel: string): boolean {
   try {
-    if (new Bun.Glob(glob).match(rel)) return true;
+    if (picomatch(glob, WRITE_SCOPE_PICOMATCH_OPTIONS)(rel)) return true;
   } catch {
     // fall through to the bare-directory check
   }

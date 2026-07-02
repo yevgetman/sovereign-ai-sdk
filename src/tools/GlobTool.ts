@@ -1,7 +1,9 @@
-// GlobTool — list files matching a glob pattern. Uses Bun's built-in
-// `Bun.Glob` (no shell-out, no extra dependency). Read-only and
-// concurrency-safe; results sorted lexicographically for determinism.
+// GlobTool — list files matching a glob pattern. Uses tinyglobby (no shell-out,
+// Node-compatible; replaced Bun.Glob in Task 2.2 of SDK consumable packaging).
+// Read-only and concurrency-safe; results sorted lexicographically for
+// determinism.
 
+import { globSync } from 'tinyglobby';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
 import { resolveToolPath } from './pathUtils.js';
@@ -51,15 +53,22 @@ export const GlobTool = buildTool<Input, Output>({
   renderHint: { kind: 'tree' },
   async call(input, ctx) {
     const baseDir = input.path ? resolveToolPath(input.path, ctx.cwd) : ctx.cwd;
-    const glob = new Bun.Glob(input.pattern);
     // Collect ALL matches, then sort, THEN truncate — so head_limit returns the
     // lexicographically-first N (the documented deterministic contract). The
     // previous order (break at cap during the filesystem-order scan, then sort)
     // returned an arbitrary subset that varied run-to-run / across platforms.
-    const matches: string[] = [];
-    for (const file of glob.scanSync({ cwd: baseDir, onlyFiles: true })) {
-      matches.push(file);
-    }
+    //
+    // Options pin Bun.Glob.scanSync parity (empirical — see the scan-parity
+    // suite in tests/tools/globTool.test.ts): `expandDirectories: false` (Bun
+    // did not expand a bare directory pattern into `dir/**`) and
+    // `followSymbolicLinks: false` (Bun's scanSync default — `**` does not
+    // traverse symlinked directories).
+    const matches = globSync(input.pattern, {
+      cwd: baseDir,
+      onlyFiles: true,
+      expandDirectories: false,
+      followSymbolicLinks: false,
+    });
     matches.sort();
     const cap = input.head_limit;
     const truncated = cap !== undefined && matches.length > cap;

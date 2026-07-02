@@ -1,7 +1,9 @@
-// GlobTool tests — uses Bun.Glob; pure JS, no shell-out.
+// GlobTool tests — pure JS, no shell-out. The tool scans with tinyglobby
+// (Node-compatible); the scan-parity suite at the bottom pins its behavior to
+// Bun.Glob.scanSync (the previous engine) empirically at test time.
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import type { ToolContext } from '../../src/tool/types.js';
@@ -128,6 +130,55 @@ describe('GlobTool', () => {
     expect(GlobTool.isReadOnly({ pattern: '*' })).toBe(true);
     expect(GlobTool.isConcurrencySafe({ pattern: '*' })).toBe(true);
     expect(GlobTool.affectedPaths).toBeUndefined();
+  });
+
+  // Scan parity with Bun.Glob.scanSync (Task 2.2 — the tool's previous engine,
+  // replaced by tinyglobby for Node compatibility). Expectations are GENERATED
+  // from Bun.Glob at test time over a shared fixture tree, so the parity claim
+  // is empirical: it pinned the tinyglobby options `expandDirectories: false`
+  // (Bun does not expand a bare directory pattern into `dir/**`) and
+  // `followSymbolicLinks: false` (Bun's scanSync default — symlinked dirs are
+  // not traversed by `**`). Symlink patterns are excluded here; the one known
+  // deviation is pinned separately below.
+  describe('scan parity with Bun.Glob.scanSync', () => {
+    const buildFixtureTree = (dir: string): void => {
+      mkdirSync(join(dir, 'src', 'nested'), { recursive: true });
+      mkdirSync(join(dir, '.hidden'), { recursive: true });
+      writeFileSync(join(dir, 'a.ts'), '');
+      writeFileSync(join(dir, '.env'), '');
+      writeFileSync(join(dir, 'src', 'b.ts'), '');
+      writeFileSync(join(dir, 'src', '.secret'), '');
+      writeFileSync(join(dir, 'src', 'nested', 'c.ts'), '');
+      writeFileSync(join(dir, '.hidden', 'd.ts'), '');
+    };
+
+    for (const pattern of ['*.ts', '**/*.ts', '**', '**/*', 'src/**', 'src', '*', '*.nope']) {
+      test(`'${pattern}' matches Bun.Glob.scanSync`, async () => {
+        await withTmp(async (dir) => {
+          buildFixtureTree(dir);
+          const expected = [
+            ...new Bun.Glob(pattern).scanSync({ cwd: dir, onlyFiles: true }),
+          ].sort();
+          const result = await GlobTool.call({ pattern }, makeCtx(dir));
+          expect(result.data.paths).toEqual(expected);
+        });
+      });
+    }
+
+    // Documented deviation from Bun.Glob.scanSync: a pattern that EXPLICITLY
+    // names a symlinked directory resolves through it under tinyglobby (Bun
+    // returned nothing). Implicit `**` traversal still skips symlinks (parity,
+    // covered above); this pins the explicit-path edge so a dep change is
+    // noticed.
+    test('an explicitly-named symlinked directory is traversed (deviation from Bun)', async () => {
+      await withTmp(async (dir) => {
+        mkdirSync(join(dir, 'real'));
+        writeFileSync(join(dir, 'real', 'e.ts'), '');
+        symlinkSync(join(dir, 'real'), join(dir, 'linkdir'));
+        const result = await GlobTool.call({ pattern: 'linkdir/**/*.ts' }, makeCtx(dir));
+        expect(result.data.paths).toEqual(['linkdir/e.ts']);
+      });
+    });
   });
 
   // Pins the consistency invariant for backlog item 18: whatever count
