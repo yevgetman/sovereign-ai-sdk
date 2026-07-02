@@ -29,6 +29,7 @@ export type SecretKind =
   | 'stripe-publishable' // pk_(live|test)_ + 16+ chars
   | 'slack-token' // xox[abprs]- + tokens
   | 'google-api-key' // AIza + 35 chars
+  | 'url-credentials' // scheme://user:PASSWORD@host (DB/connection URLs)
   // Harness/provider API keys — SHARED with trajectory/redact.ts via the catalog
   // so the tool-input redactor no longer lets a discovered LIVE provider key
   // reach disk verbatim (audit E3).

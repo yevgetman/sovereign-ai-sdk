@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { redactSecrets } from '@yevgetman/sov-sdk/permissions/secretRedactor';
+import { MAX_REDACTION_INPUT_BYTES } from '@yevgetman/sov-sdk/redaction/secretPatterns';
 
 describe('redactSecrets — pattern coverage', () => {
   test('empty string returns no hits', () => {
@@ -175,6 +176,78 @@ describe('redactSecrets — false-positive guards', () => {
   test('does not match plain text containing the word "token"', () => {
     const result = redactSecrets('Please rotate your token next quarter.');
     expect(result.hits).toEqual([]);
+  });
+});
+
+describe('redactSecrets — URL-authority credentials (DB/connection URLs)', () => {
+  // A live DB password written to a file (env dump, connection error, compose
+  // file) must not reach disk verbatim. The URL userinfo password is
+  // unambiguously delimited inside the authority, so ONLY the credential is
+  // redacted while the scheme and host survive.
+  const DB_URLS = [
+    {
+      url: 'postgres://admin:S3cr3tP4ssw0rd@db.internal.corp:5432/production',
+      password: 'S3cr3tP4ssw0rd',
+      scheme: 'postgres://',
+      host: 'db.internal.corp',
+    },
+    {
+      url: 'mongodb+srv://root:hunter2GoesHere@cluster0.abcde.mongodb.net/mydb',
+      password: 'hunter2GoesHere',
+      scheme: 'mongodb+srv://',
+      host: 'cluster0.abcde.mongodb.net',
+    },
+    {
+      url: 'mysql://svcuser:pa55word@10.0.0.5:3306/orders',
+      password: 'pa55word',
+      scheme: 'mysql://',
+      host: '10.0.0.5',
+    },
+    {
+      url: 'redis://default:R3d1sP4ss@cache.example.com:6379/0',
+      password: 'R3d1sP4ss',
+      scheme: 'redis://',
+      host: 'cache.example.com',
+    },
+  ] as const;
+
+  for (const { url, password, scheme, host } of DB_URLS) {
+    test(`redacts the password in ${scheme}user:pass@`, () => {
+      const result = redactSecrets(url);
+      expect(result.hits.some((h) => h.kind === 'url-credentials')).toBe(true);
+      expect(result.redacted).not.toContain(password); // secret gone
+      expect(result.redacted).toContain('<REDACTED:url-credentials>');
+      expect(result.redacted).toContain(scheme); // scheme survives
+      expect(result.redacted).toContain(host); // host survives
+    });
+  }
+
+  test('a credential-less URL yields no hits (no over-redaction)', () => {
+    const result = redactSecrets('https://example.com/path');
+    expect(result.hits).toEqual([]);
+    expect(result.redacted).toBe('https://example.com/path');
+  });
+
+  test('a URL with a user but NO password yields no url-credentials hit', () => {
+    const result = redactSecrets('https://user@example.com/x');
+    expect(result.hits.some((h) => h.kind === 'url-credentials')).toBe(false);
+  });
+
+  test('host:port with no userinfo is not a false positive', () => {
+    const result = redactSecrets('https://example.com:8080/path');
+    expect(result.hits).toEqual([]);
+    expect(result.redacted).toBe('https://example.com:8080/path');
+  });
+
+  test('does not backtrack on a 128 KiB adversarial URL payload (ReDoS)', () => {
+    const cap = MAX_REDACTION_INPUT_BYTES;
+    const lowercaseRun = 'a'.repeat(cap);
+    const schemeSpam = 'x://a:b:c:'.repeat(Math.ceil(cap / 10)).slice(0, cap);
+    for (const payload of [lowercaseRun, schemeSpam]) {
+      const t0 = performance.now();
+      redactSecrets(payload);
+      expect(performance.now() - t0).toBeLessThan(100);
+    }
   });
 });
 

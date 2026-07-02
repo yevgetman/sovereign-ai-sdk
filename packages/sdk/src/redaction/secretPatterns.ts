@@ -22,9 +22,12 @@
 // Patterns are stored as regex SOURCE strings (no flags). Each consumer compiles
 // its OWN `new RegExp(source, 'g')` via {@link compileVendorSecretPatterns} so
 // the mutable `lastIndex` of a stateful /g regex is never shared across call
-// sites. Every source is a narrow prefix + length-bounded ASCII char class
-// (so `\b` boundaries are valid and false positives stay low) with NO capture
-// groups and NO nested/overlapping quantifiers — i.e. linear-time, ReDoS-safe.
+// sites. Most sources are a narrow prefix + length-bounded ASCII char class (so
+// `\b` boundaries are valid and false positives stay low); the `url-credentials`
+// entry instead anchors on an unambiguous `scheme://` … `:` … `@` delimiter run
+// via a fixed lookbehind. Either way: NO capture groups (a lookbehind is not a
+// capture group; consumers still read `.index`/`[0]`) and NO nested/overlapping
+// quantifiers — i.e. linear-time, ReDoS-safe.
 
 /** A shared vendor token format: canonical name + a flag-less regex source. */
 export interface VendorSecretPattern {
@@ -62,6 +65,29 @@ export const VENDOR_SECRET_PATTERNS: readonly VendorSecretPattern[] = [
   { name: 'slack-token', source: String.raw`\bxox[abprs]-[A-Za-z0-9-]{10,}\b` },
   // Google API keys: AIza + 35 chars.
   { name: 'google-api-key', source: String.raw`\bAIza[0-9A-Za-z_-]{35}\b` },
+  // URL-authority credentials: the PASSWORD in a `scheme://user:PASSWORD@host`
+  // connection URL (postgres/mysql/mongodb+srv/redis/amqp/… — any scheme). DB
+  // connection URLs are among the most common secret shapes in agent tool output
+  // (env dumps, connection errors, compose files), and unlike a plain `password=`
+  // the URL userinfo password is UNAMBIGUOUSLY delimited — a `:`..`@` run inside
+  // the authority where neither char is allowed in the user/password — so the
+  // false-positive rate stays low without a vendor-specific prefix.
+  //
+  // A lookbehind anchors on the `scheme://` so ONLY `user:PASSWORD@` is matched
+  // (and replaced by the redaction marker) while the scheme and host survive.
+  // The lookbehind ALSO keeps the pattern linear/ReDoS-safe: it fails in O(1)
+  // wherever the two preceding chars are not `//`, so the body never runs on a
+  // long non-URL run. (An INLINE `\b[a-z][a-z0-9+.\-]*://…` prefix instead is
+  // O(n^2) on a lowercase run — the scheme char-star matches the whole run then
+  // backtracks looking for `://` at every start position.) The two inner classes
+  // `[^\s/:@]+` exclude `:`/`@`/whitespace/`/`, so each is a single bounded run
+  // with no nested/overlapping quantifiers — linear per match. A credential-less
+  // URL (`https://example.com/path`, `https://user@host`, `host:port`) has no
+  // `user:pass@` and is left untouched.
+  {
+    name: 'url-credentials',
+    source: String.raw`(?<=\b[a-z][a-z0-9+.\-]*://)[^\s/:@]+:[^\s/:@]+@`,
+  },
 ];
 
 /**

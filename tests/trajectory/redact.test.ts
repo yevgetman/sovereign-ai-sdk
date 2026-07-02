@@ -250,6 +250,86 @@ describe('redactForce — input-size cap (audit C9 ReDoS defense)', () => {
   });
 });
 
+// Audit (this round) — DB/connection-URL passwords leaked UNREDACTED into
+// committed trajectory/transcript archives. The userinfo password in a URL
+// authority (`scheme://user:PASSWORD@host`) is unambiguously delimited (a `:`..
+// `@` run inside the authority, neither char allowed inside the user/password),
+// so a low-false-positive, linear-time pattern strips ONLY the credential while
+// the scheme and host survive. Shared via the catalog so BOTH redactors get it.
+describe('redactForce — URL-authority credentials (DB/connection URLs)', () => {
+  const DB_URLS = [
+    {
+      url: 'postgres://admin:S3cr3tP4ssw0rd@db.internal.corp:5432/production',
+      password: 'S3cr3tP4ssw0rd',
+      scheme: 'postgres://',
+      host: 'db.internal.corp',
+    },
+    {
+      url: 'mongodb+srv://root:hunter2GoesHere@cluster0.abcde.mongodb.net/mydb',
+      password: 'hunter2GoesHere',
+      scheme: 'mongodb+srv://',
+      host: 'cluster0.abcde.mongodb.net',
+    },
+    {
+      url: 'mysql://svcuser:pa55word@10.0.0.5:3306/orders',
+      password: 'pa55word',
+      scheme: 'mysql://',
+      host: '10.0.0.5',
+    },
+    {
+      url: 'redis://default:R3d1sP4ss@cache.example.com:6379/0',
+      password: 'R3d1sP4ss',
+      scheme: 'redis://',
+      host: 'cache.example.com',
+    },
+  ] as const;
+
+  for (const { url, password, scheme, host } of DB_URLS) {
+    test(`redacts the password in ${scheme}user:pass@`, () => {
+      const out = redactForce(url);
+      expect(out).not.toContain(password); // the secret is gone
+      expect(out).toContain('[REDACTED]');
+      expect(out).toContain(scheme); // scheme survives (not over-redacted)
+      expect(out).toContain(host); // host survives (not over-redacted)
+    });
+  }
+
+  test('tagged: true labels the URL-credential hit', () => {
+    const out = redactForce(DB_URLS[0].url, { tagged: true });
+    expect(out).toContain('[REDACTED:url-credentials]');
+  });
+
+  test('a credential-less URL is left untouched (no over-redaction)', () => {
+    const url = 'https://example.com/path';
+    expect(redactForce(url)).toBe(url);
+  });
+
+  test('a URL with a user but NO password is untouched', () => {
+    const url = 'https://user@example.com/x';
+    expect(redactForce(url)).toBe(url);
+  });
+
+  test('host:port with no userinfo is untouched (the port colon is not a password)', () => {
+    const url = 'https://example.com:8080/path';
+    expect(redactForce(url)).toBe(url);
+  });
+
+  test('does not backtrack on a 128 KiB lowercase run or scheme+colon spam (ReDoS)', () => {
+    // A pure lowercase run is the worst case for an INLINE `scheme://` prefix —
+    // the scheme char-star matches the whole run then backtracks at every start
+    // position → O(n^2). The lookbehind fails in O(1) wherever no `://` precedes,
+    // so the pass stays linear. Also stress a scheme-and-colon-dense payload.
+    const cap = MAX_REDACTION_INPUT_BYTES;
+    const lowercaseRun = 'a'.repeat(cap);
+    const schemeSpam = 'x://a:b:c:'.repeat(Math.ceil(cap / 10)).slice(0, cap);
+    for (const payload of [lowercaseRun, schemeSpam]) {
+      const t0 = performance.now();
+      redactForce(payload);
+      expect(performance.now() - t0).toBeLessThan(100);
+    }
+  });
+});
+
 describe('isRedactionEnabled', () => {
   test('returns a boolean reflecting the import-time snapshot', () => {
     expect(typeof isRedactionEnabled()).toBe('boolean');

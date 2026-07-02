@@ -32,6 +32,9 @@ const SHARED_SAMPLES: Record<string, string> = {
   'stripe-publishable': `pk_live_${'a'.repeat(24)}`,
   'slack-token': 'xoxb-1234567890-abcdEFGHijklMNOP',
   'google-api-key': `AIza${'0'.repeat(35)}`,
+  // URL-authority credential (scheme://user:PASSWORD@host) — DB/connection URLs
+  // are among the most common secret shapes in agent tool output.
+  'url-credentials': 'postgres://admin:S3cr3tP4ssw0rd@db.internal.corp:5432/production',
   // Harness/provider keys — the set the tool-input redactor was missing (E3).
   anthropic: `sk-ant-api03-${'a'.repeat(24)}`,
   openrouter: `sk-or-${'a'.repeat(24)}`,
