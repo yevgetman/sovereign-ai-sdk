@@ -14,7 +14,6 @@
 // real work is the type annotation on each sentinel.
 
 import { describe, expect, test } from 'bun:test';
-import type { z } from 'zod';
 import type {
   CancelTurnResponse,
   CreateSessionResponse,
@@ -29,6 +28,7 @@ import type {
   PostTurnResponse,
   ServerEvent,
 } from '@yevgetman/sov-protocol';
+import type { z } from 'zod';
 import type {
   DelegatorAtomCompleteEventSchema,
   DelegatorAtomStartedEventSchema,

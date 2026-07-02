@@ -36,3 +36,27 @@ jobs:
       # irrelevant — Bun's node-compat satisfies dependency-cruiser's engines).
       - run: bun run lint
       - run: bun run typecheck
+
+  packages:
+    name: open packages (build + canary + publish dry-run)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    # Proves the open packages are consumable as PUBLISHED artifacts: build →
+    # tarball-contents assertion → install-from-tarball canary under both node
+    # and bun → publish dry-run. (The SDK core package + its canary/dry-run are
+    # wired here in Phase 3, and the depcruise boundary rebase for
+    # packages/sdk/src lands with the core move — protocol is a dep-less leaf.)
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: bun install --frozen-lockfile
+      - run: bun run build:protocol
+      - run: bun test packages/protocol/tests
+      - run: bun run canary
+      - name: protocol publish dry-run
+        run: cd packages/protocol && npm publish --dry-run
