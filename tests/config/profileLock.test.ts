@@ -2,7 +2,15 @@
 // path, stale-lock reclamation, and release idempotency.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readLockInfo, tryAcquireLock } from '@yevgetman/sov-sdk/config/profileLock';
@@ -65,6 +73,15 @@ describe('tryAcquireLock', () => {
     mkdirSync(join(home, '.sov.lock'));
     const handle = tryAcquireLock(home);
     expect(handle).not.toBeNull();
+    handle?.release();
+  });
+
+  test('creates the lock dir 0700 and the pid file 0600 (Unix) — audit C6 sweep', () => {
+    if (process.platform === 'win32') return;
+    const handle = tryAcquireLock(home);
+    expect(handle).not.toBeNull();
+    expect(statSync(join(home, '.sov.lock')).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, '.sov.lock', 'pid')).mode & 0o777).toBe(0o600);
     handle?.release();
   });
 });

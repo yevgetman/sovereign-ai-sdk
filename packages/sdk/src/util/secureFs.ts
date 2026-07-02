@@ -13,7 +13,8 @@
 // non-owner, so a tightening failure NEVER turns a best-effort write into a
 // crash — the writers here are all documented as non-blocking (Invariant #10).
 
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /** 0700 — owner rwx only. Denies traversal/listing by other local uids. */
 export const SECURE_DIR_MODE = 0o700;
@@ -39,4 +40,25 @@ export function chmodSafe(path: string, mode: number): void {
 export function secureMkdir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: SECURE_DIR_MODE });
   chmodSafe(dir, SECURE_DIR_MODE);
+}
+
+/**
+ * Atomically write `data` to `file` with restrictive perms. Creates the parent
+ * dir 0700 ({@link secureMkdir}), writes a freshly-created 0600 tmp sibling,
+ * then renames it onto `file`. The rename moves the tmp INODE (0600) into place,
+ * so the destination ends up 0600 even if a pre-existing `file` was left 0644 by
+ * an older version. The collision-safe tmp name (`pid`+`Date.now()`) avoids two
+ * concurrent writers clobbering one temp.
+ *
+ * This is the single home for the "atomic secret/state write" dance so the
+ * "atomic writer forgot the mode" drift class (audit F10/F16/C6 — config.json
+ * was written 0644 while every sibling used this pattern inline) cannot recur:
+ * every SDK secret/state sink routes through here.
+ */
+export function secureWriteFileAtomic(file: string, data: string): void {
+  secureMkdir(dirname(file));
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, data, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+  chmodSafe(tmp, SECURE_FILE_MODE);
+  renameSync(tmp, file);
 }

@@ -249,3 +249,48 @@ describe('redactSecrets — bypass via env var', () => {
     expect(result.hits).toHaveLength(1);
   });
 });
+
+describe('redactSecrets — full GitHub token family (audit C5)', () => {
+  // gho_ (OAuth), ghu_ (user-to-server), ghs_ (app-install), ghr_ (refresh),
+  // ghp_ (classic PAT) all share the gh[oprsu]_ + 36 format. The shared catalog
+  // guarantees the persistent redactor sees the identical set.
+  for (const prefix of ['gho_', 'ghu_', 'ghs_', 'ghr_', 'ghp_'] as const) {
+    test(`${prefix} token is redacted with kind github-oauth`, () => {
+      const tok = `${prefix}${'A'.repeat(36)}`;
+      const result = redactSecrets(tok);
+      expect(result.hits[0]?.kind).toBe('github-oauth');
+      expect(result.redacted).not.toContain(tok);
+    });
+  }
+});
+
+describe('redactSecrets — input-size cap (audit C9 ReDoS defense)', () => {
+  const BEGIN = '-----BEGIN RSA PRIVATE KEY-----\n';
+  const adversarial = (bytes: number): string =>
+    BEGIN.repeat(Math.ceil(bytes / BEGIN.length)).slice(0, bytes);
+
+  test('a multi-MB adversarial payload is processed in <100ms', () => {
+    const payload = adversarial(4 * 1024 * 1024);
+    const t0 = performance.now();
+    redactSecrets(payload);
+    expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  test('bounds the scan but preserves ALL bytes (a large file-write is never truncated)', () => {
+    // A secret in the scanned prefix is still caught; the (unscanned) tail is
+    // preserved verbatim — the tool-input redactor rewrites file content, so it
+    // must never drop bytes.
+    const secret = `gho_${'A'.repeat(36)}`;
+    const tail = 'y'.repeat(300 * 1024); // pushes total over the cap
+    const input = `${secret} ${tail}`;
+    const result = redactSecrets(input);
+    expect(result.redacted).not.toContain(secret); // prefix secret redacted
+    expect(result.redacted.endsWith(tail)).toBe(true); // tail preserved verbatim
+    expect(result.redacted.length).toBeGreaterThanOrEqual(tail.length); // no truncation
+  });
+
+  test('a normal input is fully redacted', () => {
+    const secret = `gho_${'A'.repeat(36)}`;
+    expect(redactSecrets(`x=${secret}`).redacted).not.toContain(secret);
+  });
+});

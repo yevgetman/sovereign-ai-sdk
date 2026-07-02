@@ -123,6 +123,12 @@ describe('getActiveProfile / setActiveProfile', () => {
   test('setActiveProfile rejects names that fail validation', () => {
     expect(() => setActiveProfile('has spaces')).toThrow(/invalid profile/);
   });
+
+  test('setActiveProfile writes the active-profile file 0600 (Unix) — audit C6 sweep', () => {
+    if (process.platform === 'win32') return;
+    setActiveProfile('work');
+    expect(statSync(join(getBaseHome(), 'active-profile')).mode & 0o777).toBe(0o600);
+  });
 });
 
 describe('assertProfileName', () => {

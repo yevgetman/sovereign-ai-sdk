@@ -14,6 +14,7 @@
 // legitimately need to exercise redaction-skipping use that env var.
 
 import {
+  MAX_REDACTION_INPUT_BYTES,
   compilePemPrivateKeyPattern,
   compileVendorSecretPatterns,
 } from '../redaction/secretPatterns.js';
@@ -59,22 +60,11 @@ interface PatternSpec {
 // the LATER match in this list (more specific patterns last) — see
 // removeOverlaps below.
 const PATTERNS: readonly PatternSpec[] = [
-  // GitHub OAuth-app tokens (gho_), classic PATs (ghp_), user tokens
-  // (ghu_), server tokens (ghs_), refresh tokens (ghr_). Real tokens are
-  // 36 chars after the prefix; we accept 36+ to be forward-compatible.
-  { kind: 'github-oauth', pattern: /\bgh[oprsu]_[A-Za-z0-9]{36,}\b/g },
-
-  // GitHub fine-grained PATs are 82 chars after the prefix and may
-  // contain underscores.
-  { kind: 'github-fine-grained', pattern: /\bgithub_pat_[A-Za-z0-9_]{82}\b/g },
-
-  // AWS access key ID is exactly AKIA + 16 base32-ish chars.
-  { kind: 'aws-access-key-id', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
-
-  // Stripe secret/publishable, Slack, and Google formats come from the SHARED
-  // catalog (redaction/secretPatterns.ts) so the persistent-artifact redactor
-  // (trajectory/redact.ts) recognizes the identical set — the two can no longer
-  // drift apart (audit F4). Order is preserved: stripe-secret-live,
+  // GitHub (gh[oprsu]_ family + github_pat_), AWS (AKIA…), Stripe, Slack, and
+  // Google formats all come from the SHARED catalog (redaction/secretPatterns.ts)
+  // so the persistent-artifact redactor (trajectory/redact.ts) recognizes the
+  // IDENTICAL set — the two can no longer drift apart (audit F4/C5). Order:
+  // github-oauth, github-fine-grained, aws-access-key-id, stripe-secret-live,
   // stripe-secret-test, stripe-publishable, slack-token, google-api-key.
   ...compileVendorSecretPatterns().map(({ name, regex }) => ({
     kind: name as SecretKind,
@@ -105,13 +95,22 @@ export function redactSecrets(input: string): RedactionResult {
     return { redacted: input, hits: [] };
   }
 
+  // Bound synchronous scan work (audit C9): only the first
+  // MAX_REDACTION_INPUT_BYTES chars are pattern-matched. The full `input` is
+  // still returned (the tail is preserved verbatim below) — this redactor
+  // rewrites Write/Edit file CONTENT, so it must never truncate a write; it only
+  // accepts not scanning the (pathologically large) tail. All hit indices stay
+  // valid against `input` because the prefix shares the same offsets.
+  const scanText =
+    input.length > MAX_REDACTION_INPUT_BYTES ? input.slice(0, MAX_REDACTION_INPUT_BYTES) : input;
+
   const rawHits: SecretHit[] = [];
   for (const { kind, pattern } of PATTERNS) {
     pattern.lastIndex = 0; // Stateful /g regexes must be reset.
-    let match: RegExpExecArray | null = pattern.exec(input);
+    let match: RegExpExecArray | null = pattern.exec(scanText);
     while (match !== null) {
       rawHits.push({ kind, start: match.index, end: match.index + match[0].length });
-      match = pattern.exec(input);
+      match = pattern.exec(scanText);
     }
   }
 

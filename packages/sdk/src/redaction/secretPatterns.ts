@@ -12,6 +12,13 @@
 // was written verbatim to disk (audit F4). Centralizing the shared formats here
 // makes a token shape known to one redactor known to the other — permanently.
 //
+// Audit C5 finished the unification: the GitHub token family (gh[oprsu]_), the
+// GitHub fine-grained PAT (github_pat_), and the AWS access-key id (AKIA…) were
+// each duplicated inline in BOTH redactors — and the two copies had already
+// drifted (the persistent redactor's GitHub pattern covered ONLY ghp_ and leaked
+// gho_/ghu_/ghs_/ghr_). Every vendor format common to both redactors now lives
+// here, so neither can silently miss a token the other catches.
+//
 // Patterns are stored as regex SOURCE strings (no flags). Each consumer compiles
 // its OWN `new RegExp(source, 'g')` via {@link compileVendorSecretPatterns} so
 // the mutable `lastIndex` of a stateful /g regex is never shared across call
@@ -28,11 +35,23 @@ export interface VendorSecretPattern {
 }
 
 /**
- * Vendor token formats shared by both redactors, in a fixed order. Kept
- * byte-identical to the definitions permissions/secretRedactor.ts previously
- * inlined, so moving them here changes no behavior on either side.
+ * Vendor token formats shared by both redactors, in a fixed order. The `name`
+ * of each entry doubles as the `SecretKind` the tool-input redactor reports, so
+ * these names must stay in sync with `SecretKind` in permissions/secretRedactor.ts.
  */
 export const VENDOR_SECRET_PATTERNS: readonly VendorSecretPattern[] = [
+  // GitHub tokens: gho_ (OAuth), ghp_ (classic PAT), ghu_ (user-to-server),
+  // ghs_ (App installation), ghr_ (refresh). Real tokens are 36 chars after the
+  // prefix; 36+ is forward-compatible. Sharing the WHOLE gh[oprsu]_ family (not
+  // just ghp_) is the fix for audit C5, where the persistent redactor leaked
+  // gho_/ghu_/ghs_/ghr_ into committed archives.
+  { name: 'github-oauth', source: String.raw`\bgh[oprsu]_[A-Za-z0-9]{36,}\b` },
+  // GitHub fine-grained PATs: github_pat_ + 82 chars (underscores allowed). 50+
+  // is forward/backward-compatible (the exact-82 form silently missed a length
+  // change; the persistent redactor already used the lenient bound).
+  { name: 'github-fine-grained', source: String.raw`\bgithub_pat_[A-Za-z0-9_]{50,}\b` },
+  // AWS access key id: AKIA + 16 base32-ish chars.
+  { name: 'aws-access-key-id', source: String.raw`\bAKIA[0-9A-Z]{16}\b` },
   // Stripe secret keys: sk_ or rk_ (restricted), live or test mode. Underscore
   // form — the OpenAI `sk-` (hyphen) pattern deliberately does NOT match this.
   { name: 'stripe-secret-live', source: String.raw`\b[sr]k_live_[A-Za-z0-9]{16,}\b` },
@@ -80,3 +99,23 @@ export const PEM_PRIVATE_KEY_BLOCK_SOURCE = String.raw`-----BEGIN [A-Z ]*PRIVATE
 export function compilePemPrivateKeyPattern(): RegExp {
   return new RegExp(PEM_PRIVATE_KEY_BLOCK_SOURCE, 'g');
 }
+
+/**
+ * Hard cap on the number of characters either redactor will SCAN synchronously
+ * (audit C9). Redaction runs on the event loop against attacker/MCP-influenceable
+ * tool-result content with no upstream size cap. Even the linearized PEM pattern
+ * has a large per-input constant (each `-----BEGIN … PRIVATE KEY-----` marker
+ * with no nearby `END` costs an 8192-char bounded scan), so a many-MB payload of
+ * BEGIN-spam blocks the loop for hundreds of ms. Capping the SCANNED length makes
+ * worst-case wall-time bounded and pattern-independent — no present or future
+ * pattern can go pathological on a huge input.
+ *
+ * 256 KiB keeps the worst-case adversarial pass comfortably under the 100ms
+ * acceptance bar (~33ms measured) with headroom for slower hosts, while being
+ * far larger than any realistic single secret or tool-result line. Each redactor
+ * decides its own over-cap tail policy: the persistent (committed-archive)
+ * redactor DROPS the unscanned tail with a marker (it must never emit unredacted
+ * bytes); the tool-input redactor PRESERVES the tail verbatim (it rewrites file
+ * content and must never truncate a write) but scans only the prefix.
+ */
+export const MAX_REDACTION_INPUT_BYTES = 262144;

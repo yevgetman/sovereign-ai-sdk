@@ -10,6 +10,7 @@
 // committed to a repo.
 
 import {
+  MAX_REDACTION_INPUT_BYTES,
   compilePemPrivateKeyPattern,
   compileVendorSecretPatterns,
 } from '../redaction/secretPatterns.js';
@@ -44,17 +45,15 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   { name: 'brave', regex: /\bBSA[a-zA-Z0-9_\-]{20,}\b/g },
   // OpenRouter.
   { name: 'openrouter', regex: /\bsk-or-[a-zA-Z0-9_\-]{20,}\b/g },
-  // GitHub fine-grained / classic PATs.
-  { name: 'github-pat', regex: /\bghp_[a-zA-Z0-9]{30,}\b/g },
-  { name: 'github-fg-pat', regex: /\bgithub_pat_[a-zA-Z0-9_]{50,}\b/g },
-  // AWS access key id.
-  { name: 'aws-access-key', regex: /\bAKIA[0-9A-Z]{16}\b/g },
   // Vendor formats shared with permissions/secretRedactor.ts (single source of
-  // truth in redaction/secretPatterns.ts): Stripe secret `[sr]k_live_/[sr]k_test_`
-  // (underscore form — the OpenAI `sk-` hyphen pattern above does NOT match it),
-  // Stripe publishable `pk_...`, Slack `xox[abprs]-`, Google `AIza...`. Closes
-  // the audit-F4 asymmetry so a token known to the tool-input redactor is also
-  // stripped from the persistent transcript/trace JSONL.
+  // truth in redaction/secretPatterns.ts): the GitHub token family gh[oprsu]_
+  // (audit C5 — previously ONLY ghp_ here, leaking gho_/ghu_/ghs_/ghr_), the
+  // GitHub fine-grained PAT github_pat_, the AWS access-key id AKIA…, Stripe
+  // secret `[sr]k_live_/[sr]k_test_` (underscore form — the OpenAI `sk-` hyphen
+  // pattern above does NOT match it), Stripe publishable `pk_...`, Slack
+  // `xox[abprs]-`, Google `AIza...`. Closes the audit-F4/C5 asymmetry so every
+  // token known to the tool-input redactor is also stripped from the persistent
+  // transcript/trace JSONL.
   ...compileVendorSecretPatterns(),
   // Generic bearer tokens.
   { name: 'bearer', regex: /\bBearer\s+[a-zA-Z0-9_\-\.=]{16,}/g },
@@ -86,6 +85,27 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   { name: 'pem-private', regex: compilePemPrivateKeyPattern() },
 ];
 
+function applyPatterns(text: string, tagged: boolean): string {
+  let out = text;
+  for (const { name, regex } of PATTERNS) {
+    out = out.replace(regex, tagged ? `[REDACTED:${name}]` : '[REDACTED]');
+  }
+  return out;
+}
+
+/** Redact within a bounded synchronous budget (audit C9). Inputs at or under
+ *  {@link MAX_REDACTION_INPUT_BYTES} are scanned in full. ABOVE the cap only the
+ *  prefix is scanned and the unscanned tail is DROPPED with a clear marker — a
+ *  committed transcript/trace archive must never carry unredacted bytes, so
+ *  truncating the pathologically-large tail is safer than either scanning it
+ *  (event-loop DoS) or emitting it verbatim (secret leak). */
+function applyCapped(text: string, tagged: boolean): string {
+  if (text.length <= MAX_REDACTION_INPUT_BYTES) return applyPatterns(text, tagged);
+  const head = applyPatterns(text.slice(0, MAX_REDACTION_INPUT_BYTES), tagged);
+  const omitted = text.length - MAX_REDACTION_INPUT_BYTES;
+  return `${head}\n[REDACTION-TRUNCATED: ${omitted} bytes over the ${MAX_REDACTION_INPUT_BYTES}-byte scan cap were dropped unscanned]`;
+}
+
 /** Apply every pattern. Returns a copy with `[REDACTED]` (or
  *  `[REDACTED:<name>]` when `tagged: true`) in place of each match.
  *
@@ -93,19 +113,11 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
  *  unchanged. Callers do not need to check the flag themselves. */
 export function redact(text: string, opts: { tagged?: boolean } = {}): string {
   if (!REDACTION_ENABLED) return text;
-  let out = text;
-  for (const { name, regex } of PATTERNS) {
-    out = out.replace(regex, opts.tagged === true ? `[REDACTED:${name}]` : '[REDACTED]');
-  }
-  return out;
+  return applyCapped(text, opts.tagged === true);
 }
 
 /** Test seam — runs the patterns regardless of the import-time snapshot.
  *  Used by unit tests so they don't depend on env-var setup. */
 export function redactForce(text: string, opts: { tagged?: boolean } = {}): string {
-  let out = text;
-  for (const { name, regex } of PATTERNS) {
-    out = out.replace(regex, opts.tagged === true ? `[REDACTED:${name}]` : '[REDACTED]');
-  }
-  return out;
+  return applyCapped(text, opts.tagged === true);
 }

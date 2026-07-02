@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import { SECURE_DIR_MODE } from '../util/secureFs.js';
+import { SECURE_DIR_MODE, SECURE_FILE_MODE, chmodSafe } from '../util/secureFs.js';
 
 /** Reserved profile name used to point at the unscoped default state
  *  root (i.e., `<base>/` itself). The `default` name maps to the same
@@ -100,12 +100,19 @@ export function getActiveProfile(): string {
  *  string) to unset. */
 export function setActiveProfile(name: string): void {
   const path = join(getBaseHome(), ACTIVE_PROFILE_FILENAME);
+  // The active-profile file lives in the 0700 base home, but write it 0600 (and
+  // re-tighten defensively) so it stays owner-only even under a pre-F10 0755
+  // home left by an older version (audit C6 sweep).
   if (name === DEFAULT_PROFILE_NAME || name.length === 0) {
-    if (existsSync(path)) writeFileSync(path, '', 'utf8');
+    if (existsSync(path)) {
+      writeFileSync(path, '', { encoding: 'utf8', mode: SECURE_FILE_MODE });
+      chmodSafe(path, SECURE_FILE_MODE);
+    }
     return;
   }
   assertProfileName(name);
-  writeFileSync(path, `${name}\n`, 'utf8');
+  writeFileSync(path, `${name}\n`, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+  chmodSafe(path, SECURE_FILE_MODE);
 }
 
 /** Validate a profile name: ASCII alphanumerics + `.`, `_`, `-`, ≤ 64

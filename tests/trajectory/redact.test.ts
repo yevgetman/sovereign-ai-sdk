@@ -2,6 +2,7 @@
 // don't depend on the import-time HARNESS_REDACT_SECRETS snapshot.
 
 import { describe, expect, test } from 'bun:test';
+import { redactSecrets } from '@yevgetman/sov-sdk/permissions/secretRedactor';
 import { isRedactionEnabled, redactForce } from '@yevgetman/sov-sdk/trajectory/redact';
 
 describe('redactForce', () => {
@@ -130,8 +131,12 @@ describe('redactForce', () => {
     const started = Date.now();
     const out = redactForce(payload);
     const elapsed = Date.now() - started;
-    // No matching END exists, so nothing is redacted — but it must return fast.
-    expect(out).toBe(payload);
+    // No matching END exists, so nothing in the scanned prefix is redacted. The
+    // ~1.2 MB input is far over the C9 scan cap, so the unscanned tail is dropped
+    // with a marker (audit C9) and the pass returns fast — the bounded {0,8192}?
+    // span keeps the scanned prefix linear (audit F5).
+    expect(out).toContain('REDACTION-TRUNCATED');
+    expect(out.length).toBeLessThan(payload.length);
     expect(elapsed).toBeLessThan(1000);
   });
 
@@ -167,6 +172,79 @@ describe('redactForce', () => {
       tagged: true,
     });
     expect(out).toContain('[REDACTED:anthropic]');
+  });
+});
+
+describe('redactForce — GitHub token family (audit C5 / F4 shared catalog)', () => {
+  // The persistent redactor previously carried ONLY the classic PAT (ghp_) and
+  // leaked the gho_/ghu_/ghs_/ghr_ family (OAuth / user-to-server / app-install
+  // / refresh) that the tool-input redactor already stripped — so those tokens
+  // landed verbatim in committed samples.jsonl. Both redactors now compile the
+  // gh[oprsu]_ format from the shared catalog.
+  for (const prefix of ['gho_', 'ghu_', 'ghs_', 'ghr_', 'ghp_'] as const) {
+    test(`redacts ${prefix} tokens`, () => {
+      const tok = `${prefix}${'A'.repeat(36)}`;
+      const out = redactForce(`token=${tok}`);
+      expect(out).not.toContain(tok);
+      expect(out).toContain('[REDACTED]');
+    });
+  }
+
+  test('every kind the tool-input redactor catches is also caught by the persistent redactor', () => {
+    // One representative token per SecretKind the tool-input redactor knows. The
+    // persistent (committed-archive) redactor MUST be a superset — a token known
+    // to one must be known to the other (audit F4/C5 parity claim).
+    const samples: string[] = [
+      `gho_${'A'.repeat(36)}`, // github-oauth
+      `ghu_${'B'.repeat(36)}`, // github-oauth (family)
+      `github_pat_${'C'.repeat(82)}`, // github-fine-grained
+      'AKIAIOSFODNN7EXAMPLE', // aws-access-key-id
+      'sk_live_dddddddddddddddddddddddd', // stripe-secret-live
+      'sk_test_dddddddddddddddddddddddd', // stripe-secret-test
+      'pk_live_dddddddddddddddddddddddd', // stripe-publishable
+      'xoxb-1234567890-abcdEFGHijklMNOP', // slack-token
+      `AIza${'0'.repeat(35)}`, // google-api-key
+      'eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.abcDEF123456', // jwt
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIEabc123\n-----END RSA PRIVATE KEY-----', // private-key-block
+    ];
+    for (const tok of samples) {
+      // Sanity: the tool-input redactor considers this a secret.
+      expect(redactSecrets(tok).hits.length).toBeGreaterThan(0);
+      // The persistent redactor must strip it too.
+      expect(redactForce(tok)).not.toContain(tok);
+    }
+  });
+});
+
+describe('redactForce — input-size cap (audit C9 ReDoS defense)', () => {
+  const BEGIN = '-----BEGIN RSA PRIVATE KEY-----\n';
+  const adversarial = (bytes: number): string =>
+    BEGIN.repeat(Math.ceil(bytes / BEGIN.length)).slice(0, bytes);
+
+  test('a multi-MB adversarial PEM-spam payload redacts in <100ms', () => {
+    const payload = adversarial(4 * 1024 * 1024); // 4 MiB of BEGIN markers, no END
+    const t0 = performance.now();
+    const out = redactForce(payload);
+    const elapsed = performance.now() - t0;
+    expect(elapsed).toBeLessThan(100);
+    // Above the cap the unscanned tail is dropped with a marker so no
+    // unredacted bytes ever reach a committed archive.
+    expect(out.length).toBeLessThan(payload.length);
+    expect(out).toContain('REDACTION-TRUNCATED');
+  });
+
+  test('a normal-size secret is fully redacted (no over-truncation)', () => {
+    const key = '-----BEGIN RSA PRIVATE KEY-----\nMIIEabc123\n-----END RSA PRIVATE KEY-----';
+    const out = redactForce(`pre ${key} post`);
+    expect(out).toContain('[REDACTED]');
+    expect(out).not.toContain('REDACTION-TRUNCATED');
+    expect(out).toContain('pre');
+    expect(out).toContain('post');
+  });
+
+  test('a large benign input under the cap is preserved verbatim', () => {
+    const benign = 'x'.repeat(200 * 1024); // 200 KiB, no secrets, under the cap
+    expect(redactForce(benign)).toBe(benign);
   });
 });
 

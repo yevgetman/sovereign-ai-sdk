@@ -1,10 +1,10 @@
 // Credential pool with persistent metadata only. Raw secrets come from env or
 // config; ~/.harness/credentials.json stores status/cooldown/usage, never keys.
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveHarnessHome } from '../../config/paths.js';
-import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../../util/secureFs.js';
+import { secureWriteFileAtomic } from '../../util/secureFs.js';
 import type { AuthType } from '../types.js';
 
 export type PooledCredential = {
@@ -265,16 +265,9 @@ function readState(path: string): StateFile {
 }
 
 function writeStateAtomic(path: string, state: StateFile): void {
-  // Keep the whole state root uniform (audit F10): dir 0700, file 0600. The tmp
-  // file's 0600 mode survives the atomic rename onto `path`.
-  secureMkdir(dirname(path));
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: SECURE_FILE_MODE,
-  });
-  chmodSafe(tmp, SECURE_FILE_MODE);
-  renameSync(tmp, path);
+  // Keep the whole state root uniform (audit F10): dir 0700, file 0600, atomic
+  // rename — via the shared secure writer (audit C6, single source of truth).
+  secureWriteFileAtomic(path, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 function hashSecret(secret: string): string {

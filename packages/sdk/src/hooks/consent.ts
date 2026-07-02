@@ -8,10 +8,9 @@
 // command to a different event re-prompts (cheap defence-in-depth — a hook
 // approved as PostToolUse should not silently start running as PreToolUse).
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import type { AskUser } from '../permissions/types.js';
-import { SECURE_FILE_MODE, chmodSafe, secureMkdir } from '../util/secureFs.js';
+import { secureWriteFileAtomic } from '../util/secureFs.js';
 import type { HookEventName } from './types.js';
 
 /** A decision that is PERSISTED to the on-disk allowlist. Only genuine user
@@ -63,21 +62,13 @@ export function buildFileConsentStore(path: string): HookConsentStore {
 
   function persist(map: Map<string, HookConsentDecision>): void {
     // The allowlist discloses which shell-hook commands the operator approved.
-    // Create its dir 0700 and the file 0600 so other local uids cannot read it
-    // (audit F10). The tmp file is always freshly created, so its 0600 mode is
-    // preserved through the atomic rename onto `path`.
-    secureMkdir(dirname(path));
+    // Write it 0600 in a 0700 dir (audit F10) via the shared secure atomic
+    // writer (audit C6, single source of truth).
     const data: AllowlistFile = {
       version: FILE_VERSION,
       decisions: Object.fromEntries(map.entries()),
     };
-    const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: SECURE_FILE_MODE,
-    });
-    chmodSafe(tmp, SECURE_FILE_MODE);
-    renameSync(tmp, path);
+    secureWriteFileAtomic(path, `${JSON.stringify(data, null, 2)}\n`);
   }
 
   return {
