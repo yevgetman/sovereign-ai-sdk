@@ -49,16 +49,30 @@ const GLOB_CHARS = /[*?[\]{}]/;
  *    was fully INVERTED vs Bun.Glob (admitted `ax`, denied `bx`); posix mode
  *    restores Bun's semantics in both directions (probe classes: `[!a]x`,
  *    `[^a]x`).
+ *  - `nonegate: true` — LOAD-BEARING for the path-lock no-clash invariant
+ *    (2026-07-02 audit F3, sibling to `noext`). A LEADING `!` is picomatch
+ *    negation: `!src/secret` would admit essentially the WHOLE tree, yet
+ *    src/runtime/pathLock.ts's GLOB_CHARS does not treat `!` as a wildcard, so
+ *    globPrefix collapsed it to the literal prefix `!src/secret` and judged it
+ *    DISJOINT from e.g. `lib/**` — two "disjoint" write-capable tasks then
+ *    raced. `nonegate` makes the matcher treat a leading `!` LITERALLY (fail-
+ *    closed: `!src/secret` matches ONLY the path `!src/secret`). This is the
+ *    matcher half; the LOCK half is that globPrefix now collapses any leading
+ *    `!` or `(`/`|` (alternation group — `(a|b)/c` admits `a/c`, which nonegate
+ *    does NOT repair) to the whole-tree prefix, so those scopes over-serialize
+ *    rather than false-disjoint-race. Both halves are required.
  *  Residual divergences after these options (brace ranges, `./`-prefix,
- *  `**.ts`, POSIX classes, literal-brace edges, literal-extglob paths) are
- *  each pinned as documented deviations in the parity suite: every wider-than-
- *  Bun admission falls inside the path-lock's collapsed prefix (over-
- *  serializes, never races), and the rest are restrictive-only (fail closed). */
+ *  `**.ts`, POSIX classes, literal-brace edges, literal-extglob paths, and the
+ *  negation/alternation classes above) are each pinned as documented deviations
+ *  in the parity suite: every wider-than-Bun admission falls inside the path-
+ *  lock's collapsed prefix (over-serializes, never races), and the rest are
+ *  restrictive-only (fail closed — a leading `!` now matches literally). */
 export const WRITE_SCOPE_PICOMATCH_OPTIONS = {
   dot: true,
   strictSlashes: true,
   noext: true,
   posix: true,
+  nonegate: true,
 } as const;
 
 /** Tools that write under `$HARNESS_HOME` (harness state — memory, agent-created
