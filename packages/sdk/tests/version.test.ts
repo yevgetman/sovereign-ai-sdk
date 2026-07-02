@@ -1,22 +1,18 @@
-// VERSION format regression pins — backlog #37. After lifting the resolved
-// git short SHA into the version string, ensure:
-//   1. The exported string matches bare-semver OR semver-with-SHA — so the
-//      pin is robust both inside a git checkout (the normal dev + post-`sov
-//      upgrade` global-install case) and outside one (e.g., tarball install,
-//      missing git on PATH).
-//   2. The exported string starts with the exact `version` field from
-//      `package.json` — pins that the bare version is always the leading
-//      component, so the `<base>-<sha>` shape is enforced rather than the
-//      SHA replacing the base.
+// VERSION format + SHA-source regression pins — backlog #37, audit E2/E4.
 //
-// Phase 3 (the package move): VERSION is the SDK PACKAGE's version (the
-// 0.1.x line from packages/sdk/package.json, resolved by version.ts's
-// runtime walk-up), NOT the harness root's 0.6.x line — so the base is
-// read from THIS package's manifest, located relative to this test file
-// (bun test runs with cwd at the workspace root).
+// The SHA suffix is now DETERMINISTIC and GIT-FREE: the only source is the SDK's
+// own `<packageRoot>/.bun-tag`. No `git rev-parse` subprocess runs at runtime, so
+// NO consumer layout can leak a foreign HEAD into VERSION (which would otherwise
+// travel over the wire via mcp/client and onto disk via transcript records). We
+// pin both the format and the elimination of runtime git.
+//
+// Phase 3 (the package move): VERSION is the SDK PACKAGE's version (the 0.1.x
+// line from packages/sdk/package.json, resolved by version.ts's runtime walk-up),
+// NOT the harness root's 0.6.x line — so the base is read from THIS package's
+// manifest, located relative to this test file.
 
 import { describe, expect, test } from 'bun:test';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,21 +21,11 @@ import { VERSION, composeVersion, resolveShaSuffix } from '@yevgetman/sov-sdk/ve
 const SEMVER_OR_SEMVER_WITH_SHA = /^\d+\.\d+\.\d+(-[a-f0-9]{7,})?$/;
 
 const SDK_PACKAGE_JSON = join(import.meta.dir, '..', 'package.json');
+const VERSION_SOURCE_PATH = join(import.meta.dir, '..', 'src', 'version.ts');
 
 function readPackageVersion(): string {
   const raw = readFileSync(SDK_PACKAGE_JSON, 'utf8');
   return (JSON.parse(raw) as { version: string }).version;
-}
-
-function resolveGitShaForTest(): string | null {
-  const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
-    cwd: process.cwd(),
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
-  if (result.status !== 0) return null;
-  const sha = result.stdout.trim();
-  return sha.length > 0 ? sha : null;
 }
 
 describe('VERSION', () => {
@@ -52,29 +38,34 @@ describe('VERSION', () => {
     expect(VERSION.startsWith(baseVersion)).toBe(true);
   });
 
-  test('includes the resolved git short SHA when run inside a git checkout', () => {
-    const sha = resolveGitShaForTest();
-    // Skip-by-pass-through outside a git checkout — the format regex above
-    // already covers the bare-semver branch in those environments.
-    if (sha === null) {
-      expect(VERSION).toMatch(SEMVER_OR_SEMVER_WITH_SHA);
-      return;
-    }
-    const baseVersion = readPackageVersion();
-    expect(VERSION).toBe(`${baseVersion}-${sha}`);
+  // No `.bun-tag` ships in the SDK's own dev checkout, so a plain dev/source-mode
+  // import reports the BARE base version — never a live git SHA. (A release build
+  // that wants an embedded SHA injects it at build time; runtime git is gone.)
+  test('is the bare base version in a plain source-mode import (no runtime git SHA)', () => {
+    expect(VERSION).toBe(readPackageVersion());
   });
 });
 
-// ── audit F17/F18/F19: the SHA resolver must NEVER read a consumer's git repo.
-// resolveShaSuffix walks up from PKG_DIR to discover a git repo; when the SDK is
-// installed as a dependency that walk escapes node_modules into the CONSUMER's
-// .git and stamps their private HEAD into VERSION, which then leaks over the
-// wire (mcp/client clientInfo.version) and onto disk (transcript records). The
-// gate must short-circuit to the bare base version for any installed layout.
-describe('resolveShaSuffix (ownership gate)', () => {
-  /** Turn `dir` into a real git repo with a resolvable HEAD, returning its
-   *  short SHA. The `-c` identity/gpg flags keep it independent of global git
-   *  config. */
+// ── audit E4: eliminate the runtime-git SHA class BY REMOVAL. The shipped module
+// must contain no `git` spawn at all — that is the only spoof-proof guarantee.
+describe('version module — no runtime git (class eliminated by elimination)', () => {
+  test('the source imports no subprocess API and makes no spawn/exec call', () => {
+    const src = readFileSync(VERSION_SOURCE_PATH, 'utf8');
+    // The definitive guarantee: with no child_process import there is no way to
+    // spawn git (or anything) at runtime — the SHA-leak class cannot recur.
+    expect(src).not.toContain('child_process');
+    expect(src).not.toContain('spawnSync');
+    expect(src).not.toContain('execFileSync');
+    expect(src).not.toContain('execSync(');
+  });
+});
+
+// ── audit E4 (F17/F18/F19 + C8 class, closed): the SHA resolver must NEVER read a
+// consumer's git repo. Every historical leak layout is exercised here; all yield
+// NO suffix because resolveShaSuffix only reads `.bun-tag` and never walks a repo.
+describe('resolveShaSuffix — deterministic, never leaks a consumer HEAD', () => {
+  /** Turn `dir` into a real git repo with a resolvable HEAD, returning its short
+   *  SHA. The `-c` identity/gpg flags keep it independent of global git config. */
   function initScratchGitRepo(dir: string): string {
     execFileSync('git', ['init', '-q'], { cwd: dir });
     writeFileSync(join(dir, 'README'), 'scratch consumer\n');
@@ -101,118 +92,89 @@ describe('resolveShaSuffix (ownership gate)', () => {
     }).trim();
   }
 
-  test('installed under node_modules inside a consumer git repo yields NO sha suffix (no consumer-SHA leak)', () => {
-    const scratch = mkdtempSync(join(tmpdir(), 'sov-version-gate-'));
+  /** Build a scratch consumer git repo, place the SDK package at `relPkgRoot`
+   *  under it, and assert resolveShaSuffix returns null (never the consumer SHA). */
+  function expectNoLeak(prefix: string, relPkgRootSegments: readonly string[]): void {
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
     try {
-      // The exact leak condition: the consumer's cwd IS a git repo with a real
-      // HEAD, and the SDK lives under its node_modules.
       const consumerSha = initScratchGitRepo(scratch);
-      const pkgRoot = join(scratch, 'node_modules', '@yevgetman', 'sov-sdk');
-      const pkgDir = join(pkgRoot, 'dist');
-      mkdirSync(pkgDir, { recursive: true });
+      const pkgRoot = join(scratch, ...relPkgRootSegments);
+      mkdirSync(join(pkgRoot, 'src'), { recursive: true });
       writeFileSync(
         join(pkgRoot, 'package.json'),
         JSON.stringify({ name: '@yevgetman/sov-sdk', version: '0.1.0' }),
       );
-
-      const suffix = resolveShaSuffix(pkgDir, pkgRoot);
-
-      expect(suffix).toBeNull();
-      expect(suffix).not.toBe(consumerSha);
-      expect(composeVersion('0.1.0', suffix)).toBe('0.1.0');
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  });
-
-  // D14 (F17-19 sibling): a consumer who VENDORS the SDK source into their own
-  // git repo (git subtree / manual copy) lands the package OUTSIDE node_modules,
-  // so the node_modules gate does not fire. A "packageRoot is somewhere inside
-  // this worktree" test then matches the CONSUMER's repo and leaks their HEAD.
-  // The ownership gate must require the worktree to BE the SDK's own repo.
-  test('vendored (source-copied) into a consumer git repo — NOT under node_modules — yields NO sha suffix', () => {
-    // realpath the scratch base: `git rev-parse --show-toplevel` returns a
-    // symlink-resolved path (macOS tmpdir is /var → /private/var), so passing a
-    // non-real base would make the OLD lexical isWithin fail for the wrong reason
-    // (prefix mismatch) and mask the leak. Real paths reproduce the true bug.
-    const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'sov-version-vendor-')));
-    try {
-      const consumerSha = initScratchGitRepo(scratch);
-      // The SDK source copied into the consumer's own tree — NOT node_modules.
-      const pkgRoot = join(scratch, 'vendor', 'sov-sdk');
-      const pkgDir = join(pkgRoot, 'src');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgRoot, 'package.json'),
-        JSON.stringify({ name: '@yevgetman/sov-sdk', version: '0.1.0' }),
-      );
-      // The consumer repo root does NOT declare the vendored path as a workspace.
+      // A broad workspaces glob at the consumer root — the C8 spoof shape.
       writeFileSync(
         join(scratch, 'package.json'),
-        JSON.stringify({ name: 'consumer-app', version: '9.9.9' }),
+        JSON.stringify({ name: 'consumer', version: '9.9.9', workspaces: ['packages/*'] }),
       );
 
-      const suffix = resolveShaSuffix(pkgDir, pkgRoot);
+      const suffix = resolveShaSuffix(pkgRoot);
 
-      // RED before fix: gitShortHead runs in the consumer repo → leaks consumerSha.
       expect(suffix).toBeNull();
       expect(suffix).not.toBe(consumerSha);
       expect(composeVersion('0.1.0', suffix)).toBe('0.1.0');
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
+  }
+
+  test('installed under node_modules yields no suffix', () => {
+    expectNoLeak('sov-version-nm-', ['node_modules', '@yevgetman', 'sov-sdk']);
   });
 
-  // C8 (F17-19 sibling): a consumer monorepo with a BROAD workspaces glob
-  // (`packages/*`) that vendors the SDK source as a first-class workspace
-  // member (NOT under node_modules) makes the workspace-membership ownership
-  // test pass — so the previous gate emitted the CONSUMER's private HEAD. The
-  // ownership test must instead require the SDK's OWN canonical layout.
-  test('vendored as a WORKSPACE MEMBER of a consumer monorepo (broad glob) yields NO sha suffix', () => {
-    const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'sov-version-ws-member-')));
-    try {
-      const consumerSha = initScratchGitRepo(scratch);
-      // The SDK source vendored as a workspace package — NOT node_modules.
-      const pkgRoot = join(scratch, 'packages', 'sov-sdk');
-      const pkgDir = join(pkgRoot, 'src');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgRoot, 'package.json'),
-        JSON.stringify({ name: '@yevgetman/sov-sdk', version: '0.1.0' }),
-      );
-      // The broad glob makes the vendored path a workspace member of the
-      // consumer's own repo — the exact layout the old gate mis-owned.
-      writeFileSync(
-        join(scratch, 'package.json'),
-        JSON.stringify({ name: 'consumer-monorepo', version: '9.9.9', workspaces: ['packages/*'] }),
-      );
-
-      const suffix = resolveShaSuffix(pkgDir, pkgRoot);
-
-      // RED before fix: gitToplevelOwnsSdk matched the workspace glob and
-      // gitShortHead ran in the consumer repo → leaked consumerSha.
-      expect(suffix).toBeNull();
-      expect(suffix).not.toBe(consumerSha);
-      expect(composeVersion('0.1.0', suffix)).toBe('0.1.0');
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+  test('vendored (source-copied) outside node_modules yields no suffix', () => {
+    expectNoLeak('sov-version-vendor-', ['vendor', 'sov-sdk']);
   });
 
-  test("the SDK's own source checkout still resolves a live sha suffix (no dev regression)", () => {
-    // The live dev layout: PKG_DIR = packages/sdk/src, package root =
-    // packages/sdk, both owned by the enclosing monorepo git worktree.
-    const ownPkgDir = join(import.meta.dir, '..', 'src');
+  test('vendored as a WORKSPACE MEMBER (broad glob) yields no suffix', () => {
+    expectNoLeak('sov-version-ws-', ['packages', 'sov-sdk']);
+  });
+
+  // THE E4 residual: the SDK source vendored at the CANONICAL `packages/sdk` path
+  // — the standard monorepo convention. The old path heuristic accepted this and
+  // spawned git in the consumer repo, leaking their HEAD. With runtime git gone
+  // it is just another null.
+  test('vendored at the canonical packages/sdk path yields no suffix (E4)', () => {
+    expectNoLeak('sov-version-canonical-', ['packages', 'sdk']);
+  });
+
+  test("the SDK's own source checkout yields no suffix (no .bun-tag → bare version)", () => {
     const ownPkgRoot = join(import.meta.dir, '..');
+    expect(resolveShaSuffix(ownPkgRoot)).toBeNull();
+  });
+});
 
-    const suffix = resolveShaSuffix(ownPkgDir, ownPkgRoot);
-    const head = resolveGitShaForTest();
+describe('resolveShaSuffix — .bun-tag is the one trusted SHA source', () => {
+  test('a valid 40-hex .bun-tag yields its short SHA', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'sov-version-buntag-'));
+    try {
+      const fullSha = 'a89b03c1234567890abcdef1234567890abcdef0';
+      writeFileSync(join(scratch, 'package.json'), JSON.stringify({ version: '0.1.0' }));
+      writeFileSync(join(scratch, '.bun-tag'), `${fullSha}\n`);
 
-    if (head === null) {
-      // Non-git environment (e.g. tarball CI): no suffix, never a foreign SHA.
-      expect(suffix).toBeNull();
-    } else {
-      expect(suffix).toBe(head);
+      const suffix = resolveShaSuffix(scratch);
+
+      expect(suffix).toBe(fullSha.slice(0, 7));
+      expect(composeVersion('0.1.0', suffix)).toBe(`0.1.0-${fullSha.slice(0, 7)}`);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
     }
+  });
+
+  test('a malformed .bun-tag (not 40-hex) is ignored → no suffix', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'sov-version-buntag-bad-'));
+    try {
+      writeFileSync(join(scratch, 'package.json'), JSON.stringify({ version: '0.1.0' }));
+      writeFileSync(join(scratch, '.bun-tag'), 'not-a-sha\n');
+      expect(resolveShaSuffix(scratch)).toBeNull();
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  test('a null package root (Bun-compiled /$bunfs/ mode) yields no suffix', () => {
+    expect(resolveShaSuffix(null)).toBeNull();
   });
 });

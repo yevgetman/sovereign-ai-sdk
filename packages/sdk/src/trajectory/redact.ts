@@ -12,6 +12,7 @@
 import {
   MAX_REDACTION_INPUT_BYTES,
   compilePemPrivateKeyPattern,
+  compileProviderKeyPatterns,
   compileVendorSecretPatterns,
 } from '../redaction/secretPatterns.js';
 
@@ -35,16 +36,15 @@ export function isRedactionEnabled(): boolean {
 }
 
 const PATTERNS: Array<{ name: string; regex: RegExp }> = [
-  // Anthropic API keys.
-  { name: 'anthropic', regex: /\bsk-ant-[a-zA-Z0-9_\-]{20,}\b/g },
-  // OpenAI API keys (sk-, sk-proj-, sk-svcacct-).
-  { name: 'openai', regex: /\bsk-(?:proj-|svcacct-)?[a-zA-Z0-9_\-]{20,}\b/g },
-  // Tavily.
-  { name: 'tavily', regex: /\btvly-[a-zA-Z0-9_\-]{16,}\b/g },
-  // Brave Search API.
-  { name: 'brave', regex: /\bBSA[a-zA-Z0-9_\-]{20,}\b/g },
-  // OpenRouter.
-  { name: 'openrouter', regex: /\bsk-or-[a-zA-Z0-9_\-]{20,}\b/g },
+  // Harness/provider API keys (Anthropic sk-ant-, OpenRouter sk-or-, OpenAI sk-,
+  // Tavily tvly-, Brave BSA…, and the generic `Bearer <token>` form). These now
+  // live in the SHARED catalog (redaction/secretPatterns.ts) so the tool-input
+  // redactor (permissions/secretRedactor.ts) recognizes the IDENTICAL set — the
+  // unification that F4/C5 did for VENDOR formats, finished for provider keys so
+  // an agent can no longer write a discovered LIVE provider key into a generated
+  // file verbatim (audit E3). The specific sk-ant-/sk-or- forms are ordered
+  // BEFORE the generic sk- so they keep their own kind on overlap.
+  ...compileProviderKeyPatterns(),
   // Vendor formats shared with permissions/secretRedactor.ts (single source of
   // truth in redaction/secretPatterns.ts): the GitHub token family gh[oprsu]_
   // (audit C5 — previously ONLY ghp_ here, leaking gho_/ghu_/ghs_/ghr_), the
@@ -55,8 +55,6 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
   // token known to the tool-input redactor is also stripped from the persistent
   // transcript/trace JSONL.
   ...compileVendorSecretPatterns(),
-  // Generic bearer tokens.
-  { name: 'bearer', regex: /\bBearer\s+[a-zA-Z0-9_\-\.=]{16,}/g },
   // JWT-ish three-segment base64.
   {
     name: 'jwt',

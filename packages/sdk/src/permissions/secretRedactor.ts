@@ -16,6 +16,7 @@
 import {
   MAX_REDACTION_INPUT_BYTES,
   compilePemPrivateKeyPattern,
+  compileProviderKeyPatterns,
   compileVendorSecretPatterns,
 } from '../redaction/secretPatterns.js';
 
@@ -28,6 +29,15 @@ export type SecretKind =
   | 'stripe-publishable' // pk_(live|test)_ + 16+ chars
   | 'slack-token' // xox[abprs]- + tokens
   | 'google-api-key' // AIza + 35 chars
+  // Harness/provider API keys — SHARED with trajectory/redact.ts via the catalog
+  // so the tool-input redactor no longer lets a discovered LIVE provider key
+  // reach disk verbatim (audit E3).
+  | 'anthropic' // sk-ant-…
+  | 'openrouter' // sk-or-…
+  | 'openai' // sk-, sk-proj-, sk-svcacct-
+  | 'tavily' // tvly-…
+  | 'brave' // BSA…
+  | 'bearer' // Bearer <token>
   | 'jwt' // eyJ.eyJ.<sig>
   | 'private-key-block'; // -----BEGIN [...] PRIVATE KEY-----
 
@@ -67,6 +77,17 @@ const PATTERNS: readonly PatternSpec[] = [
   // github-oauth, github-fine-grained, aws-access-key-id, stripe-secret-live,
   // stripe-secret-test, stripe-publishable, slack-token, google-api-key.
   ...compileVendorSecretPatterns().map(({ name, regex }) => ({
+    kind: name as SecretKind,
+    pattern: regex,
+  })),
+
+  // Harness/provider API keys (Anthropic/OpenRouter/OpenAI/Tavily/Brave + the
+  // generic Bearer form) — the SAME shared catalog the persistent-artifact
+  // redactor (trajectory/redact.ts) consumes, so an agent can no longer write a
+  // discovered LIVE provider key into a generated file verbatim (audit E3). The
+  // specific sk-ant-/sk-or- forms precede the generic sk- inside the catalog so
+  // they keep their own kind on an identical-span overlap.
+  ...compileProviderKeyPatterns().map(({ name, regex }) => ({
     kind: name as SecretKind,
     pattern: regex,
   })),

@@ -73,6 +73,48 @@ export function compileVendorSecretPatterns(): Array<{ name: string; regex: RegE
 }
 
 /**
+ * Harness/provider API-key formats: the LLM/tooling provider keys the harness
+ * ITSELF carries (Anthropic, OpenRouter, OpenAI, Tavily, Brave) plus the generic
+ * `Bearer <token>` form. These originally lived ONLY in trajectory/redact.ts, so
+ * the tool-input redactor (permissions/secretRedactor.ts) — the SOLE guard on
+ * file CONTENT an agent writes to disk — let a discovered LIVE provider key
+ * through verbatim into a generated artifact (audit E3). Sharing them here makes
+ * BOTH redactors cover the IDENTICAL provider-key set; a bidirectional parity
+ * test (tests/redaction/parity.test.ts) pins the invariant drift-proof.
+ *
+ * Order is load-bearing on overlap: the specific `sk-ant-`/`sk-or-` forms are
+ * declared BEFORE the generic OpenAI `sk-` so an Anthropic/OpenRouter key keeps
+ * its own kind instead of being swallowed by `sk-` (the tool-input redactor
+ * resolves an identical-span overlap in favor of the EARLIER pattern; the
+ * persistent redactor applies patterns in list order). Every source is a narrow
+ * prefix + a single bounded ASCII char class — linear-time, ReDoS-safe.
+ */
+export const PROVIDER_KEY_PATTERNS: readonly VendorSecretPattern[] = [
+  // Anthropic (sk-ant-…). Precedes the generic OpenAI `sk-` pattern.
+  { name: 'anthropic', source: String.raw`\bsk-ant-[a-zA-Z0-9_\-]{20,}\b` },
+  // OpenRouter (sk-or-…). Likewise precedes the generic `sk-` pattern.
+  { name: 'openrouter', source: String.raw`\bsk-or-[a-zA-Z0-9_\-]{20,}\b` },
+  // OpenAI (sk-, sk-proj-, sk-svcacct-). Generic `sk-` (hyphen) — deliberately
+  // does NOT match the underscore Stripe `sk_` form.
+  { name: 'openai', source: String.raw`\bsk-(?:proj-|svcacct-)?[a-zA-Z0-9_\-]{20,}\b` },
+  // Tavily.
+  { name: 'tavily', source: String.raw`\btvly-[a-zA-Z0-9_\-]{16,}\b` },
+  // Brave Search API.
+  { name: 'brave', source: String.raw`\bBSA[a-zA-Z0-9_\-]{20,}\b` },
+  // Generic bearer token (masks Basic-auth and other schemes' values too). No
+  // trailing `\b`: it matches the `Bearer ` prefix plus the token run.
+  { name: 'bearer', source: String.raw`\bBearer\s+[a-zA-Z0-9_\-\.=]{16,}` },
+];
+
+/**
+ * Compile the shared provider-key patterns into FRESH global RegExp instances.
+ * Returns new objects per call so no `lastIndex` state is shared across consumers.
+ */
+export function compileProviderKeyPatterns(): Array<{ name: string; regex: RegExp }> {
+  return PROVIDER_KEY_PATTERNS.map((p) => ({ name: p.name, regex: new RegExp(p.source, 'g') }));
+}
+
+/**
  * Shared PEM / private-key-block pattern SOURCE (flag-less). Kept HERE — the one
  * source of truth — so both redactors consume the SAME linear form and it can
  * never drift back to a quadratic one in one redactor while the other stays fixed

@@ -89,9 +89,14 @@ describe('redactSecrets — pattern coverage', () => {
   });
 
   test('JWT is redacted', () => {
+    // Bare JWT (no `Bearer ` prefix): the generic bearer pattern now also lives
+    // in the tool-input redactor (audit E3), and `Bearer <jwt>` is caught by the
+    // ENCLOSING bearer span — so to pin the jwt KIND specifically we test the
+    // token in isolation. (`Authorization: Bearer <jwt>` is still fully redacted;
+    // it simply reports kind `bearer`.)
     const jwt =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiaWF0IjoxNjA5NDU5MjAwfQ.SOME_SIGNATURE_HERE';
-    const result = redactSecrets(`Authorization: Bearer ${jwt}`);
+    const result = redactSecrets(`token=${jwt}`);
     expect(result.hits[0]?.kind).toBe('jwt');
     expect(result.redacted).not.toContain(jwt);
   });

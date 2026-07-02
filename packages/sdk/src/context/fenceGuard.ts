@@ -30,12 +30,21 @@
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 
 // Closing tokens for every fence the memory/recall injectors wrap a body in.
-// Optional internal whitespace is tolerated (`</MEMORY.md >`, `</memory-context\n>`):
-// the module never emits those variants, but an LLM is a lenient parser and may
-// still honor a whitespace-padded close as a real fence break, so they must be
-// neutralized too.
+// The module never emits anything but the bare `</tag>`, but an LLM is a lenient
+// parser and may honor a MALFORMED close as a real fence break — so every
+// malformed shape a lenient parser would still read as "close this fence" is
+// neutralized, not just the whitespace-padded one:
+//   • internal whitespace     — `</MEMORY.md >`, `</memory-context\n>`
+//   • a self-closing slash     — `</memory-context/>`
+//   • trailing attributes      — `</memory-context foo="x">`, `</recall-context bar>`
+// `\b` after the tag name pins the match to the ENUMERATED fences (so a longer
+// token like `</memory-contexts>` or the deliberately-unescaped `</learned-context>`
+// is NOT swallowed), while `[^>]*>` consumes any self-close/attribute tail up to
+// the first `>`. Without this an attribute-bearing close was the sole un-closed
+// corner of the fence-breakout class — and since applyThreatPatterns is `false`
+// for memory/recall, this neutralizer is their ONLY fence-close defense.
 const FENCE_CLOSE_TAGS =
-  /<\/\s*(memory-context|MEMORY\.md|USER\.md|memory-nudge|recall-context)\s*>/gi;
+  /<\/\s*(memory-context|MEMORY\.md|USER\.md|memory-nudge|recall-context)\b[^>]*>/gi;
 
 // The `[System note:]` preamble marker, likewise tolerant of internal whitespace
 // (`[ System  note :`) so a padded forgery cannot slip past neutralization.
