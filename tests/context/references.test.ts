@@ -92,12 +92,40 @@ describe('expandContextReferences', () => {
   });
 
   test('injects URL text through fetchImpl', async () => {
+    // The DNS guard always runs (finding F11), so inject a lookupImpl resolving
+    // to a public IP to keep this hermetic instead of relying on real DNS.
+    const lookupImpl: LookupImpl = async () => [{ address: '93.184.216.34', family: 4 }];
     const out = await expandContextReferences('@url:https://example.test/x', {
       fetchImpl: (async () =>
         new Response('hello from url', { status: 200 })) as unknown as typeof fetch,
+      lookupImpl,
     });
     expect(out).toContain('<referenced-url');
     expect(out).toContain('hello from url');
+  });
+
+  // Finding F11 — a custom fetchImpl must NOT silently disable the DNS-rebinding
+  // guard. With fetchImpl injected but NO lookupImpl, the resolve-validate-pin
+  // guard must still run: a public hostname whose default resolution fails (or
+  // resolves to a private/metadata IP) is refused and never fetched. Before the
+  // fix, dnsGuardEnabled was inferred from fetchImpl, so the guard was skipped
+  // whenever a caller wrapped fetch — and the metadata fetch leaked. `.invalid`
+  // is guaranteed (RFC 6761) to never resolve, so the default resolver
+  // fail-closes hermetically with no network.
+  test('@url runs the DNS guard even when fetchImpl is injected without a lookupImpl', async () => {
+    let fetched = false;
+    const out = await expandContextReferences(
+      '@url:http://rebind.attacker.invalid/latest/meta-data',
+      {
+        fetchImpl: (async () => {
+          fetched = true;
+          return new Response('SECRET', { status: 200 });
+        }) as unknown as typeof fetch,
+      },
+    );
+    expect(fetched).toBe(false);
+    expect(out).toContain('[ERROR');
+    expect(out).not.toContain('SECRET');
   });
 
   // Audit 2026-06-10 — @url had no SSRF gate; on a hosted gateway it could be

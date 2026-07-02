@@ -127,11 +127,13 @@ async function urlReference(raw: string, options: ReferenceOptions): Promise<str
   // @url is expanded on the server for whatever turn text arrives — incl. an
   // authenticated gateway principal's. Apply the same SSRF gate as WebFetch:
   // refuse private/loopback/metadata hosts and re-validate every redirect hop
-  // (audit 2026-06-10). DNS guard runs on the real-fetch path.
-  const injectedFetch = options.fetchImpl;
-  const fetchImpl = injectedFetch ?? fetch;
+  // (audit 2026-06-10). The resolve-validate-pin DNS-rebinding guard ALWAYS
+  // runs, independent of whether fetchImpl is injected (finding F11): a custom
+  // fetch (proxy/tracing/retry) must never silently drop the rebinding guard.
+  // It uses the injected lookupImpl when provided, else the default node:dns
+  // resolver — so hermetic tests inject a lookupImpl, they no longer disable it.
+  const fetchImpl = options.fetchImpl ?? fetch;
   const lookupImpl = options.lookupImpl;
-  const dnsGuardEnabled = !injectedFetch || lookupImpl !== undefined;
 
   const guard = checkUrlAllowed(raw);
   if (!guard.ok) return `[ERROR: URL fetch refused ${raw}: ${guard.reason}]`;
@@ -147,14 +149,11 @@ async function urlReference(raw: string, options: ReferenceOptions): Promise<str
       // the fetch so a slow/hostile resolver can't outlast the cap. Plain http
       // is truly pinned (host→IP rewrite + Host header); https carries a
       // documented residual (see resolvePinnedTarget). Fail-closed on DNS error.
-      let connectUrl = currentUrl;
-      let pinnedHeaders: Record<string, string> = {};
-      if (dnsGuardEnabled) {
-        const pin = await resolvePinnedTarget(currentUrl, lookupImpl, URL_TIMEOUT_MS);
-        if (!pin.ok) return `[ERROR: URL fetch refused ${raw}: ${pin.reason}]`;
-        connectUrl = pin.url;
-        pinnedHeaders = pin.headers ?? {};
-      }
+      // Runs unconditionally — an injected fetch never bypasses it (finding F11).
+      const pin = await resolvePinnedTarget(currentUrl, lookupImpl, URL_TIMEOUT_MS);
+      if (!pin.ok) return `[ERROR: URL fetch refused ${raw}: ${pin.reason}]`;
+      const connectUrl = pin.url;
+      const pinnedHeaders = pin.headers ?? {};
       response = await fetchImpl(connectUrl, {
         signal: controller.signal,
         redirect: 'manual',

@@ -132,13 +132,13 @@ export const WebFetchTool = buildTool<Input, Output>({
     return guard.ok ? { ok: true } : { ok: false, reason: guard.reason };
   },
   async call(input, ctx) {
-    const injectedFetch = (ctx as { fetchImpl?: typeof fetch }).fetchImpl;
-    const fetchImpl = injectedFetch ?? globalThis.fetch;
+    const fetchImpl = (ctx as { fetchImpl?: typeof fetch }).fetchImpl ?? globalThis.fetch;
     const lookupImpl = (ctx as { lookupImpl?: LookupImpl }).lookupImpl;
-    // DNS-resolution guard runs on the real-fetch path (or whenever a lookup is
-    // injected). With an injected fetch double, the caller controls the target,
-    // so the sync literal-IP check alone suffices and tests stay hermetic.
-    const dnsGuardEnabled = !injectedFetch || lookupImpl !== undefined;
+    // The resolve-validate-pin DNS-rebinding guard ALWAYS runs, independent of
+    // whether fetchImpl is injected (finding F11): wrapping fetch (proxy/tracing/
+    // retry) must never silently drop the guard. It uses the injected lookupImpl
+    // when provided, else the default node:dns resolver — so hermetic tests
+    // inject a lookupImpl rather than relying on an injected fetch to disable it.
 
     // Defense in depth: the dispatcher runs validateInput before call(), but
     // direct/programmatic callers must be guarded here too.
@@ -164,14 +164,10 @@ export const WebFetchTool = buildTool<Input, Output>({
         // TIMEOUT_MS as the fetch so a slow resolver can't outlast the cap. Done
         // every hop alongside the sync scheme/literal gate (DNS-rebinding /
         // *.nip.io). The pinned IP closes the resolve→connect re-resolution gap.
-        let connectUrl = currentUrl;
-        let pinnedHeaders: Record<string, string> = {};
-        if (dnsGuardEnabled) {
-          const pin = await resolvePinnedTarget(currentUrl, lookupImpl, TIMEOUT_MS);
-          if (!pin.ok) return blockedResult(input.url, currentUrl, pin.reason);
-          connectUrl = pin.url;
-          pinnedHeaders = pin.headers ?? {};
-        }
+        const pin = await resolvePinnedTarget(currentUrl, lookupImpl, TIMEOUT_MS);
+        if (!pin.ok) return blockedResult(input.url, currentUrl, pin.reason);
+        const connectUrl = pin.url;
+        const pinnedHeaders = pin.headers ?? {};
         response = await fetchImpl(connectUrl, {
           signal: controller.signal,
           redirect: 'manual',
