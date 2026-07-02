@@ -1084,40 +1084,73 @@ function tokenizeSegment(segment: string): TokenizeResult {
   return { tokens, redirectsToFile };
 }
 
+// Resolve a possibly path-qualified command token to its recognized basename:
+// `/usr/bin/env` → `env`, `/bin/rm` → `rm`, `/usr/bin/nice` → `nice`. A basename
+// is "recognized" if it is a read/write/edit/web command OR a transparent prefix
+// (`sudo`/`env`/`nice`/`timeout`/…). An unrecognized basename (`/opt/tool/foo`)
+// is returned UNCHANGED so it stays exec (fail closed — an unknown binary is
+// never blessed by its path).
+//
+// TRANSPARENT_PREFIXES membership MUST be part of this test, and this
+// normalization MUST run BEFORE the transparent-prefix expansion in
+// extractCommand. The old order normalized the basename only AFTER the raw-token
+// prefix check, so a path-qualified wrapper escaped: `/usr/bin/env` never
+// literally equalled `env`, the expansion never fired, and the wrapper was then
+// mapped to `env` — which, being ALSO a READ command, made the whole
+// `env <writer>` segment classify read-only, swallowing the wrapped writer's
+// command+args as file-path operands (arbitrary-exec-under-`allow Read`). This
+// closes the class for EVERY path-qualified transparent wrapper. (residual:
+// path-qualified transparent command wrappers — sibling of the round-8 fix.)
+function normalizeCommandToken(token: string): string {
+  if (!token.includes('/')) return token;
+  const basename = token.split('/').pop() ?? '';
+  if (
+    READ_COMMANDS.has(basename) ||
+    WRITE_COMMANDS.has(basename) ||
+    EDIT_COMMANDS.has(basename) ||
+    WEB_COMMANDS.has(basename) ||
+    TRANSPARENT_PREFIXES.has(basename)
+  ) {
+    return basename;
+  }
+  return token;
+}
+
 function extractCommand(tokens: string[]): { command: string | null; args: string[] } {
   let cursor = 0;
   while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
     cursor++;
   }
 
-  let cmd = tokens[cursor] ?? null;
+  const rawCmd = tokens[cursor] ?? null;
+  if (rawCmd === null) return { command: null, args: [] };
+
+  // Resolve a path-qualified command to its recognized basename BEFORE the
+  // transparent-prefix test, so `/usr/bin/env` (and `/usr/bin/nice`, etc.) enter
+  // the wrapper-expansion loop instead of being classified by the wrapper's own
+  // (read) identity. `/bin/rm` → `rm` is likewise resolved for direct dispatch.
+  const cmd = normalizeCommandToken(rawCmd);
   const rest = tokens.slice(cursor + 1);
 
-  if (cmd && TRANSPARENT_PREFIXES.has(cmd)) {
+  if (TRANSPARENT_PREFIXES.has(cmd)) {
+    // Skip the wrapper's own flags/assignments/numeric operands (env `-i`/`-S`,
+    // `env VAR=val`, `timeout 5`, a nested wrapper) to reach the wrapped command,
+    // then analyze THAT command — path-normalized too, so `env /bin/rm` → `rm`
+    // and a nested `env /usr/bin/sudo rm` keeps stripping transparent wrappers.
     while (cursor + 1 < tokens.length) {
       cursor++;
       const next = tokens[cursor];
       if (next === undefined) break;
       if (next.startsWith('-')) continue;
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(next)) continue;
-      if (TRANSPARENT_PREFIXES.has(next)) continue;
+      if (TRANSPARENT_PREFIXES.has(normalizeCommandToken(next))) continue;
       if (/^\d+$/.test(next)) continue;
-      cmd = next;
-      return { command: cmd, args: tokens.slice(cursor + 1) };
+      return { command: normalizeCommandToken(next), args: tokens.slice(cursor + 1) };
     }
-    return { command: null, args: [] };
-  }
-
-  if (cmd?.includes('/')) {
-    const basename = cmd.split('/').pop() ?? '';
-    if (
-      READ_COMMANDS.has(basename) ||
-      WRITE_COMMANDS.has(basename) ||
-      EDIT_COMMANDS.has(basename) ||
-      WEB_COMMANDS.has(basename)
-    ) {
-      cmd = basename;
-    }
+    // No wrapped command (bare `env`, `env VAR=val`, or a lone prefix): the
+    // prefix itself is the command. `env`/`printenv` just print the environment
+    // → read; other prefixes (`sudo`, `timeout`, …) fall through to exec/prompt.
+    return { command: cmd, args: rest };
   }
 
   return { command: cmd, args: rest };

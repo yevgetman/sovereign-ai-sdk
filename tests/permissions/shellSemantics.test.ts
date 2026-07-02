@@ -260,6 +260,74 @@ describe('analyzeShellCommand', () => {
   });
 });
 
+// Path-qualified transparent command wrappers (`/usr/bin/env <writer>`, and
+// the same for any TRANSPARENT_PREFIXES member — `/usr/bin/nice`,
+// `/usr/bin/timeout`, `/bin/nohup`, …). The wrapper's basename must be resolved
+// BEFORE the transparent-prefix expansion, otherwise `/usr/bin/env` never
+// literally equals `env`, the expansion never fires, and — because `env` is
+// also a READ command — the whole segment classifies read-only, swallowing the
+// wrapped writer's command+args as file-path operands → arbitrary/destructive
+// exec auto-approved under `allow Read` with no prompt. Same class as the
+// round-8 git-inline-config HIGH.
+describe('path-qualified transparent command wrappers are analyzed by their wrapped command', () => {
+  // MUST be exec/write (NOT read-only): a path-qualified wrapper in front of a
+  // writer/exec must route into analysis of the wrapped command.
+  test('/usr/bin/env <writer> is never read-only', () => {
+    expect(isShellCommandReadOnly('/usr/bin/env rm file')).toBe(false);
+    expect(isShellCommandReadOnly('/bin/env touch X')).toBe(false);
+    expect(isShellCommandReadOnly('/usr/bin/env rm -rf dir')).toBe(false);
+    expect(isShellCommandReadOnly("/usr/bin/env bash -c 'rm y'")).toBe(false);
+  });
+
+  test('env option flags/assignments before the writer do not hide it', () => {
+    // `-i` (ignore env), `-S` (split string), and leading `VAR=val` are env's
+    // own options — they must be skipped to reach the wrapped writer.
+    expect(isShellCommandReadOnly('/usr/bin/env -i rm file')).toBe(false);
+    expect(isShellCommandReadOnly('/usr/bin/env VAR=1 rm file')).toBe(false);
+  });
+
+  test('the whole wrapper class is covered, not just env', () => {
+    expect(isShellCommandReadOnly('/usr/bin/nice rm x')).toBe(false);
+    expect(isShellCommandReadOnly('/usr/bin/timeout 5 rm x')).toBe(false);
+  });
+
+  test('a path-qualified writer wraps to the correct write/edit kind', () => {
+    expect(analyzeShellCommand('/usr/bin/env rm file')).toEqual([
+      { kind: 'edit', paths: ['file'] },
+    ]);
+    expect(analyzeShellCommand('/bin/env touch X')).toEqual([{ kind: 'write', paths: ['X'] }]);
+  });
+
+  // MUST stay READ (no regression / correct relaxation): a wrapper with no
+  // trailing command just prints the environment (a read), and a wrapped READER
+  // stays a read.
+  test('bare / assignment-only env prints the environment → read', () => {
+    expect(isShellCommandReadOnly('env')).toBe(true);
+    expect(isShellCommandReadOnly('env VAR=val')).toBe(true);
+    expect(isShellCommandReadOnly('/usr/bin/env')).toBe(true);
+    expect(isShellCommandReadOnly('/usr/bin/env VAR=val')).toBe(true);
+  });
+
+  test('a path-qualified wrapper of a reader stays read', () => {
+    expect(isShellCommandReadOnly('/usr/bin/env cat file')).toBe(true);
+    expect(analyzeShellCommand('/usr/bin/env cat file')).toEqual([
+      { kind: 'read', paths: ['file'] },
+    ]);
+  });
+
+  test('plain reads and the bare-form wrapper are unaffected', () => {
+    expect(isShellCommandReadOnly('ls')).toBe(true);
+    expect(isShellCommandReadOnly('cat f')).toBe(true);
+    // Bare-form transparent expansion still resolves the wrapped writer/reader.
+    expect(isShellCommandReadOnly('env rm file')).toBe(false);
+    expect(isShellCommandReadOnly('env -S rm file')).toBe(false);
+    expect(isShellCommandReadOnly('env cat file')).toBe(true);
+    expect(analyzeShellCommand('env LC_ALL=C grep TODO src/')).toEqual([
+      { kind: 'read', paths: ['src/'] },
+    ]);
+  });
+});
+
 describe('isShellCommandReadOnly', () => {
   test('read-only commands return true', () => {
     expect(isShellCommandReadOnly('cat file')).toBe(true);
