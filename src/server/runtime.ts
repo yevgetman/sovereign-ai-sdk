@@ -342,7 +342,22 @@ export type RuntimeOptions = {
    *  taskRouting, webSearch) AND bypasses the layered `settings.json` loaders
    *  (permissions / mcp / hooks). This is the seam the Phase-3 SDK (`createAgent`)
    *  uses so an embedded agent needs no config file. When OMITTED, behavior is
-   *  byte-identical to before (one `readConfig({ harnessHome })` at boot). */
+   *  byte-identical to before (one `readConfig({ harnessHome })` at boot).
+   *
+   *  Tasks 4.3 / 4.3b — LIVE-RECONFIGURATION SEMANTICS (locked). The injected
+   *  object is held BY REFERENCE, not copied: the runtime captures it (as
+   *  `injected` in buildRuntime, echoed as `runtime.injectedSettings`) and
+   *  every re-apply site reads THAT object again — the live-reload closures
+   *  (`reresolveProvider` / `reloadHooks` / `reloadMcpServers` /
+   *  `rebuildTaskRouting`), the scheduler's child-provider resolution, the
+   *  per-turn webSearch source, and per-session construction
+   *  (`buildSessionContext`'s learning/review/recall wiring). An in-place
+   *  mutation therefore becomes visible on the next reload / turn / session
+   *  build. That is intentional and IS the injected embed's live-reconfiguration
+   *  mechanism: mutate the injected object, then fire the matching reload
+   *  closure (e.g. set a new model then `reresolveProvider()`) — the closures
+   *  RE-APPLY the injected object instead of reading disk, so an injected
+   *  embed stays fully disk-free across reconfiguration. */
   settings?: Settings;
 };
 

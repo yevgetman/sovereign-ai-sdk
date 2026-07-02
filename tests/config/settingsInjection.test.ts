@@ -301,3 +301,118 @@ describe('Settings injection — scheduler + live-reload closures are disk-free 
     }
   });
 });
+
+// Task 4.3b — SESSION CREATION must be disk-free too. `buildSessionContext`
+// (the DEFAULT sessionContextFactory buildRuntime wires) read config.json
+// unconditionally for the per-session learning/review/recall wiring, so the
+// FIRST TURN of an injected-settings embed silently ignored the injected
+// learning/review settings (no config on disk) or THREW on a malformed
+// config.json. Same technique as Task 4.3 above: poisoned config.json +
+// HARNESS_CONFIG pointed at it — session-construction success IS the proof
+// disk was never read, and the injected learning values governing the wiring
+// proves the injected object (not schema defaults) was applied. The
+// no-injection control proves the disk path is structurally unchanged.
+describe('Settings injection — session creation (buildSessionContext) is disk-free when injected', () => {
+  let home: string;
+  let cwd: string;
+  const prevConfig = process.env.HARNESS_CONFIG;
+
+  const corruptDisk = (): void => {
+    writeFileSync(join(home, 'config.json'), '{ this is not json');
+    writeFileSync(join(home, 'settings.json'), '{ this is not json');
+  };
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'inject-session-home-'));
+    cwd = mkdtempSync(join(tmpdir(), 'inject-session-cwd-'));
+    process.env.HARNESS_CONFIG = join(home, 'config.json');
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+  });
+
+  const buildInjected = (settings: NonNullable<Parameters<typeof buildRuntime>[0]['settings']>) =>
+    buildRuntime({
+      harnessHome: home,
+      cwd,
+      provider: 'ollama', // keyless; no network when preflight is off
+      preflight: false,
+      cronEnabled: false,
+      settings,
+    });
+
+  test('first session builds despite malformed disk config; default wiring (recall/observer/review) is on', async () => {
+    corruptDisk();
+    const runtime = await buildInjected({ defaultModel: 'injected-model' });
+    try {
+      const sessionId = runtime.sessionDb.createSession({
+        model: runtime.model,
+        provider: 'ollama',
+      });
+      // RED against pre-4.3b code: buildSessionContext's unconditional
+      // readConfig throws on the poisoned config.json.
+      const ctx = runtime.getSessionContext(sessionId);
+      expect(ctx.sessionId).toBe(sessionId);
+      // Defaults (recall ON, learning ON, review ON) — all built without disk.
+      expect(ctx.recall).toBeDefined();
+      expect(ctx.learningObserver).toBeDefined();
+      expect(ctx.reviewManager).toBeDefined();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('injected learning settings GOVERN the session wiring (recall off + learning disabled honored)', async () => {
+    corruptDisk();
+    const runtime = await buildInjected({
+      defaultModel: 'injected-model',
+      learning: {
+        disabled: true,
+        recall: { enabled: false, maxLessons: 8, tokenBudget: 1200 },
+      },
+    });
+    try {
+      const sessionId = runtime.sessionDb.createSession({
+        model: runtime.model,
+        provider: 'ollama',
+      });
+      const ctx = runtime.getSessionContext(sessionId);
+      // The injected values — NOT the ON-by-default fallbacks — shaped the
+      // session: observer + recall thunk both absent.
+      expect(ctx.learningObserver).toBeUndefined();
+      expect(ctx.recall).toBeUndefined();
+      // Review left at its default (injected object carries no review block).
+      expect(ctx.reviewManager).toBeDefined();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('control — without injection, session creation still reads disk (throws on malformed config)', async () => {
+    // Boot against a VALID disk config, then corrupt it: the session-creation
+    // throw proves buildSessionContext's disk read is structurally unchanged.
+    writeFileSync(join(home, 'config.json'), JSON.stringify({ defaultModel: 'disk-model' }));
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({}));
+    const runtime = await buildRuntime({
+      harnessHome: home,
+      cwd,
+      provider: 'ollama',
+      preflight: false,
+      cronEnabled: false,
+    });
+    try {
+      corruptDisk();
+      const sessionId = runtime.sessionDb.createSession({
+        model: runtime.model,
+        provider: 'ollama',
+      });
+      expect(() => runtime.getSessionContext(sessionId)).toThrow();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+});

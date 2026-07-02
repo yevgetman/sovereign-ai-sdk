@@ -298,7 +298,19 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // harnessHome (while $HARNESS_HOME is unset) would resolve learning/review
   // settings from ~/.harness/config.json — diverging from the home the
   // observer/recall/synthesizer actually write under (runtime.harnessHome).
-  const userSettings = readConfig({ harnessHome: runtime.harnessHome });
+  //
+  // Task 4.3b — an injected-settings runtime (RuntimeOptions.settings, echoed
+  // as runtime.injectedSettings) sources the per-session learning/review/recall
+  // wiring from the injected object instead of disk, so SESSION CREATION is
+  // disk-free for injected embeds (previously the unconditional read silently
+  // ignored the consumer's injected learning/review settings — or threw on a
+  // malformed config.json). LOCKED re-apply semantics: the injected object is
+  // held BY REFERENCE, so a consumer that mutates it sees the new values on the
+  // next session build. When NOT injected, `??` collapses to the exact
+  // pre-existing readConfig call — the disk path is structurally unchanged
+  // (still read ONCE per SessionContext so `sov config set` applies next
+  // session).
+  const userSettings = runtime.injectedSettings ?? readConfig({ harnessHome: runtime.harnessHome });
 
   // Phase E T6 — the owning principal for this session. Read ONCE from the
   // SESSION ROW's ownerId (stamped at session creation by the authenticated
