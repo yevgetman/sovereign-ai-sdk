@@ -39,6 +39,7 @@
     "build": "bun run build:protocol && bun run build:sdk",
     "build:protocol": "cd packages/protocol && bun run build",
     "build:sdk": "cd packages/sdk && bun run build",
+    "canary": "bun scripts/canary/run-consumer-canary.ts",
     "tui:build": "bun run scripts/build-tui.ts",
     "visual": "bun run scripts/visual.ts",
     "postinstall": "bun run scripts/build-tui.ts"
