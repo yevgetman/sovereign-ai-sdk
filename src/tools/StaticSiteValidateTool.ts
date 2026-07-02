@@ -2,7 +2,8 @@
 // Catches missing local HTML references, JavaScript syntax errors, and
 // whether the entry page is servable without making the model shell out.
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { type Server, createServer } from 'node:http';
 import { dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
@@ -209,30 +210,87 @@ async function runNodeCheck(path: string): Promise<{ ok: boolean; details: strin
   }
 }
 
+// Loopback host for the ephemeral validation server (was Bun.serve; the
+// node:http port pins an explicit loopback bind instead of Bun's 0.0.0.0
+// default — same reachability for the local probe, no external exposure).
+const SERVER_CHECK_HOST = '127.0.0.1';
+
 async function serverCheck(root: string, entry: string): Promise<Check> {
-  const server = Bun.serve({
-    port: 0,
-    fetch(req) {
-      const url = new URL(req.url);
+  const server = createServer((req, res) => {
+    try {
+      // node:http's req.url is path+query only (Bun's fetch handler got an
+      // absolute URL); the base host is irrelevant — only pathname is read.
+      const url = new URL(req.url ?? '/', `http://${SERVER_CHECK_HOST}`);
       const requested = decodeURIComponent(
         url.pathname === '/' ? entry : url.pathname.replace(/^\/+/, ''),
       );
       const target = resolveUnder(root, requested);
-      if (!isInside(root, target)) return new Response('forbidden', { status: 403 });
-      if (!existsSync(target)) return new Response('not found', { status: 404 });
-      return new Response(Bun.file(target));
-    },
+      if (!isInside(root, target)) {
+        res.writeHead(403);
+        res.end('forbidden');
+        return;
+      }
+      if (!existsSync(target)) {
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      const stream = createReadStream(target);
+      stream.on('error', () => {
+        // Unreadable target (e.g. a directory): 500 if the implicit 200 has
+        // not gone out yet, otherwise abort so the client sees a failure.
+        if (res.headersSent) {
+          res.destroy();
+        } else {
+          res.writeHead(500);
+          res.end();
+        }
+      });
+      stream.pipe(res);
+    } catch {
+      // Mirrors Bun.serve's behavior of turning a thrown fetch handler (e.g.
+      // decodeURIComponent on a malformed escape) into a 500 instead of
+      // crashing the process.
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
   });
+  const port = await listenOnEphemeralPort(server);
   try {
-    const response = await fetch(`http://${server.hostname}:${server.port}/`);
+    const response = await fetch(`http://${SERVER_CHECK_HOST}:${port}/`);
+    // Drain the body so no in-flight socket outlives the check.
+    await response.arrayBuffer().catch(() => undefined);
     return {
       name: 'local server returns 200',
       ok: response.status === 200,
       details: `GET / returned ${response.status}`,
     };
   } finally {
-    server.stop(true);
+    await closeServer(server);
   }
+}
+
+function listenOnEphemeralPort(server: Server): Promise<number> {
+  return new Promise<number>((resolvePort, rejectPort) => {
+    server.once('error', rejectPort);
+    server.listen(0, SERVER_CHECK_HOST, () => {
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        rejectPort(new Error(`server.address() returned non-TCP address: ${String(address)}`));
+        return;
+      }
+      resolvePort(address.port);
+    });
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise<void>((resolveClose) => {
+    // close() waits for open sockets; destroying them first keeps teardown
+    // deterministic — the node:http equivalent of Bun's server.stop(true).
+    server.close(() => resolveClose());
+    server.closeAllConnections();
+  });
 }
 
 async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
