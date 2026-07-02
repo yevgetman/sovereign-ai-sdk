@@ -398,14 +398,23 @@ function resolveRunProvider(
 ): LLMProvider {
   if (perTurnProvider !== undefined) return perTurnProvider;
   if (typeof configProvider !== 'string') return configProvider;
-  // No-disk contract (audit F6): resolveProvider does `opts.settings ??
-  // loadSettings(...)`, and loadSettings mkdir's + reads ~/.harness. Passing an
-  // explicit settings object (even an empty one) is NON-nullish, so it
-  // short-circuits `??` and the disk is never touched — matching the
-  // object-provider path and the README "no disk" default. A bare string
-  // provider must resolve WITHOUT reading disk-backed settings the embedder
-  // never opted into.
-  const resolved = resolveProvider(configProvider, model, { settings: settings ?? {} });
+  // No-disk contract (audit F6 + D2): three disk seams live on the
+  // string-provider path and ALL must be opted out for a genuinely disk-free
+  // embed turn:
+  //   1. `loadSettings(...)` mkdir's + reads ~/.harness — closed by passing an
+  //      explicit (non-nullish) settings object, which short-circuits the `??`.
+  //   2. the CredentialPool defaults its state path to resolveHarnessHome()
+  //      (mkdir HARNESS_HOME) and persists credentials.json in its constructor.
+  //   3. the RateLimitGuard defaults its root to resolveHarnessHome() and
+  //      writes <home>/rate_limits on a 429.
+  // `credentialState: 'memory'` opts (2) + (3) into memory-only state, matching
+  // the object-provider path and the README "no disk" default. The CLI/gateway
+  // keep disk-backed state — they call resolveProvider directly with an explicit
+  // harnessHome and never pass 'memory'.
+  const resolved = resolveProvider(configProvider, model, {
+    settings: settings ?? {},
+    credentialState: 'memory',
+  });
   // `transport` is a `Transport`, which extends `LLMProvider`; the cast mirrors
   // the createAgent call sites (scheduler/cron/channels).
   return resolved.transport as unknown as LLMProvider;

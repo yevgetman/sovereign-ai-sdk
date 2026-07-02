@@ -1015,6 +1015,57 @@ describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () =>
     }
   });
 
+  // --- D2/D8: the FULL string-provider resolution seam is disk-free. The F6
+  // test above uses an UNKNOWN provider name, so resolveProvider throws at the
+  // registry check BEFORE the credential pool / rate-limit guard are built —
+  // it only witnesses the loadSettings seam. This one names a REAL built-in
+  // provider AND supplies a credential, so resolution reaches selectCredential
+  // (CredentialPool) and wrapWithProviderHardening (RateLimitGuard) — the two
+  // seams that used to default to resolveHarnessHome() (mkdir HARNESS_HOME +
+  // write credentials.json). RED before the memory-mode fix; GREEN after.
+  test('a string built-in provider with a credential resolves fully disk-free (D2)', async () => {
+    const home = join(tmpdir(), `sov-d2-${randomUUID()}`);
+    const prevHome = process.env.HARNESS_HOME;
+    const prevConfig = process.env.HARNESS_CONFIG;
+    const prevKey = process.env.ANTHROPIC_API_KEY;
+    process.env.HARNESS_HOME = home;
+    // biome-ignore lint/performance/noDelete: env-var unset requires delete (test setup).
+    delete process.env.HARNESS_CONFIG;
+    // A fake key drives the credential seam without any real network dependency.
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-fake-d2-not-a-real-key';
+    try {
+      expect(existsSync(home)).toBe(false);
+      // A real built-in provider ('anthropic') + a credential drives resolution
+      // through the CredentialPool + RateLimitGuard seams. An already-aborted
+      // signal prevents any network call — the stream aborts, but provider
+      // RESOLUTION (where the disk seams live) already ran on the first .next().
+      const ac = new AbortController();
+      ac.abort();
+      const agent = createAgent({ provider: 'anthropic', model: 'claude-x' });
+      try {
+        for await (const _ev of agent.run('hi', { signal: ac.signal })) {
+          /* drain — the aborted turn ends immediately */
+        }
+      } catch {
+        /* an aborted stream may reject; the disk assertions below are the point */
+      }
+      // Load-bearing: resolving the string provider + selecting a credential +
+      // building the rate guard created NO HARNESS_HOME, credentials.json, or
+      // rate_limits — the embed path holds credential/rate state in memory only.
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(join(home, 'credentials.json'))).toBe(false);
+      expect(existsSync(join(home, 'rate_limits'))).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+      if (prevConfig !== undefined) process.env.HARNESS_CONFIG = prevConfig;
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = prevKey;
+    }
+  });
+
   // --- F7: early abandonment of run() finalizes the inner query()/provider.stream.
   test('breaking the stream early (no abort) finalizes query()/provider.stream + skips persistence (F7)', async () => {
     let finalized = false;

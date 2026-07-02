@@ -2,7 +2,7 @@
 // provider stream is invoked.
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CredentialUnavailableError } from '@yevgetman/sov-sdk/providers/errors';
@@ -170,5 +170,46 @@ describe('resolveProvider', () => {
     expect(resolved.transport.name).toBe('openrouter');
     expect(resolved.baseUrl).toBe('https://router.example/v1');
     expect(resolved.model).toBe('override-model');
+  });
+
+  // D2: disk mode is the DEFAULT (no credentialState / an explicit harnessHome)
+  // so the CLI/gateway keep cross-process credential state. Regression witness:
+  // a resolve with an explicit harnessHome + a key writes credentials.json.
+  test('disk mode (explicit harnessHome) writes credentials.json — CLI/gateway unchanged', () => {
+    const home = tempHome();
+    resolveProvider('anthropic', 'claude-x', {
+      env: { ANTHROPIC_API_KEY: 'sk-ant-test' },
+      harnessHome: home,
+      settings: {},
+    });
+    expect(existsSync(join(home, 'credentials.json'))).toBe(true);
+  });
+
+  // D2: memory mode is what the SDK embed path (createAgent) passes. Resolution
+  // reaches the CredentialPool + RateLimitGuard seams (real provider + key) but
+  // touches NO disk — HARNESS_HOME is never mkdir'd, credentials.json never
+  // written. RED before the fix (the seams defaulted to resolveHarnessHome()).
+  test('memory mode resolves without creating HARNESS_HOME or credentials.json (D2)', () => {
+    const home = join(
+      tmpdir(),
+      `harness-provider-mem-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    const prevHome = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = home;
+    try {
+      const resolved = resolveProvider('anthropic', 'claude-x', {
+        env: { ANTHROPIC_API_KEY: 'sk-ant-test' },
+        credentialState: 'memory',
+        settings: {},
+      });
+      expect(resolved.transport.name).toBe('anthropic');
+      expect(resolved.metadata.credentialId).toBeDefined();
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(join(home, 'credentials.json'))).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+    }
   });
 });

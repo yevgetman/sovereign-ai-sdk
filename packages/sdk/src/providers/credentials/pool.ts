@@ -42,6 +42,13 @@ export type CredentialPoolOpts = {
   path?: string;
   strategy?: CredentialStrategy;
   now?: () => number;
+  /** Memory-only mode (the SDK embed path). When true the pool holds status
+   *  metadata in memory ONLY: it never resolves a default state path (so
+   *  resolveHarnessHome() is never called, and HARNESS_HOME is never mkdir'd),
+   *  never reads an existing credentials.json, and never persists. Selection +
+   *  lockout logic are unchanged. Default false preserves the CLI/gateway's
+   *  cross-process disk-backed state (they pass an explicit `path`). */
+  memory?: boolean;
 };
 
 type StateFile = {
@@ -67,6 +74,7 @@ const DEFAULT_AUTH_FAILED_COOLDOWN_SECONDS = 10 * 60;
 export class CredentialPool {
   private readonly state: StateFile;
   private readonly path: string;
+  private readonly memory: boolean;
   private readonly now: () => number;
   private readonly strategy: CredentialStrategy;
   private readonly secrets = new Map<string, string | undefined>();
@@ -83,10 +91,14 @@ export class CredentialPool {
     inputs: CredentialInput[],
     opts: CredentialPoolOpts = {},
   ) {
-    this.path = opts.path ?? getDefaultCredentialStatePath();
+    this.memory = opts.memory ?? false;
+    // In memory mode, never resolve the default path — getDefaultCredentialStatePath()
+    // calls resolveHarnessHome(), which mkdir's HARNESS_HOME. The `?? (ternary)`
+    // short-circuits it entirely when no explicit path is given.
+    this.path = opts.path ?? (this.memory ? '' : getDefaultCredentialStatePath());
     this.now = opts.now ?? (() => Date.now() / 1000);
     this.strategy = opts.strategy ?? 'ROUND_ROBIN';
-    this.state = readState(this.path);
+    this.state = this.memory ? {} : readState(this.path);
     if (!this.state.credentials) this.state.credentials = {};
     const providerState = this.state.credentials[this.provider] ?? {};
     this.state.credentials[this.provider] = providerState;
@@ -200,6 +212,9 @@ export class CredentialPool {
   }
 
   private persist(): void {
+    // Memory-only mode (SDK embed path): status metadata lives in `this.state`
+    // and is never written to disk.
+    if (this.memory) return;
     // Re-read the current file and overlay ONLY the credential rows this pool
     // actually mutated this process. Replacing the whole provider sub-map with
     // our boot snapshot would clobber a concurrent SAME-provider process's

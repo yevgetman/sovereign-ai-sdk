@@ -18,6 +18,13 @@ export type RateLimitGuardOpts = {
   root?: string;
   now?: () => number;
   maxSleepSeconds?: number;
+  /** Memory-only mode (the SDK embed path). When true the guard holds its
+   *  rate-limit sentinel in memory ONLY: it never resolves a default root (so
+   *  resolveHarnessHome() is never called, and HARNESS_HOME is never mkdir'd),
+   *  never reads a shared `<provider>.json`, and never writes one. The 429
+   *  backoff still works within the process. Default false preserves the
+   *  CLI/gateway's cross-process shared sentinel (they pass an explicit `root`). */
+  memory?: boolean;
 };
 
 export class RateLimitGuardError extends Error {
@@ -49,6 +56,9 @@ function defaultRateRoot(): string {
 
 export class RateLimitGuard {
   private readonly path: string;
+  private readonly memory: boolean;
+  /** In-memory sentinel used only in memory mode (no shared disk file). */
+  private memState: RateLimitState | null = null;
   private readonly now: () => number;
   private readonly maxSleepSeconds: number;
 
@@ -56,8 +66,11 @@ export class RateLimitGuard {
     readonly provider: string,
     opts: RateLimitGuardOpts = {},
   ) {
-    const root = opts.root ?? defaultRateRoot();
-    this.path = join(root, `${provider}.json`);
+    this.memory = opts.memory ?? false;
+    // In memory mode, never resolve the default root — defaultRateRoot() calls
+    // resolveHarnessHome(), which mkdir's HARNESS_HOME. The path is unused.
+    const root = opts.root ?? (this.memory ? '' : defaultRateRoot());
+    this.path = this.memory ? '' : join(root, `${provider}.json`);
     this.now = opts.now ?? (() => Date.now() / 1000);
     this.maxSleepSeconds = opts.maxSleepSeconds ?? DEFAULT_MAX_SLEEP_SECONDS;
   }
@@ -78,6 +91,10 @@ export class RateLimitGuard {
     const fromHeaders = resetTimeFromHeaders(headers, now);
     const exhaustedUntil = fromHeaders ?? now + this.noHeaderCooldownSeconds(now);
     const state = { exhausted_until: exhaustedUntil, reason, detected_at: now };
+    if (this.memory) {
+      this.memState = state;
+      return state;
+    }
     writeAtomic(this.path, state);
     return state;
   }
@@ -96,6 +113,7 @@ export class RateLimitGuard {
   }
 
   read(): RateLimitState | null {
+    if (this.memory) return this.memState;
     if (!existsSync(this.path)) return null;
     try {
       return JSON.parse(readFileSync(this.path, 'utf8')) as RateLimitState;

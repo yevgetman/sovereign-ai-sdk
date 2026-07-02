@@ -208,6 +208,43 @@ describe('CredentialPool', () => {
     };
     expect(state.credentials?.openai?.other?.status).toBe('exhausted');
   });
+
+  // D2: memory mode — the SDK embed path (createAgent) builds the pool WITHOUT
+  // touching disk (no default-path resolution → no resolveHarnessHome() mkdir,
+  // no credentials.json), yet selection + lockout logic still work in memory.
+  test('memory mode selects and locks out credentials without reading or writing disk', () => {
+    const home = join(tempDir(), 'nonexistent-home');
+    const prevHome = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = home;
+    try {
+      let now = 100;
+      const pool = new CredentialPool(
+        'openai',
+        [
+          { id: 'a', provider: 'openai', authType: 'api_key', secret: 'sk-a' },
+          { id: 'b', provider: 'openai', authType: 'api_key', secret: 'sk-b' },
+        ],
+        { memory: true, now: () => now },
+      );
+      // Selection works in memory.
+      const first = pool.select();
+      expect(first?.credential.id).toBe('a');
+      expect(first?.secret).toBe('sk-a');
+      // Lockout logic works in memory (exhaust 'a' → 'b' selected).
+      pool.markExhausted('a', '429', 500);
+      expect(pool.select()?.credential.id).toBe('b');
+      now = 600;
+      expect(pool.select()?.credential.id).toBe('a');
+      // No default credential-state path was ever resolved → HARNESS_HOME and
+      // credentials.json were never created.
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(join(home, 'credentials.json'))).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+    }
+  });
 });
 
 describe('RateLimitGuard', () => {
@@ -233,6 +270,33 @@ describe('RateLimitGuard', () => {
     guard.markRateLimited({ 'retry-after': '30' }, '429');
     expect(existsSync(join(root, 'openai.json'))).toBe(true);
     await expect(guard.beforeRequest()).rejects.toThrow(RateLimitGuardError);
+  });
+
+  // D2: memory mode — the embed path builds the guard WITHOUT touching disk (no
+  // defaultRateRoot() → no resolveHarnessHome() mkdir, no rate_limits write),
+  // yet the 429 backoff still works via in-memory state.
+  test('memory mode backs off on a 429 without reading or writing disk', async () => {
+    const home = join(tempDir(), 'nonexistent-home');
+    const prevHome = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = home;
+    try {
+      const guard = new RateLimitGuard('anthropic', {
+        memory: true,
+        now: () => 1_000,
+        maxSleepSeconds: 600,
+      });
+      // A long-cooldown 429 (reset in 30 min) is recorded in memory.
+      guard.markRateLimited({ 'retry-after': '1800' }, 'rate limited');
+      // beforeRequest reads the IN-MEMORY state and fails fast for the long wait.
+      await expect(guard.beforeRequest()).rejects.toThrow(RateLimitGuardError);
+      // Nothing was ever written to disk.
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(join(home, 'rate_limits'))).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+    }
   });
 
   // FIX 3: a header-less 429 must NOT lock the provider for a full hour.
