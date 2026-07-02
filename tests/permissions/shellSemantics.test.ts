@@ -496,9 +496,54 @@ describe('isShellCommandReadOnly', () => {
       expect(isShellCommandReadOnly('git -C /path status')).toBe(true);
       expect(isShellCommandReadOnly('git --git-dir=d log')).toBe(true); // attached
       expect(isShellCommandReadOnly('git --git-dir d log')).toBe(true); // space-separated
-      expect(isShellCommandReadOnly('git -c core.pager=less log')).toBe(true);
+      // NOTE: `-c …`/`--config-env …` is intentionally NOT here — inline config
+      // injection is never read-only (round-8 block below), even behind a read
+      // subcommand. The round-7 fix consumed the operand; round-8 fails it closed.
       expect(isShellCommandReadOnly('git log --oneline')).toBe(true);
       expect(isShellCommandReadOnly('git status')).toBe(true);
+    });
+  });
+
+  // Round-8 [HIGH] — the round-7 fix CONSUMED the operand of `-c <name=value>` /
+  // `--config-env <name=env>` only to locate the true subcommand, but never
+  // inspected the injected config. Git config keys like core.fsmonitor,
+  // diff.external, core.pager, core.sshCommand, core.editor, core.hooksPath,
+  // sequence.editor and alias.* make even a READ subcommand EXECUTE an arbitrary
+  // command. REPRODUCED on git 2.50.1 with stdout piped (non-TTY — the Bash
+  // tool's exact context, no `-p`): `git -c core.fsmonitor='touch M' status`,
+  // `git -c diff.external='touch M' diff` both EXECUTED while
+  // isShellCommandReadOnly()===true → auto-approved under a blanket `allow Read`
+  // rule = arbitrary exec from a read-only grant. Fix (KISS, fail closed): ANY
+  // git invocation carrying an inline `-c` / `--config-env` global option is
+  // never read-only — classify the whole segment exec/prompt. No "safe key"
+  // allowlist. `-C`/`--git-dir`/`--work-tree`/`--namespace` are NOT exec vectors
+  // and still consume their operand (round-7) without over-prompting.
+  describe('git inline config injection (-c / --config-env) is never read-only (round-8)', () => {
+    test('an inline -c config option makes even a read subcommand exec/prompt', () => {
+      expect(isShellCommandReadOnly("git -c core.fsmonitor='touch x' status")).toBe(false);
+      expect(isShellCommandReadOnly('git -c diff.external=cmd diff')).toBe(false);
+      expect(isShellCommandReadOnly('git -c core.pager=cmd log')).toBe(false);
+      expect(isShellCommandReadOnly('git -c core.sshCommand=cmd fetch')).toBe(false);
+      // Two -c options: still fails closed on the first.
+      expect(isShellCommandReadOnly("git -c gc.auto=0 -c core.fsmonitor='touch x' status")).toBe(
+        false,
+      );
+    });
+    test('--config-env (attached and space-separated) is never read-only', () => {
+      expect(isShellCommandReadOnly('git --config-env=core.pager=EV log')).toBe(false);
+      expect(isShellCommandReadOnly('git --config-env core.pager=EV log')).toBe(false);
+    });
+    test('non-exec global value-options (-C/--git-dir/…) still read without over-prompting', () => {
+      // -C consumes /path (round-7); the subcommand is a plain read → still read.
+      expect(isShellCommandReadOnly('git -C /path log')).toBe(true);
+      expect(isShellCommandReadOnly('git --git-dir=d log')).toBe(true);
+      expect(isShellCommandReadOnly('git --work-tree=w status')).toBe(true);
+      // A -C operand literally named `-c` (a directory) is the operand, not an
+      // inline config option — must not false-positive to exec.
+      expect(isShellCommandReadOnly('git -C -c log')).toBe(true);
+      // A plain read with NO -c stays read.
+      expect(isShellCommandReadOnly('git log --oneline')).toBe(true);
+      expect(isShellCommandReadOnly('git diff HEAD~1')).toBe(true);
     });
   });
 

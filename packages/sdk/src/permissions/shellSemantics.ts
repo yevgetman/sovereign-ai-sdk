@@ -826,7 +826,41 @@ function gitSubcommandIndex(args: string[]): number {
   return -1;
 }
 
+// Does a git invocation carry an INLINE-CONFIG global option before the
+// subcommand? `-c <name=value>` and `--config-env <name=env>` (space-separated
+// OR attached `--config-env=…`) set arbitrary config for that one invocation —
+// including keys that make even a READ subcommand EXECUTE an arbitrary command:
+// core.fsmonitor, diff.external, core.pager (on a TTY), core.sshCommand,
+// core.editor, core.hooksPath, sequence.editor, alias.*, difftool.*, … The
+// round-7 fix CONSUMED these options' operands to find the true subcommand but
+// never inspected the injected config, so `git -c core.fsmonitor='touch M'
+// status` classified read-only and auto-approved under `allow Read`. REPRODUCED
+// on git 2.50.1 with stdout piped (non-TTY — the Bash tool's exact context, no
+// `-p`). Fail closed: presence of ANY `-c`/`--config-env` → the whole segment
+// is exec/prompt. NOT an allowlist of "safe" keys — the KISS fail-closed rule is
+// correct and matches the dual-mode-subcommand direction. `-C`/`--git-dir`/
+// `--work-tree`/`--namespace`/… are NOT command-exec vectors and are excluded;
+// their operands are still consumed here in lockstep with gitSubcommandIndex so
+// an operand literally named `-c` (a directory) is never misread as an inline
+// config option. (round-8 [HIGH] — sibling of the round-7 fix.)
+function hasGitInlineConfig(args: string[]): boolean {
+  let i = 0;
+  while (i < args.length) {
+    const tok = args[i] as string;
+    if (!tok.startsWith('-')) return false; // reached the subcommand
+    if (tok === '-c' || tok === '--config-env' || tok.startsWith('--config-env=')) return true;
+    i += GIT_GLOBAL_VALUE_OPTIONS.has(tok) ? 2 : 1;
+  }
+  return false;
+}
+
 function analyzeGitCommand(args: string[]): VirtualOperation {
+  // Inline config injection (`-c key=value` / `--config-env`) can turn even a
+  // read subcommand into arbitrary command execution, so it can NEVER be
+  // read-only. Fail closed to a prompt BEFORE resolving the subcommand.
+  // (round-8 [HIGH])
+  if (hasGitInlineConfig(args)) return { kind: 'exec', command: 'git' };
+
   const subIndex = gitSubcommandIndex(args);
   if (subIndex === -1) return { kind: 'read', paths: [] };
   const sub = args[subIndex] as string;
