@@ -16,24 +16,39 @@
 // the compiled binary's user-facing `--version` comes from wrapperVersion.ts,
 // which keeps its build-time JSON import precisely for that mode.
 //
-// Backlog #37: also resolves the git short SHA at module load and
-// appends it as a pre-release suffix (e.g. `0.1.0-a89b03c`). Two
-// resolvers, tried in order, covering both deployment modes:
+// Backlog #37 + audit F17/F18/F19: the version may carry the SDK's own git
+// short SHA as a pre-release suffix (e.g. `0.1.0-a89b03c`) — but ONLY when this
+// module is genuinely running from the SDK's OWN source checkout. Two SHA
+// sources, tried in order:
 //
 //   1. `.bun-tag` (preferred for source-mode global installs). When Bun
-//      installs a package from a git source (`bun install -g
-//      git+ssh://…`), it writes the resolved full SHA to
-//      `<install-root>/.bun-tag` and does NOT ship a `.git/` directory.
-//   2. `git rev-parse --short HEAD` (fallback for dev `bun link` or
-//      local working-tree runs).
+//      installs a package from a git source (`bun install -g git+ssh://…`) it
+//      writes the resolved full SHA of the SDK ITSELF to
+//      `<package-root>/.bun-tag`. Trusted unconditionally: it is a file the SDK
+//      receives describing its OWN revision, not a directory walk.
+//   2. `git rev-parse --short HEAD` — GATED. `spawnSync('git', …, { cwd })`
+//      discovers a repo by walking UP the directory tree, so when the SDK is
+//      installed as a dependency this walk escapes `node_modules` and resolves
+//      the CONSUMER's `.git`, returning THEIR HEAD — which then leaks over the
+//      wire to remote MCP servers (mcp/client) and onto disk (transcript/
+//      writer). To make that impossible, the git resolver runs ONLY when BOTH:
+//        (a) this module's directory is NOT under a `node_modules/` path
+//            segment (an installed dependency always is); AND
+//        (b) the git worktree that would be discovered actually OWNS the SDK's
+//            package root (its toplevel contains the resolved package.json dir).
+//      If either fails — installed as a dep, or the enclosing repo is not the
+//      SDK's own — the resolver short-circuits with NO subprocess and the bare
+//      package.json version is reported. Net: an installed npm consumer gets a
+//      deterministic `0.1.0` (no git spawn, no consumer SHA); a dev in the
+//      SDK's own checkout still gets the live `0.1.0-<sdkSHA>`.
 //
-// In Bun-compiled binary mode both resolvers gracefully return null
-// (`.bun-tag` won't exist next to the binary; `git rev-parse` fails
-// because PKG_DIR points into /$bunfs/).
+// In Bun-compiled binary mode both sources return null (`.bun-tag` won't exist;
+// the git resolver is gated off — PKG_DIR sits in `/$bunfs/` with no package
+// root and no enclosing worktree).
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SHORT_SHA_LENGTH = 7;
@@ -41,13 +56,13 @@ const MAX_PACKAGE_JSON_WALK_DEPTH = 5;
 const FALLBACK_VERSION = '0.0.0';
 const PKG_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Walk up from this module's directory to the nearest package.json dir.
+/** Walk up from `startDir` to the nearest package.json dir.
  *  src/ and dist/ both sit one level below the package root, so the walk
  *  terminates on the first step in every supported layout; the bounded loop
  *  keeps it correct if the module ever moves deeper. Returns null when no
  *  package.json is reachable (Bun-compiled `/$bunfs/` mode). */
-function findPackageRoot(): string | null {
-  let dir = PKG_DIR;
+function findPackageRoot(startDir: string): string | null {
+  let dir = startDir;
   for (let depth = 0; depth < MAX_PACKAGE_JSON_WALK_DEPTH; depth += 1) {
     try {
       if (existsSync(join(dir, 'package.json'))) return dir;
@@ -72,16 +87,15 @@ function readBaseVersion(root: string | null): string {
   }
 }
 
-const RESOLVED_PKG_ROOT = findPackageRoot();
-const PKG_ROOT = RESOLVED_PKG_ROOT ?? join(PKG_DIR, '..');
-const BUN_TAG_PATH = join(PKG_ROOT, '.bun-tag');
-
-const baseVersion: string = readBaseVersion(RESOLVED_PKG_ROOT);
-
-function resolveBunTagSha(): string | null {
+/** Read the SDK's OWN resolved SHA from `<packageRoot>/.bun-tag` (written by
+ *  `bun install` from a git source). This is the SDK describing its own
+ *  revision, so it is trusted without the git ownership gate below. */
+function resolveBunTagSha(packageRoot: string | null): string | null {
+  if (packageRoot === null) return null;
   try {
-    if (!existsSync(BUN_TAG_PATH)) return null;
-    const raw = readFileSync(BUN_TAG_PATH, 'utf-8').trim();
+    const bunTagPath = join(packageRoot, '.bun-tag');
+    if (!existsSync(bunTagPath)) return null;
+    const raw = readFileSync(bunTagPath, 'utf-8').trim();
     if (!/^[a-f0-9]{40}$/.test(raw)) return null;
     return raw.slice(0, SHORT_SHA_LENGTH);
   } catch {
@@ -89,10 +103,40 @@ function resolveBunTagSha(): string | null {
   }
 }
 
-function resolveGitSha(): string | null {
+/** True when `dir` contains a `node_modules` path segment — i.e. the module is
+ *  running as an installed dependency, where a git walk would escape into the
+ *  CONSUMER's repo. */
+function isUnderNodeModules(dir: string): boolean {
+  return dir.split(sep).includes('node_modules');
+}
+
+/** True when `child` is equal to or nested inside `parent`. */
+function isWithin(child: string, parent: string): boolean {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** `git -C dir rev-parse --show-toplevel` → the enclosing worktree root, or
+ *  null when `dir` is not inside a git repo (or git is unavailable). */
+function gitToplevel(dir: string): string | null {
+  try {
+    const result = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.status !== 0) return null;
+    const top = result.stdout.trim();
+    return top.length > 0 ? top : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `git rev-parse --short HEAD` with cwd=`dir`, or null. */
+function gitShortHead(dir: string): string | null {
   try {
     const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
-      cwd: PKG_DIR,
+      cwd: dir,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -104,6 +148,39 @@ function resolveGitSha(): string | null {
   }
 }
 
-const resolvedSha = resolveBunTagSha() ?? resolveGitSha();
+/**
+ * Resolve the pre-release SHA suffix for VERSION, gated so it can NEVER read a
+ * consumer's git repo (audit F17/F18/F19).
+ *
+ * Order: the SDK's own `.bun-tag` (always trusted) → a git short SHA, but the
+ * git spawn happens ONLY from the SDK's own source checkout — `pkgDir` not
+ * under `node_modules` AND the enclosing git worktree owns `packageRoot`.
+ * Otherwise returns null (bare base version) with NO git subprocess.
+ *
+ * Exported for testability: pass a scratch `pkgDir`/`packageRoot` to exercise
+ * the gate without relocating the module. The module-level VERSION export below
+ * calls it with the real PKG_DIR / resolved package root.
+ */
+export function resolveShaSuffix(pkgDir: string, packageRoot: string | null): string | null {
+  const bunTagSha = resolveBunTagSha(packageRoot);
+  if (bunTagSha !== null) return bunTagSha;
 
-export const VERSION: string = resolvedSha === null ? baseVersion : `${baseVersion}-${resolvedSha}`;
+  // Ownership gate: only ever read a git SHA from the SDK's OWN checkout.
+  if (packageRoot === null) return null;
+  if (isUnderNodeModules(pkgDir)) return null;
+  const toplevel = gitToplevel(pkgDir);
+  if (toplevel === null || !isWithin(packageRoot, toplevel)) return null;
+
+  return gitShortHead(pkgDir);
+}
+
+/** Assemble the version string from the base and an optional SHA suffix. */
+export function composeVersion(baseVersion: string, sha: string | null): string {
+  return sha === null ? baseVersion : `${baseVersion}-${sha}`;
+}
+
+const RESOLVED_PKG_ROOT = findPackageRoot(PKG_DIR);
+const baseVersion: string = readBaseVersion(RESOLVED_PKG_ROOT);
+const resolvedSha = resolveShaSuffix(PKG_DIR, RESOLVED_PKG_ROOT);
+
+export const VERSION: string = composeVersion(baseVersion, resolvedSha);

@@ -125,6 +125,31 @@ function runCanary(spec: CanarySpec): void {
       join(scratch, 'package.json'),
       JSON.stringify({ name: 'sov-canary-consumer', version: '0.0.0', type: 'module', private: true }, null, 2),
     );
+    // Make the scratch consumer a REAL git repo with a resolvable HEAD. This is
+    // the F17/F18/F19 regression guard: version.ts must never walk out of the
+    // installed package into the consumer's .git and stamp the consumer's HEAD
+    // SHA into VERSION (which then leaks to remote MCP servers + on-disk
+    // transcripts). The mkdtemp scratch was previously NOT a git repo, so the
+    // old canary could not have caught this. sdk-consumer.mjs asserts
+    // VERSION === '0.1.0' from inside this repo. The `-c` identity/gpg flags
+    // keep the commit independent of any global git config.
+    const git = (args: string[]): void => {
+      execFileSync('git', args, { cwd: scratch, stdio: 'ignore' });
+    };
+    git(['init', '-q']);
+    git(['add', '-A']);
+    git([
+      '-c',
+      'user.name=canary',
+      '-c',
+      'user.email=canary@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-q',
+      '-m',
+      'canary consumer',
+    ]);
     const tarball = packTarball(spec.pkgDir);
     try {
       execFileSync('npm', ['install', '--no-save', tarball, ...(spec.extraInstalls ?? [])], {

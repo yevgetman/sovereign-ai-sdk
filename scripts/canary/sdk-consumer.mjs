@@ -14,6 +14,10 @@
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
+// The one deliberate deep-subpath import in this otherwise barrel-only consumer:
+// the F17/F18/F19 regression guard (asserted at the end) needs VERSION, which
+// lives at the `./version` public subpath, not on the frozen `./sdk` barrel.
+import { VERSION } from '@yevgetman/sov-sdk/version';
 import { z } from 'zod';
 
 /** The one user turn this canary runs. */
@@ -131,5 +135,16 @@ assert.ok(
 // artifacts would show up here) ──────────────────────────────────────────────
 const filesAfter = readdirSync('.').sort();
 assert.deepEqual(filesAfter, filesBefore, 'the agent turn must not create files in the consumer cwd');
+
+// ── F17/F18/F19 regression guard: an installed SDK must report its OWN bare
+// version, never a suffix derived from the CONSUMER's git HEAD. The canary runs
+// this script from inside a scratch *git repo* (see run-consumer-canary), so a
+// regressed version.ts ownership gate would surface here as `0.1.0-<consumerSHA>`
+// — the exact leak that reaches remote MCP servers and on-disk transcripts.
+assert.equal(
+  VERSION,
+  '0.1.0',
+  `installed SDK VERSION must be the bare package version with no consumer-SHA suffix, got: ${VERSION}`,
+);
 
 console.log('SDK_OK');
