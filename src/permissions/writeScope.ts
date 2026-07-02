@@ -32,8 +32,34 @@ const GLOB_CHARS = /[*?[\]{}]/;
  *    `.env`); picomatch's default (dot: false) would silently NARROW the scope.
  *  - `strictSlashes: true` — Bun.Glob does NOT match the bare base directory
  *    with a trailing globstar (`'src/**'` vs `'src'` is false); picomatch's
- *    default would WIDEN the gate to the base path itself. */
-export const WRITE_SCOPE_PICOMATCH_OPTIONS = { dot: true, strictSlashes: true } as const;
+ *    default would WIDEN the gate to the base path itself.
+ *  - `noext: true` — LOAD-BEARING for the path-lock no-clash invariant.
+ *    Bun.Glob has NO extglob support, but picomatch's default enables extglobs
+ *    (`!(x)`, `+(a|b)`, `@(a|b)`, `*(a)`, `?(a)`), ADMITTING paths Bun denied.
+ *    Worse than a plain widening: src/runtime/pathLock.ts collapses a glob to
+ *    the directory before its first wildcard via `GLOB_CHARS = /[*?[\]{}]/`,
+ *    which does NOT treat extglob chars as wildcards — so `src/!(secret)/**`
+ *    collapses to the LITERAL prefix `src/!(secret)`, judged DISJOINT from
+ *    `src/pub/**`, while an extglob-enabled matcher ADMITS writes to
+ *    `src/pub/a.ts`. Two "disjoint" write-capable tasks could then race one
+ *    file. `noext` keeps extglobs dead (probe classes: `!(x)`, `+(a|b)`,
+ *    `@(a|b)`, `*(a)`, `?(a)`), so the matcher never admits outside the lock's
+ *    collapsed prefix.
+ *  - `posix: true` — without it picomatch's negated character class `[!a]x`
+ *    was fully INVERTED vs Bun.Glob (admitted `ax`, denied `bx`); posix mode
+ *    restores Bun's semantics in both directions (probe classes: `[!a]x`,
+ *    `[^a]x`).
+ *  Residual divergences after these options (brace ranges, `./`-prefix,
+ *  `**.ts`, POSIX classes, literal-brace edges, literal-extglob paths) are
+ *  each pinned as documented deviations in the parity suite: every wider-than-
+ *  Bun admission falls inside the path-lock's collapsed prefix (over-
+ *  serializes, never races), and the rest are restrictive-only (fail closed). */
+export const WRITE_SCOPE_PICOMATCH_OPTIONS = {
+  dot: true,
+  strictSlashes: true,
+  noext: true,
+  posix: true,
+} as const;
 
 /** Tools that write under `$HARNESS_HOME` (harness state — memory, agent-created
  *  skills), NOT the project tree. Their `affectedPaths` return bare markers
