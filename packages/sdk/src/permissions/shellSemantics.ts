@@ -1180,8 +1180,13 @@ function isEnvSplitStringFlag(token: string): boolean {
     // `--split-string` and `--split-string=<cmd>` (name split on the first `=`).
     return (token.split('=')[0] ?? '') === '--split-string';
   }
-  // Bare `-S`, attached `-S<cmd>` — env's ONLY short option beginning with `S`.
-  return token.startsWith('-S');
+  // env's getopt reaches `-S` anywhere in a LEADING run of its bundleable no-arg
+  // short flags (`-0`/`-i`/`-v`) and takes the token remainder as the command to
+  // split+exec — so `env -vS'rm foo'`/`-iS…`/`-viS…` execute just like a bare
+  // `-S'rm foo'`. The value-takers (`-C`/`-P`/`-u`) swallow the token remainder
+  // as their own value, so `-S` cannot follow them in-cluster and is not matched.
+  // This `/^-[0iv]*S/` subsumes the position-0 `-S`/`-S<cmd>` case (empty run).
+  return /^-[0iv]*S/.test(token);
 }
 
 function extractCommand(tokens: string[]): { command: string | null; args: string[] } {

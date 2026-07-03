@@ -353,13 +353,32 @@ describe('env -S/--split-string is never read-only (argv rewrite executes an emb
     expect(isShellCommandReadOnly("env -S 'rm foo'")).toBe(false);
   });
 
+  // env's getopt reaches -S anywhere in a LEADING run of its bundleable no-arg
+  // short flags (-0/-i/-v); the token remainder is then split+exec'd. BSD env on
+  // this platform runs the embedded command for every one of these. Fail closed:
+  // a -S anywhere in the leading `-[0iv]*S` run is an argv rewrite, never a read.
+  test('bundled short-flag clusters carrying -S are exec, not read', () => {
+    expect(isShellCommandReadOnly("env -vS'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env -iS'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env -0S'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env -viS'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env -ivS'rm foo'")).toBe(false);
+    // Re-confirm the position-0 bare form and a path-qualified bundled cluster.
+    expect(isShellCommandReadOnly("env -S'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("/usr/bin/env -viS'rm foo'")).toBe(false);
+  });
+
   test('env WITHOUT -S still classifies correctly (no over-prompt regression)', () => {
     // Bare env / assignment-only env just print the environment → read.
     expect(isShellCommandReadOnly('env')).toBe(true);
     expect(isShellCommandReadOnly('env VAR=val')).toBe(true);
+    // No-arg short flags without a command / without -S stay read.
+    expect(isShellCommandReadOnly('env -v')).toBe(true);
+    expect(isShellCommandReadOnly('env -i')).toBe(true);
     // A wrapped reader stays a read; the -S rule must not fire on a later
     // `-S`-looking operand of the WRAPPED command.
     expect(isShellCommandReadOnly('env cat file')).toBe(true);
+    expect(isShellCommandReadOnly('env -v cat file')).toBe(true);
     expect(isShellCommandReadOnly('/usr/bin/env cat file')).toBe(true);
   });
 });
