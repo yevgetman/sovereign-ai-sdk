@@ -154,11 +154,14 @@ Full policy: [`STABILITY.md`](../../STABILITY.md) at the repository root.
 
 ## Compatibility notes
 
-- **Global `fetch` is assumed** (Node ≥ 18 provides one; the engines floor is
-  Node ≥ 20). Network-touching surfaces (the OpenAI-compatible provider, web
-  tools, remote MCP) accept an injectable `fetchImpl` where a host needs to
-  control the transport — embedders on runtimes without a global `fetch` must
-  inject one.
+- **A global `fetch` is required**, and every supported runtime provides one:
+  Node ≥ 20 and Bun ≥ 1.2 both ship a global `fetch`, so no polyfill is needed
+  and the "runtime without a global `fetch`" case cannot arise within the
+  engines floor. The SDK does **not** currently expose a public `fetchImpl`
+  injection point through `createAgent` or the package barrel — network-touching
+  surfaces (the OpenAI-compatible provider, web tools, remote MCP) call the
+  ambient global `fetch`. (A `fetchImpl` parameter exists only internally, as a
+  test seam; it is not part of the public API.)
 - **Bun consumers resolve the `bun` exports condition to the shipped
   TypeScript source** (`src/*.ts`) — no build step. Node consumers resolve
   compiled `dist/*.js` + `dist/*.d.ts`.
