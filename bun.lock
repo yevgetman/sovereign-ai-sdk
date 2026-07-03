@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "sovereign-ai-harness",
+      "name": "sovereign-ai-sdk",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.110.0",
         "@commander-js/extra-typings": "^12.1.0",
