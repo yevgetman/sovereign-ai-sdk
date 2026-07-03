@@ -8,12 +8,17 @@
     "node": ">=20",
     "bun": ">=1.2.0"
   },
+  "keywords": ["agent", "ai", "llm", "anthropic", "claude", "agent-loop", "tool-use", "mcp", "sdk"],
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
     "directory": "packages/sdk"
   },
-  "files": ["dist", "src", "LICENSE", "README.md"],
+  "homepage": "https://github.com/yevgetman/sovereign-ai-harness/tree/master/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/yevgetman/sovereign-ai-harness/issues"
+  },
+  "files": ["dist", "src", "LICENSE", "README.md", "SECURITY.md"],
   "main": "./dist/sdk.js",
   "types": "./dist/sdk.d.ts",
   "exports": {
@@ -32,7 +37,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.90.0",
+    "@anthropic-ai/sdk": "^0.110.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "picomatch": "^4.0.4",
     "tinyglobby": "^0.2.17",

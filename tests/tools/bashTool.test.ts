@@ -232,6 +232,48 @@ describe('isReadOnlyBashCommand', () => {
     expect(isReadOnlyBashCommand("find . -name '*.ts'")).toBe(true);
     expect(isReadOnlyBashCommand('find . -type f -name "*.md"')).toBe(true);
   });
+
+  // Polish-pass 2026-07-02 — the auto-allow GATE (isReadOnlyBashCommand) was a
+  // SECOND classifier that only deferred `find` to the hardened analyzer; every
+  // other allowlisted command trusted a bare `split(/\s+/)`. So a write/exec
+  // flag or operand on rg/tree/date/hostname auto-approved with NO prompt even
+  // though analyzeShellCommand (the audited path) correctly flagged it. The gate
+  // now defers EVERY allowlisted command to the analyzer. These pin that the
+  // gate and the analyzer agree.
+  test('allowlisted read command with a write/exec flag is NOT read-only (gate↔analyzer parity)', () => {
+    // rg --pre / --hostname-bin run an arbitrary command per file.
+    expect(isReadOnlyBashCommand('rg --pre ./evil.sh pat file')).toBe(false);
+    expect(isReadOnlyBashCommand('echo x | xargs rg --pre ./evil.sh x')).toBe(false);
+    // tree -o / --output writes/truncates a file.
+    expect(isReadOnlyBashCommand('tree -o /tmp/victim.txt .')).toBe(false);
+    // date / hostname set-forms mutate system state.
+    expect(isReadOnlyBashCommand('date 010203042020')).toBe(false);
+    expect(isReadOnlyBashCommand('hostname evilname')).toBe(false);
+    // [N]>&FILE points stdout+stderr at a file (truncate) — the gate's own
+    // segment regex missed this; the analyzer catches it.
+    expect(isReadOnlyBashCommand('cat x >&out')).toBe(false);
+    expect(isReadOnlyBashCommand('cat x 1>&out')).toBe(false);
+    // No regression: the benign read forms of the same commands stay read-only.
+    expect(isReadOnlyBashCommand('rg pattern file')).toBe(true);
+    expect(isReadOnlyBashCommand('tree .')).toBe(true);
+    expect(isReadOnlyBashCommand('date')).toBe(true);
+    expect(isReadOnlyBashCommand('hostname')).toBe(true);
+    expect(isReadOnlyBashCommand('cat x >&2')).toBe(true); // genuine fd-dup
+  });
+
+  // Polish-pass 2026-07-02 (CRITICAL) — ANSI-C `$'…'` quoting escapes
+  // backslashes, so `$'\''` is a literal quote that does NOT close the quote.
+  // The quote tracker in splitShellSegments treated it as POSIX `'…'` and ended
+  // "inside a quote", swallowing every following separator: `cat $'\'';touch X`
+  // collapsed into ONE segment classified read-only by its `cat` head, smuggling
+  // an arbitrary command past the gate with no prompt. Bash runs `touch X`.
+  test("ANSI-C $'…' quoting cannot smuggle a command past the read-only gate (RCE)", () => {
+    expect(isReadOnlyBashCommand("cat $'\\'';touch OWNED")).toBe(false);
+    expect(isReadOnlyBashCommand("cat $'\\'';rm -rf /tmp/x")).toBe(false);
+    expect(isReadOnlyBashCommand("ls $'\\'' && touch OWNED")).toBe(false);
+    // A genuine ANSI-C arg to a read command with no smuggled writer stays read.
+    expect(isReadOnlyBashCommand("grep $'\\t' file")).toBe(true);
+  });
 });
 
 describe('matchesBashPermissionPattern', () => {

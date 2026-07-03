@@ -53,8 +53,13 @@ export const VENDOR_SECRET_PATTERNS: readonly VendorSecretPattern[] = [
   // is forward/backward-compatible (the exact-82 form silently missed a length
   // change; the persistent redactor already used the lenient bound).
   { name: 'github-fine-grained', source: String.raw`\bgithub_pat_[A-Za-z0-9_]{50,}\b` },
-  // AWS access key id: AKIA + 16 base32-ish chars.
-  { name: 'aws-access-key-id', source: String.raw`\bAKIA[0-9A-Z]{16}\b` },
+  // AWS access key id: AKIA (long-term) or ASIA (STS / temporary session creds)
+  // + 16 base32-ish chars. ASIA keys are emitted alongside their session token
+  // by `aws sts …` and EC2/ECS metadata dumps and were previously missed.
+  { name: 'aws-access-key-id', source: String.raw`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b` },
+  // npm access/automation tokens: `npm_` + 36 base62 chars (the common shape in
+  // ~/.npmrc `//registry.npmjs.org/:_authToken=`). 36+ is forward-compatible.
+  { name: 'npm-token', source: String.raw`\bnpm_[A-Za-z0-9]{36,}\b` },
   // Stripe secret keys: sk_ or rk_ (restricted), live or test mode. Underscore
   // form — the OpenAI `sk-` (hyphen) pattern deliberately does NOT match this.
   { name: 'stripe-secret-live', source: String.raw`\b[sr]k_live_[A-Za-z0-9]{16,}\b` },
@@ -133,10 +138,43 @@ export const PROVIDER_KEY_PATTERNS: readonly VendorSecretPattern[] = [
   { name: 'tavily', source: String.raw`\btvly-[a-zA-Z0-9_\-]{16,}\b` },
   // Brave Search API.
   { name: 'brave', source: String.raw`\bBSA[a-zA-Z0-9_\-]{20,}\b` },
-  // Generic bearer token (masks Basic-auth and other schemes' values too). No
-  // trailing `\b`: it matches the `Bearer ` prefix plus the token run.
-  { name: 'bearer', source: String.raw`\bBearer\s+[a-zA-Z0-9_\-\.=]{16,}` },
+  // Generic bearer token. No trailing `\b`: it matches the `Bearer ` prefix plus
+  // the token run. The char class includes `+` and `/` so a STANDARD-base64
+  // (not base64url) opaque token — e.g. `Bearer abc+def/ghi==` — matches; their
+  // omission previously made the whole match fail (the `{16,}` run could not
+  // reach its minimum) and leaked the token entirely.
+  { name: 'bearer', source: String.raw`\bBearer\s+[a-zA-Z0-9_\-\.=+/]{16,}` },
 ];
+
+/**
+ * Authorization-header formats shared by BOTH redactors. These were previously
+ * LOCAL to trajectory/redact.ts, so the tool-input redactor (the sole guard on
+ * file CONTENT an agent writes to disk) missed a `"authorization":"…"` value an
+ * agent could reproduce into a generated file — a one-directional break of the
+ * catalog's "neither redactor can silently miss a token the other catches"
+ * invariant. Hoisted here so both consume the identical set (parity-pinned).
+ *
+ * Compiled case-INSENSITIVELY (RFC 7230 header names are case-insensitive, and
+ * JSON keys are commonly `Authorization`/`authorization`), so these get their
+ * own compile helper rather than the shared `'g'`-only compilers.
+ */
+export const AUTH_HEADER_PATTERNS: readonly VendorSecretPattern[] = [
+  // Plain JSON key: `"authorization":"…"`.
+  { name: 'auth-header', source: String.raw`"authorization"\s*:\s*"[^"]+"` },
+  // Escaped key inside a stringified-JSON value: `\"authorization\":\"…\"` — the
+  // common case when a tool result carries JSON as a string and the whole record
+  // is stringified again before redaction.
+  { name: 'auth-header-escaped', source: String.raw`\\"authorization\\"\s*:\s*\\"[^"\\]+\\"` },
+];
+
+/**
+ * Compile the shared Authorization-header patterns into FRESH global,
+ * case-insensitive RegExp instances (new objects per call — no shared
+ * `lastIndex`).
+ */
+export function compileAuthHeaderPatterns(): Array<{ name: string; regex: RegExp }> {
+  return AUTH_HEADER_PATTERNS.map((p) => ({ name: p.name, regex: new RegExp(p.source, 'gi') }));
+}
 
 /**
  * Compile the shared provider-key patterns into FRESH global RegExp instances.

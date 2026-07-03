@@ -40,12 +40,29 @@ export function repairMissingToolResults(messages: readonly Message[]): Transcri
     insertedToolResults += syntheticResults.length;
     repairedAssistantMessages++;
 
-    if (next?.role === 'user' && nextResults.length > 0) {
-      repaired.push({ role: 'user', content: [...next.content, ...syntheticResults] });
+    if (next?.role === 'user') {
+      // Merge the synthetic tool_result blocks INTO the following user message
+      // and consume it (`i++`). This holds whether or not `next` already carries
+      // tool_results: emitting the synthetics as their own `user` message and
+      // leaving `next` for the following iteration produces TWO consecutive
+      // `user` messages — itself a provider 400 ("roles must alternate"), the
+      // very failure repair exists to prevent. tool_result blocks must LEAD the
+      // user turn that answers the assistant tool_use, so order the merged
+      // content results-first (existing + synthetic), then any non-result
+      // content (e.g. a plain-text turn that arrived after a crash).
+      const existingResults = next.content.filter(isToolResultBlock);
+      const nonResults = next.content.filter((block) => !isToolResultBlock(block));
+      repaired.push({
+        role: 'user',
+        content: [...existingResults, ...syntheticResults, ...nonResults],
+      });
       i++;
       continue;
     }
 
+    // No following user message (transcript ends on the tool_use, or an
+    // assistant message follows) — the synthetics stand alone as the answering
+    // user turn.
     repaired.push({ role: 'user', content: syntheticResults });
   }
 

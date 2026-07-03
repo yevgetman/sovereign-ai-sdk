@@ -47,6 +47,16 @@ const NO_HEADER_BASE_COOLDOWN_SECONDS = 60;
 /** Ceiling for the grown no-header backoff — kept well under an hour so a
  *  burst of header-less 429s can't silently brick the provider. */
 const NO_HEADER_MAX_COOLDOWN_SECONDS = 15 * 60;
+/** Ceiling for a HEADER-derived cooldown. The reset time comes from a
+ *  semi-trusted endpoint (openrouter / self-hosted sov / a proxy); an
+ *  unbounded `retry-after: 999999999` (or an RFC-1123 date years out) would
+ *  write a FAR-FUTURE `exhausted_until` to the shared on-disk `<provider>.json`,
+ *  and every later session's `beforeRequest` would then throw immediately — a
+ *  persistent cross-session DoS until the file is hand-deleted. Cap it at one
+ *  hour: any legitimate sub-hour reset is honored in full, and a longer real
+ *  reset simply causes an earlier retry that re-marks (self-correcting), never a
+ *  permanent brick. The no-header path was already capped for this reason. */
+const HEADER_MAX_COOLDOWN_SECONDS = 60 * 60;
 
 /** Profile-aware default — resolves at construction time so profile-scoped
  *  rate-limit state lands under the right HARNESS_HOME (Phase 10.7). */
@@ -89,7 +99,12 @@ export class RateLimitGuard {
   markRateLimited(headers?: HeaderLike, reason = 'rate limited'): RateLimitState {
     const now = this.now();
     const fromHeaders = resetTimeFromHeaders(headers, now);
-    const exhaustedUntil = fromHeaders ?? now + this.noHeaderCooldownSeconds(now);
+    // Clamp a header-derived reset to a bounded ceiling so a hostile/misconfigured
+    // endpoint can't write a far-future cooldown that bricks the provider across
+    // every session (the no-header path is likewise capped).
+    const cappedFromHeaders =
+      fromHeaders === null ? null : Math.min(fromHeaders, now + HEADER_MAX_COOLDOWN_SECONDS);
+    const exhaustedUntil = cappedFromHeaders ?? now + this.noHeaderCooldownSeconds(now);
     const state = { exhausted_until: exhaustedUntil, reason, detected_at: now };
     if (this.memory) {
       this.memState = state;

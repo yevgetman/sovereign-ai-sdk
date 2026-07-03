@@ -113,7 +113,33 @@ export function replaceMemoryFile(
   return { ok: true, ...readMemoryFile(file, harnessHome, userId) };
 }
 
+/** SECURITY-LOAD-BEARING: `projectId` becomes a filesystem path segment
+ *  (`…/projects/<projectId>/MEMORY.md`). Its preferred source is the bundle
+ *  manifest's `projectId` (resolveProjectScope case 1), which is operator-
+ *  supplied and only string-checked at load — a bundle `index.yaml` with
+ *  `projectId: "../../../tmp/pwned"` would otherwise read/write project memory
+ *  OUTSIDE the memory root (the git/hash sources are already hex, but the guard
+ *  lives at this single path choke point so every caller — read and write — is
+ *  covered, mirroring the `userId` guard in memoryRoot). Rejects path
+ *  separators, the traversal segments `.`/`..`, empty, and NUL; a legitimate
+ *  dotted slug (`acme.web`) is still allowed. */
+function assertSafeProjectId(projectId: string): void {
+  if (
+    projectId.length === 0 ||
+    projectId === '.' ||
+    projectId === '..' ||
+    projectId.includes('/') ||
+    projectId.includes('\\') ||
+    projectId.includes('\0')
+  ) {
+    throw new Error(
+      `invalid project id ${JSON.stringify(projectId)}: must be a single path segment (no path separators, '.', '..', or NUL)`,
+    );
+  }
+}
+
 export function projectMemoryPath(harnessHome: string, projectId: string, userId?: string): string {
+  assertSafeProjectId(projectId);
   return join(memoryRoot(harnessHome, userId), PROJECT_DIR_NAME, projectId, PROJECT_MEMORY_FILE);
 }
 

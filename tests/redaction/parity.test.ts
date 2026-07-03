@@ -16,6 +16,7 @@
 import { describe, expect, test } from 'bun:test';
 import { redactSecrets } from '@yevgetman/sov-sdk/permissions/secretRedactor';
 import {
+  AUTH_HEADER_PATTERNS,
   PROVIDER_KEY_PATTERNS,
   VENDOR_SECRET_PATTERNS,
 } from '@yevgetman/sov-sdk/redaction/secretPatterns';
@@ -27,6 +28,7 @@ const SHARED_SAMPLES: Record<string, string> = {
   'github-oauth': `gho_${'A'.repeat(36)}`,
   'github-fine-grained': `github_pat_${'A'.repeat(82)}`,
   'aws-access-key-id': 'AKIAIOSFODNN7EXAMPLE',
+  'npm-token': `npm_${'a'.repeat(36)}`,
   'stripe-secret-live': `sk_live_${'a'.repeat(24)}`,
   'stripe-secret-test': `sk_test_${'a'.repeat(24)}`,
   'stripe-publishable': `pk_live_${'a'.repeat(24)}`,
@@ -42,6 +44,10 @@ const SHARED_SAMPLES: Record<string, string> = {
   tavily: `tvly-${'a'.repeat(20)}`,
   brave: `BSA${'a'.repeat(24)}`,
   bearer: `Bearer ${'a'.repeat(24)}`,
+  // Authorization-header JSON forms — shared so BOTH redactors catch a
+  // `"authorization":"…"` value (previously the write-guard missed it).
+  'auth-header': '"authorization":"Bearer someLongOpaqueTokenValue123"',
+  'auth-header-escaped': '\\"authorization\\":\\"Basic dXNlcjpwYXNzd29yZA==\\"',
 };
 
 // jwt + private-key-block are known to BOTH redactors but are NOT part of the
@@ -56,7 +62,11 @@ const EXTRA_SAMPLES: Record<string, string> = {
 const CORPUS: Record<string, string> = { ...SHARED_SAMPLES, ...EXTRA_SAMPLES };
 
 describe('secret-redactor parity (audit E3 — bidirectional, drift-proof)', () => {
-  const sharedNames = [...VENDOR_SECRET_PATTERNS, ...PROVIDER_KEY_PATTERNS].map((p) => p.name);
+  const sharedNames = [
+    ...VENDOR_SECRET_PATTERNS,
+    ...PROVIDER_KEY_PATTERNS,
+    ...AUTH_HEADER_PATTERNS,
+  ].map((p) => p.name);
 
   test('every shared catalog pattern has a parity sample (no silent drift)', () => {
     for (const name of sharedNames) {

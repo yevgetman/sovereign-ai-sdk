@@ -990,6 +990,13 @@ export function splitShellSegments(command: string, opts?: SplitShellSegmentsOpt
   let current = '';
   let inSingle = false;
   let inDouble = false;
+  // ANSI-C `$'…'` quoting is DISTINCT from POSIX `'…'`: backslash is an ESCAPE
+  // inside it, so `$'\''` is a single literal quote that does NOT close the
+  // quote. A POSIX-only tracker toggles `inSingle` on that inner `'` and ends
+  // the command still "inside a quote", swallowing every following separator —
+  // `cat $'\'';touch OWNED` collapsed into ONE segment classified by its read
+  // leading command, smuggling an arbitrary command past the read-only gate.
+  let inAnsiC = false;
   let escaped = false;
 
   const flush = () => {
@@ -1006,25 +1013,45 @@ export function splitShellSegments(command: string, opts?: SplitShellSegmentsOpt
       continue;
     }
 
+    // Backslash escapes the next char everywhere EXCEPT inside POSIX single
+    // quotes. Inside ANSI-C `$'…'` it escapes (that is the whole point of
+    // `$'\''`); `!inSingle` already permits that since ANSI-C is tracked
+    // separately from `inSingle`.
     if (ch === '\\' && !inSingle) {
       escaped = true;
       current += ch;
       continue;
     }
 
-    if (ch === "'" && !inDouble) {
+    // ANSI-C opener `$'`: only outside an existing quote. Consume both chars so
+    // the inner `'`/`\'` are governed by ANSI-C rules, not POSIX single quotes.
+    if (ch === '$' && command[i + 1] === "'" && !inSingle && !inDouble && !inAnsiC) {
+      inAnsiC = true;
+      current += ch;
+      current += "'";
+      i++;
+      continue;
+    }
+
+    if (ch === "'" && inAnsiC) {
+      inAnsiC = false;
+      current += ch;
+      continue;
+    }
+
+    if (ch === "'" && !inDouble && !inAnsiC) {
       inSingle = !inSingle;
       current += ch;
       continue;
     }
 
-    if (ch === '"' && !inSingle) {
+    if (ch === '"' && !inSingle && !inAnsiC) {
       inDouble = !inDouble;
       current += ch;
       continue;
     }
 
-    if (!inSingle && !inDouble) {
+    if (!inSingle && !inDouble && !inAnsiC) {
       if (ch === ';' || ch === '\n' || ch === '\r') {
         flush();
         continue;
@@ -1102,9 +1129,16 @@ function tokenizeSegment(segment: string): TokenizeResult {
   let current = '';
   let inSingle = false;
   let inDouble = false;
+  // See splitShellSegments: `$'…'` ANSI-C quoting escapes backslashes, so `\'`
+  // is a literal quote that must NOT toggle the POSIX single-quote state.
+  // Tracked separately here too so a token boundary (whitespace) inside a read
+  // command's ANSI-C arg can't be miscounted.
+  let inAnsiC = false;
   let escaped = false;
 
-  for (const ch of cleaned) {
+  const chars = [...cleaned];
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i] ?? '';
     if (escaped) {
       current += ch;
       escaped = false;
@@ -1114,15 +1148,24 @@ function tokenizeSegment(segment: string): TokenizeResult {
       escaped = true;
       continue;
     }
-    if (ch === "'" && !inDouble) {
+    if (ch === '$' && chars[i + 1] === "'" && !inSingle && !inDouble && !inAnsiC) {
+      inAnsiC = true;
+      i++;
+      continue;
+    }
+    if (ch === "'" && inAnsiC) {
+      inAnsiC = false;
+      continue;
+    }
+    if (ch === "'" && !inDouble && !inAnsiC) {
       inSingle = !inSingle;
       continue;
     }
-    if (ch === '"' && !inSingle) {
+    if (ch === '"' && !inSingle && !inAnsiC) {
       inDouble = !inDouble;
       continue;
     }
-    if (/\s/.test(ch) && !inSingle && !inDouble) {
+    if (/\s/.test(ch) && !inSingle && !inDouble && !inAnsiC) {
       if (current) tokens.push(current);
       current = '';
       continue;

@@ -34,6 +34,10 @@ import type {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_STDIO_BYTES = 1_000_000;
+/** Grace period after the SIGTERM deadline before escalating to SIGKILL for a
+ *  hook child that ignores/traps SIGTERM. Keeps a well-behaved hook's own
+ *  cleanup window intact while guaranteeing the turn cannot hang forever. */
+const KILL_GRACE_MS = 2_000;
 
 export type BuildHookRunnerOpts = {
   /** Hooks indexed by event name. Multiple HookConfig entries may register
@@ -197,6 +201,8 @@ async function runOne(
 
   const timeoutMs = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const timeoutCtl = new AbortController();
+  // Graceful stop first: at the deadline the abort signal makes
+  // node:child_process SIGTERM the child.
   const timer = setTimeout(() => timeoutCtl.abort(), timeoutMs);
   const signal = opts.signal
     ? AbortSignal.any([opts.signal, timeoutCtl.signal])
@@ -219,7 +225,21 @@ async function runOne(
     };
   }
 
-  try {
+  // Hard backstop against a hook that TRAPS/ignores SIGTERM. The abort above
+  // only SIGTERMs at the deadline; a `trap '' TERM; sleep inf` hook ignores it,
+  // and SIGKILLing the direct child does NOT guarantee its stdio pipes close —
+  // an orphaned grandchild (`sleep`) inherits and holds the write end, so
+  // `readCapped` would never see EOF. Rather than wait on the streams, RACE the
+  // whole read against a hard deadline: on timeout, SIGKILL best-effort and
+  // return a soft-fail immediately so the turn can never hang past
+  // `timeout + KILL_GRACE_MS`, regardless of orphaned descendants.
+  const hardDeadlineMs = timeoutMs + KILL_GRACE_MS;
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    hardTimer = setTimeout(() => resolve('timeout'), hardDeadlineMs);
+  });
+
+  const readWork = (async (): Promise<RunOneResult> => {
     // Write payload to stdin (FileSink-style write/end surface on SpawnedProc).
     proc.stdin.write(JSON.stringify(payload));
     proc.stdin.end();
@@ -239,16 +259,34 @@ async function runOne(
         // Invalid JSON → no parsed output. Caller treats as no-op when exit 0.
       }
     }
-
     return { exitCode, stderr, ...(parsed ? { parsed } : {}) };
-  } catch (err) {
-    return {
+  })().catch(
+    (err): RunOneResult => ({
       exitCode: -1,
       stderr: '',
       spawnError: err instanceof Error ? err : new Error(String(err)),
-    };
+    }),
+  );
+
+  try {
+    const outcome = await Promise.race([readWork, timedOut]);
+    if (outcome === 'timeout') {
+      try {
+        proc.kill(9); // SIGKILL — uncatchable (best-effort; may already be gone)
+      } catch {
+        // ignore — the process may have exited between the deadline and here
+      }
+      // Soft-fail (exitCode !== 0/2 → the runner treats it as a no-op, never a
+      // block). Surface an actionable stderr the runner logs.
+      return {
+        exitCode: -1,
+        stderr: `hook timed out after ${timeoutMs}ms and was killed: ${spec.command}`,
+      };
+    }
+    return outcome;
   } finally {
     clearTimeout(timer);
+    if (hardTimer !== undefined) clearTimeout(hardTimer);
   }
 }
 

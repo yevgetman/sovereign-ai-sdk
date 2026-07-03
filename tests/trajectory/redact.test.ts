@@ -40,6 +40,33 @@ describe('redactForce', () => {
     expect(redactForce('AKIAIOSFODNN7EXAMPLE')).toContain('[REDACTED]');
   });
 
+  // Polish-pass 2026-07-02 — coverage additions the exhaustive audit missed.
+  test('redacts AWS STS temporary access key ids (ASIA…)', () => {
+    const asia = 'ASIAY34FZKBOKMUTVV7A';
+    expect(redactForce(asia)).not.toContain(asia);
+    expect(redactForce(asia)).toContain('[REDACTED]');
+  });
+
+  test('redacts npm access/automation tokens (npm_…)', () => {
+    const tok = `npm_${'a'.repeat(36)}`;
+    expect(redactForce(`//registry.npmjs.org/:_authToken=${tok}`)).not.toContain(tok);
+    expect(redactForce(tok)).toContain('[REDACTED]');
+  });
+
+  test('redacts a standard-base64 Bearer token (contains + and /)', () => {
+    // The `+`/`/` chars previously fell outside the token class, making the whole
+    // Bearer match fail and leaking the token entirely.
+    const tok = 'Bearer abc+def/ghij0123456789KLMN==';
+    expect(redactForce(tok)).not.toContain('abc+def/ghij0123456789KLMN');
+    expect(redactForce(tok)).toContain('[REDACTED]');
+  });
+
+  test('redacts a wire-form Authorization: Basic header (archive-only)', () => {
+    const line = 'Authorization: Basic dXNlcjpwYXNzd29yZA==';
+    expect(redactForce(line)).not.toContain('dXNlcjpwYXNzd29yZA==');
+    expect(redactForce(line)).toContain('[REDACTED]');
+  });
+
   test('redacts bearer tokens in Authorization headers', () => {
     expect(redactForce('Authorization: Bearer abc.def.ghi-jkl_MNO1234567')).toContain('[REDACTED]');
   });

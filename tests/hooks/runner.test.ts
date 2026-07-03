@@ -102,6 +102,35 @@ describe('hook runner', () => {
     expect(logged.some((m) => m.includes('boom'))).toBe(true);
   });
 
+  // Polish-pass 2026-07-02 (MEDIUM) — a hook that TRAPS/ignores SIGTERM must
+  // not hang the turn forever. The runner SIGTERMs at the deadline, then
+  // escalates to SIGKILL after a grace window so `proc.exited` + the stdio
+  // reads always settle. The hook here ignores TERM and sleeps 30s with a
+  // 300ms configured timeout; the run must still resolve (soft-fail, no block).
+  test('a SIGTERM-ignoring hook is SIGKILLed and does not hang the turn', async () => {
+    const path = writeHook('trap-term.sh', "trap '' TERM\nsleep 30");
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('PreToolUse', [
+        { hooks: [{ type: 'command', command: path, timeout: 300 }] },
+      ]),
+      consent: allowAll,
+      logStderr: () => {},
+    });
+    const started = performance.now();
+    const result = await run('PreToolUse', {
+      hookEventName: 'PreToolUse',
+      session_id: 's',
+      cwd: workDir,
+      tool_name: 'Bash',
+      tool_input: {},
+    });
+    const elapsed = performance.now() - started;
+    // Resolved well before the hook's own 30s sleep — the SIGKILL backstop
+    // (300ms deadline + 2s grace) unblocked it.
+    expect(elapsed).toBeLessThan(10_000);
+    expect(result.block).toBe(false);
+  }, 15_000);
+
   test('PreToolUse: permissionDecision deny blocks with reason', async () => {
     const path = writeHook('deny.sh', 'echo \'{"permissionDecision":"deny","reason":"no Bash"}\'');
     const run = buildHookRunner({

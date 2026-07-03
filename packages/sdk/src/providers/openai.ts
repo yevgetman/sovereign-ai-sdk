@@ -396,7 +396,9 @@ export function messagesToOpenAI(
   return out;
 }
 
-async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<OpenAIChatChunk> {
+// Exported for direct unit testing of the malformed-line tolerance (deep
+// internal subpath; not part of the frozen SDK barrel / semver surface).
+export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<OpenAIChatChunk> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -412,7 +414,18 @@ async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<OpenA
       if (!trimmed.startsWith('data:')) continue;
       const payload = trimmed.slice('data:'.length).trim();
       if (payload === '[DONE]') return;
-      if (payload.length > 0) yield JSON.parse(payload) as OpenAIChatChunk;
+      if (payload.length === 0) continue;
+      // A single malformed `data:` line from a non-conformant OpenAI-compatible
+      // endpoint or proxy must NOT abort the whole turn with a raw SyntaxError
+      // (this path serves openai/openrouter/sov). Skip the unparseable chunk and
+      // keep streaming — mirrors the defensive parse in parseToolArgs below.
+      let chunk: OpenAIChatChunk;
+      try {
+        chunk = JSON.parse(payload) as OpenAIChatChunk;
+      } catch {
+        continue;
+      }
+      yield chunk;
     }
   }
 }

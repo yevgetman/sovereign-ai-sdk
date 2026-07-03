@@ -44,7 +44,7 @@
     "postinstall": "bun run scripts/build-tui.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.90.0",
+    "@anthropic-ai/sdk": "^0.110.0",
     "@commander-js/extra-typings": "^12.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@yevgetman/sov-protocol": "workspace:*",

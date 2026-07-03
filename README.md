@@ -225,4 +225,19 @@ The **open/proprietary boundary** is machine-enforced: a file-level import check
 
 ## License
 
-Private. All rights reserved.
+This repository is **source-available with a mixed license** — it is not, as a
+whole, open source.
+
+- **Open (MIT).** Two packages are released under the MIT License and are the
+  open-core surface: [`packages/sdk`](packages/sdk) (`@yevgetman/sov-sdk`) and
+  [`packages/protocol`](packages/protocol) (`@yevgetman/sov-protocol`). Each
+  carries its own MIT `LICENSE` file, which governs that package.
+- **Proprietary (all rights reserved).** Everything else in this repository —
+  the root wrapper (`@yevgetman/sov`, `package.json` marked `UNLICENSED` /
+  `private`), all of `src/`, docs, tests, and every other file — is **© Gene
+  Getman, all rights reserved**. It is published for reference and transparency
+  only; no license to use, copy, modify, or redistribute it is granted.
+
+The machine-enforced open→proprietary boundary described above keeps the MIT
+packages free of any proprietary import, so the two published tarballs are fully
+self-contained under MIT.

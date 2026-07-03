@@ -94,6 +94,22 @@ describe('per-project memory paths', () => {
     expect(projectMemoryPath(home, 'abc123')).toBe(
       join(home, 'memory', 'projects', 'abc123', 'MEMORY.md'),
     );
+    // A legitimate dotted slug is still a valid single segment.
+    expect(projectMemoryPath(home, 'acme.web')).toBe(
+      join(home, 'memory', 'projects', 'acme.web', 'MEMORY.md'),
+    );
+  });
+
+  // Polish-pass 2026-07-02 (MEDIUM) — projectId becomes a path segment and its
+  // preferred source (bundle manifest) is operator-supplied and only string-
+  // checked. A traversal id must be rejected before it can escape the memory
+  // root, on BOTH the read and write paths (both go through projectMemoryPath).
+  test('projectMemoryPath rejects a path-traversal projectId', () => {
+    for (const bad of ['../../../../tmp/pwned', '..', '.', 'a/b', 'a\\b', 'x\0y', '']) {
+      expect(() => projectMemoryPath(home, bad)).toThrow(/invalid project id/);
+      expect(() => readProjectMemoryFile(bad, home)).toThrow(/invalid project id/);
+      expect(() => replaceProjectMemoryFile(bad, '# x\n', home)).toThrow(/invalid project id/);
+    }
   });
 
   test('readProjectMemoryFile returns empty content when file does not exist', () => {
