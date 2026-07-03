@@ -84,13 +84,13 @@ describe('POST /sessions/:id/turns records token usage (M7 follow-up)', () => {
     }
   });
 
-  test('tool-use turn records the LATEST usage_delta (last writer wins)', async () => {
+  test('tool-use turn records the SUM of all provider calls (T5 — F1 fix)', async () => {
     // streamToolUse emits two usage_delta events across the two model calls:
     //   call 1 (preamble + tool_use):    { inputTokens: 0, outputTokens: 5 }
     //   call 2 (final "done."):          { inputTokens: 0, outputTokens: 1 }
-    // recordTokenUsage fires ONCE per runOnce, so the total ends up at
-    // 1 — the LAST stream's usage overwrites latestUsage before runOnce
-    // returns.
+    // The SDK usage accumulator sums the per-call finals, so the recorded
+    // total is 5 + 1 = 6. Pre-T5 this was last-writer-wins (recorded 1) —
+    // the multi-call turn undercount this feature exists to fix.
     MockProvider.toolUseMode = true;
     const runtime = await buildRuntime({
       cwd: tmpHome,
@@ -116,8 +116,8 @@ describe('POST /sessions/:id/turns records token usage (M7 follow-up)', () => {
       await eventsRes.text();
 
       const cost = runtime.sessionDb.getSessionCost(sessionId);
-      // Last writer wins across the two model calls within one runOnce.
-      expect(cost.outputTokens).toBe(1);
+      // Summed across the two model calls within one runOnce (5 + 1).
+      expect(cost.outputTokens).toBe(6);
       expect(cost.inputTokens).toBe(0);
     } finally {
       await runtime.dispose();

@@ -20,6 +20,7 @@
 // once when the generator returns — as the turn boundary.
 
 import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol';
+import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetman/sov-sdk';
 import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
   appendProjectLocalPermissionRule,
@@ -33,7 +34,6 @@ import type {
   Message,
   StreamEvent,
   Terminal,
-  TokenUsage,
 } from '@yevgetman/sov-sdk/core/types';
 import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
 import { wrapCanUseToolWithTransformers } from '@yevgetman/sov-sdk/permissions/inputTransformer';
@@ -544,29 +544,39 @@ async function runTurnInBackground(
   };
   let messages: Message[] = hydrate();
 
-  // M7 follow-up — track the most recent `usage_delta` emitted by the
-  // provider stream across runOnce invocations so the final assistant
-  // response's token counts get recorded against the CURRENT sessionId
-  // after each model run. This is the only wiring that populates the
-  // sessionDb cost table. Without this, sessionDb.getSessionCost (read
-  // at disposal time by disposeSessionContext) always returns zero and
-  // every trajectory ships with estimatedCostUsd: 0 — caught by the
-  // autonomous smoke test against real Anthropic Haiku 4.5.
+  // Usage telemetry (T5 / F1). A tool-loop turn makes N provider calls; the
+  // pre-T5 wiring tracked only the LAST call's `usage_delta` (last-writer-wins),
+  // so every multi-call turn under-recorded and under-reported its tokens/cost.
+  // We now fold the provider's usage stream through the SDK's PUBLIC accumulator
+  // (`createUsageAccumulator`/`accumulateUsage`/`finalizeUsage`) — the exact
+  // summed per-call semantics `createAgent` uses (W1). Two accumulators, both
+  // fed from the SAME StreamEvent stream the loop already consumes:
+  //
+  //   - `hopUsageAcc` — RESET before each runOnce. Its per-hop final drives
+  //     `sessionDb.recordTokenUsage` under the sessionId THAT hop ran as, so
+  //     the parent/child compaction-hop attribution is preserved exactly as the
+  //     old recordUsageIfPresent did (hop1 → parent id, hop2 → child id). This
+  //     is the only wiring that populates the sessionDb cost table (read at
+  //     disposal by disposeSessionContext); without it every trajectory ships
+  //     estimatedCostUsd: 0 — caught by the autonomous smoke against real Haiku.
+  //   - `turnUsageAcc` — NOT reset across hops. It yields the TURN TOTAL
+  //     (hop1 + hop2 when overflow recovery fires) for the wire fields
+  //     (status_update tokens/cost/cacheHitRate + turn_complete.usage).
   //
   // Declared OUTSIDE runOnce because the recovery branch creates a SECOND
-  // runOnce invocation (after the overflow-driven compaction hop) — the
-  // outer scope keeps the helper closure-stable across both calls. Each
-  // runOnce resets it to undefined before iterating so a stale parent-turn
-  // usage never gets re-recorded against the post-recovery child session.
-  let latestUsage: TokenUsage | undefined;
-  const recordUsageIfPresent = (currentSessionId: string): void => {
-    if (latestUsage !== undefined) {
-      const cost = estimateCostUsd(
-        runtime.resolvedProvider.transport.name,
-        runtime.model,
-        latestUsage,
-      );
-      runtime.sessionDb.recordTokenUsage(currentSessionId, latestUsage, cost);
+  // runOnce invocation (after the overflow-driven compaction hop) — the outer
+  // lets keep both accumulators stable across the two calls. `accumulateUsage`
+  // folds message_start/message_stop/usage_delta and ignores everything else,
+  // so feeding it the whole stream is safe; `finalizeUsage` returns undefined
+  // when no usage_delta ever arrived, so `recordTokenUsage` stays skipped and
+  // the wire fields stay absent exactly as before on a no-usage turn.
+  let hopUsageAcc = createUsageAccumulator();
+  let turnUsageAcc = createUsageAccumulator();
+  const recordHopUsage = (currentSessionId: string): void => {
+    const usage = finalizeUsage(hopUsageAcc);
+    if (usage !== undefined) {
+      const cost = estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, usage);
+      runtime.sessionDb.recordTokenUsage(currentSessionId, usage, cost);
     }
   };
 
@@ -859,6 +869,15 @@ async function runTurnInBackground(
         // be projected onto the wire as `tool_use_start` / `tool_use_done`
         // pairs. Everything else flows through mapStreamEventToServerEvent.
         const streamEvent = event;
+        // Usage telemetry (T5) — fold EVERY StreamEvent into both accumulators.
+        // accumulateUsage acts only on message_start / message_stop / usage_delta
+        // (the per-call boundaries + the usage payload) and returns the input
+        // state unchanged for everything else, so feeding it the whole stream is
+        // safe. This replaces the old last-writer-wins `latestUsage` capture:
+        // `hopUsageAcc` sums THIS hop's calls (→ sessionDb), `turnUsageAcc` sums
+        // ALL calls across the turn's hops (→ the wire).
+        hopUsageAcc = accumulateUsage(hopUsageAcc, streamEvent);
+        turnUsageAcc = accumulateUsage(turnUsageAcc, streamEvent);
         if (streamEvent.type === 'assistant_message') {
           handleAssistantMessage(
             streamEvent.message,
@@ -872,32 +891,22 @@ async function runTurnInBackground(
           );
           continue;
         }
-        // M7 follow-up — capture the most recent usage_delta so
-        // recordUsageIfPresent below can populate the sessionDb cost
-        // table against the current sessionId. Last writer wins: only
-        // the final model response's usage matters for the per-turn
-        // cost record (the stream-loop usage-capture half of the
-        // recordTokenUsage call site).
-        if (streamEvent.type === 'usage_delta') {
-          latestUsage = streamEvent.usage;
-        }
         const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
         if (mapped !== null) bus.publish(mapped);
       }
     };
 
-    // Reset latestUsage before each runOnce so a stale usage from a prior
-    // model call never gets re-attributed. The mock provider's tool-use
-    // path only emits one usage_delta per call so this is belt-and-suspenders
-    // on the test surface; the real Anthropic transport emits one per response
-    // and the recovery branch below reassigns sessionId before the second
-    // runOnce — without this reset, the first call's usage would silently
-    // get re-recorded under the post-recovery child id.
-    latestUsage = undefined;
+    // Reset the PER-HOP accumulator before each runOnce so this hop's
+    // sessionDb record carries only its own calls' usage. The recovery branch
+    // below reassigns sessionId before the second runOnce — without this reset,
+    // the first hop's usage would be re-recorded under the post-recovery child
+    // id. `turnUsageAcc` is deliberately NOT reset here: it spans both hops to
+    // produce the summed turn total for the wire.
+    hopUsageAcc = createUsageAccumulator();
     let terminal = await runOnce(messages);
-    // Persist this runOnce's usage against the sessionId it ran under
-    // (still the parent here; the recovery branch reassigns AFTER this).
-    recordUsageIfPresent(sessionId);
+    // Record this hop's usage against the sessionId it ran under (still the
+    // parent here; the recovery branch reassigns AFTER this).
+    recordHopUsage(sessionId);
 
     // Overflow recovery path (retry-once). query() captures provider
     // exceptions into Terminal { reason: 'error', error } at
@@ -954,14 +963,14 @@ async function runTurnInBackground(
       // events land in the child's trace file rather than the parent's.
       sessionCtx = runtime.getSessionContext(sessionId);
       messages = hydrate();
-      // M7 follow-up — clear the first runOnce's usage before the retry so
-      // the second runOnce starts fresh. recordUsageIfPresent already fired
-      // against the parent sessionId above, so the parent's row is safe;
-      // the retry's usage will record below against the post-compaction
-      // child sessionId.
-      latestUsage = undefined;
+      // Reset the PER-HOP accumulator before the retry so the second runOnce
+      // starts fresh. recordHopUsage already fired against the parent sessionId
+      // above (the parent's row is safe); the retry's usage records below
+      // against the post-compaction child sessionId. `turnUsageAcc` carries
+      // over from hop1 so the wire total sums both hops.
+      hopUsageAcc = createUsageAccumulator();
       terminal = await runOnce(messages);
-      recordUsageIfPresent(sessionId);
+      recordHopUsage(sessionId);
       // M6-02 retry-once: if the retry's terminal also carries an overflow
       // error, surface it as turn_error rather than turn_complete (the
       // post-recovery overflow is a distinct failure surface — "compaction
@@ -1000,15 +1009,18 @@ async function runTurnInBackground(
     if (terminal && terminal.reason !== 'completed' && terminal.reason !== 'max_turns') {
       sessionCtx.trajectoryMetadata.terminalReason = terminal.reason;
     }
-    // M9 T10 — final status_update flushes the spinner off, plus a live
-    // cost/tokens snapshot if usage_delta captured something during the
-    // stream. The TUI reads `streaming: false` as the stop signal. Cost is
-    // estimated against the resolved provider so the final cost field
+    // M9 T10 + T5 — final status_update flushes the spinner off, plus a live
+    // cost/tokens snapshot of the TURN TOTAL. The TUI reads `streaming: false`
+    // as the stop signal. `turnUsageAcc` summed EVERY provider call across the
+    // turn's hops (the F1 fix — the pre-T5 snapshot reported only the last
+    // call). `finalizeUsage` returns undefined when the turn reported no usage
+    // at all, so a no-usage turn stays byte-compatible (no tokens/cost fields).
+    // Cost is estimated against the resolved provider so the final cost field
     // matches what disposeSessionContext's session_summary will report.
-    const finalUsage = latestUsage as TokenUsage | undefined;
-    const finalCost =
-      finalUsage !== undefined
-        ? estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, finalUsage)
+    const turnUsage = finalizeUsage(turnUsageAcc);
+    const turnCost =
+      turnUsage !== undefined
+        ? estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, turnUsage)
         : undefined;
     const finalStatusEvent: {
       type: 'status_update';
@@ -1018,30 +1030,73 @@ async function runTurnInBackground(
       tokensIn?: number;
       tokensOut?: number;
       cost?: number;
+      cacheHitRate?: number;
     } = {
       type: 'status_update',
       seq: bus.nextSeq(),
       sessionId,
       streaming: false,
     };
-    if (finalUsage !== undefined) {
-      if (finalUsage.inputTokens !== undefined) {
-        finalStatusEvent.tokensIn = finalUsage.inputTokens;
+    if (turnUsage !== undefined) {
+      if (turnUsage.inputTokens !== undefined) {
+        finalStatusEvent.tokensIn = turnUsage.inputTokens;
       }
-      if (finalUsage.outputTokens !== undefined) {
-        finalStatusEvent.tokensOut = finalUsage.outputTokens;
+      if (turnUsage.outputTokens !== undefined) {
+        finalStatusEvent.tokensOut = turnUsage.outputTokens;
+      }
+      // cacheHitRate = cacheRead / (input + cacheRead + cacheCreation), reported
+      // ONLY when the provider surfaced cache phase fields and the denominator is
+      // positive. Rounded to 4 decimals — the field was never set before T5, so
+      // no consumer depends on a particular precision.
+      const cacheRead = turnUsage.cacheReadInputTokens;
+      const cacheCreation = turnUsage.cacheCreationInputTokens;
+      if (cacheRead !== undefined || cacheCreation !== undefined) {
+        const denom = (turnUsage.inputTokens ?? 0) + (cacheRead ?? 0) + (cacheCreation ?? 0);
+        if (denom > 0) {
+          finalStatusEvent.cacheHitRate = Math.round(((cacheRead ?? 0) / denom) * 10000) / 10000;
+        }
       }
     }
-    if (finalCost !== undefined) {
-      finalStatusEvent.cost = finalCost;
+    if (turnCost !== undefined) {
+      finalStatusEvent.cost = turnCost;
     }
     bus.publish(finalStatusEvent);
-    bus.publish({
+    // turn_complete carries the phase-broken turn total in the protocol's
+    // snake_case shape (F3). input_tokens/output_tokens are REQUIRED by the
+    // shape, so default to 0 when only partially reported; the two cache fields
+    // ride a conditional spread so they stay absent unless the provider
+    // reported them. The whole `usage` field is omitted when the turn reported
+    // no usage (byte-compatible with the pre-T5 wire).
+    const turnCompleteEvent: {
+      type: 'turn_complete';
+      seq: number;
+      sessionId: string;
+      finishReason: string;
+      usage?: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
+    } = {
       type: 'turn_complete',
       seq: bus.nextSeq(),
       sessionId,
       finishReason: mapTerminalReason(terminal),
-    });
+    };
+    if (turnUsage !== undefined) {
+      turnCompleteEvent.usage = {
+        input_tokens: turnUsage.inputTokens ?? 0,
+        output_tokens: turnUsage.outputTokens ?? 0,
+        ...(turnUsage.cacheCreationInputTokens !== undefined
+          ? { cache_creation_input_tokens: turnUsage.cacheCreationInputTokens }
+          : {}),
+        ...(turnUsage.cacheReadInputTokens !== undefined
+          ? { cache_read_input_tokens: turnUsage.cacheReadInputTokens }
+          : {}),
+      };
+    }
+    bus.publish(turnCompleteEvent);
   } catch (err) {
     // Whole-branch review I2 — record terminal reason on the SessionContext
     // so disposal routes this trajectory into failed.jsonl (the trajectory
