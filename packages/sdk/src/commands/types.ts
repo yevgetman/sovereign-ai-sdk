@@ -153,7 +153,8 @@ export type CommandContext = {
   getCost: () => SessionCost;
   compact: () => Promise<CompactResult>;
   rollback: () => Promise<string>;
-  tools: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  tools: Tool<any, any>[];
   registry: CommandRegistry;
   /** Recent sessions, newest-first. Used by /resume. */
   listSessions: (limit?: number) => SessionListEntry[];

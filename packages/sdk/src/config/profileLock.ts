@@ -11,6 +11,7 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { SECURE_DIR_MODE, SECURE_FILE_MODE, chmodSafe } from '../util/secureFs.js';
 import { resolveHarnessHome } from './paths.js';
 
 const LOCK_DIR_NAME = '.sov.lock';
@@ -51,7 +52,12 @@ export function tryAcquireLock(home: string = resolveHarnessHome()): LockHandle 
     }
     if (!attemptMkdir(lockDir)) return null;
   }
-  writeFileSync(join(lockDir, PID_FILE_NAME), `${process.pid}\n`, 'utf8');
+  // Lock lives under HARNESS_HOME (0700), but keep it owner-only in its own
+  // right (audit C6 sweep): the mkdir sets 0700 (see attemptMkdir) and the pid
+  // file is 0600.
+  const pidPath = join(lockDir, PID_FILE_NAME);
+  writeFileSync(pidPath, `${process.pid}\n`, { encoding: 'utf8', mode: SECURE_FILE_MODE });
+  chmodSafe(pidPath, SECURE_FILE_MODE);
   return {
     path: lockDir,
     release: () => {
@@ -97,7 +103,11 @@ export function readLockInfo(home: string = resolveHarnessHome()): LockInfo {
 
 function attemptMkdir(path: string): boolean {
   try {
-    mkdirSync(path);
+    // Non-recursive mkdir is the atomic exclusive primitive (throws EEXIST when
+    // the lock is held). The 0700 mode keeps the lock dir owner-only; re-tighten
+    // defensively since the create mode is umask-masked (audit C6 sweep).
+    mkdirSync(path, { mode: SECURE_DIR_MODE });
+    chmodSafe(path, SECURE_DIR_MODE);
     return true;
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;

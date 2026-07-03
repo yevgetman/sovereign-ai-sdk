@@ -16,22 +16,34 @@
 // the compiled binary's user-facing `--version` comes from wrapperVersion.ts,
 // which keeps its build-time JSON import precisely for that mode.
 //
-// Backlog #37: also resolves the git short SHA at module load and
-// appends it as a pre-release suffix (e.g. `0.1.0-a89b03c`). Two
-// resolvers, tried in order, covering both deployment modes:
+// SHA suffix — DETERMINISTIC, NO RUNTIME GIT (audit E2/E4, backlog #37):
+// the version may carry the SDK's own git short SHA as a pre-release suffix
+// (e.g. `0.1.0-a89b03c`) from EXACTLY ONE source — the SDK's OWN `.bun-tag`
+// file. When Bun installs a package from a git source (`bun install -g
+// git+ssh://…`) it writes the resolved full SHA of the SDK ITSELF to
+// `<package-root>/.bun-tag`; that file is the SDK describing its OWN revision,
+// so it is unambiguous and trusted without any repo walk.
 //
-//   1. `.bun-tag` (preferred for source-mode global installs). When Bun
-//      installs a package from a git source (`bun install -g
-//      git+ssh://…`), it writes the resolved full SHA to
-//      `<install-root>/.bun-tag` and does NOT ship a `.git/` directory.
-//   2. `git rev-parse --short HEAD` (fallback for dev `bun link` or
-//      local working-tree runs).
+// Everything else reports the bare package.json version (`0.1.0`) with NO git
+// subprocess and NO SHA suffix. Earlier revisions ALSO ran a `git` subprocess to
+// resolve the short HEAD and tried to prove, via path heuristics, that the
+// enclosing git worktree was the SDK's own — but every heuristic
+// (not-under-node_modules, toplevel-equals-packageRoot, workspace-member,
+// canonical `packages/sdk` path) was spoofable by a common consumer layout,
+// leaking the CONSUMER's private HEAD over the wire (mcp/client) and onto disk
+// (transcript/writer). The class is now closed BY ELIMINATION: this module no
+// longer imports a subprocess API at all, so no layout —
+// npm install, source vendoring at any path (INCLUDING the canonical
+// `packages/sdk`), a workspace member, or a dev checkout — can emit a foreign
+// SHA, because there is no repo to resolve. The only cost is that a dev working
+// in the SDK's own checkout no longer gets a live `-<sha>` suffix; that is the
+// accepted trade (and was the original recommendation). A release build that
+// WANTS an embedded SHA can inject it at build time (e.g. `bun build --define`)
+// without reintroducing any runtime git.
 //
-// In Bun-compiled binary mode both resolvers gracefully return null
-// (`.bun-tag` won't exist next to the binary; `git rev-parse` fails
-// because PKG_DIR points into /$bunfs/).
+// In Bun-compiled binary mode `.bun-tag` won't exist (PKG_DIR sits in `/$bunfs/`
+// with no package root) → no suffix, the bare FALLBACK_VERSION.
 
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,13 +53,13 @@ const MAX_PACKAGE_JSON_WALK_DEPTH = 5;
 const FALLBACK_VERSION = '0.0.0';
 const PKG_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Walk up from this module's directory to the nearest package.json dir.
+/** Walk up from `startDir` to the nearest package.json dir.
  *  src/ and dist/ both sit one level below the package root, so the walk
  *  terminates on the first step in every supported layout; the bounded loop
  *  keeps it correct if the module ever moves deeper. Returns null when no
  *  package.json is reachable (Bun-compiled `/$bunfs/` mode). */
-function findPackageRoot(): string | null {
-  let dir = PKG_DIR;
+function findPackageRoot(startDir: string): string | null {
+  let dir = startDir;
   for (let depth = 0; depth < MAX_PACKAGE_JSON_WALK_DEPTH; depth += 1) {
     try {
       if (existsSync(join(dir, 'package.json'))) return dir;
@@ -72,16 +84,16 @@ function readBaseVersion(root: string | null): string {
   }
 }
 
-const RESOLVED_PKG_ROOT = findPackageRoot();
-const PKG_ROOT = RESOLVED_PKG_ROOT ?? join(PKG_DIR, '..');
-const BUN_TAG_PATH = join(PKG_ROOT, '.bun-tag');
-
-const baseVersion: string = readBaseVersion(RESOLVED_PKG_ROOT);
-
-function resolveBunTagSha(): string | null {
+/** Read the SDK's OWN resolved SHA from `<packageRoot>/.bun-tag` (written by
+ *  `bun install` from a git source). This is the SDK describing its own
+ *  revision — the ONE unambiguous SHA source, needing no repo walk and no
+ *  ownership heuristic — so it is trusted unconditionally. */
+function resolveBunTagSha(packageRoot: string | null): string | null {
+  if (packageRoot === null) return null;
   try {
-    if (!existsSync(BUN_TAG_PATH)) return null;
-    const raw = readFileSync(BUN_TAG_PATH, 'utf-8').trim();
+    const bunTagPath = join(packageRoot, '.bun-tag');
+    if (!existsSync(bunTagPath)) return null;
+    const raw = readFileSync(bunTagPath, 'utf-8').trim();
     if (!/^[a-f0-9]{40}$/.test(raw)) return null;
     return raw.slice(0, SHORT_SHA_LENGTH);
   } catch {
@@ -89,21 +101,29 @@ function resolveBunTagSha(): string | null {
   }
 }
 
-function resolveGitSha(): string | null {
-  try {
-    const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
-      cwd: PKG_DIR,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    if (result.status !== 0) return null;
-    const sha = result.stdout.trim();
-    return sha.length > 0 ? sha : null;
-  } catch {
-    return null;
-  }
+/**
+ * Resolve the pre-release SHA suffix for VERSION. Deterministic and git-free:
+ * the ONLY source is the SDK's own `<packageRoot>/.bun-tag`. No git subprocess
+ * ever runs, so NO consumer layout — npm install, vendored source at ANY path
+ * (including the canonical `packages/sdk`), a workspace member, or a dev
+ * checkout — can leak a foreign HEAD (audit E2/E4). Returns null (bare base
+ * version) whenever no trusted `.bun-tag` is present.
+ *
+ * Exported for testability: pass a scratch `packageRoot` to exercise the
+ * `.bun-tag` path. The module-level VERSION export below calls it with the real
+ * resolved package root.
+ */
+export function resolveShaSuffix(packageRoot: string | null): string | null {
+  return resolveBunTagSha(packageRoot);
 }
 
-const resolvedSha = resolveBunTagSha() ?? resolveGitSha();
+/** Assemble the version string from the base and an optional SHA suffix. */
+export function composeVersion(baseVersion: string, sha: string | null): string {
+  return sha === null ? baseVersion : `${baseVersion}-${sha}`;
+}
 
-export const VERSION: string = resolvedSha === null ? baseVersion : `${baseVersion}-${resolvedSha}`;
+const RESOLVED_PKG_ROOT = findPackageRoot(PKG_DIR);
+const baseVersion: string = readBaseVersion(RESOLVED_PKG_ROOT);
+const resolvedSha = resolveShaSuffix(RESOLVED_PKG_ROOT);
+
+export const VERSION: string = composeVersion(baseVersion, resolvedSha);

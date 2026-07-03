@@ -147,6 +147,19 @@ async function runGrep(
     );
   }
 
+  // A ripgrep killed by a signal (upstream turn-cancel via ctx.signal, or an
+  // external OOM/SIGKILL) produced INCOMPLETE output — it must never be read as
+  // an authoritative "no matches" (F15). Detect it BEFORE interpreting the exit
+  // code: check the composed abort signal AND the spawn shim's reported signal
+  // name. Without this, a kill mapping to exit 143 would still throw below, but
+  // an explicit "interrupted/incomplete" reason is clearer than a bare code —
+  // and ctx.signal cancels the child so promptly that the composed signal, not
+  // the exit code, is the reliable tell.
+  if (signal.aborted || proc.signalCode != null) {
+    const why = proc.signalCode != null ? `signal ${proc.signalCode}` : 'cancelled';
+    throw new Error(`ripgrep was interrupted (${why}) — result is incomplete, not "no matches".`);
+  }
+
   // A missing rg binary surfaces as the shim's spawn-failure exit code (the
   // sync try/catch above no longer sees it — node:child_process reports spawn
   // failures asynchronously). Keep the actionable install message.

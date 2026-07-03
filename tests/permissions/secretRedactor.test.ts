@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { redactSecrets } from '@yevgetman/sov-sdk/permissions/secretRedactor';
+import { MAX_REDACTION_INPUT_BYTES } from '@yevgetman/sov-sdk/redaction/secretPatterns';
 
 describe('redactSecrets — pattern coverage', () => {
   test('empty string returns no hits', () => {
@@ -89,9 +90,14 @@ describe('redactSecrets — pattern coverage', () => {
   });
 
   test('JWT is redacted', () => {
+    // Bare JWT (no `Bearer ` prefix): the generic bearer pattern now also lives
+    // in the tool-input redactor (audit E3), and `Bearer <jwt>` is caught by the
+    // ENCLOSING bearer span — so to pin the jwt KIND specifically we test the
+    // token in isolation. (`Authorization: Bearer <jwt>` is still fully redacted;
+    // it simply reports kind `bearer`.)
     const jwt =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiaWF0IjoxNjA5NDU5MjAwfQ.SOME_SIGNATURE_HERE';
-    const result = redactSecrets(`Authorization: Bearer ${jwt}`);
+    const result = redactSecrets(`token=${jwt}`);
     expect(result.hits[0]?.kind).toBe('jwt');
     expect(result.redacted).not.toContain(jwt);
   });
@@ -173,6 +179,120 @@ describe('redactSecrets — false-positive guards', () => {
   });
 });
 
+describe('redactSecrets — URL-authority credentials (DB/connection URLs)', () => {
+  // A live DB password written to a file (env dump, connection error, compose
+  // file) must not reach disk verbatim. The URL userinfo password is
+  // unambiguously delimited inside the authority, so ONLY the credential is
+  // redacted while the scheme and host survive.
+  const DB_URLS = [
+    {
+      url: 'postgres://admin:S3cr3tP4ssw0rd@db.internal.corp:5432/production',
+      password: 'S3cr3tP4ssw0rd',
+      scheme: 'postgres://',
+      host: 'db.internal.corp',
+    },
+    {
+      url: 'mongodb+srv://root:hunter2GoesHere@cluster0.abcde.mongodb.net/mydb',
+      password: 'hunter2GoesHere',
+      scheme: 'mongodb+srv://',
+      host: 'cluster0.abcde.mongodb.net',
+    },
+    {
+      url: 'mysql://svcuser:pa55word@10.0.0.5:3306/orders',
+      password: 'pa55word',
+      scheme: 'mysql://',
+      host: '10.0.0.5',
+    },
+    {
+      url: 'redis://default:R3d1sP4ss@cache.example.com:6379/0',
+      password: 'R3d1sP4ss',
+      scheme: 'redis://',
+      host: 'cache.example.com',
+    },
+  ] as const;
+
+  for (const { url, password, scheme, host } of DB_URLS) {
+    test(`redacts the password in ${scheme}user:pass@`, () => {
+      const result = redactSecrets(url);
+      expect(result.hits.some((h) => h.kind === 'url-credentials')).toBe(true);
+      expect(result.redacted).not.toContain(password); // secret gone
+      expect(result.redacted).toContain('<REDACTED:url-credentials>');
+      expect(result.redacted).toContain(scheme); // scheme survives
+      expect(result.redacted).toContain(host); // host survives
+    });
+  }
+
+  test('a credential-less URL yields no hits (no over-redaction)', () => {
+    const result = redactSecrets('https://example.com/path');
+    expect(result.hits).toEqual([]);
+    expect(result.redacted).toBe('https://example.com/path');
+  });
+
+  test('a URL with a user but NO password yields no url-credentials hit', () => {
+    const result = redactSecrets('https://user@example.com/x');
+    expect(result.hits.some((h) => h.kind === 'url-credentials')).toBe(false);
+  });
+
+  test('host:port with no userinfo is not a false positive', () => {
+    const result = redactSecrets('https://example.com:8080/path');
+    expect(result.hits).toEqual([]);
+    expect(result.redacted).toBe('https://example.com:8080/path');
+  });
+
+  test('does not backtrack on a 128 KiB adversarial URL payload (ReDoS)', () => {
+    const cap = MAX_REDACTION_INPUT_BYTES;
+    const lowercaseRun = 'a'.repeat(cap);
+    const schemeSpam = 'x://a:b:c:'.repeat(Math.ceil(cap / 10)).slice(0, cap);
+    for (const payload of [lowercaseRun, schemeSpam]) {
+      const t0 = performance.now();
+      redactSecrets(payload);
+      expect(performance.now() - t0).toBeLessThan(100);
+    }
+  });
+});
+
+describe('redactSecrets — PEM ReDoS regression (audit D7 / F5 sibling)', () => {
+  // Audit D7: the private-key-block pattern used an UNBOUNDED lazy inner span
+  // (`[\s\S]+?`), which is O(n^2) on attacker/model-controllable Write/Edit
+  // content carrying many `-----BEGIN … PRIVATE KEY-----` markers with NO
+  // matching `-----END` — each BEGIN position rescans to end-of-input. Against
+  // the pre-fix pattern this payload was pathologically slow (n=10k ≈ 0.76s,
+  // n=40k ≈ 12s here); the shared bounded ({0,8192}?) form is linear and returns
+  // in a few tens of ms. redactSecrets runs on the full tool INPUT, so this must
+  // never block the event loop.
+  test('does not catastrophically backtrack on many BEGIN-without-END markers', () => {
+    const payload = '-----BEGIN RSA PRIVATE KEY-----\n'.repeat(10_000);
+    const started = Date.now();
+    const result = redactSecrets(payload);
+    const elapsed = Date.now() - started;
+    // No matching END exists, so nothing is redacted — but it must return fast.
+    expect(result.hits).toEqual([]);
+    expect(result.redacted).toBe(payload);
+    expect(elapsed).toBeLessThan(100);
+  });
+
+  test('does not backtrack on a near-miss END (BEGIN + truncated END, no full close)', () => {
+    const payload = '-----BEGIN RSA PRIVATE KEY-----\n-----END RSA PRIVATE KEY----\n'.repeat(5_000);
+    const started = Date.now();
+    redactSecrets(payload);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
+
+  test('still redacts a genuine multi-line PEM block after the ReDoS fix', () => {
+    const pem = [
+      '-----BEGIN RSA PRIVATE KEY-----',
+      'MIIEpAIBAAKCAQEAxGENUINEkeyBODYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      '-----END RSA PRIVATE KEY-----',
+    ].join('\n');
+    const result = redactSecrets(`pre\n${pem}\npost`);
+    expect(result.hits[0]?.kind).toBe('private-key-block');
+    expect(result.redacted).not.toContain('MIIEpAIBAAKCAQEAxGENUINE');
+    expect(result.redacted).toContain('pre');
+    expect(result.redacted).toContain('post');
+    expect(result.redacted).toContain('<REDACTED:private-key-block>');
+  });
+});
+
 describe('redactSecrets — bypass via env var', () => {
   let originalEnv: string | undefined;
 
@@ -205,5 +325,50 @@ describe('redactSecrets — bypass via env var', () => {
     const tok = 'gho_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const result = redactSecrets(tok);
     expect(result.hits).toHaveLength(1);
+  });
+});
+
+describe('redactSecrets — full GitHub token family (audit C5)', () => {
+  // gho_ (OAuth), ghu_ (user-to-server), ghs_ (app-install), ghr_ (refresh),
+  // ghp_ (classic PAT) all share the gh[oprsu]_ + 36 format. The shared catalog
+  // guarantees the persistent redactor sees the identical set.
+  for (const prefix of ['gho_', 'ghu_', 'ghs_', 'ghr_', 'ghp_'] as const) {
+    test(`${prefix} token is redacted with kind github-oauth`, () => {
+      const tok = `${prefix}${'A'.repeat(36)}`;
+      const result = redactSecrets(tok);
+      expect(result.hits[0]?.kind).toBe('github-oauth');
+      expect(result.redacted).not.toContain(tok);
+    });
+  }
+});
+
+describe('redactSecrets — input-size cap (audit C9 ReDoS defense)', () => {
+  const BEGIN = '-----BEGIN RSA PRIVATE KEY-----\n';
+  const adversarial = (bytes: number): string =>
+    BEGIN.repeat(Math.ceil(bytes / BEGIN.length)).slice(0, bytes);
+
+  test('a multi-MB adversarial payload is processed in <100ms', () => {
+    const payload = adversarial(4 * 1024 * 1024);
+    const t0 = performance.now();
+    redactSecrets(payload);
+    expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  test('bounds the scan but preserves ALL bytes (a large file-write is never truncated)', () => {
+    // A secret in the scanned prefix is still caught; the (unscanned) tail is
+    // preserved verbatim — the tool-input redactor rewrites file content, so it
+    // must never drop bytes.
+    const secret = `gho_${'A'.repeat(36)}`;
+    const tail = 'y'.repeat(300 * 1024); // pushes total over the cap
+    const input = `${secret} ${tail}`;
+    const result = redactSecrets(input);
+    expect(result.redacted).not.toContain(secret); // prefix secret redacted
+    expect(result.redacted.endsWith(tail)).toBe(true); // tail preserved verbatim
+    expect(result.redacted.length).toBeGreaterThanOrEqual(tail.length); // no truncation
+  });
+
+  test('a normal input is fully redacted', () => {
+    const secret = `gho_${'A'.repeat(36)}`;
+    expect(redactSecrets(`x=${secret}`).redacted).not.toContain(secret);
   });
 });

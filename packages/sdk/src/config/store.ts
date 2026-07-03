@@ -3,8 +3,9 @@
 // writes, value-literal parsing for CLI args, and secret redaction for
 // display. Used by `sov config ...` and the `/config` slash.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { secureWriteFileAtomic } from '../util/secureFs.js';
 import { resolveHarnessHome } from './paths.js';
 import { type Settings, SettingsSchema } from './schema.js';
 
@@ -102,10 +103,12 @@ export function writeConfig(settings: Settings, path?: string): void {
   // Re-validate before writing so a programmatic error can't corrupt disk.
   const validated = SettingsSchema.parse(settings);
   const file = resolveConfigPath(path);
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(validated, null, 2)}\n`, 'utf8');
-  renameSync(tmp, file);
+  // config.json is the secret-densest state file — apiKey / token / botToken /
+  // signingSecret / Twilio authToken live here IN CLEARTEXT (they're only masked
+  // for display). The earlier F10/F16 perms sweep missed it (audit C6), leaving
+  // it world-readable 0644 in a 0755 dir. Write it 0600 in a 0700 dir via the
+  // shared atomic secure writer, matching every sibling state sink.
+  secureWriteFileAtomic(file, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
 function splitPath(dotPath: string): string[] {

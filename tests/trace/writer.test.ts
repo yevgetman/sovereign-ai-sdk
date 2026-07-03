@@ -3,9 +3,9 @@
 // calls, default-path resolution, close() drain semantics, and findTracePath.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { TraceWriter, findTracePath } from '@yevgetman/sov-sdk/trace/writer';
 
@@ -117,6 +117,19 @@ describe('TraceWriter', () => {
     expect(writer.count).toBe(1);
     expect(readFileSync(writer.path, 'utf8').trim().split('\n')).toHaveLength(1);
   });
+
+  // Audit F10 — trace JSONL carries full (redacted) event payloads incl. tool
+  // I/O; it must not be world-readable on a shared host: file 0600, dir 0700.
+  test.skipIf(process.platform === 'win32')(
+    'creates the trace file 0600 and the traces dir 0700',
+    async () => {
+      const writer = new TraceWriter({ sessionId: 'perm', harnessHome: home });
+      writer.record(event());
+      await writer.close();
+      expect(statSync(writer.path).mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(writer.path)).mode & 0o777).toBe(0o700);
+    },
+  );
 
   test('logs but never throws when the destination is unwritable', async () => {
     // Point at a path under a read-only ancestor: /dev/null/cant-write/file.jsonl

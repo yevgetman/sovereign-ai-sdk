@@ -29,7 +29,7 @@ This is the same pattern as the repo's `examples/embed/embed.ts` canary.
 ```ts
 // quickstart.ts — run with `bun quickstart.ts` (or compile with tsc for Node)
 import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
-import type { AssistantMessage, LLMProvider, StreamEvent, Tool } from '@yevgetman/sov-sdk';
+import type { AssistantMessage, LLMProvider, StreamEvent } from '@yevgetman/sov-sdk';
 import { z } from 'zod';
 
 // One tool: echoes its `text` input back.
@@ -90,7 +90,7 @@ const agent = createAgent({
   model: 'echo-model',
   systemPrompt: 'You echo what you are given.',
   maxTokens: 256,
-  tools: [echoTool as unknown as Tool<unknown, unknown>],
+  tools: [echoTool],
   // In-memory persistence: the turn touches no disk. Omit `sessionStore` for a
   // fully stateless turn, or implement the `SessionStore` port to own storage.
   sessionStore: createInMemorySessionStore(),
@@ -154,11 +154,14 @@ Full policy: [`STABILITY.md`](../../STABILITY.md) at the repository root.
 
 ## Compatibility notes
 
-- **Global `fetch` is assumed** (Node ≥ 18 provides one; the engines floor is
-  Node ≥ 20). Network-touching surfaces (the OpenAI-compatible provider, web
-  tools, remote MCP) accept an injectable `fetchImpl` where a host needs to
-  control the transport — embedders on runtimes without a global `fetch` must
-  inject one.
+- **A global `fetch` is required**, and every supported runtime provides one:
+  Node ≥ 20 and Bun ≥ 1.2 both ship a global `fetch`, so no polyfill is needed
+  and the "runtime without a global `fetch`" case cannot arise within the
+  engines floor. The SDK does **not** currently expose a public `fetchImpl`
+  injection point through `createAgent` or the package barrel — network-touching
+  surfaces (the OpenAI-compatible provider, web tools, remote MCP) call the
+  ambient global `fetch`. (A `fetchImpl` parameter exists only internally, as a
+  test seam; it is not part of the public API.)
 - **Bun consumers resolve the `bun` exports condition to the shipped
   TypeScript source** (`src/*.ts`) — no build step. Node consumers resolve
   compiled `dist/*.js` + `dist/*.d.ts`.

@@ -92,6 +92,31 @@ describe('shouldMicrocompact', () => {
     const toolNames = buildToolNameMap(messages);
     expect(shouldMicrocompact(messages, DEFAULT_MICROCOMPACT_CONFIG, toolNames)).toBe(false);
   });
+
+  // F9 sibling (D15): the gate calls estimateBlockTokens on every compactable
+  // tool_result — including one whose `content` is a MISSING (undefined) body
+  // from a rehydrated/replayed session. That path runs BEFORE the compact-path
+  // guards, so it must not throw.
+  test('does not throw on a null/undefined-content compactable tool_result', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'prompt' }] },
+      toolUse('a', 'Read'),
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'a', content: undefined as unknown as string },
+        ],
+      },
+      toolUse('b', 'Read'),
+      toolResult('b', 'x'.repeat(2000)),
+    ];
+    const toolNames = buildToolNameMap(messages);
+    // RED before the D15 fix: estimateBlockTokens(undefined content) throws
+    // "undefined is not an object (evaluating 'text.length')" inside the gate.
+    expect(() =>
+      shouldMicrocompact(messages, DEFAULT_MICROCOMPACT_CONFIG, toolNames),
+    ).not.toThrow();
+  });
 });
 
 describe('microcompact', () => {
@@ -300,6 +325,154 @@ describe('microcompact', () => {
     // 4 prior-turn results are eligible; keepRecent=2; so 2 cleared.
     // 6 post-guidance results are protected by the boundary.
     expect(result.cleared).toBe(2);
+  });
+});
+
+// F9 — microcompact must tolerate array-shaped tool_result content. A REAL
+// Anthropic transcript (or a session rehydrated from a consumer's own store)
+// may carry tool_result `content` as an ARRAY of content blocks (image /
+// structured results), which is legal per the Anthropic wire shape even
+// though the internal ContentBlock type declares `content: string`. TS types
+// are erased at runtime, so such a shape flows through unchecked. Before the
+// fix, collectCompactableRefs called `block.content.startsWith(...)` on it and
+// threw `TypeError: block.content.startsWith is not a function`, aborting the
+// turn. Non-string content is treated as non-compactable (passed through).
+function arrayContentToolResult(toolUseId: string): Message {
+  return {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: toolUseId,
+        // Legal Anthropic shape: an array of content blocks, injected at
+        // runtime by a consumer replaying a transcript (TS type is erased).
+        content: [{ type: 'text', text: 'structured tool result' }] as unknown as string,
+      },
+    ],
+  };
+}
+
+describe('microcompact — array-shaped tool_result content (F9)', () => {
+  test('does not crash on array content and passes it through untouched', () => {
+    const messages: Message[] = [];
+    // Prior-turn string tool_results (compactable).
+    for (let i = 0; i < 2; i++) {
+      const id = `pre-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `string content ${i} `.repeat(50)));
+    }
+    // An array-content tool_result in the middle (legal replayed shape).
+    messages.push(toolUse('img', 'Read'));
+    messages.push(arrayContentToolResult('img'));
+    for (let i = 0; i < 2; i++) {
+      const id = `post-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `string content post ${i} `.repeat(50)));
+    }
+    // Final text-bearing user message = current-turn boundary, so every
+    // tool_result above is prior-turn and therefore eligible for inspection.
+    messages.push({ role: 'user', content: [{ type: 'text', text: 'next prompt' }] });
+
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 1 };
+
+    // RED before fix: throws `TypeError: block.content.startsWith is not a function`.
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+
+    // The array-content block is passed through UNTOUCHED (never compacted).
+    const arrayBlock = compacted
+      .flatMap((m) => m.content)
+      .find((b) => b.type === 'tool_result' && b.tool_use_id === 'img');
+    expect(arrayBlock?.type === 'tool_result' && Array.isArray(arrayBlock.content)).toBe(true);
+
+    // The four string candidates still compact: keepRecent=1 -> 3 cleared.
+    expect(result.cleared).toBe(3);
+    const clearedStrings = compacted
+      .flatMap((m) => m.content)
+      .filter(
+        (b) =>
+          b.type === 'tool_result' &&
+          typeof b.content === 'string' &&
+          b.content.startsWith('[Tool result cleared'),
+      );
+    expect(clearedStrings.length).toBe(3);
+  });
+
+  test('array-content tool_result is never selected as a clear candidate', () => {
+    // keepRecent=0 would otherwise clear every compactable candidate. The
+    // array-content block must still be excluded and pass through untouched.
+    const messages: Message[] = [
+      toolUse('img', 'Read'),
+      arrayContentToolResult('img'),
+      toolUse('s', 'Read'),
+      toolResult('s', 'plain string output '.repeat(50)),
+      { role: 'user', content: [{ type: 'text', text: 'boundary prompt' }] },
+    ];
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 0 };
+
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+
+    // Only the single string result is cleared; the array block is untouched.
+    expect(result.cleared).toBe(1);
+    const arrayBlock = compacted
+      .flatMap((m) => m.content)
+      .find((b) => b.type === 'tool_result' && b.tool_use_id === 'img');
+    expect(arrayBlock?.type === 'tool_result' && Array.isArray(arrayBlock.content)).toBe(true);
+  });
+
+  test('regression: plain string tool_result content still compacts', () => {
+    const { messages, toolNames } = buildHistory(8);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 3 };
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+    expect(result.cleared).toBe(5);
+    const live = compacted.flatMap((m) =>
+      m.content.filter(
+        (b) =>
+          b.type === 'tool_result' && !(b.content as string).startsWith('[Tool result cleared'),
+      ),
+    );
+    expect(live.length).toBe(3);
+  });
+
+  // D16: the array-content case above is covered; the adjacent MISSING-body
+  // (undefined/null) case is the other non-string shape the guard must tolerate
+  // — pass it through untouched while string candidates still compact.
+  test('null/undefined-content tool_result is passed through untouched; strings still compact', () => {
+    const messages: Message[] = [];
+    for (let i = 0; i < 2; i++) {
+      const id = `pre-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `string content ${i} `.repeat(50)));
+    }
+    // A missing-body tool_result in the middle (rehydrated shape).
+    messages.push(toolUse('nul', 'Read'));
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'nul', content: undefined as unknown as string },
+      ],
+    });
+    for (let i = 0; i < 2; i++) {
+      const id = `post-${i}`;
+      messages.push(toolUse(id, 'Read'));
+      messages.push(toolResult(id, `string content post ${i} `.repeat(50)));
+    }
+    messages.push({ role: 'user', content: [{ type: 'text', text: 'next prompt' }] });
+
+    const toolNames = buildToolNameMap(messages);
+    const config: MicrocompactConfig = { ...DEFAULT_MICROCOMPACT_CONFIG, keepRecent: 1 };
+
+    const { messages: compacted, result } = microcompact(messages, toolNames, config);
+
+    // The missing-body block is never a candidate — it survives untouched.
+    const nullBlock = compacted
+      .flatMap((m) => m.content)
+      .find((b) => b.type === 'tool_result' && b.tool_use_id === 'nul');
+    expect(nullBlock?.type === 'tool_result' && nullBlock.content).toBeUndefined();
+
+    // The four string candidates still compact: keepRecent=1 -> 3 cleared.
+    expect(result.cleared).toBe(3);
   });
 });
 

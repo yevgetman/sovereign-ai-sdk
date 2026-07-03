@@ -44,6 +44,15 @@ export type ResolveProviderOpts = {
   settings?: Settings;
   env?: NodeJS.ProcessEnv;
   harnessHome?: string;
+  /** Where the credential pool + rate-limit guard keep their status/backoff
+   *  state. `'disk'` (the DEFAULT) preserves the CLI/gateway behavior — the pool
+   *  writes `<harnessHome>/credentials.json` and the guard writes
+   *  `<harnessHome>/rate_limits/<provider>.json`, defaulting to
+   *  `resolveHarnessHome()` when no `harnessHome` is given. `'memory'` holds both
+   *  in memory ONLY: no HARNESS_HOME mkdir, no credentials.json / rate_limits
+   *  writes. The SDK embed path (`createAgent`) passes `'memory'` so a
+   *  string-provider turn is fully disk-free (audit F6 / D2). */
+  credentialState?: 'memory' | 'disk';
 };
 
 type ProviderConfigMap = NonNullable<Settings['providers']>;
@@ -164,8 +173,10 @@ function selectCredential(
 
   const harnessHome = opts.harnessHome;
   const statePath = harnessHome ? join(harnessHome, 'credentials.json') : undefined;
+  const memory = opts.credentialState === 'memory';
   const pool = new CredentialPool(providerName, inputs, {
     ...(statePath ? { path: statePath } : {}),
+    ...(memory ? { memory: true } : {}),
     ...(config?.strategy ? { strategy: config.strategy as CredentialStrategy } : {}),
   });
   const selected = pool.select();
@@ -246,7 +257,11 @@ function wrapWithProviderHardening(
   opts: ResolveProviderOpts,
 ): Transport {
   const rateRoot = opts.harnessHome ? join(opts.harnessHome, 'rate_limits') : undefined;
-  const guard = new RateLimitGuard(providerName, rateRoot ? { root: rateRoot } : {});
+  const memory = opts.credentialState === 'memory';
+  const guard = new RateLimitGuard(providerName, {
+    ...(rateRoot ? { root: rateRoot } : {}),
+    ...(memory ? { memory: true } : {}),
+  });
 
   return {
     name: transport.name,

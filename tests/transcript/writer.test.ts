@@ -1,9 +1,9 @@
 // TranscriptWriter — per-session JSONL append (2026-06-15).
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { TranscriptWriter } from '@yevgetman/sov-sdk/transcript/writer';
 
 function withTmp<T>(fn: (dir: string) => T): T {
@@ -87,6 +87,22 @@ describe('TranscriptWriter', () => {
       expect(w.path).toContain('/users/alice/projects/-p/s.jsonl');
     });
   });
+
+  // Audit F16 — the JSONL holds the FULL conversation (prompts, model output,
+  // tool I/O incl. file contents + bash output). On a shared/multi-tenant host
+  // it must not be world-readable: file 0600, project dir 0700.
+  test.skipIf(process.platform === 'win32')(
+    'creates the transcript file 0600 and its project dir 0700 (not world-readable)',
+    async () => {
+      await withTmp(async (base) => {
+        const w = new TranscriptWriter({ sessionId: 'sperm', cwd: '/proj/perm', base });
+        w.appendMessage('user', [{ type: 'text', text: 'sensitive conversation content' }], 1);
+        await w.close();
+        expect(statSync(w.path).mode & 0o777).toBe(0o600);
+        expect(statSync(dirname(w.path)).mode & 0o777).toBe(0o700);
+      });
+    },
+  );
 
   test('append is fail-open: a bad base never throws from appendMessage', async () => {
     // A base under a path that cannot be created (a file used as a dir parent).

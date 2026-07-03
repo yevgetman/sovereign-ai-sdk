@@ -249,7 +249,16 @@ export function pruneToolResultsForCompaction(messages: readonly Message[]): Mes
     const content = message.content.map((block) => {
       if (block.type === 'tool_use')
         toolUses.set(block.id, { name: block.name, input: block.input });
-      if (block.type !== 'tool_result' || block.content.length <= TOOL_RESULT_PRUNE_CHARS) {
+      // A tool_result whose `content` is an array of blocks (image /
+      // structured results) is a legal Anthropic wire shape from a replayed
+      // transcript. It has no string `.length`/`.replace`/`.split`, so treat
+      // it as non-prunable and pass it through untouched — this also keeps
+      // summarizeToolResult (which does string ops) off the non-string path.
+      if (
+        block.type !== 'tool_result' ||
+        typeof block.content !== 'string' ||
+        block.content.length <= TOOL_RESULT_PRUNE_CHARS
+      ) {
         return cloneBlock(block);
       }
       return {

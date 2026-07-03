@@ -58,7 +58,8 @@ export type BuildToolContextInput = {
   /** The pool THIS turn actually runs against — used BOTH as `parentToolPool`
    *  (forked children inherit it) AND as the source for the active tool-name /
    *  toolset / filtered-skill derivation. */
-  effectivePool: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  effectivePool: Tool<any, any>[];
   /** The UNFILTERED skill registry; filtered here against the effective pool. */
   skills: SkillRegistry;
   canUseTool: CanUseTool;

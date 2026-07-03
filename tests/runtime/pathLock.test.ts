@@ -53,6 +53,28 @@ describe('scopesOverlap', () => {
     expect(scopesOverlap(globs('src/a/**'), globs('src/b/**'))).toBe(false);
     expect(scopesOverlap(globs('pkg/x/**'), globs('pkg/y/**'))).toBe(false);
   });
+
+  // 2026-07-02 SDK audit F3 — picomatch's negation (`!`) and alternation
+  // (`(a|b)`) specials are NOT in GLOB_CHARS, so an earlier globPrefix() found
+  // no wildcard and returned a LITERAL prefix (`!src/secret`, `(a|b)/c`),
+  // judging these scopes DISJOINT — while the write-scope matcher admitted a far
+  // wider tree (`!src/secret` → the whole tree; `(a|b)/c` → `a/c`). Two
+  // "disjoint" write-capable tasks then raced the same file. globPrefix now
+  // treats a leading `!` (negation) or any `(`/`|` (group/alternation) as an
+  // unbounded wildcard it cannot collapse, returning the whole-tree prefix ('')
+  // so the scope conservatively OVERLAPS everything and serializes.
+  test('leading-negation glob overlaps everything (F3 no false-disjoint race)', () => {
+    expect(scopesOverlap(globs('!src/secret'), globs('lib/**'))).toBe(true);
+    expect(scopesOverlap(globs('!src/secret'), globs('anything/deep/x.ts'))).toBe(true);
+  });
+  test('alternation-group glob overlaps a sibling it can match (F3 no race)', () => {
+    expect(scopesOverlap(globs('(a|b)/c'), globs('a/**'))).toBe(true);
+    expect(scopesOverlap(globs('+(a|b).ts'), globs('a.ts'))).toBe(true);
+  });
+  test('regression: plain disjoint dir globs still parallelize (no over-serialize creep)', () => {
+    expect(scopesOverlap(globs('src/**'), globs('lib/**'))).toBe(false);
+    expect(scopesOverlap(globs('src/a.ts'), globs('lib/b.ts'))).toBe(false);
+  });
 });
 
 describe('PathLockManager', () => {

@@ -4,7 +4,7 @@
 // the active-profile file edge cases, and the name validator.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -42,6 +42,21 @@ describe('resolveHarnessHome', () => {
     expect(resolveHarnessHome()).toBe(home);
     expect(resolveHarnessHome()).toBe(home);
   });
+
+  // Audit F10 — the state root and every child holds conversation/state
+  // artifacts; a freshly-created root must be 0700 so other local uids cannot
+  // traverse into it. (mkdtemp already yields 0700, so point at a not-yet-
+  // existing child that resolveHarnessHome must create.)
+  test.skipIf(process.platform === 'win32')(
+    'creates a fresh state root 0700 (not world-traversable)',
+    () => {
+      const root = join(home, 'state-root');
+      process.env.HARNESS_HOME = root;
+      const resolved = resolveHarnessHome();
+      expect(resolved).toBe(root);
+      expect(statSync(root).mode & 0o777).toBe(0o700);
+    },
+  );
 });
 
 describe('getBaseHome', () => {
@@ -107,6 +122,12 @@ describe('getActiveProfile / setActiveProfile', () => {
 
   test('setActiveProfile rejects names that fail validation', () => {
     expect(() => setActiveProfile('has spaces')).toThrow(/invalid profile/);
+  });
+
+  test('setActiveProfile writes the active-profile file 0600 (Unix) — audit C6 sweep', () => {
+    if (process.platform === 'win32') return;
+    setActiveProfile('work');
+    expect(statSync(join(getBaseHome(), 'active-profile')).mode & 0o777).toBe(0o600);
   });
 });
 

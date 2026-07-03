@@ -111,7 +111,8 @@ export type ToolContext = {
   /** Phase 13.5 — parent's full tool pool, captured at session
    *  bootstrap so the scheduler can filter from it without
    *  reassembling per call. */
-  parentToolPool?: import('./types.js').Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  parentToolPool?: import('./types.js').Tool<any, any>[];
   /** Phase 13.5 — parent's permission gate. The scheduler hands it to the
    *  child's AgentRunner so the same policy applies. */
   canUseTool?: import('../permissions/types.js').CanUseTool;

@@ -79,22 +79,21 @@ const EDIT_COMMANDS = new Set(['rm', 'rmdir', 'chmod', 'chown', 'chgrp', 'trunca
 
 const WEB_COMMANDS = new Set(['curl', 'wget', 'fetch']);
 
+// Unconditionally read-only git subcommands. `config`, `stash`, `branch`,
+// `tag` and `remote` are NOT here: each is dual-mode (reads OR mutates
+// depending on args) and is classified arg-aware in analyzeGitCommand,
+// defaulting to a prompt. (audit F2)
 const GIT_READ_SUBCOMMANDS = new Set([
   'log',
   'status',
   'diff',
   'show',
-  'branch',
-  'remote',
-  'tag',
-  'stash',
   'blame',
   'shortlog',
   'rev-parse',
   'ls-files',
   'ls-tree',
   'describe',
-  'config',
 ]);
 
 const GIT_WRITE_SUBCOMMANDS = new Set([
@@ -146,6 +145,105 @@ const TRANSPARENT_PREFIXES = new Set([
 
 const UNSAFE_PATTERNS = /\$\(|`|<\(|>\(/;
 
+// ---------------------------------------------------------------------------
+// Flag-family matching (attached-suffix / long / long=value / cluster forms)
+// ---------------------------------------------------------------------------
+// A write-capable flag rarely appears only as its bare short token. The same
+// capability is reachable as an attached short suffix (`-i.bak`, `-oFILE`), a
+// long flag (`--in-place`, `--output`), a long flag with an inline value
+// (`--in-place=.bak`, `--output=out`), or bundled inside a short cluster
+// (`-ni`, `-uoFILE`). An exact-token check (`args.includes('-i')`,
+// `args.indexOf('-o')`) sees ONLY the bare short form and silently classifies
+// every other form read — a permission-RELAXATION vulnerability, since a
+// destructive in-place edit / file overwrite then resolves against `allow Read`
+// with no prompt. This matcher recognizes the whole family so each handler can
+// fail closed (edit/write/exec) on ANY member. It is the sibling of the git D6
+// fix (41af0e8), which rebuilt git flag parsing for exactly this attached-value
+// class but left sed/sort/date/fd/tree on the naive exact-token check. (audit
+// C3/C4)
+type FlagFamily = {
+  /** Long flag names, e.g. `--in-place`. Matches the exact token AND the
+   *  `--name=value` inline-value form. A space-separated value (`--output f`)
+   *  is a separate positional token — the flag token itself still matches. */
+  long: string[];
+  /** Option characters, e.g. 'i' (sed) or 'xX' (fd, either). Each character is a
+   *  family member; the attached form `-i.bak` is the char at position 0 of the
+   *  short cluster followed by its value. */
+  short?: string;
+  /** Also match a member character ANYWHERE inside a bundled short cluster
+   *  (`-ni`, `-uoFILE`), not just position 0. Enable ONLY when the character is
+   *  unambiguous for the command — no other short flag takes a value that could
+   *  contain it. Safe for sed `-i` (in-place is `i`'s sole meaning) and sort/fd
+   *  `-o`/`-x`; NOT safe for date `-s` (`-Iseconds` carries an 's' in `-I`'s
+   *  value), so date is left position-0. Fail-closed direction: enabling this
+   *  can only over-prompt a contrived value collision, never miss a write. */
+  shortInCluster?: boolean;
+};
+
+// Does a single token belong to a flag family, in any of its attached/long/
+// cluster forms? Non-flag tokens (positionals) never match.
+function matchesFlagFamily(token: string, family: FlagFamily): boolean {
+  if (!token.startsWith('-')) return false;
+  if (token.startsWith('--')) {
+    const name = token.split('=')[0] as string;
+    return family.long.includes(name);
+  }
+  const short = family.short;
+  if (short === undefined) return false;
+  const chars = token.slice(1);
+  if (chars.length === 0) return false;
+  if (family.shortInCluster) {
+    for (const ch of chars) {
+      if (short.includes(ch)) return true;
+    }
+    return false;
+  }
+  return short.includes(chars.charAt(0));
+}
+
+// `sed` edits IN PLACE for `-i`/`-i.bak`/`-iSUFFIX` (BSD/macOS attach the
+// suffix) and GNU `--in-place`/`--in-place=.bak`. `i` means only in-place, so
+// any short cluster carrying it (`-ni`) edits too. (audit C3 — this SDK ships on
+// darwin where `-i.bak`/`-i ''` is THE in-place idiom.)
+const SED_INPLACE_FLAG: FlagFamily = { long: ['--in-place'], short: 'i', shortInCluster: true };
+
+// `sort` writes (truncates) a file for `-o`/`-oFILE`, `--output`/`--output=FILE`
+// or a space-separated `--output FILE`. `o` is unambiguous for sort, so a
+// cluster (`-uoFILE`) writes too. (audit C4)
+const SORT_OUTPUT_FLAG: FlagFamily = { long: ['--output'], short: 'o', shortInCluster: true };
+
+// `date` SETS the clock for `-s`/`-sSTRING`, `--set`/`--set=STRING`. NOT
+// cluster-matched: `-Iseconds` carries an 's' inside `-I`'s value. (audit F24/D12)
+const DATE_SET_FLAG: FlagFamily = { long: ['--set'], short: 's' };
+
+// `fd` runs an arbitrary command per/across results via `-x`/`--exec` and
+// `-X`/`--exec-batch` — the same exec vector as `find -exec`, but `fd` was a
+// plain read command with no such guard, so `fd -x rm {}` auto-approved under
+// `allow Read`. Demote to exec (prompt). (audit C3-sibling: a read command with
+// a writer/exec flag.)
+const FD_EXEC_FLAG: FlagFamily = {
+  long: ['--exec', '--exec-batch'],
+  short: 'xX',
+  shortInCluster: true,
+};
+
+// `tree` redirects its listing to a file with `-o FILE`/`-oFILE`/`--output FILE`/
+// `--output=FILE`, overwriting it — while classified a plain read. Position-0
+// only (`-o…`): tree's `-P`/`-I` pattern flags can carry an 'o' in their value.
+// (audit C4-sibling.)
+const TREE_OUTPUT_FLAG: FlagFamily = { long: ['--output'], short: 'o' };
+
+// `rg` (ripgrep) runs an ARBITRARY command via `--pre <cmd>` (a per-file
+// preprocessor) and `--hostname-bin <cmd>` (hostname resolver for hyperlinks) —
+// the same exec vector as `find -exec`/`fd -x`, but rg was a plain read command
+// with no guard, so `rg --pre ./evil.sh pat` auto-approved arbitrary exec under
+// `allow Read`. REPRODUCED (ripgrep 15.1.0): `rg --pre ./x.sh pat f` EXECUTED
+// x.sh. Long-only: neither has a short alias, and exact-name matching means
+// `--pretty`/`--pre-glob` (which only acts WITH `--pre`) never false-match.
+// grep/egrep/fgrep have no output/exec flag; ag/ack have none. (sweep: a read
+// command with an exec flag — sibling of fd.)
+const RG_EXEC_FLAG: FlagFamily = { long: ['--pre', '--hostname-bin'] };
+
 export function analyzeShellCommand(command: string): VirtualOperation[] {
   if (UNSAFE_PATTERNS.test(command)) return [{ kind: 'unsafe' }];
 
@@ -186,14 +284,29 @@ function analyzeSegment(segment: string): VirtualOperation {
   }
 
   if (cmd === 'sed') {
-    return args.includes('-i')
+    return analyzeSed(args);
+  }
+  if (cmd === 'sort') {
+    return args.some((a) => matchesFlagFamily(a, SORT_OUTPUT_FLAG))
       ? { kind: 'edit', paths: extractPaths(args) }
       : { kind: 'read', paths: extractPaths(args) };
   }
-  if (cmd === 'sort') {
-    const oIdx = args.indexOf('-o');
-    return oIdx !== -1
-      ? { kind: 'edit', paths: extractPaths(args) }
+
+  // `date` prints the clock (read) UNLESS it SETS the system clock: GNU
+  // `-s`/`--set`/`--set=…`, OR the BSD/macOS positional form
+  // `date [[[[[cc]yy]mm]dd]HH]MM[.ss]` (e.g. `date 010203042020`). A plain read
+  // only ever takes a `+FORMAT` operand, so ANY bare non-flag, non-`+FORMAT`
+  // positional is the BSD clock-set form. Fail closed to a prompt for either.
+  // (audit F24 + D12: this SDK ships on darwin where the positional form works.)
+  if (cmd === 'date') {
+    const setsClock = args.some(
+      (a) =>
+        // GNU `-s`/`-sSTRING`/`--set`/`--set=STRING` (attached short included via
+        // the family matcher), OR the BSD/macOS positional clock-set form.
+        matchesFlagFamily(a, DATE_SET_FLAG) || (!a.startsWith('-') && !a.startsWith('+')),
+    );
+    return setsClock
+      ? { kind: 'exec', command: 'date' }
       : { kind: 'read', paths: extractPaths(args) };
   }
 
@@ -206,6 +319,44 @@ function analyzeSegment(segment: string): VirtualOperation {
   // write files. Any of these makes the segment non-read (audit C3).
   if (cmd === 'find' && args.some((a) => FIND_DESTRUCTIVE_PRIMARIES.has(a))) {
     return { kind: 'exec', command: 'find' };
+  }
+
+  // `fd` is find's modern sibling and a read tool ONLY without an exec primary.
+  // `-x`/`--exec` (per-result) and `-X`/`--exec-batch` (all results) run an
+  // arbitrary command, so they demote fd to exec like `find -exec`. (audit
+  // C3-sibling — fd was a plain READ_COMMANDS member with no exec guard.)
+  if (cmd === 'fd' && args.some((a) => matchesFlagFamily(a, FD_EXEC_FLAG))) {
+    return { kind: 'exec', command: 'fd' };
+  }
+
+  // `tree` prints a listing (read) UNLESS `-o FILE`/`-oFILE`/`--output=FILE`
+  // redirects it to a file, overwriting the target. (audit C4-sibling.)
+  if (cmd === 'tree' && args.some((a) => matchesFlagFamily(a, TREE_OUTPUT_FLAG))) {
+    return { kind: 'write', paths: extractPaths(args) };
+  }
+
+  // `rg` searches (read) UNLESS `--pre`/`--hostname-bin` hands each file to an
+  // ARBITRARY command — demote to exec like `find -exec`/`fd -x`. (sweep)
+  if (cmd === 'rg' && args.some((a) => matchesFlagFamily(a, RG_EXEC_FLAG))) {
+    return { kind: 'exec', command: 'rg' };
+  }
+
+  // `xxd` dumps to stdout (read) with 0–1 positionals, but a SECOND positional
+  // is an OUTPUT file it creates/truncates (`xxd infile outfile`; `xxd -r dump
+  // outfile` reverses hex → binary). extractPaths already drops value-flag and
+  // numeric option operands, so ≥2 remaining positionals is the write signature.
+  // REPRODUCED: `xxd in out` clobbered `out`. (sweep — sibling of tree/sort.)
+  if (cmd === 'xxd' && extractPaths(args).length >= 2) {
+    return { kind: 'write', paths: extractPaths(args) };
+  }
+
+  // `hostname` prints the name (read) UNLESS given a bareword positional, which
+  // SETS the system hostname (`hostname NAME`; BSD `-b NAME`; GNU `-F <file>`
+  // whose file operand is also a bareword) — a mutation, so fail closed to exec.
+  // Query flags (`-f`/`-s`/`-i`/`-I`/`-d`/`-A`) take no bareword operand, so a
+  // legit read never trips it. (sweep — sibling of the `date` positional set.)
+  if (cmd === 'hostname' && args.some((a) => !a.startsWith('-'))) {
+    return { kind: 'exec', command: 'hostname' };
   }
 
   if (READ_COMMANDS.has(cmd)) {
@@ -221,10 +372,594 @@ function analyzeSegment(segment: string): VirtualOperation {
   return { kind: 'exec', command: cmd };
 }
 
+// ---------------------------------------------------------------------------
+// sed script analysis (round-6 residual)
+// ---------------------------------------------------------------------------
+// `sed` is NOT read-only merely because it lacks the `-i` in-place flag: the
+// sed SCRIPT itself carries commands that WRITE a file (`w FILE`/`W FILE`
+// standalone, or a trailing `w`/`W` flag on `s///w FILE` — both BSD+GNU) or
+// (GNU) EXECUTE a shell command (`e`/`Ne`/`s///e`). Any of these auto-approved a
+// file write / command exec under `allow Read` when the handler trusted the
+// script (reproduced on darwin: `sed 's/a/b/w F' in` and `sed 'w F' in` created
+// F). This is the same "write masquerading as read" class as git --output,
+// [N]>&FILE and sed -i. Fail closed: read ONLY when NO script token carries a
+// write/exec command, and treat `-f <scriptfile>` (external, unknowable script)
+// as exec.
+//
+// The write/exec letters must be parsed STRUCTURALLY, never substring-matched: a
+// `w` inside an s-command PATTERN/REPLACEMENT (`s/w/x/`) is NOT the w command —
+// the w command is a standalone command (after an optional address) or a FLAG
+// after the s-command's closing delimiter.
+
+/** What a parsed sed SCRIPT does beyond reading. */
+type SedScriptDanger = { write: boolean; exec: boolean };
+
+function analyzeSed(args: string[]): VirtualOperation {
+  const inPlace = args.some((a) => matchesFlagFamily(a, SED_INPLACE_FLAG));
+  const { scripts, hasScriptFile } = collectSedScripts(args);
+
+  // An external `-f <scriptfile>` script is unknowable → fail closed to a prompt.
+  if (hasScriptFile) return { kind: 'exec', command: 'sed' };
+
+  let write = inPlace;
+  let exec = false;
+  for (const script of scripts) {
+    const danger = scanSedScript(script);
+    write = write || danger.write;
+    exec = exec || danger.exec;
+  }
+
+  if (exec) return { kind: 'exec', command: 'sed' };
+  if (write) return { kind: 'edit', paths: extractPaths(args) };
+  return { kind: 'read', paths: extractPaths(args) };
+}
+
+/** Separate the sed SCRIPT token(s) from flags and input files. The script is
+ *  the FIRST non-flag arg UNLESS `-e`/`--expression` (inline scripts) or
+ *  `-f`/`--file` (external script file) is used, in which case every positional
+ *  is an input FILE. Handles attached (`-eSCRIPT`), long (`--expression=…`),
+ *  and space-separated (`-e SCRIPT`) forms, and consumes the value operands of
+ *  `-e`/`-f`/`-l` so a following operand is never mis-read as the script. */
+function collectSedScripts(args: string[]): { scripts: string[]; hasScriptFile: boolean } {
+  const scripts: string[] = [];
+  let hasScriptFile = false;
+  let sawScriptSource = false;
+  let tookPositionalScript = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq === -1 ? a : a.slice(0, eq);
+      const inlineVal = eq === -1 ? undefined : a.slice(eq + 1);
+      if (name === '--expression') {
+        sawScriptSource = true;
+        if (inlineVal !== undefined) scripts.push(inlineVal);
+        else if (i + 1 < args.length) scripts.push(args[++i] as string);
+      } else if (name === '--file') {
+        sawScriptSource = true;
+        hasScriptFile = true;
+        if (inlineVal === undefined && i + 1 < args.length) i++; // consume FILE
+      } else if (name === '--line-length' && inlineVal === undefined && i + 1 < args.length) {
+        i++; // consume numeric operand
+      }
+      continue;
+    }
+
+    if (a.startsWith('-') && a.length > 1) {
+      const parsed = parseSedShortCluster(a, args[i + 1]);
+      if (parsed.script !== undefined) {
+        scripts.push(parsed.script);
+        sawScriptSource = true;
+      }
+      if (parsed.isFileSource) {
+        hasScriptFile = true;
+        sawScriptSource = true;
+      }
+      if (parsed.consumedNext) i++;
+      continue;
+    }
+
+    // Positional. The first (absent an -e/-f source) is the script; the rest are
+    // input files.
+    if (!sawScriptSource && !tookPositionalScript) {
+      scripts.push(a);
+      tookPositionalScript = true;
+    }
+  }
+
+  return { scripts, hasScriptFile };
+}
+
+/** Parse a short-flag cluster for its script/file source. `-e`/`-f`/`-l` take a
+ *  value that is either the REST of the cluster (attached) or the NEXT token.
+ *  Boolean flags (`n r E s u z a`) are skipped; `i` (in-place, handled by the
+ *  caller's `inPlace` check) stops the cluster with its attached suffix. */
+function parseSedShortCluster(
+  token: string,
+  next: string | undefined,
+): { script?: string; isFileSource?: boolean; consumedNext: boolean } {
+  const chars = token.slice(1);
+  for (let k = 0; k < chars.length; k++) {
+    const c = chars.charAt(k);
+    const rest = chars.slice(k + 1);
+    if (c === 'e') {
+      if (rest.length > 0) return { script: rest, consumedNext: false };
+      return next !== undefined ? { script: next, consumedNext: true } : { consumedNext: false };
+    }
+    if (c === 'f') {
+      if (rest.length > 0) return { isFileSource: true, consumedNext: false };
+      return { isFileSource: true, consumedNext: next !== undefined };
+    }
+    if (c === 'l') {
+      // line-length value: attached rest, or the next token.
+      return { consumedNext: rest.length === 0 && next !== undefined };
+    }
+    if (c === 'i') {
+      // in-place: GNU carries the suffix attached; BSD's optional suffix is a
+      // separate arg that tokenizes to empty and is dropped. Never consume next.
+      return { consumedNext: false };
+    }
+    // boolean flag — keep scanning the cluster.
+  }
+  return { consumedNext: false };
+}
+
+/** Scan a sed script for write (`w`/`W`) and exec (`e`) commands, walking it
+ *  command-by-command so a w/W/e is recognized ONLY as a real command (after an
+ *  optional address) or as an s-command flag — never as a letter inside a
+ *  pattern, replacement, or other operand. Mis-parses bias toward OVER-detecting
+ *  (a prompt), never under (a silent write). */
+function scanSedScript(script: string): SedScriptDanger {
+  const n = script.length;
+  let write = false;
+  let exec = false;
+  let i = 0;
+
+  const isSeparator = (c: string): boolean =>
+    c === ';' || c === '\n' || c === '\r' || c === ' ' || c === '\t' || c === '{' || c === '}';
+
+  const skipToLineEnd = (from: number): number => {
+    let j = from;
+    while (j < n && script.charAt(j) !== '\n' && script.charAt(j) !== '\r') j++;
+    return j;
+  };
+
+  // Skip an s/y command's `DELIM<a>DELIM<b>DELIM` body, honoring `\`-escaped
+  // delimiters. `cmdIdx` points at the command char; returns the index just
+  // after the third (closing) delimiter (= start of the s-flags), or n.
+  const skipDelimitedBody = (cmdIdx: number): number => {
+    const delim = script.charAt(cmdIdx + 1);
+    if (delim === '') return n;
+    let j = cmdIdx + 2;
+    let seen = 1;
+    while (j < n && seen < 3) {
+      const c = script.charAt(j);
+      if (c === '\\') {
+        j += 2;
+        continue;
+      }
+      if (c === delim) seen++;
+      j++;
+    }
+    return j;
+  };
+
+  // Skip up to two addresses (`/re/`, `\cREc`, N, $, ranges with `,`) plus a
+  // trailing `!` negation and blanks, returning the index of the command char.
+  const skipAddresses = (from: number): number => {
+    let j = from;
+    for (let a = 0; a < 2; a++) {
+      if (j >= n) break;
+      const c = script.charAt(j);
+      if (c === '/') {
+        j++;
+        while (j < n && script.charAt(j) !== '/') j += script.charAt(j) === '\\' ? 2 : 1;
+        if (j < n) j++;
+      } else if (c === '\\') {
+        const d = script.charAt(j + 1);
+        j += 2;
+        while (j < n && script.charAt(j) !== d) j += script.charAt(j) === '\\' ? 2 : 1;
+        if (j < n) j++;
+      } else if ((c >= '0' && c <= '9') || c === '$') {
+        j++;
+        while (j < n && /[0-9~+]/.test(script.charAt(j))) j++;
+      } else {
+        break;
+      }
+      if (script.charAt(j) === ',') {
+        j++;
+        continue;
+      }
+      break;
+    }
+    while (
+      j < n &&
+      (script.charAt(j) === '!' || script.charAt(j) === ' ' || script.charAt(j) === '\t')
+    )
+      j++;
+    return j;
+  };
+
+  while (i < n) {
+    while (i < n && isSeparator(script.charAt(i))) i++;
+    if (i >= n) break;
+    i = skipAddresses(i);
+    if (i >= n) break;
+    const cmd = script.charAt(i);
+    if (cmd === 's') {
+      // After the closing delimiter, scan the flag chars. A `w`/`W` flag writes
+      // (its filename runs to end-of-line); a GNU `e` flag executes.
+      let j = skipDelimitedBody(i);
+      while (j < n && !isSeparator(script.charAt(j))) {
+        const f = script.charAt(j);
+        if (f === 'w' || f === 'W') {
+          write = true;
+          j = skipToLineEnd(j);
+          break;
+        }
+        if (f === 'e') exec = true;
+        j++;
+      }
+      i = j;
+    } else if (cmd === 'y') {
+      i = skipDelimitedBody(i);
+    } else if (cmd === 'w' || cmd === 'W') {
+      write = true;
+      i = skipToLineEnd(i);
+    } else if (cmd === 'e') {
+      exec = true;
+      i = skipToLineEnd(i);
+    } else if (
+      cmd === 'a' ||
+      cmd === 'i' ||
+      cmd === 'c' ||
+      cmd === 'r' ||
+      cmd === 'R' ||
+      cmd === ':' ||
+      cmd === 'b' ||
+      cmd === 't' ||
+      cmd === 'T' ||
+      cmd === '#'
+    ) {
+      // Commands whose operand (text / filename / label / comment) runs to the
+      // end of the line — skip it so its content is never re-scanned.
+      i = skipToLineEnd(i);
+    } else {
+      i++;
+    }
+  }
+
+  return { write, exec };
+}
+
+// Normalize a flag token to its matchable NAME so an allow/deny set can match
+// the attached-value forms git accepts: a long `--flag=value` → `--flag`, a
+// short attached `-xVALUE` → `-x`. Bare flags pass through unchanged. Matching
+// the raw token (e.g. `--set-upstream-to=origin/main`, `-uorigin/main`) against
+// a Set of bare flag names silently misses these — the D6 defect. (audit F2/D6)
+function normalizeFlag(a: string): string {
+  if (a.startsWith('--')) return a.split('=')[0] as string;
+  if (a.startsWith('-') && a.length > 2) return a.slice(0, 2);
+  return a;
+}
+
+// config sub-flags that always mutate (set/unset/edit config).
+const GIT_CONFIG_WRITE_FLAGS = new Set([
+  '--unset',
+  '--unset-all',
+  '--add',
+  '--replace-all',
+  '--edit',
+  '-e',
+  '--rename-section',
+  '--remove-section',
+]);
+
+// config sub-flags that only read (get/list). A get takes at most one key
+// positional; a list needs none.
+const GIT_CONFIG_READ_FLAGS = new Set([
+  '--get',
+  '--get-all',
+  '--get-regexp',
+  '--get-urlmatch',
+  '--get-color',
+  '--get-colorbool',
+  '--list',
+  '-l',
+]);
+
+// config location/source flags that consume a following FILE/BLOB operand. That
+// operand is a source selector, NOT a config value, so it must not count toward
+// the value-positional tally that separates a get (`config key`) from a set
+// (`config key value`). Not counting it is the D9 over-prompt fix.
+const GIT_CONFIG_OPERAND_FLAGS = new Set(['-f', '--file', '--blob']);
+
+// `git config` reads ONLY for pure gets: an explicit --get*/--list/-l, or a
+// bare single-positional key (`git config user.name`) with no value token.
+// Anything with a value arg or a mutating flag → write. config.pager/editor/
+// sshCommand/alias.* are command-execution vectors, so default-deny. (F2)
+function isGitConfigReadOnly(subArgs: string[]): boolean {
+  if (subArgs.some((a) => GIT_CONFIG_WRITE_FLAGS.has(normalizeFlag(a)))) return false;
+  if (subArgs.some((a) => GIT_CONFIG_READ_FLAGS.has(normalizeFlag(a)))) return true;
+
+  // Count value-positionals, skipping the operand a space-separated -f/--file/
+  // --blob consumes (`--file path key`). An attached `--file=path`/`-fpath`
+  // carries its operand inline and consumes no positional token.
+  const valuePositionals: string[] = [];
+  let skipNext = false;
+  for (const a of subArgs) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (a.startsWith('-')) {
+      const name = normalizeFlag(a);
+      if (GIT_CONFIG_OPERAND_FLAGS.has(name) && a === name) skipNext = true;
+      continue;
+    }
+    valuePositionals.push(a);
+  }
+  // A get names at most one key and no value; a second positional is the VALUE
+  // of a set (write). (`git config --file f key value` is still a write.)
+  return valuePositionals.length <= 1;
+}
+
+// `git stash` reads ONLY for `list`/`show`. Bare `stash` and push/pop/apply/
+// drop/clear/branch/store/create mutate the working tree or stash list. (F2)
+const GIT_STASH_READ_SUBCOMMANDS = new Set(['list', 'show']);
+function isGitStashReadOnly(subArgs: string[]): boolean {
+  const first = subArgs.find((a) => !a.startsWith('-'));
+  return first !== undefined && GIT_STASH_READ_SUBCOMMANDS.has(first);
+}
+
+// `git branch` LIST/inspect flags — the ONLY forms that read. Everything else
+// (create/delete/move/copy/upstream/force/track/edit-description) mutates a ref.
+// Inverting to a read-flag WHITELIST (vs the old write-flag denylist) fails
+// closed: attached-value forms (`--set-upstream-to=x`, `-uorigin/main`) and
+// bundled short clusters can no longer smuggle a write past an exact-token
+// denylist. Long value-taking read flags (`--contains`, `--sort`, `--format`,
+// `--points-at`, `--merged`) are included so their attached `--flag=v` forms
+// still read; a space-separated value becomes a positional → prompt (as it did
+// pre-fix). (audit F2 + D6)
+const GIT_BRANCH_READ_LONG_FLAGS = new Set([
+  '--list',
+  '--all',
+  '--remotes',
+  '--verbose',
+  '--ignore-case',
+  '--omit-empty',
+  '--show-current',
+  '--color',
+  '--no-color',
+  '--column',
+  '--no-column',
+  '--abbrev',
+  '--no-abbrev',
+  '--sort',
+  '--format',
+  '--contains',
+  '--no-contains',
+  '--merged',
+  '--no-merged',
+  '--points-at',
+]);
+// Short list/inspect flags — all boolean (none take a value), so a short cluster
+// reads only if EVERY char is one of these. `-u`/`-d`/`-D`/`-m`/… fall through
+// to write. (F2/D6)
+const GIT_BRANCH_READ_SHORT_FLAGS = new Set(['a', 'r', 'v', 'l', 'i']);
+
+// `git branch` reads ONLY as a list: bare, or with recognized list flags, and
+// at most a single glob/name PATTERN positional under --list/-l. A bare name
+// positional (create) or any unrecognized flag → write/prompt (fail closed).
+// (F2 + D6 attached-value flags + D9 restore of `--list <pattern>`)
+function isGitBranchReadOnly(subArgs: string[]): boolean {
+  let hasListFlag = false;
+  for (const a of subArgs) {
+    if (!a.startsWith('-')) continue; // positional — tallied below
+    if (a.startsWith('--')) {
+      const name = a.split('=')[0] as string;
+      if (!GIT_BRANCH_READ_LONG_FLAGS.has(name)) return false; // fail closed
+      if (name === '--list') hasListFlag = true;
+    } else {
+      for (const ch of a.slice(1)) {
+        if (!GIT_BRANCH_READ_SHORT_FLAGS.has(ch)) return false; // fail closed
+      }
+      if (a.includes('l')) hasListFlag = true;
+    }
+  }
+  const positionals = subArgs.filter((a) => !a.startsWith('-'));
+  if (positionals.length === 0) return true;
+  // A positional reads ONLY as a listing pattern under --list/-l; a bare
+  // positional is a branch name (create) → write.
+  return hasListFlag && positionals.length === 1;
+}
+
+// `git tag` sub-flags that create/delete/sign/force a tag.
+const GIT_TAG_WRITE_FLAGS = new Set([
+  '-d',
+  '-D',
+  '--delete',
+  '-a',
+  '--annotate',
+  '-s',
+  '--sign',
+  '-m',
+  '--message',
+  '-F',
+  '--file',
+  '-f',
+  '--force',
+  '--create-reflog',
+]);
+
+// `git tag` reads ONLY as a list (-l/--list, or bare with no tag-name
+// positional). Create/delete → write/prompt. The write-flag check is normalized
+// so attached-value forms (`-mmsg`, `-Ffile`) still match the denylist. (F2/D6)
+function isGitTagReadOnly(subArgs: string[]): boolean {
+  if (subArgs.some((a) => GIT_TAG_WRITE_FLAGS.has(normalizeFlag(a)))) return false;
+  if (subArgs.some((a) => a === '-l' || a === '--list')) return true;
+  const positionals = subArgs.filter((a) => !a.startsWith('-'));
+  return positionals.length === 0;
+}
+
+// `git remote` reads ONLY when bare, `-v`/`--verbose`, or a `show`/`get-url`
+// subcommand. add/remove/rm/set-url/set-head/set-branches/rename/prune/update
+// → write/prompt. (F2)
+const GIT_REMOTE_READ_SUBCOMMANDS = new Set(['show', 'get-url']);
+function isGitRemoteReadOnly(subArgs: string[]): boolean {
+  const first = subArgs.find((a) => !a.startsWith('-'));
+  if (first === undefined) return true; // bare or only flags (e.g. -v)
+  return GIT_REMOTE_READ_SUBCOMMANDS.has(first);
+}
+
+// git's diff-pipeline `--output=<file>` / `--output <file>` flag CREATES/
+// TRUNCATES an arbitrary file: a write masquerading as a read. It is honored by
+// EVERY subcommand that drives the diff machinery — the always-read family
+// (diff/log/show/shortlog/blame) AND the dual-mode `stash show`, which the
+// round-4 E1 fix MISSED. Returning read for such an invocation auto-approved
+// `git diff --output=PRECIOUS.txt` / `git stash show --output=PRECIOUS.txt`
+// under `allow Read` while clobbering the target (both reproduced, git 2.50.1).
+// The long matcher covers `--output` and its inline `--output=v`; a
+// space-separated `--output f` still matches on the `--output` token itself.
+// (round-4 E1, generalized: the guard now applies to EVERY read-returning git
+// path via gitCarriesOutputFileFlag, not just the always-read subcommands.)
+const GIT_OUTPUT_FILE_FLAG: FlagFamily = { long: ['--output'] };
+
+// Does a git invocation's post-subcommand args carry the diff-pipeline output
+// flag? Factored into ONE predicate so it can be applied UNIFORMLY to every git
+// path that would otherwise return read (the always-read subcommands AND every
+// dual-mode reader: stash/branch/config/tag/remote). This ends the per-round
+// leak where a new dual-mode read-path was added without the `--output` guard.
+// Fail-closed direction: a spurious match only over-prompts, never misses a write.
+function gitCarriesOutputFileFlag(subArgs: string[]): boolean {
+  return subArgs.some((a) => matchesFlagFamily(a, GIT_OUTPUT_FILE_FLAG));
+}
+
+// git's GLOBAL options (parsed by git.c's handle_options BEFORE the subcommand)
+// that take a SPACE-SEPARATED bareword operand — the NEXT token, which does NOT
+// start with '-'. A naive "first token not starting with '-' is the subcommand"
+// scan misreads that operand AS the subcommand: set it to a read-subcommand name
+// (`git -C log checkout -- f.txt`) and the REAL destructive subcommand
+// (`checkout`) is hidden, so the segment auto-approves as read under `allow
+// Read` while git actually discards work. The attached forms (`--git-dir=…`,
+// `-c name=val` bundled) already start with '-' and are handled by the ordinary
+// leading-flag skip; the GAP is only the space-separated operand, so each of
+// these ALSO consumes its following token. (round-7 [HIGH])
+const GIT_GLOBAL_VALUE_OPTIONS = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--super-prefix',
+  '--attr-source',
+  '--config-env',
+]);
+
+// Index of the TRUE subcommand: the first bareword that is NOT the operand of a
+// leading value-taking global option. Boolean global flags (`--no-pager`, `-p`,
+// `--bare`, …) and attached value forms (`--git-dir=d`) are skipped one token at
+// a time; a recognized value-option consumes its space-separated operand too.
+// Returns -1 when only global options are present (bare `git`). (round-7)
+function gitSubcommandIndex(args: string[]): number {
+  let i = 0;
+  while (i < args.length) {
+    const tok = args[i] as string;
+    if (!tok.startsWith('-')) return i;
+    i += GIT_GLOBAL_VALUE_OPTIONS.has(tok) ? 2 : 1;
+  }
+  return -1;
+}
+
+// Does a git invocation carry an INLINE-CONFIG global option before the
+// subcommand? `-c <name=value>` and `--config-env <name=env>` (space-separated
+// OR attached `--config-env=…`) set arbitrary config for that one invocation —
+// including keys that make even a READ subcommand EXECUTE an arbitrary command:
+// core.fsmonitor, diff.external, core.pager (on a TTY), core.sshCommand,
+// core.editor, core.hooksPath, sequence.editor, alias.*, difftool.*, … The
+// round-7 fix CONSUMED these options' operands to find the true subcommand but
+// never inspected the injected config, so `git -c core.fsmonitor='touch M'
+// status` classified read-only and auto-approved under `allow Read`. REPRODUCED
+// on git 2.50.1 with stdout piped (non-TTY — the Bash tool's exact context, no
+// `-p`). Fail closed: presence of ANY `-c`/`--config-env` → the whole segment
+// is exec/prompt. NOT an allowlist of "safe" keys — the KISS fail-closed rule is
+// correct and matches the dual-mode-subcommand direction. `-C`/`--git-dir`/
+// `--work-tree`/`--namespace`/… are NOT command-exec vectors and are excluded;
+// their operands are still consumed here in lockstep with gitSubcommandIndex so
+// an operand literally named `-c` (a directory) is never misread as an inline
+// config option. (round-8 [HIGH] — sibling of the round-7 fix.)
+function hasGitInlineConfig(args: string[]): boolean {
+  let i = 0;
+  while (i < args.length) {
+    const tok = args[i] as string;
+    if (!tok.startsWith('-')) return false; // reached the subcommand
+    if (tok === '-c' || tok === '--config-env' || tok.startsWith('--config-env=')) return true;
+    i += GIT_GLOBAL_VALUE_OPTIONS.has(tok) ? 2 : 1;
+  }
+  return false;
+}
+
 function analyzeGitCommand(args: string[]): VirtualOperation {
-  const sub = args.find((a) => !a.startsWith('-'));
-  if (!sub) return { kind: 'read', paths: [] };
-  if (GIT_READ_SUBCOMMANDS.has(sub)) return { kind: 'read', paths: [] };
+  // Inline config injection (`-c key=value` / `--config-env`) can turn even a
+  // read subcommand into arbitrary command execution, so it can NEVER be
+  // read-only. Fail closed to a prompt BEFORE resolving the subcommand.
+  // (round-8 [HIGH])
+  if (hasGitInlineConfig(args)) return { kind: 'exec', command: 'git' };
+
+  const subIndex = gitSubcommandIndex(args);
+  if (subIndex === -1) return { kind: 'read', paths: [] };
+  const sub = args[subIndex] as string;
+  const subArgs = args.slice(subIndex + 1);
+
+  // Uniform write-flag guard: the diff-pipeline `--output <file>` flag writes a
+  // file on ANY subcommand whose diff machinery honors it — the always-read
+  // family AND the dual-mode `stash show`. Applied here (before the dual-mode
+  // switch AND the read-subcommands branch) so NO read-returning git path can
+  // smuggle it past `allow Read`. Fail closed to a prompt. (round-4 E1 class fix)
+  if (gitCarriesOutputFileFlag(subArgs)) return { kind: 'exec', command: `git ${sub}` };
+
+  // Dual-mode subcommands: read only for explicit read forms, otherwise a
+  // prompt (exec, not write) so a poisoned config value / ref mutation can
+  // never resolve against a blanket `allow Read` OR `allow Write` rule. (F2)
+  switch (sub) {
+    case 'config':
+      return isGitConfigReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git config' };
+    case 'stash':
+      return isGitStashReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git stash' };
+    case 'branch':
+      return isGitBranchReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git branch' };
+    case 'tag':
+      return isGitTagReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git tag' };
+    case 'remote':
+      return isGitRemoteReadOnly(subArgs)
+        ? { kind: 'read', paths: [] }
+        : { kind: 'exec', command: 'git remote' };
+  }
+
+  if (GIT_READ_SUBCOMMANDS.has(sub)) {
+    // (The diff-pipeline `--output` write flag is handled uniformly above by
+    // gitCarriesOutputFileFlag, before this branch — round-4 E1 class fix.)
+    // Defense-in-depth (round-7): a read subcommand trailed by a BARE
+    // write-subcommand token is the fingerprint of a real subcommand hidden
+    // behind a global value-option this parser does not yet consume (a future
+    // git global option). Fail closed to a prompt rather than trust the read.
+    // Only an exact bare match trips it (`checkout`), never a path/ref carrying
+    // the name (`origin/checkout`, `checkout.md`), so legit reads keep flowing.
+    if (subArgs.some((a) => !a.startsWith('-') && GIT_WRITE_SUBCOMMANDS.has(a))) {
+      return { kind: 'exec', command: `git ${sub}` };
+    }
+    return { kind: 'read', paths: [] };
+  }
   if (GIT_WRITE_SUBCOMMANDS.has(sub)) return { kind: 'write', paths: [] };
   return { kind: 'exec', command: `git ${sub}` };
 }
@@ -342,11 +1077,23 @@ function tokenizeSegment(segment: string): TokenizeResult {
   // Output redirect to a file: `> out`, `>>out` (no space — previously
   // slipped through and let `cat x >out` be classified read), `2> err`,
   // `&> all`. Fd-duplications (`2>&1`, `>&2`) target no file and are excluded.
-  if (/(?:\d*|&)>>?\s*[^&\s]/.test(raw)) {
+  //
+  // The bash `[N]>&WORD` form is a SECOND file-redirect when WORD is a filename
+  // (`>&out`, `1>&out`): it points BOTH stdout+stderr at that file
+  // (truncate/create), exactly like `&>file`. The `[^&\s]` above excludes it as
+  // if it were an fd-duplication, so a write masqueraded as a read and
+  // auto-approved under `allow Read`, clobbering the target (audit G4). Treat
+  // `[N]>&WORD` as a write when WORD is a filename; keep numeric operands
+  // (`2>&1`, `>&2`) and the fd-close `>&-` as fd-dups (lookahead excludes a
+  // following digit/`-`/whitespace).
+  if (/(?:\d*|&)>>?\s*[^&\s]/.test(raw) || /\d*>&\s*(?![-\d\s])\S/.test(raw)) {
     redirectsToFile = true;
   }
 
   const cleaned = raw
+    // Strip `[N]>&FILE` first so its filename operand is removed rather than
+    // surfacing as a spurious positional path. Same fd-dup exclusion as above.
+    .replace(/\d*>&\s*(?![-\d\s])\S+/g, ' ')
     .replace(/\d*>>?\s*\S+/g, ' ')
     .replace(/&>\s*\S+/g, ' ')
     .replace(/<\s*\S+/g, ' ');
@@ -387,40 +1134,104 @@ function tokenizeSegment(segment: string): TokenizeResult {
   return { tokens, redirectsToFile };
 }
 
+// Resolve a possibly path-qualified command token to its recognized basename:
+// `/usr/bin/env` → `env`, `/bin/rm` → `rm`, `/usr/bin/nice` → `nice`. A basename
+// is "recognized" if it is a read/write/edit/web command OR a transparent prefix
+// (`sudo`/`env`/`nice`/`timeout`/…). An unrecognized basename (`/opt/tool/foo`)
+// is returned UNCHANGED so it stays exec (fail closed — an unknown binary is
+// never blessed by its path).
+//
+// TRANSPARENT_PREFIXES membership MUST be part of this test, and this
+// normalization MUST run BEFORE the transparent-prefix expansion in
+// extractCommand. The old order normalized the basename only AFTER the raw-token
+// prefix check, so a path-qualified wrapper escaped: `/usr/bin/env` never
+// literally equalled `env`, the expansion never fired, and the wrapper was then
+// mapped to `env` — which, being ALSO a READ command, made the whole
+// `env <writer>` segment classify read-only, swallowing the wrapped writer's
+// command+args as file-path operands (arbitrary-exec-under-`allow Read`). This
+// closes the class for EVERY path-qualified transparent wrapper. (residual:
+// path-qualified transparent command wrappers — sibling of the round-8 fix.)
+function normalizeCommandToken(token: string): string {
+  if (!token.includes('/')) return token;
+  const basename = token.split('/').pop() ?? '';
+  if (
+    READ_COMMANDS.has(basename) ||
+    WRITE_COMMANDS.has(basename) ||
+    EDIT_COMMANDS.has(basename) ||
+    WEB_COMMANDS.has(basename) ||
+    TRANSPARENT_PREFIXES.has(basename)
+  ) {
+    return basename;
+  }
+  return token;
+}
+
+// `env -S<cmd>` / `env --split-string=<cmd>` (GNU: also on Linux, a supported
+// target) collapses a SINGLE string argument into a whole command line — an argv
+// rewrite — so `env -S'rm foo'` EXECUTES `rm foo`. In the natural quoted-attached
+// shape the whole embedded command tokenizes as one flag token (`-Srm foo`),
+// which the transparent-prefix loop skips like any ordinary flag; env then falls
+// through to a READ_COMMANDS classification and the embedded destructive command
+// auto-approves under `allow Read`. This detects the -S/--split-string option in
+// EVERY form so env carrying it always fails closed to exec. (residual: env
+// split-string transparent-wrapper — sibling of the path-qualified-wrapper HIGH.)
+function isEnvSplitStringFlag(token: string): boolean {
+  if (token.startsWith('--')) {
+    // `--split-string` and `--split-string=<cmd>` (name split on the first `=`).
+    return (token.split('=')[0] ?? '') === '--split-string';
+  }
+  // env's getopt reaches `-S` anywhere in a LEADING run of its bundleable no-arg
+  // short flags (`-0`/`-i`/`-v`) and takes the token remainder as the command to
+  // split+exec — so `env -vS'rm foo'`/`-iS…`/`-viS…` execute just like a bare
+  // `-S'rm foo'`. The value-takers (`-C`/`-P`/`-u`) swallow the token remainder
+  // as their own value, so `-S` cannot follow them in-cluster and is not matched.
+  // This `/^-[0iv]*S/` subsumes the position-0 `-S`/`-S<cmd>` case (empty run).
+  return /^-[0iv]*S/.test(token);
+}
+
 function extractCommand(tokens: string[]): { command: string | null; args: string[] } {
   let cursor = 0;
   while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
     cursor++;
   }
 
-  let cmd = tokens[cursor] ?? null;
+  const rawCmd = tokens[cursor] ?? null;
+  if (rawCmd === null) return { command: null, args: [] };
+
+  // Resolve a path-qualified command to its recognized basename BEFORE the
+  // transparent-prefix test, so `/usr/bin/env` (and `/usr/bin/nice`, etc.) enter
+  // the wrapper-expansion loop instead of being classified by the wrapper's own
+  // (read) identity. `/bin/rm` → `rm` is likewise resolved for direct dispatch.
+  const cmd = normalizeCommandToken(rawCmd);
   const rest = tokens.slice(cursor + 1);
 
-  if (cmd && TRANSPARENT_PREFIXES.has(cmd)) {
+  if (TRANSPARENT_PREFIXES.has(cmd)) {
+    // Skip the wrapper's own flags/assignments/numeric operands (env `-i`/`-S`,
+    // `env VAR=val`, `timeout 5`, a nested wrapper) to reach the wrapped command,
+    // then analyze THAT command — path-normalized too, so `env /bin/rm` → `rm`
+    // and a nested `env /usr/bin/sudo rm` keeps stripping transparent wrappers.
     while (cursor + 1 < tokens.length) {
       cursor++;
       const next = tokens[cursor];
       if (next === undefined) break;
+      // Fail closed BEFORE reaching the wrapped command: any `env -S`/
+      // `--split-string` rewrites argv into a command line and is never a plain
+      // env-print read. Scoped to env (sudo's `-S` = read-password-from-stdin,
+      // not split-string) and to the option run, so an `-S`-looking operand of
+      // the WRAPPED command (`env cat -Sx`) still classifies by the reader.
+      if (cmd === 'env' && isEnvSplitStringFlag(next)) {
+        return { command: 'env -S', args: [] };
+      }
       if (next.startsWith('-')) continue;
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(next)) continue;
-      if (TRANSPARENT_PREFIXES.has(next)) continue;
+      if (TRANSPARENT_PREFIXES.has(normalizeCommandToken(next))) continue;
       if (/^\d+$/.test(next)) continue;
-      cmd = next;
-      return { command: cmd, args: tokens.slice(cursor + 1) };
+      return { command: normalizeCommandToken(next), args: tokens.slice(cursor + 1) };
     }
-    return { command: null, args: [] };
-  }
-
-  if (cmd?.includes('/')) {
-    const basename = cmd.split('/').pop() ?? '';
-    if (
-      READ_COMMANDS.has(basename) ||
-      WRITE_COMMANDS.has(basename) ||
-      EDIT_COMMANDS.has(basename) ||
-      WEB_COMMANDS.has(basename)
-    ) {
-      cmd = basename;
-    }
+    // No wrapped command (bare `env`, `env VAR=val`, or a lone prefix): the
+    // prefix itself is the command. `env`/`printenv` just print the environment
+    // → read; other prefixes (`sudo`, `timeout`, …) fall through to exec/prompt.
+    return { command: cmd, args: rest };
   }
 
   return { command: cmd, args: rest };

@@ -137,4 +137,34 @@ describe('usageAccumulator', () => {
     expect(finalizeUsage(acc)).toEqual(finalizeUsage(acc));
     expect(finalizeUsage(acc)).toEqual({ inputTokens: 17, outputTokens: 8 });
   });
+
+  // F23: message_stop is ALSO a per-call flush boundary. A custom provider that
+  // emits usage_delta + message_stop per call but NO message_start must still
+  // SUM every call's tokens, not report only the last call.
+  test('message_stop flushes the call — a provider that omits message_start still SUMS all calls', () => {
+    const acc = feed([
+      { type: 'usage_delta', usage: { inputTokens: 100, outputTokens: 50 } },
+      { type: 'message_stop', stop_reason: 'tool_use' },
+      { type: 'usage_delta', usage: { inputTokens: 120, outputTokens: 60 } },
+      { type: 'message_stop', stop_reason: 'end_turn' },
+    ]);
+    // Without a message_stop flush, call 2 would overwrite call 1 and the total
+    // would be only the last call (120/60). It must be the sum.
+    expect(finalizeUsage(acc)).toEqual({ inputTokens: 220, outputTokens: 110 });
+  });
+
+  // F23 regression: with BOTH message_start and message_stop present (the normal
+  // Anthropic shape once message_stop is emitted), the redundant flush is a safe
+  // no-op — the total is still the plain sum, never double-counted.
+  test('message_start + message_stop together do not double-count (redundant flush is a no-op)', () => {
+    const acc = feed([
+      { type: 'message_start' },
+      { type: 'usage_delta', usage: { inputTokens: 10, outputTokens: 5 } },
+      { type: 'message_stop', stop_reason: 'tool_use' },
+      { type: 'message_start' },
+      { type: 'usage_delta', usage: { inputTokens: 7, outputTokens: 3 } },
+      { type: 'message_stop', stop_reason: 'end_turn' },
+    ]);
+    expect(finalizeUsage(acc)).toEqual({ inputTokens: 17, outputTokens: 8 });
+  });
 });

@@ -191,11 +191,17 @@ export async function* streamEvents(
       }
     }
   } finally {
-    try {
-      reader.releaseLock();
-    } catch {
-      // releaseLock throws if a read is in flight; the stream is closing anyway.
-    }
+    // Cancel — not just releaseLock — so an early consumer break (the natural
+    // "stop on a terminal event" pattern, with no opts.signal wired) tears down
+    // the underlying fetch/SSE connection instead of orphaning it. The finally
+    // runs only when suspended at a `yield` (break/return), after normal `done`,
+    // or on a thrown error — never mid-`read()` — so no read is ever in flight;
+    // cancel() both closes res.body AND releases the lock, and is a resolved
+    // no-op on an already-finished stream. (opts.signal remains the way to abort
+    // a still-active read from outside.)
+    await reader.cancel().catch(() => {
+      // Swallow any rejection (matches the prior defensive intent).
+    });
   }
 }
 

@@ -534,6 +534,265 @@ describe('expandSkillPrompt', () => {
       expect(expanded).toContain('go');
     });
   });
+
+  // F27 (audit 2026-07-01) — env values (sessionId, skill.dir) are substituted
+  // into the body BEFORE the inline-shell scan. An untrusted sessionId carrying
+  // a `` `!cmd` `` / `` !`cmd` `` sigil + a body referencing ${HARNESS_SESSION_ID}
+  // executed the command via spawnProc(bash). A literal backtick in an env value
+  // is never an author's intentional inline shell (those are written directly in
+  // the body), so the sigil must be neutralized in the SUBSTITUTED value.
+  test('does NOT run shell via a malicious sessionId substituted into the body', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'SID_PWNED.txt');
+      const skill = makeSkill({
+        path: join(dir, 'sid.md'),
+        realpath: join(dir, 'sid.md'),
+        dir, // real, existing cwd — the shell COULD run if the bug were present
+        allowShellInterpolation: true,
+        source: 'user',
+        body: 'Session: ${HARNESS_SESSION_ID}',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: `\`!touch ${marker}\``,
+      });
+      expect(existsSync(marker)).toBe(false); // shell did NOT run
+      expect(expanded).not.toContain('`'); // backtick sigil neutralized in output
+      expect(expanded).toContain('Session:'); // value still substituted (sans backticks)
+    });
+  });
+
+  test('a normal sessionId still substitutes AND the body’s own inline shell still runs', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'mix.md'),
+        realpath: join(dir, 'mix.md'),
+        dir,
+        allowShellInterpolation: true,
+        source: 'user',
+        body: "SESSION=${HARNESS_SESSION_ID} VAL=!`printf '%s' ready`",
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: 'session-abc123',
+      });
+      expect(expanded).toContain('SESSION=session-abc123'); // env substitution intact
+      expect(expanded).toContain('VAL=ready'); // author's inline shell still executes
+    });
+  });
+
+  test('neutralizes an inline-shell sigil in a substituted skill.dir (no command formed)', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'd.md'),
+        realpath: join(dir, 'd.md'),
+        // A skill dir name carrying an inline-shell sigil. Before the fix this
+        // token was scanned & executed (its cwd chdir fails → an error marker);
+        // after the fix the backticks are stripped so no command is ever formed.
+        dir: `${dir}/x\`!echo boom\``,
+        allowShellInterpolation: true,
+        source: 'user',
+        body: 'Dir=${HARNESS_SKILL_DIR}',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      expect(expanded).not.toContain('[inline-shell error'); // no command was run
+      expect(expanded).not.toContain('`'); // sigil neutralized
+      expect(expanded).toContain('!echo boom'); // remains inert literal text
+    });
+  });
+
+  // R1 (audit 2026-07-02) — the F27 sibling. Stripping ONLY backticks left the
+  // shell's OTHER substitution grammars open. When a skill AUTHOR legitimately
+  // wraps the placeholder in THEIR OWN inline-shell sigil (a natural pattern:
+  // `` !`echo ${HARNESS_SESSION_ID}` ``), an untrusted sessionId supplies just the
+  // COMMAND-SUBSTITUTION body `$(touch MARKER)` — no backtick needed. It survived
+  // both the backtick-only sanitizer and the backtick-only validator, so after
+  // substitution the body became `` !`echo $(touch MARKER)` `` and bash executed
+  // the command substitution → marker created (RCE). The class-fix SINGLE-QUOTES
+  // every substituted value at exec, so `$(…)` / `${…}` / backtick inside a
+  // single-quoted (or bare) context is inert DATA — the command substitution can
+  // never form. (Round-6 replaced the `$`/backslash STRIP with single-quoting so
+  // a legit path containing `$` is no longer corrupted; the `$(…)` now survives as
+  // inert ECHOED text rather than being removed — marker-absence is the security
+  // property, not char-removal.)
+  test('does NOT run shell via $()-substitution in a sessionId wrapped by the author’s own sigil', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'SID_SUBST_PWNED.txt');
+      const skill = makeSkill({
+        path: join(dir, 'wrap.md'),
+        realpath: join(dir, 'wrap.md'),
+        dir, // real, existing cwd — the shell COULD run if the bug were present
+        allowShellInterpolation: true,
+        source: 'user',
+        // The AUTHOR's own inline-shell sigil around the placeholder.
+        body: 'VAL=!`echo ${HARNESS_SESSION_ID}`',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: `$(touch ${marker})`,
+      });
+      expect(existsSync(marker)).toBe(false); // command substitution did NOT run
+      expect(expanded).toContain('$(touch'); // survived as inert, single-quoted echoed data
+    });
+  });
+
+  test('strips every shell metachar ($ backtick backslash) from a substituted sessionId', async () => {
+    await withTmp(async (dir) => {
+      const skill = makeSkill({
+        path: join(dir, 'meta.md'),
+        realpath: join(dir, 'meta.md'),
+        dir,
+        allowShellInterpolation: true,
+        source: 'user',
+        // No sigil in the body: assert the SUBSTITUTION layer itself neutralizes
+        // the value, independent of any shell execution. Covers the $(…), ${…},
+        // and backtick variants in one deterministic check.
+        body: 'Session: [${HARNESS_SESSION_ID}]',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: '$(id)${HOME}`whoami`\\x',
+      });
+      // Every command-substitution / expansion / escape metachar removed; only the
+      // inert residue survives — so nothing can be interpolated by a later scan.
+      expect(expanded).toBe('Session: [(id){HOME}whoamix]');
+      expect(expanded).not.toContain('$');
+      expect(expanded).not.toContain('`');
+      expect(expanded).not.toContain('\\');
+    });
+  });
+
+  // C1 (audit 2026-07-02) — the R1 sibling on the SKILL.DIR channel. sessionId is
+  // additionally guarded by validateSessionId (rejects shell metachars), but
+  // skill.dir (= dirname(path)) is fed to the SAME substitution with NO boundary
+  // validator, so the command-separator class `` ; | & ( ) < > `` (and newline)
+  // survived into an author's inline-shell span. A project skill shipped in a
+  // directory named `x;touch pwned;` (the payload lives in the directory NAME,
+  // which the load-time guard never inspects — it scans body/reference CONTENTS
+  // only) with a benign body echoing ${HARNESS_SKILL_DIR} inside the author's own
+  // sigil expanded to `` !`echo <dir>;touch pwned;` `` → bash ran `touch pwned`.
+  // The class-fix single-quotes every substituted env value at exec so ANY value
+  // (any metachar, spaces, newline) is inert shell DATA.
+  test('does NOT run shell via a ;-command-separator in a substituted skill.dir wrapped by the author’s own sigil (C1)', async () => {
+    await withTmp(async (dir) => {
+      // A REAL skill dir whose NAME carries a command-separator payload. `touch
+      // pwned` has no slash so it fits in one path component (the C1 constraint),
+      // and the dir must exist so it is a valid spawn cwd (an ENOENT would mask
+      // whether the fix, not the environment, suppressed the injection).
+      const skillDir = join(dir, 'x;touch pwned;');
+      mkdirSync(skillDir, { recursive: true });
+      // The injected `touch pwned` runs with cwd = skill.dir, so the marker would
+      // land inside skillDir.
+      const marker = join(skillDir, 'pwned');
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        // The AUTHOR's own inline-shell sigil around the placeholder — a natural
+        // pattern the guard never inspects.
+        body: 'VAL=!`echo ${HARNESS_SKILL_DIR}`',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      expect(existsSync(marker)).toBe(false); // the `;touch pwned;` never executed
+      expect(expanded).not.toContain('[inline-shell error'); // nor a broken command
+      expect(expanded).toContain('x;touch pwned;'); // dir echoed as inert literal data
+    });
+  });
+
+  test('a legitimate skill.dir WITH SPACES substitutes correctly and the author’s inline shell still runs (regression)', async () => {
+    await withTmp(async (dir) => {
+      const skillDir = join(dir, 'my skills', 'x');
+      mkdirSync(skillDir, { recursive: true });
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        body: 'DIR=!`echo ${HARNESS_SKILL_DIR}`',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      // Single-quoting preserves the space so the path echoes intact (bare
+      // word-splitting would mangle it) and the author's inline shell still runs.
+      expect(expanded).toContain(`DIR=${skillDir}`);
+      expect(expanded).not.toContain('[inline-shell error');
+    });
+  });
+
+  // Round-6 (audit 2026-07-02) — the C1 sibling for the AUTHOR-DOUBLE-QUOTE span.
+  // Env values are single-quoted, which neutralizes a BARE placeholder, but when
+  // a skill AUTHOR wraps the placeholder in THEIR OWN double quotes
+  // (`cat "${HARNESS_SKILL_DIR}/x"` — a natural pattern), the wrapping single
+  // quotes become LITERAL inside the double-quoted string, so a value carrying a
+  // `"` + a command separator terminates the author's string and injects a new
+  // command. The class-fix additionally STRIPS the double-quote char from every
+  // substituted env value so it can never terminate an author's double-quoted
+  // string. Requires the attacker to also author the skill body (no priv-esc, so
+  // LOW/defense-in-depth), but closed anyway.
+  test('does NOT run shell via a "-breakout in a skill.dir wrapped by the author’s own DOUBLE quotes', async () => {
+    await withTmp(async (dir) => {
+      // The skill dir NAME carries a double-quote + `;touch pwned;` payload. It
+      // must exist (a valid spawn cwd) so an ENOENT can't mask the fix. `touch
+      // pwned` has no slash → fits one path component; the marker lands in the
+      // spawn cwd (= skill.dir).
+      const skillDir = join(dir, 'foo";touch pwned;echo "bar');
+      mkdirSync(skillDir, { recursive: true });
+      const marker = join(skillDir, 'pwned');
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        // The AUTHOR wraps the placeholder in their OWN double quotes.
+        body: 'VAL=!`cat "${HARNESS_SKILL_DIR}/x"`',
+      });
+      await expandSkillPrompt(skill, { cwd: dir });
+      expect(existsSync(marker)).toBe(false); // the `;touch pwned;` never executed
+    });
+  });
+
+  test('a bare-placeholder value stays inert (single-quote context) after the "-strip change', async () => {
+    await withTmp(async (dir) => {
+      const marker = join(dir, 'BARE_PWNED.txt');
+      const skill = makeSkill({
+        path: join(dir, 'bare.md'),
+        realpath: join(dir, 'bare.md'),
+        dir,
+        allowShellInterpolation: true,
+        source: 'user',
+        body: 'VAL=!`echo ${HARNESS_SESSION_ID}`',
+      });
+      const expanded = await expandSkillPrompt(skill, {
+        cwd: dir,
+        sessionId: `; touch ${marker} ;`,
+      });
+      expect(existsSync(marker)).toBe(false); // separator inert inside single quotes
+      expect(expanded).toContain('; touch'); // echoed as inert literal data
+    });
+  });
+
+  test('a legit skill.dir containing $ substitutes without corruption (no $-strip)', async () => {
+    await withTmp(async (dir) => {
+      const skillDir = join(dir, 'a$stuff', 'x');
+      mkdirSync(skillDir, { recursive: true });
+      const skill = makeSkill({
+        path: join(skillDir, 'SKILL.md'),
+        realpath: join(skillDir, 'SKILL.md'),
+        dir: skillDir,
+        allowShellInterpolation: true,
+        source: 'project',
+        body: 'DIR=!`echo ${HARNESS_SKILL_DIR}`',
+      });
+      const expanded = await expandSkillPrompt(skill, { cwd: dir });
+      // Single-quoting keeps `$stuff` inert AND intact — the path is NOT corrupted
+      // by a `$`-strip (which the old command-context sanitizer would have done).
+      expect(expanded).toContain(`DIR=${skillDir}`);
+      expect(expanded).not.toContain('[inline-shell error');
+    });
+  });
 });
 
 describe('reloadSkill', () => {

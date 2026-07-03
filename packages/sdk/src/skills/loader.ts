@@ -86,6 +86,88 @@ const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_TIMEOUT_MS = 10_000;
 const SHELL_OUTPUT_CAP = 16 * 1024;
 
+/** The trusted environment placeholders a skill body may reference. Every value
+ *  is caller/filesystem-derived DATA (a session id, a skill directory, a plugin
+ *  root) — never a shell identifier — so it must never be able to alter the shape
+ *  of a command. */
+type SkillEnv = {
+  HARNESS_SKILL_DIR: string;
+  HARNESS_SESSION_ID: string;
+  CLAUDE_PLUGIN_ROOT: string;
+};
+
+const ENV_PLACEHOLDER_RE = /\$\{(HARNESS_SKILL_DIR|HARNESS_SESSION_ID|CLAUDE_PLUGIN_ROOT)\}/g;
+
+/** Neutralize the backtick / `$` / backslash class in a SUBSTITUTED env value
+ *  before it is inserted into skill PROSE (F27 + R1).
+ *
+ *  Prose is display text, never re-scanned for inline shell, but a value that
+ *  visually reconstructs a `` !`cmd` `` token (backtick) or a `$(…)` / `${…}`
+ *  expansion is still stripped as defense-in-depth so it can never be mistaken
+ *  for one. Parens/braces are deliberately PRESERVED (they are common, inert in
+ *  prose). This is the PROSE-only neutralizer; the COMMAND context uses
+ *  `stripDoubleQuote` + `shellSingleQuote` instead — see below. */
+function sanitizeInlineShellSigil(value: string): string {
+  return value.replace(/[`$\\]/g, '');
+}
+
+/** Remove the double-quote char `"` from a substituted env value. Single-quoting
+ *  (below) neutralizes a value in a BARE or author-single-quoted context, but if
+ *  a skill AUTHOR wraps the placeholder in THEIR OWN double quotes
+ *  (`cat "${HARNESS_SKILL_DIR}/x"`) the wrapping single quotes become LITERAL
+ *  inside that double-quoted string, so a value carrying a `"` could terminate
+ *  the author's string and inject a new command. Stripping `"` closes that
+ *  author-double-quote breakout. `"` is not a legal path char on the platforms
+ *  this SDK ships on, so removing it cannot corrupt a legitimate skill path. */
+function stripDoubleQuote(value: string): string {
+  return value.replace(/"/g, '');
+}
+
+/** Wrap a value in single quotes so EVERY character inside — spaces, `;`, `|`,
+ *  `&`, `(`, `)`, `<`, `>`, newline, `$`, backtick, backslash — is inert shell
+ *  DATA. In POSIX single quotes NOTHING is special except the closing quote, so
+ *  a literal single quote is emitted as `'\''` (close-quote, escaped-quote,
+ *  reopen-quote), the standard idiom. This is the primary neutralizer for
+ *  env-value command injection in a BARE or author-single-quoted span: the value
+ *  can never become a command separator or a new substitution, and it also fixes
+ *  word-splitting for legitimate paths that contain spaces or `$`.
+ *
+ *  Injection model (not "every context is closed by single-quoting" — that
+ *  overclaimed): the value lands in one of two author contexts —
+ *    - BARE / author-single-quoted → THIS single-quoting makes it inert;
+ *    - author-DOUBLE-quoted → the paired `stripDoubleQuote` prevents a `"`
+ *      breakout (see its note).
+ *  The genuinely-untrusted input is HARNESS_SESSION_ID, guarded at the boundary
+ *  by validateSessionId (rejects shell metachars); HARNESS_SKILL_DIR /
+ *  CLAUDE_PLUGIN_ROOT come from a supported install. This layer is
+ *  defense-in-depth on top of that. Single-quoting is kept as the primary rather
+ *  than STRIPPING `$`/backtick/backslash, because stripping silently corrupts a
+ *  legit path containing `$` (e.g. `/x/$stuff/skill`) while single-quoting
+ *  neutralizes those same chars losslessly. */
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/** Substitute env placeholders in PROSE (non-shell) text: each value is inserted
+ *  as sanitized display text. Function replacer so a `$`-sequence in the value is
+ *  never treated as a `.replace` special pattern. */
+function substituteEnvProse(text: string, env: SkillEnv): string {
+  return text.replace(ENV_PLACEHOLDER_RE, (_full, name: keyof SkillEnv) =>
+    sanitizeInlineShellSigil(env[name]),
+  );
+}
+
+/** Substitute env placeholders INSIDE the command of an inline-shell span: the
+ *  double-quote char is stripped (kills the author-double-quote breakout) and the
+ *  value is single-quoted (kills the bare / author-single-quote context). No
+ *  `$`/backtick/backslash STRIP: single-quoting already neutralizes them and
+ *  stripping would corrupt a legit path containing `$`. */
+function substituteEnvCommand(command: string, env: SkillEnv): string {
+  return command.replace(ENV_PLACEHOLDER_RE, (_full, name: keyof SkillEnv) =>
+    shellSingleQuote(stripDoubleQuote(env[name])),
+  );
+}
+
 export type LoadSkillsOptions = {
   harnessHome: string;
   cwd: string;
@@ -197,31 +279,41 @@ export async function expandSkillText(
   const args = opts.args ?? '';
   const argsTrimmed = args.trim();
   const hasPlaceholder = /\{\{\s*args\s*\}\}/.test(text);
-  // Function replacers insert the value VERBATIM. A plain-string replacement
-  // would interpret `$&`, `$$`, `` $` ``, `$'`, `$<n>` in the value as special
-  // patterns — so a value containing a `$` sequence would be mangled instead of
-  // substituted literally.
-  //
-  // Trusted environment variables (skill dir, session id, plugin root) are
-  // substituted first. Model/user `args` are merged LAST and are NEVER passed
-  // through shell interpolation — substituting them before interpolation let a
-  // `` `!cmd` `` in args execute via spawnProc(bash) with no permission prompt,
-  // bypassing the load-time guard (audit 2026-06-10). Interpolating the body
-  // BEFORE merging args keeps the skill author's intentional inline shell while
-  // making args inert text.
-  const withEnv = text
-    .replace(/\$\{HARNESS_SKILL_DIR\}/g, () => skill.dir)
-    .replace(/\$\{HARNESS_SESSION_ID\}/g, () => opts.sessionId ?? '')
+
+  // Trusted environment placeholders (skill dir, session id, plugin root). These
+  // are DATA (a caller-supplied session id, a filesystem path), never shell
+  // identifiers, so where a value lands governs how it is neutralized:
+  //   - in PROSE it is inserted as sanitized display text (`substituteEnvProse`);
+  //   - INSIDE an author's inline-shell span it is single-quoted AND its `"` is
+  //     stripped so it is inert shell data in both the bare/single-quoted and the
+  //     author-double-quoted context (`substituteEnvCommand`, applied at exec by
+  //     `interpolateShellCommands`).
+  // The command-context model is single-quote + strip-`"`, NOT "every context is
+  // closed by single-quoting" (single quotes go LITERAL inside an author's own
+  // double quotes — the `"` strip is what closes that span). The genuinely
+  // untrusted input, HARNESS_SESSION_ID, is denylist-validated at the boundary
+  // (validateSessionId); this layer is defense-in-depth (C1 was HARNESS_SKILL_DIR
+  // with `;`, R1 was HARNESS_SESSION_ID with `$(…)`, round-6 was the author-`"`
+  // breakout). Model/user `args` are NEVER an env value here: they are merged LAST
+  // as inert text (audit 2026-06-10) so a `` `!cmd` `` in args can never reach the
+  // shell.
+  const env: SkillEnv = {
+    HARNESS_SKILL_DIR: skill.dir,
+    HARNESS_SESSION_ID: opts.sessionId ?? '',
     // CC-compat: a plugin skill/command body names its bundled files via
     // ${CLAUDE_PLUGIN_ROOT}. Resolves to the plugin install dir for
     // plugin-sourced skills; '' otherwise (so the var never renders literally).
-    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, () => skill.pluginRoot ?? '');
+    CLAUDE_PLUGIN_ROOT: skill.pluginRoot ?? '',
+  };
 
   // Defense in depth: gate on the field AND re-check the source. Even a
   // mis-constructed plugin Skill with `allowShellInterpolation: true` must NOT
-  // run shell — the `source !== 'plugin'` clause is the backstop.
+  // run shell — the `source !== 'plugin'` clause is the backstop. With shell off
+  // every placeholder is resolved as prose.
   const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
-  const body = shellAllowed ? await interpolateShellCommands(withEnv, skill.dir) : withEnv;
+  const body = shellAllowed
+    ? await interpolateShellCommands(text, skill.dir, env)
+    : substituteEnvProse(text, env);
 
   // Merge args as INERT text: substitute {{args}} and/or append them. Skills
   // that don't reference {{args}} would otherwise silently drop the user's slash
@@ -372,20 +464,35 @@ async function walk(dir: string, out: string[]): Promise<void> {
   }
 }
 
-async function interpolateShellCommands(body: string, cwd: string): Promise<string> {
+// Resolve env placeholders SPAN-AWARE, then run each author inline-shell span.
+// The scan runs over the RAW body (placeholders intact) so an env value can
+// never invent a NEW `` !`cmd` `` span, and each value is single-quoted only as
+// it is interpolated into the command that reaches bash — inert shell data
+// (`substituteEnvCommand`) — while prose regions keep the sanitized display value
+// (`substituteEnvProse`). Command output is inserted verbatim, never re-scanned
+// or re-substituted.
+async function interpolateShellCommands(body: string, cwd: string, env: SkillEnv): Promise<string> {
   const matches = Array.from(body.matchAll(SHELL_INTERPOLATION_RE));
-  if (matches.length === 0) return body;
-  let out = body;
+  if (matches.length === 0) return substituteEnvProse(body, env);
+  let out = '';
+  let lastIndex = 0;
   for (const match of matches) {
+    const start = match.index ?? 0;
     const full = match[0];
-    const command = (match[1] ?? match[2])?.trim();
-    if (!command) continue;
-    const replacement = await runInterpolationCommand(command, cwd);
-    // Function replacer: insert command stdout verbatim. Shell output very
-    // commonly contains `$` ($1/$2 in awk, prices, regexes, git diffs); a
-    // string replacement would treat `$&`/`$$`/`` $` `` as special patterns.
-    out = out.replace(full, () => replacement);
+    out += substituteEnvProse(body.slice(lastIndex, start), env);
+    lastIndex = start + full.length;
+    const rawCommand = (match[1] ?? match[2])?.trim();
+    if (!rawCommand) {
+      // Empty sigil (e.g. all-whitespace): keep it as inert text.
+      out += substituteEnvProse(full, env);
+      continue;
+    }
+    const command = substituteEnvCommand(rawCommand, env);
+    // Command stdout is inserted verbatim; no `.replace`, so a `$`-sequence in
+    // the output ($1/$2 in awk, prices, git diffs) is never treated as special.
+    out += await runInterpolationCommand(command, cwd);
   }
+  out += substituteEnvProse(body.slice(lastIndex), env);
   return out;
 }
 

@@ -108,8 +108,6 @@ const PARITY_TABLE: ReadonlyArray<readonly [glob: string, path: string]> = [
   ['{1..3}.ts', '4.ts'],
   ['**.ts', 'a.ts'],
   ['[[:alpha:]]x', '1x'],
-  // extglob variant of the !(secret) literal-dir deviation, agreeing side
-  ['!(secret)', 'pub'],
 ];
 
 describe('write-scope glob parity (Bun.Glob ↔ picomatch)', () => {
@@ -211,7 +209,28 @@ const DEVIATION_TABLE: ReadonlyArray<
     true,
     'noext remnant: picomatch reads `*` + literal-ish suffix, Bun (no extglobs) matches nothing; leading `*` → whole-tree lock',
   ],
+  [
+    '(a|b)/c',
+    'a/c',
+    false,
+    true,
+    'F3: alternation group expands in picomatch only; `(`/`|` → whole-tree lock covers the `a/c` admission',
+  ],
   // -- RESTRICTIVE-ONLY (Bun admitted, picomatch denies → fails closed) --
+  [
+    '!src/secret',
+    'lib/data.ts',
+    true,
+    false,
+    'F3: leading `!` is Bun negation (admits the whole tree); nonegate makes picomatch treat it LITERALLY → matches only `!src/secret`, fails closed',
+  ],
+  [
+    '!(secret)',
+    'pub',
+    true,
+    false,
+    'F3: leading `!` — Bun negates the dead extglob (admits `pub`); nonegate makes picomatch literal → denies (moved from parity, now restrictive)',
+  ],
   [
     '{a}.ts',
     'a.ts',
@@ -261,18 +280,59 @@ describe('write-scope glob documented deviations (picomatch ≠ Bun.Glob, pinned
 // support did), two "disjoint" write-capable tasks could race one file. With
 // the shipped options the extglob is dead: no wider-than-lock admission.
 describe('pathLock no-clash composite (write scope ⊆ collapsed lock prefix)', () => {
-  test("pathLock judges 'src/!(secret)/**' and 'src/pub/**' disjoint (the race setup)", () => {
+  // 2026-07-02 F3 update: `src/!(secret)/**` contains `(` — an alternation-group
+  // special globPrefix now treats as unboundable — so the lock collapses it to
+  // the whole tree and SERIALIZES it against `src/pub/**` (belt-and-suspenders:
+  // the race is now closed at BOTH the lock AND the `noext`-dead matcher below).
+  test("pathLock now serializes 'src/!(secret)/**' vs 'src/pub/**' (`(` → whole-tree lock)", () => {
     expect(
       scopesOverlap(
         { kind: 'globs', globs: ['src/!(secret)/**'] },
         { kind: 'globs', globs: ['src/pub/**'] },
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("shipped matcher does NOT admit 'src/pub/a.ts' under 'src/!(secret)/**' (extglob dead ⇒ no race)", () => {
     expect(picomatch('src/!(secret)/**', WRITE_SCOPE_PICOMATCH_OPTIONS)('src/pub/a.ts')).toBe(
       false,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F3 (2026-07-02 SDK audit) — negation (`!`) and alternation (`(a|b)`) globs.
+// Sibling classes to the extglob write-race: GLOB_CHARS does not treat `!`,
+// `(`, or `|` as wildcards, so pathLock previously judged `!src/secret` and
+// `(a|b)/c` scopes DISJOINT while the matcher admitted a wider tree. The fix is
+// two-fold: (1) `nonegate: true` makes the matcher treat a leading `!`
+// LITERALLY (fail-closed — `!src/secret` matches only the path `!src/secret`),
+// and (2) globPrefix() collapses any leading-`!` / `(` / `|` glob to the
+// whole-tree lock so the verdict conservatively over-serializes.
+describe('write-scope matcher: negation is literal under nonegate (F3)', () => {
+  test('`!src/secret` matches ONLY the literal path, never the whole tree', () => {
+    const m = picomatch('!src/secret', WRITE_SCOPE_PICOMATCH_OPTIONS);
+    expect(m('lib/data.ts')).toBe(false); // pre-nonegate this admitted the whole tree
+    expect(m('src/secret/x.ts')).toBe(false);
+    expect(m('!src/secret')).toBe(true);
+  });
+});
+
+describe('pathLock no-clash composite (negation/alternation, F3)', () => {
+  test("pathLock serializes '!src/secret' vs 'lib/**' (leading `!` → whole-tree lock)", () => {
+    expect(
+      scopesOverlap(
+        { kind: 'globs', globs: ['!src/secret'] },
+        { kind: 'globs', globs: ['lib/**'] },
+      ),
+    ).toBe(true);
+  });
+  test("pathLock serializes '(a|b)/c' vs 'a/**' (`(`/`|` → whole-tree lock, matcher still admits a/c)", () => {
+    expect(
+      scopesOverlap({ kind: 'globs', globs: ['(a|b)/c'] }, { kind: 'globs', globs: ['a/**'] }),
+    ).toBe(true);
+    // the matcher is INTENTIONALLY wider than Bun here; the lock is what closes
+    // the race, so confirm the admission the lock must serialize against.
+    expect(picomatch('(a|b)/c', WRITE_SCOPE_PICOMATCH_OPTIONS)('a/c')).toBe(true);
   });
 });

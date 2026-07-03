@@ -1,9 +1,10 @@
 // Cross-session rate-limit guard. A 429 in one process writes a shared JSON
 // sentinel so other sessions pause or fail fast instead of amplifying retries.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveHarnessHome } from '../../config/paths.js';
+import { secureWriteFileAtomic } from '../../util/secureFs.js';
 
 export type HeaderLike = Headers | Record<string, string | null | undefined>;
 
@@ -17,6 +18,13 @@ export type RateLimitGuardOpts = {
   root?: string;
   now?: () => number;
   maxSleepSeconds?: number;
+  /** Memory-only mode (the SDK embed path). When true the guard holds its
+   *  rate-limit sentinel in memory ONLY: it never resolves a default root (so
+   *  resolveHarnessHome() is never called, and HARNESS_HOME is never mkdir'd),
+   *  never reads a shared `<provider>.json`, and never writes one. The 429
+   *  backoff still works within the process. Default false preserves the
+   *  CLI/gateway's cross-process shared sentinel (they pass an explicit `root`). */
+  memory?: boolean;
 };
 
 export class RateLimitGuardError extends Error {
@@ -48,6 +56,9 @@ function defaultRateRoot(): string {
 
 export class RateLimitGuard {
   private readonly path: string;
+  private readonly memory: boolean;
+  /** In-memory sentinel used only in memory mode (no shared disk file). */
+  private memState: RateLimitState | null = null;
   private readonly now: () => number;
   private readonly maxSleepSeconds: number;
 
@@ -55,8 +66,11 @@ export class RateLimitGuard {
     readonly provider: string,
     opts: RateLimitGuardOpts = {},
   ) {
-    const root = opts.root ?? defaultRateRoot();
-    this.path = join(root, `${provider}.json`);
+    this.memory = opts.memory ?? false;
+    // In memory mode, never resolve the default root — defaultRateRoot() calls
+    // resolveHarnessHome(), which mkdir's HARNESS_HOME. The path is unused.
+    const root = opts.root ?? (this.memory ? '' : defaultRateRoot());
+    this.path = this.memory ? '' : join(root, `${provider}.json`);
     this.now = opts.now ?? (() => Date.now() / 1000);
     this.maxSleepSeconds = opts.maxSleepSeconds ?? DEFAULT_MAX_SLEEP_SECONDS;
   }
@@ -77,6 +91,10 @@ export class RateLimitGuard {
     const fromHeaders = resetTimeFromHeaders(headers, now);
     const exhaustedUntil = fromHeaders ?? now + this.noHeaderCooldownSeconds(now);
     const state = { exhausted_until: exhaustedUntil, reason, detected_at: now };
+    if (this.memory) {
+      this.memState = state;
+      return state;
+    }
     writeAtomic(this.path, state);
     return state;
   }
@@ -95,6 +113,7 @@ export class RateLimitGuard {
   }
 
   read(): RateLimitState | null {
+    if (this.memory) return this.memState;
     if (!existsSync(this.path)) return null;
     try {
       return JSON.parse(readFileSync(this.path, 'utf8')) as RateLimitState;
@@ -191,26 +210,32 @@ function parseRetryAfter(value: string | null, now: number): number | null {
 }
 
 function writeAtomic(path: string, state: RateLimitState): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-  renameSync(tmp, path);
+  // Keep the whole state root uniform (audit F10): dir 0700, file 0600, atomic
+  // rename — via the shared secure writer (audit C6, single source of truth).
+  secureWriteFileAtomic(path, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 async function sleepSeconds(seconds: number, signal?: AbortSignal): Promise<void> {
   if (seconds <= 0) return;
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, seconds * 1000);
     const onAbort = () => {
       clearTimeout(timer);
       reject(new Error('aborted while waiting for provider rate-limit reset'));
     };
+    // Manage the listener symmetrically (mirrors semaphore.ts/pathLock.ts):
+    // remove it on the resolve path too. `{ once: true }` only auto-removes a
+    // listener that actually FIRES, so relying on it leaks one 'abort' listener
+    // per completed wait on a shared, long-lived signal (F25).
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, seconds * 1000);
     if (signal) {
       if (signal.aborted) {
         onAbort();
         return;
       }
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal.addEventListener('abort', onAbort); // no `{ once }`: removal is explicit on both paths
     }
   });
 }

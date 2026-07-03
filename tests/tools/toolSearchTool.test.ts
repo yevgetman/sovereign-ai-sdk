@@ -3,6 +3,10 @@ import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { buildToolSearchTool, matchTools } from '@yevgetman/sov-sdk/tools/ToolSearchTool';
 import { z } from 'zod';
+import {
+  asyncRejectingDescriptionTool,
+  collectUnhandledRejections,
+} from '../helpers/asyncDescription.js';
 
 function deferredTool(
   name: string,
@@ -16,6 +20,23 @@ function deferredTool(
     inputJSONSchema: { type: 'object', properties: { x: { type: 'string' } } },
     shouldDefer: true,
     ...(searchHint ? { searchHint } : {}),
+    async call() {
+      return { data: 'ok' };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
+// A deferred tool whose description is input-dependent — valid per the public
+// `(input) => string` contract — so it throws when describeStatic calls it with
+// the `undefined` publication sentinel.
+function throwingDescriptionTool(name: string): Tool<unknown, unknown> {
+  return buildTool({
+    name,
+    // biome-ignore lint/suspicious/noExplicitAny: input-dependent description under test
+    description: (i: any) => `Search ${i.mode}`,
+    inputSchema: z.unknown(),
+    inputJSONSchema: { type: 'object', properties: { x: { type: 'string' } } },
+    shouldDefer: true,
     async call() {
       return { data: 'ok' };
     },
@@ -85,6 +106,31 @@ describe('ToolSearchTool', () => {
       type: 'object',
       properties: { x: { type: 'string' } },
     });
+  });
+
+  test('throwing input-dependent description degrades to the tool name instead of crashing', () => {
+    const tools = [
+      throwingDescriptionTool('mcp__throws__search'),
+      deferredTool('mcp__ok__read', 'reads a file', 'read'),
+    ];
+    expect(() => matchTools('', tools)).not.toThrow();
+    const matched = matchTools('', tools);
+    expect(matched.map((t) => t.name)).toEqual(['mcp__throws__search', 'mcp__ok__read']);
+    // Throwing tool falls back to its name; the other serializes normally.
+    expect(matched[0]?.description).toBe('mcp__throws__search');
+    expect(matched[1]?.description).toBe('reads a file');
+  });
+
+  // G3: an async description that REJECTS must not leave a process-killing
+  // unhandled rejection on the tool-search path. describeStatic degrades it to
+  // the tool name via the shared safeStaticToolDescription helper.
+  test('async-rejecting description degrades to the name without an unhandled rejection', async () => {
+    const rejections = await collectUnhandledRejections(() => {
+      const matched = matchTools('', [asyncRejectingDescriptionTool('mcp__evil__search')]);
+      expect(matched.map((t) => t.name)).toEqual(['mcp__evil__search']);
+      expect(matched[0]?.description).toBe('mcp__evil__search');
+    });
+    expect(rejections).toEqual([]);
   });
 
   test('Tool wrapper: call() routes through the live getter', async () => {

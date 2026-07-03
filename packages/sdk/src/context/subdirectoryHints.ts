@@ -2,8 +2,9 @@
 // AGENTS.md / CONTEXT.md / .cursorrules files are appended to that tool
 // result, not to the frozen system prompt.
 
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { readBoundedUtf8 } from './boundedRead.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 
 const HINT_FILES = ['AGENTS.md', 'CONTEXT.md', '.cursorrules'] as const;
@@ -48,9 +49,18 @@ export function collectHints(targetDir: string): string[] {
     for (const filename of HINT_FILES) {
       const path = join(dir, filename);
       if (!existsSync(path) || !lstatSync(path).isFile()) continue;
-      const raw = readFileSync(path, 'utf8');
-      const screened = screenContextFile(path, raw);
-      const body = screened.ok ? screened.text.trim() : blockPlaceholder(path, screened.reason);
+      // readBoundedUtf8 caps the read so a huge file can never be slurped whole
+      // (OOM) before screening truncates it. openSync/readSync can still throw
+      // on a TOCTOU race (EACCES/ENOENT between the stat and the read); skip the
+      // file rather than crashing the turn out of maybeAppendHints.
+      let body: string;
+      try {
+        const raw = readBoundedUtf8(path);
+        const screened = screenContextFile(path, raw);
+        body = screened.ok ? screened.text.trim() : blockPlaceholder(path, screened.reason);
+      } catch {
+        continue;
+      }
       hints.push(`<hint-file path="${escapeAttr(path)}">\n${body}\n</hint-file>`);
     }
   }

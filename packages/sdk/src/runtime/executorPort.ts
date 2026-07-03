@@ -24,6 +24,13 @@ export type SpawnedProc = {
   stdin: { write: (data: string | Uint8Array) => number; end: () => void };
   exited: Promise<number>;
   kill: (signal?: number) => void;
+  /** The signal name the child died on (e.g. `'SIGKILL'`, `'SIGTERM'`), or
+   *  `null` when it exited normally. Populated by the time `exited` resolves.
+   *  Additive/optional so existing fakes and Bun.spawn's return value still
+   *  satisfy the port. Lets callers (GrepTool) tell a signal kill from a
+   *  genuine exit code instead of inferring it — a killed search must never be
+   *  reported as an authoritative "no matches". */
+  signalCode?: NodeJS.Signals | null;
 };
 
 export type SpawnOpts = {

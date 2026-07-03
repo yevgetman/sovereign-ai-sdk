@@ -14,6 +14,8 @@
     "directory": "packages/sdk"
   },
   "files": ["dist", "src", "LICENSE", "README.md"],
+  "main": "./dist/sdk.js",
+  "types": "./dist/sdk.d.ts",
   "exports": {
     ".": {
       "bun": "./src/sdk.ts",

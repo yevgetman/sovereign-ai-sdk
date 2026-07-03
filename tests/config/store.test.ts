@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -35,6 +35,18 @@ describe('config store', () => {
     // Missing file → the bare `{}` early-return. Every field on `Settings` is
     // optional, so `{}` IS a valid Settings and no `thinking` block is forged.
     expect(readConfig()).toEqual({});
+  });
+
+  test('writeConfig creates config.json 0600 in a 0700 dir (Unix) — audit C6', () => {
+    // config.json is the secret-densest state file (apiKey / token / botToken /
+    // signingSecret / Twilio authToken in cleartext). It must not be
+    // world-readable, and its parent dir must deny traversal by other uids.
+    if (process.platform === 'win32') return;
+    const nested = join(dir, 'sub', 'config.json'); // dir 'sub' does not exist yet
+    process.env.HARNESS_CONFIG = nested;
+    writeConfig({ defaultProvider: 'ollama' });
+    expect(statSync(nested).mode & 0o777).toBe(0o600);
+    expect(statSync(join(dir, 'sub')).mode & 0o777).toBe(0o700);
   });
 
   test('writeConfig + readConfig round-trip and validate against schema', () => {

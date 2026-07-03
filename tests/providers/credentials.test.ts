@@ -1,7 +1,8 @@
 // Credential pool and rate-limit guard tests.
 
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CredentialPool } from '@yevgetman/sov-sdk/providers/credentials/pool';
@@ -208,6 +209,43 @@ describe('CredentialPool', () => {
     };
     expect(state.credentials?.openai?.other?.status).toBe('exhausted');
   });
+
+  // D2: memory mode — the SDK embed path (createAgent) builds the pool WITHOUT
+  // touching disk (no default-path resolution → no resolveHarnessHome() mkdir,
+  // no credentials.json), yet selection + lockout logic still work in memory.
+  test('memory mode selects and locks out credentials without reading or writing disk', () => {
+    const home = join(tempDir(), 'nonexistent-home');
+    const prevHome = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = home;
+    try {
+      let now = 100;
+      const pool = new CredentialPool(
+        'openai',
+        [
+          { id: 'a', provider: 'openai', authType: 'api_key', secret: 'sk-a' },
+          { id: 'b', provider: 'openai', authType: 'api_key', secret: 'sk-b' },
+        ],
+        { memory: true, now: () => now },
+      );
+      // Selection works in memory.
+      const first = pool.select();
+      expect(first?.credential.id).toBe('a');
+      expect(first?.secret).toBe('sk-a');
+      // Lockout logic works in memory (exhaust 'a' → 'b' selected).
+      pool.markExhausted('a', '429', 500);
+      expect(pool.select()?.credential.id).toBe('b');
+      now = 600;
+      expect(pool.select()?.credential.id).toBe('a');
+      // No default credential-state path was ever resolved → HARNESS_HOME and
+      // credentials.json were never created.
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(join(home, 'credentials.json'))).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+    }
+  });
 });
 
 describe('RateLimitGuard', () => {
@@ -233,6 +271,33 @@ describe('RateLimitGuard', () => {
     guard.markRateLimited({ 'retry-after': '30' }, '429');
     expect(existsSync(join(root, 'openai.json'))).toBe(true);
     await expect(guard.beforeRequest()).rejects.toThrow(RateLimitGuardError);
+  });
+
+  // D2: memory mode — the embed path builds the guard WITHOUT touching disk (no
+  // defaultRateRoot() → no resolveHarnessHome() mkdir, no rate_limits write),
+  // yet the 429 backoff still works via in-memory state.
+  test('memory mode backs off on a 429 without reading or writing disk', async () => {
+    const home = join(tempDir(), 'nonexistent-home');
+    const prevHome = process.env.HARNESS_HOME;
+    process.env.HARNESS_HOME = home;
+    try {
+      const guard = new RateLimitGuard('anthropic', {
+        memory: true,
+        now: () => 1_000,
+        maxSleepSeconds: 600,
+      });
+      // A long-cooldown 429 (reset in 30 min) is recorded in memory.
+      guard.markRateLimited({ 'retry-after': '1800' }, 'rate limited');
+      // beforeRequest reads the IN-MEMORY state and fails fast for the long wait.
+      await expect(guard.beforeRequest()).rejects.toThrow(RateLimitGuardError);
+      // Nothing was ever written to disk.
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(join(home, 'rate_limits'))).toBe(false);
+    } finally {
+      // biome-ignore lint/performance/noDelete: env-var unset requires delete (test cleanup).
+      if (prevHome === undefined) delete process.env.HARNESS_HOME;
+      else process.env.HARNESS_HOME = prevHome;
+    }
   });
 
   // FIX 3: a header-less 429 must NOT lock the provider for a full hour.
@@ -289,5 +354,70 @@ describe('RateLimitGuard', () => {
     const second = guard.markRateLimited(undefined, '429').exhausted_until - now;
     expect(second).toBeGreaterThan(first);
     expect(second).toBeLessThan(60 * 60);
+  });
+
+  // F25: a completed (non-aborted) rate-limit wait must remove its 'abort'
+  // listener from the (shared, long-lived) signal. Relying on { once: true } is
+  // insufficient — it only auto-removes a listener that actually FIRES, so each
+  // successful backoff leaks one listener on the signal.
+  test('a completed rate-limit wait removes its abort listener (no leak on a shared signal)', async () => {
+    const root = tempDir();
+    // Fixed clock: a tiny remaining cooldown so beforeRequest sleeps briefly and
+    // then RESOLVES (the non-abort path) instead of failing fast.
+    const guard = new RateLimitGuard('openai', { root, now: () => 100 });
+    guard.markRateLimited({ 'retry-after': '0.02' }, '429'); // exhausted_until = 100.02
+
+    // A minimal signal that records its 'abort' listeners so we can assert none
+    // survive a resolved sleep. sleepSeconds only touches .aborted +
+    // add/removeEventListener, so this stands in for a shared AbortSignal.
+    const abortListeners = new Set<() => void>();
+    const signal = {
+      aborted: false,
+      addEventListener: (_type: string, cb: () => void) => {
+        abortListeners.add(cb);
+      },
+      removeEventListener: (_type: string, cb: () => void) => {
+        abortListeners.delete(cb);
+      },
+    } as unknown as AbortSignal;
+
+    await guard.beforeRequest(signal);
+
+    expect(abortListeners.size).toBe(0);
+  });
+});
+
+// C2: merely IMPORTING the SDK must not touch disk. The credential pool used to
+// eager-eval `DEFAULT_CREDENTIAL_STATE_PATH = getDefaultCredentialStatePath()`
+// at module load, which calls resolveHarnessHome() → unconditional
+// mkdirSync(HARNESS_HOME). Because createAgent → resolver → pool, importing the
+// SDK created (or, under a read-only home, THREW on) HARNESS_HOME before any
+// run() — defeating the no-disk contract. The eager const is removed.
+describe('SDK import is disk-free (no import-time HARNESS_HOME mkdir)', () => {
+  const REPO_ROOT = join(import.meta.dir, '..', '..');
+
+  test('importing the SDK barrel neither creates HARNESS_HOME nor throws', () => {
+    const base = mkdtempSync(join(tmpdir(), 'sov-import-home-'));
+    // A child path that deliberately does NOT exist: a disk-free import must
+    // leave it uncreated even though HARNESS_HOME points at it.
+    const freshHome = join(base, 'nonexistent-home');
+    try {
+      const result = spawnSync('bun', ['-e', "await import('@yevgetman/sov-sdk')"], {
+        cwd: REPO_ROOT,
+        env: { ...process.env, HARNESS_HOME: freshHome },
+        encoding: 'utf-8',
+      });
+      // No throw at import time (the eager const used to mkdir here).
+      expect(result.status).toBe(0);
+      // No disk touch: HARNESS_HOME was never created by the import.
+      expect(existsSync(freshHome)).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('credentials/pool no longer exports the eager DEFAULT_CREDENTIAL_STATE_PATH const', async () => {
+    const poolModule = await import('@yevgetman/sov-sdk/providers/credentials/pool');
+    expect('DEFAULT_CREDENTIAL_STATE_PATH' in poolModule).toBe(false);
   });
 });

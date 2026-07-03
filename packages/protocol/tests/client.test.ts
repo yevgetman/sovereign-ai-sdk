@@ -229,4 +229,31 @@ describe('protocol client (Contract #2)', () => {
     const gen = streamEvents(BASE, TOKEN, SID);
     await expect(gen.next()).rejects.toThrow('404');
   });
+
+  test('streamEvents cancels the underlying stream when the consumer breaks early', async () => {
+    // The natural "stop when a terminal event arrives" pattern breaks out of the
+    // loop WITHOUT wiring an abort signal. Teardown must cancel the underlying
+    // stream (closing the fetch/SSE connection), not merely release the reader
+    // lock — otherwise the long-lived server-side event stream is orphaned.
+    const e1: ServerEvent = { type: 'text_delta', seq: 1, sessionId: SID, block: 0, text: 'hi' };
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    // A long-lived SSE body: emit one frame and stay OPEN (never close), so the
+    // only way out of the loop is the consumer's early break.
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(frame(e1)));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    stubFetch(() => new Response(body, { status: 200 }));
+
+    for await (const _ev of streamEvents(BASE, TOKEN, SID)) {
+      break; // early break on the first event, no opts.signal wired
+    }
+
+    expect(cancelled).toBe(true);
+  });
 });

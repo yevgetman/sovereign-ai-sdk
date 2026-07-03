@@ -13,6 +13,13 @@
 // Bypass: set HARNESS_REDACTION=off to disable globally. Tests that
 // legitimately need to exercise redaction-skipping use that env var.
 
+import {
+  MAX_REDACTION_INPUT_BYTES,
+  compilePemPrivateKeyPattern,
+  compileProviderKeyPatterns,
+  compileVendorSecretPatterns,
+} from '../redaction/secretPatterns.js';
+
 export type SecretKind =
   | 'github-oauth' // gh[oprsu]_ + 36+ chars
   | 'github-fine-grained' // github_pat_ + 82 chars
@@ -22,6 +29,16 @@ export type SecretKind =
   | 'stripe-publishable' // pk_(live|test)_ + 16+ chars
   | 'slack-token' // xox[abprs]- + tokens
   | 'google-api-key' // AIza + 35 chars
+  | 'url-credentials' // scheme://user:PASSWORD@host (DB/connection URLs)
+  // Harness/provider API keys — SHARED with trajectory/redact.ts via the catalog
+  // so the tool-input redactor no longer lets a discovered LIVE provider key
+  // reach disk verbatim (audit E3).
+  | 'anthropic' // sk-ant-…
+  | 'openrouter' // sk-or-…
+  | 'openai' // sk-, sk-proj-, sk-svcacct-
+  | 'tavily' // tvly-…
+  | 'brave' // BSA…
+  | 'bearer' // Bearer <token>
   | 'jwt' // eyJ.eyJ.<sig>
   | 'private-key-block'; // -----BEGIN [...] PRIVATE KEY-----
 
@@ -54,34 +71,27 @@ interface PatternSpec {
 // the LATER match in this list (more specific patterns last) — see
 // removeOverlaps below.
 const PATTERNS: readonly PatternSpec[] = [
-  // GitHub OAuth-app tokens (gho_), classic PATs (ghp_), user tokens
-  // (ghu_), server tokens (ghs_), refresh tokens (ghr_). Real tokens are
-  // 36 chars after the prefix; we accept 36+ to be forward-compatible.
-  { kind: 'github-oauth', pattern: /\bgh[oprsu]_[A-Za-z0-9]{36,}\b/g },
+  // GitHub (gh[oprsu]_ family + github_pat_), AWS (AKIA…), Stripe, Slack, and
+  // Google formats all come from the SHARED catalog (redaction/secretPatterns.ts)
+  // so the persistent-artifact redactor (trajectory/redact.ts) recognizes the
+  // IDENTICAL set — the two can no longer drift apart (audit F4/C5). Order:
+  // github-oauth, github-fine-grained, aws-access-key-id, stripe-secret-live,
+  // stripe-secret-test, stripe-publishable, slack-token, google-api-key.
+  ...compileVendorSecretPatterns().map(({ name, regex }) => ({
+    kind: name as SecretKind,
+    pattern: regex,
+  })),
 
-  // GitHub fine-grained PATs are 82 chars after the prefix and may
-  // contain underscores.
-  { kind: 'github-fine-grained', pattern: /\bgithub_pat_[A-Za-z0-9_]{82}\b/g },
-
-  // AWS access key ID is exactly AKIA + 16 base32-ish chars.
-  { kind: 'aws-access-key-id', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
-
-  // Stripe secret keys: sk_ or rk_ (restricted), live or test mode.
-  // Real keys are 24+ chars after the prefix; accept 16+ for
-  // forward-compat and shorter test fixtures that still look real.
-  { kind: 'stripe-secret-live', pattern: /\b[sr]k_live_[A-Za-z0-9]{16,}\b/g },
-  { kind: 'stripe-secret-test', pattern: /\b[sr]k_test_[A-Za-z0-9]{16,}\b/g },
-
-  // Stripe publishable keys (pk_) — also rotateable, less catastrophic
-  // but worth redacting in artifacts.
-  { kind: 'stripe-publishable', pattern: /\bpk_(?:live|test)_[A-Za-z0-9]{16,}\b/g },
-
-  // Slack: xoxb-, xoxa-, xoxp-, xoxr-, xoxs-, xoxe-. Format is
-  // xox[type]-NNNN-NNNN-NNNN-hash; the trailing segment varies.
-  { kind: 'slack-token', pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g },
-
-  // Google API keys: AIza + 35 chars.
-  { kind: 'google-api-key', pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  // Harness/provider API keys (Anthropic/OpenRouter/OpenAI/Tavily/Brave + the
+  // generic Bearer form) — the SAME shared catalog the persistent-artifact
+  // redactor (trajectory/redact.ts) consumes, so an agent can no longer write a
+  // discovered LIVE provider key into a generated file verbatim (audit E3). The
+  // specific sk-ant-/sk-or- forms precede the generic sk- inside the catalog so
+  // they keep their own kind on an identical-span overlap.
+  ...compileProviderKeyPatterns().map(({ name, regex }) => ({
+    kind: name as SecretKind,
+    pattern: regex,
+  })),
 
   // JWTs: three base64url segments separated by dots, header starting
   // with `eyJ` (the base64 of `{"`). We require the second segment to
@@ -89,12 +99,14 @@ const PATTERNS: readonly PatternSpec[] = [
   { kind: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g },
 
   // PEM-style private key blocks. Multi-line, includes the surrounding
-  // BEGIN/END markers. RSA, OPENSSH, EC, DSA, or generic.
-  {
-    kind: 'private-key-block',
-    pattern:
-      /-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED |PGP |PRIVATE )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |DSA |EC |OPENSSH |ENCRYPTED |PGP |PRIVATE )?PRIVATE KEY-----/g,
-  },
+  // BEGIN/END markers (RSA, OPENSSH, EC, DSA, or generic). Sourced from the
+  // SHARED catalog (redaction/secretPatterns.ts) so this redactor and the
+  // persistent-artifact redactor (trajectory/redact.ts) use ONE linear,
+  // ReDoS-safe pattern — the bounded inner span ({0,6144}?) cannot drift back to
+  // the quadratic unbounded lazy form in one redactor while the other stays
+  // fixed (audit D7, F5 sibling; window trimmed 8192→6144 for time headroom in
+  // audit G6).
+  { kind: 'private-key-block', pattern: compilePemPrivateKeyPattern() },
 ];
 
 /** Scan a string for known secret patterns and return redaction info. */
@@ -106,13 +118,22 @@ export function redactSecrets(input: string): RedactionResult {
     return { redacted: input, hits: [] };
   }
 
+  // Bound synchronous scan work (audit C9): only the first
+  // MAX_REDACTION_INPUT_BYTES chars are pattern-matched. The full `input` is
+  // still returned (the tail is preserved verbatim below) — this redactor
+  // rewrites Write/Edit file CONTENT, so it must never truncate a write; it only
+  // accepts not scanning the (pathologically large) tail. All hit indices stay
+  // valid against `input` because the prefix shares the same offsets.
+  const scanText =
+    input.length > MAX_REDACTION_INPUT_BYTES ? input.slice(0, MAX_REDACTION_INPUT_BYTES) : input;
+
   const rawHits: SecretHit[] = [];
   for (const { kind, pattern } of PATTERNS) {
     pattern.lastIndex = 0; // Stateful /g regexes must be reset.
-    let match: RegExpExecArray | null = pattern.exec(input);
+    let match: RegExpExecArray | null = pattern.exec(scanText);
     while (match !== null) {
       rawHits.push({ kind, start: match.index, end: match.index + match[0].length });
-      match = pattern.exec(input);
+      match = pattern.exec(scanText);
     }
   }
 

@@ -1,9 +1,10 @@
 // Credential pool with persistent metadata only. Raw secrets come from env or
 // config; ~/.harness/credentials.json stores status/cooldown/usage, never keys.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveHarnessHome } from '../../config/paths.js';
+import { secureWriteFileAtomic } from '../../util/secureFs.js';
 import type { AuthType } from '../types.js';
 
 export type PooledCredential = {
@@ -41,6 +42,13 @@ export type CredentialPoolOpts = {
   path?: string;
   strategy?: CredentialStrategy;
   now?: () => number;
+  /** Memory-only mode (the SDK embed path). When true the pool holds status
+   *  metadata in memory ONLY: it never resolves a default state path (so
+   *  resolveHarnessHome() is never called, and HARNESS_HOME is never mkdir'd),
+   *  never reads an existing credentials.json, and never persists. Selection +
+   *  lockout logic are unchanged. Default false preserves the CLI/gateway's
+   *  cross-process disk-backed state (they pass an explicit `path`). */
+  memory?: boolean;
 };
 
 type StateFile = {
@@ -54,9 +62,11 @@ export function getDefaultCredentialStatePath(): string {
   return join(resolveHarnessHome(), 'credentials.json');
 }
 
-/** @deprecated Eager const; profile-aware callers should use
- *  `getDefaultCredentialStatePath()`. Retained for backward compat. */
-export const DEFAULT_CREDENTIAL_STATE_PATH = getDefaultCredentialStatePath();
+// NB: no eager module-level default-path const. Resolving it at import time
+// called resolveHarnessHome() → unconditional mkdirSync(HARNESS_HOME), so
+// merely importing the SDK (createAgent → resolver → pool) touched disk before
+// any run() — and threw under a read-only home. Callers resolve lazily via
+// getDefaultCredentialStatePath() instead (audit C2 — no import-time disk).
 const DEFAULT_COOLDOWN_SECONDS = 60 * 60;
 /** A 401/403 is auto-deny-worthy but not necessarily permanent (transient
  *  proxy/org 403, or a key the user is about to rotate). Lock out for a bounded
@@ -66,6 +76,7 @@ const DEFAULT_AUTH_FAILED_COOLDOWN_SECONDS = 10 * 60;
 export class CredentialPool {
   private readonly state: StateFile;
   private readonly path: string;
+  private readonly memory: boolean;
   private readonly now: () => number;
   private readonly strategy: CredentialStrategy;
   private readonly secrets = new Map<string, string | undefined>();
@@ -82,10 +93,14 @@ export class CredentialPool {
     inputs: CredentialInput[],
     opts: CredentialPoolOpts = {},
   ) {
-    this.path = opts.path ?? getDefaultCredentialStatePath();
+    this.memory = opts.memory ?? false;
+    // In memory mode, never resolve the default path — getDefaultCredentialStatePath()
+    // calls resolveHarnessHome(), which mkdir's HARNESS_HOME. The `?? (ternary)`
+    // short-circuits it entirely when no explicit path is given.
+    this.path = opts.path ?? (this.memory ? '' : getDefaultCredentialStatePath());
     this.now = opts.now ?? (() => Date.now() / 1000);
     this.strategy = opts.strategy ?? 'ROUND_ROBIN';
-    this.state = readState(this.path);
+    this.state = this.memory ? {} : readState(this.path);
     if (!this.state.credentials) this.state.credentials = {};
     const providerState = this.state.credentials[this.provider] ?? {};
     this.state.credentials[this.provider] = providerState;
@@ -199,6 +214,9 @@ export class CredentialPool {
   }
 
   private persist(): void {
+    // Memory-only mode (SDK embed path): status metadata lives in `this.state`
+    // and is never written to disk.
+    if (this.memory) return;
     // Re-read the current file and overlay ONLY the credential rows this pool
     // actually mutated this process. Replacing the whole provider sub-map with
     // our boot snapshot would clobber a concurrent SAME-provider process's
@@ -247,10 +265,9 @@ function readState(path: string): StateFile {
 }
 
 function writeStateAtomic(path: string, state: StateFile): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-  renameSync(tmp, path);
+  // Keep the whole state root uniform (audit F10): dir 0700, file 0600, atomic
+  // rename — via the shared secure writer (audit C6, single source of truth).
+  secureWriteFileAtomic(path, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 function hashSecret(secret: string): string {

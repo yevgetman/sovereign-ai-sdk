@@ -38,6 +38,24 @@ export type PathScope = { kind: 'all' } | { kind: 'globs'; globs: string[] };
 
 const GLOB_CHARS = /[*?[\]{}]/;
 
+/** Picomatch specials that GLOB_CHARS does NOT cover but that still let a glob
+ *  match paths OUTSIDE any literal directory prefix, so the prefix collapse
+ *  below cannot bound them (2026-07-02 audit F3, sibling to the extglob write-
+ *  race that `noext` closed):
+ *   - a LEADING `!` (after optional whitespace) is picomatch negation — it
+ *     inverts the match and can admit essentially the whole tree;
+ *   - `(` / `|` is an alternation group — it admits siblings that fall outside
+ *     the literal prefix (`(a|b)/c` admits `a/c`).
+ *  Bun.Glob honors neither, which is why GLOB_CHARS omits them; but the shipped
+ *  picomatch matcher (and any embedder's matcher) can, breaking the lock's
+ *  "every admitted path ⊆ collapsed prefix" invariant. A glob carrying either
+ *  is UNBOUNDABLE and collapses to the whole-tree prefix so the scope
+ *  conservatively OVERLAPS everything and serializes (over-serialize, never
+ *  race). */
+function isUnboundableGlob(glob: string): boolean {
+  return /^\s*!/.test(glob) || glob.includes('(') || glob.includes('|');
+}
+
 /** Lexically canonicalize a wildcard-free path prefix for comparison: collapse
  *  `./`, `//`, and `..` segments, drop a trailing slash, and case-fold. A bare
  *  `.` (or empty) means the whole tree. */
@@ -54,8 +72,11 @@ function normalizePrefix(p: string): string {
  *  wildcard the full literal path. Examples (arrow shows the collapsed prefix):
  *  `src/foo/` + `**` collapses to `src/foo`; `src/foo*` to `src`; `src/a.ts` to
  *  `src/a.ts`; a leading-wildcard glob to the empty prefix (whole tree).
- *  Normalized + case-folded for comparison. */
+ *  Normalized + case-folded for comparison. A negation/alternation glob that
+ *  GLOB_CHARS cannot bound also collapses to the whole tree (see
+ *  {@link isUnboundableGlob}). */
 function globPrefix(glob: string): string {
+  if (isUnboundableGlob(glob)) return '';
   const m = glob.match(GLOB_CHARS);
   if (m === null || m.index === undefined) return normalizePrefix(glob);
   const beforeWildcard = glob.slice(0, m.index);

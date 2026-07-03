@@ -2030,6 +2030,8 @@ Source: `src/permissions/secretRedactor.ts` (detector), `src/permissions/inputTr
 
 Read-only Bash commands automatically resolve against `Read` permission rules. If your allow rules include `Read` or `Read(*.ts)`, then `Bash("cat src/main.ts")` runs without prompting because the shell AST analyzer classifies `cat` as a read operation. Write and edit commands (`cp`, `rm`, `chmod`, etc.) do not benefit from this — they still follow Bash-specific rules. Command substitution (`$(...)`, backticks) is always treated as unsafe and requires explicit Bash rules.
 
+> **Security note — the read-only classifier is a best-effort convenience heuristic, not a security sandbox.** It statically inspects the command to auto-approve *obviously* safe reads under a `Read` allow rule, but it cannot be provably complete against adversarial input: some in-band write/exec forms evade static detection (e.g. `awk`/`gawk` program-body output redirects like `print > f`, interactive pager/editor shell-escapes like `less` → `!cmd`, and other value-flag orderings). **In any deployment that processes untrusted input, do not grant a blanket `allow Read`; gate the Bash tool with explicit allow/deny rules.** The real security boundary is your permission ruleset, not this heuristic. Full posture: [`packages/sdk/SECURITY.md`](../../packages/sdk/SECURITY.md).
+
 When a prompt is required, the TUI renders a yellow-bordered modal:
 
 ```text

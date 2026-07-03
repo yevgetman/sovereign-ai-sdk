@@ -5,6 +5,7 @@ import type { Bundle } from '../bundle/types.js';
 import type { SystemSegment } from '../core/types.js';
 import type { ProjectScope } from '../memory/scope.js';
 import type { Skill } from '../skills/types.js';
+import { safeStaticToolDescription } from '../tool/staticDescription.js';
 import type { Tool } from '../tool/types.js';
 import { blockPlaceholder, screenContextFile } from './injectionDefense.js';
 import { formatSystemContext, getSystemContext } from './system.js';
@@ -12,7 +13,8 @@ import { formatUserContext, getUserContext } from './user.js';
 
 export type BuildSystemSegmentsOptions = {
   bundle?: Bundle;
-  tools?: Tool<unknown, unknown>[];
+  // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+  tools?: Tool<any, any>[];
   skills?: Skill[];
   cwd?: string;
   now?: Date;
@@ -213,7 +215,8 @@ export function buildSystemSegments(
   return cacheEnabled ? segments : segments.map((segment) => ({ ...segment, cacheable: false }));
 }
 
-export function formatTools(tools: Tool<unknown, unknown>[]): string {
+// biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+export function formatTools(tools: Tool<any, any>[]): string {
   if (tools.length === 0) return '';
   const lines = tools.map((tool) => {
     const description = staticDescription(tool);
@@ -269,9 +272,13 @@ function screenBundleText(filename: string, text: string | null): string {
 }
 
 function staticDescription(tool: Tool<unknown, unknown>): string {
-  const result = tool.description(undefined as never);
-  if (result instanceof Promise) return tool.name;
-  return result.replace(/\s+/g, ' ').trim();
+  // Static, crash-safe resolution shared with schemaSerialization / ToolSearch /
+  // budget: an input-dependent throw, an async (possibly rejecting) description,
+  // or a non-string return all degrade to the tool name without crashing the
+  // turn's system-prompt assembly (see tool/staticDescription.ts). The
+  // `<available-tools>` list wants a single-line form, so normalize whitespace
+  // on the resolved string.
+  return safeStaticToolDescription(tool).replace(/\s+/g, ' ').trim();
 }
 
 function normalizeOptions(

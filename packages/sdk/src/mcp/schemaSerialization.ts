@@ -11,6 +11,7 @@
 // Source of pattern: harness-build-plan.md §"Phase 12";
 // claude-code-reverse-engineering.md §11.2 + §10.4 (deferred tools).
 
+import { safeStaticToolDescription } from '../tool/staticDescription.js';
 import type { Tool } from '../tool/types.js';
 
 export type ProviderToolSchema = {
@@ -24,7 +25,8 @@ const DEFERRED_PASSTHROUGH_SCHEMA = {
   additionalProperties: true,
 };
 
-export function toToolSchemas(tools: Tool<unknown, unknown>[]): ProviderToolSchema[] {
+// biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
+export function toToolSchemas(tools: Tool<any, any>[]): ProviderToolSchema[] {
   return tools.map((t) => buildOne(t));
 }
 
@@ -58,18 +60,11 @@ function deferredDescription(tool: Tool<unknown, unknown>): string {
 }
 
 function describeToStatic(tool: Tool<unknown, unknown>): string {
-  // `Tool.description` is `(input) => string | Promise<string>` — the input
-  // shaping lets per-call tools tune their description (Claude Code pattern).
-  // For schema-publication we need a static description, so we call with
-  // `undefined` (valid for tools that ignore the argument). Tools that
-  // actually use the input during schema construction must expose a static
-  // fallback; Phase 2 tools don't.
-  const result = tool.description(undefined as never);
-  if (result instanceof Promise) {
-    // Lazily-async descriptions aren't supported yet — fall back to the name.
-    return tool.name;
-  }
-  return result;
+  // Static, crash-safe resolution shared with systemPrompt / ToolSearch /
+  // budget: degrades an input-dependent throw, an async (possibly rejecting)
+  // description, or a non-string return to the tool name — see
+  // tool/staticDescription.ts for the full corner rationale.
+  return safeStaticToolDescription(tool);
 }
 
 /**

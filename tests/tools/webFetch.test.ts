@@ -24,6 +24,11 @@ function makeFetchMock(init: {
   }) as unknown as typeof fetch;
 }
 
+// The resolve-validate-pin DNS guard always runs now (finding F11), so
+// hostname-based call() tests inject a lookupImpl resolving to a public IP to
+// stay hermetic instead of depending on real DNS.
+const publicLookup: LookupImpl = async () => [{ address: '93.184.216.34', family: 4 }];
+
 describe('htmlToText', () => {
   test('strips script and style blocks entirely', () => {
     const html = `
@@ -105,7 +110,7 @@ describe('WebFetchTool.call', () => {
       headers: { 'content-type': 'text/html; charset=utf-8' },
       body: '<html><body><h1>Heading</h1><p>Paragraph text.</p></body></html>',
     });
-    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl: publicLookup } as unknown as ToolContext;
     const result = await WebFetchTool.call({ url: 'https://example.com' }, ctx);
     expect(result.data.status).toBe(200);
     expect(result.data.text).toContain('Heading');
@@ -118,7 +123,7 @@ describe('WebFetchTool.call', () => {
       headers: { 'content-type': 'text/plain' },
       body: '# Markdown\nlots of text\n',
     });
-    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl: publicLookup } as unknown as ToolContext;
     const result = await WebFetchTool.call({ url: 'https://example.com/raw.md' }, ctx);
     expect(result.data.text).toContain('# Markdown');
   });
@@ -128,7 +133,7 @@ describe('WebFetchTool.call', () => {
       headers: { 'content-type': 'text/plain' },
       body: 'x'.repeat(10_000),
     });
-    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl: publicLookup } as unknown as ToolContext;
     const result = await WebFetchTool.call({ url: 'https://example.com', max_chars: 200 }, ctx);
     expect(result.data.truncated).toBe(true);
     expect(result.data.text.length).toBeLessThan(300); // 200 + truncation suffix
@@ -141,7 +146,7 @@ describe('WebFetchTool.call', () => {
       headers: { 'content-type': 'text/plain' },
       body: '',
     });
-    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl: publicLookup } as unknown as ToolContext;
     const result = await WebFetchTool.call({ url: 'https://example.com/missing' }, ctx);
     expect(result.data.status).toBe(404);
     expect(result.data.text).toContain('HTTP 404');
@@ -186,7 +191,7 @@ describe('WebFetchTool SSRF hardening', () => {
       { status: 302, headers: { location: 'http://169.254.169.254/' } },
       { body: 'INTERNAL SECRET' },
     ]);
-    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl: publicLookup } as unknown as ToolContext;
     const result = await WebFetchTool.call({ url: 'https://example.com/start' }, ctx);
     expect(result.observation?.status).toBe('error');
     expect(result.data.text).toContain('redirect blocked');
@@ -198,7 +203,7 @@ describe('WebFetchTool SSRF hardening', () => {
       { status: 302, headers: { location: 'https://example.org/final' } },
       { headers: { 'content-type': 'text/plain' }, body: 'final body' },
     ]);
-    const ctx = { ...ctxBase, fetchImpl } as ToolContext;
+    const ctx = { ...ctxBase, fetchImpl, lookupImpl: publicLookup } as unknown as ToolContext;
     const result = await WebFetchTool.call({ url: 'https://example.com/start' }, ctx);
     expect(result.data.status).toBe(200);
     expect(result.data.text).toContain('final body');
@@ -237,6 +242,20 @@ describe('WebFetchTool DNS resolve-validate-pin (findings #4/#5/#12)', () => {
     expect(seen[0]?.url).toBe('http://93.184.216.34/path'); // pinned to the IP
     expect(seen[0]?.host).toBe('pin.example'); // original Host preserved
     expect(result.data.finalUrl).toBe('http://pin.example/path'); // human-readable
+  });
+
+  // Finding F11 — wrapping fetch (proxy/tracing/retry) must NOT silently disable
+  // the DNS-rebinding guard. With fetchImpl injected but NO lookupImpl, the
+  // resolve-validate-pin guard must still run and refuse before any fetch.
+  // `.invalid` (RFC 6761) never resolves, so the default resolver fail-closes
+  // hermetically with no network.
+  test('finding F11: DNS guard runs even when fetchImpl is injected without a lookupImpl', async () => {
+    const { fetchImpl, urls } = makeSeqFetchMock([{ body: 'SECRET' }]);
+    const ctx = { ...ctxBase, fetchImpl } as ToolContext; // no lookupImpl injected
+    const result = await WebFetchTool.call({ url: 'http://rebind.attacker.invalid/' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    expect(urls).toHaveLength(0); // guard fired before any fetch
+    expect(result.data.text).not.toContain('SECRET');
   });
 
   test('finding #5: a DNS error fails CLOSED (refusal, no fetch)', async () => {
