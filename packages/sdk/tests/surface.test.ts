@@ -193,6 +193,7 @@ import type {
   TraceSink,
   TranscriptStore,
   Transport,
+  UsageAccumulator,
   UserMessage,
   ValidationResult,
 } from '@yevgetman/sov-sdk';
@@ -206,6 +207,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'LaneSemaphores',
   'PathLockManager',
   'SubagentScheduler',
+  'accumulateUsage',
   'aliasToNativeName',
   'buildHookRunner',
   'buildMcpClientPool',
@@ -216,9 +218,11 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createAgent',
   'createInMemorySessionStore',
   'createNoopTranscriptStore',
+  'createUsageAccumulator',
   'dropsFor',
   'expandSkillPrompt',
   'expandSkillText',
+  'finalizeUsage',
   'findCapableModel',
   'isRemoteMcpConfig',
   'loadSkills',
@@ -422,6 +426,7 @@ type TypeSurfaceWitness = {
   traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;
   transport?: Transport;
+  usageAccumulator?: UsageAccumulator;
   userMessage?: UserMessage;
   validationResult?: ValidationResult;
 };

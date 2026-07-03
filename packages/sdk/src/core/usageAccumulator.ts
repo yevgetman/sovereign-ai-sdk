@@ -1,5 +1,14 @@
 // src/core/usageAccumulator.ts — cross-call token-usage accumulation for the
-// tool loop (Task 4.2). OPEN core, INTERNAL: not barrel-exported.
+// tool loop (Task 4.2). OPEN core, PUBLIC: barrel-exported from src/sdk.ts (W1)
+// so the gateway and external meters reuse the exact per-call/summed semantics
+// (duplicating them is how the gateway's turn-undercount bug happened).
+//
+// Five accumulated fields (USAGE_FIELDS): the four DISJOINT, ADDITIVE phase
+// fields (input / output / cache-creation / cache-read) plus `reasoningTokens`,
+// an INFORMATIONAL SUBSET of `outputTokens` (reasoning tokens a provider broke
+// out separately). All five accumulate identically here — last-seen per field
+// within a call, summed across calls — but reasoningTokens overlaps output and
+// is NEVER priced; only the accumulation is this module's concern.
 //
 // query() emits one or more `usage_delta` events per provider call (for
 // Anthropic: one at message_start carrying inputTokens + cache fields, one at
@@ -36,6 +45,7 @@ const USAGE_FIELDS = [
   'outputTokens',
   'cacheCreationInputTokens',
   'cacheReadInputTokens',
+  'reasoningTokens',
 ] as const satisfies readonly (keyof TokenUsage)[];
 
 /** Immutable accumulator state. `totals` holds the summed per-call finals so

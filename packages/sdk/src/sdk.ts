@@ -42,6 +42,15 @@ export type {
   UserMessage,
 } from './core/types.js';
 export type { MicrocompactConfig } from './compact/microcompact.js';
+// Cross-call usage accumulation (W1) — the exact per-call/summed token semantics
+// the tool loop uses. Public so the gateway and external meters reuse them
+// instead of re-deriving (re-deriving is how the turn-undercount bug happened).
+export {
+  accumulateUsage,
+  createUsageAccumulator,
+  finalizeUsage,
+} from './core/usageAccumulator.js';
+export type { UsageAccumulator } from './core/usageAccumulator.js';
 
 // ── Assembler (agent/createAgent.js) ────────────────────────────────────────
 export { createAgent } from './agent/createAgent.js';
