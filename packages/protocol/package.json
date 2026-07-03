@@ -8,10 +8,15 @@
     "node": ">=20",
     "bun": ">=1.2.0"
   },
+  "keywords": ["agent", "ai", "protocol", "sse", "gateway", "wire-protocol", "sdk"],
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
     "directory": "packages/protocol"
+  },
+  "homepage": "https://github.com/yevgetman/sovereign-ai-harness/tree/master/packages/protocol#readme",
+  "bugs": {
+    "url": "https://github.com/yevgetman/sovereign-ai-harness/issues"
   },
   "files": ["dist", "src", "LICENSE", "README.md"],
   "main": "./dist/index.js",

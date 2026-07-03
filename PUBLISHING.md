@@ -80,17 +80,19 @@ Expected contents (and nothing else) — the same allow-list the tarball tests
   exports condition resolves it; in-src `README.md` docs ride along)
 - `package/LICENSE` (MIT)
 - `package/README.md`
+- `package/SECURITY.md` (SDK only — the disclosure policy npm renders on the
+  package page)
 - `package/package.json`
 
 **Red flags:** anything under `tests/`, any `tsconfig*`, any path that isn't
-`dist`/`src`/the three root files. Note `prepack` runs `rm -rf dist && bun
+`dist`/`src`/the root files above. Note `prepack` runs `rm -rf dist && bun
 run build`, so pack output is always a fresh build.
 
-**Before publishing:** both package READMEs link `[STABILITY.md](../../STABILITY.md)`
-— a relative path that is dead on npmjs.com (STABILITY.md is not in the tarball).
-Convert those links to absolute GitHub URLs (they 404 until the repo flips public
-— acceptable; the READMEs' inline "Public surface & versioning" summaries carry
-the essentials meanwhile) or add STABILITY.md to each package's `files`.
+**STABILITY.md link (resolved 2026-07-02):** both package READMEs now link
+`STABILITY.md` by ABSOLUTE GitHub URL rather than a `../../` relative path, so the
+link is not dead on npmjs.com. The URL 404s until the repo flips public —
+acceptable; the READMEs' inline "Public surface & versioning" summaries carry the
+essentials meanwhile.
 
 ## 3. Publish
 

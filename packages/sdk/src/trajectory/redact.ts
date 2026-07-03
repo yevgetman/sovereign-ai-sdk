@@ -11,6 +11,7 @@
 
 import {
   MAX_REDACTION_INPUT_BYTES,
+  compileAuthHeaderPatterns,
   compilePemPrivateKeyPattern,
   compileProviderKeyPatterns,
   compileVendorSecretPatterns,
@@ -60,14 +61,20 @@ const PATTERNS: Array<{ name: string; regex: RegExp }> = [
     name: 'jwt',
     regex: /\beyJ[a-zA-Z0-9_\-=]{10,}\.eyJ[a-zA-Z0-9_\-=]{10,}\.[a-zA-Z0-9_\-=]{10,}\b/g,
   },
-  // Authorization headers in serialized JSON / curl. Two forms: a plain JSON
-  // key (`"authorization":"…"`) and an escaped key inside a stringified-JSON
-  // value (`\"authorization\":\"…\"`) — the latter is the common case when a
-  // tool result carries JSON as a string and the whole record is stringified
-  // again before redaction (audit 2026-06-10). The bearer/api-key patterns
-  // already catch token VALUES; this also masks Basic-auth and other schemes.
-  { name: 'auth-header', regex: /"authorization"\s*:\s*"[^"]+"/gi },
-  { name: 'auth-header-escaped', regex: /\\"authorization\\"\s*:\s*\\"[^"\\]+\\"/gi },
+  // Authorization headers in serialized JSON. The plain + escaped JSON-key forms
+  // now live in the SHARED catalog (redaction/secretPatterns.ts) so the
+  // tool-input redactor recognizes the IDENTICAL set — closing the one-
+  // directional parity gap where a `"authorization":"…"` value could be written
+  // to a generated file verbatim. The bearer/api-key patterns catch token VALUES;
+  // these mask Basic-auth and other schemes' values inside JSON.
+  ...compileAuthHeaderPatterns(),
+  // Wire-form (non-JSON) `Authorization: Basic <base64>` header. ARCHIVE-ONLY
+  // (not in the shared catalog / not in the tool-input redactor): over-redacting
+  // a doc's literal "Authorization: Basic …" prose is harmless in a committed
+  // transcript archive but would CORRUPT a file the agent is writing, so the
+  // write-guard must not carry it. Bearer wire-form is already covered by the
+  // shared `bearer` pattern; this adds the Basic scheme (trivially reversible).
+  { name: 'auth-header-basic', regex: /\bAuthorization\s*:\s*Basic\s+[A-Za-z0-9+/=._-]+/gi },
   // Common credential file paths (we don't read them; we redact references to them).
   { name: 'aws-creds-path', regex: /\B~\/\.aws\/credentials\b/g },
   { name: 'ssh-private', regex: /\B~\/\.ssh\/id_(rsa|ed25519|ecdsa|dsa)(\.pub)?\b/g },

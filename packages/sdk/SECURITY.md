@@ -108,6 +108,18 @@ untrusted `sessionId` cannot reach it, and whoever controls the install path alr
 authors the skill body); and the static shell-classifier residual tail described
 above.
 
+## Dependency advisories
+
+- **`@anthropic-ai/sdk` — GHSA-p7fg-763f-g4gf (moderate): "Insecure Default File
+  Permissions in Local Filesystem Memory Tool"** (affected `0.79.0`–`0.91.0`). The SDK
+  currently pins `^0.90.0`, so `npm install` surfaces this advisory. **The vulnerable
+  surface — the anthropic SDK's own local-filesystem memory tool — is not used by this
+  package** (this SDK ships its own bounded memory implementation with 0700/0600
+  permissions; see "Secure file permissions" above). A patched release outside the
+  affected range exists upstream; bumping the pin clears the advisory and is planned,
+  gated on live-API verification of the provider stream/error paths. Until then the
+  advisory is informational for this package, not an exploitable defect in it.
+
 ## Reporting a vulnerability
 
 Please report security issues **privately** — do not open a public issue or PR for a

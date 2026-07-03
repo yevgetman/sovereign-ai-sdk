@@ -15,6 +15,7 @@
 
 import {
   MAX_REDACTION_INPUT_BYTES,
+  compileAuthHeaderPatterns,
   compilePemPrivateKeyPattern,
   compileProviderKeyPatterns,
   compileVendorSecretPatterns,
@@ -23,13 +24,16 @@ import {
 export type SecretKind =
   | 'github-oauth' // gh[oprsu]_ + 36+ chars
   | 'github-fine-grained' // github_pat_ + 82 chars
-  | 'aws-access-key-id' // AKIA + 16
+  | 'aws-access-key-id' // AKIA/ASIA + 16
+  | 'npm-token' // npm_ + 36+ chars
   | 'stripe-secret-live' // [sr]k_live_ + 16+ chars
   | 'stripe-secret-test' // [sr]k_test_ + 16+ chars
   | 'stripe-publishable' // pk_(live|test)_ + 16+ chars
   | 'slack-token' // xox[abprs]- + tokens
   | 'google-api-key' // AIza + 35 chars
   | 'url-credentials' // scheme://user:PASSWORD@host (DB/connection URLs)
+  | 'auth-header' // "authorization":"…" (JSON)
+  | 'auth-header-escaped' // \"authorization\":\"…\" (stringified JSON)
   // Harness/provider API keys — SHARED with trajectory/redact.ts via the catalog
   // so the tool-input redactor no longer lets a discovered LIVE provider key
   // reach disk verbatim (audit E3).
@@ -89,6 +93,16 @@ const PATTERNS: readonly PatternSpec[] = [
   // specific sk-ant-/sk-or- forms precede the generic sk- inside the catalog so
   // they keep their own kind on an identical-span overlap.
   ...compileProviderKeyPatterns().map(({ name, regex }) => ({
+    kind: name as SecretKind,
+    pattern: regex,
+  })),
+
+  // Authorization-header JSON forms — SHARED with trajectory/redact.ts so the
+  // write-guard no longer lets a `"authorization":"…"` value reach disk verbatim
+  // (the one-directional parity gap). Only the JSON forms are shared; the risky
+  // wire-form `Authorization: Basic …` stays archive-only in trajectory/redact.ts
+  // (it would over-redact and corrupt legitimate written file content here).
+  ...compileAuthHeaderPatterns().map(({ name, regex }) => ({
     kind: name as SecretKind,
     pattern: regex,
   })),

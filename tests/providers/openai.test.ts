@@ -7,11 +7,23 @@ import {
   type OpenAIChatChunk,
   OpenAIProvider,
   messagesToOpenAI,
+  parseSse,
   translateOpenAIStream,
 } from '@yevgetman/sov-sdk/providers/openai';
 
 async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;
+}
+
+/** Build a ReadableStream of UTF-8 bytes from a raw SSE wire string. */
+function sseBody(raw: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(raw);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
 }
 
 // Drains translateOpenAIStream into its yielded events plus the returned
@@ -84,6 +96,37 @@ describe('OpenAIProvider conversion', () => {
     expect(body.stream).toBe(true);
     // Without this, openai/openrouter stream usage is never reported → $0 cost.
     expect(body.stream_options).toEqual({ include_usage: true });
+  });
+});
+
+describe('parseSse', () => {
+  async function collect(raw: string): Promise<OpenAIChatChunk[]> {
+    const out: OpenAIChatChunk[] = [];
+    for await (const chunk of parseSse(sseBody(raw))) out.push(chunk);
+    return out;
+  }
+
+  test('parses well-formed data lines and stops at [DONE]', async () => {
+    const raw =
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n' +
+      'data: {"choices":[{"delta":{"content":"!"}}]}\n' +
+      'data: [DONE]\n';
+    const chunks = await collect(raw);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]?.choices?.[0]?.delta?.content).toBe('Hi');
+  });
+
+  // Polish-pass 2026-07-02 (MEDIUM) — a single malformed data line from a
+  // non-conformant OpenAI-compatible endpoint/proxy must NOT abort the turn
+  // with a raw SyntaxError. It is skipped; surrounding valid chunks stream.
+  test('skips a malformed data line instead of throwing', async () => {
+    const raw =
+      'data: {"choices":[{"delta":{"content":"a"}}]}\n' +
+      'data: {not valid json}\n' +
+      'data: {"choices":[{"delta":{"content":"b"}}]}\n' +
+      'data: [DONE]\n';
+    const chunks = await collect(raw);
+    expect(chunks.map((c) => c.choices?.[0]?.delta?.content)).toEqual(['a', 'b']);
   });
 });
 

@@ -59,6 +59,22 @@ describe('splitShellSegments', () => {
       'rm bar',
     ]);
   });
+
+  // Polish-pass 2026-07-02 (CRITICAL) — ANSI-C `$'…'` quoting escapes
+  // backslashes, so `\'` is a LITERAL quote that does not close the string. A
+  // POSIX-only quote tracker toggled its single-quote state on that inner `'`
+  // and ran off the end still "in a quote", swallowing the `;` separator so a
+  // smuggled command joined the leading read command's segment. Bash closes the
+  // ANSI-C quote at `\'`'s following `'`, making `;`/`&&` real separators.
+  test("ANSI-C $'…' quoting does not desync the separator scanner", () => {
+    // `$'\''` is a single literal quote; the `;` after it is a real separator.
+    expect(splitShellSegments("cat $'\\'';touch OWNED")).toEqual(["cat $'\\''", 'touch OWNED']);
+    expect(splitShellSegments("ls $'\\'' && rm bar")).toEqual(["ls $'\\''", 'rm bar']);
+    // A `;` INSIDE the ANSI-C literal is not a separator (stays one segment).
+    expect(splitShellSegments("echo $';rm -rf x'")).toEqual(["echo $';rm -rf x'"]);
+    // A plain (non-escaped) ANSI-C string closes normally.
+    expect(splitShellSegments("printf $'\\n'; ls")).toEqual(["printf $'\\n'", 'ls']);
+  });
 });
 
 describe('analyzeShellCommand', () => {

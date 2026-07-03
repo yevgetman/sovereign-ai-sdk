@@ -183,15 +183,16 @@ function isReadOnlySegment(segment: string): boolean {
   if (!cmd) return false; // launcher with no real command (e.g. bare `env`)
   if (cmd.startsWith('-') || cmd.includes('/')) return false;
   if (!BASH_READ_COMMANDS.has(cmd)) return false;
-  // `find` is read-only only without a destructive/exec primary. Defer the
-  // classification to the shared `analyzeShellCommand` analyzer (which uses the
-  // SAME quote-stripping tokenizer + `FIND_DESTRUCTIVE_PRIMARIES` set), so a
-  // quoted primary (`find /x '-delete'`, `find . '-exec' rm {} ';'`) can never
-  // slip past a quote-naive regex and auto-allow file deletion (deep-dive #1).
-  // The two paths cannot diverge again — both read the analyzer.
-  if (cmd === 'find' && !analyzeShellCommand(seg).every((op) => op.kind === 'read')) {
-    return false;
-  }
+  // The allowlist gate above is necessary but NOT sufficient: an allowlisted
+  // read command can still be turned into a write or an arbitrary exec by a
+  // flag or operand this naive `split(/\s+/)` tokenizer never inspects —
+  // `rg --pre <cmd>` (runs a command per file), `tree -o <file>` (writes),
+  // `date <ts>` / `hostname <name>` (set-forms), and `[N]>&<file>` redirects
+  // the segment-level regex in `isReadOnlyBashCommand` misses. Defer EVERY
+  // allowlisted command (not just `find`) to the shared, audit-hardened
+  // `analyzeShellCommand` — same quote-stripping tokenizer, single source of
+  // truth — so this auto-allow gate can never diverge from the analyzer again.
+  if (!analyzeShellCommand(seg).every((op) => op.kind === 'read')) return false;
   return true;
 }
 

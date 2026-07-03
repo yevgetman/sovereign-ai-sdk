@@ -23,16 +23,21 @@ beforeAll(() => {
   execFileSync('bun', ['run', 'build'], { cwd: pkgDir });
 });
 
-test('sdk tarball ships only dist + src + license + readme + package.json', () => {
+test('sdk tarball ships only dist + src + license + readme + security + package.json', () => {
   const out = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: pkgDir }).toString();
   const paths: string[] = JSON.parse(out)[0].files.map((f: { path: string }) => f.path);
 
   // In-tree markdown docs inside the OPEN src tree (e.g. src/bundle/README.md)
   // are categorically documentation and ship with the source they document.
+  // SECURITY.md rides along at the root so npm renders the disclosure policy on
+  // the package page (added 2026-07-02 polish pass).
   const allowed =
-    /^(dist\/.*\.(js|d\.ts)|src\/.*\.ts|src\/(.*\/)?README\.md|LICENSE|README\.md|package\.json)$/;
+    /^(dist\/.*\.(js|d\.ts)|src\/.*\.ts|src\/(.*\/)?README\.md|LICENSE|README\.md|SECURITY\.md|package\.json)$/;
   const bad = paths.filter((p) => !allowed.test(p));
   expect(bad).toEqual([]);
+
+  // The disclosure policy actually ships.
+  expect(paths).toContain('SECURITY.md');
 
   // ...and all three entry forms of the dual-condition exports map actually
   // ship (types + import → dist, bun → src).

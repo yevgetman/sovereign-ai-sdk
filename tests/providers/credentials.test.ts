@@ -310,6 +310,27 @@ describe('RateLimitGuard', () => {
     expect(delay).toBeLessThanOrEqual(5 * 60);
   });
 
+  // Polish-pass 2026-07-02 (LOW) — a hostile/misconfigured endpoint's absurd
+  // retry-after must be CLAMPED, not written far-future to the shared on-disk
+  // sentinel where it would brick the provider across every session.
+  test('a far-future retry-after header is clamped to the 1h ceiling', () => {
+    const root = tempDir();
+    const now = 1000;
+    const guard = new RateLimitGuard('openai', { root, now: () => now });
+    const state = guard.markRateLimited({ 'retry-after': '999999999' }, '429');
+    const delay = state.exhausted_until - now;
+    expect(delay).toBeGreaterThan(0);
+    expect(delay).toBeLessThanOrEqual(60 * 60);
+  });
+
+  test('a legitimate sub-hour retry-after is honored in full (not clamped)', () => {
+    const root = tempDir();
+    const now = 1000;
+    const guard = new RateLimitGuard('openai', { root, now: () => now });
+    const state = guard.markRateLimited({ 'retry-after': '120' }, '429');
+    expect(state.exhausted_until - now).toBe(120);
+  });
+
   // FIX 3: OpenRouter-style X-RateLimit-Reset is epoch-MS; it must be parsed to
   // the correct absolute reset time. Uses a realistic epoch so the magnitude
   // heuristic (epoch-ms vs epoch-s vs relative) is exercised honestly.
