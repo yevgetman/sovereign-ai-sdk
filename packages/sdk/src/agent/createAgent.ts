@@ -174,6 +174,22 @@ export type RunResult = {
   toolCallCount: number;
   distinctToolNames: string[];
   messages: Message[];
+  /** The run's summed, phase-broken token usage. Accumulator semantics: the
+   *  per-call finals (last-seen value per field within each provider call) are
+   *  SUMMED across the whole tool loop — a multi-call turn reports the total,
+   *  not just the last call. `reasoningTokens` inside `usage` is INFORMATIONAL
+   *  (a subset of `outputTokens`) and is never part of the cost. ABSENT (not
+   *  `undefined`) when the stream reported no usage at all — mirroring
+   *  `finalizeUsage`'s `undefined`. Shares one `finalizeUsage` result with the
+   *  persistence path, so it is byte-identical to what `recordTokenUsage`
+   *  received. */
+  usage?: TokenUsage;
+  /** The `usage` total priced via the SDK pricing table against the
+   *  provider/model this run used (`estimateCostUsd(provider.name, model,
+   *  usage)`) — the SAME figure the persistence path records. `reasoningTokens`
+   *  is excluded from this cost. ABSENT (not `undefined`) whenever `usage` is
+   *  absent. */
+  estimatedCostUsd?: number;
 };
 
 /** A configured agent. `run()` drives one turn loop to terminal, streaming
@@ -353,12 +369,22 @@ export function createAgent(config: AgentConfig): Agent {
       await gen.return(undefined as unknown as Terminal);
     }
 
-    // 9. Persistence — only when a port is supplied (no-disk default otherwise).
-    //    `finalizeUsage` flushes the trailing provider call and returns the
-    //    summed per-run total (undefined when the stream reported no usage —
-    //    recordTokenUsage stays skipped). The accumulator saw only THIS run's
-    //    live stream, so a rehydrated session never re-records prior runs'
-    //    tokens; the store's own accumulate (`col = col + ?`) does the rest.
+    // 9. Finalize usage ONCE and share it between persistence and the returned
+    //    RunResult so both figures are IDENTICAL. `finalizeUsage` flushes the
+    //    trailing provider call and returns the summed per-run total — a FRESH
+    //    object, never aliasing the accumulator's mutable-looking internals — or
+    //    `undefined` when the stream reported no usage (recordTokenUsage stays
+    //    skipped; RunResult.usage/estimatedCostUsd stay absent). The accumulator
+    //    saw only THIS run's live stream, so a rehydrated session never
+    //    re-records prior runs' tokens; the store's own accumulate
+    //    (`col = col + ?`) does the rest. Cost prices the summed total against
+    //    the provider/model this run used — the same `provider.name` the persist
+    //    path records under, so the recorded and returned costs match exactly.
+    const usage = finalizeUsage(usageAcc);
+    const estimatedCostUsd =
+      usage !== undefined ? estimateCostUsd(provider.name, model, usage) : undefined;
+
+    // Persistence — only when a port is supplied (no-disk default otherwise).
     if (config.sessionStore !== undefined || config.transcripts !== undefined) {
       persistTurn({
         sessionStore: config.sessionStore,
@@ -369,7 +395,8 @@ export function createAgent(config: AgentConfig): Agent {
         systemPrompt,
         messages,
         seedCount: seedMessages.length,
-        usage: finalizeUsage(usageAcc),
+        usage,
+        estimatedCostUsd,
       });
     }
 
@@ -381,6 +408,8 @@ export function createAgent(config: AgentConfig): Agent {
       toolCallCount,
       distinctToolNames: Array.from(distinctTools).sort(),
       messages,
+      ...(usage !== undefined ? { usage } : {}),
+      ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
     };
   }
 
@@ -473,7 +502,12 @@ function persistTurn(opts: {
   messages: Message[];
   /** Index where this run's NEW messages begin (the caller's seed length). */
   seedCount: number;
+  /** The run's finalized usage total (undefined → no usage reported). */
   usage: TokenUsage | undefined;
+  /** The pre-computed cost for `usage` (undefined ⟺ `usage` is undefined),
+   *  passed in so the recorded cost is IDENTICAL to `RunResult.estimatedCostUsd`
+   *  — a single `estimateCostUsd` call in `run()`, not a second one here. */
+  estimatedCostUsd: number | undefined;
 }): void {
   const {
     sessionStore,
@@ -485,6 +519,7 @@ function persistTurn(opts: {
     messages,
     seedCount,
     usage,
+    estimatedCostUsd,
   } = opts;
 
   if (sessionStore !== undefined) {
@@ -515,8 +550,8 @@ function persistTurn(opts: {
     seq += 1;
   }
 
-  if (sessionStore !== undefined && usage !== undefined) {
-    sessionStore.recordTokenUsage(sessionId, usage, estimateCostUsd(providerName, model, usage));
+  if (sessionStore !== undefined && usage !== undefined && estimatedCostUsd !== undefined) {
+    sessionStore.recordTokenUsage(sessionId, usage, estimatedCostUsd);
   }
 }
 
