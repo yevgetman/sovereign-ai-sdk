@@ -184,6 +184,13 @@ export type {
   Transport,
 } from './providers/types.js';
 export type { ReasoningEffort } from './providers/effort.js';
+// Metering / pricing (W4) — the public cost surface. `estimateCostUsd` prices a
+// `TokenUsage` against the built-in `PRICE_TABLE` (readonly); `PRICING_VERSION`
+// lets consumers (e.g. assay's `pricing_ref`) pin the exact table they priced
+// against — it is bumped on ANY table change. `formatUsd` renders a dollar
+// figure; `TokenPricesPerMillion` is a `PRICE_TABLE` entry's shape.
+export { PRICE_TABLE, PRICING_VERSION, estimateCostUsd, formatUsd } from './providers/pricing.js';
+export type { TokenPricesPerMillion } from './providers/pricing.js';
 
 // ── MCP (mcp/) — client entrypoint, pool-factory port + public types ────────
 export { buildMcpClientPool } from './mcp/client.js';

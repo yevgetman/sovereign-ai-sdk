@@ -79,8 +79,18 @@ export type OpenAIChatChunk = {
   }>;
   // Present only on the final chunk when stream_options.include_usage is set.
   // That chunk carries an empty `choices` array, so usage must be read
-  // independently of the per-choice loop.
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  // independently of the per-choice loop. The two `*_details` objects are
+  // OpenAI-only and may be entirely absent on local/older OpenAI-compatible
+  // engines (vLLM/MLX) — treat them as optional + nullable-tolerant.
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    // prompt_tokens INCLUDES cached_tokens (cache reads billed at a discount);
+    // see the disjoint-phase subtraction where usage is emitted below.
+    prompt_tokens_details?: { cached_tokens?: number | null } | null;
+    // reasoning_tokens is an informational SUBSET of completion_tokens.
+    completion_tokens_details?: { reasoning_tokens?: number | null } | null;
+  };
 };
 
 type OpenAIProviderConfig = {
@@ -267,7 +277,7 @@ export async function* translateOpenAIStream(
   const reasoningParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; args: string }>();
   let stopReason: StopReason = 'end_turn';
-  let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  let lastUsage: OpenAIChatChunk['usage'];
 
   for await (const chunk of raw) {
     if (chunk.usage) lastUsage = chunk.usage;
@@ -326,15 +336,34 @@ export async function* translateOpenAIStream(
   }
 
   if (lastUsage) {
+    // OpenAI's `prompt_tokens` INCLUDES cached tokens, but our TokenUsage phase
+    // fields must stay DISJOINT + ADDITIVE (Anthropic semantics: `inputTokens`
+    // EXCLUDES cache reads; `estimateCostUsd` sums the phases × price). So map
+    // `cached_tokens` to its own `cacheReadInputTokens` phase AND subtract it
+    // from input. `reasoning_tokens` is an informational SUBSET of output — it
+    // is surfaced but NOT subtracted from `outputTokens` (see the TokenUsage
+    // doc comment). The `*_details` objects are absent on local/older engines
+    // (vLLM/MLX), and a 0 count adds no field — both cases behave exactly as
+    // before (byte-identical emission).
+    const cachedTokens =
+      typeof lastUsage.prompt_tokens_details?.cached_tokens === 'number'
+        ? lastUsage.prompt_tokens_details.cached_tokens
+        : 0;
+    const reasoningTokens =
+      typeof lastUsage.completion_tokens_details?.reasoning_tokens === 'number'
+        ? lastUsage.completion_tokens_details.reasoning_tokens
+        : 0;
     yield {
       type: 'usage_delta',
       usage: {
         ...(typeof lastUsage.prompt_tokens === 'number'
-          ? { inputTokens: lastUsage.prompt_tokens }
+          ? { inputTokens: lastUsage.prompt_tokens - cachedTokens }
           : {}),
         ...(typeof lastUsage.completion_tokens === 'number'
           ? { outputTokens: lastUsage.completion_tokens }
           : {}),
+        ...(cachedTokens > 0 ? { cacheReadInputTokens: cachedTokens } : {}),
+        ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
       },
     };
   }

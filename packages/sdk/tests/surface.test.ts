@@ -180,6 +180,7 @@ import type {
   TaskRecord,
   TaskState,
   Terminal,
+  TokenPricesPerMillion,
   TokenUsage,
   Tool,
   ToolChoice,
@@ -205,6 +206,8 @@ import type {
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'CANONICAL_TOOL_DESCRIPTORS',
   'LaneSemaphores',
+  'PRICE_TABLE',
+  'PRICING_VERSION',
   'PathLockManager',
   'SubagentScheduler',
   'accumulateUsage',
@@ -220,10 +223,12 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createNoopTranscriptStore',
   'createUsageAccumulator',
   'dropsFor',
+  'estimateCostUsd',
   'expandSkillPrompt',
   'expandSkillText',
   'finalizeUsage',
   'findCapableModel',
+  'formatUsd',
   'isRemoteMcpConfig',
   'loadSkills',
   'query',
@@ -413,6 +418,7 @@ type TypeSurfaceWitness = {
   taskRecord?: TaskRecord;
   taskState?: TaskState;
   terminal?: Terminal;
+  tokenPricesPerMillion?: TokenPricesPerMillion;
   tokenUsage?: TokenUsage;
   tool?: Tool<unknown, unknown>;
   toolChoice?: ToolChoice;
