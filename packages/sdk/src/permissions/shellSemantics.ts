@@ -1116,6 +1116,24 @@ function normalizeCommandToken(token: string): string {
   return token;
 }
 
+// `env -S<cmd>` / `env --split-string=<cmd>` (GNU: also on Linux, a supported
+// target) collapses a SINGLE string argument into a whole command line — an argv
+// rewrite — so `env -S'rm foo'` EXECUTES `rm foo`. In the natural quoted-attached
+// shape the whole embedded command tokenizes as one flag token (`-Srm foo`),
+// which the transparent-prefix loop skips like any ordinary flag; env then falls
+// through to a READ_COMMANDS classification and the embedded destructive command
+// auto-approves under `allow Read`. This detects the -S/--split-string option in
+// EVERY form so env carrying it always fails closed to exec. (residual: env
+// split-string transparent-wrapper — sibling of the path-qualified-wrapper HIGH.)
+function isEnvSplitStringFlag(token: string): boolean {
+  if (token.startsWith('--')) {
+    // `--split-string` and `--split-string=<cmd>` (name split on the first `=`).
+    return (token.split('=')[0] ?? '') === '--split-string';
+  }
+  // Bare `-S`, attached `-S<cmd>` — env's ONLY short option beginning with `S`.
+  return token.startsWith('-S');
+}
+
 function extractCommand(tokens: string[]): { command: string | null; args: string[] } {
   let cursor = 0;
   while (cursor < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor] ?? '')) {
@@ -1141,6 +1159,14 @@ function extractCommand(tokens: string[]): { command: string | null; args: strin
       cursor++;
       const next = tokens[cursor];
       if (next === undefined) break;
+      // Fail closed BEFORE reaching the wrapped command: any `env -S`/
+      // `--split-string` rewrites argv into a command line and is never a plain
+      // env-print read. Scoped to env (sudo's `-S` = read-password-from-stdin,
+      // not split-string) and to the option run, so an `-S`-looking operand of
+      // the WRAPPED command (`env cat -Sx`) still classifies by the reader.
+      if (cmd === 'env' && isEnvSplitStringFlag(next)) {
+        return { command: 'env -S', args: [] };
+      }
       if (next.startsWith('-')) continue;
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(next)) continue;
       if (TRANSPARENT_PREFIXES.has(normalizeCommandToken(next))) continue;

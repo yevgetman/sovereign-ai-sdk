@@ -77,16 +77,22 @@ export const VENDOR_SECRET_PATTERNS: readonly VendorSecretPattern[] = [
   // (and replaced by the redaction marker) while the scheme and host survive.
   // The lookbehind ALSO keeps the pattern linear/ReDoS-safe: it fails in O(1)
   // wherever the two preceding chars are not `//`, so the body never runs on a
-  // long non-URL run. (An INLINE `\b[a-z][a-z0-9+.\-]*://…` prefix instead is
-  // O(n^2) on a lowercase run — the scheme char-star matches the whole run then
+  // long non-URL run. (An INLINE `\b[A-Za-z][A-Za-z0-9+.\-]*://…` prefix instead
+  // is O(n^2) on an alpha run — the scheme char-star matches the whole run then
   // backtracks looking for `://` at every start position.) The two inner classes
-  // `[^\s/:@]+` exclude `:`/`@`/whitespace/`/`, so each is a single bounded run
-  // with no nested/overlapping quantifiers — linear per match. A credential-less
-  // URL (`https://example.com/path`, `https://user@host`, `host:port`) has no
-  // `user:pass@` and is left untouched.
+  // exclude `:`/`@`/whitespace/`/`, so each is a single bounded run with no
+  // nested/overlapping quantifiers — linear per match.
+  //
+  // The scheme classes are case-insensitive (`[A-Za-z]…`): RFC 3986 schemes are
+  // case-insensitive, so `Postgres://…` must redact like `postgres://…`. The
+  // FIRST inner run is `*` (not `+`) so an EMPTY username matches: `redis://:PW@`
+  // is the canonical Redis-AUTH URL (no user, password only), which a `+` first
+  // run would miss and leak. A credential-less URL (`https://example.com/path`, a
+  // userinfo with no password `https://user@host` — no `:pass@` — or a bare
+  // `host:port` with no `://`) still has no `…:PASSWORD@` match and is untouched.
   {
     name: 'url-credentials',
-    source: String.raw`(?<=\b[a-z][a-z0-9+.\-]*://)[^\s/:@]+:[^\s/:@]+@`,
+    source: String.raw`(?<=\b[A-Za-z][A-Za-z0-9+.\-]*://)[^\s/:@]*:[^\s/:@]+@`,
   },
 ];
 

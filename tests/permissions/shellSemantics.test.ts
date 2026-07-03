@@ -328,6 +328,42 @@ describe('path-qualified transparent command wrappers are analyzed by their wrap
   });
 });
 
+// `env -S<cmd>` / `env --split-string=<cmd>` collapses a single quoted string arg
+// into a whole command line (an argv rewrite) — so `env -S'rm foo'` EXECUTES
+// `rm foo`. In the natural quoted-attached shape the value tokenizes as one flag
+// token (`-Srm foo`), which the transparent-prefix loop skips like an ordinary
+// flag; env then falls through to a READ_COMMANDS classification and the embedded
+// destructive command auto-approves under `allow Read`. Fail closed: any env
+// carrying -S/--split-string, in ANY form, is exec. (residual: env split-string
+// transparent-wrapper — sibling of the path-qualified-wrapper HIGH.)
+describe('env -S/--split-string is never read-only (argv rewrite executes an embedded command)', () => {
+  test('every -S/--split-string form is exec, not read', () => {
+    // Attached short form (the quoted-attached shape that slipped through).
+    expect(isShellCommandReadOnly("env -S'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env -S'git push'")).toBe(false);
+    // -S combined with env's other options / leading assignments.
+    expect(isShellCommandReadOnly("env -i -S'rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env FOO=bar -S'rm foo'")).toBe(false);
+    // Path-qualified wrapper must also route through the same fail-closed rule.
+    expect(isShellCommandReadOnly("/usr/bin/env -S'rm foo'")).toBe(false);
+    // GNU long forms (attached-value and space-separated).
+    expect(isShellCommandReadOnly("env --split-string='rm foo'")).toBe(false);
+    expect(isShellCommandReadOnly("env --split-string 'rm foo'")).toBe(false);
+    // Space-separated short form.
+    expect(isShellCommandReadOnly("env -S 'rm foo'")).toBe(false);
+  });
+
+  test('env WITHOUT -S still classifies correctly (no over-prompt regression)', () => {
+    // Bare env / assignment-only env just print the environment → read.
+    expect(isShellCommandReadOnly('env')).toBe(true);
+    expect(isShellCommandReadOnly('env VAR=val')).toBe(true);
+    // A wrapped reader stays a read; the -S rule must not fire on a later
+    // `-S`-looking operand of the WRAPPED command.
+    expect(isShellCommandReadOnly('env cat file')).toBe(true);
+    expect(isShellCommandReadOnly('/usr/bin/env cat file')).toBe(true);
+  });
+});
+
 describe('isShellCommandReadOnly', () => {
   test('read-only commands return true', () => {
     expect(isShellCommandReadOnly('cat file')).toBe(true);

@@ -82,6 +82,44 @@ describe('secret-redactor parity (audit E3 — bidirectional, drift-proof)', () 
     });
   }
 
+  // url-credentials edge shapes: empty-username userinfo (Redis-AUTH) and
+  // case-insensitive schemes must redact through BOTH redactors, and
+  // credential-less URLs must stay untouched by both (no over-redaction).
+  test('empty-username + uppercase-scheme URL credentials redact through BOTH redactors', () => {
+    const leaky = [
+      { url: 'redis://:superSecretPass@10.0.0.5:6379', secret: 'superSecretPass' },
+      { url: 'Postgres://appuser:hunter2pw@db.internal:5432/prod', secret: 'hunter2pw' },
+      { url: 'postgres://appuser:hunter2pw@db.internal:5432/prod', secret: 'hunter2pw' },
+    ];
+    for (const { url, secret } of leaky) {
+      const tool = redactSecrets(url);
+      expect(tool.hits.length).toBeGreaterThan(0);
+      expect(tool.redacted).not.toContain(secret);
+
+      const persistent = redactForce(url);
+      expect(persistent).not.toContain(secret);
+      expect(persistent).toContain('[REDACTED]');
+    }
+
+    // Credential-less URLs (a userinfo with no password, and a bare host:port)
+    // must be left verbatim by both redactors.
+    for (const clean of ['https://user@h/x', 'https://example.com/x', 'host:port']) {
+      expect(redactForce(clean)).toBe(clean);
+      expect(redactSecrets(clean).hits.length).toBe(0);
+    }
+  });
+
+  // ReDoS: the broadened url-credentials source must stay linear on a 128 KiB
+  // scheme+colon-dense adversarial payload.
+  test('url-credentials pattern is ReDoS-safe on a 128 KiB adversarial payload', () => {
+    const cap = 128 * 1024;
+    const payload = 'Redis://:a:b:c@'.repeat(Math.ceil(cap / 15)).slice(0, cap);
+    const t0 = performance.now();
+    redactForce(payload);
+    redactSecrets(payload);
+    expect(performance.now() - t0).toBeLessThan(100);
+  });
+
   test('the provider keys the tool-input redactor previously MISSED are now caught', () => {
     // These are the exact E3 regression tokens (were verbatim before the fix).
     for (const name of ['anthropic', 'openrouter', 'openai', 'tavily', 'brave', 'bearer']) {

@@ -314,6 +314,29 @@ describe('redactForce — URL-authority credentials (DB/connection URLs)', () =>
     expect(redactForce(url)).toBe(url);
   });
 
+  // Empty-username userinfo (`scheme://:PASSWORD@host`) — the canonical Redis-AUTH
+  // URL shape — and case-insensitive schemes (RFC 3986 schemes are
+  // case-insensitive). Both leaked verbatim before the class was broadened.
+  test('empty-username userinfo redacts the password (redis://:pass@host)', () => {
+    const url = 'redis://:superSecretPass@10.0.0.5:6379';
+    const out = redactForce(url);
+    expect(out).not.toContain('superSecretPass');
+    expect(out).toContain('[REDACTED]');
+    expect(out).toContain('redis://'); // scheme survives
+    expect(out).toContain('10.0.0.5'); // host survives
+  });
+
+  test('uppercase-scheme URL credentials are redacted (Postgres://user:pass@host)', () => {
+    const url = 'Postgres://appuser:hunter2pw@db.internal:5432/prod';
+    const out = redactForce(url);
+    expect(out).not.toContain('hunter2pw');
+    expect(out).toContain('[REDACTED]');
+    expect(out).toContain('Postgres://');
+    expect(out).toContain('db.internal');
+    // Lowercase remains covered too.
+    expect(redactForce('postgres://appuser:hunter2pw@db:5432/prod')).not.toContain('hunter2pw');
+  });
+
   test('does not backtrack on a 128 KiB lowercase run or scheme+colon spam (ReDoS)', () => {
     // A pure lowercase run is the worst case for an INLINE `scheme://` prefix —
     // the scheme char-star matches the whole run then backtracks at every start
