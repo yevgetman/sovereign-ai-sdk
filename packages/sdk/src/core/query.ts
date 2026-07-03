@@ -36,9 +36,38 @@ import type {
   StopReason,
   StreamEvent,
   Terminal,
+  TokenUsage,
 } from './types.js';
 
 const DEFAULT_MAX_TURNS = 100;
+
+// The TokenUsage fields carried by usage_delta events. Mirrors the
+// usageAccumulator's field list (kept local — the boundary forbids importing
+// its internals). `reasoningTokens` (T1) is an informational subset of
+// outputTokens; it merges like the rest.
+const USAGE_DELTA_FIELDS = [
+  'inputTokens',
+  'outputTokens',
+  'cacheCreationInputTokens',
+  'cacheReadInputTokens',
+  'reasoningTokens',
+] as const satisfies readonly (keyof TokenUsage)[];
+
+/** Merge one `usage_delta` into the call's running usage, last-seen PER FIELD.
+ *  Anthropic emits input + cache at message_start then output at message_delta
+ *  (a second delta that omits the earlier fields); a whole-object overwrite
+ *  would drop them. Immutable: returns a NEW object spreading `prev`, then
+ *  copies only the DEFINED fields of `delta` (never writing an explicit-
+ *  undefined key — respecting exactOptionalPropertyTypes). Identical to the old
+ *  `usage = delta` behavior when a call emits a single delta. */
+function mergeUsage(prev: TokenUsage | undefined, delta: TokenUsage): TokenUsage {
+  const merged: TokenUsage = { ...prev };
+  for (const field of USAGE_DELTA_FIELDS) {
+    const value = delta[field];
+    if (value !== undefined) merged[field] = value;
+  }
+  return merged;
+}
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
 
@@ -141,7 +170,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
     let assistant: AssistantMessage | undefined;
     let stopReason: StopReason | undefined;
-    let usage: import('./types.js').TokenUsage | undefined;
+    let usage: TokenUsage | undefined;
     const requestStart = Date.now();
     let firstEventAt: number | undefined;
 
@@ -172,7 +201,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           assistant = event.message;
         }
         if (event.type === 'usage_delta') {
-          usage = event.usage;
+          usage = mergeUsage(usage, event.usage);
         }
         if (event.type === 'message_stop') {
           stopReason = event.stop_reason;

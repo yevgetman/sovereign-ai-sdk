@@ -44,6 +44,7 @@ The command surface and day-to-day operation.
 Recipes for adding extension points.
 
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
+- [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
 
 ## 05 — Conventions
 

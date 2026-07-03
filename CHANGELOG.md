@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.49 — Billing-grade usage telemetry - 2026-07-03
+
+_(Appended out of band — this file froze at Phase 13.3, per the note below; this feature warranted a versioned callout because it changes an externally-observed figure. The canonical state record remains the snapshot series + the testing log.)_
+
+**BUG FIX — multi-call tool-loop turns previously under-reported usage and cost.** The gateway tracked usage last-writer-wins, so a turn that made N provider calls recorded and reported only the **final** call's tokens — every consumer of per-turn cost (`status_update` `tokensIn`/`tokensOut`/`cost`, `sessionDb.recordTokenUsage`, and the `session_summary` totals fed from it) under-billed multi-call turns. Now fed from the SDK's summed usage accumulator, so per-turn figures are the true sum across all hops. Separately, `provider_response` trace events could drop input/cache fields on providers that split usage across deltas (Anthropic: input+cache on `message_start`, output on `message_delta`) — usage is now merged **per field within a call**, so the recorded trace carries the call's complete usage.
+
+Additions (all additive — new optional fields + new barrel exports; the 0.1.0 frozen SDK surface is extended, not broken):
+
+- **`RunResult.usage` + `RunResult.estimatedCostUsd`** — per-run summed, phase-broken token usage and its estimated cost, byte-identical to what the persistence path records.
+- **Public metering primitives** — `createUsageAccumulator` / `accumulateUsage` / `finalizeUsage` (+ type `UsageAccumulator`) and `estimateCostUsd` / `formatUsd` / `PRICE_TABLE` (readonly) / **`PRICING_VERSION`** (+ type `TokenPricesPerMillion`) are now barrel-exported from `@yevgetman/sov-sdk`, so external meters reuse the exact per-call/summed semantics instead of re-deriving them.
+- **`reasoningTokens` phase field** on `TokenUsage` — an informational subset of `outputTokens` (never priced; the four phase fields stay disjoint + additive).
+- **OpenAI cache/reasoning mapping** — `prompt_tokens_details.cached_tokens → cacheReadInputTokens` with `inputTokens = prompt_tokens − cached_tokens` (preserving the disjoint-phase invariant), and `completion_tokens_details.reasoning_tokens → reasoningTokens`; `cacheReadInput` prices added for the OpenAI table entries.
+- **`turn_complete.usage` populated** (the protocol's snake_case phase shape) and **`status_update.cacheHitRate`** assigned (`cacheRead / (input + cacheRead + cacheCreation)` when cache fields are present) — both previously defined-but-never-set.
+
+Packages: `@yevgetman/sov-sdk` 0.1.0 → 0.2.0 (additive surface); root wrapper 0.6.48 → 0.6.49. `@yevgetman/sov-protocol` untouched (no wire-type changes — the fields were already defined). Spec: `specs/2026-07-03-usage-telemetry-design.md`. Docs: `docs/04-extending/metering-an-agent.md`.
+
 > **NOTE — frozen at Phase 13.3 (2026-05-06).** This file is no longer the
 > canonical phase history. For shipped state since Phase 13.4, see
 > `docs/07-history/state/2026-05-12.md` (canonical current snapshot) and the archived

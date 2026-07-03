@@ -8,6 +8,24 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-07-03 — Billing-grade usage telemetry (v0.6.49 / sdk 0.2.0, `usage-telemetry` branch)
+
+**Scope.** The SDK "usage observer" build (SOP-12 autonomous subagent, TDD RED→GREEN per task): correct the two usage-accounting bugs, complete the phase breakdown, surface per-run usage/cost on `RunResult`, export the metering primitives, and populate the per-turn wire fields. Spec `specs/2026-07-03-usage-telemetry-design.md`, plan `plans/2026-07-03-usage-telemetry.md`. Six tasks (T1–T6), one atomic commit each, gate green at every commit.
+
+**TDD passes (RED → GREEN).**
+- **T1** (`79cbf54`) — accumulator un-INTERNAL + barrel-exported; `reasoningTokens` phase field. Tests: accumulator sums/carries `reasoningTokens` like the other fields; absent-field contract holds; frozen 0.1.0 surface test extended for the three new value exports + type (`packages/sdk/tests/surface.test.ts`, `packages/sdk/tests/usageAccumulator.test.ts`).
+- **T2** (`7dcba34`) — `provider_response` per-field usage merge (F2). RED first in `tests/trace/wiring.test.ts`: a split-delta call (input+cache, then output-only) now carries all four phase fields on the trace event; single-delta call unchanged.
+- **T3** (`696b54f`) — OpenAI cache/reasoning mapping + public versioned pricing. Tests: cached-token subtraction preserves the disjoint-phase invariant, reasoning-subset mapping, absent-details guard; cost math unchanged by `reasoningTokens`; `cacheReadInput` pricing for the OpenAI entries; surface test extended (`tests/providers/openai.test.ts`, `tests/providers/pricing.test.ts`).
+- **T4** (`b847cac`) — `RunResult.usage` + `estimatedCostUsd`. Tests: multi-call tool-loop run sums per-call finals; no-usage stream → both fields absent; cost matches the table; the returned figure is byte-identical to the recorded one (`tests/agent/createAgent.test.ts`).
+- **T5** (`04f2668`) — **the F1 undercount regression pin.** `tests/server/turns.usageAccumulation.test.ts` (new, 326 lines): a multi-call tool-loop turn now carries the SUM (not the last call) on `status_update` / `turn_complete` / `sessionDb`; `turn_complete.usage` populated with cache fields; `cacheHitRate` assigned; single-call turn stays byte-compatible; overflow-recovery hop still records per-session correctly.
+
+**Commands run (real results, T6 final gate).**
+- `bun run lint` (biome + boundary) — clean; **0 dependency violations** (171 modules / 551 deps cruised over `packages/sdk/src` + `packages/protocol/src`).
+- `bun run typecheck` — clean.
+- `bun run test` — **4825 pass / 0 fail / 17 skip** across 458 files (19,698 expect calls, ~82 s). No `tuiLauncherIntegration` flake observed this run (the known server-bind timing flake in `tests/cli/tuiLauncherIntegration.test.ts` remains the one ignorable intermittent).
+
+**Regressions / follow-ups:** None. npm publish of `@yevgetman/sov-sdk` 0.2.0 remains held (CEO's button); the downstream consumers (assay, platform Slice 5c) live in other repos.
+
 ## 2026-06-30 — SDK open-core extraction finale: thin harness + §15 acceptance gate (v0.6.47, `sdk-extraction` branch)
 
 **Scope.** Phase 9.1 of the SDK open-core extraction (the strangler arc that re-seated every surface onto the importable `createAgent()` SDK). This build made the harness genuinely thin and confirmed the full §15 acceptance gate. Behavior-preserving: dead-code removal + stale-comment cleanup + docs only; `query()` / `createAgent()` / the surfaces are unchanged. Spec `specs/2026-06-29-sdk-open-core-extraction-design.md`.

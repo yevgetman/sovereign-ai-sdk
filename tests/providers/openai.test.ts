@@ -197,6 +197,74 @@ describe('translateOpenAIStream', () => {
     expect(usage?.usage.outputTokens).toBe(7);
   });
 
+  // T3 / F6 — phase mapping for OpenAI usage detail objects. OpenAI's
+  // prompt_tokens INCLUDES cached tokens; our TokenUsage phase fields must stay
+  // DISJOINT + ADDITIVE (input excludes cache reads), so cached_tokens is
+  // subtracted from input and surfaced as a separate cacheReadInputTokens phase.
+  // reasoning_tokens is an informational SUBSET of output — surfaced, NOT
+  // subtracted from outputTokens.
+  async function usageOf(chunks: OpenAIChatChunk[]) {
+    const { yielded } = await drainStream(chunks);
+    return yielded.find(
+      (e): e is Extract<StreamEvent, { type: 'usage_delta' }> => e.type === 'usage_delta',
+    )?.usage;
+  }
+
+  test('maps cached + reasoning details: cache subtracted from input, phase fields surfaced', async () => {
+    const usage = await usageOf([
+      { choices: [{ delta: { content: 'Hi' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 200,
+          prompt_tokens_details: { cached_tokens: 400 },
+          completion_tokens_details: { reasoning_tokens: 60 },
+        },
+      },
+    ]);
+    // input EXCLUDES the 400 cache reads (1000 − 400); cache read is its own phase.
+    expect(usage?.inputTokens).toBe(600);
+    expect(usage?.cacheReadInputTokens).toBe(400);
+    // reasoning is a subset of output — output is unchanged, reasoning surfaced.
+    expect(usage?.outputTokens).toBe(200);
+    expect(usage?.reasoningTokens).toBe(60);
+  });
+
+  test('absent detail objects behave exactly as today (no cache/reasoning fields)', async () => {
+    const usage = await usageOf([
+      { choices: [{ delta: { content: 'Hello' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      { choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } },
+    ]);
+    expect(usage?.inputTokens).toBe(11);
+    expect(usage?.outputTokens).toBe(7);
+    expect(usage && 'cacheReadInputTokens' in usage).toBe(false);
+    expect(usage && 'reasoningTokens' in usage).toBe(false);
+  });
+
+  test('zero cached/reasoning omits the fields (field-absence contract)', async () => {
+    const usage = await usageOf([
+      { choices: [{ delta: { content: 'x' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 8,
+          prompt_tokens_details: { cached_tokens: 0 },
+          completion_tokens_details: { reasoning_tokens: 0 },
+        },
+      },
+    ]);
+    // cached_tokens of 0 must not subtract and must not add a field.
+    expect(usage?.inputTokens).toBe(50);
+    expect(usage?.outputTokens).toBe(8);
+    expect(usage && 'cacheReadInputTokens' in usage).toBe(false);
+    expect(usage && 'reasoningTokens' in usage).toBe(false);
+  });
+
   test('emits reasoning_content as a thinking stream, not text', async () => {
     const chunks: OpenAIChatChunk[] = [
       { choices: [{ delta: { reasoning_content: 'let me think' } }] },

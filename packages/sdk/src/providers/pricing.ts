@@ -13,7 +13,13 @@ export type TokenPricesPerMillion = {
 
 const ZERO_PRICE: TokenPricesPerMillion = { input: 0, output: 0 };
 
-const PRICE_TABLE: Record<string, TokenPricesPerMillion> = {
+/** Version of the built-in {@link PRICE_TABLE}. Bump on ANY table change
+ *  (rate edit, added/removed model). Consumers pin what they priced against
+ *  (e.g. assay's `pricing_ref`) so a later rate change never silently
+ *  reprices historical usage. */
+export const PRICING_VERSION = 1;
+
+export const PRICE_TABLE: Readonly<Record<string, TokenPricesPerMillion>> = {
   'anthropic:claude-sonnet-4-6': {
     input: 3,
     output: 15,
@@ -55,10 +61,13 @@ const PRICE_TABLE: Record<string, TokenPricesPerMillion> = {
   'openai:gpt-4o-mini': {
     input: 0.15,
     output: 0.6,
+    // OpenAI's cached-input discount is 50% of the input rate.
+    cacheReadInput: 0.075,
   },
   'openai:gpt-4o': {
     input: 2.5,
     output: 10,
+    cacheReadInput: 1.25,
   },
   'ollama:qwen2.5:3b': ZERO_PRICE,
 };
@@ -69,6 +78,9 @@ export function estimateCostUsd(provider: string, model: string, usage: TokenUsa
   const output = usage.outputTokens ?? 0;
   const cacheCreation = usage.cacheCreationInputTokens ?? 0;
   const cacheRead = usage.cacheReadInputTokens ?? 0;
+  // NOTE: `usage.reasoningTokens` is DELIBERATELY absent from this sum. It is an
+  // informational subset of `outputTokens` (already priced via `output` above);
+  // adding it would double-count. The four phase fields are disjoint + additive.
   return (
     (input * prices.input) / 1_000_000 +
     (output * prices.output) / 1_000_000 +

@@ -15,7 +15,8 @@
 //   • A run with NO usage_delta finalizes to `undefined` (recordTokenUsage is
 //     skipped — byte-identical to the old latest-snapshot path).
 //
-// The module is internal (NOT barrel-exported): imported via the deep subpath.
+// The module is now barrel-exported (W1); these unit tests exercise it via the
+// deep subpath, while the frozen-surface test pins the public barrel exports.
 
 import { describe, expect, test } from 'bun:test';
 import type { StreamEvent } from '@yevgetman/sov-sdk/core/types';
@@ -166,5 +167,43 @@ describe('usageAccumulator', () => {
       { type: 'message_stop', stop_reason: 'end_turn' },
     ]);
     expect(finalizeUsage(acc)).toEqual({ inputTokens: 17, outputTokens: 8 });
+  });
+
+  // W5 — `reasoningTokens` is the fifth accumulated field. It follows the exact
+  // same accumulation rule as the other four (last-seen PER FIELD within a call,
+  // SUMMED across calls). It is INFORMATIONAL — a subset of outputTokens, never
+  // priced — but the accumulator treats it like any other field: it only tracks,
+  // pricing is a separate concern.
+  test('reasoningTokens accumulates like the other fields (last-seen per field, summed across calls)', () => {
+    const acc = feed([
+      { type: 'message_start' },
+      // Within call 1, a later delta carries the final cumulative reasoning count.
+      { type: 'usage_delta', usage: { outputTokens: 40, reasoningTokens: 10 } },
+      { type: 'usage_delta', usage: { outputTokens: 50, reasoningTokens: 20 } },
+      { type: 'message_start' },
+      { type: 'usage_delta', usage: { outputTokens: 12, reasoningTokens: 3 } },
+    ]);
+    // reasoning: 20 (last-seen in call 1) + 3 (call 2) = 23; output: 50 + 12 = 62.
+    expect(finalizeUsage(acc)).toEqual({ outputTokens: 62, reasoningTokens: 23 });
+  });
+
+  test('a stream that never reports reasoningTokens leaves the field ABSENT from the total (field-absence contract)', () => {
+    const acc = feed([
+      { type: 'message_start' },
+      { type: 'usage_delta', usage: { inputTokens: 12, outputTokens: 9 } },
+      { type: 'message_stop', stop_reason: 'end_turn' },
+    ]);
+    const total = finalizeUsage(acc);
+    // No zero fabrication: reasoningTokens was never reported → absent.
+    expect(total !== undefined && 'reasoningTokens' in total).toBe(false);
+  });
+
+  test('finalize with only reasoningTokens reported works', () => {
+    const acc = feed([
+      { type: 'message_start' },
+      { type: 'usage_delta', usage: { reasoningTokens: 7 } },
+      { type: 'message_stop', stop_reason: 'end_turn' },
+    ]);
+    expect(finalizeUsage(acc)).toEqual({ reasoningTokens: 7 });
   });
 });

@@ -42,6 +42,15 @@ export type {
   UserMessage,
 } from './core/types.js';
 export type { MicrocompactConfig } from './compact/microcompact.js';
+// Cross-call usage accumulation (W1) — the exact per-call/summed token semantics
+// the tool loop uses. Public so the gateway and external meters reuse them
+// instead of re-deriving (re-deriving is how the turn-undercount bug happened).
+export {
+  accumulateUsage,
+  createUsageAccumulator,
+  finalizeUsage,
+} from './core/usageAccumulator.js';
+export type { UsageAccumulator } from './core/usageAccumulator.js';
 
 // ── Assembler (agent/createAgent.js) ────────────────────────────────────────
 export { createAgent } from './agent/createAgent.js';
@@ -175,6 +184,13 @@ export type {
   Transport,
 } from './providers/types.js';
 export type { ReasoningEffort } from './providers/effort.js';
+// Metering / pricing (W4) — the public cost surface. `estimateCostUsd` prices a
+// `TokenUsage` against the built-in `PRICE_TABLE` (readonly); `PRICING_VERSION`
+// lets consumers (e.g. assay's `pricing_ref`) pin the exact table they priced
+// against — it is bumped on ANY table change. `formatUsd` renders a dollar
+// figure; `TokenPricesPerMillion` is a `PRICE_TABLE` entry's shape.
+export { PRICE_TABLE, PRICING_VERSION, estimateCostUsd, formatUsd } from './providers/pricing.js';
+export type { TokenPricesPerMillion } from './providers/pricing.js';
 
 // ── MCP (mcp/) — client entrypoint, pool-factory port + public types ────────
 export { buildMcpClientPool } from './mcp/client.js';

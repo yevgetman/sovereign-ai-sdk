@@ -41,6 +41,13 @@ export type TokenUsage = {
   outputTokens?: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  /** INFORMATIONAL SUBSET of `outputTokens`: the reasoning/thinking tokens a
+   *  provider broke out separately (e.g. OpenAI `reasoning_tokens`). It is a
+   *  slice already counted inside `outputTokens`, so it is NEVER added to cost
+   *  math (cost = Σ of the four phase fields × price). The other four fields
+   *  remain mutually DISJOINT and ADDITIVE; this fifth field overlaps output
+   *  and exists only for classification/observability, not billing. */
+  reasoningTokens?: number;
 };
 
 export type MicrocompactInfo = {

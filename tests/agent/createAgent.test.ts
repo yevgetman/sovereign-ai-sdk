@@ -34,6 +34,7 @@ import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
 import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
+import { estimateCostUsd } from '@yevgetman/sov-sdk/providers/pricing';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -1143,5 +1144,120 @@ describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () =>
     expect(result.terminal.reason).toBe('completed');
     expect(result.toolCallCount).toBe(1);
     expect(result.distinctToolNames).toEqual(['Echo']);
+  });
+});
+
+// Task 4.4 / W3 (F4) — RunResult carries the run's per-run usage +
+// estimatedCostUsd. The accumulator createAgent already runs is finalized ONCE
+// after the loop and shared between persistence (recordTokenUsage) and the
+// returned RunResult, so the recorded and returned figures are IDENTICAL. usage
+// is the SUM of per-call finals across the tool loop (not the last call);
+// estimatedCostUsd prices that sum via the SDK pricing table against the
+// provider/model the run used. Both are ABSENT (exactOptionalPropertyTypes) when
+// the stream reported no usage.
+describe('createAgent — RunResult per-run usage + estimatedCostUsd (Task 4.4 / W3)', () => {
+  /** A scripted provider named `anthropic` so the run's model (`claude-sonnet-4-6`)
+   *  resolves to a real PRICE_TABLE entry — a non-zero estimatedCostUsd. */
+  function pricedProvider(turns: StreamEvent[][]): LLMProvider {
+    return { ...scriptedProvider(turns), name: 'anthropic' };
+  }
+
+  /** Wrap the in-memory store so a test can assert the EXACT usage + cost that
+   *  reached recordTokenUsage — the single-finalize sharing pin. */
+  function capturingStore(): {
+    store: SessionStore;
+    recorded: { usage: TokenUsage; costUsd: number }[];
+  } {
+    const inner = createInMemorySessionStore();
+    const recorded: { usage: TokenUsage; costUsd: number }[] = [];
+    const store: SessionStore = {
+      ...inner,
+      recordTokenUsage(sessionId, usage, estimatedCostUsd) {
+        recorded.push({ usage, costUsd: estimatedCostUsd });
+        inner.recordTokenUsage(sessionId, usage, estimatedCostUsd);
+      },
+    };
+    return { store, recorded };
+  }
+
+  /** Call 1 (tool use): per-call final 12 in / 9 out. */
+  const usageEchoToolUseTurn: StreamEvent[] = [
+    { type: 'message_start' },
+    { type: 'usage_delta', usage: { inputTokens: 10, outputTokens: 5 } },
+    { type: 'tool_use_delta', id: 't1', partial: '{"text":"hi"}' },
+    { type: 'usage_delta', usage: { inputTokens: 12, outputTokens: 9 } },
+    { type: 'message_stop', stop_reason: 'tool_use' },
+    { type: 'assistant_message', message: echoToolUse },
+  ];
+
+  /** Call 2 (post-tool): per-call final 8 in / 4 out. */
+  const usageCompletedTurn: StreamEvent[] = [
+    { type: 'message_start' },
+    { type: 'usage_delta', usage: { inputTokens: 7, outputTokens: 3 } },
+    { type: 'text_delta', text: 'final answer' },
+    { type: 'usage_delta', usage: { inputTokens: 8, outputTokens: 4 } },
+    { type: 'message_stop', stop_reason: 'end_turn' },
+    { type: 'assistant_message', message: completedAnswer },
+  ];
+
+  test('a multi-call tool loop surfaces the SUMMED usage + matching estimatedCostUsd on RunResult', async () => {
+    const agent = createAgent({
+      provider: pricedProvider([usageEchoToolUseTurn, usageCompletedTurn]),
+      model: 'claude-sonnet-4-6',
+      tools: [makeEchoTool()],
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool'));
+
+    expect(result.terminal.reason).toBe('completed');
+    // Sum of per-call finals: 12+8 = 20 in / 9+4 = 13 out — NOT the last call's
+    // 8/4, NOT the naive cumulative-delta sum.
+    expect(result.usage).toEqual({ inputTokens: 20, outputTokens: 13 });
+    // Cost priced against the SDK table for that exact sum + provider/model.
+    const expectedCost = estimateCostUsd('anthropic', 'claude-sonnet-4-6', {
+      inputTokens: 20,
+      outputTokens: 13,
+    });
+    expect(result.estimatedCostUsd).toBe(expectedCost);
+    expect(result.estimatedCostUsd).toBeGreaterThan(0);
+  });
+
+  test('a stream reporting NO usage leaves both usage and estimatedCostUsd ABSENT (not undefined)', async () => {
+    const agent = createAgent({
+      provider: pricedProvider([
+        [
+          { type: 'message_start' },
+          { type: 'text_delta', text: 'final answer' },
+          { type: 'message_stop', stop_reason: 'end_turn' },
+          { type: 'assistant_message', message: completedAnswer },
+        ],
+      ]),
+      model: 'claude-sonnet-4-6',
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('hello'));
+
+    expect(result.terminal.reason).toBe('completed');
+    // exactOptionalPropertyTypes: the keys are ABSENT, not present-with-undefined.
+    expect('usage' in result).toBe(false);
+    expect('estimatedCostUsd' in result).toBe(false);
+  });
+
+  test('the recorded usage/cost EQUAL RunResult.usage/estimatedCostUsd (single-finalize sharing)', async () => {
+    const { store, recorded } = capturingStore();
+    const agent = createAgent({
+      provider: pricedProvider([usageEchoToolUseTurn, usageCompletedTurn]),
+      model: 'claude-sonnet-4-6',
+      tools: [makeEchoTool()],
+      sessionStore: store,
+      maxTokens: 256,
+    });
+    const { result } = await drain(agent.run('use the tool', { sessionId: 'sess-4-4-share' }));
+
+    // ONE record per run, and it is byte-identical to the returned figures —
+    // proving finalize ran once and its value was shared, not recomputed.
+    expect(recorded.length).toBe(1);
+    expect(recorded[0]?.usage).toEqual(result.usage as TokenUsage);
+    expect(recorded[0]?.costUsd).toBe(result.estimatedCostUsd as number);
   });
 });

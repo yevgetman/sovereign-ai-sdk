@@ -180,6 +180,7 @@ import type {
   TaskRecord,
   TaskState,
   Terminal,
+  TokenPricesPerMillion,
   TokenUsage,
   Tool,
   ToolChoice,
@@ -193,6 +194,7 @@ import type {
   TraceSink,
   TranscriptStore,
   Transport,
+  UsageAccumulator,
   UserMessage,
   ValidationResult,
 } from '@yevgetman/sov-sdk';
@@ -204,8 +206,11 @@ import type {
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'CANONICAL_TOOL_DESCRIPTORS',
   'LaneSemaphores',
+  'PRICE_TABLE',
+  'PRICING_VERSION',
   'PathLockManager',
   'SubagentScheduler',
+  'accumulateUsage',
   'aliasToNativeName',
   'buildHookRunner',
   'buildMcpClientPool',
@@ -216,10 +221,14 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createAgent',
   'createInMemorySessionStore',
   'createNoopTranscriptStore',
+  'createUsageAccumulator',
   'dropsFor',
+  'estimateCostUsd',
   'expandSkillPrompt',
   'expandSkillText',
+  'finalizeUsage',
   'findCapableModel',
+  'formatUsd',
   'isRemoteMcpConfig',
   'loadSkills',
   'query',
@@ -409,6 +418,7 @@ type TypeSurfaceWitness = {
   taskRecord?: TaskRecord;
   taskState?: TaskState;
   terminal?: Terminal;
+  tokenPricesPerMillion?: TokenPricesPerMillion;
   tokenUsage?: TokenUsage;
   tool?: Tool<unknown, unknown>;
   toolChoice?: ToolChoice;
@@ -422,6 +432,7 @@ type TypeSurfaceWitness = {
   traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;
   transport?: Transport;
+  usageAccumulator?: UsageAccumulator;
   userMessage?: UserMessage;
   validationResult?: ValidationResult;
 };

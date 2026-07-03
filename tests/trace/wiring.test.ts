@@ -108,6 +108,62 @@ describe('query() trace recording', () => {
     expect(resp.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
+  test('provider_response usage merges split deltas per field within one call', async () => {
+    // Anthropic emits two usage_delta events per call: message_start carries
+    // input + cache fields, message_delta carries output only. A whole-object
+    // overwrite (last-delta-wins) would drop the earlier input/cache figures.
+    // The recorded provider_response must carry the union: last-seen per field.
+    const splitDeltaEvents: StreamEvent[] = [
+      { type: 'message_start' },
+      {
+        type: 'usage_delta',
+        usage: { inputTokens: 100, cacheReadInputTokens: 20, cacheCreationInputTokens: 5 },
+      },
+      { type: 'text_delta', text: 'done' },
+      { type: 'usage_delta', usage: { outputTokens: 42 } },
+      { type: 'message_stop', stop_reason: 'end_turn' },
+      { type: 'assistant_message', message: completedAnswer },
+    ];
+    const events: TraceEvent[] = [];
+    const gen = query({
+      provider: scriptedTurns([splitDeltaEvents]),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      systemPrompt: [{ text: 'system prompt body', cacheable: true }],
+      maxTokens: 256,
+      traceRecorder: (e) => events.push(e),
+    });
+    await drain(gen);
+    const resp = events.find((e) => e.type === 'provider_response');
+    if (resp?.type !== 'provider_response') throw new Error('expected provider_response');
+    // Fields from the FIRST delta survive the SECOND delta that omitted them.
+    expect(resp.usage.inputTokens).toBe(100);
+    expect(resp.usage.cacheReadInputTokens).toBe(20);
+    expect(resp.usage.cacheCreationInputTokens).toBe(5);
+    // The field from the second delta is also present.
+    expect(resp.usage.outputTokens).toBe(42);
+  });
+
+  test('provider_response usage is unchanged when a call emits a single delta', async () => {
+    // A single-delta call must record exactly the fields the provider sent.
+    const events: TraceEvent[] = [];
+    const gen = query({
+      provider: scriptedTurns([completedEvents]),
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      systemPrompt: [{ text: 'system prompt body', cacheable: true }],
+      maxTokens: 256,
+      traceRecorder: (e) => events.push(e),
+    });
+    await drain(gen);
+    const resp = events.find((e) => e.type === 'provider_response');
+    if (resp?.type !== 'provider_response') throw new Error('expected provider_response');
+    expect(resp.usage.inputTokens).toBe(12);
+    expect(resp.usage.outputTokens).toBe(3);
+    expect(resp.usage.cacheReadInputTokens).toBeUndefined();
+    expect(resp.usage.cacheCreationInputTokens).toBeUndefined();
+  });
+
   test('emits permission_check + tool_start + tool_end around a successful tool call', async () => {
     const events: TraceEvent[] = [];
     const tool = makeEchoTool();
