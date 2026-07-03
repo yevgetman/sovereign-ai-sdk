@@ -468,6 +468,23 @@ describe('isShellCommandReadOnly', () => {
       expect(isShellCommandReadOnly('git stash list')).toBe(true);
       expect(isShellCommandReadOnly('git stash show')).toBe(true);
     });
+    // Reproduced HIGH (git 2.50.1): `git stash show` is a DUAL-MODE diff reader
+    // that honors the diff-pipeline `--output <file>` / `--output=<file>` flag,
+    // which CREATES/TRUNCATES an arbitrary file — `git stash show --output=x`
+    // OVERWROTE a pre-existing file while isShellCommandReadOnly()===true. The
+    // round-4 E1 fix guarded `--output` ONLY in the always-read-subcommands
+    // branch; the dual-mode stash-show path was missed. The uniform write-flag
+    // guard now rejects `--output` on EVERY read-returning git path.
+    test('stash show --output=<file> is NOT read-only (uniform write-flag guard)', () => {
+      expect(isShellCommandReadOnly('git stash show --output=important.txt')).toBe(false);
+      expect(isShellCommandReadOnly('git stash show --output important.txt')).toBe(false);
+      expect(isShellCommandReadOnly("git stash show -p --output=x 'stash@{0}'")).toBe(false);
+    });
+    // No over-prompt: stash show WITHOUT --output stays a read.
+    test('stash show -p / list without --output stay read-only', () => {
+      expect(isShellCommandReadOnly('git stash show -p')).toBe(true);
+      expect(isShellCommandReadOnly("git stash show 'stash@{0}'")).toBe(true);
+    });
   });
 
   describe('git branch is read-only only for pure list', () => {
@@ -785,5 +802,65 @@ describe('sed script write/exec commands are NOT read-only', () => {
     expect(isShellCommandReadOnly("sed 's/a/we/' f")).toBe(true); // w,e in replacement
     expect(isShellCommandReadOnly("sed '/foo/d' f")).toBe(true);
     expect(isShellCommandReadOnly("sed 'y/abc/def/' f")).toBe(true); // e in y target
+  });
+});
+
+// Read-command sweep (class-completing): a READ_COMMANDS member that carries a
+// write/exec capability is a permission-RELAXATION vulnerability — the write/exec
+// resolves against `allow Read` with no prompt. Each of these was reproduced.
+describe('read-command write/exec capability sweep', () => {
+  // `rg` (ripgrep) runs an ARBITRARY command per file via `--pre <cmd>` (a
+  // preprocessor) and `--hostname-bin <cmd>` (hostname resolver), the same exec
+  // vector as `find -exec`/`fd -x`. REPRODUCED (ripgrep 15.1.0): `rg --pre ./x.sh
+  // pat f` EXECUTED x.sh. grep/egrep/fgrep have no such flag; ag/ack have none.
+  describe('rg --pre / --hostname-bin run arbitrary commands (NOT read-only)', () => {
+    test('every form is exec, not read', () => {
+      expect(isShellCommandReadOnly('rg --pre ./x.sh pat f')).toBe(false);
+      expect(isShellCommandReadOnly('rg --pre=./x.sh pat')).toBe(false);
+      expect(isShellCommandReadOnly('rg --hostname-bin ./h.sh pat')).toBe(false);
+      expect(isShellCommandReadOnly('rg --hostname-bin=./h.sh pat')).toBe(false);
+      expect(analyzeShellCommand('rg --pre ./x.sh pat')[0]?.kind).toBe('exec');
+    });
+    test('plain rg searches stay read-only (no over-prompt regression)', () => {
+      expect(isShellCommandReadOnly('rg pattern src/')).toBe(true);
+      expect(isShellCommandReadOnly('rg -n TODO')).toBe(true);
+      expect(isShellCommandReadOnly('rg -i --pretty foo')).toBe(true);
+    });
+  });
+
+  // `xxd` writes/truncates its SECOND positional as an OUTPUT file
+  // (`xxd infile outfile`; `xxd -r dump outfile` reverses hex back to a binary).
+  // REPRODUCED: `xxd in out` clobbered a pre-existing `out`. A read use names at
+  // most one positional and dumps to stdout; a 2nd positional is the output file.
+  describe('xxd with an output-file positional is NOT read-only', () => {
+    test('infile+outfile and reverse-to-file write the 2nd positional', () => {
+      expect(isShellCommandReadOnly('xxd in.txt out.bin')).toBe(false);
+      expect(isShellCommandReadOnly('xxd -r dump.hex out.bin')).toBe(false);
+      expect(analyzeShellCommand('xxd in out')[0]?.kind).toBe('write');
+    });
+    test('single-positional / stdout xxd reads stay read-only', () => {
+      expect(isShellCommandReadOnly('xxd file')).toBe(true);
+      expect(isShellCommandReadOnly('xxd -c 16 file')).toBe(true);
+      expect(isShellCommandReadOnly('xxd -l 64 file')).toBe(true);
+      expect(isShellCommandReadOnly('xxd -p file')).toBe(true);
+    });
+  });
+
+  // `hostname NAME` (and BSD `-b`/GNU `-F <file>`) SETS the system hostname — a
+  // mutation, not a read; only the bare/query forms print. Any bareword
+  // positional is the new name → fail closed (sibling of the `date` positional
+  // clock-set). Requires privilege to succeed, but must not classify as read.
+  describe('hostname with a name positional SETS the hostname (NOT read-only)', () => {
+    test('set forms are not read-only', () => {
+      expect(isShellCommandReadOnly('hostname newname')).toBe(false);
+      expect(isShellCommandReadOnly('hostname -F /etc/hostname')).toBe(false);
+      expect(isShellCommandReadOnly('hostname -b box01')).toBe(false);
+    });
+    test('bare / query forms stay read-only', () => {
+      expect(isShellCommandReadOnly('hostname')).toBe(true);
+      expect(isShellCommandReadOnly('hostname -f')).toBe(true);
+      expect(isShellCommandReadOnly('hostname -s')).toBe(true);
+      expect(isShellCommandReadOnly('hostname -I')).toBe(true);
+    });
   });
 });

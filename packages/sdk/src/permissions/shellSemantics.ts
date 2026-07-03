@@ -233,6 +233,17 @@ const FD_EXEC_FLAG: FlagFamily = {
 // (audit C4-sibling.)
 const TREE_OUTPUT_FLAG: FlagFamily = { long: ['--output'], short: 'o' };
 
+// `rg` (ripgrep) runs an ARBITRARY command via `--pre <cmd>` (a per-file
+// preprocessor) and `--hostname-bin <cmd>` (hostname resolver for hyperlinks) —
+// the same exec vector as `find -exec`/`fd -x`, but rg was a plain read command
+// with no guard, so `rg --pre ./evil.sh pat` auto-approved arbitrary exec under
+// `allow Read`. REPRODUCED (ripgrep 15.1.0): `rg --pre ./x.sh pat f` EXECUTED
+// x.sh. Long-only: neither has a short alias, and exact-name matching means
+// `--pretty`/`--pre-glob` (which only acts WITH `--pre`) never false-match.
+// grep/egrep/fgrep have no output/exec flag; ag/ack have none. (sweep: a read
+// command with an exec flag — sibling of fd.)
+const RG_EXEC_FLAG: FlagFamily = { long: ['--pre', '--hostname-bin'] };
+
 export function analyzeShellCommand(command: string): VirtualOperation[] {
   if (UNSAFE_PATTERNS.test(command)) return [{ kind: 'unsafe' }];
 
@@ -322,6 +333,30 @@ function analyzeSegment(segment: string): VirtualOperation {
   // redirects it to a file, overwriting the target. (audit C4-sibling.)
   if (cmd === 'tree' && args.some((a) => matchesFlagFamily(a, TREE_OUTPUT_FLAG))) {
     return { kind: 'write', paths: extractPaths(args) };
+  }
+
+  // `rg` searches (read) UNLESS `--pre`/`--hostname-bin` hands each file to an
+  // ARBITRARY command — demote to exec like `find -exec`/`fd -x`. (sweep)
+  if (cmd === 'rg' && args.some((a) => matchesFlagFamily(a, RG_EXEC_FLAG))) {
+    return { kind: 'exec', command: 'rg' };
+  }
+
+  // `xxd` dumps to stdout (read) with 0–1 positionals, but a SECOND positional
+  // is an OUTPUT file it creates/truncates (`xxd infile outfile`; `xxd -r dump
+  // outfile` reverses hex → binary). extractPaths already drops value-flag and
+  // numeric option operands, so ≥2 remaining positionals is the write signature.
+  // REPRODUCED: `xxd in out` clobbered `out`. (sweep — sibling of tree/sort.)
+  if (cmd === 'xxd' && extractPaths(args).length >= 2) {
+    return { kind: 'write', paths: extractPaths(args) };
+  }
+
+  // `hostname` prints the name (read) UNLESS given a bareword positional, which
+  // SETS the system hostname (`hostname NAME`; BSD `-b NAME`; GNU `-F <file>`
+  // whose file operand is also a bareword) — a mutation, so fail closed to exec.
+  // Query flags (`-f`/`-s`/`-i`/`-I`/`-d`/`-A`) take no bareword operand, so a
+  // legit read never trips it. (sweep — sibling of the `date` positional set.)
+  if (cmd === 'hostname' && args.some((a) => !a.startsWith('-'))) {
+    return { kind: 'exec', command: 'hostname' };
   }
 
   if (READ_COMMANDS.has(cmd)) {
@@ -779,16 +814,28 @@ function isGitRemoteReadOnly(subArgs: string[]): boolean {
   return GIT_REMOTE_READ_SUBCOMMANDS.has(first);
 }
 
-// The ALWAYS-READ subcommands (diff/log/show/shortlog/blame — the diff family)
-// honor `--output=<file>` / `--output <file>`, which CREATES/TRUNCATES an
-// arbitrary file: a write masquerading as a read. An always-read subcommand
-// trusting every arg auto-approved `git diff --output=PRECIOUS.txt` under
-// `allow Read` while clobbering the target (reproduced, git 2.50.1). The long
-// matcher covers `--output` and its inline `--output=v`; a space-separated
-// `--output f` still matches on the `--output` token itself. Fail closed to a
-// prompt on ANY read subcommand carrying it. (round-4 E1 — sibling of the F2
-// dual-mode fix, which left the always-read subcommands trusting every arg.)
+// git's diff-pipeline `--output=<file>` / `--output <file>` flag CREATES/
+// TRUNCATES an arbitrary file: a write masquerading as a read. It is honored by
+// EVERY subcommand that drives the diff machinery — the always-read family
+// (diff/log/show/shortlog/blame) AND the dual-mode `stash show`, which the
+// round-4 E1 fix MISSED. Returning read for such an invocation auto-approved
+// `git diff --output=PRECIOUS.txt` / `git stash show --output=PRECIOUS.txt`
+// under `allow Read` while clobbering the target (both reproduced, git 2.50.1).
+// The long matcher covers `--output` and its inline `--output=v`; a
+// space-separated `--output f` still matches on the `--output` token itself.
+// (round-4 E1, generalized: the guard now applies to EVERY read-returning git
+// path via gitCarriesOutputFileFlag, not just the always-read subcommands.)
 const GIT_OUTPUT_FILE_FLAG: FlagFamily = { long: ['--output'] };
+
+// Does a git invocation's post-subcommand args carry the diff-pipeline output
+// flag? Factored into ONE predicate so it can be applied UNIFORMLY to every git
+// path that would otherwise return read (the always-read subcommands AND every
+// dual-mode reader: stash/branch/config/tag/remote). This ends the per-round
+// leak where a new dual-mode read-path was added without the `--output` guard.
+// Fail-closed direction: a spurious match only over-prompts, never misses a write.
+function gitCarriesOutputFileFlag(subArgs: string[]): boolean {
+  return subArgs.some((a) => matchesFlagFamily(a, GIT_OUTPUT_FILE_FLAG));
+}
 
 // git's GLOBAL options (parsed by git.c's handle_options BEFORE the subcommand)
 // that take a SPACE-SEPARATED bareword operand — the NEXT token, which does NOT
@@ -866,6 +913,13 @@ function analyzeGitCommand(args: string[]): VirtualOperation {
   const sub = args[subIndex] as string;
   const subArgs = args.slice(subIndex + 1);
 
+  // Uniform write-flag guard: the diff-pipeline `--output <file>` flag writes a
+  // file on ANY subcommand whose diff machinery honors it — the always-read
+  // family AND the dual-mode `stash show`. Applied here (before the dual-mode
+  // switch AND the read-subcommands branch) so NO read-returning git path can
+  // smuggle it past `allow Read`. Fail closed to a prompt. (round-4 E1 class fix)
+  if (gitCarriesOutputFileFlag(subArgs)) return { kind: 'exec', command: `git ${sub}` };
+
   // Dual-mode subcommands: read only for explicit read forms, otherwise a
   // prompt (exec, not write) so a poisoned config value / ref mutation can
   // never resolve against a blanket `allow Read` OR `allow Write` rule. (F2)
@@ -893,12 +947,8 @@ function analyzeGitCommand(args: string[]): VirtualOperation {
   }
 
   if (GIT_READ_SUBCOMMANDS.has(sub)) {
-    // Even an always-read subcommand writes a file via the diff-pipeline
-    // `--output=<file>` / `--output <file>` flag, so it is NOT read-only when
-    // present. Fail closed to a prompt. (round-4 E1)
-    if (subArgs.some((a) => matchesFlagFamily(a, GIT_OUTPUT_FILE_FLAG))) {
-      return { kind: 'exec', command: `git ${sub}` };
-    }
+    // (The diff-pipeline `--output` write flag is handled uniformly above by
+    // gitCarriesOutputFileFlag, before this branch — round-4 E1 class fix.)
     // Defense-in-depth (round-7): a read subcommand trailed by a BARE
     // write-subcommand token is the fingerprint of a real subcommand hidden
     // behind a global value-option this parser does not yet consume (a future
