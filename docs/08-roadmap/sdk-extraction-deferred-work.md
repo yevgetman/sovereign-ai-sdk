@@ -3,6 +3,8 @@
 > **Status: living catalog (2026-06-30).** Every deferral, known limitation, accepted review finding, and open decision recorded across the SDK open-core extraction build (the `sdk-extraction` branch). Source-of-truth design: [`specs/2026-06-29-sdk-open-core-extraction-design.md`](../../specs/2026-06-29-sdk-open-core-extraction-design.md) (B-0014); plan: [`plans/2026-06-29-sdk-open-core-extraction.md`](../../plans/2026-06-29-sdk-open-core-extraction.md). The build delivered Phases 1–9 (boundary lint + ports + `createAgent` + every surface re-seated onto the SDK, including the gateway); the items below were intentionally **not** done and are tracked here so nothing is lost. File/symbol pointers retained; duplicates merged.
 >
 > **Reconciled 2026-07-02 against the consumable-packaging build** (branch `sdk-consumable-packaging`; spec [`specs/2026-07-01-sdk-consumable-packaging-design.md`](../../specs/2026-07-01-sdk-consumable-packaging-design.md), plan [`plans/2026-07-01-sdk-consumable-packaging.md`](../../plans/2026-07-01-sdk-consumable-packaging.md)). That build physically split the two open packages, made them Node+Bun consumable from a packed tarball, hardened the consumer-facing contracts, and stopped **publish-ready** (the publish itself is the CEO's gate — `PUBLISHING.md`). §1.2 / §1.3 / §1.5 / §1.6 and four §2 limitations are marked resolved in place below (the house style — history is never deleted); the new deferrals that build ledgered are added into the matching sections, each tagged *(consumable-packaging build)*.
+>
+> **Audit-remediation pass (2026-07-02, branch `sdk-audit-remediation`).** An exhaustive security audit + remediation ran after the packaging build; its scope, certification, and the accepted below-above-low / defense-in-depth items are recorded in **§5** below and in the SDK's [`SECURITY.md`](../../packages/sdk/SECURITY.md).
 
 ---
 
@@ -158,3 +160,28 @@
 | §18.2 transcripts/microcompaction on (B) surfaces | "Fix the gap": cron+mission gained microcompaction; cron gained transcripts; channels already had both; sub-agents + OpenAI pure parity |
 | §18.3 Contract #2 type strategy | "Pure `.d.ts`": `src/protocol/` pure types + a zod-conformance guard on the proprietary side |
 | §18.4 acceptance-bar sufficiency | The §15 gate is sufficient; no added manual pass |
+
+---
+
+## 5. Exhaustive Audit Remediation (2026-07-02)
+
+> **Branch `sdk-audit-remediation` (off `9f7898f`, 37 commits).** A CEO-mandated exhaustive security audit + remediation of the published SDK, run after the consumable-packaging build merged. Authoritative blow-by-blow: `.superpowers/sdd/progress.md` (the "SDK EXHAUSTIVE AUDIT REMEDIATION" ledger). Honest consumer-facing security posture: [`packages/sdk/SECURITY.md`](../../packages/sdk/SECURITY.md).
+
+### Scope
+
+- **Audit:** a two-round Opus-4.8 `/code-review` workflow (61 agents, ~4.9M tokens) → **26 verified findings** (5 HIGH / 14 MEDIUM / 7 LOW). A follow-up comprehensive shell-classifier + skills/bundle/loop/hooks sweep found **F27** (untrusted `sessionId` → skill inline-shell RCE), taking the total to **27 findings, 6 HIGH**.
+- **Convergence:** a **12-round adversarial convergence loop** — after each fix batch, fresh reviewers hunted for incomplete fixes and meta-class siblings; above-low residuals trended `26 → 17 → 9 → 4 → 6 → 1 → 2 → 1 → 2 → 2 → 1 → 1` per round. Injection/fence, skill-RCE, no-disk, and tool-description classes each converged early; the tail was almost entirely **shell read-only classifier** micro-siblings (path-qualified wrappers, `env -S` / `-vS`, git inline-config / `--output`, `sed` script write/exec, redirect clobbers).
+- **Shell-classifier sweep:** round 11 replaced per-round whack-a-mole with **one comprehensive sweep** that uniformly guards every read-classifying git/command sub-path against the write-flag / `--output` / config / script-write families in a single pass.
+
+### Result
+
+- **ALL above-low findings fixed** — the original 6 HIGH + 14 MEDIUM + the code-fixable LOWs, plus every above-low residual surfaced across the 12 convergence rounds. Representative HIGH fixes: F1 unicode-tag / bidi smuggling; F2 `git config` → RCE arg-aware classifier; F3 pathLock `!` / `()` false-disjoint write-race; F4 redactor vendor-key coverage; F5 PEM ReDoS; F27 / R1 / C1 skill inline-shell RCE (sessionId denylist + shell-quote **all** substituted env values); F6 / D2 string-provider memory-mode credential/rate state; F11 always-on DNS-rebinding SSRF guard; F14 memory/recall fence-breakout neutralization; F10 / F16 / C6 `0600` / `0700` permissions via `secureWriteFileAtomic`; F17–F19 / E4 version determinism (runtime `git` spawn dropped entirely); the G-round `safeStaticToolDescription` process-crash closure.
+- **Certification (final round):** lint / boundary **0**, typecheck **0**, build clean, consumer canary **7/7**, full suite green — modulo the known `tuiLauncherIntegration` environmental flake (server-bind / hooks-trace timing; proven pre-existing on `master`, not a regression — see §2).
+
+### Documented LOW / defense-in-depth items (accepted, not above-low)
+
+These were adjudicated **below** above-low and are documented rather than fixed; none is a privilege escalation.
+
+- **Skill `shellSingleQuote` — author-double-quoted inline-shell span.** A value carrying `$(...)` / backtick inside a skill **author's own** double-quoted inline-shell span still executes — but ONLY for `HARNESS_SKILL_DIR`, a **trusted install path**. The untrusted `sessionId` is denylist-validated and cannot reach it, and whoever controls the install path also authors the skill body (which already grants arbitrary inline shell). **No privilege escalation.** (The env-value single-quoting fix closes the `sessionId` and any-placeholder metachar vectors; this residual is the author's own already-trusted span.) Below-low.
+- **Prose `$` / backtick / backslash stripping of a legitimate `HARNESS_SKILL_DIR`** is **cosmetic** — display-only prose, never executed.
+- **Shell read-only classifier — statically-undetectable write/exec vectors.** `awk` / `gawk` program-body output redirects (`print > f`), interactive pager / editor shell-escapes (`less` → `!cmd`), and the contrived `xxd -c` value-flag ordering are inherent to any static classifier. This prompt-vs-auto-approve gap is a **best-effort limitation, not a sandbox breach**: the read-only classifier is a convenience heuristic and the real boundary is the permission ruleset. Deployments handling untrusted input must gate `Bash` with explicit allow/deny rules rather than rely on a blanket `allow Read`. See [`packages/sdk/SECURITY.md`](../../packages/sdk/SECURITY.md).
