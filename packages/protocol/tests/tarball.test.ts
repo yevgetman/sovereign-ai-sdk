@@ -20,8 +20,11 @@ const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 beforeAll(() => {
   // Ensure dist is present + current (dist/ is gitignored, so a fresh checkout has none).
   execFileSync('bun', ['run', 'build'], { cwd: pkgDir });
-});
+}, 60_000);
 
+// Explicit 60s timeout: `npm pack` triggers `prepack` (a full tsc emit), so this
+// test runs a real build — on a cold CI runner that can exceed bun test's 5s
+// default (a spurious timeout, not a real failure).
 test('protocol tarball ships only dist + src + license + readme + package.json', () => {
   const out = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: pkgDir }).toString();
   const paths: string[] = JSON.parse(out)[0].files.map((f: { path: string }) => f.path);
@@ -39,4 +42,4 @@ test('protocol tarball ships only dist + src + license + readme + package.json',
   // of shipped trees.
   expect(paths.some((p) => p.startsWith('tests/'))).toBe(false);
   expect(paths.some((p) => /tsconfig/.test(p))).toBe(false);
-});
+}, 60_000);
