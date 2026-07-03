@@ -27,9 +27,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 // InputCard is a Bubble Tea component that renders an inline text

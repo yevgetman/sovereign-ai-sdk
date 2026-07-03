@@ -28,7 +28,7 @@ Status: implemented (Phase 21 M1 — Task 2 commit). Plan: `plans/2026-05-22-pha
 
 ## ADR P21-C — Cross-repo release upload via fine-grained PAT scoped to `sov-releases`
 
-Decision: The Phase 21 M2 release workflow at `.github/workflows/release.yml` lives in the private `sovereign-ai-harness` repo and uploads tagged GitHub releases to the public `yevgetman/sov-releases` repo via a fine-grained Personal Access Token. The PAT is scoped to **only** `yevgetman/sov-releases` with **Contents: Read and write** permission; it is stored as the repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-harness`. The token is exported to the workflow as the `token:` input on `actions/checkout@v4` (for the sov-releases sibling clone in each job) and as `GH_TOKEN` (only in the final `release` job's upload step, not in the build jobs). The default `GITHUB_TOKEN` is scoped to the workflow's own repo and cannot write to a different repo, so cross-repo write requires either a PAT, a GitHub App installation, or a classic PAT with broad `repo` scope.
+Decision: The Phase 21 M2 release workflow at `.github/workflows/release.yml` lives in the private `sovereign-ai-sdk` repo and uploads tagged GitHub releases to the public `yevgetman/sov-releases` repo via a fine-grained Personal Access Token. The PAT is scoped to **only** `yevgetman/sov-releases` with **Contents: Read and write** permission; it is stored as the repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-sdk`. The token is exported to the workflow as the `token:` input on `actions/checkout@v4` (for the sov-releases sibling clone in each job) and as `GH_TOKEN` (only in the final `release` job's upload step, not in the build jobs). The default `GITHUB_TOKEN` is scoped to the workflow's own repo and cannot write to a different repo, so cross-repo write requires either a PAT, a GitHub App installation, or a classic PAT with broad `repo` scope.
 
 Rationale: Fine-grained PAT has the smallest blast radius — read+write on exactly one repo, no other resource. Classic PAT with `repo` scope would also work but grants full read/write across every repo the token owner has access to. GitHub App installation is more correct in principle (rotating short-lived installation tokens) but adds infrastructure for a single-author single-target use case where the security delta is marginal. PAT expiration is bounded at 1 year — calendar-managed regeneration is acceptable for the author's release cadence. The PAT name `sov-releases-upload` makes it discoverable in GitHub settings.
 
@@ -353,7 +353,7 @@ This is a Bun-side bug surface. If `bun install` ever gains a real "force re-res
 
 ## 2026-05-04 - Distribution: git+ssh, not npm
 
-The harness package and the repo it lives in are private. Distribution uses `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` directly against the private repo; SSH access is the access-control gate (same as cloning). `package.json` is marked `"private": true` so `npm publish` is impossible by mistake.
+The harness package and the repo it lives in are private. Distribution uses `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git` directly against the private repo; SSH access is the access-control gate (same as cloning). `package.json` is marked `"private": true` so `npm publish` is impossible by mistake.
 
 Rejected alternatives:
 

@@ -104,7 +104,7 @@ assert_contains "T2.3 provider line"                "$TESTDIR/t2.txt" 'provider:
 assert_contains "T2.4 model line"                   "$TESTDIR/t2.txt" 'model:'
 assert_contains "T2.5 cwd line"                     "$TESTDIR/t2.txt" 'cwd:'
 assert_contains "T2.6 generic-agent label"          "$TESTDIR/t2.txt" 'generic-agent mode'
-assert_contains "T2.7 GitHub URL"                   "$TESTDIR/t2.txt" 'github.com/yevgetman/sovereign-ai-harness'
+assert_contains "T2.7 GitHub URL"                   "$TESTDIR/t2.txt" 'github.com/yevgetman/sovereign-ai-sdk'
 assert_contains "T2.8 box top border"               "$TESTDIR/t2.txt" '╭'
 assert_contains "T2.9 box bottom border"            "$TESTDIR/t2.txt" '╰'
 

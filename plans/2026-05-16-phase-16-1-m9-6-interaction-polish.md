@@ -333,7 +333,7 @@ package components
 
 import (
     "github.com/charmbracelet/lipgloss"
-    "github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+    "github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 type StallBadge struct {
@@ -369,7 +369,7 @@ import (
     "strings"
     "testing"
 
-    "github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+    "github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestStallBadgeRendersReason(t *testing.T) {
@@ -927,7 +927,7 @@ func TestM9_6_StallBadgeRendersThenExpires(t *testing.T) {
 
 ```bash
 cd packages/tui && go test -timeout 60s ./... -count=1
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun test
 ```
 
 All green. Lint shows 2 expected warnings only.

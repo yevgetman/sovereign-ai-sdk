@@ -20,10 +20,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/components"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/components"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 // sseMsg is emitted into the Bubble Tea event loop for each Envelope. `gen`

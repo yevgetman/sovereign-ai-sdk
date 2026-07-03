@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 func TestFormatDelegatorPlanLine_noScheduledCount(t *testing.T) {

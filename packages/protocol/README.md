@@ -70,7 +70,7 @@ gateway's `{ error }` envelope.
 The package entry (`@yevgetman/sov-protocol`) is the semver'd public API —
 `PROTOCOL_PATHS`, the six client functions, and the exported request/response
 and event types. There are no deep subpaths. Full policy:
-[`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-harness/blob/master/STABILITY.md) at the repository root.
+[`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/STABILITY.md) at the repository root.
 
 ## License
 

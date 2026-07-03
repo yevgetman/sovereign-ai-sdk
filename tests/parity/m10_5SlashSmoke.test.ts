@@ -24,7 +24,7 @@ import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 const SMOKE_ENABLED = process.env.SOV_M10_5_REAL_SMOKE === '1';
 const SOAK_DIR =
-  '/Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-16-m10-5-slash-soak';
+  '/Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-16-m10-5-slash-soak';
 
 function describeMaybe(name: string, fn: () => void): void {
   if (SMOKE_ENABLED) {

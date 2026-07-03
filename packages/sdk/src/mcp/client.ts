@@ -291,7 +291,7 @@ async function connectOne(
 ): Promise<ActiveConnection> {
   const transport = buildTransport(name, cfg, log, env);
 
-  const client = new Client({ name: 'sovereign-ai-harness', version: VERSION });
+  const client = new Client({ name: 'sovereign-ai-sdk', version: VERSION });
 
   // Connect (hard timeout) + list tools, tearing down the transport/child on
   // any failure so a hung or broken server never leaks a subprocess.

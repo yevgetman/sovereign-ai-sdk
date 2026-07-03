@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // ux-fixes 2026-05-22 (ux1.png-v2): glamour v1.0.0 emits a markdown

@@ -146,7 +146,7 @@ export function formatAbout(ctx: CommandContext): string {
     `${chalk.gray('bundle:')}    ${ctx.bundlePath ?? 'no bundle (generic-agent mode)'}`,
     `${chalk.gray('session:')}   ${ctx.sessionId}`,
     '',
-    chalk.gray('https://github.com/yevgetman/sovereign-ai-harness'),
+    chalk.gray('https://github.com/yevgetman/sovereign-ai-sdk'),
   ];
   return boxify(lines, { padding: 2 }).join('\n');
 }

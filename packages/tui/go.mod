@@ -1,4 +1,4 @@
-module github.com/yevgetman/sovereign-ai-harness/packages/tui
+module github.com/yevgetman/sovereign-ai-sdk/packages/tui
 
 go 1.24.2
 

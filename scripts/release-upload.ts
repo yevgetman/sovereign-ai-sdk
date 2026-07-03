@@ -72,7 +72,7 @@ export function buildGhCreateArgs(opts: {
     '--repo',
     `${OWNER}/${PUBLIC_REPO}`,
     '--title',
-    `Sovereign AI Harness ${opts.version}`,
+    `Sovereign AI SDK ${opts.version}`,
     '--notes-file',
     opts.notesFilePath,
     ...opts.assets,

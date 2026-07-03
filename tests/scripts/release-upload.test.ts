@@ -108,7 +108,7 @@ describe('release-upload — buildGhCreateArgs', () => {
     expect(args).toContain('--notes-file');
     expect(args).toContain('/tmp/CHANGELOG.md');
     expect(args).toContain('--title');
-    expect(args).toContain('Sovereign AI Harness v0.6.0');
+    expect(args).toContain('Sovereign AI SDK v0.6.0');
     expect(args).toContain('/tmp/SHA256SUMS');
   });
 });

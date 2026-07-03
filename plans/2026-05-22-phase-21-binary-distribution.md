@@ -799,7 +799,7 @@ Expected: the first 20 lines of install.sh come back (header + `OWNER` etc.). Co
 - [ ] **Step 9: cd back to the private repo before continuing**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness
+cd /Users/julie/code/sovereign-ai-sdk
 ```
 
 ---
@@ -1370,7 +1370,7 @@ exit  # leaves the container; --rm cleans it up
 - [ ] **Step 1: Read the existing DECISIONS.md to see latest ADR**
 
 ```bash
-grep -n "^## ADR" /Users/julie/code/sovereign-ai-harness/DECISIONS.md | head -3
+grep -n "^## ADR" /Users/julie/code/sovereign-ai-sdk/DECISIONS.md | head -3
 ```
 
 (So you know which section to insert above.)
@@ -1417,7 +1417,7 @@ git commit -m "docs: ADRs P21-A + P21-B (binary-mode asset discovery + upgrade d
 - [ ] **Step 1: Read the current README to find the install section**
 
 ```bash
-grep -n "install\|Install\|INSTALL" /Users/julie/code/sovereign-ai-harness/README.md | head -10
+grep -n "install\|Install\|INSTALL" /Users/julie/code/sovereign-ai-sdk/README.md | head -10
 ```
 
 - [ ] **Step 2: Insert the new section**
@@ -1494,7 +1494,7 @@ cd ~/code/sovereign-ai-docs
 git add harness/docs/runtime/harness-build-plan.md
 git commit -m "docs: Phase 21 M1 complete — binary distribution shipped"
 git push origin master
-cd /Users/julie/code/sovereign-ai-harness
+cd /Users/julie/code/sovereign-ai-sdk
 ```
 
 ---

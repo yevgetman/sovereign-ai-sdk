@@ -2,7 +2,7 @@
 
 Status: **partially superseded** — Phase 14 dropped (proprietary, distribution deferred); Phase 16.1 detailed in `specs/2026-05-13-phase-16-1-tui-rebuild-design.md`; Open Q1 (TUI framework) CLOSED → Go + Bubble Tea; Open Q2 (provider strategy) remains open
 Created: 2026-05-13
-Source moment: Comparison of `sovereign-ai-harness` against `opencode` (open-source coding agent harness, used as a polish benchmark) on 2026-05-13. The comparison surfaced a set of production-grade affordances the canonical build plan does not yet cover (distribution, LSP, provider breadth, plugin SDK, IDE extensions, public docs site) and a re-prioritization of phases already in the plan (Phase 16.1 TUI rebuild, Phase 18 HTTP API, Phase 19 MCP server).
+Source moment: Comparison of `sovereign-ai-sdk` against `opencode` (open-source coding agent harness, used as a polish benchmark) on 2026-05-13. The comparison surfaced a set of production-grade affordances the canonical build plan does not yet cover (distribution, LSP, provider breadth, plugin SDK, IDE extensions, public docs site) and a re-prioritization of phases already in the plan (Phase 16.1 TUI rebuild, Phase 18 HTTP API, Phase 19 MCP server).
 
 This spec is the umbrella roadmap. Per-phase implementation plans land in `plans/YYYY-MM-DD-phase-NN-<feature>.md` when each phase is ready to execute, following the `superpowers:writing-plans` skill's TDD-task-by-task format.
 
@@ -46,7 +46,7 @@ What works today:
 
 What does NOT work today (the gaps this spec closes):
 
-- **No public distribution.** Install is `bun install -g git+ssh://github.com/yevgetman/sovereign-ai-harness.git` — requires GitHub SSH access. No npm package, no Homebrew tap, no install script, no multi-platform binaries.
+- **No public distribution.** Install is `bun install -g git+ssh://github.com/yevgetman/sovereign-ai-sdk.git` — requires GitHub SSH access. No npm package, no Homebrew tap, no install script, no multi-platform binaries.
 - **No public docs site.** Docs are excellent in-repo but unpublished.
 - **No real TUI.** The REPL is readline-based; Phase 16.0b's Ink TUI was reverted. There is no persistent layout, no status line, no scrollback navigation, no syntax highlighting, no streaming tool cards, no live diffs, no mouse support.
 - **No LSP integration.** Tool layer has `Glob` and `Grep` but no go-to-definition, hover, symbol search, or references. Agent must grep its way through unfamiliar code.

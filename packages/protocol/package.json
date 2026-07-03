@@ -11,12 +11,12 @@
   "keywords": ["agent", "ai", "protocol", "sse", "gateway", "wire-protocol", "sdk"],
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
+    "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git",
     "directory": "packages/protocol"
   },
-  "homepage": "https://github.com/yevgetman/sovereign-ai-harness/tree/master/packages/protocol#readme",
+  "homepage": "https://github.com/yevgetman/sovereign-ai-sdk/tree/master/packages/protocol#readme",
   "bugs": {
-    "url": "https://github.com/yevgetman/sovereign-ai-harness/issues"
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/issues"
   },
   "files": ["dist", "src", "LICENSE", "README.md"],
   "main": "./dist/index.js",

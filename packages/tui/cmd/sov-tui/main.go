@@ -12,7 +12,7 @@ import (
 	"runtime/debug"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/app"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/app"
 )
 
 // versionString reports the module version baked into the binary by Go's

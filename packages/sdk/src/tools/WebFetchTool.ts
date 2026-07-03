@@ -171,7 +171,7 @@ export const WebFetchTool = buildTool<Input, Output>({
         response = await fetchImpl(connectUrl, {
           signal: controller.signal,
           redirect: 'manual',
-          headers: { 'user-agent': 'sovereign-ai-harness/0.0.1 (+webfetch)', ...pinnedHeaders },
+          headers: { 'user-agent': 'sovereign-ai-sdk/0.0.1 (+webfetch)', ...pinnedHeaders },
         });
         const isRedirect = response.status >= 300 && response.status < 400;
         const location = response.headers.get('location');

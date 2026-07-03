@@ -906,7 +906,7 @@ func TestIntegrationAllBuiltinsResolve(t *testing.T) {
 
 ```bash
 cd packages/tui && go test -timeout 30s ./... -count=1
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun test
 ```
 
 Expected: all green; lint shows the 2 pre-existing warnings only.

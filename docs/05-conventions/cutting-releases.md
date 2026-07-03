@@ -37,7 +37,7 @@ The tag-push triggers `.github/workflows/release.yml` in the private repo, which
 - build-linux (ubuntu): builds the `linux-x64` tarball; native-smokes its `--version`
 - release (ubuntu): downloads artifacts, computes `SHA256SUMS`, runs `gh release create` against `yevgetman/sov-releases` using the `SOV_RELEASES_TOKEN` fine-grained PAT
 
-Wall time ~4-12 minutes (v0.6.0 first cut was ~4 min). Watch via `gh run watch -R yevgetman/sovereign-ai-harness`.
+Wall time ~4-12 minutes (v0.6.0 first cut was ~4 min). Watch via `gh run watch -R yevgetman/sovereign-ai-sdk`.
 
 If the upload step finds the release already exists, it exits 0 with a notice (idempotency). To re-publish a tag with new artifacts, `gh release delete vX.Y.Z --repo yevgetman/sov-releases` first, then re-dispatch the workflow.
 
