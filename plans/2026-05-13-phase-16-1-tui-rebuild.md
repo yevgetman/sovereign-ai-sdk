@@ -1373,10 +1373,10 @@ mkdir -p packages/tui/internal/app
 mkdir -p packages/tui/internal/transport
 mkdir -p packages/tui/internal/components
 cd packages/tui
-go mod init github.com/yevgetman/sovereign-ai-harness/packages/tui
+go mod init github.com/yevgetman/sovereign-ai-sdk/packages/tui
 ```
 
-Expected: creates `packages/tui/go.mod` with module path `github.com/yevgetman/sovereign-ai-harness/packages/tui` and a `go 1.22` line (or higher).
+Expected: creates `packages/tui/go.mod` with module path `github.com/yevgetman/sovereign-ai-sdk/packages/tui` and a `go 1.22` line (or higher).
 
 - [ ] **Step 3: Add Bubble Tea + lipgloss + bubbles as dependencies.**
 
@@ -2164,8 +2164,8 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/components"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/components"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 // sseMsg is emitted into the Bubble Tea event loop for each Envelope.
@@ -2326,7 +2326,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/app"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/app"
 )
 
 func main() {

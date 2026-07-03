@@ -530,7 +530,7 @@ handled separately (active parallel release work on `master` at the time).
 
 **Gate.** `bun run lint` + `bun run typecheck` clean. `bun run test` **3318 pass / 0 fail / 14 skip** — but ONLY with a clean `HARNESS_HOME`. With the default (my real `~/.harness`, polluted by today's many drive `hi` repros) **7 learning-observer/multi-user tests fail** (`existsSync(observations.jsonl)` false): a **pre-existing test-isolation leak** — those tests read the global `~/.harness` when `HARNESS_HOME` is unset (same family as the documented `buildMockRuntime` global-`sessions.db` smell). **Proven pre-existing + independent of this change**: identical 7-failure set on a clean tree (my change stashed); all 7 PASS under `HARNESS_HOME=$(mktemp -d)`; and **v0.6.33 CI preflight (clean env) re-ran `bun run test` green** (run **27174817684 conclusion=success**). Also pre-existing: the Go `TestM9_ThemeSwitchAltersRender` fails on a clean tree too (a theme global-state flake) — unrelated; **flag both as separate cleanups**.
 
-**Release.** Feature `16c8601` + bump `8e72d08` pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.33 committed `f0ed5cd`, pushed. **Operational note:** the `git tag` was first run with a stale cwd inside `/tmp/sov-releases` → a stray `v0.6.33` tag landed on the sov-releases repo (no CI there, no release created); deleted it (remote + local) and re-tagged the MAIN repo. Tag `v0.6.33` (at `8e72d08`) → CI run **27174817684 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27174817684). `gh release view v0.6.33 --repo yevgetman/sov-releases` shows all four assets. Source-mode `sov upgrade` → `0.6.33-8e72d08` (TS fix + rebuilt Go TUI). Not exercised: an interactive TUI screenshot via VHS (the fix is proven via the shared server path in `sov drive` + the Go transport test + the compiled-in `strings` check; the TUI uses the same cursor logic).
+**Release.** Feature `16c8601` + bump `8e72d08` pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.33 committed `f0ed5cd`, pushed. **Operational note:** the `git tag` was first run with a stale cwd inside `/tmp/sov-releases` → a stray `v0.6.33` tag landed on the sov-releases repo (no CI there, no release created); deleted it (remote + local) and re-tagged the MAIN repo. Tag `v0.6.33` (at `8e72d08`) → CI run **27174817684 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/27174817684). `gh release view v0.6.33 --repo yevgetman/sov-releases` shows all four assets. Source-mode `sov upgrade` → `0.6.33-8e72d08` (TS fix + rebuilt Go TUI). Not exercised: an interactive TUI screenshot via VHS (the fix is proven via the shared server path in `sov drive` + the Go transport test + the compiled-in `strings` check; the TUI uses the same cursor logic).
 
 ## 2026-06-08 — RELEASE v0.6.32: subscriptionExecutor permissionMode defaults to `bypass` (+ swept-up skills/MCP batch)
 
@@ -544,7 +544,7 @@ Operator decision: flip the subscription executor's default `permissionMode` fro
 
 **Gate (final combined tree, pre-tag).** `bun install` (node_modules re-resolved on this host) → `bun run lint` clean (biome, 705 files) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3318 pass / 0 fail / 14 skip** (9340 expect() calls, 3332 tests across 370 files, ~53 s). Focused affected suites alone (catalog + schema-subscriptionExecutor + subprocessExecutor): 56 pass. CLAUDE.md ≡ AGENTS.md verified identical after the index-line edit.
 
-**Release.** Feature `8c35fba` + bump `479f039` pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.32 entry committed `82a60da`, pushed. Tag `v0.6.32` (at `479f039`) → CI run **27171677843 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27171677843). `gh release view v0.6.32 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
+**Release.** Feature `8c35fba` + bump `479f039` pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.32 entry committed `82a60da`, pushed. Tag `v0.6.32` (at `479f039`) → CI run **27171677843 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/27171677843). `gh release view v0.6.32 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
 
 **Verify.** Source-mode `sov upgrade` pulled `479f039`; `sov --version` → **`0.6.32-479f039`**; the installed package's `src/runtime/subprocessExecutor.ts` carries `DEFAULT_PERMISSION_MODE = 'bypass'` (the flip ships in the user's install). Published **darwin-arm64 tarball**: `bin/sov --version` → **`0.6.32`**; `bin/sov config get subscriptionExecutor.permissionMode` → `(unset)` exit 0 (dotpath resolves in the compiled binary). Not exercised: a live `claude -p` delegation actually running with `--dangerously-skip-permissions` (needs `claude` logged in + a real delegated turn; the arg construction is covered by the `buildSubprocessArgs` unit tests).
 
@@ -574,7 +574,7 @@ Closed a catalog gap: the `subscriptionExecutor` block (the opt-in headless Clau
 
 **Gate (combined tree, pre-tag).** `bun install` (node_modules was absent on this host — installed 152 pkgs) → `bun run lint` clean (biome, 703 files, no fixes) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3295 pass / 0 fail / 14 skip** (9269 expect() calls, 3309 tests across 368 files, ~53 s). My catalog suite alone: 20 pass. Related config suites (configOps / liveApply / subscriptionExecutor / schema): 268 pass. The `[cron] jobs.json corrupt` + `[mcp] echo: 3 tools` lines are fixture stdout, not failures. Pre-existing AGENTS.md guard-scanner `[WARN]` lines (installer `curl | bash` doc snippet) unrelated.
 
-**Release.** Feature `92511fc` + bump `5ace18b` (`chore(release): bump version 0.6.30 -> 0.6.31`) pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.31 entry committed `809a7be`, pushed. Tag `v0.6.31` (at `5ace18b`) → CI run **27170440829 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27170440829). `gh release view v0.6.31 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
+**Release.** Feature `92511fc` + bump `5ace18b` (`chore(release): bump version 0.6.30 -> 0.6.31`) pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.31 entry committed `809a7be`, pushed. Tag `v0.6.31` (at `5ace18b`) → CI run **27170440829 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/27170440829). `gh release view v0.6.31 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
 
 **Verify.** Source-mode `sov upgrade` pulled commit `5ace18b`; `sov --version` → **`0.6.31-5ace18b`**, catalog group present in the installed source. Published **darwin-arm64 tarball** downloaded + extracted: `bin/sov --version` → **`0.6.31`** (boots clean); `bin/sov config get subscriptionExecutor.permissionMode` → `(unset)` exit 0 (the new dotpath resolves in the compiled binary — functional proof the group ships; note `strings` can't surface `bun --compile`'s embedded bundle, so the catalog labels grep to 0 — verified false-negative via the same 0 for known-shipped controls `Task routing` / `defaultProvider`). This host has no `~/.sov` binary install (user is source-mode), so no binary-mode `sov upgrade` smoke. Not exercised: a live `claude -p` subscription-executor delegation (config-surfacing change only; the executor runtime path is unchanged and covered by `tests/runtime/scheduler.subscriptionExecutor.test.ts`).
 
@@ -586,7 +586,7 @@ Cut **v0.6.30** off `master` — the remote-MCP-transport increment since v0.6.2
 
 **CI failure on the first cut → diagnosed → fixed (no half-cut release).** The bump commit `be31114` tagged `v0.6.30` failed CI **preflight only** — **3258 pass / 3 fail**, the three failures all in the new `tests/mcp/sseClient.test.ts` (legacy-SSE round-trip), two hanging to the 10 s test timeout. Root cause: the CI floor pins **Bun 1.2.0** (`oven-sh/setup-bun@v2`, `bun-version: '1.2.0'`), whose `EventSource`/`node:http` interop can't open the SDK's legacy-SSE GET stream against the in-process `node:http` fixture in the same event loop; locally (Bun 1.3.13) all 3 pass. **This is a test-environment limitation, not a runtime defect** — the shipping MCP code is byte-identical on every Bun, the HTTP (Streamable) transport tests pass on the CI floor, and a real remote SSE server over real TCP is unaffected. Fix (`902216d`, `test(mcp): gate legacy-SSE round-trip fixture to Bun >=1.3`): guarded the legacy-SSE describe block with `describe.skipIf(!Bun.semver.satisfies(Bun.version, '>=1.3.0'))` + a comment explaining why; the header-preservation/injection security assertion still runs wherever Bun supports the fixture (no coverage silently dropped). Re-verified the full suite green locally (3270/0/14), then moved the `v0.6.30` tag to `902216d` and re-pushed (preflight's `package.json`-matches-tag check still holds — version unchanged at 0.6.30).
 
-**Release.** Bump committed `be31114` (`chore(release): bump version 0.6.29 -> 0.6.30`), pushed `origin/master`. Test guard `902216d` pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.30 entry committed `baa2a5c`, pushed. Tag `v0.6.30` (at `902216d`) → CI run **27163854799 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27163854799). `gh release view v0.6.30 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`). The superseded first run is **27163228194 conclusion=failure** (preflight, pre-fix), left as the record.
+**Release.** Bump committed `be31114` (`chore(release): bump version 0.6.29 -> 0.6.30`), pushed `origin/master`. Test guard `902216d` pushed `origin/master`. Public `sov-releases` CHANGELOG v0.6.30 entry committed `baa2a5c`, pushed. Tag `v0.6.30` (at `902216d`) → CI run **27163854799 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/27163854799). `gh release view v0.6.30 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`). The superseded first run is **27163228194 conclusion=failure** (preflight, pre-fix), left as the record.
 
 **Binary verify.** `~/.sov/bin/sov upgrade` pulled v0.6.30 (tarball downloaded, **checksum ok**, prior install backed up to `~/.sov.bak.*`). `~/.sov/bin/sov --version` → **`0.6.30`**; `~/.sov/bin/sov --help` exits 0 (boots clean). Remote-MCP correctness is covered by the test suite (auth/remoteClient/sseClient/statusSerializer suites above); no live external MCP server exercised.
 
@@ -624,7 +624,7 @@ Cut **v0.6.29** off `master` HEAD `ae72bd3` — the ecosystem-openness A+B incre
 
 **Gate (pre-bump-commit).** `bun run lint` clean (biome, 692 files, no fixes) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3222 pass / 0 fail / 14 skip** (9030 expect() calls, 3236 tests across 362 files, ~110 s). Matches the expected baseline exactly — no new failures, no regressions; the known MockProvider/telegram env-flakes did not surface this run (fully green). The pre-existing AGENTS.md guard-scanner `[WARN]` lines (the installer `curl | bash` doc snippet) are unrelated.
 
-**Release.** Bump committed `c992885` (`chore(release): bump version 0.6.28 -> 0.6.29`), pushed `origin/master` (`ae72bd3..c992885`). Public `sov-releases` CHANGELOG v0.6.29 entry committed `d8aab55`, pushed. Tag `v0.6.29` pushed → CI run **27159933956 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27159933956). `gh release view v0.6.29 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`). CI annotations were benign only: the Node-20 action deprecation (backlog #49) + a cosmetic Go-cache-restore notice.
+**Release.** Bump committed `c992885` (`chore(release): bump version 0.6.28 -> 0.6.29`), pushed `origin/master` (`ae72bd3..c992885`). Public `sov-releases` CHANGELOG v0.6.29 entry committed `d8aab55`, pushed. Tag `v0.6.29` pushed → CI run **27159933956 conclusion=success** (preflight + build-darwin + build-linux + release all green; https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/27159933956). `gh release view v0.6.29 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`). CI annotations were benign only: the Node-20 action deprecation (backlog #49) + a cosmetic Go-cache-restore notice.
 
 **Binary verify.** `~/.sov/bin/sov upgrade` pulled v0.6.29 (tarball downloaded, **checksum ok**, prior install backed up). `~/.sov/bin/sov --version` → **`0.6.29`**; `~/.sov/bin/sov --help` exits 0 (boots clean). Feature correctness is covered by the test suite (loader/import/skillScope suites above); no headless `/skills import` exercise needed.
 
@@ -661,7 +661,7 @@ Cut **v0.6.28** off `master` HEAD `f38663c` (the two SPIKE-follow-up fixes from 
 
 **Gate (pre-bump-commit).** `bun run lint` clean (biome, 688 files) + `bun run typecheck` clean (`tsc --noEmit`) + `bun run test` **3197 pass / 14 skip / 1 fail**. The single fail was `tests/channels/telegram.test.ts` "start() arms an unref'd poll loop…" — a pre-existing **timing flake**: the test fires a fire-and-forget poll then waits a fixed 20ms for the mock transport's async `sendMessage` before asserting `sent`; under full-suite concurrency load the send hadn't landed in time. Confirmed not bump-related: the bump is a one-line `package.json` string change (runtime-irrelevant), the test passes on clean HEAD `f38663c` (12/0) and passes **3/3 in isolation with the bump applied** (12/0 each). CI's `preflight` job (clean ubuntu runner) re-ran lint+typecheck+test and passed — independently confirming green. Meets the repo gate criterion ("no new failures beyond the known set").
 
-**Release.** Bump committed `b6594b2` (`chore(release): bump version 0.6.27 -> 0.6.28`), pushed `origin/master` (`f38663c..b6594b2`). Public `sov-releases` CHANGELOG v0.6.28 entry committed `e2d2c1b`, pushed. Tag `v0.6.28` pushed → CI run **27153774695 conclusion=success** (preflight + build-linux + build-darwin + release all green; https://github.com/yevgetman/sovereign-ai-harness/actions/runs/27153774695). `gh release view v0.6.28 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
+**Release.** Bump committed `b6594b2` (`chore(release): bump version 0.6.27 -> 0.6.28`), pushed `origin/master` (`f38663c..b6594b2`). Public `sov-releases` CHANGELOG v0.6.28 entry committed `e2d2c1b`, pushed. Tag `v0.6.28` pushed → CI run **27153774695 conclusion=success** (preflight + build-linux + build-darwin + release all green; https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/27153774695). `gh release view v0.6.28 --repo yevgetman/sov-releases` shows all four assets (`SHA256SUMS`, `sov-darwin-arm64.tar.gz`, `sov-darwin-x64.tar.gz`, `sov-linux-x64.tar.gz`).
 
 **Post-upgrade smoke.** `~/.sov/bin/sov upgrade` (latest tag v0.6.28, checksum ok) → `~/.sov/bin/sov --version` → **0.6.28**.
 
@@ -1852,7 +1852,7 @@ First session driven by the visual QA loop end-to-end. Each change was rendered 
 - `bun run lint && bun run typecheck && bun run test` — TS suite **2558 pass / 0 fail / 14 skip** as measured at Task 4 commit (`d235e46`). 10 new tests added across `tests/scripts/release-shared.test.ts` (9) + `tests/scripts/release-build-target.test.ts` (6, post-fix) + `tests/scripts/release-upload.test.ts` (4) = 19 new test cases. (Note: 2 openai test files have flaky `beforeEach` hook timeouts that occasionally fail under load; pre-existing and unrelated to M2.)
 - Local refactor smoke: `bun run release:build {darwin-arm64,darwin-x64,linux-x64} v0.5.11` + `bun run release:upload v0.5.11 --dry-run` produced tarballs of expected sizes (32.1 / 35.0 / 47.7 MB) + SHA256SUMS. The extracted scripts are byte-equivalent to M1's monolithic flow.
 - Workflow dry-run smoke against `v0.5.11` (`gh workflow run release.yml -f version=v0.5.11 -f dry-run=true`) — preflight + checkout + bun/go setup all green; build step failed correctly (`release:build` alias not present at v0.5.11 tag predating Task 4). Initial dispatch also failed at the runner-startup gate due to a billing issue on the GitHub account; resolved by the user, second dispatch fired runners normally.
-- First M2 release cut: `git tag v0.6.0 && git push origin v0.6.0` fired run [26401213030](https://github.com/yevgetman/sovereign-ai-harness/actions/runs/26401213030). All four jobs green (preflight 1m45s, build-darwin 56s, build-linux 1m3s, release 1m2s) — total wall time ~4 minutes, much faster than the spec estimate of 8-12 min. Release published at https://github.com/yevgetman/sov-releases/releases/tag/v0.6.0 with three platform tarballs + SHA256SUMS.
+- First M2 release cut: `git tag v0.6.0 && git push origin v0.6.0` fired run [26401213030](https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/26401213030). All four jobs green (preflight 1m45s, build-darwin 56s, build-linux 1m3s, release 1m2s) — total wall time ~4 minutes, much faster than the spec estimate of 8-12 min. Release published at https://github.com/yevgetman/sov-releases/releases/tag/v0.6.0 with three platform tarballs + SHA256SUMS.
 - End-to-end install smoke: backed up existing `~/.sov/` to `~/.sov.pre-v0.6.0-bak/`, `curl … install.sh | bash` fetched v0.6.0 cleanly (29.1 MB darwin-arm64 tarball, checksum OK), `~/.sov/bin/sov --version` printed `0.6.0`. PASS.
 - Source-mode workflow unaffected (local `bun run release vX.Y.Z` still works; the script-refactor preserves the M1 entry-point bit-for-bit).
 
@@ -2528,10 +2528,10 @@ Wired:
 
 **Commands:**
 ```
-cd /Users/julie/code/sovereign-ai-harness/packages/tui && go test -count=1 ./...
+cd /Users/julie/code/sovereign-ai-sdk/packages/tui && go test -count=1 ./...
 # All packages green
 
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test
 # lint: 2 warnings (pre-existing in src/permissions/shellSemantics.ts; unrelated)
 # typecheck: clean
 # tests: 1996 pass / 0 fail / 14 skip (unchanged from morning baseline — TS untouched)
@@ -2557,7 +2557,7 @@ The `focusTranscript` iota constant in `app.go:103` stays — it's a focus-state
 
 **Commands:**
 ```
-cd /Users/julie/code/sovereign-ai-harness/packages/tui && go test -count=1 ./...
+cd /Users/julie/code/sovereign-ai-sdk/packages/tui && go test -count=1 ./...
 # All packages green: app 1.9s, components 0.4s, render 0.7s, theme 0.8s, transport 0.5s
 ```
 
@@ -5605,8 +5605,8 @@ This is the deterministic path the integration test in `tests/server/turns.test.
   - `bun run typecheck`
   - `bun run lint`
   - `bun run test`
-  - End-to-end (bundleless): `mkdir -p /tmp/sovereign-no-bundle-test && cd /tmp/sovereign-no-bundle-test && bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --no-preflight --provider ollama --model placeholder < /dev/null`
-  - End-to-end (bundled): `cd ~/code/sovereign-ai-docs && bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --no-preflight --provider ollama --model placeholder < /dev/null`
+  - End-to-end (bundleless): `mkdir -p /tmp/sovereign-no-bundle-test && cd /tmp/sovereign-no-bundle-test && bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --no-preflight --provider ollama --model placeholder < /dev/null`
+  - End-to-end (bundled): `cd ~/code/sovereign-ai-docs && bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --no-preflight --provider ollama --model placeholder < /dev/null`
 - Manual coverage:
   - Bundleless run: splash showed `no bundle` instead of a path; session created and exited cleanly; `[debug] transcript →` line appeared.
   - Bundled run: splash showed `/Users/julie/code/sovereign-ai-docs`; identical exit path.
@@ -5623,7 +5623,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Quick live harness API smoke after reloading Anthropic credits, using
   the current default Anthropic model `claude-haiku-4-5-20251001`.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
   - `HARNESS_HOME`: `/tmp/sovereign-api-smoke-retry-20260428/home`
   - Session DB: `/tmp/sovereign-api-smoke-retry-20260428/sessions.db`
@@ -5653,7 +5653,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Quick live harness API smoke using the current default Anthropic model
   `claude-haiku-4-5-20251001`.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
   - `HARNESS_HOME`: `/tmp/sovereign-api-smoke-20260428/home`
   - Session DB: `/tmp/sovereign-api-smoke-20260428/sessions.db`
@@ -5680,7 +5680,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
   `claude-sonnet-4-6` to `claude-haiku-4-5-20251001`, with docs and resolver
   test alignment.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/providers/resolver.test.ts`
@@ -5703,7 +5703,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Final validation after closing every item in
   `docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md`.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `rg -n "Status: open|Status: complete" docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md`
@@ -5728,7 +5728,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Post Phase-10.5 backlog item 7, adding an optional redacted JSONL
   transcript/event log for manual REPL tests.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
   - Smoke `HARNESS_HOME`: `/tmp/sovereign-transcript-smoke-20260428/home`
   - Smoke session DB: `/tmp/sovereign-transcript-smoke-20260428/sessions.db`
@@ -5767,7 +5767,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Post Phase-10.5 backlog item 6, preserving pasted multi-line slash
   command input across REPL prompts.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/ui/queuedQuestion.test.ts tests/permissions/prompt.test.ts`
@@ -5794,7 +5794,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Post Phase-10.5 backlog item 5, aligning the documented
   `--max-tokens` default with the CLI default and adding a regression check.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/docsDefaults.test.ts`
@@ -5817,7 +5817,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 - Scope: Post Phase-10.5 backlog item 4, failing unsupported Ollama tool models
   before opening a normal tool-enabled session.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/providers/preflight.test.ts tests/providers/ollama.test.ts`
@@ -5840,7 +5840,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Post Phase-10.5 backlog item 3, adding a read-only static-site validation helper for website artifacts.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/tools/staticSiteValidateTool.test.ts tests/context/systemPrompt.test.ts tests/tool/buildTool.test.ts`
@@ -5861,7 +5861,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Post Phase-10.5 backlog item 2, warning when a provider error happens after successful mutating tool calls in the same turn.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/ui/terminalMessages.test.ts tests/core/query.test.ts tests/core/orchestrator.test.ts`
@@ -5882,7 +5882,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Post Phase-10.5 backlog item 1, adding startup provider preflight and clearer billing/credential classification before real work begins.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/providers/preflight.test.ts tests/providers/resolver.test.ts`
@@ -5903,7 +5903,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Real-world REPL retest after closing the Phase-10.5 backlog. The test repeated the imperfect website-building workflow with a new static site under `~/code`, then validated the produced artifact externally and checked session transcript integrity.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Bundle: `/Users/julie/code/sovereign-ai-docs`
   - Website workspace: `/Users/julie/code/harness-website-retest-2026-04-27-183331`
   - `HARNESS_HOME`: `/tmp/sovereign-website-retest-home.xTzuDY`
@@ -5912,10 +5912,10 @@ This is the deterministic path the integration test in `tests/server/turns.test.
   - Ollama fallback session: `19077fe8-bbab-4410-a128-8a6421a7684b`
   - Screenshots: `/tmp/harness-retest-desktop.png`, `/tmp/harness-retest-mobile.png`
 - Commands:
-  - `script -q /Users/julie/code/harness-website-retest-2026-04-27-183331/repl-transcript.txt env HARNESS_HOME=/tmp/sovereign-website-retest-home.xTzuDY bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db --permission-mode ask --no-cache`
+  - `script -q /Users/julie/code/harness-website-retest-2026-04-27-183331/repl-transcript.txt env HARNESS_HOME=/tmp/sovereign-website-retest-home.xTzuDY bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db --permission-mode ask --no-cache`
   - `ollama serve`
   - `ollama list`
-  - `script -q /Users/julie/code/harness-website-retest-2026-04-27-183331/repl-transcript-ollama.txt env HARNESS_HOME=/tmp/sovereign-website-retest-home.xTzuDY bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --provider ollama --model dolphin-llama3:latest --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db --permission-mode ask --no-cache --max-tokens 4096`
+  - `script -q /Users/julie/code/harness-website-retest-2026-04-27-183331/repl-transcript-ollama.txt env HARNESS_HOME=/tmp/sovereign-website-retest-home.xTzuDY bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --provider ollama --model dolphin-llama3:latest --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-retest-2026-04-27-183331/sessions.db --permission-mode ask --no-cache --max-tokens 4096`
   - `python3 -m http.server 4181`
   - `curl -fsS -D - http://127.0.0.1:4181/ -o /tmp/harness-retest-index.html`
   - `curl -fsS -I http://127.0.0.1:4181/style.css`
@@ -5954,7 +5954,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Final validation after closing every Phase-10.5 backlog item in `docs/08-roadmap/backlog/archive/phase-10-5.md`.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun run lint`
@@ -5974,7 +5974,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 10, tightening `/commit` prompt guidance while preserving narrow Bash scope enforcement.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/commands/registry.test.ts tests/commands/toolScope.test.ts`
@@ -5995,7 +5995,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 9, screening `@file` context-reference content through the same injection-defense path as local context files.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/context/references.test.ts tests/context/injectionDefense.test.ts`
@@ -6016,7 +6016,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 8, codifying the real-world website run into a repeatable fixture-backed eval and artifact validator.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/evals/websiteBuildEval.test.ts`
@@ -6040,7 +6040,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 7, allowing provably read-only Bash commands to skip prompts in ask mode while preserving explicit ask/deny rules.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/tools/bashTool.test.ts tests/permissions/canUseTool.test.ts`
@@ -6062,7 +6062,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 6, adding generic model guidance to run cheap validators before claiming code/web work is complete.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/context/systemPrompt.test.ts`
@@ -6084,7 +6084,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 5, expanding leading `~` paths consistently across filesystem tools, permission matching, and path-overlap checks.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/tools/pathUtils.test.ts tests/tools/permissionMatchers.test.ts tests/tools/fileReadTool.test.ts tests/tools/fileWriteTool.test.ts tests/tools/fileEditTool.test.ts tests/tools/globTool.test.ts tests/tools/grepTool.test.ts tests/core/orchestrator.test.ts`
@@ -6106,7 +6106,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 4, improving default output budget, provider `max_tokens` recovery, and large file-edit behavior guidance.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/core/query.test.ts tests/ui/terminalMessages.test.ts tests/context/systemPrompt.test.ts`
@@ -6128,7 +6128,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Phase-10.5 backlog item 3, making `/clear` a durable recovery path and adding resume/rollback repair for legacy orphaned `tool_use` transcripts.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun test tests/core/transcriptRepair.test.ts tests/agent/sessionRecovery.test.ts tests/commands/registry.test.ts`
@@ -6150,7 +6150,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Real-world use-case REPL test where the harness built a simple static website from imperfect, iterative human-style prompts. The test exercised multi-turn file creation and revision, vague design feedback, responsive/mobile feedback, JavaScript feature addition, self-inspection, late rename/copy changes, external validation, recovery from harness errors, and final artifact verification.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Bundle: `/Users/julie/code/sovereign-ai-docs`
   - Website workspace: `/Users/julie/code/harness-website-test-2026-04-27`
   - `HARNESS_HOME`: `/tmp/sovereign-website-home.nbBFWB`
@@ -6159,8 +6159,8 @@ This is the deterministic path the integration test in `tests/server/turns.test.
   - Harness session: `594bea1a-3a7f-42e4-86bf-c10430d80573`
   - Screenshots: `/tmp/harness-website-desktop.png`, `/tmp/harness-website-mobile.png`
 - Commands:
-  - `HARNESS_HOME=/tmp/sovereign-website-home.nbBFWB bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-test-2026-04-27/sessions.db --permission-mode ask --no-cache`
-  - `HARNESS_HOME=/tmp/sovereign-website-home.nbBFWB bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-test-2026-04-27/sessions.db --resume 594bea1a-3a7f-42e4-86bf-c10430d80573 --permission-mode ask --no-cache --max-tokens 12000`
+  - `HARNESS_HOME=/tmp/sovereign-website-home.nbBFWB bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-test-2026-04-27/sessions.db --permission-mode ask --no-cache`
+  - `HARNESS_HOME=/tmp/sovereign-website-home.nbBFWB bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /Users/julie/code/harness-website-test-2026-04-27/sessions.db --resume 594bea1a-3a7f-42e4-86bf-c10430d80573 --permission-mode ask --no-cache --max-tokens 12000`
   - `node --check estimator.js`
   - `python3 -m http.server 4177`
   - `curl -fsS http://127.0.0.1:4177/`
@@ -6203,7 +6203,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Documentation maintenance to rename `docs/06-testing/testing-log.md` to `docs/06-testing/testing-log.md` and update all repo references.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun run lint`
@@ -6221,7 +6221,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Comprehensive boundary-pushing REPL test of the Phase-10 harness against the real Sovereign AI docs bundle, covering context references, tools, ask-mode permissions, slash commands, memory, skills, subdirectory hints, compaction, rollback, resume, persistence, and runtime artifacts.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Bundle: `/Users/julie/code/sovereign-ai-docs`
   - Working directory: `/tmp/sovereign-boundary-work.zGe6d2`
   - `HARNESS_HOME`: `/tmp/sovereign-boundary-home.CsORUr`
@@ -6230,8 +6230,8 @@ This is the deterministic path the integration test in `tests/server/turns.test.
   - Parent session: `fe56f15d-bab4-4f87-a144-ca5534e18914`
   - Compacted child session: `bed122a2-8140-4ace-b02f-6d1772902558`
 - Commands:
-  - `HARNESS_HOME=/tmp/sovereign-boundary-home.CsORUr bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-boundary-work.zGe6d2/sessions.db --permission-mode ask --no-cache`
-  - `HARNESS_HOME=/tmp/sovereign-boundary-home.CsORUr bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-boundary-work.zGe6d2/sessions.db --resume fe56f15d-bab4-4f87-a144-ca5534e18914 --permission-mode ask --no-cache`
+  - `HARNESS_HOME=/tmp/sovereign-boundary-home.CsORUr bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-boundary-work.zGe6d2/sessions.db --permission-mode ask --no-cache`
+  - `HARNESS_HOME=/tmp/sovereign-boundary-home.CsORUr bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-boundary-work.zGe6d2/sessions.db --resume fe56f15d-bab4-4f87-a144-ca5534e18914 --permission-mode ask --no-cache`
   - `sqlite3 /tmp/sovereign-boundary-work.zGe6d2/sessions.db "select ... from sessions; select ... from session_compactions; select session_id,count(*) from messages group by session_id;"`
   - `curl -fsS --max-time 2 http://127.0.0.1:11434/api/tags`
   - `bun run lint`
@@ -6269,7 +6269,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Documentation-only maintenance for `AGENTS.md` and `CLAUDE.md` boot paths, replacing stale Desktop/root planning-doc paths with the current docs-repo locations.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun run lint`
@@ -6287,7 +6287,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Runtime-local documentation alignment with `sovereign-ai-docs` `harness-build-plan@5` and the maturity-first remaining build order.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun run lint`
@@ -6305,7 +6305,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: Commit validation for adding the harness testing log and the standing logging directive in agent instructions.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Runtime: Bun 1.3.13
 - Commands:
   - `bun run lint`
@@ -6322,7 +6322,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 
 - Scope: End-to-end harness runtime smoke test against the Sovereign AI docs bundle, including automated gates, interactive REPL behavior, tool execution, slash commands, compaction, rollback, and session persistence.
 - Environment:
-  - Repo: `/Users/julie/code/sovereign-ai-harness`
+  - Repo: `/Users/julie/code/sovereign-ai-sdk`
   - Bundle: `/Users/julie/code/sovereign-ai-docs`
   - Working directory: `/tmp/sovereign-holistic-smoke.oCpqnE`
   - `HARNESS_HOME`: `/tmp/sovereign-harness-home.ac2ybp`
@@ -6331,7 +6331,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
   - Session: `88a5de8d-32fe-43b6-8ae8-364b8c3f416d`
   - Compacted child session: `9049349a-8165-4aa5-b3cf-e2b4d5ab0ae4`
 - Commands:
-  - `HARNESS_HOME=/tmp/sovereign-harness-home.ac2ybp bun /Users/julie/code/sovereign-ai-harness/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-holistic-smoke.oCpqnE/sessions.db --permission-mode ask --no-cache`
+  - `HARNESS_HOME=/tmp/sovereign-harness-home.ac2ybp bun /Users/julie/code/sovereign-ai-sdk/src/main.ts chat --bundle /Users/julie/code/sovereign-ai-docs --db /tmp/sovereign-holistic-smoke.oCpqnE/sessions.db --permission-mode ask --no-cache`
   - `bun run lint`
   - `bun run test`
   - `bun run typecheck`
@@ -6360,7 +6360,7 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 ## 2026-04-28 - debugMode config + auto-transcript
 
 - Scope: Added `debugMode` settings bucket (`enabled`, `transcript`, `transcriptDir`); REPL now auto-resolves a timestamped transcript path under `<harnessHome>/debug` when debug mode is on and `--transcript` was not passed. Added new fields to the interactive config picker.
-- Environment: Bun 1.3.13 / macOS Darwin 25.2.0, repo `sovereign-ai-harness@master`.
+- Environment: Bun 1.3.13 / macOS Darwin 25.2.0, repo `sovereign-ai-sdk@master`.
 - Commands:
   - `bun run lint`
   - `bun run test`

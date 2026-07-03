@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-21
 **Status:** Approved (this design). Seven ADRs locked (P21-01..07). Awaiting plan + execution.
-**Predecessor:** Current install story — `bun install -g git+ssh://…` against the private `sovereign-ai-harness` repo. Requires Bun, requires SSH access to the private repo, exposes full source. See [Phase 0.6 repo layout](https://example.local/runtime/harness-build-plan.md#06-repo-layout) and [`docs/05-conventions/sov-upgrade.md`](docs/05-conventions/sov-upgrade.md).
+**Predecessor:** Current install story — `bun install -g git+ssh://…` against the private `sovereign-ai-sdk` repo. Requires Bun, requires SSH access to the private repo, exposes full source. See [Phase 0.6 repo layout](https://example.local/runtime/harness-build-plan.md#06-repo-layout) and [`docs/05-conventions/sov-upgrade.md`](docs/05-conventions/sov-upgrade.md).
 **Driver:** Need to share the harness with internal trusted colleagues plus beta users in the author's social circle. Beta users must NOT see source. Sharing is allowed to be clunky-but-functional (one-line install command).
 
 ## 1. Purpose

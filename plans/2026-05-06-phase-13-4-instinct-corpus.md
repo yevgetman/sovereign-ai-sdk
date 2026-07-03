@@ -129,7 +129,7 @@ evidence_count: 8
 domain: code-style
 scope: project
 project_id: a3f...                      # cwd hash or git-remote hash
-project_name: sovereign-ai-harness
+project_name: sovereign-ai-sdk
 created_at: 2026-05-06T10:00:00Z
 last_evidence_at: 2026-05-06T15:30:00Z
 observation_ids:                        # first 10; rest findable via trace_id grep
@@ -1133,7 +1133,7 @@ Exercises:
 
 **Final gate:**
 ```bash
-cd /Users/julie/code/sovereign-ai-harness
+cd /Users/julie/code/sovereign-ai-sdk
 bun test
 bun run typecheck
 bun run lint

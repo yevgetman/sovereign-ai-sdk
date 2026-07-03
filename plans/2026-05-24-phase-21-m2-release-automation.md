@@ -1084,7 +1084,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 20
     steps:
-      - name: Checkout sovereign-ai-harness
+      - name: Checkout sovereign-ai-sdk
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.preflight.outputs.version }}
@@ -1133,7 +1133,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - name: Checkout sovereign-ai-harness
+      - name: Checkout sovereign-ai-sdk
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.preflight.outputs.version }}
@@ -1177,7 +1177,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - name: Checkout sovereign-ai-harness
+      - name: Checkout sovereign-ai-sdk
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.preflight.outputs.version }}
@@ -1252,9 +1252,9 @@ In a browser, go to https://github.com/settings/personal-access-tokens/new and c
 
 Click "Generate token" and copy the resulting `github_pat_...` string.
 
-- [ ] **Step 2: Store as a repository secret in `sovereign-ai-harness`**
+- [ ] **Step 2: Store as a repository secret in `sovereign-ai-sdk`**
 
-In a browser, go to https://github.com/yevgetman/sovereign-ai-harness/settings/secrets/actions and click "New repository secret":
+In a browser, go to https://github.com/yevgetman/sovereign-ai-sdk/settings/secrets/actions and click "New repository secret":
 
 - **Name:** `SOV_RELEASES_TOKEN`
 - **Secret:** paste the `github_pat_...` value
@@ -1289,7 +1289,7 @@ Actually — `workflow_dispatch` checks out the `ref` we provide as the `version
 Run:
 ```bash
 gh workflow run release.yml \
-  -R yevgetman/sovereign-ai-harness \
+  -R yevgetman/sovereign-ai-sdk \
   --ref master \
   -f version=v0.5.11 \
   -f dry-run=true
@@ -1299,17 +1299,17 @@ Expected: command exits 0; the workflow run shows up in the Actions UI within ~5
 
 - [ ] **Step 3: Watch the workflow progress**
 
-Run: `gh run list --workflow=release.yml -R yevgetman/sovereign-ai-harness --limit 1`
+Run: `gh run list --workflow=release.yml -R yevgetman/sovereign-ai-sdk --limit 1`
 Expected: one run, status `queued` or `in_progress`.
 
 Then either watch it interactively:
 ```bash
-gh run watch --exit-status -R yevgetman/sovereign-ai-harness
+gh run watch --exit-status -R yevgetman/sovereign-ai-sdk
 ```
 
 Or wait + check final status:
 ```bash
-gh run list --workflow=release.yml -R yevgetman/sovereign-ai-harness --limit 1
+gh run list --workflow=release.yml -R yevgetman/sovereign-ai-sdk --limit 1
 ```
 
 Expected: all four jobs (`preflight`, `build-darwin`, `build-linux`, `release`) complete with conclusion `success`. Wall time ~8–12 min total.
@@ -1327,7 +1327,7 @@ To exercise the preflight mismatch branch:
 
 ```bash
 gh workflow run release.yml \
-  -R yevgetman/sovereign-ai-harness \
+  -R yevgetman/sovereign-ai-sdk \
   --ref master \
   -f version=v9.9.9-smoke \
   -f dry-run=true
@@ -1337,7 +1337,7 @@ Expected: the `preflight` job FAILS at the "Assert package.json matches tag" ste
 
 - [ ] **Step 5: Inspect the workflow run's artifacts**
 
-Run: `gh run view <run-id> -R yevgetman/sovereign-ai-harness --log` (substitute the actual run id from Step 3) and verify:
+Run: `gh run view <run-id> -R yevgetman/sovereign-ai-sdk --log` (substitute the actual run id from Step 3) and verify:
 - preflight printed `OK: tag v0.5.11 matches package.json 0.5.11`
 - build-darwin printed `smoke output: 0.5.11-...` lines
 - build-linux printed `smoke output: 0.5.11-...`
@@ -1383,7 +1383,7 @@ git push origin main
 cd -
 ```
 
-- [ ] **Step 3: Commit the package.json bump in sovereign-ai-harness**
+- [ ] **Step 3: Commit the package.json bump in sovereign-ai-sdk**
 
 ```bash
 git add package.json
@@ -1407,7 +1407,7 @@ This fires the release workflow.
 
 - [ ] **Step 5: Watch the workflow run**
 
-Run: `gh run watch --exit-status -R yevgetman/sovereign-ai-harness`
+Run: `gh run watch --exit-status -R yevgetman/sovereign-ai-sdk`
 
 Expected: all four jobs green; final job completes with `released: https://github.com/yevgetman/sov-releases/releases/tag/v0.6.0`. Total wall time ~8–12 min.
 
@@ -1453,7 +1453,7 @@ Insert immediately after the existing P21-B ADR header (find `## ADR P21-B`, fin
 ```markdown
 ## ADR P21-C — Cross-repo release upload via fine-grained PAT scoped to `sov-releases`
 
-Decision: The Phase 21 M2 release workflow at `.github/workflows/release.yml` lives in the private `sovereign-ai-harness` repo and uploads tagged GitHub releases to the public `yevgetman/sov-releases` repo via a fine-grained Personal Access Token. The PAT is scoped to **only** `yevgetman/sov-releases` with **Contents: Read and write** permission; it is stored as the repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-harness`. The token is exported to the workflow as the `token:` input on `actions/checkout@v4` (for the sov-releases sibling clone in each job) and as `GH_TOKEN` (only in the final `release` job's upload step, not in the build jobs). The default `GITHUB_TOKEN` is scoped to the workflow's own repo and cannot write to a different repo, so cross-repo write requires either a PAT, a GitHub App installation, or a classic PAT with broad `repo` scope.
+Decision: The Phase 21 M2 release workflow at `.github/workflows/release.yml` lives in the private `sovereign-ai-sdk` repo and uploads tagged GitHub releases to the public `yevgetman/sov-releases` repo via a fine-grained Personal Access Token. The PAT is scoped to **only** `yevgetman/sov-releases` with **Contents: Read and write** permission; it is stored as the repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-sdk`. The token is exported to the workflow as the `token:` input on `actions/checkout@v4` (for the sov-releases sibling clone in each job) and as `GH_TOKEN` (only in the final `release` job's upload step, not in the build jobs). The default `GITHUB_TOKEN` is scoped to the workflow's own repo and cannot write to a different repo, so cross-repo write requires either a PAT, a GitHub App installation, or a classic PAT with broad `repo` scope.
 
 Rationale: Fine-grained PAT has the smallest blast radius — read+write on exactly one repo, no other resource. Classic PAT with `repo` scope would also work but grants full read/write across every repo the token owner has access to. GitHub App installation is more correct in principle (rotating short-lived installation tokens) but adds infrastructure for a single-author single-target use case where the security delta is marginal. PAT expiration is bounded at 1 year — calendar-managed regeneration is acceptable for the author's release cadence. The PAT name `sov-releases-upload` makes it discoverable in GitHub settings.
 
@@ -1482,7 +1482,7 @@ The tag-push triggers `.github/workflows/release.yml` in the private repo, which
 - build-linux (ubuntu): builds the `linux-x64` tarball; native-smokes its `--version`
 - release (ubuntu): downloads artifacts, computes `SHA256SUMS`, runs `gh release create` against `yevgetman/sov-releases` using the `SOV_RELEASES_TOKEN` fine-grained PAT
 
-Wall time ~8–12 minutes. Watch via `gh run watch -R yevgetman/sovereign-ai-harness`.
+Wall time ~8–12 minutes. Watch via `gh run watch -R yevgetman/sovereign-ai-sdk`.
 
 If the upload step finds the release already exists, it exits 0 with a notice (idempotency). To re-publish a tag with new artifacts, `gh release delete vX.Y.Z --repo yevgetman/sov-releases` first, then re-dispatch the workflow.
 
@@ -1514,7 +1514,7 @@ Find item `#48` (search for `48. **Phase 21 M2`) and append its close-out note i
 Find the line beginning `48. **Phase 21 M2 — GitHub Actions release automation` and replace its body with a closed-out summary:
 
 ```markdown
-48. **Phase 21 M2 — GitHub Actions release automation.** **CLOSED 2026-05-24.** Workflow at `.github/workflows/release.yml` in `sovereign-ai-harness` triggers on `v*.*.*` tag push (also `workflow_dispatch` with optional dry-run). Four-job graph: preflight (ubuntu, runs lint+typecheck+test + asserts package.json matches tag) → parallel build-darwin (macos-14, both darwin tarballs) + build-linux (ubuntu, linux-x64 tarball) → release (ubuntu, downloads artifacts + `gh release create` against `yevgetman/sov-releases` via fine-grained `SOV_RELEASES_TOKEN` PAT). `scripts/release.ts` refactored into thin orchestrator over `scripts/release-shared.ts` + `scripts/release-build-target.ts` + `scripts/release-upload.ts`; both local and CI paths call the same extracted scripts. Upload step is idempotent — `gh release view` check before `gh release create`, so local-cut-then-CI scenarios stay green. Optional code-signing/notarization (~$99/yr Apple Developer Program) and homebrew tap remain follow-ups, gated on real-world setup or actual beta demand. Spec: `specs/2026-05-24-phase-21-m2-release-automation-design.md`. Plan: `plans/2026-05-24-phase-21-m2-release-automation.md`. ADR P21-C in DECISIONS.md. First cut shipped as **v0.6.0**.
+48. **Phase 21 M2 — GitHub Actions release automation.** **CLOSED 2026-05-24.** Workflow at `.github/workflows/release.yml` in `sovereign-ai-sdk` triggers on `v*.*.*` tag push (also `workflow_dispatch` with optional dry-run). Four-job graph: preflight (ubuntu, runs lint+typecheck+test + asserts package.json matches tag) → parallel build-darwin (macos-14, both darwin tarballs) + build-linux (ubuntu, linux-x64 tarball) → release (ubuntu, downloads artifacts + `gh release create` against `yevgetman/sov-releases` via fine-grained `SOV_RELEASES_TOKEN` PAT). `scripts/release.ts` refactored into thin orchestrator over `scripts/release-shared.ts` + `scripts/release-build-target.ts` + `scripts/release-upload.ts`; both local and CI paths call the same extracted scripts. Upload step is idempotent — `gh release view` check before `gh release create`, so local-cut-then-CI scenarios stay green. Optional code-signing/notarization (~$99/yr Apple Developer Program) and homebrew tap remain follow-ups, gated on real-world setup or actual beta demand. Spec: `specs/2026-05-24-phase-21-m2-release-automation-design.md`. Plan: `plans/2026-05-24-phase-21-m2-release-automation.md`. ADR P21-C in DECISIONS.md. First cut shipped as **v0.6.0**.
 ```
 
 - [ ] **Step 4: Append testing-log entry**
@@ -1573,9 +1573,9 @@ Config UX rebuild + v0.5.x cuts → Phase 21 M2 spec (`specs/2026-05-24-phase-21
 
 A GitHub Actions release pipeline shipped end-to-end on 2026-05-24:
 
-- **Workflow:** `.github/workflows/release.yml` in the private `sovereign-ai-harness` repo. Triggers on `push: tags: ['v*.*.*']` (primary) and `workflow_dispatch` with `version` + `dry-run` inputs (escape hatch).
+- **Workflow:** `.github/workflows/release.yml` in the private `sovereign-ai-sdk` repo. Triggers on `push: tags: ['v*.*.*']` (primary) and `workflow_dispatch` with `version` + `dry-run` inputs (escape hatch).
 - **Job graph:** `preflight` (ubuntu) → parallel [`build-darwin` (macos-14), `build-linux` (ubuntu)] → `release` (ubuntu). Wall time per cut ~8–12 minutes.
-- **Cross-repo auth:** fine-grained PAT `sov-releases-upload` scoped to `yevgetman/sov-releases` only with `Contents: Read and write`; stored as `SOV_RELEASES_TOKEN` secret in `sovereign-ai-harness`.
+- **Cross-repo auth:** fine-grained PAT `sov-releases-upload` scoped to `yevgetman/sov-releases` only with `Contents: Read and write`; stored as `SOV_RELEASES_TOKEN` secret in `sovereign-ai-sdk`.
 - **First cut:** v0.6.0 published at https://github.com/yevgetman/sov-releases/releases/tag/v0.6.0. End-to-end install smoke via the public installer verified the binary at `~/.sov/bin/sov --version → 0.6.0`.
 
 ## What shipped
@@ -1623,7 +1623,7 @@ Phase 21 follow-ups, not scheduled:
 ## Behavioral notes worth knowing next session
 
 1. **Tag push is the release trigger.** Pushing a `vX.Y.Z` tag on the private repo fires the workflow. There's no separate "publish" button. To do a release: bump package.json, commit, push, tag, push tag.
-2. **CHANGELOG.md lives in sov-releases**, not in `sovereign-ai-harness`. The workflow's `release` job checks out sov-releases for `--notes-file ${SOV_RELEASES_PATH}/CHANGELOG.md`. Update the CHANGELOG entry **before** tagging, push to sov-releases, then tag-push the private repo.
+2. **CHANGELOG.md lives in sov-releases**, not in `sovereign-ai-sdk`. The workflow's `release` job checks out sov-releases for `--notes-file ${SOV_RELEASES_PATH}/CHANGELOG.md`. Update the CHANGELOG entry **before** tagging, push to sov-releases, then tag-push the private repo.
 3. **`SOV_RELEASES_TOKEN` is a fine-grained PAT** scoped to sov-releases only. It expires in 1 year (max for fine-grained PATs). Regenerate before expiry; the secret name + scope stay the same.
 4. **`scripts/release.ts` still works.** When CI is broken, the local cut path is intact. The script's tag-and-push at the end will fire CI for the same tag, but the upload step is idempotent — CI sees the already-published release and exits 0.
 5. **`package.json` version must match the pushed tag.** Preflight aborts with a clear error if `package.json` says `0.6.0` but the tag is `v0.7.0` (or vice versa).
@@ -1702,7 +1702,7 @@ Expected: shows the M1 + M2 entries.
 Open `~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md` and locate the "M2 — Release automation" sub-section under Phase 21. Replace its body with the closed-out summary:
 
 ```markdown
-**M2 — Release automation (follow-up, scheduled separately):** **CLOSED 2026-05-24.** Workflow at `.github/workflows/release.yml` in `sovereign-ai-harness` triggers on `v*.*.*` tag push (also `workflow_dispatch`). Four-job graph: preflight → parallel build-darwin (macos-14) + build-linux (ubuntu) → release. `scripts/release.ts` refactored into a thin orchestrator over `scripts/release-shared.ts` + `scripts/release-build-target.ts` + `scripts/release-upload.ts`; both local + CI paths call the same extracted scripts. Idempotent upload step keeps local-cut-then-CI scenarios green. Fine-grained PAT `sov-releases-upload` scoped to `yevgetman/sov-releases` only with `Contents: Read and write`, stored as `SOV_RELEASES_TOKEN`. First M2 cut: v0.6.0. ADR P21-C in `sovereign-ai-harness/DECISIONS.md`. Spec: `specs/2026-05-24-phase-21-m2-release-automation-design.md`. Plan: `plans/2026-05-24-phase-21-m2-release-automation.md`. Apple Developer code-signing + homebrew tap remain follow-ups, gated on real-world setup or actual beta demand.
+**M2 — Release automation (follow-up, scheduled separately):** **CLOSED 2026-05-24.** Workflow at `.github/workflows/release.yml` in `sovereign-ai-sdk` triggers on `v*.*.*` tag push (also `workflow_dispatch`). Four-job graph: preflight → parallel build-darwin (macos-14) + build-linux (ubuntu) → release. `scripts/release.ts` refactored into a thin orchestrator over `scripts/release-shared.ts` + `scripts/release-build-target.ts` + `scripts/release-upload.ts`; both local + CI paths call the same extracted scripts. Idempotent upload step keeps local-cut-then-CI scenarios green. Fine-grained PAT `sov-releases-upload` scoped to `yevgetman/sov-releases` only with `Contents: Read and write`, stored as `SOV_RELEASES_TOKEN`. First M2 cut: v0.6.0. ADR P21-C in `sovereign-ai-sdk/DECISIONS.md`. Spec: `specs/2026-05-24-phase-21-m2-release-automation-design.md`. Plan: `plans/2026-05-24-phase-21-m2-release-automation.md`. Apple Developer code-signing + homebrew tap remain follow-ups, gated on real-world setup or actual beta demand.
 ```
 
 - [ ] **Step 3: Commit + push in the sister repo**
@@ -1713,7 +1713,7 @@ git add harness/docs/runtime/harness-build-plan.md
 git commit -m "harness: mark phase 21 m2 complete
 
 GitHub Actions release workflow shipped 2026-05-24; first cut v0.6.0.
-Detailed close-out in sovereign-ai-harness/docs/07-history/state/2026-05-24-phase-21-m2.md."
+Detailed close-out in sovereign-ai-sdk/docs/07-history/state/2026-05-24-phase-21-m2.md."
 git push origin master
 cd -
 ```
@@ -1731,7 +1731,7 @@ After completing all 12 tasks, run this checklist before declaring M2 done:
 - [ ] Three new script files exist: `scripts/release-shared.ts`, `scripts/release-build-target.ts`, `scripts/release-upload.ts`
 - [ ] `scripts/release.ts` is refactored to use them (line count dropped from ~270 to ~90)
 - [ ] `package.json` has `release:build` + `release:upload` aliases
-- [ ] `SOV_RELEASES_TOKEN` secret exists in `sovereign-ai-harness` repo settings
+- [ ] `SOV_RELEASES_TOKEN` secret exists in `sovereign-ai-sdk` repo settings
 - [ ] At least one workflow_dispatch run succeeded with `dry-run=true`
 - [ ] v0.6.0 published at https://github.com/yevgetman/sov-releases/releases/tag/v0.6.0
 - [ ] End-to-end install smoke: clean `~/.sov/` install picks up v0.6.0

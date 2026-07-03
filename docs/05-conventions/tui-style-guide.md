@@ -40,7 +40,7 @@ The style guide is organized by semantic group. Each group owns the tokens for i
 ### Referencing tokens in a component
 
 ```go
-import "github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
+import "github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
 
 // Good — references the style guide
 box := t.CardBorderStyle().

@@ -289,13 +289,13 @@ Wiring captures the most-recent Terminal across all turns of the session (per-se
 
 ## `sov upgrade` — one-command pull from the private repo - 2026-05-04
 
-`sov upgrade` shells out to `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git` so users don't have to remember the URL. `--ref <ref>` pins to a tag, branch, or commit (e.g. `sov upgrade --ref v0.2.0`); `--dry-run` prints the command without running it; `SOV_UPGRADE_URL` env var overrides the default install URL for forks or mirrors. stdio is inherited so Bun's progress output flows through unchanged. The subcommand exits with the spawned bun's exit code so shell scripts can branch on success.
+`sov upgrade` shells out to `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git` so users don't have to remember the URL. `--ref <ref>` pins to a tag, branch, or commit (e.g. `sov upgrade --ref v0.2.0`); `--dry-run` prints the command without running it; `SOV_UPGRADE_URL` env var overrides the default install URL for forks or mirrors. stdio is inherited so Bun's progress output flows through unchanged. The subcommand exits with the spawned bun's exit code so shell scripts can branch on success.
 
 `src/cli/upgrade.ts` splits the pure argv builder from the side-effecting runner so unit tests exercise the URL/ref/env-override logic without ever spawning bun. Live spawn paths run only when the user actually invokes `sov upgrade`. Six unit tests cover ref handling, env override, opts override, and the dry-run path.
 
 ## Distribution: switched from npm to git+ssh - 2026-05-04
 
-The private repo stays private — there is no public package registry entry. Distribution is via `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git`. SSH access to the repo is the access-control gate (same as cloning); upgrades are the same command rerun (or `sov upgrade` once landed). `package.json` re-marked `"private": true` so `npm publish` is impossible by mistake; `repository.url` switched to `git+ssh://`; the `engines.bun >= 1.2` constraint stays. README install section rewritten with the two install paths (registry-style git+SSH and the dev-mode `bun link`).
+The private repo stays private — there is no public package registry entry. Distribution is via `bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git`. SSH access to the repo is the access-control gate (same as cloning); upgrades are the same command rerun (or `sov upgrade` once landed). `package.json` re-marked `"private": true` so `npm publish` is impossible by mistake; `repository.url` switched to `git+ssh://`; the `engines.bun >= 1.2` constraint stays. README install section rewritten with the two install paths (registry-style git+SSH and the dev-mode `bun link`).
 
 ## Phase 12.5 + 12.6 semantic suite backfill (37/37 pass) - 2026-05-04
 

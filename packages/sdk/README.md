@@ -150,7 +150,7 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   reach every module, carry no semver coverage, and may change or disappear in
   any release.
 
-Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-harness/blob/master/STABILITY.md) at the repository root.
+Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/STABILITY.md) at the repository root.
 
 ## Compatibility notes
 

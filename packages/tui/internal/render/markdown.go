@@ -25,8 +25,8 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // Markdown renders Github-flavored markdown via glamour. Falls back to

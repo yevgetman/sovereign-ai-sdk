@@ -17,7 +17,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 // ux-fixes round 5 — the round-4 PgUp / Shift+arrow scroll bindings

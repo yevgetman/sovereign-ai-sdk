@@ -20,13 +20,13 @@ Move the release pipeline from the author's laptop into GitHub Actions. Tagging 
 
 **In scope:**
 
-1. New workflow at `.github/workflows/release.yml` in `sovereign-ai-harness` — three sequential job stages with a parallel build stage.
+1. New workflow at `.github/workflows/release.yml` in `sovereign-ai-sdk` — three sequential job stages with a parallel build stage.
 2. Refactor of `scripts/release.ts` into three composable pieces under `scripts/`:
    - `scripts/release-shared.ts` — `TARGETS`, types, `run`/`capture`/`sha256`/`note`/`die` utilities
    - `scripts/release-build-target.ts <target> <version>` — single-target compile + tar
    - `scripts/release-upload.ts <version> [--dry-run]` — SHA256SUMS + `gh release create`
    - `scripts/release.ts` — kept as the local-orchestrator entry point; calls the two extracted scripts in sequence + retains local-only pre-flight (clean tree, on master, version mismatch, tag-and-push)
-3. Fine-grained Personal Access Token scoped to `yevgetman/sov-releases` only with `Contents: read & write`, stored as repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-harness`.
+3. Fine-grained Personal Access Token scoped to `yevgetman/sov-releases` only with `Contents: read & write`, stored as repository secret `SOV_RELEASES_TOKEN` in `sovereign-ai-sdk`.
 4. New `package.json` scripts: `release:build` and `release:upload` (per-step entry points; both local and CI use these).
 5. Update to `docs/05-conventions/cutting-releases.md` documenting the new tag-push-driven flow + the local fallback.
 6. New state snapshot at `docs/07-history/state/YYYY-MM-DD-phase-21-m2.md` once shipped.
@@ -39,7 +39,7 @@ Move the release pipeline from the author's laptop into GitHub Actions. Tagging 
 
 ### ADR P21-C — Cross-repo upload via fine-grained PAT scoped to `sov-releases`
 
-The release workflow runs in `sovereign-ai-harness` (private) but writes releases to `sov-releases` (public). The default `GITHUB_TOKEN` is scoped to the running workflow's own repo, so it cannot write to the public one.
+The release workflow runs in `sovereign-ai-sdk` (private) but writes releases to `sov-releases` (public). The default `GITHUB_TOKEN` is scoped to the running workflow's own repo, so it cannot write to the public one.
 
 **Options considered:**
 
@@ -47,7 +47,7 @@ The release workflow runs in `sovereign-ai-harness` (private) but writes release
 - **Classic PAT with `repo` scope** — works, but grants full read/write across every repo the author owns. Blast radius far exceeds need.
 - **Fine-grained PAT scoped to `sov-releases` only with `Contents: read & write`** *(chosen)* — narrowest possible scope. Compromises in expiration management (max 1 year), which is acceptable for an author-owned secret.
 
-The PAT is stored as `SOV_RELEASES_TOKEN` repository secret in `sovereign-ai-harness`. Only the final `release` job exports it as `GH_TOKEN`, and only for the single `gh release create` invocation; nothing else in the workflow has access.
+The PAT is stored as `SOV_RELEASES_TOKEN` repository secret in `sovereign-ai-sdk`. Only the final `release` job exports it as `GH_TOKEN`, and only for the single `gh release create` invocation; nothing else in the workflow has access.
 
 ### ADR P21-D — Trigger on tag push + `workflow_dispatch`; not on push-to-master
 
@@ -89,7 +89,7 @@ The CI workflow does NOT invoke `release.ts` (which would re-run all the local-o
 
 ### 4.1 File location
 
-`.github/workflows/release.yml` in the `sovereign-ai-harness` repo. No `.github/` directory exists yet; this is the first workflow.
+`.github/workflows/release.yml` in the `sovereign-ai-sdk` repo. No `.github/` directory exists yet; this is the first workflow.
 
 ### 4.2 Job graph
 
@@ -123,7 +123,7 @@ jobs:
 - Assert `jq -r .version package.json` equals the version stripped of leading `v` (e.g., tag `v0.3.0` ↔ package.json `"0.3.0"`). Mismatch → exit 1 with a clear message.
 
 **`build-darwin`** (~5 min, runs on `macos-14`)
-- `actions/checkout@v4` of `sovereign-ai-harness` at tag (default `path: .`)
+- `actions/checkout@v4` of `sovereign-ai-sdk` at tag (default `path: .`)
 - `actions/checkout@v4` of `yevgetman/sov-releases` at `main` with `path: sov-releases` and `token: ${{ secrets.SOV_RELEASES_TOKEN }}` (the PAT has `Contents: read` on the public repo, which is sufficient for clone)
 - Export `SOV_RELEASES_PATH=$GITHUB_WORKSPACE/sov-releases`
 - Setup Bun (≥1.2) + Go (≥1.24)
@@ -138,7 +138,7 @@ jobs:
 - Upload artifact (name: `tarballs-linux`, path: `build/release/${VERSION}/sov-linux-x64.tar.gz`)
 
 **`release`** (~30s, runs on `ubuntu-22.04`)
-- `actions/checkout@v4` of `sovereign-ai-harness` at tag (for `scripts/`)
+- `actions/checkout@v4` of `sovereign-ai-sdk` at tag (for `scripts/`)
 - `actions/checkout@v4` of `yevgetman/sov-releases` with `path: sov-releases` (for `CHANGELOG.md`); export `SOV_RELEASES_PATH=$GITHUB_WORKSPACE/sov-releases`
 - `actions/download-artifact@v4` with `pattern: tarballs-*`, `merge-multiple: true`, `path: build/release/${VERSION}/`
 - Setup Bun (the release-upload script is Bun-based)

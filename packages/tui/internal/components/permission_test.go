@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/components"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/components"
 )
 
 func TestPermissionModal_RendersToolNameAndChoices(t *testing.T) {

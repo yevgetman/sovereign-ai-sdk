@@ -11,8 +11,8 @@ package components
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/render"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 type DiffView struct {

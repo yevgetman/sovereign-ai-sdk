@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 func samplePickerPayload() *transport.PickerOpenPayload {

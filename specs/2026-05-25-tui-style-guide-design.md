@@ -240,7 +240,7 @@ func FormatCompactToolLine(...) string {
 
 After:
 ```go
-import "sovereign-ai-harness/packages/tui/internal/style"
+import "sovereign-ai-sdk/packages/tui/internal/style"
 func FormatCompactToolLine(...) string {
     return style.S.CompactLine.Indent + verb + " " + target
 }

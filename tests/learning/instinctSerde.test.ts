@@ -11,7 +11,7 @@ const sample: Instinct = {
   domain: 'code-style',
   scope: 'project',
   project_id: 'p1',
-  project_name: 'sovereign-ai-harness',
+  project_name: 'sovereign-ai-sdk',
   created_at: '2026-05-06T10:00:00Z',
   last_evidence_at: '2026-05-06T15:30:00Z',
   observation_ids: ['obs-aaa1', 'obs-aaa2'],

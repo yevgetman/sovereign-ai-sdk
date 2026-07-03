@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 // samplePayload builds a 3-item picker payload reused across most tests.

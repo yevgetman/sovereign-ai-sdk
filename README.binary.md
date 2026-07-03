@@ -1,4 +1,4 @@
-# Sovereign AI Harness — binary install
+# Sovereign AI SDK — binary install
 
 This tarball contains a compiled distribution of `sov`:
 

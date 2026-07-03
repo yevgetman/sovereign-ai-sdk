@@ -11,12 +11,12 @@
   "keywords": ["agent", "ai", "llm", "anthropic", "claude", "agent-loop", "tool-use", "mcp", "sdk"],
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git",
+    "url": "git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/yevgetman/sovereign-ai-harness/tree/master/packages/sdk#readme",
+  "homepage": "https://github.com/yevgetman/sovereign-ai-sdk/tree/master/packages/sdk#readme",
   "bugs": {
-    "url": "https://github.com/yevgetman/sovereign-ai-harness/issues"
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/issues"
   },
   "files": ["dist", "src", "LICENSE", "README.md", "SECURITY.md"],
   "main": "./dist/sdk.js",

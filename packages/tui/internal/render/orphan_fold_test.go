@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // ux-fixes 2026-05-22 (ux4.png): glamour v1.0.0's WithWordWrap

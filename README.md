@@ -1,6 +1,6 @@
-# Sovereign AI — Agent Runtime
+# Sovereign AI SDK
 
-The agent runtime for Sovereign AI. A Claude-Code-style harness (TypeScript on Bun, async-generator turn loop, `Tool<I,O>` factory with fail-closed defaults, content-block messages) with a Hermes-pattern learning layer on top (persistent memory, trajectory capture, background review).
+The **Sovereign AI SDK** — an embeddable `createAgent()` agent-loop engine (open-core, MIT: [`@yevgetman/sov-sdk`](packages/sdk) + [`@yevgetman/sov-protocol`](packages/protocol)) — together with the runtime and Claude-Code-style TUI harness built on top of it (TypeScript on Bun, async-generator turn loop, `Tool<I,O>` factory with fail-closed defaults, content-block messages) with a Hermes-pattern learning layer on top (persistent memory, trajectory capture, background review).
 
 This is **runtime code**. The business data it operates against lives in a separate repo: `~/code/sovereign-ai-docs/`. This repo reads that one as a *harness bundle* and never writes to business-scope files; runtime state lives under `$HARNESS_HOME` (default `~/.harness`) unless a later phase introduces explicit bundle-state writers.
 
@@ -53,7 +53,7 @@ For developers who want to modify the runtime, use Path A or Path B below.
 | **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
 | **Go ≥ 1.24** | Building `sov-tui` (the Bubble Tea TUI client). Required — `sov` launches the Go Bubble Tea client via the local Hono server. If `sov-tui` is missing the launcher prints an install hint and exits. |
 | **Provider API key** | Anthropic/OpenAI/OpenRouter access, depending on provider. Ollama can run local without a key. |
-| **Git + SSH to GitHub** | The repo is private — your SSH key must be authorized on the `yevgetman/sovereign-ai-harness` repo. Same for the docs bundle (`yevgetman/sovereign-ai-docs`) if you want it. |
+| **Git + SSH to GitHub** | The repo is private — your SSH key must be authorized on the `yevgetman/sovereign-ai-sdk` repo. Same for the docs bundle (`yevgetman/sovereign-ai-docs`) if you want it. |
 | **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
 
 Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your shell (or `source` your rc) so `~/.bun/bin` ends up on PATH. Get a provider API key at `console.anthropic.com`. Confirm SSH access works with `ssh -T git@github.com`.
@@ -64,7 +64,7 @@ Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your sh
 # 1. Install or upgrade `sov` from the private repo over SSH.
 #    Bun clones into its global cache, runs `bun install`, and links
 #    ~/.bun/bin/sov → the cached repo's src/main.ts.
-bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git
+bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git
 
 # 2. Drop your provider key somewhere `sov` will see it
 export ANTHROPIC_API_KEY=sk-ant-...           # any login shell
@@ -95,11 +95,11 @@ Path A is sufficient for using the harness. Use this path only if you're modifyi
 
 ```bash
 # 1. Clone both repos
-git clone git@github.com:yevgetman/sovereign-ai-harness.git ~/code/sovereign-ai-harness
+git clone git@github.com:yevgetman/sovereign-ai-sdk.git ~/code/sovereign-ai-sdk
 git clone git@github.com:yevgetman/sovereign-ai-docs.git   ~/code/sovereign-ai-docs
 
 # 2. Install deps + register the global `sov` binary as a live symlink
-cd ~/code/sovereign-ai-harness
+cd ~/code/sovereign-ai-sdk
 bun install
 bun link     # creates ~/.bun/bin/sov → this repo's src/main.ts
 
@@ -158,7 +158,7 @@ See [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md) for provi
 Install once, invoke from anywhere — mirrors how `claude` is invoked for Claude Code:
 
 ```bash
-cd ~/code/sovereign-ai-harness
+cd ~/code/sovereign-ai-sdk
 bun link         # registers the package AND installs the `sov` binary on PATH
 ```
 

@@ -31,7 +31,7 @@ import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign-ai-harness.git';
+export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git';
 
 /** Package name as published in package.json. The pre-uninstall step
  *  needs this exact name to evict the lockfile entry. Hardcoded since

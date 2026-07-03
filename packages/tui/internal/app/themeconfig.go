@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 const defaultThemeName = "dark"

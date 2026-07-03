@@ -335,7 +335,7 @@ func TestHeaderStyleAppliesPrimaryAndBold(t *testing.T) {
 
 Modify `packages/tui/internal/app/app.go`:
 
-1. Add import: `"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"`
+1. Add import: `"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"`
 2. Add `theme theme.Theme` field to `Model` struct.
 3. In `New(...)`, after constructing the Model, set `m.theme = theme.Dark()` (default).
 4. In the ENTER handler in `Update`, add an interception block for `/theme <name>` BEFORE the existing `/compact` intercept:
@@ -414,7 +414,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // Plain renders text wrapped at width, foreground set to theme.Foreground.
@@ -438,7 +438,7 @@ package render
 
 import (
 	"github.com/charmbracelet/glamour"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // Markdown renders Github-flavored markdown via glamour. Falls back to Plain
@@ -489,7 +489,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // Code renders a code block with chroma syntax highlighting. language is the
@@ -548,7 +548,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestPlainWrapsAtWidth(t *testing.T) {
@@ -583,7 +583,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestMarkdownRendersBold(t *testing.T) {
@@ -621,7 +621,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestCodeHighlightsGo(t *testing.T) {
@@ -748,7 +748,7 @@ func NewTranscript(th theme.Theme) Transcript {
 }
 ```
 
-Add the import: `"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"` and `"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"`.
+Add the import: `"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/render"` and `"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"`.
 
 - [ ] **Step 2 — Update `app.go`**
 
@@ -811,7 +811,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestTranscriptStartsWithoutAssistantCard(t *testing.T) {
@@ -894,8 +894,8 @@ Add the imports:
 
 ```go
 import (
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/render"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 ```
 
@@ -950,7 +950,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestToolCardCollapsedShowsSummary(t *testing.T) {
@@ -1029,7 +1029,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // Hunk is a parsed diff hunk — header + body lines, each tagged with diff
@@ -1139,7 +1139,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestParseDiffSplitsHunks(t *testing.T) {
@@ -1227,8 +1227,8 @@ package components
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/render"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // DiffView is a focused-state component. When focused (model.focus == "diffview"),
@@ -1293,7 +1293,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestDiffViewParseHunks(t *testing.T) {
@@ -1496,8 +1496,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/render"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/render"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 type ToolCard struct {
@@ -1634,8 +1634,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 // RenderGoodbye produces the centered card string. Width and height are the
@@ -1736,8 +1736,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 func TestGoodbyeRichPayloadRendersAllFields(t *testing.T) {
@@ -1818,7 +1818,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 // RenderCompactionCard renders a full-width inline pill marking a
@@ -1853,7 +1853,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 func TestCompactionCardRendersTokenDeltas(t *testing.T) {
@@ -1994,8 +1994,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 type SlashAutocomplete struct {
@@ -2129,8 +2129,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 func TestSlashAutocompleteHiddenByDefault(t *testing.T) {
@@ -2526,7 +2526,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/theme"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme"
 )
 
 type StatusLine struct {
@@ -2849,7 +2849,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/transport"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport"
 )
 
 func TestM9_MarkdownRenderedInAssistantText(t *testing.T) {

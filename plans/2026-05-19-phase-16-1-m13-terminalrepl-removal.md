@@ -10,7 +10,7 @@
 
 **Pre-flight (do once at session start):**
 - Read [M13 spec](specs/2026-05-19-phase-16-1-m13-terminalrepl-removal-design.md).
-- Confirm baseline green: `cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test`. Expect 2085 pass / 0 fail / 14 skip.
+- Confirm baseline green: `cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test`. Expect 2085 pass / 0 fail / 14 skip.
 - Confirm clean working tree: `git status` returns clean.
 
 **Commit cadence:** One commit per task. Each task ends with the same gate (lint + typecheck + test all green). Push autonomously after each task per the repo's atomic-commits convention.
@@ -64,14 +64,14 @@ Replace the entire `.action(async (opts) => { ... })` block with:
 
 Both were used inside the deleted block. Check whether anything else in main.ts uses them. Run:
 ```bash
-grep -n "readConfig\|resolveBundlePath" /Users/julie/code/sovereign-ai-harness/src/main.ts
+grep -n "readConfig\|resolveBundlePath" /Users/julie/code/sovereign-ai-sdk/src/main.ts
 ```
 If unused, remove the imports at the top of `main.ts`. The Commander tooling around the `dispatch` subcommand and other top-level config may still use them — confirm.
 
 - [ ] **Step 4: Run gate.**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test
 ```
 
 Expected: typecheck may still pass even if `surfaceResolver.ts` / `replDeprecation.ts` still exist (they're now orphaned but valid). Tests may have a few failures referencing the removed `--ui` flag — note them, they'll be fixed in T4/T11.
@@ -104,7 +104,7 @@ EOF
 - [ ] **Step 1: Confirm zero importers.**
 
 ```bash
-grep -rn "from .*terminalRepl\|require.*terminalRepl" /Users/julie/code/sovereign-ai-harness/src /Users/julie/code/sovereign-ai-harness/tests 2>/dev/null
+grep -rn "from .*terminalRepl\|require.*terminalRepl" /Users/julie/code/sovereign-ai-sdk/src /Users/julie/code/sovereign-ai-sdk/tests 2>/dev/null
 ```
 
 Expected output: comment-only references (none using `import`/`require`). If any actual import exists, stop and investigate.
@@ -112,13 +112,13 @@ Expected output: comment-only references (none using `import`/`require`). If any
 - [ ] **Step 2: Delete the file.**
 
 ```bash
-rm /Users/julie/code/sovereign-ai-harness/src/ui/terminalRepl.ts
+rm /Users/julie/code/sovereign-ai-sdk/src/ui/terminalRepl.ts
 ```
 
 - [ ] **Step 3: Run gate.**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test
 ```
 
 Expected: typecheck clean. Test count drops slightly (semantic suite cases referencing terminalRepl may exist — investigate any failures). Test failures in `tests/cli/replDeprecation.test.ts` or similar may surface — those tests die in subsequent tasks.
@@ -152,7 +152,7 @@ EOF
 - [ ] **Step 1: Confirm zero importers.**
 
 ```bash
-grep -rn "replDeprecation" /Users/julie/code/sovereign-ai-harness/src /Users/julie/code/sovereign-ai-harness/tests 2>/dev/null
+grep -rn "replDeprecation" /Users/julie/code/sovereign-ai-sdk/src /Users/julie/code/sovereign-ai-sdk/tests 2>/dev/null
 ```
 
 Expected: matches inside the two files themselves only (their docstrings + the test's imports of the module-under-test).
@@ -160,13 +160,13 @@ Expected: matches inside the two files themselves only (their docstrings + the t
 - [ ] **Step 2: Delete both files.**
 
 ```bash
-rm /Users/julie/code/sovereign-ai-harness/src/cli/replDeprecation.ts /Users/julie/code/sovereign-ai-harness/tests/cli/replDeprecation.test.ts
+rm /Users/julie/code/sovereign-ai-sdk/src/cli/replDeprecation.ts /Users/julie/code/sovereign-ai-sdk/tests/cli/replDeprecation.test.ts
 ```
 
 - [ ] **Step 3: Run gate.**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test
 ```
 
 Expected: clean. Test count drops by ~7 (the replDeprecation suite).
@@ -199,7 +199,7 @@ EOF
 - [ ] **Step 1: Confirm zero non-test importers.**
 
 ```bash
-grep -rn "surfaceResolver\|resolveSurface\|SurfaceResolution\|SurfaceSource\b" /Users/julie/code/sovereign-ai-harness/src /Users/julie/code/sovereign-ai-harness/tests 2>/dev/null
+grep -rn "surfaceResolver\|resolveSurface\|SurfaceResolution\|SurfaceSource\b" /Users/julie/code/sovereign-ai-sdk/src /Users/julie/code/sovereign-ai-sdk/tests 2>/dev/null
 ```
 
 Expected: matches in `surfaceResolver.ts` and its test only. If anything else (e.g. `replDeprecation.ts` importing `SurfaceSource`) shows up, it should have been removed in T3 — investigate.
@@ -207,13 +207,13 @@ Expected: matches in `surfaceResolver.ts` and its test only. If anything else (e
 - [ ] **Step 2: Delete both files.**
 
 ```bash
-rm /Users/julie/code/sovereign-ai-harness/src/cli/surfaceResolver.ts /Users/julie/code/sovereign-ai-harness/tests/cli/surfaceResolver.test.ts
+rm /Users/julie/code/sovereign-ai-sdk/src/cli/surfaceResolver.ts /Users/julie/code/sovereign-ai-sdk/tests/cli/surfaceResolver.test.ts
 ```
 
 - [ ] **Step 3: Run gate.**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test
 ```
 
 Expected: clean. Test count drops by ~13.
@@ -314,7 +314,7 @@ Keep tests for `serializeAskUser` and `previewToolInput` if they exist. If the o
 - [ ] **Step 4: Run gate.**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness && bun run lint && bun run typecheck && bun run test
+cd /Users/julie/code/sovereign-ai-sdk && bun run lint && bun run typecheck && bun run test
 ```
 
 Expected: clean. Test count drops by ~5–10 (parseAskResponse + buildReadlineAsker cases).
@@ -354,7 +354,7 @@ EOF
 - [ ] **Step 1: Re-confirm each module is orphan (post-T2 delete).**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness
+cd /Users/julie/code/sovereign-ai-sdk
 for name in bracketedPaste inlineShell inputEditor markdownStream queuedQuestion terminalMessages thinking toolSlot transcript; do
   hits=$(grep -rlE "from ['\"](\\./|.*ui/)${name}(\\.js)?['\"]" src tests scripts 2>/dev/null | grep -v "^src/ui/${name}.ts$" | grep -v "^tests/ui/${name}.test.ts$")
   if [ -n "$hits" ]; then echo "STOP — $name still imported by: $hits"; fi
@@ -367,7 +367,7 @@ Expected: silence. If any imports remain, terminalRepl removal in T2 must have m
 - [ ] **Step 2: Delete all 18 files in one batch.**
 
 ```bash
-cd /Users/julie/code/sovereign-ai-harness
+cd /Users/julie/code/sovereign-ai-sdk
 rm src/ui/bracketedPaste.ts tests/ui/bracketedPaste.test.ts
 rm src/ui/inlineShell.ts tests/ui/inlineShell.test.ts
 rm src/ui/inputEditor.ts tests/ui/inputEditor.test.ts
@@ -567,7 +567,7 @@ EOF
 - [ ] **Step 1: Find every code comment referencing terminalRepl.**
 
 ```bash
-grep -rn "terminalRepl" /Users/julie/code/sovereign-ai-harness/src /Users/julie/code/sovereign-ai-harness/tests 2>/dev/null
+grep -rn "terminalRepl" /Users/julie/code/sovereign-ai-sdk/src /Users/julie/code/sovereign-ai-sdk/tests 2>/dev/null
 ```
 
 These will all be in surviving files (terminalRepl.ts itself is deleted). Most look like:
@@ -637,7 +637,7 @@ Use the `Agent` tool with `subagent_type: "general-purpose"` (or whatever specia
 
 Prompt:
 ```
-You are auditing the post-M13 sovereign-ai-harness codebase for any surviving reference to a deleted symbol.
+You are auditing the post-M13 sovereign-ai-sdk codebase for any surviving reference to a deleted symbol.
 
 M13 deleted these files:
 - src/ui/terminalRepl.ts
@@ -680,7 +680,7 @@ Use grep aggressively. Report under 300 words.
 
 Prompt:
 ```
-You are auditing the post-M13 sovereign-ai-harness codebase for orphaned tests.
+You are auditing the post-M13 sovereign-ai-sdk codebase for orphaned tests.
 
 M13 deleted many src/ files. The plan also deleted matching tests/ files. Audit task: enumerate every test file under tests/ and confirm that the source it tests still exists. Look especially at:
 
@@ -690,7 +690,7 @@ M13 deleted many src/ files. The plan also deleted matching tests/ files. Audit 
 
 For each test file that imports from a no-longer-existing source, report file:line of the dead import.
 
-Also run `cd /Users/julie/code/sovereign-ai-harness && bun run test 2>&1 | tail -50` and report any failing test that points at a missing-module error.
+Also run `cd /Users/julie/code/sovereign-ai-sdk && bun run test 2>&1 | tail -50` and report any failing test that points at a missing-module error.
 
 Report under 300 words.
 ```
@@ -699,7 +699,7 @@ Report under 300 words.
 
 Prompt:
 ```
-You are auditing the post-M13 sovereign-ai-harness codebase for documentation claims that the code no longer matches.
+You are auditing the post-M13 sovereign-ai-sdk codebase for documentation claims that the code no longer matches.
 
 M13 removed the readline REPL surface entirely. Audit: search README.md, docs/03-cli-reference/usage.md, CLAUDE.md, AGENTS.md, and code comments under src/ and tests/ for any of:
 - Claims that `sov` runs a REPL.
@@ -718,7 +718,7 @@ Report under 300 words.
 
 Prompt:
 ```
-You are auditing post-M13 sovereign-ai-harness end-to-end behavior.
+You are auditing post-M13 sovereign-ai-sdk end-to-end behavior.
 
 Read src/main.ts (the .action body) and verify:
 1. Bare `sov` invocation calls runTuiLauncher.
@@ -731,8 +731,8 @@ Read src/cli/tuiLauncher.ts and verify:
 2. The binary-missing warning no longer points at the readline REPL fallback.
 3. runTuiLauncher's contract still matches what main.ts now calls it with.
 
-Run `cd /Users/julie/code/sovereign-ai-harness && bun run typecheck 2>&1 | tail -20` and report.
-Run `cd /Users/julie/code/sovereign-ai-harness && bun run test 2>&1 | tail -30` and report.
+Run `cd /Users/julie/code/sovereign-ai-sdk && bun run typecheck 2>&1 | tail -20` and report.
+Run `cd /Users/julie/code/sovereign-ai-sdk && bun run test 2>&1 | tail -30` and report.
 
 Report under 400 words.
 ```
@@ -761,15 +761,15 @@ If no fixes were needed, no commit in this task.
 - [ ] **Step 1: Create smoke output directory.**
 
 ```bash
-mkdir -p /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke
+mkdir -p /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke
 ```
 
 - [ ] **Step 2: Scenario 1 — Default `sov` boots TUI.**
 
 ```bash
 cd /tmp
-timeout 3 sov 2>&1 | head -20 > /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/01-default-boot.txt
-echo "exit=$?" >> /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/01-default-boot.txt
+timeout 3 sov 2>&1 | head -20 > /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/01-default-boot.txt
+echo "exit=$?" >> /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/01-default-boot.txt
 ```
 
 Expected: the TUI's splash/intro renders. `timeout 3` kills the interactive session after 3 seconds. The captured output should show TUI-style decoration, not a readline prompt.
@@ -779,14 +779,14 @@ Expected: the TUI's splash/intro renders. `timeout 3` kills the interactive sess
 ```bash
 # Find the sov-tui binary
 TUI_BIN=$(which sov-tui)
-echo "TUI_BIN=$TUI_BIN" > /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/02-missing-binary.txt
+echo "TUI_BIN=$TUI_BIN" > /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/02-missing-binary.txt
 
 # Temporarily rename it
 mv "$TUI_BIN" "${TUI_BIN}.bak"
 
 # Run sov and capture
-sov 2>&1 >> /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/02-missing-binary.txt
-echo "exit=$?" >> /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/02-missing-binary.txt
+sov 2>&1 >> /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/02-missing-binary.txt
+echo "exit=$?" >> /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/02-missing-binary.txt
 
 # Restore
 mv "${TUI_BIN}.bak" "$TUI_BIN"
@@ -799,8 +799,8 @@ Expected: stderr contains "sov: sov-tui binary not found. Install with:" + the b
 - [ ] **Step 4: Scenario 3 — `--ui repl` → Commander error.**
 
 ```bash
-sov --ui repl 2>&1 > /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/03-unknown-flag.txt
-echo "exit=$?" >> /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/03-unknown-flag.txt
+sov --ui repl 2>&1 > /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/03-unknown-flag.txt
+echo "exit=$?" >> /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/03-unknown-flag.txt
 ```
 
 Expected: Commander complains about unknown option `--ui`, non-zero exit code.
@@ -809,8 +809,8 @@ Expected: Commander complains about unknown option `--ui`, non-zero exit code.
 
 ```bash
 cd /tmp
-printf "/help\n/quit\n" | sov dispatch 2>&1 > /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/04-dispatch.txt
-echo "exit=$?" >> /Users/julie/code/sovereign-ai-harness/docs/07-history/state/2026-05-19-m13-smoke/04-dispatch.txt
+printf "/help\n/quit\n" | sov dispatch 2>&1 > /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/04-dispatch.txt
+echo "exit=$?" >> /Users/julie/code/sovereign-ai-sdk/docs/07-history/state/2026-05-19-m13-smoke/04-dispatch.txt
 ```
 
 Expected: dispatch prints help output, then exits cleanly on `/quit`. Exit code 0.

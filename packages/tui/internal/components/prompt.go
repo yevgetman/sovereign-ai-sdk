@@ -32,7 +32,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
 )
 
 // style.S.Prompt.MaxHeight caps the textarea's visible row count. Beyond this,

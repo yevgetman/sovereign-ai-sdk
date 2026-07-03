@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yevgetman/sovereign-ai-harness/packages/tui/internal/style"
+	"github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style"
 )
 
 func TestSpinner_NewStartsAtFrameZero(t *testing.T) {

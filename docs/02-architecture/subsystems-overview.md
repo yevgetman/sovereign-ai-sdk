@@ -1,4 +1,4 @@
-# The Sovereign AI Harness — Subsystems Atlas
+# The Sovereign AI SDK — Subsystems Atlas
 
 **A plain-language map of everything the harness is made of, down to the individual component.** This is an atlas for human readers: it names each major region, the subsystems inside it, and the individual pieces inside those — describing *what* each does and *why* it's there, never *how* it's coded. For the technical walkthrough see [`architecture.md`](docs/02-architecture/runtime-architecture.md); for hands-on use see [`usage.md`](docs/03-cli-reference/usage.md).
 
