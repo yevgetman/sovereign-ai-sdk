@@ -661,6 +661,18 @@ Two follow-ups surfaced during the M7 Hermes-layer parity work. Neither blocked 
 
 ---
 
+## Items discovered during the usage-telemetry release (2026-07-03)
+
+### 55. Release-CI preflight fails on two environment-dependent tests — every release needs the local fallback
+
+- Priority: P2 (it blocks the canonical release path, not the product)
+- Status: open
+- Source: v0.6.48 and v0.6.49 release runs (`release.yml` preflight job) both failed identically while the full suite is green locally (4825 pass / 0 fail).
+- Failing on ubuntu CI only: `write-scope glob parity (Bun.Glob ↔ picomatch) > '**/*.ts' vs '.hidden/a.ts'` (tests/…writeScope glob parity — likely a Bun version/platform behavior difference in `Bun.Glob` dotfile handling) and `renderFooter > context segment is yellow at warn, red at danger` (color rendering under the CI terminal env; see docs/05-conventions/tui-color-rendering.md). The v0.6.48 run also flaked `spawnProc > nonexistent binary resolves exited non-zero`.
+- Impact: tag-driven CI releases (the canonical procedure in docs/05-conventions/cutting-releases.md) never reach the build jobs; both 0.6.48 and 0.6.49 were cut via the local `scripts/release.ts` fallback path (0.6.49: sub-scripts run directly because the tag already existed).
+- Fix directions: pin the CI Bun version to the locally-tested one; make the two tests environment-aware (skip-with-reason on CI or force the color/glob env); or run preflight on macos to match the dev host. Verify by re-dispatching the failed v0.6.49 run.
+- Effort: ~30-60 min.
+
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
