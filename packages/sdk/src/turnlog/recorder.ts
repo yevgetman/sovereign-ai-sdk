@@ -3,6 +3,16 @@
 // into canonical full-content turn records and hands each turn's records to a
 // pluggable `TurnLogSink` in ONE call. Zero dependencies.
 //
+// Open-turn accumulation (the REAL wire): on the sov gateway `seq` is a
+// per-EVENT monotonic counter (text_delta seq=99, tool_use_done seq=95, …), NOT
+// a per-turn value — only the terminal `turn_complete` carries the turn's seq.
+// So "everything since the last turn_complete belongs to that turn" (the gateway
+// is single-threaded per session): every content event appends to a SINGLE open
+// accumulation; `turn_complete` SEALS that slot under its seq and rolls a fresh
+// open one; `commitTurn(seq)` flushes only the sealed slot for that seq. `block`
+// still groups intra-turn units (thinking blocks; tool_use start/done pairing)
+// WITHIN the open accumulation; arrival order still drives ordinals.
+//
 // Fail-open discipline (mirrors ../telemetry/assayUsageRecorder.ts): `ingest`,
 // `setHumanText`, and `commitTurn` NEVER throw into the caller — a sink failure
 // increments `sinkErrors`, notifies `onError`, and is swallowed. Content NEVER
@@ -34,6 +44,10 @@ const SEQ_TURN_STRIDE = 1000;
 const HUMAN_ORDINAL = 0;
 /** Intermediate units (thinking / tool_call / tool_result) start here. */
 const FIRST_INTERMEDIATE_ORDINAL = 1;
+/** Cap on retained sealed (uncommitted) turn slots. A historical replay streams
+ *  many turn_completes whose slots are never committed; drop-oldest bounds
+ *  memory (each eviction is counted in stats.dropped). */
+const MAX_SEALED_SLOTS = 4;
 
 type ThinkingUnit = { kind: 'thinking'; ordinal: number; text: string };
 type ToolCallUnit = {
@@ -46,7 +60,7 @@ type ToolCallUnit = {
 type ToolResultUnit = { kind: 'tool_result'; ordinal: number; toolName: string; content: string };
 type IntermediateUnit = ThinkingUnit | ToolCallUnit | ToolResultUnit;
 
-/** Everything accumulated for one (as-yet-uncommitted) turn. */
+/** Everything accumulated for one turn (open, then sealed at turn_complete). */
 type TurnState = {
   humanText: string | null;
   agentText: string;
@@ -86,30 +100,13 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
   const onError = opts.onError ?? ((): void => {});
   const sourceTag = opts.sourceTag;
 
-  const turns = new Map<number, TurnState>();
-  const committedTurns = new Set<number>();
+  // The single OPEN accumulation: every content event since the last
+  // turn_complete belongs here (the event's own per-event seq no longer selects
+  // a bucket). Sealed slots (turn_complete'd, awaiting commit) are keyed by the
+  // turn's seq; insertion order == Map iteration order drives drop-oldest.
+  let open = newTurnState();
+  const sealed = new Map<number, TurnState>();
   const stats: TurnLogRecorderStats = { committed: 0, dropped: 0, sinkErrors: 0 };
-
-  /** A late event for an already-committed turn starts a FRESH accumulation
-   *  (the resulting duplicate producerRefs are the sink's dedup problem, not
-   *  ours) — but it is noted once through onError. */
-  function noteLateIfCommitted(turnSeq: number): void {
-    if (!committedTurns.has(turnSeq)) return;
-    committedTurns.delete(turnSeq);
-    onError(
-      `turnlog: late event for already-committed turn ${turnSeq} — restarting accumulation (lateEvents)`,
-    );
-  }
-
-  function turnFor(turnSeq: number): TurnState {
-    noteLateIfCommitted(turnSeq);
-    let state = turns.get(turnSeq);
-    if (state === undefined) {
-      state = newTurnState();
-      turns.set(turnSeq, state);
-    }
-    return state;
-  }
 
   function newToolCall(state: TurnState, block: number, toolName: string): ToolCallUnit {
     const unit: ToolCallUnit = {
@@ -125,11 +122,12 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
     return unit;
   }
 
-  function handle(ev: TurnLogEvent): void {
-    const turnSeq = ev.seq;
+  /** Append a content event to the open accumulation. `turn_complete` is routed
+   *  by `ingest` before this and never reaches here. */
+  function handleContent(ev: TurnLogEvent): void {
+    const state = open;
     switch (ev.type) {
       case 'thinking_delta': {
-        const state = turnFor(turnSeq);
         const block = ev.block ?? 0;
         let unit = state.thinkingByBlock.get(block);
         if (unit === undefined) {
@@ -142,7 +140,6 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'tool_use_start': {
-        const state = turnFor(turnSeq);
         const block = ev.block ?? 0;
         const existing = state.toolCallByBlock.get(block);
         if (existing === undefined) {
@@ -153,7 +150,6 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'tool_use_done': {
-        const state = turnFor(turnSeq);
         const block = ev.block ?? 0;
         let unit = state.toolCallByBlock.get(block);
         if (unit === undefined) {
@@ -167,7 +163,6 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'tool_result': {
-        const state = turnFor(turnSeq);
         const unit: ToolResultUnit = {
           kind: 'tool_result',
           ordinal: state.nextOrdinal,
@@ -179,12 +174,23 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'text_delta': {
-        const state = turnFor(turnSeq);
         state.agentText += ev.text ?? '';
         break;
       }
       default:
         break; // unknown events — forward-compatible passthrough (ignored)
+    }
+  }
+
+  /** Seal the open accumulation under `seq` and roll a fresh open one. Enforces
+   *  the sealed-slot cap by dropping the oldest slot (counted). */
+  function sealOpen(seq: number): void {
+    sealed.set(seq, open);
+    open = newTurnState();
+    while (sealed.size > MAX_SEALED_SLOTS) {
+      const oldest = sealed.keys().next().value as number;
+      sealed.delete(oldest);
+      stats.dropped += 1; // an uncommitted historical slot evicted to bound memory
     }
   }
 
@@ -250,10 +256,9 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
   }
 
   async function commitTurn(turnSeq: number): Promise<void> {
-    const state = turns.get(turnSeq);
-    turns.delete(turnSeq); // per-turn state is cleared on commit, success OR failure
-    committedTurns.add(turnSeq);
-    if (state === undefined) return; // nothing accumulated — the sink is not called
+    const state = sealed.get(turnSeq);
+    if (state === undefined) return; // no sealed slot — replay-safe, the sink is not called
+    sealed.delete(turnSeq); // the slot is cleared BEFORE the sink call
 
     let batch: TurnLogRecord[];
     try {
@@ -277,22 +282,30 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
     ingest(ev: TurnLogEvent): void {
       // NEVER throw into the caller — the ingest contract.
       try {
-        handle(ev);
+        if (ev.type === 'turn_complete') {
+          sealOpen(ev.seq);
+          return;
+        }
+        handleContent(ev);
       } catch (err) {
         onError(`turnlog: ingest failed: ${errMsg(err)}`);
       }
     },
     setHumanText(turnSeq: number, text: string): void {
       try {
-        turnFor(turnSeq).humanText = text;
+        // The platform calls this AFTER the turn_complete arrived, so the sealed
+        // slot is the live path; the open accumulation is the pre-seal fallback.
+        const slot = sealed.get(turnSeq);
+        if (slot !== undefined) slot.humanText = text;
+        else open.humanText = text;
       } catch (err) {
         onError(`turnlog: setHumanText failed: ${errMsg(err)}`);
       }
     },
     commitTurn,
     abandon(): void {
-      turns.clear();
-      committedTurns.clear();
+      open = newTurnState();
+      sealed.clear();
     },
     stats(): TurnLogRecorderStats {
       return { ...stats };
