@@ -18,6 +18,7 @@ import { MockProvider } from './mock.js';
 import { PROVIDER_REGISTRY, contextLengthFor } from './models.js';
 import { OllamaProvider } from './ollama.js';
 import { OpenAIProvider } from './openai.js';
+import { RouterProvider } from './router.js';
 import { SovProvider } from './sov.js';
 import type { AuthType, ProviderRequest, ToolSchema, Transport } from './types.js';
 
@@ -109,12 +110,18 @@ export function resolveProvider(
     providerName === 'ollama'
       ? (providerConfig?.numCtx ?? contextLengthFor(providerName, resolvedModel))
       : undefined;
+  // Router lane only: static routing-hint headers threaded from the manifest
+  // config. Read off the narrowed name so the extra `headers` field (dropped by
+  // providerConfigFor's ProviderConfig return type) stays typed.
+  const routerHeaders =
+    providerName === 'manifest' ? settings.providers?.manifest?.headers : undefined;
   const transport = instantiateTransport(
     providerName,
     registry.apiMode,
     baseUrl,
     selected?.secret,
     numCtx,
+    routerHeaders,
   );
   const guarded = wrapWithProviderHardening(transport, providerName, selected, opts);
 
@@ -157,6 +164,10 @@ function providerConfigFor(
   if (providerName === 'openrouter') return providers.openrouter;
   if (providerName === 'ollama') return providers.ollama;
   if (providerName === 'sov') return providers.sov;
+  // manifest carries an extra `headers` field (RouterProviderConfig); it is
+  // widened away to the base ProviderConfig here — resolveProvider reads
+  // `settings.providers?.manifest?.headers` separately where the name is narrowed.
+  if (providerName === 'manifest') return providers.manifest;
   return undefined;
 }
 
@@ -221,10 +232,11 @@ function credentialInputs(
 
 function instantiateTransport(
   providerName: string,
-  apiMode: 'anthropic' | 'openai' | 'ollama' | 'sov',
+  apiMode: 'anthropic' | 'openai' | 'ollama' | 'sov' | 'router',
   baseUrl: string,
   apiKey: string | undefined,
   numCtx: number | undefined,
+  headers: Record<string, string> | undefined,
 ): Transport {
   if (apiMode === 'anthropic') {
     if (!apiKey) throw new CredentialUnavailableError(providerName);
@@ -241,6 +253,17 @@ function instantiateTransport(
       baseURL: baseUrl,
       name: providerName,
       ...(apiKey ? { apiKey } : {}),
+    }) as Transport;
+  }
+  if (apiMode === 'router') {
+    // The model-router lane — keyed (Manifest always requires an mnfst_ key).
+    // Static routing-hint headers thread through when configured.
+    if (!apiKey) throw new CredentialUnavailableError(providerName);
+    return new RouterProvider({
+      apiKey,
+      baseURL: baseUrl,
+      name: providerName,
+      ...(headers ? { headers } : {}),
     }) as Transport;
   }
   return new OllamaProvider({

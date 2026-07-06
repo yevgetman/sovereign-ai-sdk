@@ -29,6 +29,14 @@ const ProviderConfigSchema = z
   })
   .strict();
 
+/** Router lane config: the base provider config PLUS static routing-hint
+ *  `headers`. `headers` = Manifest custom-tier headers / `x-session-key` sent on
+ *  every request — router lane ONLY (it exists here, not on ProviderConfigSchema,
+ *  so it is never a silent no-op field on a non-router provider). */
+const RouterProviderConfigSchema = ProviderConfigSchema.extend({
+  headers: z.record(z.string()).optional(),
+}).strict();
+
 const MicrocompactionSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -311,6 +319,11 @@ export const SettingsSchema = z
          *  server on loopback). Reuses ProviderConfigSchema — only baseUrl
          *  and model are typically set; no apiKey is required. */
         sov: ProviderConfigSchema.optional(),
+        /** The model-router lane (apiMode 'router'); the current binding is a
+         *  self-hosted Manifest instance. Uses RouterProviderConfigSchema — the
+         *  base provider config PLUS static routing-hint `headers` (Manifest
+         *  custom-tier headers / x-session-key), which exist ONLY on this lane. */
+        manifest: RouterProviderConfigSchema.optional(),
       })
       .strict()
       .optional(),

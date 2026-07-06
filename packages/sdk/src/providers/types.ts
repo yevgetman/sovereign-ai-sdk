@@ -43,7 +43,7 @@ export interface LLMProvider {
   stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage>;
 }
 
-export type ApiMode = 'anthropic' | 'openai' | 'ollama' | 'sov';
+export type ApiMode = 'anthropic' | 'openai' | 'ollama' | 'sov' | 'router';
 
 export type AuthType = 'api_key' | 'oauth' | 'bedrock_sig_v4' | 'none';
 

@@ -8,6 +8,25 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-07-06 — Model-router lane: Manifest as the current router solution (sdk 0.5.0, `model-router-adapter` branch)
+
+**Scope.** The model-router adapter build (SOP-12, TDD RED→GREEN per task): a generic `RouterProvider` transport (apiMode `'router'`) + the protected `onResponse` seam on `OpenAIProvider`, the `manifest` registry lane (model `auto`, `MANIFEST_API_KEY`, config `providers.manifest` incl. router-only `headers`), honest `/effort` gate, barrel exports + sdk 0.5.0 bump, `/config` catalog exposure, docs, and an env-gated live conformance probe. Spec `specs/2026-07-06-model-router-adapter-design.md`, plan `plans/2026-07-06-model-router-adapter.md`. Additive only — every existing lane byte-identical.
+
+**TDD passes (RED → GREEN).**
+- **T1** (`b396b52`) — `RouterProvider` + `onResponse`. RED first in `tests/providers/router.test.ts` (new, 241 lines, the sov.test.ts fake-fetch pattern): construction (name/apiMode/loopback default baseURL/baseURL override), missing-key throw, routing-hint header merge (tier header + `x-session-key` sent; a malicious `authorization`/`content-type` hint cannot mask the real ones), `onRouteResolved` parses `X-Manifest-*` (full + partial), absent headers ⇒ no callback, throwing callback swallowed with the stream unaffected, inherited SSE/tool/usage translation end-to-end (`"model":"auto"` on the wire).
+- **T2** (`24651a2`) — the `manifest` lane. Resolver tests (registry defaults, `MANIFEST_API_KEY` credential, config `headers` threaded, missing key → `CredentialUnavailableError`); schema tests (`providers.manifest` accepted incl. `headers`, unknown keys rejected, `headers` rejected on other lanes); effort test (`modelSupportsReasoning('auto', 'router') === false`).
+- **T3** (`9d9bad8`) — barrel exports (`RouterProvider` / `RouterProviderConfig` / `ResolvedRoute`); frozen-surface test extended (additive); sov-sdk 0.4.0 → 0.5.0.
+- **T4** (`c0eb177`) — `/config` catalog: `manifest` in `PROVIDER_CHOICES`, the `providers-manifest` group (apiKey secret / model `auto` / baseUrl placeholder), Providers-menu link, live-apply scope (`tests/config/catalog.test.ts` extended).
+
+**Live conformance probe.** `tests/providers/router.live.test.ts` (new) — gated OFF unless BOTH `MANIFEST_LIVE=1` and `MANIFEST_API_KEY` are set (the sov.live.test.ts pattern; optional `MANIFEST_BASE_URL` override, default `http://localhost:2099/v1`). One real `model: "auto"` turn: asserts assistant text; asserts the `ResolvedRoute` shape only when route headers were observed (a proxy may strip them — logged either way). Run: `MANIFEST_LIVE=1 MANIFEST_API_KEY=mnfst_... bun test tests/providers/router.live.test.ts`. Verified it **skips cleanly** in the gate (and with `MANIFEST_LIVE=1` but no key). Actually running it against a live Manifest instance is staged for the CEO (spec §8 — Docker install + dashboard key mint).
+
+**Commands run (real results, T5 final gate).**
+- `bun run lint` (biome + boundary) — clean; **0 dependency violations** (175 modules / 564 deps cruised over `packages/sdk/src` + `packages/protocol/src`).
+- `bun run typecheck` — clean.
+- `bun run test` — **4872 pass / 0 fail / 18 skip** across 462 files (19,899 expect calls, ~86 s). The +1 skip over the 0.6.49 baseline (17) is the new gated live probe. One earlier run of the same tree showed 2 intermittent fails that vanished on re-run (the known server-bind timing flake class); the recorded green run is the gate.
+
+**Regressions / follow-ups:** None in-repo. Named follow-ups (documented, not built): per-session `x-session-key` threading (static header = one Manifest session per process in v1); surfacing routed-model usage into the Assay wire (with `auto`, `estimateCostUsd` + the Assay wire price the alias — Manifest's own spend tracking is authoritative on this lane). npm publish of `@yevgetman/sov-sdk` 0.5.0 remains held (CEO's button); branch merge staged for the CEO.
+
 ## 2026-07-03 — Billing-grade usage telemetry (v0.6.49 / sdk 0.2.0, `usage-telemetry` branch)
 
 **Scope.** The SDK "usage observer" build (SOP-12 autonomous subagent, TDD RED→GREEN per task): correct the two usage-accounting bugs, complete the phase breakdown, surface per-run usage/cost on `RunResult`, export the metering primitives, and populate the per-turn wire fields. Spec `specs/2026-07-03-usage-telemetry-design.md`, plan `plans/2026-07-03-usage-telemetry.md`. Six tasks (T1–T6), one atomic commit each, gate green at every commit.

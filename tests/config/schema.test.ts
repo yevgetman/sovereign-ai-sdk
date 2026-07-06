@@ -297,6 +297,45 @@ describe('SettingsSchema — providers config shape', () => {
   });
 });
 
+// manifest is the model-router lane (apiMode 'router'; the current binding is a
+// self-hosted Manifest instance). Its config uses RouterProviderConfigSchema —
+// the base provider config PLUS static routing-hint `headers` (Manifest
+// custom-tier headers / x-session-key). `headers` exists ONLY on this lane, so
+// the strict base schema still rejects it on every other provider.
+describe('SettingsSchema — providers.manifest (router lane)', () => {
+  test('accepts model + baseUrl + headers overrides', () => {
+    const parsed = SettingsSchema.parse({
+      providers: {
+        manifest: {
+          model: 'auto',
+          baseUrl: 'http://localhost:2099/v1',
+          headers: { 'x-tier': 'cheap', 'x-session-key': 'abc' },
+        },
+      },
+    });
+    expect(parsed.providers?.manifest?.model).toBe('auto');
+    expect(parsed.providers?.manifest?.baseUrl).toBe('http://localhost:2099/v1');
+    expect(parsed.providers?.manifest?.headers).toEqual({
+      'x-tier': 'cheap',
+      'x-session-key': 'abc',
+    });
+  });
+
+  test('providers.manifest is optional / absent by default', () => {
+    expect(SettingsSchema.parse({ providers: {} }).providers?.manifest).toBeUndefined();
+  });
+
+  test('rejects unknown keys under providers.manifest (strict mode)', () => {
+    expect(() => SettingsSchema.parse({ providers: { manifest: { unknown: 'x' } } })).toThrow();
+  });
+
+  test('headers is a router-lane-only field — rejected on other providers (strict base)', () => {
+    expect(() =>
+      SettingsSchema.parse({ providers: { openai: { headers: { 'x-tier': 'cheap' } } } }),
+    ).toThrow();
+  });
+});
+
 describe('SettingsSchema — debugMode', () => {
   test('umbrella + per-capability flags coexist', () => {
     const parsed = SettingsSchema.parse({

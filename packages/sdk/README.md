@@ -126,7 +126,10 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   `buildToolContext`, `buildToolScope`, canonical tool descriptors, and the
   permission types (`CanUseTool`, `PermissionResult`, …).
 - **Providers** — `resolveProvider`, plus `LLMProvider`/`ProviderRequest` so you
-  can implement your own provider.
+  can implement your own provider, and `RouterProvider` (+ `RouterProviderConfig`,
+  `ResolvedRoute`) — the generic model-router lane (ask for model `auto`; a router
+  picks the upstream, reporting it back via `onRouteResolved`). See
+  [`docs/04-extending/routing-an-agent.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/routing-an-agent.md).
 - **Delegation** — `SubagentScheduler` and the narrow `Scheduler` port,
   `LaneSemaphores`, `PathLockManager`, and the executor port types.
 - **MCP** — `buildMcpClientPool`, the `McpClientPoolFactory` port, and the
