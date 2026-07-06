@@ -197,6 +197,14 @@ import type {
   TraceSink,
   TranscriptStore,
   Transport,
+  TurnLogEvent,
+  TurnLogKind,
+  TurnLogRecord,
+  TurnLogRecorder,
+  TurnLogRecorderOptions,
+  TurnLogRecorderStats,
+  TurnLogRole,
+  TurnLogSink,
   UsageAccumulator,
   UserMessage,
   ValidationResult,
@@ -226,6 +234,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createAssayUsageRecorder',
   'createInMemorySessionStore',
   'createNoopTranscriptStore',
+  'createTurnLogRecorder',
   'createUsageAccumulator',
   'dropsFor',
   'estimateCostUsd',
@@ -440,6 +449,14 @@ type TypeSurfaceWitness = {
   traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;
   transport?: Transport;
+  turnLogEvent?: TurnLogEvent;
+  turnLogKind?: TurnLogKind;
+  turnLogRecord?: TurnLogRecord;
+  turnLogRecorder?: TurnLogRecorder;
+  turnLogRecorderOptions?: TurnLogRecorderOptions;
+  turnLogRecorderStats?: TurnLogRecorderStats;
+  turnLogRole?: TurnLogRole;
+  turnLogSink?: TurnLogSink;
   usageAccumulator?: UsageAccumulator;
   userMessage?: UserMessage;
   validationResult?: ValidationResult;

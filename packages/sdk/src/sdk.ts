@@ -281,6 +281,22 @@ export type {
   AssayUsageRecorderConfig,
 } from './telemetry/assayUsageRecorder.js';
 
+// ── Durable turn log (spec 2026-07-06) — the CONTENT sibling of the usage wire.
+// A harness-agnostic normalizer turning parsed SSE events into canonical
+// full-content turn records for a pluggable, embedded-only sink. Content NEVER
+// rides the usage/OTLP path.
+export { createTurnLogRecorder } from './turnlog/recorder.js';
+export type {
+  TurnLogEvent,
+  TurnLogKind,
+  TurnLogRecord,
+  TurnLogRecorder,
+  TurnLogRecorderOptions,
+  TurnLogRecorderStats,
+  TurnLogRole,
+  TurnLogSink,
+} from './turnlog/types.js';
+
 // ── Capability resolution ───────────────────────────────────────────────────
 export { findCapableModel } from './core/capabilities.js';
 // `CapabilityProfile` is findCapableModel's return type; `CapabilityRole` its
