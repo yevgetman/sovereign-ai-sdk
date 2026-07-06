@@ -482,6 +482,11 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'providers.openrouter.model': makeProviderModelHook('openrouter'),
   'providers.ollama.model': makeProviderModelHook('ollama'),
   'providers.sov.model': makeProviderModelHook('sov'),
+  // 2026-07-06 — the Manifest model-router lane. `model` (usually `auto`) +
+  // apiKey + baseUrl re-resolve the active provider stack exactly like the
+  // openai lane, so the `providers.` prefix's green live-reload badge stays
+  // honest for manifest too.
+  'providers.manifest.model': makeProviderModelHook('manifest'),
   // 2026-06-14 — credential / endpoint changes re-resolve the active provider
   // stack so the live conversation uses the new transport (M1).
   'providers.anthropic.apiKey': reresolveProviderHook,
@@ -491,6 +496,8 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'providers.ollama.baseUrl': reresolveProviderHook,
   'providers.ollama.numCtx': numCtxHook,
   'providers.sov.baseUrl': reresolveProviderHook,
+  'providers.manifest.apiKey': reresolveProviderHook,
+  'providers.manifest.baseUrl': reresolveProviderHook,
   verbose: verboseHook,
   'webSearch.provider': webSearchHook,
   'webSearch.apiKey': webSearchHook,

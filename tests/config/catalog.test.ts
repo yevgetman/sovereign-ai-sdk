@@ -4,6 +4,7 @@
 // every path is a valid SettingsSchema dotpath.
 
 import { describe, expect, test } from 'bun:test';
+import { scopeFor } from '@yevgetman/sov-sdk/config/applyScope';
 import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 import {
   CONFIG_CATALOG,
@@ -25,6 +26,7 @@ const REQUIRED_GROUP_IDS = [
   'providers-openrouter',
   'providers-ollama',
   'providers-sov',
+  'providers-manifest',
   'task-routing',
   'subscription-executor',
   'router',
@@ -108,13 +110,15 @@ describe('config catalog', () => {
       expect(providers.items).toEqual([]);
       expect(providers.drillInto).toBeDefined();
       // 2026-06-14 (T4) — added the Sovereign (local) provider subgroup.
-      expect(providers.drillInto?.length).toBe(5);
+      // 2026-07-06 — added the Manifest (model router) provider subgroup.
+      expect(providers.drillInto?.length).toBe(6);
       const targetIds = providers.drillInto?.map((d) => d.targetGroupId);
       expect(targetIds).toContain('providers-anthropic');
       expect(targetIds).toContain('providers-openai');
       expect(targetIds).toContain('providers-openrouter');
       expect(targetIds).toContain('providers-ollama');
       expect(targetIds).toContain('providers-sov');
+      expect(targetIds).toContain('providers-manifest');
     }
   });
 
@@ -299,6 +303,81 @@ describe('config catalog', () => {
       for (const p of PATHS) {
         expect(getLiveApplyHook(p), `${p} must not be live-applyable`).toBeUndefined();
       }
+    });
+  });
+
+  describe('providers-manifest group (model router lane)', () => {
+    const PATHS = [
+      'providers.manifest.apiKey',
+      'providers.manifest.model',
+      'providers.manifest.baseUrl',
+    ];
+
+    test('manifest is a selectable provider (present in PROVIDER_CHOICES)', () => {
+      // PROVIDER_CHOICES is surfaced through the defaultProvider enum editor.
+      const item = findItem('defaultProvider');
+      expect(item?.editor.kind).toBe('enum');
+      if (item?.editor.kind === 'enum') {
+        expect(item.editor.choices).toContain('manifest');
+      }
+    });
+
+    test('group exists with exactly the three provider paths', () => {
+      const group = findGroup('providers-manifest');
+      expect(group).toBeDefined();
+      expect(group?.label).toBe('Providers / Manifest (model router)');
+      const groupPaths = (group?.items ?? []).map((i) => i.path);
+      expect(groupPaths).toEqual(PATHS);
+      for (const p of PATHS) {
+        expect(findItem(p), `path ${p} should be findable`).toBeDefined();
+        expect(findGroupForItem(p)?.id).toBe('providers-manifest');
+      }
+    });
+
+    test('Providers menu links to the manifest subgroup', () => {
+      const providers = findGroup('providers');
+      const link = providers?.drillInto?.find((d) => d.targetGroupId === 'providers-manifest');
+      expect(link).toBeDefined();
+      expect(link?.label).toBe('Manifest (model router)');
+    });
+
+    test('apiKey is a flagged secret; model defaults to the auto router alias', () => {
+      const apiKey = findItem('providers.manifest.apiKey');
+      expect(apiKey?.secret).toBe(true);
+      expect(apiKey?.editor.kind).toBe('secret');
+
+      const model = findItem('providers.manifest.model');
+      expect(model?.editor.kind).toBe('string');
+      if (model?.editor.kind === 'string') {
+        // `auto` is the sole suggested choice, with freeform to pin a real id.
+        expect(model.editor.choices).toEqual(['auto']);
+        expect(model.editor.allowCustom).toBe(true);
+      }
+    });
+
+    test('manifest.model dynamicChoices scope to the auto alias', () => {
+      // defaultModel's picker is scoped by defaultProvider → manifest ⇒ ['auto'].
+      const item = findItem('defaultModel');
+      expect(item?.editor.kind).toBe('string');
+      if (item?.editor.kind !== 'string') throw new Error('expected a string editor');
+      const manifest = SettingsSchema.parse({ defaultProvider: 'manifest' });
+      expect(item.editor.dynamicChoices?.(manifest)).toEqual(['auto']);
+    });
+
+    test('providers.manifest.* live-apply like the openai lane (hooks present)', () => {
+      // Mirrors providers.openai.* — model + apiKey + baseUrl all re-resolve.
+      expect(getLiveApplyHook('providers.manifest.model')).toBeDefined();
+      expect(getLiveApplyHook('providers.manifest.apiKey')).toBeDefined();
+      expect(getLiveApplyHook('providers.manifest.baseUrl')).toBeDefined();
+    });
+
+    test('providers.manifest.* resolve to the same apply-scope as providers.openai.*', () => {
+      // The `providers.` prefix rule (applyScope.ts) covers manifest — no exact
+      // entry needed; the green live-reload badge matches its siblings.
+      expect(scopeFor('providers.manifest.model')).toBe(scopeFor('providers.openai.model'));
+      expect(scopeFor('providers.manifest.apiKey')).toBe(scopeFor('providers.openai.apiKey'));
+      expect(scopeFor('providers.manifest.baseUrl')).toBe(scopeFor('providers.openai.baseUrl'));
+      expect(scopeFor('providers.manifest.model')).toBe('live-reload');
     });
   });
 
