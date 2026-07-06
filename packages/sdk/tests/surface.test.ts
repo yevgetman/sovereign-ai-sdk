@@ -68,6 +68,9 @@ import type {
   AgentSource,
   AgentTrustTier,
   ApiMode,
+  AssayExportStats,
+  AssayUsageRecorder,
+  AssayUsageRecorderConfig,
   AssistantMessage,
   AuthType,
   BuildHookRunnerOpts,
@@ -204,6 +207,7 @@ import type {
  *  removal/rename = major bump, addition = minor bump. Sorted to match
  *  `Object.keys(...).sort()` (enumeration order is not guaranteed). */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
+  'ASSAY_WIRE_VERSION',
   'CANONICAL_TOOL_DESCRIPTORS',
   'LaneSemaphores',
   'PRICE_TABLE',
@@ -219,6 +223,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'buildToolContext',
   'buildToolScope',
   'createAgent',
+  'createAssayUsageRecorder',
   'createInMemorySessionStore',
   'createNoopTranscriptStore',
   'createUsageAccumulator',
@@ -306,6 +311,9 @@ type TypeSurfaceWitness = {
   agentSource?: AgentSource;
   agentTrustTier?: AgentTrustTier;
   apiMode?: ApiMode;
+  assayExportStats?: AssayExportStats;
+  assayUsageRecorder?: AssayUsageRecorder;
+  assayUsageRecorderConfig?: AssayUsageRecorderConfig;
   assistantMessage?: AssistantMessage;
   authType?: AuthType;
   buildHookRunnerOpts?: BuildHookRunnerOpts;

@@ -1,5 +1,20 @@
 # Changelog
 
+## sdk 0.3.0 — Assay usage wire (the official token-accounting export) - 2026-07-05
+
+_(SDK-package release only — no root-wrapper behavior change.)_ New barrel export
+**`createAssayUsageRecorder`** (+ `ASSAY_WIRE_VERSION`, types): a zero-dependency
+`traceRecorder` that streams **usage-only** OpenTelemetry `gen_ai` spans (token
+phases, identities, tool names, timings — never content) as OTLP/JSON to a local
+`assay serve` endpoint. One priced **chat span per model call** carrying the
+dominant tool its completion invoked; one **execute_tool span** per tool run
+(unpriced, optional); one trace per turn (`sov.turn.id` → assay task).
+Deterministic ids (replay dedupes); fire-and-forget transport (retry-once,
+bounded drop-oldest queue, `record` never throws, unref'd timer). Contract +
+posture ("protocol marriage, not code marriage"): `specs/2026-07-05-assay-integration-design.md`;
+golden fixture `fixtures/assay-wire-v1.json` conformance-tested in both repos.
+Docs: `docs/04-extending/metering-an-agent.md` §"Metering with Assay".
+
 ## 0.6.49 — Billing-grade usage telemetry - 2026-07-03
 
 _(Appended out of band — this file froze at Phase 13.3, per the note below; this feature warranted a versioned callout because it changes an externally-observed figure. The canonical state record remains the snapshot series + the testing log.)_

@@ -76,9 +76,47 @@ if (usage !== undefined) {
 
 ---
 
+## Metering with Assay (the official pairing)
+
+[Assay](https://github.com/yevgetman/assay) is the SDK's **official token auditing
+and valuation solution** — a standalone local-first metering store (pricing,
+work-type classification, waste detection, per-turn task ROI, LLM-judge
+valuation). The integration is a **wire, not a dependency**: the SDK ships
+`createAssayUsageRecorder`, a `traceRecorder` that streams **usage-only**
+OpenTelemetry `gen_ai` spans (token counts, identities, tool names, timings —
+never content) to a local `assay serve` endpoint. Contract:
+`specs/2026-07-05-assay-integration-design.md` (SOV-ASSAY WIRE v1); the golden
+fixture `fixtures/assay-wire-v1.json` is conformance-tested in both repos.
+
+```ts
+import { createAgent, createAssayUsageRecorder } from '@yevgetman/sov-sdk';
+
+const assay = createAssayUsageRecorder({
+  token: process.env.ASSAY_TOKEN!,       // the assay tenant bearer token
+  // endpoint: 'http://127.0.0.1:4318',  // default — local assay serve
+  // identity: 'sov',                    // lands as the assay principal
+});
+
+const agent = createAgent({ /* … */, traceRecorder: assay.record });
+const result = await agent.run({ prompt: '…' });
+await assay.flush();                      // drain before process exit
+```
+
+What lands in assay: one **priced chat span per model call** (five phase-broken
+usage fields, priced by assay's own versioned table) carrying the **dominant
+tool** its completion invoked (assay classifies it `mechanical`/`tooling`
+inline), plus one **execute_tool span** per tool execution (identity + timing,
+honestly unpriced; disable via `emitToolSpans: false`). Sessions map to assay
+sessions; each turn is an assay **task** (`sov.turn.id` — configure the assay
+tenant with `taskIdAttribute: "sov.turn.id"`). Export is fire-and-forget: a
+failed batch retries once then drops (counted in `stats()`), the queue is
+bounded, and `record` never throws into the agent loop. Assay-side setup
+(tenants file, serve) is in assay's own docs — the SDK needs only the endpoint
+and token.
+
+---
+
 ## Read next
 
 - [`04-extending/extending.md`](extending.md) — the broader recipe set (adding a provider adds its pricing entry).
 - [`02-architecture/runtime-architecture.md`](../02-architecture/runtime-architecture.md) — the trace/observe seam and the gateway wire these surfaces ride.
-</content>
-</invoke>

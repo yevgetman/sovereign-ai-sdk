@@ -1,0 +1,478 @@
+{
+  "resourceSpans": [
+    {
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "e3d27416b284683e7b46b27a450f3c78",
+              "spanId": "47cc74e3b6d7fb0a",
+              "parentSpanId": "660d84f903605acd",
+              "name": "execute_tool Read",
+              "startTimeUnixNano": "1783252802060000000",
+              "endTimeUnixNano": "1783252802100000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "sov.turn.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1#1"
+                  }
+                },
+                {
+                  "key": "sov.telemetry.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "execute_tool"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "Read"
+                  }
+                },
+                {
+                  "key": "sov.duration_ms",
+                  "value": {
+                    "intValue": "40"
+                  }
+                },
+                {
+                  "key": "sov.output_bytes",
+                  "value": {
+                    "intValue": "2048"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "e3d27416b284683e7b46b27a450f3c78",
+              "spanId": "cda2f1e5e696cc3f",
+              "parentSpanId": "660d84f903605acd",
+              "name": "execute_tool Edit",
+              "startTimeUnixNano": "1783252802240000000",
+              "endTimeUnixNano": "1783252802300000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "sov.turn.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1#1"
+                  }
+                },
+                {
+                  "key": "sov.telemetry.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "execute_tool"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "Edit"
+                  }
+                },
+                {
+                  "key": "sov.duration_ms",
+                  "value": {
+                    "intValue": "60"
+                  }
+                },
+                {
+                  "key": "sov.output_bytes",
+                  "value": {
+                    "intValue": "512"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "e3d27416b284683e7b46b27a450f3c78",
+              "spanId": "5a8b38a65a99d95e",
+              "parentSpanId": "660d84f903605acd",
+              "name": "execute_tool Edit",
+              "startTimeUnixNano": "1783252802375000000",
+              "endTimeUnixNano": "1783252802400000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "sov.turn.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1#1"
+                  }
+                },
+                {
+                  "key": "sov.telemetry.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "execute_tool"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "Edit"
+                  }
+                },
+                {
+                  "key": "sov.duration_ms",
+                  "value": {
+                    "intValue": "25"
+                  }
+                },
+                {
+                  "key": "sov.error",
+                  "value": {
+                    "stringValue": "file not found"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "e3d27416b284683e7b46b27a450f3c78",
+              "spanId": "660d84f903605acd",
+              "name": "chat claude-haiku-4-5-20251001",
+              "startTimeUnixNano": "1783252800500000000",
+              "endTimeUnixNano": "1783252802000000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "anthropic"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "sov.turn.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1#1"
+                  }
+                },
+                {
+                  "key": "sov.telemetry.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "claude-haiku-4-5-20251001"
+                  }
+                },
+                {
+                  "key": "sov.purpose",
+                  "value": {
+                    "stringValue": "main"
+                  }
+                },
+                {
+                  "key": "sov.stop_reason",
+                  "value": {
+                    "stringValue": "tool_use"
+                  }
+                },
+                {
+                  "key": "sov.latency_ms",
+                  "value": {
+                    "intValue": "1500"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "1200"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "300"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_read_tokens",
+                  "value": {
+                    "intValue": "8000"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_creation_tokens",
+                  "value": {
+                    "intValue": "150"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "Edit"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "e3d27416b284683e7b46b27a450f3c78",
+              "spanId": "9109dd6e8d2f9da4",
+              "parentSpanId": "660d84f903605acd",
+              "name": "chat claude-haiku-4-5-20251001",
+              "startTimeUnixNano": "1783252803800000000",
+              "endTimeUnixNano": "1783252805000000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "anthropic"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "sov.turn.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1#1"
+                  }
+                },
+                {
+                  "key": "sov.telemetry.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "claude-haiku-4-5-20251001"
+                  }
+                },
+                {
+                  "key": "sov.purpose",
+                  "value": {
+                    "stringValue": "main"
+                  }
+                },
+                {
+                  "key": "sov.stop_reason",
+                  "value": {
+                    "stringValue": "end_turn"
+                  }
+                },
+                {
+                  "key": "sov.latency_ms",
+                  "value": {
+                    "intValue": "1200"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "1400"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "250"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.cache_read_tokens",
+                  "value": {
+                    "intValue": "9000"
+                  }
+                }
+              ]
+            },
+            {
+              "traceId": "ea070ff4a4844925ab46b58829b2095b",
+              "spanId": "c4eaab8261b05a8b",
+              "name": "chat claude-haiku-4-5-20251001",
+              "startTimeUnixNano": "1783252811100000000",
+              "endTimeUnixNano": "1783252812000000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "anthropic"
+                  }
+                },
+                {
+                  "key": "gen_ai.conversation.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sov"
+                  }
+                },
+                {
+                  "key": "sov.turn.id",
+                  "value": {
+                    "stringValue": "sov-fixture-session-1#2"
+                  }
+                },
+                {
+                  "key": "sov.telemetry.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "claude-haiku-4-5-20251001"
+                  }
+                },
+                {
+                  "key": "sov.purpose",
+                  "value": {
+                    "stringValue": "main"
+                  }
+                },
+                {
+                  "key": "sov.stop_reason",
+                  "value": {
+                    "stringValue": "end_turn"
+                  }
+                },
+                {
+                  "key": "sov.latency_ms",
+                  "value": {
+                    "intValue": "900"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "500"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "400"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.reasoning_tokens",
+                  "value": {
+                    "intValue": "120"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

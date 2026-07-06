@@ -272,6 +272,15 @@ export type { ObservationStatus, ObserveInput } from './core/observePort.js';
 // `PermissionDecision` is the permission_check TraceEvent variant's field type.
 export type { PermissionDecision, TraceEvent } from './trace/types.js';
 
+// ── Assay usage wire (spec 2026-07-05) — the official token-accounting export.
+// A traceRecorder that streams usage-only gen_ai spans to a local assay serve.
+export { ASSAY_WIRE_VERSION, createAssayUsageRecorder } from './telemetry/assayUsageRecorder.js';
+export type {
+  AssayExportStats,
+  AssayUsageRecorder,
+  AssayUsageRecorderConfig,
+} from './telemetry/assayUsageRecorder.js';
+
 // ── Capability resolution ───────────────────────────────────────────────────
 export { findCapableModel } from './core/capabilities.js';
 // `CapabilityProfile` is findCapableModel's return type; `CapabilityRole` its
