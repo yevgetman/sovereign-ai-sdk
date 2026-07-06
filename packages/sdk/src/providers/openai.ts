@@ -134,6 +134,11 @@ export class OpenAIProvider
     return 'https://api.openai.com/v1';
   }
 
+  /** Post-fetch hook for subclasses that read response metadata (e.g. a model
+   *  router reporting the routed upstream in response headers). Called once per
+   *  request after the ok-check, before SSE parsing. Default: no-op. */
+  protected onResponse(_response: Response): void {}
+
   /** Request headers for the chat-completions call. The Authorization
    *  header is only attached when a key is present, so a keyless subclass
    *  transparently omits it. */
@@ -244,6 +249,10 @@ export class OpenAIProvider
       );
     }
     if (!response.body) throw new Error(`${this.name} returned no response body`);
+
+    // Post-fetch metadata seam (default no-op). A model-router subclass reads
+    // the routed-upstream response headers here, before SSE parsing begins.
+    this.onResponse(response);
 
     // sov local lane with thinking OFF: the vLLM/MLX engine routes the whole
     // answer onto `reasoning_content` (with an empty `content`). Tell the
