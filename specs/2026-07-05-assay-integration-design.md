@@ -169,7 +169,8 @@ the tool census and future duration detectors.
   byte-identically into both repos. Each repo's CI proves its own side against its
   own copy: the SDK proves it *emits* the fixture; assay proves it *ingests* it
   correctly. Drift in either repo fails that repo's tests.
-- The fixture's sha256 is pinned in this spec on landing; the update procedure is:
+- The fixture's sha256 (pinned): `fdf58dda64927033b6ec822e69b77657aee0e7e37c606e63e08143806ebc1696`.
+  The update procedure is:
   regenerate in the SDK → copy to assay → re-pin → bump `sov.telemetry.version`
   if attribute semantics changed (additive attrs don't bump).
 - No CI edge, no shared package, no submodule. The contract is versioned prose +
