@@ -50,7 +50,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 |---|---|
 | `-p, --profile <name>` | (Top-level — must precede the subcommand.) Pin the run to `<harness-home>/profiles/<name>/` for config / credentials / sessions / rate-limits / memory / skills. Use `default` for the unscoped base root. See [Profiles](#profiles). |
 | `--bundle <path>` | Harness bundle directory. Can also be set with `HARNESS_BUNDLE`. Optional — `sov` runs as a generic agent when no bundle is found. |
-| `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, or `ollama`. |
+| `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, `ollama`, or `manifest` (the [model-router lane](#model-router-lane-manifest)). |
 | `--model <name>` | Model override for the selected provider. |
 | `--max-tokens <n>` | Max output tokens per provider turn. Default: `12000`. |
 | `--permission-mode <mode>` | Tool permission mode: `default`, `ask`, or `bypass`. |
@@ -233,6 +233,22 @@ When the classifier output is `local-with-escalation`, the configured `escalatio
 Raw prompt text is **never** recorded by default — only its SHA-256 hash. (Opt-in raw logging is deferred to a follow-up.) The same allowlist redactor that protects trajectories also protects the audit log against accidental secret-spillage.
 
 **Landed in Phase 13 (2026-05-05):** capability-profile lookup (per-model context length / role hints / tool-call + JSON reliability — see `src/router/capabilities.ts`) and per-lane concurrency caps via `LaneSemaphores` (`src/runtime/laneSemaphores.ts`). Both the router (single-session escalations) and the sub-agent scheduler (parent dispatching N children) acquire from the same per-lane semaphore set so global limits apply regardless of who issues the request. Capability profiles drive role-based agent definitions: an agent that declares `role: explore` resolves to the cheapest available model whose `recommendedRoles` includes that role.
+
+## Model-router lane (`manifest`)
+
+`sov --provider manifest` routes every turn through an **external model router** — the caller asks for model `auto` and the router picks the upstream (cost / capability / locality / subscription / fallbacks). The current, official binding is a self-hosted **Manifest** instance; the lane is generic (any OpenAI-compatible router works via a `baseUrl` override).
+
+> **Not the [Local-Model Router](#local-model-router) above.** That is *in-harness* lane-picking between two configured providers (`--provider router`). This lane hands routing to a *dedicated external proxy* and is selected as `--provider manifest`.
+
+| | |
+|---|---|
+| **Provider name** | `manifest` (apiMode `router`) |
+| **Model** | `auto` — the routing alias. Pin `providers.manifest.model` to a real model id to restore exact context-length lookup (`auto` advertises a conservative 128k floor). |
+| **Auth** | `MANIFEST_API_KEY` — an `mnfst_` bearer key, required. |
+| **Base URL** | `http://localhost:2099/v1` — self-hosted Manifest, loopback default. |
+| **`/effort`** | **No-op on this lane.** With `auto` the routed upstream is unknown, so no reasoning/effort param is ever attached (the honest ollama-style gate). |
+
+Routing hints — Manifest custom-tier headers and `x-session-key` (sticky sessions / prompt caching) — are set via `providers.manifest.headers` (config-file only in v1). Full recipe (Manifest setup, embedder route-reporting via `onRouteResolved`, and the honest cost/context/sovereignty caveats): [`docs/04-extending/routing-an-agent.md`](docs/04-extending/routing-an-agent.md).
 
 ## Multi-provider task routing (Phase 1)
 
@@ -823,7 +839,7 @@ Open WebUI quickstart: Settings → Connections → OpenAI API → add `http://l
 |---|---|---|
 | `--port <n>` | `8765` | Listening port. Env: `SOV_OPENAI_PORT`. Config: `openaiServer.port`. |
 | `--host <addr>` | `127.0.0.1` | Bind host. Env: `SOV_OPENAI_HOST`. Config: `openaiServer.host`. |
-| `--provider <name>` | runtime default | Provider override for the runtime: `anthropic`, `openai`, `ollama`, `openrouter`, or `router`. |
+| `--provider <name>` | runtime default | Provider override for the runtime: `anthropic`, `openai`, `ollama`, `openrouter`, `router`, or `manifest` (the [model-router lane](#model-router-lane-manifest)). |
 | `-m, --model <name>` | runtime default | Model override (the runtime's bootstrap model). Per-request `req.model` can override on a call-by-call basis (T9). |
 | `--max-tokens <n>` | runtime default | Per-request max_tokens cap fed into `query()`. Clients may also send `max_tokens` on each request. |
 | `--permission-mode <mode>` | `default` | `default` / `ask` / `bypass`. `ask` fall-throughs always auto-deny on this surface (D11). |
