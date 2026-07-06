@@ -6,7 +6,9 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CredentialUnavailableError } from '@yevgetman/sov-sdk/providers/errors';
+import { contextLengthFor } from '@yevgetman/sov-sdk/providers/models';
 import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
+import { RouterProvider } from '@yevgetman/sov-sdk/providers/router';
 
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), 'harness-provider-test-'));
@@ -144,6 +146,62 @@ describe('resolveProvider', () => {
       }
     ).buildKwargs({ model: 'qwen2.5:7b', system: [], messages: [], maxTokens: 16 });
     expect(body.options?.num_ctx).toBe(8192);
+  });
+
+  // The manifest lane — the model-router organ's current binding (apiMode
+  // 'router'). Keyed (MANIFEST_API_KEY, unlike the keyless sov/ollama lanes),
+  // routes `auto` to a self-hosted Manifest instance on the loopback default.
+  // memory credentialState mirrors the createAgent embed path (no disk).
+  test('manifest resolves to the RouterProvider with router defaults', () => {
+    const resolved = resolveProvider('manifest', undefined, {
+      env: { MANIFEST_API_KEY: 'mnfst-test' },
+      credentialState: 'memory',
+      settings: {},
+    });
+    expect(resolved.transport.name).toBe('manifest');
+    expect(resolved.transport.apiMode).toBe('router');
+    expect(resolved.client).toBeInstanceOf(RouterProvider);
+    expect(resolved.model).toBe('auto');
+    expect(resolved.baseUrl).toBe('http://localhost:2099/v1');
+    expect(resolved.authType).toBe('api_key');
+    // The conservative 128k floor rides through contextLengthFor('manifest','auto').
+    expect(resolved.contextLength).toBe(128_000);
+    expect(resolved.metadata).toMatchObject({ provider: 'manifest', apiMode: 'router' });
+  });
+
+  test('manifest without MANIFEST_API_KEY throws CredentialUnavailableError', () => {
+    // manifest is keyed (isKeylessProvider is false), so an absent key fails
+    // closed — unlike the keyless sov/ollama loopback lanes above.
+    expect(() =>
+      resolveProvider('manifest', undefined, {
+        env: {},
+        credentialState: 'memory',
+        settings: {},
+      }),
+    ).toThrow(CredentialUnavailableError);
+  });
+
+  test('manifest threads config headers into the RouterProvider (auth never masked)', () => {
+    const resolved = resolveProvider('manifest', undefined, {
+      env: { MANIFEST_API_KEY: 'mnfst-test' },
+      credentialState: 'memory',
+      settings: { providers: { manifest: { headers: { 'x-tier': 'cheap' } } } },
+    });
+    // requestHeaders() is the seam the transport merges its static routing-hint
+    // headers through; reach it via the same structural cast the ollama
+    // buildKwargs assertions above use (resolved.client is the UNwrapped transport).
+    const headers = (
+      resolved.client as unknown as { requestHeaders(): Record<string, string> }
+    ).requestHeaders();
+    expect(headers['x-tier']).toBe('cheap');
+    // The real bearer + JSON content-type win — a hint header can't mask them.
+    expect(headers.authorization).toBe('Bearer mnfst-test');
+    expect(headers['content-type']).toBe('application/json');
+  });
+
+  test('contextLengthFor(manifest, auto) is the conservative 128k floor', () => {
+    // `auto` is not in MODEL_CONTEXT, so it falls back to the registry's floor.
+    expect(contextLengthFor('manifest', 'auto')).toBe(128_000);
   });
 
   test('missing API key fails closed for API-key providers', () => {

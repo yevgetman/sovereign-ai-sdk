@@ -96,6 +96,14 @@ describe('modelSupportsReasoning', () => {
     expect(modelSupportsReasoning('llama3', 'ollama')).toBe(false);
     expect(modelSupportsReasoning('qwen2.5:7b', 'ollama')).toBe(false);
   });
+
+  test('router is gated OFF (model "auto" — routed upstream unknown)', () => {
+    // With model "auto" the routed upstream is unknown, so no thinking/reasoning
+    // param is ever attached — /effort is a documented no-op on the router lane
+    // (mirrors the ollama gate; revisit if routers grow a reasoning-passthrough).
+    expect(modelSupportsReasoning('auto', 'router')).toBe(false);
+    expect(modelSupportsReasoning('anything', 'router')).toBe(false);
+  });
 });
 
 describe('anthropicThinkingFor', () => {
