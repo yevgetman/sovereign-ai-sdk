@@ -24,6 +24,17 @@ env-gated live conformance probe (`tests/providers/router.live.test.ts`,
 remains **held** (unchanged posture). Spec:
 `specs/2026-07-06-model-router-adapter-design.md`.
 
+## sdk 0.4.0 — Turn-log recorder - 2026-07-06
+
+_(SDK-package release only; entry backfilled at the 0.5.0 merge.)_ New barrel
+export **`createTurnLogRecorder`**: canonical full-content turn records over the
+SSE wire shape, handed per-turn to a pluggable `TurnLogSink` (fail-open, zero
+dependencies). A follow-up fix — **open-turn accumulation** (the real gateway
+wire carries per-EVENT seqs, not per-turn; everything since the last
+`turn_complete` belongs to that turn, sealed under its seq; live-verify
+finding) — was authored as 0.4.1 and ships folded into **0.5.0** (its version
+bump was superseded by the router lane's additive minor).
+
 ## sdk 0.3.0 — Assay usage wire (the official token-accounting export) - 2026-07-05
 
 _(SDK-package release only — no root-wrapper behavior change.)_ New barrel export
