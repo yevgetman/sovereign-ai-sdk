@@ -144,9 +144,12 @@ import type {
   ResolveProviderOpts,
   ResolvedPermissionResult,
   ResolvedProvider,
+  ResolvedRoute,
   ReviewManagerPort,
   Role,
   RouteDecisionInfo,
+  RouterProvider,
+  RouterProviderConfig,
   RunResult,
   RunSubprocessExecutor,
   RunSubprocessExecutorOpts,
@@ -221,6 +224,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'PRICE_TABLE',
   'PRICING_VERSION',
   'PathLockManager',
+  'RouterProvider',
   'SubagentScheduler',
   'accumulateUsage',
   'aliasToNativeName',
@@ -395,10 +399,13 @@ type TypeSurfaceWitness = {
   renderHint?: RenderHint;
   resolvedPermissionResult?: ResolvedPermissionResult;
   resolvedProvider?: ResolvedProvider;
+  resolvedRoute?: ResolvedRoute;
   resolveProviderOpts?: ResolveProviderOpts;
   reviewManagerPort?: ReviewManagerPort;
   role?: Role;
   routeDecisionInfo?: RouteDecisionInfo;
+  routerProvider?: RouterProvider;
+  routerProviderConfig?: RouterProviderConfig;
   runResult?: RunResult;
   runSubprocessExecutor?: RunSubprocessExecutor;
   runSubprocessExecutorOpts?: RunSubprocessExecutorOpts;

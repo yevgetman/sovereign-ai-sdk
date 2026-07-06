@@ -184,6 +184,15 @@ export type {
   Transport,
 } from './providers/types.js';
 export type { ReasoningEffort } from './providers/effort.js';
+// The model-router lane (spec 2026-07-06 R7): a generic OpenAI-compatible router
+// transport. Unlike the other provider classes (which stay behind
+// `resolveProvider`), `RouterProvider` is exported DIRECTLY — embedders must
+// construct it to wire `onRouteResolved` (the route-report callback), which
+// `resolveProvider` cannot thread. Manifest is the current binding; the class
+// stays router-agnostic (baseURL / registry override). `RouterProviderConfig`
+// is its config; `ResolvedRoute` the shape `onRouteResolved` receives.
+export { RouterProvider } from './providers/router.js';
+export type { ResolvedRoute, RouterProviderConfig } from './providers/router.js';
 // Metering / pricing (W4) — the public cost surface. `estimateCostUsd` prices a
 // `TokenUsage` against the built-in `PRICE_TABLE` (readonly); `PRICING_VERSION`
 // lets consumers (e.g. assay's `pricing_ref`) pin the exact table they priced
