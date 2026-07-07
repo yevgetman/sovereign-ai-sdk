@@ -271,6 +271,16 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       text = await expandSkillPrompt(skill, { args, cwd: runtime.cwd, sessionId });
     }
 
+    // Per-turn model override (PostTurnRequest.model) — additive + optional.
+    // A non-empty string runs THIS turn on that model via PerTurn.model
+    // (createAgent applies `perTurn.model ?? config.model`); anything else
+    // (absent, empty, or non-string) → undefined → the turn falls back to the
+    // gateway's configured global model, byte-identical to today. Validated
+    // here at the untrusted-body boundary, mirroring the inline `text`/`kind`
+    // guards above. This never mutates the process-global `runtime.model`.
+    const perTurnModel =
+      typeof body.model === 'string' && body.model.length > 0 ? body.model : undefined;
+
     const bus = getOrCreateBus(sessionId);
     // POST /turns is fire-and-forget: kick off the background turn loop
     // and return 202 immediately. The per-session bus buffers events
@@ -279,19 +289,21 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     // any in-route awaiting. The `void` discards the returned promise
     // intentionally; runTurnInBackground catches its own errors and
     // publishes them as turn_error events onto the bus.
-    void runTurnInBackground(runtime, sessionId, text, bus, skillScope).catch((err) => {
-      // Defense in depth: runTurnInBackground catches errors inside its try and
-      // publishes turn_error, but a throw in its pre-try setup would otherwise
-      // be an unhandled rejection that crashes the process. Surface it as a
-      // turn_error so the client sees an error instead of a frozen turn.
-      bus.publish({
-        type: 'turn_error',
-        seq: bus.nextSeq(),
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-        recoverable: false,
-      });
-    });
+    void runTurnInBackground(runtime, sessionId, text, bus, skillScope, perTurnModel).catch(
+      (err) => {
+        // Defense in depth: runTurnInBackground catches errors inside its try and
+        // publishes turn_error, but a throw in its pre-try setup would otherwise
+        // be an unhandled rejection that crashes the process. Surface it as a
+        // turn_error so the client sees an error instead of a frozen turn.
+        bus.publish({
+          type: 'turn_error',
+          seq: bus.nextSeq(),
+          sessionId,
+          error: err instanceof Error ? err.message : String(err),
+          recoverable: false,
+        });
+      },
+    );
     return c.json({ accepted: true } satisfies PostTurnResponse, 202);
   });
 
@@ -418,6 +430,12 @@ async function runTurnInBackground(
   // turn end (no persistence, no clearing, no resume hazard). Undefined/empty
   // → identity (no narrowing), byte-identical to a non-skill turn.
   skillScope?: readonly string[],
+  // Per-turn model override (PostTurnRequest.model). A non-empty string set by
+  // the route runs THIS turn on that model via the PerTurn slice below
+  // (createAgent: `perTurn.model ?? config.model`); undefined → the turn falls
+  // back to the standing `config.model` (= runtime.model), byte-identical to
+  // today. Never mutates the process-global model — the override is turn-local.
+  perTurnModel?: string,
 ): Promise<void> {
   // Phase B T3 — mark the turn boundary on the bus BEFORE this turn stamps
   // its first event (the status_update{streaming:true} below is the first
@@ -774,6 +792,14 @@ async function runTurnInBackground(
         // Outer `sessionId` let — reassigned to the post-compaction child id
         // across the recovery hop. The persistence key + hooks/trace target.
         sessionId,
+        // Per-turn model override (PostTurnRequest.model). Present only when the
+        // wire body carried a non-empty `model`; the conditional spread keeps
+        // the field ABSENT otherwise (exactOptionalPropertyTypes) so createAgent
+        // falls back to `config.model` (= runtime.model) — byte-identical to
+        // today. When present, createAgent's `perTurn.model ?? config.model`
+        // runs THIS turn (and the compaction-retry hop) on the override without
+        // touching the process-global model. Stable across the hop (turn-local).
+        ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
         // Reasoning-depth for THIS session, mutated live by `/effort`
         // (backlog #57 — per-session on the SessionContext). 'off' (the
         // default) → createAgent omits the key → query() byte-identical

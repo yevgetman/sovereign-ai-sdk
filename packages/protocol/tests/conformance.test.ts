@@ -77,9 +77,10 @@ type CreateSessionResponseRecorded = { sessionId: string; createdAt: string };
 const createSessionRespConforms: AssertEq<CreateSessionResponseRecorded, CreateSessionResponse> =
   true;
 
-// POST /sessions/:id/turns — turns.ts:177 body cast { text?: string; kind?: string };
-// turns.ts:291 returns { accepted: true }.
-type PostTurnRequestRecorded = { text?: string; kind?: string };
+// POST /sessions/:id/turns — turns.ts:177 body cast { text?: string; kind?: string;
+// model?: string }; turns.ts:291 returns { accepted: true }. `model` is the
+// additive optional per-turn override (absent → configured global model).
+type PostTurnRequestRecorded = { text?: string; kind?: string; model?: string };
 type PostTurnResponseRecorded = { accepted: boolean };
 const postTurnReqConforms: AssertEq<PostTurnRequestRecorded, PostTurnRequest> = true;
 const postTurnRespConforms: AssertEq<PostTurnResponseRecorded, PostTurnResponse> = true;

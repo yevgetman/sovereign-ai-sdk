@@ -36,12 +36,18 @@ export interface CreateSessionResponse {
 }
 
 // --- POST /sessions/:id/turns -----------------------------------------------
-// Body { text, kind }. 202 → { accepted: true }. `kind: 'skill'` opts into
-// server-side skill expansion (text must start with `/`).
+// Body { text, kind, model }. 202 → { accepted: true }. `kind: 'skill'` opts
+// into server-side skill expansion (text must start with `/`). `model` is an
+// ADDITIVE, OPTIONAL per-turn override: when present the gateway runs THIS turn
+// on that model (via PerTurn.model) without a new process; when ABSENT the turn
+// is byte-identical to today and falls back to the gateway's configured global
+// model. Like `kind`, it is a plain string the handler validates at the
+// boundary — the locked prefix ({ text, kind }) is preserved for older clients.
 
 export interface PostTurnRequest {
   text?: string;
   kind?: string;
+  model?: string;
 }
 
 export interface PostTurnResponse {
