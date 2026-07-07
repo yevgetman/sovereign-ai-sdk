@@ -12,11 +12,11 @@ import { exit } from 'node:process';
 export const OWNER = 'yevgetman';
 export const PUBLIC_REPO = 'sov-releases';
 
-export type TargetName = 'darwin-arm64' | 'darwin-x64' | 'linux-x64';
+export type TargetName = 'darwin-arm64' | 'darwin-x64' | 'linux-x64' | 'linux-arm64';
 
 export interface Target {
   name: TargetName;
-  bunTarget: 'bun-darwin-arm64' | 'bun-darwin-x64' | 'bun-linux-x64';
+  bunTarget: 'bun-darwin-arm64' | 'bun-darwin-x64' | 'bun-linux-x64' | 'bun-linux-arm64';
   goos: 'darwin' | 'linux';
   goarch: 'arm64' | 'amd64';
 }
@@ -25,6 +25,11 @@ export const TARGETS: readonly Target[] = [
   { name: 'darwin-arm64', bunTarget: 'bun-darwin-arm64', goos: 'darwin', goarch: 'arm64' },
   { name: 'darwin-x64', bunTarget: 'bun-darwin-x64', goos: 'darwin', goarch: 'amd64' },
   { name: 'linux-x64', bunTarget: 'bun-linux-x64', goos: 'linux', goarch: 'amd64' },
+  // linux-arm64: the arch ARM Linux containers run (e.g. the Appleo platform's
+  // aarch64 gateway container, Graviton). Previously absent, which forced an
+  // ad-hoc cross-compile with no official versioned artifact — this makes it a
+  // first-class, published release target.
+  { name: 'linux-arm64', bunTarget: 'bun-linux-arm64', goos: 'linux', goarch: 'arm64' },
 ];
 
 export function die(msg: string): never {

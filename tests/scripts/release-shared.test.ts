@@ -12,8 +12,13 @@ import {
 } from '../../scripts/release-shared';
 
 describe('release-shared — TARGETS', () => {
-  test('exports exactly the three day-one targets in canonical order', () => {
-    expect(TARGETS.map((t) => t.name)).toEqual(['darwin-arm64', 'darwin-x64', 'linux-x64']);
+  test('exports the supported targets in canonical order', () => {
+    expect(TARGETS.map((t) => t.name)).toEqual([
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64',
+      'linux-arm64',
+    ]);
   });
 
   test('each target carries its bun-target + goos + goarch pair', () => {
@@ -21,6 +26,12 @@ describe('release-shared — TARGETS', () => {
     expect(arm64?.bunTarget).toBe('bun-darwin-arm64');
     expect(arm64?.goos).toBe('darwin');
     expect(arm64?.goarch).toBe('arm64');
+
+    // linux-arm64 (the ARM Linux container target, e.g. the Appleo gateway).
+    const linuxArm64 = TARGETS.find((t) => t.name === 'linux-arm64');
+    expect(linuxArm64?.bunTarget).toBe('bun-linux-arm64');
+    expect(linuxArm64?.goos).toBe('linux');
+    expect(linuxArm64?.goarch).toBe('arm64');
   });
 });
 
