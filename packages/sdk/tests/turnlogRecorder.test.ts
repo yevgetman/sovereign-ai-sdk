@@ -98,6 +98,30 @@ function driveAgenticTurn(rec: TurnLogRecorder, turnSeq: number): void {
   rec.setHumanText(turnSeq, 'do a bunch of things');
 }
 
+/** A TWO-PHASE agentic turn: reason → act → reason → act. Each reasoning phase
+ *  streams thinking on block 0 (the block index REPEATS across assistant
+ *  messages). The FIRST non-thinking content event of each phase FINALIZES the
+ *  open thinking, so phase two's `thinking_delta` (block 0 AGAIN) starts a NEW
+ *  unit at a NEW ordinal — one thinking row per reasoning phase, interleaved
+ *  between the actions each phase motivated. Per-event monotonic seqs (40..49). */
+function driveTwoPhaseTurn(rec: TurnLogRecorder, turnSeq: number): void {
+  // Phase one: reason (two deltas, same block), then a Bash execution.
+  rec.ingest({ type: 'thinking_delta', seq: 40, block: 0, text: 'phase one ' });
+  rec.ingest({ type: 'thinking_delta', seq: 41, block: 0, text: 'phase one ' });
+  rec.ingest({ type: 'tool_use_start', seq: 42, block: 1, tool: 'Bash' });
+  rec.ingest({ type: 'tool_use_done', seq: 43, block: 1, input: { command: 'a' } });
+  rec.ingest({ type: 'tool_result', seq: 44, block: 1, tool: 'Bash', output: 'ran a' });
+  // Phase two: reason AGAIN (block 0 reused), then a FileEdit execution.
+  rec.ingest({ type: 'thinking_delta', seq: 45, block: 0, text: 'phase two' });
+  rec.ingest({ type: 'tool_use_start', seq: 46, block: 1, tool: 'FileEdit' });
+  rec.ingest({ type: 'tool_use_done', seq: 47, block: 1, input: { path: 'b' } });
+  rec.ingest({ type: 'tool_result', seq: 48, block: 1, tool: 'FileEdit', output: 'edited b' });
+  // Final agent text, then seal + human text.
+  rec.ingest({ type: 'text_delta', seq: 49, text: 'both phases done' });
+  rec.ingest({ type: 'turn_complete', seq: turnSeq });
+  rec.setHumanText(turnSeq, 'reason, act, reason, act');
+}
+
 describe('createTurnLogRecorder — open-turn accumulation over the real wire', () => {
   it('records ONE tool_call per execution when block indexes repeat across assistant messages', async () => {
     const { sink, batches, callCount } = captureSink();
@@ -421,5 +445,97 @@ describe('createTurnLogRecorder — open-turn accumulation over the real wire', 
     expect(recs.map((r) => r.role)).toEqual(['human', 'agent']);
     expect(recs.map((r) => r.content)).toEqual(['human first', 'agent reply']);
     expect(recs.map((r) => r.seq)).toEqual([77000, 77001]);
+  });
+
+  it('finalizes thinking at phase boundaries: one thinking row per reasoning phase, interleaved', async () => {
+    const { sink, batches, callCount } = captureSink();
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'user-1', sink });
+
+    driveTwoPhaseTurn(rec, 300); // reason → act → reason → act
+    await rec.commitTurn(300);
+
+    expect(callCount()).toBe(1);
+    const recs = batches[0] ?? [];
+
+    // TWO thinking rows — one per reasoning phase, NOT one merged unit at the
+    // first thinking ordinal. Each is the EXACT accumulation of its own deltas.
+    const thinking = recs.filter((r) => r.kind === 'thinking');
+    expect(thinking).toHaveLength(2);
+    expect(thinking.map((r) => r.content)).toEqual(['phase one phase one ', 'phase two']);
+
+    const calls = recs.filter((r) => r.kind === 'tool_call');
+    const results = recs.filter((r) => r.kind === 'tool_result');
+    // Each phase's thinking ordinal PRECEDES that phase's tool_call.
+    expect((thinking[0] as TurnLogRecord).seq).toBeLessThan((calls[0] as TurnLogRecord).seq);
+    expect((thinking[1] as TurnLogRecord).seq).toBeLessThan((calls[1] as TurnLogRecord).seq);
+    // TRUE interleaving: phase two's thinking comes AFTER phase one's tool_result
+    // — later reasoning no longer appears (misleadingly) early.
+    expect((thinking[1] as TurnLogRecord).seq).toBeGreaterThan((results[0] as TurnLogRecord).seq);
+
+    // Exact structure + seq math: 8 records, ordinals 0..7, thinking interleaved.
+    expect(recs.map((r) => r.kind)).toEqual([
+      'message',
+      'thinking',
+      'tool_call',
+      'tool_result',
+      'thinking',
+      'tool_call',
+      'tool_result',
+      'message',
+    ]);
+    expect(recs.map((r) => r.seq)).toEqual([
+      300000, 300001, 300002, 300003, 300004, 300005, 300006, 300007,
+    ]);
+    expect(recs.map((r) => r.content)).toEqual([
+      'reason, act, reason, act',
+      'phase one phase one ',
+      '{"command":"a"}',
+      'ran a',
+      'phase two',
+      '{"path":"b"}',
+      'edited b',
+      'both phases done',
+    ]);
+
+    // Distinct producerRefs — the two thinking rows get DISTINCT ordinals (1, 4),
+    // so neither collides on the idempotency key.
+    const refs = recs.map((r) => r.producerRef);
+    expect(new Set(refs).size).toBe(refs.length);
+    expect(thinking.map((r) => r.producerRef)).toEqual([
+      'gateway:s1:300:thinking:1',
+      'gateway:s1:300:thinking:4',
+    ]);
+
+    expect(rec.stats()).toEqual({ committed: 8, dropped: 0, sinkErrors: 0 });
+  });
+
+  it('finalizes multi-block thinking within one phase at the boundary; a later thought is a NEW unit', async () => {
+    const { sink, batches } = captureSink();
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
+
+    // One reasoning phase, TWO thinking blocks streaming before any tool event.
+    rec.ingest({ type: 'thinking_delta', seq: 60, block: 0, text: 'block zero' });
+    rec.ingest({ type: 'thinking_delta', seq: 61, block: 1, text: 'block one' });
+    // Boundary: a tool execution FINALIZES BOTH open thinking blocks at once.
+    rec.ingest({ type: 'tool_use_start', seq: 62, block: 2, tool: 'Read' });
+    rec.ingest({ type: 'tool_use_done', seq: 63, block: 2, input: { path: '/z' } });
+    // A later thought reuses block 0 — must be a NEW unit, not a merge into block 0.
+    rec.ingest({ type: 'thinking_delta', seq: 64, block: 0, text: 'after the tool' });
+    rec.ingest({ type: 'turn_complete', seq: 65 });
+    await rec.commitTurn(65);
+
+    const recs = batches[0] ?? [];
+    expect(recs.map((r) => r.kind)).toEqual(['thinking', 'thinking', 'tool_call', 'thinking']);
+    expect(recs.map((r) => r.content)).toEqual([
+      'block zero',
+      'block one',
+      '{"path":"/z"}',
+      'after the tool',
+    ]);
+    // Three distinct thinking ordinals: 1 and 2 (both finalized at the boundary),
+    // then 4 (the post-tool thought) — ordinal 3 is the tool_call between them.
+    expect(recs.filter((r) => r.kind === 'thinking').map((r) => r.seq)).toEqual([
+      65001, 65002, 65004,
+    ]);
   });
 });

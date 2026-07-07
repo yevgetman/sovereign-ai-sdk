@@ -13,6 +13,15 @@
 // still groups intra-turn units (thinking blocks; tool_use start/done pairing)
 // WITHIN the open accumulation; arrival order still drives ordinals.
 //
+// Thinking phases (one row per reasoning phase): within one assistant message
+// content blocks stream sequentially and thinking precedes the tool_use/text it
+// motivates. So the arrival of ANY non-thinking content event FINALIZES the open
+// thinking accumulation (`finalizeThinking` clears `thinkingByBlock`; the units
+// stay in `intermediates`, now immutable). A later `thinking_delta` — even on a
+// block index that REPEATS across assistant messages — starts a NEW thinking unit
+// at a NEW ordinal, so reasoning is ordinally interleaved between the actions it
+// motivated instead of merging into one giant row at the first thinking ordinal.
+//
 // Fail-open discipline (mirrors ../telemetry/assayUsageRecorder.ts): `ingest`,
 // `setHumanText`, and `commitTurn` NEVER throw into the caller — a sink failure
 // increments `sinkErrors`, notifies `onError`, and is swallowed. Content NEVER
@@ -122,6 +131,18 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
     return unit;
   }
 
+  /** Finalize all open thinking accumulation at a PHASE BOUNDARY. Within one
+   *  assistant message, content blocks stream sequentially and thinking always
+   *  precedes the tool_use / text it motivates — so the arrival of ANY
+   *  non-thinking content event closes the current reasoning phase. We clear the
+   *  by-block index (the already-created units stay in `state.intermediates`,
+   *  pushed at creation — now immutable), so a later `thinking_delta` starts a
+   *  NEW unit at a NEW ordinal. Result: one thinking row per reasoning phase,
+   *  ordinally interleaved between the actions each phase motivated. */
+  function finalizeThinking(state: TurnState): void {
+    state.thinkingByBlock.clear();
+  }
+
   /** Append a content event to the open accumulation. `turn_complete` is routed
    *  by `ingest` before this and never reaches here. */
   function handleContent(ev: TurnLogEvent): void {
@@ -140,6 +161,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'tool_use_start': {
+        finalizeThinking(state); // a non-thinking event closes the reasoning phase
         const block = ev.block ?? 0;
         const existing = state.toolCallByBlock.get(block);
         if (existing === undefined) {
@@ -157,6 +179,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         // then release the block key: a later `start` on the same block is a NEW
         // execution → a NEW unit with a NEW ordinal. The unit itself stays in
         // `state.intermediates` (pushed at creation) — now finalized.
+        finalizeThinking(state); // a non-thinking event closes the reasoning phase
         const block = ev.block ?? 0;
         let unit = state.toolCallByBlock.get(block);
         if (unit === undefined) {
@@ -171,6 +194,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'tool_result': {
+        finalizeThinking(state); // a non-thinking event closes the reasoning phase
         const unit: ToolResultUnit = {
           kind: 'tool_result',
           ordinal: state.nextOrdinal,
@@ -182,6 +206,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'text_delta': {
+        finalizeThinking(state); // a non-thinking event closes the reasoning phase
         state.agentText += ev.text ?? '';
         break;
       }
