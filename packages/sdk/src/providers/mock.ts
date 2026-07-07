@@ -130,6 +130,14 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  reads the LIVE `runtime.model`. Reset in test finally. */
   static lastModel: string | undefined = undefined;
 
+  /** Snapshot of the `system` (SystemSegment[]) passed to the most recent
+   *  `stream()` call. The gateway per-turn `instructions` tests read this to
+   *  assert the ephemeral instruction segment was APPENDED to the base system
+   *  segments (augment-not-replace) with cacheable:false — and that a turn
+   *  WITHOUT instructions received the unchanged base segments. Reset in test
+   *  finally. */
+  static lastSystem: SystemSegment[] | undefined = undefined;
+
   /** Counts every `stream()` invocation. Tests use this to verify the
    *  preflight call fired at boot (>= 1 after buildRuntime) or was skipped
    *  (=== 0 when opts.preflight === false). Reset in test finally blocks. */
@@ -224,6 +232,11 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     // live-reload test can assert a between-turns model swap reached
     // provider.stream() — proving the per-turn createAgent read runtime.model.
     MockProvider.lastModel = req.model;
+    // Snapshot the system segments so the gateway per-turn `instructions` tests
+    // can assert the ephemeral instruction was APPENDED to the base segments
+    // (augment-not-replace, cacheable:false), or that a turn without it received
+    // the unchanged base segments.
+    MockProvider.lastSystem = req.system;
     // Snapshot the messages array so resume-history regression tests can
     // assert the model saw prior turns.
     MockProvider.lastMessages = req.messages;

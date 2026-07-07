@@ -281,6 +281,21 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     const perTurnModel =
       typeof body.model === 'string' && body.model.length > 0 ? body.model : undefined;
 
+    // Per-turn system instruction (PostTurnRequest.instructions) — additive +
+    // optional + ephemeral. A non-empty string is delivered to the model as an
+    // extra system segment for THIS turn only (via PerTurn.systemPrompt below),
+    // AUGMENTING — never replacing — the standing base system prompt, and is
+    // NEVER written to the messages table (the provider `system:` field is
+    // separate from `messages: history`). Anything else (absent, empty, or
+    // non-string) → undefined → the PerTurn.systemPrompt field is omitted and
+    // the turn uses the unchanged base `config.systemPrompt`, byte-identical to
+    // today. Validated here at the untrusted-body boundary, mirroring the inline
+    // `text`/`kind`/`model` guards above. Never mutates `runtime.systemSegments`.
+    const perTurnInstructions =
+      typeof body.instructions === 'string' && body.instructions.length > 0
+        ? body.instructions
+        : undefined;
+
     const bus = getOrCreateBus(sessionId);
     // POST /turns is fire-and-forget: kick off the background turn loop
     // and return 202 immediately. The per-session bus buffers events
@@ -289,21 +304,27 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     // any in-route awaiting. The `void` discards the returned promise
     // intentionally; runTurnInBackground catches its own errors and
     // publishes them as turn_error events onto the bus.
-    void runTurnInBackground(runtime, sessionId, text, bus, skillScope, perTurnModel).catch(
-      (err) => {
-        // Defense in depth: runTurnInBackground catches errors inside its try and
-        // publishes turn_error, but a throw in its pre-try setup would otherwise
-        // be an unhandled rejection that crashes the process. Surface it as a
-        // turn_error so the client sees an error instead of a frozen turn.
-        bus.publish({
-          type: 'turn_error',
-          seq: bus.nextSeq(),
-          sessionId,
-          error: err instanceof Error ? err.message : String(err),
-          recoverable: false,
-        });
-      },
-    );
+    void runTurnInBackground(
+      runtime,
+      sessionId,
+      text,
+      bus,
+      skillScope,
+      perTurnModel,
+      perTurnInstructions,
+    ).catch((err) => {
+      // Defense in depth: runTurnInBackground catches errors inside its try and
+      // publishes turn_error, but a throw in its pre-try setup would otherwise
+      // be an unhandled rejection that crashes the process. Surface it as a
+      // turn_error so the client sees an error instead of a frozen turn.
+      bus.publish({
+        type: 'turn_error',
+        seq: bus.nextSeq(),
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+        recoverable: false,
+      });
+    });
     return c.json({ accepted: true } satisfies PostTurnResponse, 202);
   });
 
@@ -436,6 +457,14 @@ async function runTurnInBackground(
   // back to the standing `config.model` (= runtime.model), byte-identical to
   // today. Never mutates the process-global model — the override is turn-local.
   perTurnModel?: string,
+  // Per-turn system instruction (PostTurnRequest.instructions). A non-empty
+  // string set by the route is APPENDED to the standing base system segments
+  // (runtime.systemSegments) and handed to agent.run() via PerTurn.systemPrompt
+  // below for THIS turn only — ephemeral (the provider `system:` field is never
+  // persisted to the messages table). undefined → the PerTurn.systemPrompt field
+  // is omitted and the turn uses the unchanged base `config.systemPrompt`,
+  // byte-identical to today. Turn-local; never mutates runtime.systemSegments.
+  perTurnInstructions?: string,
 ): Promise<void> {
   // Phase B T3 — mark the turn boundary on the bus BEFORE this turn stamps
   // its first event (the status_update{streaming:true} below is the first
@@ -800,6 +829,29 @@ async function runTurnInBackground(
         // runs THIS turn (and the compaction-retry hop) on the override without
         // touching the process-global model. Stable across the hop (turn-local).
         ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
+        // Per-turn system instruction (PostTurnRequest.instructions). Present
+        // only when the wire body carried a non-empty `instructions`; the
+        // conditional spread keeps the field ABSENT otherwise
+        // (exactOptionalPropertyTypes) so createAgent falls back to
+        // `config.systemPrompt` (= runtime.systemSegments) — byte-identical to
+        // today. When present, we AUGMENT (never replace — createAgent resolves
+        // `perTurn.systemPrompt ?? config.systemPrompt`, so passing only the
+        // instruction would DROP the base persona/bundle/skills prompt): the base
+        // segments verbatim, with `{ text: instruction, cacheable: false }`
+        // APPENDED LAST. Appending a non-cacheable tail segment preserves the
+        // cacheable prefix on the base segments, so the provider prompt cache
+        // isn't busted every turn. Ephemeral: the provider `system:` field is
+        // separate from `messages: history` and is never written to the messages
+        // table, so this reaches the model for THIS turn only and never
+        // accumulates. Stable across the compaction-retry hop (turn-local).
+        ...(perTurnInstructions !== undefined
+          ? {
+              systemPrompt: [
+                ...runtime.systemSegments,
+                { text: perTurnInstructions, cacheable: false },
+              ],
+            }
+          : {}),
         // Reasoning-depth for THIS session, mutated live by `/effort`
         // (backlog #57 — per-session on the SessionContext). 'off' (the
         // default) → createAgent omits the key → query() byte-identical
