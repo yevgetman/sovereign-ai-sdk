@@ -15,13 +15,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { exit } from 'node:process';
-import { OWNER, PUBLIC_REPO, die, note, repoRoot, sha256 } from './release-shared';
+import { OWNER, PUBLIC_REPO, TARGETS, die, note, repoRoot, sha256 } from './release-shared';
 
-const EXPECTED_TARBALL_NAMES = [
-  'sov-darwin-arm64.tar.gz',
-  'sov-darwin-x64.tar.gz',
-  'sov-linux-x64.tar.gz',
-] as const;
+// Derived from TARGETS (the single source of truth the build step iterates) so
+// the upload set can never drift from what was built. A hardcoded list here
+// previously omitted linux-arm64 after it was added to TARGETS, silently
+// publishing a release missing that target.
+const EXPECTED_TARBALL_NAMES = TARGETS.map((t) => `sov-${t.name}.tar.gz`);
 
 export type CollectResult =
   | { ok: true; tarballs: string[] }

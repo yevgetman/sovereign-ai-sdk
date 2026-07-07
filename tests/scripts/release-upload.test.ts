@@ -21,13 +21,14 @@ function withTempReleaseDir(
 }
 
 describe('release-upload — collectTarballs', () => {
-  test('returns the three expected tarballs in canonical order when all present', () => {
+  test('returns the expected tarballs (derived from TARGETS) in canonical order when all present', () => {
     withTempReleaseDir(
       'v0.6.0',
       (dir) => {
         writeFileSync(join(dir, 'sov-darwin-arm64.tar.gz'), 'a');
         writeFileSync(join(dir, 'sov-darwin-x64.tar.gz'), 'b');
         writeFileSync(join(dir, 'sov-linux-x64.tar.gz'), 'c');
+        writeFileSync(join(dir, 'sov-linux-arm64.tar.gz'), 'd');
       },
       (dir) => {
         const r = collectTarballs(dir);
@@ -37,6 +38,7 @@ describe('release-upload — collectTarballs', () => {
             'sov-darwin-arm64.tar.gz',
             'sov-darwin-x64.tar.gz',
             'sov-linux-x64.tar.gz',
+            'sov-linux-arm64.tar.gz',
           ]);
         }
       },
