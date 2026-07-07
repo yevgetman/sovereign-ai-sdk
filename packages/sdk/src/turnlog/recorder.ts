@@ -150,6 +150,13 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         break;
       }
       case 'tool_use_done': {
+        // `done` COMPLETES one execution. `block` is the content-block index
+        // WITHIN one assistant message, and an agentic turn spans MANY messages,
+        // so block numbers REPEAT across them (the gateway emits start+done per
+        // tool_use block of every message). We finalize the block's open unit and
+        // then release the block key: a later `start` on the same block is a NEW
+        // execution → a NEW unit with a NEW ordinal. The unit itself stays in
+        // `state.intermediates` (pushed at creation) — now finalized.
         const block = ev.block ?? 0;
         let unit = state.toolCallByBlock.get(block);
         if (unit === undefined) {
@@ -160,6 +167,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         }
         unit.input = ev.input;
         unit.hasInput = true;
+        state.toolCallByBlock.delete(block); // finalized — the block is free to be reused
         break;
       }
       case 'tool_result': {

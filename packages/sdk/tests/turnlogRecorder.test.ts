@@ -74,7 +74,110 @@ function driveFullTurn(rec: TurnLogRecorder, turnSeq: number): void {
   rec.setHumanText(turnSeq, 'hello world');
 }
 
+/** A realistic AGENTIC turn: three assistant messages, each executing ONE tool
+ *  on content-block index 1 — so `block` REPEATS (1,1,1) across the messages,
+ *  exactly as the gateway emits it (block is intra-message, not intra-turn).
+ *  Per-event monotonic seqs (80..90), all distinct from the turn's seq. */
+function driveAgenticTurn(rec: TurnLogRecorder, turnSeq: number): void {
+  // Assistant message 1: a thought, then a WebFetch on block 1.
+  rec.ingest({ type: 'thinking_delta', seq: 80, block: 0, text: 'planning' });
+  rec.ingest({ type: 'tool_use_start', seq: 81, block: 1, tool: 'WebFetch' });
+  rec.ingest({ type: 'tool_use_done', seq: 82, block: 1, input: { url: 'x' } });
+  rec.ingest({ type: 'tool_result', seq: 83, tool: 'WebFetch', output: 'fetched' });
+  // Assistant message 2: a Bash on block 1 AGAIN (block index repeats).
+  rec.ingest({ type: 'tool_use_start', seq: 84, block: 1, tool: 'Bash' });
+  rec.ingest({ type: 'tool_use_done', seq: 85, block: 1, input: { command: 'resume --help' } });
+  rec.ingest({ type: 'tool_result', seq: 86, tool: 'Bash', output: 'usage...' });
+  // Assistant message 3: a FileEdit on block 1 AGAIN.
+  rec.ingest({ type: 'tool_use_start', seq: 87, block: 1, tool: 'FileEdit' });
+  rec.ingest({ type: 'tool_use_done', seq: 88, block: 1, input: { path: 'a' } });
+  rec.ingest({ type: 'tool_result', seq: 89, tool: 'FileEdit', output: 'edited' });
+  // Final agent text, then seal + human text.
+  rec.ingest({ type: 'text_delta', seq: 90, text: 'All done' });
+  rec.ingest({ type: 'turn_complete', seq: turnSeq });
+  rec.setHumanText(turnSeq, 'do a bunch of things');
+}
+
 describe('createTurnLogRecorder — open-turn accumulation over the real wire', () => {
+  it('records ONE tool_call per execution when block indexes repeat across assistant messages', async () => {
+    const { sink, batches, callCount } = captureSink();
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'user-1', sink });
+
+    driveAgenticTurn(rec, 200); // three tool executions, all on block 1
+    await rec.commitTurn(200);
+
+    expect(callCount()).toBe(1);
+    const recs = batches[0] ?? [];
+
+    // Exactly THREE tool_call records — one per execution, NOT one collapsed unit.
+    const calls = recs.filter((r) => r.kind === 'tool_call');
+    const results = recs.filter((r) => r.kind === 'tool_result');
+    expect(calls).toHaveLength(3);
+    expect(results).toHaveLength(3);
+
+    // Verbatim per-execution toolName + JSON input, in execution order.
+    expect(calls.map((r) => r.toolName)).toEqual(['WebFetch', 'Bash', 'FileEdit']);
+    expect(calls.map((r) => r.content)).toEqual([
+      '{"url":"x"}',
+      '{"command":"resume --help"}',
+      '{"path":"a"}',
+    ]);
+
+    // Chronologically interleaved: each call's ordinal precedes its OWN result's.
+    for (const tool of ['WebFetch', 'Bash', 'FileEdit']) {
+      const call = calls.find((r) => r.toolName === tool);
+      const result = results.find((r) => r.toolName === tool);
+      expect(call).toBeDefined();
+      expect(result).toBeDefined();
+      expect((call as TurnLogRecord).seq).toBeLessThan((result as TurnLogRecord).seq);
+    }
+
+    // Total 9 records: human, thinking, 3×(call+result), agent — exact seq math.
+    expect(recs).toHaveLength(9);
+    expect(recs.map((r) => r.kind)).toEqual([
+      'message',
+      'thinking',
+      'tool_call',
+      'tool_result',
+      'tool_call',
+      'tool_result',
+      'tool_call',
+      'tool_result',
+      'message',
+    ]);
+    expect(recs.map((r) => r.role)).toEqual([
+      'human',
+      'agent',
+      'agent',
+      'tool',
+      'agent',
+      'tool',
+      'agent',
+      'tool',
+      'agent',
+    ]);
+    expect(recs.map((r) => r.seq)).toEqual([
+      200000, 200001, 200002, 200003, 200004, 200005, 200006, 200007, 200008,
+    ]);
+
+    // Distinct producerRefs — no two records collide on the idempotency key.
+    const refs = recs.map((r) => r.producerRef);
+    expect(new Set(refs).size).toBe(refs.length);
+    expect(refs).toEqual([
+      'gateway:s1:200:message:0',
+      'gateway:s1:200:thinking:1',
+      'gateway:s1:200:tool_call:2',
+      'gateway:s1:200:tool_result:3',
+      'gateway:s1:200:tool_call:4',
+      'gateway:s1:200:tool_result:5',
+      'gateway:s1:200:tool_call:6',
+      'gateway:s1:200:tool_result:7',
+      'gateway:s1:200:message:8',
+    ]);
+
+    expect(rec.stats()).toEqual({ committed: 9, dropped: 0, sinkErrors: 0 });
+  });
+
   it('normalizes a full turn into 5 ordered records though content seqs differ from the turn seq', async () => {
     const { sink, batches, callCount } = captureSink();
     const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'user-1', sink });

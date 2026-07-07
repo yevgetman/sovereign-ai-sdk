@@ -1,6 +1,6 @@
 {
   "name": "@yevgetman/sov-sdk",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "The open-core Sovereign AI SDK — an embeddable createAgent() agent-loop engine for Node and Bun.",
   "type": "module",
   "license": "MIT",
