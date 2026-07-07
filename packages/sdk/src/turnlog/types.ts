@@ -78,6 +78,14 @@ export type TurnLogRecorder = {
   setHumanText(turnSeq: number, text: string): void;
   /** Build the turn's records and hand them to the sink in ONE call. NEVER throws. */
   commitTurn(turnSeq: number): Promise<void>;
+  /** Seal + flush the CURRENT OPEN accumulation (the events since the last
+   *  turn_complete) under `turnSeq` — a durable capture of a turn that stalled /
+   *  errored / never emitted turn_complete. Same record shape, ordering, seq math,
+   *  producerRef scheme and empty-content skips as `commitTurn`, but every flushed
+   *  record's `source` is merged with `{ incomplete: true, reason }`. No-op when
+   *  nothing is committable; clears the open accumulation after flushing so a
+   *  stray later event or a second `flushOpen` cannot re-emit. NEVER throws. */
+  flushOpen(turnSeq: number, reason: string): Promise<void>;
   /** Drop all accumulated state. */
   abandon(): void;
   /** A snapshot of the fail-open counters. */

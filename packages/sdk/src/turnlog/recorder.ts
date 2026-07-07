@@ -100,6 +100,13 @@ function stringifyOutput(output: unknown): string | undefined {
 
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/** Merge the recorder's configured sourceTag (an object, or absent) with the
+ *  incomplete-capture marker. The tag is preserved (spread), never dropped. */
+function withIncompleteMarker(sourceTag: unknown, reason: string): unknown {
+  const base = sourceTag !== null && typeof sourceTag === 'object' ? sourceTag : {};
+  return { ...base, incomplete: true, reason };
+}
+
 export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogRecorder {
   const { sessionId, principal, sink } = opts;
   const producerPrefix = opts.producerPrefix ?? DEFAULT_PRODUCER_PREFIX;
@@ -311,6 +318,40 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
     }
   }
 
+  /** Seal the CURRENT OPEN accumulation under `turnSeq` and flush it — the
+   *  durable capture of a turn that stalled / errored / never emitted
+   *  `turn_complete`. Mirrors `commitTurn` (same collect → same ordering, seq
+   *  math, producerRefs, empty-content skips, fail-open discipline), but every
+   *  flushed record's `source` is stamped with the incomplete marker, and the
+   *  open slot is CLEARED before the sink call (like commitTurn clears the sealed
+   *  slot) so a stray later event or a second flushOpen cannot re-emit. */
+  async function flushOpen(turnSeq: number, reason: string): Promise<void> {
+    // The open accumulation is snapshotted and reset synchronously, BEFORE any
+    // await — a later stray event lands in the fresh slot, never this batch.
+    const state = open;
+    open = newTurnState();
+
+    let batch: TurnLogRecord[];
+    try {
+      batch = collect(state, turnSeq);
+    } catch (err) {
+      onError(`turnlog: flushOpen build failed: ${errMsg(err)}`);
+      return;
+    }
+    if (batch.length === 0) return; // nothing committable — the sink is not called
+
+    const marker = withIncompleteMarker(sourceTag, reason);
+    const marked = batch.map((record) => ({ ...record, source: marker }));
+
+    try {
+      await sink.record(marked);
+      stats.committed += marked.length;
+    } catch (err) {
+      stats.sinkErrors += 1;
+      onError(`turnlog: flushOpen sink.record failed: ${errMsg(err)}`);
+    }
+  }
+
   return {
     ingest(ev: TurnLogEvent): void {
       // NEVER throw into the caller — the ingest contract.
@@ -336,6 +377,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
       }
     },
     commitTurn,
+    flushOpen,
     abandon(): void {
       open = newTurnState();
       sealed.clear();

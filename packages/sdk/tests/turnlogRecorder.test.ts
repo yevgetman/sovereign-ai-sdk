@@ -509,6 +509,116 @@ describe('createTurnLogRecorder — open-turn accumulation over the real wire', 
     expect(rec.stats()).toEqual({ committed: 8, dropped: 0, sinkErrors: 0 });
   });
 
+  it('flushOpen: seals + flushes an OPEN (never-completed) turn, marking every record incomplete', async () => {
+    const { sink, batches, callCount } = captureSink();
+    const sourceTag = { harness: 'gateway', env: 'staging' };
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'user-1', sink, sourceTag });
+
+    // A partial turn: human + thinking + one tool execution, then the stream
+    // stalls — NO turn_complete, NO agent text.
+    rec.setHumanText(500, 'why is my build failing?'); // no sealed slot → the open accumulation
+    rec.ingest({ type: 'thinking_delta', seq: 91, block: 0, text: 'let me look' });
+    rec.ingest({ type: 'tool_use_start', seq: 93, block: 1, tool: 'Read' });
+    rec.ingest({ type: 'tool_use_done', seq: 95, block: 1, input: { path: '/x' } });
+    rec.ingest({ type: 'tool_result', seq: 97, tool: 'Read', output: 'file contents' });
+
+    await rec.flushOpen(500, 'stalled');
+
+    expect(callCount()).toBe(1);
+    const recs = batches[0] ?? [];
+
+    // Same shape/ordering/seq-math as a committed turn (no agent message — empty).
+    expect(recs.map((r) => r.kind)).toEqual(['message', 'thinking', 'tool_call', 'tool_result']);
+    expect(recs.map((r) => r.role)).toEqual(['human', 'agent', 'agent', 'tool']);
+    expect(recs.map((r) => r.seq)).toEqual([500000, 500001, 500002, 500003]);
+    expect(recs.map((r) => r.producerRef)).toEqual([
+      'gateway:s1:500:message:0',
+      'gateway:s1:500:thinking:1',
+      'gateway:s1:500:tool_call:2',
+      'gateway:s1:500:tool_result:3',
+    ]);
+    expect(recs.map((r) => r.content)).toEqual([
+      'why is my build failing?',
+      'let me look',
+      '{"path":"/x"}',
+      'file contents',
+    ]);
+
+    // Every record's source merges the configured sourceTag with the incomplete marker.
+    for (const r of recs) {
+      expect(r.source).toEqual({
+        harness: 'gateway',
+        env: 'staging',
+        incomplete: true,
+        reason: 'stalled',
+      });
+    }
+
+    expect(rec.stats()).toEqual({ committed: 4, dropped: 0, sinkErrors: 0 });
+  });
+
+  it('flushOpen: is a no-op when the open accumulation has nothing committable', async () => {
+    const { sink, callCount } = captureSink();
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
+
+    await rec.flushOpen(1, 'stalled'); // nothing ingested
+    expect(callCount()).toBe(0);
+    expect(rec.stats()).toEqual({ committed: 0, dropped: 0, sinkErrors: 0 });
+  });
+
+  it('flushOpen: clears the open accumulation — a second flushOpen sends nothing', async () => {
+    const { sink, batches, callCount } = captureSink();
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
+
+    rec.ingest({ type: 'text_delta', seq: 10, text: 'partial reply' });
+    await rec.flushOpen(600, 'stalled');
+    expect(callCount()).toBe(1);
+    expect((batches[0] ?? [])[0]?.content).toBe('partial reply');
+
+    // State cleared: a second flush (no fresh events) is a no-op — no re-emit.
+    await rec.flushOpen(600, 'stalled');
+    expect(callCount()).toBe(1);
+  });
+
+  it('flushOpen: is fail-open — a throwing sink resolves, counts a sinkError, and clears state', async () => {
+    const { sink, callCount } = throwingSink();
+    const errors: string[] = [];
+    const rec = createTurnLogRecorder({
+      sessionId: 's1',
+      principal: 'p',
+      sink,
+      onError: (m) => errors.push(m),
+    });
+
+    rec.ingest({ type: 'text_delta', seq: 10, text: 'partial' });
+    await rec.flushOpen(700, 'errored'); // must NOT throw
+
+    expect(rec.stats().sinkErrors).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(callCount()).toBe(1);
+    // State was cleared before the sink call — a re-flush sends nothing.
+    await rec.flushOpen(700, 'errored');
+    expect(callCount()).toBe(1);
+  });
+
+  it('flushOpen: does not disturb the normal commit path — a completed turn is never marked incomplete', async () => {
+    const { sink, batches, callCount } = captureSink();
+    const sourceTag = { harness: 'gateway', env: 'staging' };
+    const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink, sourceTag });
+
+    driveFullTurn(rec, 101); // a normal, COMPLETED turn (turn_complete seals it)
+    await rec.commitTurn(101);
+
+    expect(callCount()).toBe(1);
+    const recs = batches[0] ?? [];
+    expect(recs).toHaveLength(5);
+    // A completed turn carries the plain sourceTag — no incomplete marker.
+    for (const r of recs) {
+      expect(r.source).toEqual({ harness: 'gateway', env: 'staging' });
+    }
+    expect(rec.stats()).toEqual({ committed: 5, dropped: 0, sinkErrors: 0 });
+  });
+
   it('finalizes multi-block thinking within one phase at the boundary; a later thought is a NEW unit', async () => {
     const { sink, batches } = captureSink();
     const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
