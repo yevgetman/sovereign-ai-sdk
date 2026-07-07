@@ -55,6 +55,11 @@ export const MAX_TOKENS_CEILING = 32000;
  *    capability data we don't have yet — so `/effort` is a no-op on ollama
  *    until that lands (documented fast-follow). Returning false here keeps the
  *    capability gate honest (no thinking param is ever attached for ollama).
+ *  - router: gated OFF. With model `auto` the routed upstream is unknown, so we
+ *    can't know whether it accepts a reasoning param (sending one to a
+ *    non-reasoning upstream errors) — `/effort` is a documented no-op on this
+ *    lane. Honest capability gate; revisit if routers grow a reasoning-
+ *    passthrough contract.
  *  - unknown apiMode: never.
  */
 export function modelSupportsReasoning(model: string, apiMode: ApiMode): boolean {
@@ -68,6 +73,10 @@ export function modelSupportsReasoning(model: string, apiMode: ApiMode): boolean
       return true;
     case 'ollama':
       // Gated off for v1 — per-model `think` support not yet wired.
+      return false;
+    case 'router':
+      // Gated off — with model `auto` the routed upstream is unknown, so no
+      // thinking/reasoning param is ever attached (/effort is a no-op here).
       return false;
     default:
       return false;

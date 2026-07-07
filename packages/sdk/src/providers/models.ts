@@ -3,7 +3,7 @@
 
 export type ProviderRegistryEntry = {
   provider: string;
-  apiMode: 'anthropic' | 'openai' | 'ollama' | 'sov';
+  apiMode: 'anthropic' | 'openai' | 'ollama' | 'sov' | 'router';
   defaultModel: string;
   defaultBaseUrl: string;
   authEnvVar?: string;
@@ -52,6 +52,22 @@ export const PROVIDER_REGISTRY: Record<string, ProviderRegistryEntry> = {
     defaultModel: 'mlx-community/Qwen3-4B-4bit',
     defaultBaseUrl: 'http://127.0.0.1:8000/v1',
     contextLength: 32_768,
+  },
+  // The model-router organ's lane (apiMode 'router'): a generic OpenAI-compatible
+  // routing proxy the caller asks with model `auto`, letting the router pick the
+  // upstream. The current binding is a self-hosted Manifest instance on the
+  // loopback default; keyed (mnfst_ key required, unlike the keyless sov lane).
+  // contextLength 128k is a deliberate CONSERVATIVE FLOOR — the routed upstream
+  // is unknown with model `auto`, so compaction math needs *a* number; pinning
+  // providers.manifest.model to a real model id restores the exact MODEL_CONTEXT
+  // lookup.
+  manifest: {
+    provider: 'manifest',
+    apiMode: 'router',
+    defaultModel: 'auto',
+    defaultBaseUrl: 'http://localhost:2099/v1',
+    authEnvVar: 'MANIFEST_API_KEY',
+    contextLength: 128_000,
   },
 };
 

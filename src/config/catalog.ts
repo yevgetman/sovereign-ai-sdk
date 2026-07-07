@@ -77,7 +77,14 @@ export type ConfigGroup = {
 // Reusable choice lists
 // ──────────────────────────────────────────────────────────────────────
 
-const PROVIDER_CHOICES = ['anthropic', 'openai', 'openrouter', 'ollama', 'sov'] as const;
+const PROVIDER_CHOICES = [
+  'anthropic',
+  'openai',
+  'openrouter',
+  'ollama',
+  'sov',
+  'manifest',
+] as const;
 const PERMISSION_MODE_CHOICES = ['default', 'ask', 'bypass'] as const;
 // Reasoning-depth levels for `thinking.effort`. Mirrors REASONING_EFFORTS in
 // src/providers/effort.ts — keep in sync. `off` is the default (no extended
@@ -116,6 +123,10 @@ const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b']
 // know exactly what you're running. List the installed/served model(s) here.
 // (Future: discover these live from the engine's /v1/models — Bucket B.)
 const SOV_MODELS = ['mlx-community/Qwen3-4B-4bit'] as const;
+// The Manifest model router's routing alias. The caller stops choosing a model
+// and asks the lane for `auto`; the router picks the upstream. Pin a real model
+// id via the model editor's freeform to route to a specific model instead.
+const MANIFEST_MODELS = ['auto'] as const;
 
 /**
  * Map a provider name to its known model list. Used by `defaultModel`'s
@@ -136,6 +147,8 @@ function modelsForProvider(provider: string | undefined): readonly string[] {
       return OLLAMA_MODELS;
     case 'sov':
       return SOV_MODELS;
+    case 'manifest':
+      return MANIFEST_MODELS;
     default:
       return ANTHROPIC_MODELS;
   }
@@ -220,6 +233,7 @@ const PROVIDERS_ROOT_GROUP: ConfigGroup = {
     { label: 'OpenRouter', targetGroupId: 'providers-openrouter' },
     { label: 'Ollama', targetGroupId: 'providers-ollama' },
     { label: 'Sovereign (local)', targetGroupId: 'providers-sov' },
+    { label: 'Manifest (model router)', targetGroupId: 'providers-manifest' },
   ],
 };
 
@@ -331,6 +345,42 @@ const PROVIDERS_SOV_GROUP: ConfigGroup = {
       label: 'baseUrl',
       description: 'Local Sovereign engine endpoint (OpenAI-compatible /v1).',
       editor: { kind: 'string', placeholder: 'http://localhost:8080/v1' },
+    },
+  ],
+};
+
+const PROVIDERS_MANIFEST_GROUP: ConfigGroup = {
+  id: 'providers-manifest',
+  label: 'Providers / Manifest (model router)',
+  description:
+    'Manifest model-router lane (apiMode "router"): ask for model "auto" and the router picks the ' +
+    "upstream (cost/capability/locality/fallbacks are the router's job). The routing-hint headers " +
+    '(Manifest custom-tier headers / x-session-key, providers.manifest.headers) are config-file-only ' +
+    'for v1 — no scalar editor here; set them directly in config.json.',
+  items: [
+    {
+      path: 'providers.manifest.apiKey',
+      label: 'apiKey',
+      description: 'Manifest agent key (mnfst_...). Env: MANIFEST_API_KEY.',
+      editor: { kind: 'secret' },
+      secret: true,
+    },
+    {
+      path: 'providers.manifest.model',
+      label: 'model',
+      description:
+        'Model requested from the router. "auto" (the default) lets the router pick the upstream; ' +
+        'pin a real model id to force a specific model (which also restores exact context-length ' +
+        'lookup). Live-applied when manifest is the active provider.',
+      editor: { kind: 'string', choices: MANIFEST_MODELS, allowCustom: true, placeholder: 'auto' },
+    },
+    {
+      path: 'providers.manifest.baseUrl',
+      label: 'baseUrl',
+      description:
+        'Self-hosted Manifest endpoint (OpenAI-compatible /v1). Point at https://app.manifest.build ' +
+        'for the cloud.',
+      editor: { kind: 'string', placeholder: 'http://localhost:2099/v1' },
     },
   ],
 };
@@ -1005,6 +1055,7 @@ export const CONFIG_CATALOG: readonly ConfigGroup[] = Object.freeze([
   PROVIDERS_OPENROUTER_GROUP,
   PROVIDERS_OLLAMA_GROUP,
   PROVIDERS_SOV_GROUP,
+  PROVIDERS_MANIFEST_GROUP,
   TASK_ROUTING_GROUP,
   SUBSCRIPTION_EXECUTOR_GROUP,
   ROUTER_GROUP,

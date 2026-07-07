@@ -1,5 +1,40 @@
 # Changelog
 
+## sdk 0.5.0 — Model-router lane (Manifest = the current router solution) - 2026-07-06
+
+New provider lane: a **generic model-router transport** plus its current binding.
+**`RouterProvider`** (apiMode `'router'`; new barrel exports `RouterProvider` /
+`RouterProviderConfig` / `ResolvedRoute`) speaks to any OpenAI-compatible routing
+proxy — the caller asks for model `auto` and the router picks the upstream. Two
+seams over the inherited OpenAI transport: a static `headers` map for routing
+hints (the real auth/content-type are never maskable), and an opt-in
+`onRouteResolved` callback fed by one new protected no-op `onResponse` hook on
+`OpenAIProvider` (parses the `X-Manifest-*` route-report headers; a throwing
+callback is swallowed — best-effort). The **`manifest` registry lane** binds it
+to a self-hosted [Manifest](https://github.com/mnfst/manifest) instance: model
+`auto`, loopback `http://localhost:2099/v1`, env `MANIFEST_API_KEY`, config
+`providers.manifest` incl. the router-only `headers` block; `/effort` is gated
+off on the lane (unknown upstream). Nothing from Manifest is imported — the
+router stays swappable (a `baseUrl` override or a new registry entry). Wrapper:
+the lane is exposed in `/config` (Providers → Manifest). Docs: new recipe
+`docs/04-extending/routing-an-agent.md` + a cli-reference provider entry; an
+env-gated live conformance probe (`tests/providers/router.live.test.ts`,
+`MANIFEST_LIVE=1`). **Additive only** — every existing lane byte-identical;
+`@yevgetman/sov-sdk` 0.4.0 → 0.5.0 (protocol package untouched); npm publish
+remains **held** (unchanged posture). Spec:
+`specs/2026-07-06-model-router-adapter-design.md`.
+
+## sdk 0.4.0 — Turn-log recorder - 2026-07-06
+
+_(SDK-package release only; entry backfilled at the 0.5.0 merge.)_ New barrel
+export **`createTurnLogRecorder`**: canonical full-content turn records over the
+SSE wire shape, handed per-turn to a pluggable `TurnLogSink` (fail-open, zero
+dependencies). A follow-up fix — **open-turn accumulation** (the real gateway
+wire carries per-EVENT seqs, not per-turn; everything since the last
+`turn_complete` belongs to that turn, sealed under its seq; live-verify
+finding) — was authored as 0.4.1 and ships folded into **0.5.0** (its version
+bump was superseded by the router lane's additive minor).
+
 ## sdk 0.3.0 — Assay usage wire (the official token-accounting export) - 2026-07-05
 
 _(SDK-package release only — no root-wrapper behavior change.)_ New barrel export
