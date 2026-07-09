@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-07-09 — `sov run` hardening follow-up
+
+**Scope.** Follow-up testing of the new `sov run --json --stdin` machine surface for Telekit-style
+headless adapter use. The audit focused on bad-input side effects, stdout/stderr contract hygiene,
+permission behavior in non-interactive mode, and regression coverage against the shared `drive`
+SSE/event path.
+
+**Finding fixed.** Empty stdin was reported as a structured `turn.error`, but only after the runtime
+created a persistent session and transcript. This was an unnecessary state/data side effect for
+invalid adapter input. `sov run` now reads and validates stdin before booting the runtime or creating
+a session. Empty stdin emits exactly one JSONL error with `sessionId: null` and creates no
+`sessions.db` or transcript directory.
+
+**Coverage added.**
+- Empty stdin is side-effect-free (`turn.error`, `sessionId: null`, no DB, no transcript).
+- Ask-mode permission requests are surfaced as `permission_request`, auto-denied, and the turn
+continues without running the tool, avoiding headless hangs or accidental execution.
+- A real subprocess invocation keeps machine events on stdout and human diagnostics on stderr.
+
+**Commands run (real results).**
+- `bun test tests/cli/runCommand.test.ts` - **7 pass / 0 fail**.
+- `bun test tests/cli/driveCommand.test.ts tests/cli/driveCommand.pivot.test.ts tests/cli/driveCommand.delegator.test.ts` - **28 pass / 0 fail**.
+- `bun run lint` - clean; **0 dependency violations** (175 modules / 564 deps cruised).
+- `bun run typecheck` - clean.
+- `bun run test` - **4900 pass / 0 fail / 18 skip** across 467 files (20,055 expect calls, ~82 s).
+
+**Regressions / follow-ups:** None observed. The installed global `sov` binary still needs the
+standard post-push `sov upgrade` so local Telegram/Telekit use sees the new `run` command.
+
 ## 2026-07-09 — `sov run --json --stdin` machine contract
 
 **Scope.** Build A / task #1 from the Apex SOV integration spec: add the one-shot adapter-facing

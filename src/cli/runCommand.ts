@@ -103,6 +103,25 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     return 2;
   }
 
+  let prompt: string;
+  try {
+    prompt = await (io.readStdin ?? readProcessStdin)();
+  } catch (err) {
+    const error = `failed to read stdin: ${err instanceof Error ? err.message : String(err)}`;
+    writeJson({ type: 'turn.error', sessionId: null, error, recoverable: false });
+    return 1;
+  }
+
+  if (prompt.length === 0) {
+    writeJson({
+      type: 'turn.error',
+      sessionId: null,
+      error: 'stdin prompt is empty',
+      recoverable: false,
+    });
+    return 2;
+  }
+
   const { buildRuntime } = await import('../server/runtime.js');
   const { startServer } = await import('../server/index.js');
 
@@ -175,25 +194,6 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
       permissionMode: runtime.permissionMode,
       effort: runtime.effort,
     });
-
-    let prompt: string;
-    try {
-      prompt = await (io.readStdin ?? readProcessStdin)();
-    } catch (err) {
-      const error = `failed to read stdin: ${err instanceof Error ? err.message : String(err)}`;
-      writeJson({ type: 'turn.error', sessionId, error, recoverable: false });
-      return 1;
-    }
-
-    if (prompt.length === 0) {
-      writeJson({
-        type: 'turn.error',
-        sessionId,
-        error: 'stdin prompt is empty',
-        recoverable: false,
-      });
-      return 2;
-    }
 
     const renderer = new JsonRunRenderer({ baseURL, writeJson });
     sse = new DriveSseManager({
