@@ -28,7 +28,11 @@ found a real monorepo packaging bug: Bun global installs cannot resolve the root
 `workspace:*` dependencies outside the workspace. The root package now depends on the internal SDK
 and protocol packages through `file:` specs, and the SDK default-bundle resolver now walks upward
 until it finds a real `bundle-default/index.yaml` so copied `file:` package installs under
-`node_modules/.bun/` still locate the shipped bundle.
+`node_modules/.bun/` still locate the shipped bundle. A final pushed-git install smoke exposed the
+remaining source-mode issue: Bun's global git install can fetch the root package but still leaves the
+internal `file:` packages unavailable at runtime. Source-mode `sov upgrade` now uses a durable source
+checkout at `~/.cache/sov/source/sovereign-ai-sdk`, updates it with `git`, runs `bun install`, and
+links it globally with `bun link`. Binary-mode upgrades are unchanged.
 
 **Coverage added.**
 - Empty stdin is side-effect-free (`turn.error`, `sessionId: null`, no DB, no transcript).
@@ -37,11 +41,13 @@ continues without running the tool, avoiding headless hangs or accidental execut
 - A real subprocess invocation keeps machine events on stdout and human diagnostics on stderr.
 - The root CLI package cannot regress to unresolvable `workspace:*` internal deps.
 - The SDK bundle resolver handles copied `file:` package install layouts.
+- Source-mode `sov upgrade` no longer relies on a fragile global git install for the monorepo.
 
 **Commands run (real results).**
 - `bun install -g /Users/julie/code/sovereign-ai-sdk` - **passes**, installs `sov` and `harness`.
 - `sov --version` - **0.6.54-0eb74e5** after local reinstall; `sov run --help` shows the command.
 - `bun test tests/cli/runCommand.test.ts tests/cli/upgrade.test.ts` - **36 pass / 0 fail**.
+- `bun test tests/cli/upgrade.test.ts tests/bundle/defaultBundle.test.ts` - **42 pass / 0 fail**.
 - `bun test tests/cli/driveCommand.test.ts tests/cli/driveCommand.pivot.test.ts tests/cli/driveCommand.delegator.test.ts` - **28 pass / 0 fail**.
 - `bun test tests/bundle/defaultBundle.test.ts` - **13 pass / 0 fail**.
 - `bun test tests/server/runtime.skills.test.ts tests/server/runtime.taskRouting.test.ts tests/server/runtime.plugins.test.ts tests/server/runtime.subscriptionExecutorPrompt.test.ts tests/server/routes/skills.test.ts` - **19 pass / 0 fail**.
@@ -49,10 +55,10 @@ continues without running the tool, avoiding headless hangs or accidental execut
 - `bun test tests/channels/telegram.test.ts` - **18 pass / 0 fail**.
 - `bun run lint` - clean; **0 dependency violations** (175 modules / 564 deps cruised).
 - `bun run typecheck` - clean.
-- `bun run test` - **4902 pass / 0 fail / 18 skip** across 467 files (20,058 expect calls, ~74 s).
+- `bun run test` - **4902 pass / 0 fail / 18 skip** across 467 files (20,063 expect calls, ~78 s).
 
-**Regressions / follow-ups:** None observed. After the installability commit lands, run `sov upgrade`
-again from the restored local/global binary to verify the pushed git-install path end to end.
+**Regressions / follow-ups:** None observed. After the source-upgrade commit lands, run `sov upgrade`
+again from the local source command to verify the linked-checkout path end to end.
 
 ## 2026-07-09 — `sov run --json --stdin` machine contract
 

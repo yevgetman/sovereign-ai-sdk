@@ -27,9 +27,9 @@
 // other Bun-installed packages.
 
 import { spawnSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git';
 
@@ -89,6 +89,8 @@ export type UpgradeOpts = {
   installUrl?: string;
   /** Test seam — overrides ~/.bun/install/cache for the purge step. */
   cacheDir?: string;
+  /** Test seam — overrides the source checkout used by source-mode upgrades. */
+  sourceDir?: string;
   /** Phase 21 — override install-mode detection. Default: auto-detect
    *  from process.execPath via detectInstallMode(). Pass 'source' to
    *  force the legacy bun-install flow even on binary installs (escape
@@ -133,11 +135,21 @@ export function buildUpgradeCommands(
     return [['bash', '-c', `curl -fsSL ${BINARY_INSTALLER_URL} | bash`]];
   }
 
-  const base = opts.installUrl ?? env.SOV_UPGRADE_URL ?? DEFAULT_INSTALL_URL;
-  const url = opts.ref ? `${base}#${opts.ref}` : base;
-  const install = ['bun', 'install', '-g', url];
-  if (opts.skipUninstall === true) return [install];
-  return [['bun', 'uninstall', '-g', PACKAGE_NAME], install];
+  const sourceDir = sourceDirFor(opts);
+  const cloneUrl = normalizeGitCloneUrl(
+    opts.installUrl ?? env.SOV_UPGRADE_URL ?? DEFAULT_INSTALL_URL,
+  );
+  const ref = opts.ref ?? 'master';
+  const install = [
+    ['git', 'clone', cloneUrl, sourceDir],
+    ['git', '-C', sourceDir, 'fetch', '--tags', '--prune', 'origin'],
+    ['git', '-C', sourceDir, 'checkout', ref],
+    ...(opts.ref ? [] : [['git', '-C', sourceDir, 'pull', '--ff-only', 'origin', 'master']]),
+    ['bun', 'install'],
+    ['bun', 'link'],
+  ];
+  if (opts.skipUninstall === true) return install;
+  return [['bun', 'uninstall', '-g', PACKAGE_NAME], ...install];
 }
 
 /** Run the upgrade. stdio is inherited so the user sees Bun's progress
@@ -181,20 +193,30 @@ export function runUpgrade(
   // bun is missing (the install step below will surface that error
   // with the proper message).
   if (commands.length > 1) {
-    const [uninstall, ...rest] = commands;
+    const [uninstall] = commands;
     if (uninstall) {
       const [ubin, ...uargs] = uninstall;
       if (ubin) spawnSync(ubin, uargs, { stdio: 'inherit' });
     }
     if (willPurge) purgeCache(opts, out);
-    return runInstall(rest[0], commands, out, err);
+    return runSourceInstall(opts, commands, out, err);
   }
   if (willPurge) purgeCache(opts, out);
-  return runInstall(commands[0], commands, out, err);
+  return runSourceInstall(opts, commands, out, err);
 }
 
 function cacheDirFor(opts: UpgradeOpts): string {
   return opts.cacheDir ?? join(homedir(), '.bun', 'install', 'cache');
+}
+
+function sourceDirFor(opts: UpgradeOpts): string {
+  return opts.sourceDir ?? join(homedir(), '.cache', 'sov', 'source', 'sovereign-ai-sdk');
+}
+
+function normalizeGitCloneUrl(url: string): string {
+  if (url.startsWith('git+ssh://')) return `ssh://${url.slice('git+ssh://'.length)}`;
+  if (url.startsWith('git+https://')) return `https://${url.slice('git+https://'.length)}`;
+  return url;
 }
 
 function purgeCache(opts: UpgradeOpts, out: NodeJS.WritableStream): void {
@@ -245,4 +267,81 @@ function runInstall(
     err.write(`sov upgrade: bun install exited ${exitCode}\n`);
   }
   return { exitCode, commands };
+}
+
+function runSourceInstall(
+  opts: UpgradeOpts,
+  commands: string[][],
+  out: NodeJS.WritableStream,
+  err: NodeJS.WritableStream,
+): UpgradeResult {
+  const sourceDir = sourceDirFor(opts);
+  const cloneUrl = normalizeGitCloneUrl(
+    opts.installUrl ?? process.env.SOV_UPGRADE_URL ?? DEFAULT_INSTALL_URL,
+  );
+  const ref = opts.ref ?? 'master';
+
+  try {
+    mkdirSync(dirname(sourceDir), { recursive: true });
+  } catch (cause) {
+    err.write(`sov upgrade: failed to create source checkout parent: ${String(cause)}\n`);
+    return { exitCode: 1, commands };
+  }
+
+  if (existsSync(join(sourceDir, '.git'))) {
+    out.write(`updating sov source checkout: ${sourceDir}\n`);
+    const fetch = runStep(['git', '-C', sourceDir, 'fetch', '--tags', '--prune', 'origin'], err);
+    if (fetch !== 0) return { exitCode: fetch, commands };
+  } else if (existsSync(sourceDir)) {
+    err.write(`sov upgrade: source checkout exists but is not a git repo: ${sourceDir}\n`);
+    return { exitCode: 1, commands };
+  } else {
+    out.write(`cloning sov source checkout: ${cloneUrl} -> ${sourceDir}\n`);
+    const clone = runStep(['git', 'clone', cloneUrl, sourceDir], err);
+    if (clone !== 0) return { exitCode: clone, commands };
+  }
+
+  const checkout = runStep(['git', '-C', sourceDir, 'checkout', ref], err);
+  if (checkout !== 0) return { exitCode: checkout, commands };
+
+  if (!opts.ref) {
+    const pull = runStep(['git', '-C', sourceDir, 'pull', '--ff-only', 'origin', 'master'], err);
+    if (pull !== 0) return { exitCode: pull, commands };
+  }
+
+  out.write(`installing source dependencies: ${sourceDir}\n`);
+  const install = runStep(['bun', 'install'], err, sourceDir);
+  if (install !== 0) return { exitCode: install, commands };
+
+  out.write(`linking sov globally from source checkout: ${sourceDir}\n`);
+  const link = runStep(['bun', 'link'], err, sourceDir);
+  if (link !== 0) return { exitCode: link, commands };
+
+  out.write('sov upgrade: done. The next `sov` invocation uses the linked source checkout.\n');
+  return { exitCode: 0, commands };
+}
+
+function runStep(cmd: string[], err: NodeJS.WritableStream, cwd?: string): number {
+  const [bin, ...args] = cmd;
+  if (!bin) {
+    err.write('sov upgrade: empty command\n');
+    return 1;
+  }
+
+  const result = spawnSync(bin, args, { stdio: 'inherit', cwd });
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    if (bin === 'bun' && code === 'ENOENT') {
+      err.write(
+        'sov upgrade: `bun` is not on PATH.\n' +
+          'Install Bun first: curl -fsSL https://bun.sh/install | bash\n',
+      );
+    } else if (bin === 'git' && code === 'ENOENT') {
+      err.write('sov upgrade: `git` is not on PATH.\n');
+    } else {
+      err.write(`sov upgrade: ${result.error.message}\n`);
+    }
+    return 1;
+  }
+  return result.status ?? 1;
 }

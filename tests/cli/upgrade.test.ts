@@ -16,51 +16,72 @@ import {
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
 describe('buildUpgradeCommands', () => {
-  test('returns [uninstall, install] by default', () => {
-    const cmds = buildUpgradeCommands({}, {});
-    expect(cmds.length).toBe(2);
+  const sourceDir = '/tmp/sov-source-checkout';
+
+  test('returns source-checkout upgrade commands by default', () => {
+    const cmds = buildUpgradeCommands({ sourceDir }, {});
+    expect(cmds.length).toBe(7);
     expect(cmds[0]).toEqual(['bun', 'uninstall', '-g', PACKAGE_NAME]);
-    expect(cmds[1]).toEqual(['bun', 'install', '-g', DEFAULT_INSTALL_URL]);
+    expect(cmds[1]).toEqual([
+      'git',
+      'clone',
+      DEFAULT_INSTALL_URL.replace('git+ssh://', 'ssh://'),
+      sourceDir,
+    ]);
+    expect(cmds.at(-2)).toEqual(['bun', 'install']);
+    expect(cmds.at(-1)).toEqual(['bun', 'link']);
   });
 
-  test('skipUninstall returns just the install', () => {
-    const cmds = buildUpgradeCommands({ skipUninstall: true }, {});
-    expect(cmds.length).toBe(1);
-    expect(cmds[0]).toEqual(['bun', 'install', '-g', DEFAULT_INSTALL_URL]);
+  test('skipUninstall omits the pre-uninstall command', () => {
+    const cmds = buildUpgradeCommands({ skipUninstall: true, sourceDir }, {});
+    expect(cmds[0]?.[0]).toBe('git');
+    expect(cmds.some((cmd) => cmd.join(' ') === `bun uninstall -g ${PACKAGE_NAME}`)).toBe(false);
   });
 
-  test('appends a ref via the standard git #fragment form', () => {
-    const cmds = buildUpgradeCommands({ ref: 'v0.2.0' }, {});
-    expect(cmds[1]?.[3]).toBe(`${DEFAULT_INSTALL_URL}#v0.2.0`);
+  test('checks out an explicit ref in the source checkout', () => {
+    const cmds = buildUpgradeCommands({ ref: 'v0.2.0', sourceDir }, {});
+    expect(cmds).toContainEqual(['git', '-C', sourceDir, 'checkout', 'v0.2.0']);
+    expect(cmds).not.toContainEqual([
+      'git',
+      '-C',
+      sourceDir,
+      'pull',
+      '--ff-only',
+      'origin',
+      'master',
+    ]);
   });
 
   test('honors the SOV_UPGRADE_URL env override', () => {
     const cmds = buildUpgradeCommands(
-      {},
+      { sourceDir },
       { SOV_UPGRADE_URL: 'git+ssh://git@example.com/fork.git' },
     );
-    expect(cmds[1]?.[3]).toBe('git+ssh://git@example.com/fork.git');
+    expect(cmds[1]).toEqual(['git', 'clone', 'ssh://git@example.com/fork.git', sourceDir]);
   });
 
   test('opts.installUrl wins over the env var', () => {
     const cmds = buildUpgradeCommands(
-      { installUrl: 'git+ssh://git@example.com/from-opt.git' },
+      { installUrl: 'git+ssh://git@example.com/from-opt.git', sourceDir },
       { SOV_UPGRADE_URL: 'git+ssh://git@example.com/from-env.git' },
     );
-    expect(cmds[1]?.[3]).toBe('git+ssh://git@example.com/from-opt.git');
+    expect(cmds[1]).toEqual(['git', 'clone', 'ssh://git@example.com/from-opt.git', sourceDir]);
   });
 
-  test('ref is concatenated to the override, not the default', () => {
+  test('ref checkout composes with the override, not the default', () => {
     const cmds = buildUpgradeCommands({
       ref: 'feature-branch',
       installUrl: 'git+ssh://git@example.com/fork.git',
+      sourceDir,
     });
-    expect(cmds[1]?.[3]).toBe('git+ssh://git@example.com/fork.git#feature-branch');
+    expect(cmds[1]).toEqual(['git', 'clone', 'ssh://git@example.com/fork.git', sourceDir]);
+    expect(cmds).toContainEqual(['git', '-C', sourceDir, 'checkout', 'feature-branch']);
   });
 
   test('the uninstall always targets the canonical PACKAGE_NAME, not the URL', () => {
     const cmds = buildUpgradeCommands({
       installUrl: 'git+ssh://git@example.com/fork.git',
+      sourceDir,
     });
     // Package name is hardcoded — forks override the URL but keep the
     // package identity.
@@ -97,11 +118,12 @@ describe('runUpgrade', () => {
     } as unknown as NodeJS.WritableStream;
     const result = runUpgrade({ dryRun: true, ref: 'v0.2.0' }, out, err);
     expect(result.exitCode).toBe(0);
-    expect(result.commands.length).toBe(2);
-    expect(result.commands[1]).toEqual(['bun', 'install', '-g', `${DEFAULT_INSTALL_URL}#v0.2.0`]);
+    expect(result.commands.length).toBeGreaterThanOrEqual(5);
     const stdout = chunks.join('');
     expect(stdout).toContain('would run: bun uninstall -g @yevgetman/sov');
-    expect(stdout).toContain(`would run: bun install -g ${DEFAULT_INSTALL_URL}#v0.2.0`);
+    expect(stdout).toContain('would run: git clone');
+    expect(stdout).toContain('would run: git -C');
+    expect(stdout).toContain('would run: bun link');
     expect(errChunks).toEqual([]);
   });
 
@@ -117,8 +139,8 @@ describe('runUpgrade', () => {
       write: () => true,
     } as unknown as NodeJS.WritableStream;
     const result = runUpgrade({ dryRun: true, skipUninstall: true }, out, err);
-    expect(result.commands.length).toBe(1);
     expect(chunks.join('')).not.toContain('uninstall');
+    expect(result.commands[0]?.[0]).toBe('git');
   });
 
   test('dry-run with purgeCache reports the cache dir that would be wiped', () => {
@@ -300,11 +322,14 @@ describe('buildUpgradeCommands — binary mode', () => {
     expect(cmds[0]?.[2]).not.toContain('v0.3.0');
   });
 
-  test('explicit mode "source" preserves the existing two-command behavior', () => {
-    const cmds = buildUpgradeCommands({ mode: 'source' }, {});
-    expect(cmds.length).toBe(2);
+  test('explicit mode "source" preserves the source-checkout behavior', () => {
+    const cmds = buildUpgradeCommands(
+      { mode: 'source', sourceDir: '/tmp/sov-source-checkout' },
+      {},
+    );
+    expect(cmds.length).toBe(7);
     expect(cmds[0]).toEqual(['bun', 'uninstall', '-g', PACKAGE_NAME]);
-    expect(cmds[1]).toEqual(['bun', 'install', '-g', DEFAULT_INSTALL_URL]);
+    expect(cmds.at(-1)).toEqual(['bun', 'link']);
   });
 });
 
