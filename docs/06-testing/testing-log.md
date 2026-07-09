@@ -25,23 +25,24 @@ a session. Empty stdin emits exactly one JSONL error with `sessionId: null` and 
 the old global package and then failed because the old binary still pointed at the pre-SDK
 `sovereign-ai-harness` repo. After restoring from the local checkout, a second installability check
 found a real monorepo packaging bug: Bun global installs cannot resolve the root CLI package's
-`workspace:*` dependencies outside the workspace. The root package now depends on the internal SDK
-and protocol packages through `file:` specs, and the SDK default-bundle resolver now walks upward
-until it finds a real `bundle-default/index.yaml` so copied `file:` package installs under
-`node_modules/.bun/` still locate the shipped bundle. A final pushed-git install smoke exposed the
-remaining source-mode issue: Bun's global git install can fetch the root package but still leaves the
-internal `file:` packages unavailable at runtime. Source-mode `sov upgrade` now uses a durable source
-checkout at `~/.cache/sov/source/sovereign-ai-sdk`, updates it with `git`, runs `bun install`, and
-links it globally with `bun link`. Binary-mode upgrades are unchanged.
+`workspace:*` dependencies outside the workspace. A temporary `file:packages/*` workaround made the
+global git install shape better but made `bun.lock` invalid because Bun wrote duplicate
+workspace/file records for the same internal package keys. The root package stays on `workspace:*`.
+Source-mode `sov upgrade` now uses a durable source checkout at
+`~/.cache/sov/source/sovereign-ai-sdk`, resets that owned checkout to discard generated local
+changes, updates it with `git`, runs `bun install`, and links it globally with `bun link`.
+Binary-mode upgrades are unchanged. The SDK default-bundle resolver still
+walks upward until it finds a real `bundle-default/index.yaml`, covering copied package layouts.
 
 **Coverage added.**
 - Empty stdin is side-effect-free (`turn.error`, `sessionId: null`, no DB, no transcript).
 - Ask-mode permission requests are surfaced as `permission_request`, auto-denied, and the turn
 continues without running the tool, avoiding headless hangs or accidental execution.
 - A real subprocess invocation keeps machine events on stdout and human diagnostics on stderr.
-- The root CLI package cannot regress to unresolvable `workspace:*` internal deps.
+- The root CLI package keeps workspace deps so Bun does not produce duplicate lockfile keys.
 - The SDK bundle resolver handles copied `file:` package install layouts.
 - Source-mode `sov upgrade` no longer relies on a fragile global git install for the monorepo.
+- Repeat source upgrades recover from a dirty generated source checkout before fetching.
 
 **Commands run (real results).**
 - `bun install -g /Users/julie/code/sovereign-ai-sdk` - **passes**, installs `sov` and `harness`.
@@ -53,6 +54,7 @@ continues without running the tool, avoiding headless hangs or accidental execut
 - `bun test tests/server/runtime.skills.test.ts tests/server/runtime.taskRouting.test.ts tests/server/runtime.plugins.test.ts tests/server/runtime.subscriptionExecutorPrompt.test.ts tests/server/routes/skills.test.ts` - **19 pass / 0 fail**.
 - `bun test tests/agents/delegator.integration.test.ts tests/router/atomTimeout.test.ts tests/router/atomFailure.test.ts tests/router/laneAttribution.test.ts` - **6 pass / 0 fail**.
 - `bun test tests/channels/telegram.test.ts` - **18 pass / 0 fail**.
+- `bun install --frozen-lockfile` - clean after restoring workspace internal deps and regenerating `bun.lock`.
 - `bun run lint` - clean; **0 dependency violations** (175 modules / 564 deps cruised).
 - `bun run typecheck` - clean.
 - `bun run test` - **4902 pass / 0 fail / 18 skip** across 467 files (20,063 expect calls, ~78 s).

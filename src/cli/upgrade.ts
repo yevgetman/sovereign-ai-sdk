@@ -142,6 +142,7 @@ export function buildUpgradeCommands(
   const ref = opts.ref ?? 'master';
   const install = [
     ['git', 'clone', cloneUrl, sourceDir],
+    ['git', '-C', sourceDir, 'reset', '--hard', 'HEAD'],
     ['git', '-C', sourceDir, 'fetch', '--tags', '--prune', 'origin'],
     ['git', '-C', sourceDir, 'checkout', ref],
     ...(opts.ref ? [] : [['git', '-C', sourceDir, 'pull', '--ff-only', 'origin', 'master']]),
@@ -290,6 +291,9 @@ function runSourceInstall(
 
   if (existsSync(join(sourceDir, '.git'))) {
     out.write(`updating sov source checkout: ${sourceDir}\n`);
+    const reset = runStep(['git', '-C', sourceDir, 'reset', '--hard', 'HEAD'], err);
+    if (reset !== 0) return { exitCode: reset, commands };
+
     const fetch = runStep(['git', '-C', sourceDir, 'fetch', '--tags', '--prune', 'origin'], err);
     if (fetch !== 0) return { exitCode: fetch, commands };
   } else if (existsSync(sourceDir)) {

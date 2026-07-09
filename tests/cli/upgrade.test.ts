@@ -20,7 +20,7 @@ describe('buildUpgradeCommands', () => {
 
   test('returns source-checkout upgrade commands by default', () => {
     const cmds = buildUpgradeCommands({ sourceDir }, {});
-    expect(cmds.length).toBe(7);
+    expect(cmds.length).toBe(8);
     expect(cmds[0]).toEqual(['bun', 'uninstall', '-g', PACKAGE_NAME]);
     expect(cmds[1]).toEqual([
       'git',
@@ -28,6 +28,7 @@ describe('buildUpgradeCommands', () => {
       DEFAULT_INSTALL_URL.replace('git+ssh://', 'ssh://'),
       sourceDir,
     ]);
+    expect(cmds[2]).toEqual(['git', '-C', sourceDir, 'reset', '--hard', 'HEAD']);
     expect(cmds.at(-2)).toEqual(['bun', 'install']);
     expect(cmds.at(-1)).toEqual(['bun', 'link']);
   });
@@ -90,13 +91,13 @@ describe('buildUpgradeCommands', () => {
 });
 
 describe('source install packaging', () => {
-  test('root CLI package uses file deps for internal packages, not workspace protocol', () => {
+  test('root CLI package keeps internal packages as workspace deps', () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>;
     };
 
-    expect(pkg.dependencies?.['@yevgetman/sov-protocol']).toBe('file:packages/protocol');
-    expect(pkg.dependencies?.['@yevgetman/sov-sdk']).toBe('file:packages/sdk');
+    expect(pkg.dependencies?.['@yevgetman/sov-protocol']).toBe('workspace:*');
+    expect(pkg.dependencies?.['@yevgetman/sov-sdk']).toBe('workspace:*');
   });
 });
 
@@ -327,7 +328,7 @@ describe('buildUpgradeCommands — binary mode', () => {
       { mode: 'source', sourceDir: '/tmp/sov-source-checkout' },
       {},
     );
-    expect(cmds.length).toBe(7);
+    expect(cmds.length).toBe(8);
     expect(cmds[0]).toEqual(['bun', 'uninstall', '-g', PACKAGE_NAME]);
     expect(cmds.at(-1)).toEqual(['bun', 'link']);
   });
