@@ -57,10 +57,14 @@ continues without running the tool, avoiding headless hangs or accidental execut
 - `bun install --frozen-lockfile` - clean after restoring workspace internal deps and regenerating `bun.lock`.
 - `bun run lint` - clean; **0 dependency violations** (175 modules / 564 deps cruised).
 - `bun run typecheck` - clean.
-- `bun run test` - **4902 pass / 0 fail / 18 skip** across 467 files (20,063 expect calls, ~78 s).
+- `bun run test` - **4902 pass / 0 fail / 18 skip** across 467 files (20,064 expect calls, ~79 s).
+- `bun src/main.ts upgrade` after pushing `03bec3b` - **passes**; resets the dirty source checkout,
+  fast-forwards it to `03bec3b`, runs `bun install`, and relinks global `sov`.
+- `sov --version` after upgrade - **0.6.54-03bec3b**; `sov run --help` works.
+- Global `sov run --json --stdin --provider mock --no-preflight` smoke with isolated
+  `HARNESS_HOME`/DB - **passes**, emits JSONL through `turn.completed`.
 
-**Regressions / follow-ups:** None observed. After the source-upgrade commit lands, run `sov upgrade`
-again from the local source command to verify the linked-checkout path end to end.
+**Regressions / follow-ups:** None observed.
 
 ## 2026-07-09 — `sov run --json --stdin` machine contract
 
