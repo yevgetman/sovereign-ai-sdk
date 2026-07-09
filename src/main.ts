@@ -26,6 +26,7 @@ import {
   writeConfig,
 } from '@yevgetman/sov-sdk/config/store';
 import type { PermissionMode } from '@yevgetman/sov-sdk/permissions/types';
+import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { parseProfileFlag } from './cli/profileFlag.js';
 import type { WorkflowEvent } from './workflows/events.js';
 import { VERSION } from './wrapperVersion.js';
@@ -159,6 +160,13 @@ function parsePermissionMode(raw: string): PermissionMode {
   throw new InvalidArgumentError("must be 'default', 'ask', or 'bypass'");
 }
 
+function parseReasoningEffort(raw: string): ReasoningEffort {
+  if ((REASONING_EFFORTS as readonly string[]).includes(raw)) {
+    return raw as ReasoningEffort;
+  }
+  throw new InvalidArgumentError("must be 'off', 'low', 'medium', 'high', or 'max'");
+}
+
 async function main(argv: string[]): Promise<void> {
   const program = new Command()
     .name('sov')
@@ -270,6 +278,38 @@ async function main(argv: string[]): Promise<void> {
     .action(async (opts) => {
       const { runDriveCommand } = await import('./cli/driveCommand.js');
       const exitCode = await runDriveCommand(opts);
+      process.exit(exitCode);
+    });
+
+  program
+    .command('run')
+    .description(
+      'Headless one-shot machine contract — reads all stdin as one prompt, runs one turn through the same server/runtime path as the TUI, and emits JSONL events. Initial contract requires --json --stdin.',
+    )
+    .option('--json', 'emit newline-delimited JSON machine events')
+    .option('--stdin', 'read the prompt from all of stdin')
+    .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or mock')
+    .option('-m, --model <name>', 'model name (overrides provider/config default)')
+    .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
+    .option(
+      '--permission-mode <mode>',
+      "tool permissions: 'default' honors rules/tool checks, 'ask' (auto-denied in run mode), 'bypass' allows on fallthrough",
+      parsePermissionMode,
+      DEFAULT_PERMISSION_MODE,
+    )
+    .option('--resume <id>', 'resume a prior session by its UUID')
+    .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
+    .option('--no-cache', 'disable provider prompt-cache markers for this session')
+    .option('--no-preflight', 'skip the startup provider health check')
+    .option(
+      '--effort <level>',
+      "reasoning effort for fresh sessions: 'off', 'low', 'medium', 'high', or 'max'",
+      parseReasoningEffort,
+    )
+    .action(async (opts) => {
+      const { runRunCommand } = await import('./cli/runCommand.js');
+      const exitCode = await runRunCommand(opts);
       process.exit(exitCode);
     });
 

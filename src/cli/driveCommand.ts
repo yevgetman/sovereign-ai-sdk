@@ -238,8 +238,12 @@ export async function runDriveCommand(opts: DriveOptions): Promise<number> {
  *  pairing in packages/tui/internal/app/app.go (sseCursor / sseCursorSession /
  *  startSSE) so a between-turns pivot (/clear, /rollback) and a mid-turn
  *  compaction pivot both reconnect correctly. */
-export class DriveSseManager {
-  readonly renderer: EventRenderer;
+export type DriveEventRenderer = {
+  handle(ev: ServerEvent): void;
+};
+
+export class DriveSseManager<Renderer extends DriveEventRenderer = DriveEventRenderer> {
+  readonly renderer: Renderer;
   private readonly baseURL: string;
   /** Aborts the whole loop on shutdown. */
   private readonly stopController = new AbortController();
@@ -263,7 +267,7 @@ export class DriveSseManager {
    *  disconnect. */
   connectionCount = 0;
 
-  constructor(opts: { baseURL: string; initialSessionId: string; renderer: EventRenderer }) {
+  constructor(opts: { baseURL: string; initialSessionId: string; renderer: Renderer }) {
     this.baseURL = opts.baseURL;
     this.activeSessionId = opts.initialSessionId;
     this.cursorSession = opts.initialSessionId;

@@ -8,6 +8,24 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-07-09 — `sov run --json --stdin` machine contract
+
+**Scope.** Build A / task #1 from the Apex SOV integration spec: add the one-shot adapter-facing
+machine surface `sov run --json --stdin`. The command reads all stdin as one prompt, starts or
+resumes a normal runtime session, follows the same HTTP+SSE server path as the TUI/`sov drive`,
+emits direct server events as JSONL, and finishes with `turn.completed` or `turn.error`. It also
+threads `--effort off|low|medium|high|max` into the runtime boot default for fresh sessions.
+
+**Commands run (real results).**
+- `bun test tests/cli/runCommand.test.ts` — **5 pass / 0 fail**.
+- `bun test tests/cli/driveCommand.test.ts tests/cli/driveCommand.pivot.test.ts tests/cli/driveCommand.delegator.test.ts` — **28 pass / 0 fail**.
+- `bun run lint` — clean; **0 dependency violations** (175 modules / 564 deps cruised).
+- `bun run typecheck` — clean.
+- `bun run test` — **4898 pass / 0 fail / 18 skip** across 467 files (20,038 expect calls, ~80 s).
+
+**Regressions / follow-ups:** None observed. This is the SDK/harness-side machine contract only;
+Telekit adapter wiring remains the next build.
+
 ## 2026-07-06 — Model-router lane: Manifest as the current router solution (sdk 0.5.0, `model-router-adapter` branch)
 
 **Scope.** The model-router adapter build (SOP-12, TDD RED→GREEN per task): a generic `RouterProvider` transport (apiMode `'router'`) + the protected `onResponse` seam on `OpenAIProvider`, the `manifest` registry lane (model `auto`, `MANIFEST_API_KEY`, config `providers.manifest` incl. router-only `headers`), honest `/effort` gate, barrel exports + sdk 0.5.0 bump, `/config` catalog exposure, docs, and an env-gated live conformance probe. Spec `specs/2026-07-06-model-router-adapter-design.md`, plan `plans/2026-07-06-model-router-adapter.md`. Additive only — every existing lane byte-identical.

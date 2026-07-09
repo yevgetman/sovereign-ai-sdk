@@ -272,6 +272,9 @@ export type RuntimeOptions = {
   provider?: string;
   /** Model name override. */
   model?: string;
+  /** Boot default reasoning-depth override. When omitted, buildRuntime uses
+   *  userSettings.thinking.effort or 'off'. */
+  effort?: ReasoningEffort;
   /** Cache markers default-on; pass false in tests that exercise the
    *  no-cache path. */
   cacheEnabled?: boolean;
@@ -1907,7 +1910,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // actually absent at runtime despite the Settings type marking it required
     // (the schema default only materializes on the parse path). 'off' = no
     // extended thinking = byte-identical provider requests.
-    effort: userSettings.thinking?.effort ?? 'off',
+    effort: opts.effort ?? userSettings.thinking?.effort ?? 'off',
     agents,
     bundle,
     cwd: opts.cwd,
