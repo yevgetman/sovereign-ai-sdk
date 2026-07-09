@@ -2,6 +2,8 @@
 // exercised in unit tests (they would actually re-install the binary).
 
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   BINARY_INSTALLER_URL,
   DEFAULT_INSTALL_URL,
@@ -10,6 +12,8 @@ import {
   detectInstallMode,
   runUpgrade,
 } from '../../src/cli/upgrade.js';
+
+const REPO_ROOT = join(import.meta.dir, '..', '..');
 
 describe('buildUpgradeCommands', () => {
   test('returns [uninstall, install] by default', () => {
@@ -61,6 +65,17 @@ describe('buildUpgradeCommands', () => {
     // Package name is hardcoded — forks override the URL but keep the
     // package identity.
     expect(cmds[0]).toEqual(['bun', 'uninstall', '-g', '@yevgetman/sov']);
+  });
+});
+
+describe('source install packaging', () => {
+  test('root CLI package uses file deps for internal packages, not workspace protocol', () => {
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(pkg.dependencies?.['@yevgetman/sov-protocol']).toBe('file:packages/protocol');
+    expect(pkg.dependencies?.['@yevgetman/sov-sdk']).toBe('file:packages/sdk');
   });
 });
 

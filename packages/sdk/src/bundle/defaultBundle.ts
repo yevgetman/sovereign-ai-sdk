@@ -20,6 +20,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveHarnessHome } from '../config/paths.js';
 
+const MAX_SOURCE_BUNDLE_WALK_DEPTH = 16;
+
 /** Resolve the default bundle path. Returns null only when neither the
  *  override nor the shipped bundle exists — which should be impossible
  *  in a healthy install (the shipped bundle is committed to the repo)
@@ -65,21 +67,32 @@ export function shippedBundlePath(
     // realpath threw (missing file, permission, etc.) — fall through.
   }
 
-  // Source mode: walk up from this file's URL.
+  // Source mode: walk up from this file's URL until a committed
+  // bundle-default/ is found. This covers the live workspace and copied
+  // file: package installs under node_modules/.bun/.
   // For `bun src/main.ts` or `bun install -g` installs, the binary
   // branch above misses by design (process.execPath is the bun
   // executable itself, with no bundle-default sibling) so we land here.
   try {
     const metaUrl = opts.metaUrl ?? import.meta.url;
     const realMain = realpathSync(fileURLToPath(metaUrl));
-    // packages/sdk/src/bundle/defaultBundle.ts → walk up five levels to the
-    // repo root (Phase 3 move; the pre-move src/bundle/ needed three).
-    // packages/sdk/dist/bundle/defaultBundle.js sits at the same depth, so a
-    // built checkout resolves identically.
-    return join(dirname(dirname(dirname(dirname(dirname(realMain))))), 'bundle-default');
+    return findBundleDefaultFrom(realMain);
   } catch {
     return null;
   }
+}
+
+function findBundleDefaultFrom(path: string): string | null {
+  let dir = dirname(path);
+  for (let depth = 0; depth < MAX_SOURCE_BUNDLE_WALK_DEPTH; depth += 1) {
+    const candidate = join(dir, 'bundle-default');
+    if (existsSync(join(candidate, 'index.yaml'))) return candidate;
+
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
 /** Returns true when bundleRoot resolves to the same real path as the

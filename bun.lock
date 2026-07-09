@@ -8,8 +8,8 @@
         "@anthropic-ai/sdk": "^0.110.0",
         "@commander-js/extra-typings": "^12.1.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@yevgetman/sov-protocol": "workspace:*",
-        "@yevgetman/sov-sdk": "workspace:*",
+        "@yevgetman/sov-protocol": "file:packages/protocol",
+        "@yevgetman/sov-sdk": "file:packages/sdk",
         "chalk": "^5.3.0",
         "cron-parser": "^4.9.0",
         "hono": "^4.12.0",
@@ -40,7 +40,7 @@
     },
     "packages/sdk": {
       "name": "@yevgetman/sov-sdk",
-      "version": "0.1.0",
+      "version": "0.5.3",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.110.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -101,7 +101,11 @@
 
     "@yevgetman/sov-protocol": ["@yevgetman/sov-protocol@workspace:packages/protocol"],
 
+    "@yevgetman/sov-protocol": ["@yevgetman/sov-protocol@file:packages/protocol", { "devDependencies": { "@types/node": "^25.6.0", "typescript": "^5.6.0" } }],
+
     "@yevgetman/sov-sdk": ["@yevgetman/sov-sdk@workspace:packages/sdk"],
+
+    "@yevgetman/sov-sdk": ["@yevgetman/sov-sdk@file:packages/sdk", { "dependencies": { "@anthropic-ai/sdk": "^0.110.0", "@modelcontextprotocol/sdk": "^1.29.0", "picomatch": "^4.0.4", "tinyglobby": "^0.2.17", "yaml": "^2.6.0", "zod": "^3.24.0" }, "devDependencies": { "@types/node": "^25.6.0", "@types/picomatch": "^4.0.3", "typescript": "^5.6.0" } }],
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 

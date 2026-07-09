@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   getDefaultBundlePath,
   isDefaultBundlePath,
@@ -53,6 +54,38 @@ describe('shippedBundlePath', () => {
     expect(path).toContain('bundle-default');
     // The shipped bundle is committed; index.yaml must exist.
     expect(existsSync(join(path ?? '', 'index.yaml'))).toBe(true);
+  });
+
+  test('finds bundle-default above a copied file: package install layout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-file-package-root-'));
+    try {
+      const bundleDir = join(root, 'bundle-default');
+      const nestedSdkFile = join(
+        root,
+        'node_modules',
+        '.bun',
+        '@yevgetman+sov-sdk@file+packages+sdk',
+        'node_modules',
+        '@yevgetman',
+        'sov-sdk',
+        'src',
+        'bundle',
+        'defaultBundle.ts',
+      );
+      mkdirSync(bundleDir, { recursive: true });
+      mkdirSync(join(nestedSdkFile, '..'), { recursive: true });
+      writeFileSync(join(bundleDir, 'index.yaml'), 'repo: copied-file-package\n');
+      writeFileSync(nestedSdkFile, '');
+
+      const path = shippedBundlePath({
+        execPath: '/does/not/exist/sov',
+        metaUrl: pathToFileURL(nestedSdkFile).href,
+      });
+
+      expect(path).toBe(join(realpathSync(root), 'bundle-default'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

@@ -21,21 +21,38 @@ invalid adapter input. `sov run` now reads and validates stdin before booting th
 a session. Empty stdin emits exactly one JSONL error with `sessionId: null` and creates no
 `sessions.db` or transcript directory.
 
+**Upgrade/install finding fixed.** Post-push `sov upgrade` from the stale installed binary removed
+the old global package and then failed because the old binary still pointed at the pre-SDK
+`sovereign-ai-harness` repo. After restoring from the local checkout, a second installability check
+found a real monorepo packaging bug: Bun global installs cannot resolve the root CLI package's
+`workspace:*` dependencies outside the workspace. The root package now depends on the internal SDK
+and protocol packages through `file:` specs, and the SDK default-bundle resolver now walks upward
+until it finds a real `bundle-default/index.yaml` so copied `file:` package installs under
+`node_modules/.bun/` still locate the shipped bundle.
+
 **Coverage added.**
 - Empty stdin is side-effect-free (`turn.error`, `sessionId: null`, no DB, no transcript).
 - Ask-mode permission requests are surfaced as `permission_request`, auto-denied, and the turn
 continues without running the tool, avoiding headless hangs or accidental execution.
 - A real subprocess invocation keeps machine events on stdout and human diagnostics on stderr.
+- The root CLI package cannot regress to unresolvable `workspace:*` internal deps.
+- The SDK bundle resolver handles copied `file:` package install layouts.
 
 **Commands run (real results).**
-- `bun test tests/cli/runCommand.test.ts` - **7 pass / 0 fail**.
+- `bun install -g /Users/julie/code/sovereign-ai-sdk` - **passes**, installs `sov` and `harness`.
+- `sov --version` - **0.6.54-0eb74e5** after local reinstall; `sov run --help` shows the command.
+- `bun test tests/cli/runCommand.test.ts tests/cli/upgrade.test.ts` - **36 pass / 0 fail**.
 - `bun test tests/cli/driveCommand.test.ts tests/cli/driveCommand.pivot.test.ts tests/cli/driveCommand.delegator.test.ts` - **28 pass / 0 fail**.
+- `bun test tests/bundle/defaultBundle.test.ts` - **13 pass / 0 fail**.
+- `bun test tests/server/runtime.skills.test.ts tests/server/runtime.taskRouting.test.ts tests/server/runtime.plugins.test.ts tests/server/runtime.subscriptionExecutorPrompt.test.ts tests/server/routes/skills.test.ts` - **19 pass / 0 fail**.
+- `bun test tests/agents/delegator.integration.test.ts tests/router/atomTimeout.test.ts tests/router/atomFailure.test.ts tests/router/laneAttribution.test.ts` - **6 pass / 0 fail**.
+- `bun test tests/channels/telegram.test.ts` - **18 pass / 0 fail**.
 - `bun run lint` - clean; **0 dependency violations** (175 modules / 564 deps cruised).
 - `bun run typecheck` - clean.
-- `bun run test` - **4900 pass / 0 fail / 18 skip** across 467 files (20,055 expect calls, ~82 s).
+- `bun run test` - **4902 pass / 0 fail / 18 skip** across 467 files (20,058 expect calls, ~74 s).
 
-**Regressions / follow-ups:** None observed. The installed global `sov` binary still needs the
-standard post-push `sov upgrade` so local Telegram/Telekit use sees the new `run` command.
+**Regressions / follow-ups:** None observed. After the installability commit lands, run `sov upgrade`
+again from the restored local/global binary to verify the pushed git-install path end to end.
 
 ## 2026-07-09 — `sov run --json --stdin` machine contract
 
