@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -242,4 +242,74 @@ describe('runRunCommand', () => {
     expect(events[0]?.type).toBe('session.started');
     expect(events.at(-1)?.type).toBe('turn.completed');
   });
+
+  test('treats whitespace-only stdin as an empty prompt', async () => {
+    const result = await invoke('   \n\t\n  \n');
+
+    expect(result.code).toBe(2);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.type).toBe('turn.error');
+    expect(result.events[0]?.sessionId).toBeNull();
+    // Whitespace must not boot the runtime or create a persistent session.
+    expect(existsSync(dbPath)).toBe(false);
+  });
+
+  test('SIGINT mid-turn emits an interrupted terminal event and exits 130', async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        MAIN,
+        'run',
+        '--json',
+        '--stdin',
+        '--provider',
+        'mock',
+        '--no-preflight',
+        '--permission-mode',
+        'bypass',
+        '--db',
+        join(home, 'sig.db'),
+      ],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          HARNESS_HOME: home,
+          SOV_TEST_MOCK_PROVIDER: '1',
+          SOV_TEST_MOCK_SLOW_MS: '30000',
+        },
+      },
+    );
+    let stdout = '';
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    // Feed the prompt and EOF so the child boots, registers its interrupt
+    // handler, and enters the slow mock turn.
+    child.stdin.write('interrupt this turn\n');
+    child.stdin.end();
+    // Boot (~1s) + enter the 30s/event mock turn, then interrupt mid-turn.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    child.kill('SIGINT');
+    const code = await new Promise<number>((resolve) => {
+      const fail = setTimeout(() => {
+        child.kill('SIGKILL');
+        resolve(-1);
+      }, 15000);
+      child.on('close', (status: number | null) => {
+        clearTimeout(fail);
+        resolve(status ?? -1);
+      });
+    });
+
+    expect(code).toBe(130);
+    const events = stdout
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonEvent);
+    expect(events.some((ev) => ev.type === 'session.started')).toBe(true);
+    expect(events.at(-1)?.type).toBe('turn.error');
+    expect(events.at(-1)?.error).toBe('interrupted');
+    expect(events.at(-1)?.recoverable).toBe(true);
+  }, 30000);
 });

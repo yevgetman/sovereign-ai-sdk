@@ -112,7 +112,7 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     return 1;
   }
 
-  if (prompt.length === 0) {
+  if (prompt.trim().length === 0) {
     writeJson({
       type: 'turn.error',
       sessionId: null,
@@ -165,6 +165,25 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
 
   let server: { port: number; stop: () => Promise<void> } | null = null;
   let sse: DriveSseManager<JsonRunRenderer> | null = null;
+  let rendererRef: JsonRunRenderer | null = null;
+  // Headless interrupt handling — a process signal (Ctrl-C, an adapter
+  // timeout/kill, a scheduler stop) must still produce a machine terminal
+  // event so the caller isn't left reading a truncated JSONL stream, and
+  // must let the `finally` below tear down the in-process server + runtime.
+  // The handler only flips a flag and cancels the turn wait; the main flow
+  // then emits the terminal `turn.error` and returns the conventional
+  // 128+signum exit code (130 SIGINT / 143 SIGTERM). The session is
+  // persisted, so the error is marked recoverable and the adapter can resume.
+  let interruptSignal: 'SIGINT' | 'SIGTERM' | null = null;
+  const onSignal = (sig: 'SIGINT' | 'SIGTERM') => (): void => {
+    if (interruptSignal !== null) return;
+    interruptSignal = sig;
+    rendererRef?.cancelAwait();
+  };
+  const onInt = onSignal('SIGINT');
+  const onTerm = onSignal('SIGTERM');
+  process.on('SIGINT', onInt);
+  process.on('SIGTERM', onTerm);
 
   try {
     try {
@@ -196,6 +215,7 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     });
 
     const renderer = new JsonRunRenderer({ baseURL, writeJson });
+    rendererRef = renderer;
     sse = new DriveSseManager({
       baseURL,
       initialSessionId: sessionId,
@@ -204,6 +224,11 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     sse.start();
 
     const turnDone = renderer.awaitTurnTerminal();
+    // A signal that arrived after handler registration but before the turn
+    // wait existed (e.g. during createSession) left the flag set with no live
+    // await to cancel. Cancel now so `await turnDone` resolves immediately
+    // and the interrupt branch below emits the terminal event.
+    if (interruptSignal !== null) renderer.cancelAwait();
     const post = await postRunTurn({ baseURL, sessionId: sse.activeSessionId, text: prompt });
     if (!post.ok) {
       renderer.cancelAwait();
@@ -217,6 +242,16 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     }
 
     await turnDone;
+
+    if (interruptSignal !== null) {
+      writeJson({
+        type: 'turn.error',
+        sessionId: sse.activeSessionId,
+        error: 'interrupted',
+        recoverable: true,
+      });
+      return interruptSignal === 'SIGINT' ? 130 : 143;
+    }
 
     const terminal = renderer.terminal;
     if (terminal === null) {
@@ -262,6 +297,9 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     });
     return 1;
   } finally {
+    process.off('SIGINT', onInt);
+    process.off('SIGTERM', onTerm);
+    rendererRef = null;
     if (sse !== null) await sse.stop();
     if (server !== null) await server.stop();
     await runtime.dispose();

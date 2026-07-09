@@ -369,13 +369,22 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
    *  immediately. No-op when slowMode is off — every other test path
    *  runs synchronously as before. */
   private async maybeDelay(signal?: AbortSignal): Promise<void> {
-    if (!MockProvider.slowMode) return;
-    if (MockProvider.slowModeDelayMs <= 0) return;
+    // Test-only env hook (sibling of SOV_TEST_MOCK_PROVIDER): when set, the
+    // default Hello-world path sleeps this many ms between events so a real
+    // `sov run` subprocess can be interrupted mid-turn by the headless
+    // signal-handling integration test. No effect in normal operation.
+    const envMs = Number.parseInt(process.env.SOV_TEST_MOCK_SLOW_MS ?? '', 10);
+    const delayMs = MockProvider.slowMode
+      ? MockProvider.slowModeDelayMs
+      : Number.isFinite(envMs) && envMs > 0
+        ? envMs
+        : 0;
+    if (delayMs <= 0) return;
     if (signal?.aborted) {
       throw new DOMException('mock aborted', 'AbortError');
     }
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, MockProvider.slowModeDelayMs);
+      const timer = setTimeout(resolve, delayMs);
       if (signal) {
         signal.addEventListener(
           'abort',

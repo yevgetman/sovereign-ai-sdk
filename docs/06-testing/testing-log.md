@@ -8,6 +8,35 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-07-09 — `sov run` deep testing/debugging pass (round 2)
+
+**Scope.** CEO-directed second deep round on the Phase 1 `sov run --json --stdin` machine surface, looking specifically for bugs, usability issues, data leakage, and security issues. Triage critical→low; fix critical→medium; note lows.
+
+**Triage.**
+- **MEDIUM (fixed) — SIGINT/SIGTERM was unhandled.** An interrupt mid-turn (Ctrl-C, adapter timeout/kill, scheduler stop) produced no machine terminal event — the caller was left reading a truncated JSONL stream — and skipped clean teardown of the in-process server/runtime. Fixed: `sov run` now registers SIGINT/SIGTERM handlers that flip a flag and cancel the in-flight turn wait; the main flow then emits a terminal `turn.error { error: "interrupted", recoverable: true }` carrying the (persisted) session id and returns the conventional 128+signum exit code (130 SIGINT / 143 SIGTERM), with the `finally` still tearing down the server + runtime. `recoverable: true` signals the adapter it can `--resume`.
+- **LOW (noted; the whitespace one fixed in this pass as trivial):**
+  - Whitespace-only stdin previously ran a wasted turn; now treated as empty.
+  - `mock` provider is selectable in the shipped binary via `--provider mock` or `SOV_TEST_MOCK_PROVIDER=1` (intentional for adapter operational tests); `session.started` already labels `provider`, and it is never the default (default resolves to the configured real provider, e.g. `anthropic`, failing cleanly with a structured error when no credential is present).
+  - Invalid `--effort` / `--permission-mode` / flags are rejected by Commander on stderr with a nonzero exit (not JSONL) — acceptable since flag validation precedes the runner; runtime errors remain the structured-JSONL path.
+  - Error-envelope leakage inspected: messages are clean and bounded (`no usable credential for provider anthropic`, `session not found: <id>`, structured route 400/404 bodies); the server has no `app.onError` but routes return structured JSON and the surface is loopback/in-process — low residual risk. The prompt is never echoed to stdout/stderr.
+  - No hard turn timeout: the server's terminal-event invariant (exactly one `turn_complete`/`turn_error` per turn) plus the ApprovalQueue TTL backstop (auto-denies on timeout) prevent indefinite hangs; an unresponsive provider is the caller's timeout concern (Telekit has its own).
+  - `--effort` applies to fresh sessions only (documented); on `--resume` the session's effort persists.
+
+**No CRITICAL or HIGH findings.**
+
+**Coverage added (`tests/cli/runCommand.test.ts`).**
+- Whitespace-only stdin is rejected side-effect-free (`turn.error`, `sessionId: null`, no DB).
+- SIGINT mid-turn (real subprocess, slow mock via the new `SOV_TEST_MOCK_SLOW_MS` test hook) emits the interrupted terminal event and exits 130.
+- `SOV_TEST_MOCK_SLOW_MS` env hook added to `MockProvider.maybeDelay` (sibling of `SOV_TEST_MOCK_PROVIDER`; no effect in normal operation).
+
+**Commands run (real results).**
+- `bun test tests/cli/runCommand.test.ts` — **9 pass / 0 fail** (was 7; +whitespace, +SIGINT).
+- `bun run typecheck` — clean.
+- `bun run lint` (biome + boundary) — clean; 0 dependency violations (175 modules / 564 deps).
+- `bun run test` — **4904 pass / 0 fail / 18 skip** across 467 files (20,074 expect calls, ~84 s). No regressions.
+
+**Regressions / follow-ups:** None observed. Lows above are documented, not built.
+
 ## 2026-07-09 — `sov run` hardening follow-up
 
 **Scope.** Follow-up testing of the new `sov run --json --stdin` machine surface for Telekit-style
