@@ -26,7 +26,7 @@ import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
-import { wrapConductAuditSink } from './conductPort.js';
+import { DEFAULT_CONDUCT_REFUSAL, wrapConductAuditSink } from './conductPort.js';
 import { runTools } from './orchestrator.js';
 import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
 import type {
@@ -223,6 +223,46 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           latencyMs: Date.now() - startedAt,
           iso: nowIso(),
         });
+      }
+    }
+  }
+
+  // Conduct triage (D3): pre-generation intent assessment. Small-model,
+  // posture-shaping, FAIL-OPEN by design; 'refuse' short-circuits pre-model
+  // into a refusal reply. Non-refuse postures are advisory in 1b (audited;
+  // the engine consumes them when it arrives).
+  if (conduct?.triage && conductCtx && conductCtx.surface === 'user') {
+    const triageText = latestUserText(history);
+    if (triageText !== undefined) {
+      const startedAt = Date.now();
+      try {
+        const verdict = await conduct.triage(triageText, conductCtx);
+        const label = verdict.posture ?? (verdict.genuine ? 'open' : 'guarded');
+        emitConductAudit({
+          stage: 'triage',
+          sessionId: conductCtx.sessionId,
+          surface: conductCtx.surface,
+          verdict: label,
+          latencyMs: Date.now() - startedAt,
+          iso: nowIso(),
+        });
+        if (verdict.posture === 'refuse') {
+          const refusal = yield* yieldConductRefusal(
+            verdict.refusalText ?? DEFAULT_CONDUCT_REFUSAL,
+          );
+          await maybeFireStop('completed');
+          return refusal;
+        }
+      } catch {
+        emitConductAudit({
+          stage: 'triage',
+          sessionId: conductCtx.sessionId,
+          surface: conductCtx.surface,
+          verdict: 'error',
+          latencyMs: Date.now() - startedAt,
+          iso: nowIso(),
+        });
+        // fail open
       }
     }
   }

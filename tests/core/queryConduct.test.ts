@@ -3,6 +3,7 @@
 // (fail-open, refuse short-circuit). Task 4 appends the triage cases.
 
 import { describe, expect, test } from 'bun:test';
+import { DEFAULT_CONDUCT_REFUSAL } from '@yevgetman/sov-sdk/core/conductPort';
 import type {
   ConductAuditEvent,
   ConductContext,
@@ -237,6 +238,102 @@ describe('query() preGate seam', () => {
     const { terminal } = await drain(
       query({
         provider: scriptedProvider('hi', seen),
+        model: 'test-model',
+        messages: [userMsg('hello')],
+        systemPrompt: [],
+        maxTokens: 100,
+        conduct,
+        conductCtx: { ...ctx, surface: 'internal' },
+      }),
+    );
+    expect(called).toBe(false);
+    expect(terminal.reason).toBe('completed');
+  });
+});
+
+describe('query() triage seam', () => {
+  test('triage refuse: pre-model short-circuit into a refusal reply (default text)', async () => {
+    const seen = { requests: [] as Message[][] };
+    const conduct: ConductProvider = {
+      triage: () => ({ genuine: false, posture: 'refuse' }),
+    };
+    const { events, terminal } = await drain(
+      query({
+        provider: scriptedProvider('hi', seen),
+        model: 'test-model',
+        messages: [userMsg('hello')],
+        systemPrompt: [],
+        maxTokens: 100,
+        conduct,
+        conductCtx: ctx,
+      }),
+    );
+    expect(seen.requests).toHaveLength(0);
+    expect(terminal.reason).toBe('completed');
+    const finals = events.filter(
+      (e): e is Extract<StreamEvent, { type: 'assistant_message' }> =>
+        'type' in e && e.type === 'assistant_message',
+    );
+    const block = finals[0]?.message.content[0];
+    expect(block?.type === 'text' && block.text).toBe(DEFAULT_CONDUCT_REFUSAL);
+  });
+
+  test('triage non-refuse postures are advisory: turn proceeds; audit records the posture', async () => {
+    const seen = { requests: [] as Message[][] };
+    const audits: ConductAuditEvent[] = [];
+    const conduct: ConductProvider = {
+      triage: () => ({ genuine: true, posture: 'guarded' }),
+      auditSink: (e) => audits.push(e),
+    };
+    const { terminal } = await drain(
+      query({
+        provider: scriptedProvider('hi', seen),
+        model: 'test-model',
+        messages: [userMsg('hello')],
+        systemPrompt: [],
+        maxTokens: 100,
+        conduct,
+        conductCtx: ctx,
+      }),
+    );
+    expect(terminal.reason).toBe('completed');
+    expect(seen.requests).toHaveLength(1);
+    expect(audits.find((e) => e.stage === 'triage')?.verdict).toBe('guarded');
+  });
+
+  test('triage throw fails OPEN', async () => {
+    const seen = { requests: [] as Message[][] };
+    const conduct: ConductProvider = {
+      triage: () => {
+        throw new Error('triage exploded');
+      },
+    };
+    const { terminal } = await drain(
+      query({
+        provider: scriptedProvider('hi', seen),
+        model: 'test-model',
+        messages: [userMsg('hello')],
+        systemPrompt: [],
+        maxTokens: 100,
+        conduct,
+        conductCtx: ctx,
+      }),
+    );
+    expect(terminal.reason).toBe('completed');
+    expect(seen.requests).toHaveLength(1);
+  });
+
+  test('internal surface: triage does not run', async () => {
+    let called = false;
+    const conduct: ConductProvider = {
+      triage: () => {
+        called = true;
+        return { genuine: false, posture: 'refuse' };
+      },
+    };
+    const { terminal } = await drain(
+      query({
+        provider: scriptedProvider('hi', { requests: [] }),
         model: 'test-model',
         messages: [userMsg('hello')],
         systemPrompt: [],
