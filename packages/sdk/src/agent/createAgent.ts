@@ -42,6 +42,13 @@
 import { randomUUID } from 'node:crypto';
 import type { MicrocompactConfig } from '../compact/microcompact.js';
 import type { Settings } from '../config/schema.js';
+import {
+  type ConductContext,
+  type ConductProvider,
+  type ConductSurface,
+  wrapConductAuditSink,
+} from '../core/conductPort.js';
+import { insertPersonaSegments } from '../core/conductSegments.js';
 import type { ObserveInput } from '../core/observePort.js';
 import { query } from '../core/query.js';
 import type { StoredMessage } from '../core/sessionPort.js';
@@ -117,6 +124,13 @@ export type AgentConfig = {
   memoryManager?: MemoryRuntime;
   hookRunner?: HookRunner;
   traceRecorder?: (e: TraceEvent) => void;
+  /** Conduct Port (1b) — optional agent-behavior governance provider. Absent →
+   *  null provider: byte-identical behavior on every seam. */
+  conduct?: ConductProvider;
+  /** Which surface this agent's turns are (D23): 'user' (default) runs the
+   *  full seam set; 'internal' (harness-driven sub-turns) keeps only the
+   *  floors — toolPolicy + outputGuard; persona/preGate/triage are skipped. */
+  conductSurface?: ConductSurface;
   effort?: ReasoningEffort;
   /** Sampling temperature forwarded to the provider. Omit → query()/provider
    *  default (no temperature key sent). */
@@ -166,6 +180,8 @@ export type PerTurn = Partial<{
   toolContext: ToolContext;
   /** Per-turn override of the standing `rethrow` mode (see AgentConfig). */
   rethrow: boolean;
+  /** Per-turn override of the standing conduct provider (see AgentConfig). */
+  conduct: ConductProvider;
 }>;
 
 /** The structured result of a `run()`, returned as the generator's return
@@ -237,6 +253,47 @@ export function createAgent(config: AgentConfig): Agent {
     //    non-cacheable segment; absent → empty.
     const systemPrompt = toSystemSegments(perTurn.systemPrompt ?? config.systemPrompt);
 
+    // 4b. Conduct (1b): resolve provider + build the per-turn ConductContext.
+    //     personaSegments compose into the system prompt here — after the
+    //     cacheable prefix, before the dynamic tail (see insertPersonaSegments)
+    //     — so EVERY turn driver gets persona projection through this one
+    //     assembler. 'user' surface only; a throw fails OPEN (base prompt).
+    const conduct = perTurn.conduct ?? config.conduct;
+    const conductSurface: ConductSurface = config.conductSurface ?? 'user';
+    const conductCtx: ConductContext = {
+      sessionId,
+      surface: conductSurface,
+      model,
+      providerName: provider.name,
+      ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
+    };
+    const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
+    let effectiveSystemPrompt = systemPrompt;
+    if (conduct?.personaSegments && conductSurface === 'user') {
+      const startedAt = Date.now();
+      try {
+        const persona = await conduct.personaSegments(conductCtx);
+        effectiveSystemPrompt = insertPersonaSegments(systemPrompt, persona);
+        emitConductAudit({
+          stage: 'persona',
+          sessionId,
+          surface: conductSurface,
+          verdict: `segments:${persona.length}`,
+          latencyMs: Date.now() - startedAt,
+          iso: new Date().toISOString(),
+        });
+      } catch {
+        emitConductAudit({
+          stage: 'persona',
+          sessionId,
+          surface: conductSurface,
+          verdict: 'error',
+          latencyMs: Date.now() - startedAt,
+          iso: new Date().toISOString(),
+        });
+      }
+    }
+
     // 5. The observe adapter: wrap the `(i) => void` fn into a
     //    `LearningObserverPort` the orchestrator calls off the ToolContext.
     const observeFn = perTurn.observe ?? config.observe;
@@ -281,9 +338,10 @@ export function createAgent(config: AgentConfig): Agent {
       provider,
       model,
       messages: seedMessages,
-      systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
       maxTokens,
       sessionId,
+      ...(conduct !== undefined ? { conduct, conductCtx } : {}),
       ...(effort !== undefined ? { effort } : {}),
       ...(temperature !== undefined ? { temperature } : {}),
       ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
@@ -398,7 +456,7 @@ export function createAgent(config: AgentConfig): Agent {
         sessionId,
         model,
         providerName: provider.name,
-        systemPrompt,
+        systemPrompt: effectiveSystemPrompt,
         messages,
         seedCount: seedMessages.length,
         usage,
