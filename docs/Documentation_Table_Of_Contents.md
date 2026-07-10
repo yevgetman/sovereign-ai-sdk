@@ -32,6 +32,7 @@ How the runtime is built.
 
 - [Runtime architecture](02-architecture/runtime-architecture.md) — request lifecycle, the **SDK substrate** (`createAgent`) every surface runs on + the machine-enforced **open/proprietary boundary** and the `sov-protocol` wire contract, system prompt, tools, permissions, persistence (the injectable `SessionStore` port), sub-agents, microcompaction, REPL/TUI layers, learning + review pipelines, trajectory capture, the OpenAI + native gateway server surfaces (auth, multi-client transport, supervisor, multi-user isolation, channels).
 - [Subsystems overview](02-architecture/subsystems-overview.md) — the component-level atlas: every region of the codebase named and placed, with the invariants that hold across them.
+- [conduct-port.md](02-architecture/conduct-port.md) — the Conduct Port: agent-behavior governance seams (1b)
 
 ## 03 — CLI reference
 
