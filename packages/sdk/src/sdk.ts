@@ -278,6 +278,19 @@ export type { RecallTurn } from './core/types.js';
 // `RecalledLesson` is RecallResult.lessons' element type (Task 2.9).
 export type { RecallResult, RecalledLesson } from './core/recallPort.js';
 export type { ObservationStatus, ObserveInput } from './core/observePort.js';
+export type {
+  ConductAuditEvent,
+  ConductContext,
+  ConductOutputGuard,
+  ConductProvider,
+  ConductStage,
+  ConductSurface,
+  ConductToolVerdict,
+  OutputFinalVerdict,
+  PreGateVerdict,
+  TriageVerdict,
+} from './core/conductPort.js';
+export { DEFAULT_CONDUCT_REFUSAL, wrapConductAuditSink } from './core/conductPort.js';
 // `PermissionDecision` is the permission_check TraceEvent variant's field type.
 export type { PermissionDecision, TraceEvent } from './trace/types.js';
 
