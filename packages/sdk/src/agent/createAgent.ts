@@ -49,6 +49,7 @@ import {
   wrapConductAuditSink,
 } from '../core/conductPort.js';
 import { insertPersonaSegments } from '../core/conductSegments.js';
+import { composeConductCanUseTool } from '../core/conductToolPolicy.js';
 import type { ObserveInput } from '../core/observePort.js';
 import { query } from '../core/query.js';
 import type { StoredMessage } from '../core/sessionPort.js';
@@ -334,6 +335,11 @@ export function createAgent(config: AgentConfig): Agent {
     // else `false` (convert-to-terminal — byte-identical to today).
     const rethrow = perTurn.rethrow ?? config.rethrow ?? false;
 
+    // 7b. Conduct tool policy (floors — every surface): deny-first wrapper
+    //     around the per-turn canUseTool. Identity passthrough when the
+    //     provider has no toolPolicy capability.
+    const canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
+
     const gen = query({
       provider,
       model,
@@ -348,7 +354,7 @@ export function createAgent(config: AgentConfig): Agent {
       ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(toolContext !== undefined ? { toolContext } : {}),
-      ...(perTurn.canUseTool !== undefined ? { canUseTool: perTurn.canUseTool } : {}),
+      ...(canUseTool !== undefined ? { canUseTool } : {}),
       ...(memoryManager !== undefined ? { memoryManager } : {}),
       ...(recall !== undefined ? { recall } : {}),
       ...(pollSteering !== undefined ? { pollSteering } : {}),
