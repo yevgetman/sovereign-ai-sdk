@@ -1,5 +1,19 @@
 # Changelog
 
+## harness 0.6.57 — `sov run --steer-file` mid-turn steering - 2026-07-09
+
+A machine adapter can now inject operator messages into a **running** `sov run`
+turn. `--steer-file <path>` names a JSONL file (`{"text": "..."}` per line) that
+the turn loop polls at agent-loop boundaries and consumes atomically: at a tool
+boundary the framed message merges into the tool batch's user message (the
+loop-guidance mechanism — role alternation, tool_use/tool_result adjacency, and
+transcript persistence all preserved); at turn end a pending steer becomes a
+standalone user message and the turn CONTINUES to address it (`maxTurns`
+bounds). A `steer_injected` event (additive) announces each injection on the
+wire. SDK surface: `QueryParams`/`AgentConfig`/`PerTurn.pollSteering` — a host
+thunk mirroring `recall`. Without `--steer-file`, behavior is byte-identical.
+First consumer: telekit's Telegram bridge (mid-turn steering on the SOV lane).
+
 ## sdk 0.5.0 — Model-router lane (Manifest = the current router solution) - 2026-07-06
 
 New provider lane: a **generic model-router transport** plus its current binding.
