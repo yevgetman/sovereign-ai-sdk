@@ -26,6 +26,7 @@ import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
+import { DEFAULT_CONDUCT_REFUSAL, wrapConductAuditSink } from './conductPort.js';
 import { runTools } from './orchestrator.js';
 import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
 import type {
@@ -150,6 +151,119 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       // context. `injectedPrefix` is '' when nothing was injected → identical
       // to the plain rewrite.
       history = rewriteLatestUserText(history, `${injectedPrefix}${result.rewrittenPrompt}`);
+    }
+  }
+
+  // Synthesize a refusal reply (preGate deny-with-text / triage refuse): the
+  // turn COMPLETES with an assistant message — a refusal is a successful turn,
+  // not an error. Mirrors the shape consumers already handle (assistant_message
+  // event → the message itself is NOT re-yielded; hosts persist via the event,
+  // matching createAgent's drive loop which collects assistant messages from
+  // events only).
+  function* yieldConductRefusal(text: string): Generator<StreamEvent, Terminal> {
+    const message: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+    };
+    history.push(message);
+    yield { type: 'message_start' };
+    yield { type: 'text_delta', text };
+    yield { type: 'assistant_message', message };
+    yield { type: 'message_stop', stop_reason: 'end_turn' };
+    return { reason: 'completed' };
+  }
+  // Conduct seams (1b). preGate runs AFTER the UserPromptSubmit rewrite so it
+  // sees the FINAL text — including the injected memory/recall prefix and any
+  // hook rewrite; nothing smuggles past it via a rewriting hook (D23). 'user'
+  // surface only; a thrown capability fails OPEN (fail-closed postures are the
+  // engine's job, inside the capability). Audit events are content-free.
+  const conduct = params.conduct;
+  const conductCtx = params.conductCtx;
+  const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
+  if (conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
+    const gateText = latestUserText(history);
+    if (gateText !== undefined) {
+      const startedAt = Date.now();
+      let verdictLabel = 'allow';
+      try {
+        const verdict = await conduct.preGate(gateText, conductCtx);
+        verdictLabel = verdict.action;
+        if (verdict.action === 'rewrite') {
+          history = rewriteLatestUserText(history, verdict.text);
+        } else if (verdict.action === 'deny') {
+          emitConductAudit({
+            stage: 'pregate',
+            sessionId: conductCtx.sessionId,
+            surface: conductCtx.surface,
+            verdict: 'deny',
+            latencyMs: Date.now() - startedAt,
+            iso: nowIso(),
+          });
+          if (verdict.refusalText !== undefined) {
+            const refusal = yield* yieldConductRefusal(verdict.refusalText);
+            await maybeFireStop('completed');
+            return refusal;
+          }
+          const terminal: Terminal = {
+            reason: 'error',
+            error: new Error('prompt rejected by conduct preGate'),
+          };
+          await maybeFireStop(terminal.reason);
+          return terminal;
+        }
+      } catch {
+        verdictLabel = 'error'; // fail open
+      }
+      if (verdictLabel !== 'deny') {
+        emitConductAudit({
+          stage: 'pregate',
+          sessionId: conductCtx.sessionId,
+          surface: conductCtx.surface,
+          verdict: verdictLabel,
+          latencyMs: Date.now() - startedAt,
+          iso: nowIso(),
+        });
+      }
+    }
+  }
+
+  // Conduct triage (D3): pre-generation intent assessment. Small-model,
+  // posture-shaping, FAIL-OPEN by design; 'refuse' short-circuits pre-model
+  // into a refusal reply. Non-refuse postures are advisory in 1b (audited;
+  // the engine consumes them when it arrives).
+  if (conduct?.triage && conductCtx && conductCtx.surface === 'user') {
+    const triageText = latestUserText(history);
+    if (triageText !== undefined) {
+      const startedAt = Date.now();
+      try {
+        const verdict = await conduct.triage(triageText, conductCtx);
+        const label = verdict.posture ?? (verdict.genuine ? 'open' : 'guarded');
+        emitConductAudit({
+          stage: 'triage',
+          sessionId: conductCtx.sessionId,
+          surface: conductCtx.surface,
+          verdict: label,
+          latencyMs: Date.now() - startedAt,
+          iso: nowIso(),
+        });
+        if (verdict.posture === 'refuse') {
+          const refusal = yield* yieldConductRefusal(
+            verdict.refusalText ?? DEFAULT_CONDUCT_REFUSAL,
+          );
+          await maybeFireStop('completed');
+          return refusal;
+        }
+      } catch {
+        emitConductAudit({
+          stage: 'triage',
+          sessionId: conductCtx.sessionId,
+          surface: conductCtx.surface,
+          verdict: 'error',
+          latencyMs: Date.now() - startedAt,
+          iso: nowIso(),
+        });
+        // fail open
+      }
     }
   }
 

@@ -81,6 +81,13 @@ import type {
   CapabilityProfile,
   CapabilityRole,
   ChildCompletionEvent,
+  ConductAuditEvent,
+  ConductContext,
+  ConductOutputGuard,
+  ConductProvider,
+  ConductStage,
+  ConductSurface,
+  ConductToolVerdict,
   ContentBlock,
   CreateSessionInput,
   CreateTaskInput,
@@ -123,6 +130,7 @@ import type {
   MicrocompactInfo,
   ObservationStatus,
   ObserveInput,
+  OutputFinalVerdict,
   ParsedPermissionRule,
   PathLockManager,
   PathScope,
@@ -130,6 +138,7 @@ import type {
   PermissionBehavior,
   PermissionDecision,
   PermissionResult,
+  PreGateVerdict,
   ProjectScope,
   PromptCommand,
   ProviderPurpose,
@@ -200,6 +209,7 @@ import type {
   TraceSink,
   TranscriptStore,
   Transport,
+  TriageVerdict,
   TurnLogEvent,
   TurnLogKind,
   TurnLogRecord,
@@ -220,6 +230,7 @@ import type {
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ASSAY_WIRE_VERSION',
   'CANONICAL_TOOL_DESCRIPTORS',
+  'DEFAULT_CONDUCT_REFUSAL',
   'LaneSemaphores',
   'PRICE_TABLE',
   'PRICING_VERSION',
@@ -252,6 +263,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'query',
   'renamesFor',
   'resolveProvider',
+  'wrapConductAuditSink',
 ];
 
 describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
@@ -337,6 +349,13 @@ type TypeSurfaceWitness = {
   capabilityProfile?: CapabilityProfile;
   capabilityRole?: CapabilityRole;
   childCompletionEvent?: ChildCompletionEvent;
+  conductAuditEvent?: ConductAuditEvent;
+  conductContext?: ConductContext;
+  conductOutputGuard?: ConductOutputGuard;
+  conductProvider?: ConductProvider;
+  conductStage?: ConductStage;
+  conductSurface?: ConductSurface;
+  conductToolVerdict?: ConductToolVerdict;
   contentBlock?: ContentBlock;
   createSessionInput?: CreateSessionInput;
   createTaskInput?: CreateTaskInput;
@@ -379,6 +398,7 @@ type TypeSurfaceWitness = {
   microcompactInfo?: MicrocompactInfo;
   observationStatus?: ObservationStatus;
   observeInput?: ObserveInput;
+  outputFinalVerdict?: OutputFinalVerdict;
   parsedPermissionRule?: ParsedPermissionRule;
   pathLockManager?: PathLockManager;
   pathScope?: PathScope;
@@ -386,6 +406,7 @@ type TypeSurfaceWitness = {
   permissionDecision?: PermissionDecision;
   permissionResult?: PermissionResult;
   perTurn?: PerTurn;
+  preGateVerdict?: PreGateVerdict;
   projectScope?: ProjectScope;
   promptCommand?: PromptCommand;
   providerPurpose?: ProviderPurpose;
@@ -456,6 +477,7 @@ type TypeSurfaceWitness = {
   traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;
   transport?: Transport;
+  triageVerdict?: TriageVerdict;
   turnLogEvent?: TurnLogEvent;
   turnLogKind?: TurnLogKind;
   turnLogRecord?: TurnLogRecord;

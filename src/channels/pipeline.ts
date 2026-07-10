@@ -31,6 +31,7 @@
 import { type AgentConfig, createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
 import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
+import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import type { AssistantMessage, RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
@@ -167,6 +168,12 @@ export type ChannelAgentConfigInput = {
    *  operator's `microcompaction.*` settings; the turns route already threads
    *  this exact value, and now so does the channel pipeline. */
   microcompactConfig: MicrocompactConfig;
+  /** Conduct Port (1b) — the boot-bound governance provider, threaded from
+   *  `runtime.conduct` at the call site so a channel turn carries the same
+   *  toolPolicy/outputGuard seams as an interactive one. Conditionally spread
+   *  onto the config so an absent provider stays ABSENT (null provider →
+   *  byte-identical), matching the `recall` discipline. */
+  conduct?: ConductProvider;
 };
 
 /** Assemble the standing `AgentConfig` for one channel turn. Pure (no I/O) so
@@ -190,6 +197,7 @@ export function buildChannelAgentConfig(input: ChannelAgentConfigInput): AgentCo
     memoryManager: input.memoryManager,
     ...(input.recall !== undefined ? { recall: input.recall } : {}),
     microcompactConfig: input.microcompactConfig,
+    ...(input.conduct !== undefined ? { conduct: input.conduct } : {}),
   };
 }
 
@@ -357,6 +365,13 @@ async function runChannelTurnInner(args: {
         memoryManager: sessionCtx.memoryManager,
         ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
         microcompactConfig: runtime.microcompactConfig,
+        // Conduct Port (1b) — bind the boot-bound governance provider onto the
+        // channel turn's agent so an untrusted-channel turn carries the same
+        // toolPolicy/outputGuard seams as an interactive turn. Reads
+        // `runtime.conduct` (the boot-bound ref, mirrors the gateway); the
+        // conditional spread keeps the field ABSENT when unbound → null provider
+        // (byte-identical, exactOptional).
+        ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
       }),
     );
 

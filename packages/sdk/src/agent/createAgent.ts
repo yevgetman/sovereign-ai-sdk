@@ -42,6 +42,16 @@
 import { randomUUID } from 'node:crypto';
 import type { MicrocompactConfig } from '../compact/microcompact.js';
 import type { Settings } from '../config/schema.js';
+import { substituteAssistantText } from '../core/conductOutput.js';
+import {
+  type ConductContext,
+  type ConductProvider,
+  type ConductSurface,
+  DEFAULT_CONDUCT_REFUSAL,
+  wrapConductAuditSink,
+} from '../core/conductPort.js';
+import { insertPersonaSegments } from '../core/conductSegments.js';
+import { composeConductCanUseTool } from '../core/conductToolPolicy.js';
 import type { ObserveInput } from '../core/observePort.js';
 import { query } from '../core/query.js';
 import type { StoredMessage } from '../core/sessionPort.js';
@@ -117,6 +127,13 @@ export type AgentConfig = {
   memoryManager?: MemoryRuntime;
   hookRunner?: HookRunner;
   traceRecorder?: (e: TraceEvent) => void;
+  /** Conduct Port (1b) — optional agent-behavior governance provider. Absent →
+   *  null provider: byte-identical behavior on every seam. */
+  conduct?: ConductProvider;
+  /** Which surface this agent's turns are (D23): 'user' (default) runs the
+   *  full seam set; 'internal' (harness-driven sub-turns) keeps only the
+   *  floors — toolPolicy + outputGuard; persona/preGate/triage are skipped. */
+  conductSurface?: ConductSurface;
   effort?: ReasoningEffort;
   /** Sampling temperature forwarded to the provider. Omit → query()/provider
    *  default (no temperature key sent). */
@@ -166,6 +183,8 @@ export type PerTurn = Partial<{
   toolContext: ToolContext;
   /** Per-turn override of the standing `rethrow` mode (see AgentConfig). */
   rethrow: boolean;
+  /** Per-turn override of the standing conduct provider (see AgentConfig). */
+  conduct: ConductProvider;
 }>;
 
 /** The structured result of a `run()`, returned as the generator's return
@@ -237,6 +256,47 @@ export function createAgent(config: AgentConfig): Agent {
     //    non-cacheable segment; absent → empty.
     const systemPrompt = toSystemSegments(perTurn.systemPrompt ?? config.systemPrompt);
 
+    // 4b. Conduct (1b): resolve provider + build the per-turn ConductContext.
+    //     personaSegments compose into the system prompt here — after the
+    //     cacheable prefix, before the dynamic tail (see insertPersonaSegments)
+    //     — so EVERY turn driver gets persona projection through this one
+    //     assembler. 'user' surface only; a throw fails OPEN (base prompt).
+    const conduct = perTurn.conduct ?? config.conduct;
+    const conductSurface: ConductSurface = config.conductSurface ?? 'user';
+    const conductCtx: ConductContext = {
+      sessionId,
+      surface: conductSurface,
+      model,
+      providerName: provider.name,
+      ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
+    };
+    const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
+    let effectiveSystemPrompt = systemPrompt;
+    if (conduct?.personaSegments && conductSurface === 'user') {
+      const startedAt = Date.now();
+      try {
+        const persona = await conduct.personaSegments(conductCtx);
+        effectiveSystemPrompt = insertPersonaSegments(systemPrompt, persona);
+        emitConductAudit({
+          stage: 'persona',
+          sessionId,
+          surface: conductSurface,
+          verdict: `segments:${persona.length}`,
+          latencyMs: Date.now() - startedAt,
+          iso: new Date().toISOString(),
+        });
+      } catch {
+        emitConductAudit({
+          stage: 'persona',
+          sessionId,
+          surface: conductSurface,
+          verdict: 'error',
+          latencyMs: Date.now() - startedAt,
+          iso: new Date().toISOString(),
+        });
+      }
+    }
+
     // 5. The observe adapter: wrap the `(i) => void` fn into a
     //    `LearningObserverPort` the orchestrator calls off the ToolContext.
     const observeFn = perTurn.observe ?? config.observe;
@@ -277,20 +337,26 @@ export function createAgent(config: AgentConfig): Agent {
     // else `false` (convert-to-terminal — byte-identical to today).
     const rethrow = perTurn.rethrow ?? config.rethrow ?? false;
 
+    // 7b. Conduct tool policy (floors — every surface): deny-first wrapper
+    //     around the per-turn canUseTool. Identity passthrough when the
+    //     provider has no toolPolicy capability.
+    const canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
+
     const gen = query({
       provider,
       model,
       messages: seedMessages,
-      systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
       maxTokens,
       sessionId,
+      ...(conduct !== undefined ? { conduct, conductCtx } : {}),
       ...(effort !== undefined ? { effort } : {}),
       ...(temperature !== undefined ? { temperature } : {}),
       ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
       ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(toolContext !== undefined ? { toolContext } : {}),
-      ...(perTurn.canUseTool !== undefined ? { canUseTool: perTurn.canUseTool } : {}),
+      ...(canUseTool !== undefined ? { canUseTool } : {}),
       ...(memoryManager !== undefined ? { memoryManager } : {}),
       ...(recall !== undefined ? { recall } : {}),
       ...(pollSteering !== undefined ? { pollSteering } : {}),
@@ -328,9 +394,61 @@ export function createAgent(config: AgentConfig): Agent {
           terminal = step.value;
           break;
         }
-        const ev = step.value;
+        let ev = step.value;
         if (ev && typeof ev === 'object') {
           if ('type' in ev) {
+            // Conduct output gate (1b — floors on every surface). Deltas route
+            // through onDelta ('' = held → event dropped); assistant messages
+            // route through onFinal (pass/replace/block). The SUBSTITUTED
+            // message is what is yielded, counted, and persisted — the
+            // history-scrub-before-persistence guarantee. Throws fail OPEN.
+            // Known caveat (accepted in plan review): the SDK routes deltas
+            // and the final message independently, so an onDelta hold can make
+            // the streamed text diverge from the onFinal-substituted message
+            // until the real governor (which reconciles the two) lands in 1d.
+            const guard = conduct?.outputGuard;
+            if (guard?.onDelta && ev.type === 'text_delta') {
+              let released = ev.text;
+              try {
+                released = guard.onDelta(ev.text, conductCtx);
+              } catch {
+                // fail open — original delta flows
+              }
+              if (released.length === 0) continue;
+              if (released !== ev.text) ev = { type: 'text_delta', text: released };
+            }
+            if (guard?.onFinal && ev.type === 'assistant_message') {
+              const startedAt = Date.now();
+              let verdictLabel = 'pass';
+              try {
+                const verdict = await guard.onFinal(ev.message, conductCtx);
+                verdictLabel = verdict.action;
+                if (verdict.action === 'replace') {
+                  ev = {
+                    type: 'assistant_message',
+                    message: substituteAssistantText(ev.message, verdict.text),
+                  };
+                } else if (verdict.action === 'block') {
+                  ev = {
+                    type: 'assistant_message',
+                    message: substituteAssistantText(
+                      ev.message,
+                      verdict.template ?? DEFAULT_CONDUCT_REFUSAL,
+                    ),
+                  };
+                }
+              } catch {
+                verdictLabel = 'error'; // fail open
+              }
+              emitConductAudit({
+                stage: 'output',
+                sessionId,
+                surface: conductSurface,
+                verdict: verdictLabel,
+                latencyMs: Date.now() - startedAt,
+                iso: new Date().toISOString(),
+              });
+            }
             usageAcc = accumulateUsage(usageAcc, ev);
             if (ev.type === 'message_stop') iterationsUsed += 1;
             if (ev.type === 'assistant_message') {
@@ -398,7 +516,7 @@ export function createAgent(config: AgentConfig): Agent {
         sessionId,
         model,
         providerName: provider.name,
-        systemPrompt,
+        systemPrompt: effectiveSystemPrompt,
         messages,
         seedCount: seedMessages.length,
         usage,

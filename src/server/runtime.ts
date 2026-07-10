@@ -33,6 +33,7 @@ import {
 } from '@yevgetman/sov-sdk/config/settings';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { auditContextBudget } from '@yevgetman/sov-sdk/context/budget';
+import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
 import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { buildConsentChecker, buildFileConsentStore } from '@yevgetman/sov-sdk/hooks/consent';
@@ -292,6 +293,12 @@ export type RuntimeOptions = {
    *  route polls it at agent-loop boundaries and injects pending operator
    *  messages into the running turn. See src/server/steerFile.ts. */
   steerFile?: string;
+  /** Conduct Port (1b) — optional agent-behavior governance provider bound at
+   *  boot. Absent → null provider (byte-identical). The engine (decorum)
+   *  binds here via its adapter; tests inject a recording provider. Held on
+   *  the runtime and threaded to every per-session SessionContext + the
+   *  gateway turn's createAgent. */
+  conduct?: ConductProvider;
   /** Max tokens per provider call. Defaults to 12000 to match the
    *  src/main.ts CLI default; users override via --max-tokens. */
   maxTokens?: number;
@@ -421,6 +428,12 @@ export type Runtime = {
   resumeId: string | undefined;
   /** Echoed steerFile from RuntimeOptions; undefined when steering is off. */
   steerFile: string | undefined;
+  /** Conduct Port (1b) — the boot-bound governance provider (from
+   *  RuntimeOptions.conduct). Absent → null provider: byte-identical behavior
+   *  at every seam. The SINGLE wrapper-side binding point — buildSessionContext
+   *  threads it onto each SessionContext and the turns route reads it for the
+   *  createAgent conduct config + the perTurnInstructions wire gate (D23). */
+  conduct?: ConductProvider;
   /** Resolved max tokens per provider call. Always populated — either
    *  the caller-supplied value or DEFAULT_MAX_TOKENS (12000). The turns
    *  route reads this instead of its own local const so --max-tokens
@@ -1931,6 +1944,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     permissionMode,
     resumeId: opts.resumeId,
     steerFile: opts.steerFile,
+    // Conduct Port (1b) — echo the boot-bound provider (absent on the null
+    // path). Conditional spread keeps the field ABSENT (not `undefined`) when
+    // unbound so the exactOptionalPropertyTypes `conduct?` invariant holds and
+    // sessionContext/turns read it as the null provider (byte-identical).
+    ...(opts.conduct !== undefined ? { conduct: opts.conduct } : {}),
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     hookRunner,
     approvalQueue,

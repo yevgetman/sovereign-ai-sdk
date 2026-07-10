@@ -1,5 +1,23 @@
 # Changelog
 
+## sdk 0.6.0 / harness 0.6.58 — Conduct Port (1b): vendor-neutral agent-behavior seams - 2026-07-10
+
+The SDK now carries the **Conduct Port** — the choke points for an
+agent-behavior governance engine (first consumer: decorum, the Conduct &
+Persona Engine). `ConductProvider` (all capabilities optional; barrel-exported)
++ five seams: persona-segment composition (cache-preserving placement),
+preGate over the FINAL post-rewrite input, pre-model triage (fail-open,
+refuse short-circuit), deny-first toolPolicy over the canUseTool cascade, and
+the output-delivery gate in the createAgent drive loop (delta hold, final
+replace/block with text-substitution that preserves tool_use adjacency,
+scrub-before-persistence). Typed content-free audit events at every stage.
+Gateway binds per-runtime (`RuntimeOptions.conduct`) and gates
+`PostTurnRequest.instructions` (D23); channels/cron/openai-compat/missionRun
+thread the same provider. Sub-agent subprocesses are a NAMED trust boundary
+(a provider object doesn't cross processes; children bind at boot). WITHOUT a
+bound provider, behavior is byte-identical — the null-provider invariant is
+pinned by the full suite plus dedicated contract tests.
+
 ## harness 0.6.57 — `sov run --steer-file` mid-turn steering - 2026-07-09
 
 A machine adapter can now inject operator messages into a **running** `sov run`

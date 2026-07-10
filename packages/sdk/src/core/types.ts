@@ -160,4 +160,12 @@ export type QueryParams = {
    *  / interrupt; the orchestrator records permission_check / tool_start /
    *  tool_end / tool_error. Best-effort: a thrown handler is swallowed. */
   traceRecorder?: (event: import('../trace/types.js').TraceEvent) => void;
+  /** Conduct Port (1b) — optional agent-behavior governance provider. Absent
+   *  → null provider: byte-identical behavior. query() runs preGate (after
+   *  the UserPromptSubmit rewrite; 'user' surface only) and triage (pre-model,
+   *  fail-open); the composition seams live in createAgent. */
+  conduct?: import('./conductPort.js').ConductProvider;
+  /** Per-turn conduct context. Required for the seams to run — createAgent
+   *  builds it; a bare query() caller may omit both. */
+  conductCtx?: import('./conductPort.js').ConductContext;
 };

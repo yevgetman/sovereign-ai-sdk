@@ -22,6 +22,7 @@ import {
   type SubdirectoryHintState,
   createSubdirectoryHintState,
 } from '@yevgetman/sov-sdk/context/subdirectoryHints';
+import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import type { RecallTurn, Terminal } from '@yevgetman/sov-sdk/core/types';
 import { type MemoryManager, createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
 import { type ProjectScope, resolveProjectScope } from '@yevgetman/sov-sdk/memory/scope';
@@ -113,6 +114,10 @@ export type SessionContext = {
    *  after memory injection and prepends recalled lessons to the latest
    *  user message. */
   recall?: RecallTurn;
+  /** Conduct Port (1b) — the session's governance provider (runtime-bound;
+   *  per-session pack binding arrives with the engine). Threaded from
+   *  `runtime.conduct` at build time; absent → null provider (byte-identical). */
+  conduct?: ConductProvider;
   /** Backlog #57 — per-session reasoning-depth ("effort") level. Seeded from
    *  the runtime BOOT DEFAULT (`runtime.effort`, from `thinking.effort` config)
    *  at build time, then mutated live by the `/effort` slash command via
@@ -513,6 +518,10 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
     // can thread it onto the per-turn ToolContext (synthesizer write path).
     ...(userId !== undefined ? { userId } : {}),
     ...(recall !== undefined ? { recall } : {}),
+    // Conduct Port (1b) — thread the boot-bound provider onto the session.
+    // Conditional spread mirrors `recall`: absent → null provider, so
+    // exactOptionalPropertyTypes keeps the field ABSENT (not `undefined`).
+    ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
     ...(learningObserver !== undefined ? { learningObserver } : {}),
     ...(reviewManager !== undefined ? { reviewManager } : {}),
   };
