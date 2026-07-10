@@ -772,7 +772,11 @@ describe('query() — mid-turn steering (pollSteering)', () => {
 
   test('turn-end steering continuations are bounded by maxTurns', async () => {
     // Every model call finishes clean; steering ALWAYS has content — the loop
-    // must stop at maxTurns, not spin forever.
+    // must stop at the bound, not spin forever. Review fix 2026-07-09: the
+    // FINAL allowed iteration no longer polls (a steer consumed there could
+    // never reach the model), so the run completes cleanly at the bound with
+    // exactly maxTurns - 1 polls and the leftover steer stays at the source.
+    let polls = 0;
     const provider = scriptedTurns([completedEvents, completedEvents, completedEvents]);
     const gen = query({
       provider,
@@ -781,9 +785,62 @@ describe('query() — mid-turn steering (pollSteering)', () => {
       systemPrompt: [],
       maxTokens: 256,
       maxTurns: 3,
-      pollSteering: async () => 'STEER: keep going',
+      pollSteering: async () => {
+        polls++;
+        return 'STEER: keep going';
+      },
+    });
+    const terminal = await drainToTerminal(gen);
+    expect(terminal.reason).toBe('completed');
+    expect(polls).toBe(2);
+  });
+});
+
+describe('query() — steering maxTurns guards (review fixes)', () => {
+  test('turn-end steer is NOT consumed on the final allowed iteration', async () => {
+    // maxTurns=1: the single model call finishes clean; a pending steer must
+    // be left in the source (poll never called) so the adapter's leftover
+    // drain can deliver it honestly.
+    let polls = 0;
+    const provider = scriptedTurns([completedEvents]);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+      systemPrompt: [],
+      maxTokens: 256,
+      maxTurns: 1,
+      pollSteering: async () => {
+        polls++;
+        return 'STEER: too late';
+      },
+    });
+    const terminal = await drainToTerminal(gen);
+    expect(terminal.reason).toBe('completed');
+    expect(polls).toBe(0);
+  });
+
+  test('tool-boundary steer is NOT consumed when no further model call is allowed', async () => {
+    let polls = 0;
+    const firstTurn = toolUseThenFinishTurns[0];
+    if (!firstTurn) throw new Error('fixture missing');
+    const provider = scriptedTurns([firstTurn]);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'work' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+      maxTurns: 1,
+      pollSteering: async () => {
+        polls++;
+        return 'STEER: unseen';
+      },
     });
     const terminal = await drainToTerminal(gen);
     expect(terminal.reason).toBe('max_turns');
+    expect(polls).toBe(0);
   });
 });

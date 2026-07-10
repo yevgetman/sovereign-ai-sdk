@@ -350,8 +350,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       // answer, but the operator sent a steer while it worked. Inject it as a
       // standalone user message (assistant→user alternation is legal here) and
       // CONTINUE the loop instead of finishing — the sov counterpart of the
-      // claude Stop-hook delivery. maxTurns bounds repeated continuations.
-      const steerText = params.pollSteering ? await params.pollSteering() : null;
+      // claude Stop-hook delivery. Only poll when another model call is still
+      // allowed (turn + 1 < maxTurns): consuming a steer on the FINAL
+      // iteration would announce an injection the model never sees — leaving
+      // it in the file lets the adapter's leftover drain deliver it honestly.
+      const steerText =
+        params.pollSteering && turn + 1 < maxTurns ? await params.pollSteering() : null;
       if (steerText !== null && steerText.length > 0) {
         const steerMsg: Message = {
           role: 'user',
@@ -423,10 +427,16 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         // as the loop-detector guidance. This preserves role alternation and
         // tool_use→tool_result adjacency, and rides the normal persistence
         // path (the yielded message IS what hosts persist), so transcripts
-        // stay faithful and --resume reconstructs exact context.
-        const steerText = params.pollSteering ? await params.pollSteering() : null;
-        if (steerText !== null && steerText.length > 0 && out.role === 'user') {
-          out = { role: 'user', content: [...out.content, { type: 'text', text: steerText }] };
+        // stay faithful and --resume reconstructs exact context. Guards run
+        // BEFORE the poll so a steer is never consumed when it can't be
+        // delivered: the merge target must be a user message, and another
+        // model call must still be allowed (turn + 1 < maxTurns) — otherwise
+        // the file is left for the adapter's leftover drain.
+        if (params.pollSteering && out.role === 'user' && turn + 1 < maxTurns) {
+          const steerText = await params.pollSteering();
+          if (steerText !== null && steerText.length > 0) {
+            out = { role: 'user', content: [...out.content, { type: 'text', text: steerText }] };
+          }
         }
         history.push(out);
         yield out;

@@ -22,6 +22,7 @@ export type RunOptions = {
   maxTokens?: unknown;
   db?: unknown;
   resume?: unknown;
+  steerFile?: unknown;
   cache?: unknown;
   preflight?: unknown;
   effort?: unknown;
