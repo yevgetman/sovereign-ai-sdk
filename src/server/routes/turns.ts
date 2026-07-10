@@ -297,6 +297,26 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
         ? body.instructions
         : undefined;
 
+    // Conduct gate (D23): a bound provider may veto the per-turn instruction
+    // wire field (a regulated pack disables client-appended system segments).
+    // Applied at the wire boundary so the dropped field never reaches the
+    // PerTurn systemPrompt assembly in runTurnInBackground. Absent provider (or
+    // an absent `allowPerTurnInstructions` capability) → allowed → byte-identical
+    // to today. This is the ONE per-turn conduct decision the wrapper owns; the
+    // in-turn seams (persona/preGate/triage/toolPolicy/outputGuard) all live
+    // inside createAgent, bound via the standing `conduct` config below.
+    const conductForGate = runtime.conduct;
+    const instructionsAllowed =
+      conductForGate?.allowPerTurnInstructions === undefined ||
+      conductForGate.allowPerTurnInstructions({
+        sessionId,
+        surface: 'user',
+        model: runtime.model,
+        providerName: runtime.resolvedProvider.transport.name,
+        ...(runtime.cwd !== undefined ? { cwd: runtime.cwd } : {}),
+      });
+    const gatedPerTurnInstructions = instructionsAllowed ? perTurnInstructions : undefined;
+
     const bus = getOrCreateBus(sessionId);
     // POST /turns is fire-and-forget: kick off the background turn loop
     // and return 202 immediately. The per-session bus buffers events
@@ -312,7 +332,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       bus,
       skillScope,
       perTurnModel,
-      perTurnInstructions,
+      gatedPerTurnInstructions,
     ).catch((err) => {
       // Defense in depth: runTurnInBackground catches errors inside its try and
       // publishes turn_error, but a throw in its pre-try setup would otherwise
@@ -781,6 +801,13 @@ async function runTurnInBackground(
       microcompactConfig: runtime.microcompactConfig,
       maxTokens: runtime.maxTokens,
       cwd: runtime.cwd,
+      // Conduct Port (1b) — bind the boot-bound governance provider onto the
+      // per-turn agent (persona/preGate/triage/toolPolicy/outputGuard seams).
+      // Standing config reads `runtime.*` refs (a live-reload picks it up on the
+      // next turn's fresh createAgent); `runtime.conduct` === the value threaded
+      // onto sessionCtx.conduct. Conditional spread keeps the field ABSENT when
+      // unbound → createAgent's null provider (byte-identical, exactOptional).
+      ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
     });
 
     // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the
