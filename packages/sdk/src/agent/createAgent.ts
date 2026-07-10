@@ -42,10 +42,12 @@
 import { randomUUID } from 'node:crypto';
 import type { MicrocompactConfig } from '../compact/microcompact.js';
 import type { Settings } from '../config/schema.js';
+import { substituteAssistantText } from '../core/conductOutput.js';
 import {
   type ConductContext,
   type ConductProvider,
   type ConductSurface,
+  DEFAULT_CONDUCT_REFUSAL,
   wrapConductAuditSink,
 } from '../core/conductPort.js';
 import { insertPersonaSegments } from '../core/conductSegments.js';
@@ -392,9 +394,61 @@ export function createAgent(config: AgentConfig): Agent {
           terminal = step.value;
           break;
         }
-        const ev = step.value;
+        let ev = step.value;
         if (ev && typeof ev === 'object') {
           if ('type' in ev) {
+            // Conduct output gate (1b — floors on every surface). Deltas route
+            // through onDelta ('' = held → event dropped); assistant messages
+            // route through onFinal (pass/replace/block). The SUBSTITUTED
+            // message is what is yielded, counted, and persisted — the
+            // history-scrub-before-persistence guarantee. Throws fail OPEN.
+            // Known caveat (accepted in plan review): the SDK routes deltas
+            // and the final message independently, so an onDelta hold can make
+            // the streamed text diverge from the onFinal-substituted message
+            // until the real governor (which reconciles the two) lands in 1d.
+            const guard = conduct?.outputGuard;
+            if (guard?.onDelta && ev.type === 'text_delta') {
+              let released = ev.text;
+              try {
+                released = guard.onDelta(ev.text, conductCtx);
+              } catch {
+                // fail open — original delta flows
+              }
+              if (released.length === 0) continue;
+              if (released !== ev.text) ev = { type: 'text_delta', text: released };
+            }
+            if (guard?.onFinal && ev.type === 'assistant_message') {
+              const startedAt = Date.now();
+              let verdictLabel = 'pass';
+              try {
+                const verdict = await guard.onFinal(ev.message, conductCtx);
+                verdictLabel = verdict.action;
+                if (verdict.action === 'replace') {
+                  ev = {
+                    type: 'assistant_message',
+                    message: substituteAssistantText(ev.message, verdict.text),
+                  };
+                } else if (verdict.action === 'block') {
+                  ev = {
+                    type: 'assistant_message',
+                    message: substituteAssistantText(
+                      ev.message,
+                      verdict.template ?? DEFAULT_CONDUCT_REFUSAL,
+                    ),
+                  };
+                }
+              } catch {
+                verdictLabel = 'error'; // fail open
+              }
+              emitConductAudit({
+                stage: 'output',
+                sessionId,
+                surface: conductSurface,
+                verdict: verdictLabel,
+                latencyMs: Date.now() - startedAt,
+                iso: new Date().toISOString(),
+              });
+            }
             usageAcc = accumulateUsage(usageAcc, ev);
             if (ev.type === 'message_stop') iterationsUsed += 1;
             if (ev.type === 'assistant_message') {
