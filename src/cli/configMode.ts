@@ -340,6 +340,7 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     canUseTool,
     permissionMode: 'default',
     resumeId: undefined,
+    steerFile: undefined,
     maxTokens: 0,
     // HookRunner is a function type. No hooks configured in config-only
     // mode → return `{ block: false }` for every event so any code path

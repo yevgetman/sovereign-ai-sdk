@@ -288,6 +288,10 @@ export type RuntimeOptions = {
   /** Resume a prior session by UUID. buildRuntime validates the row
    *  exists in sessionDb and throws SessionNotFoundError if not. */
   resumeId?: string;
+  /** Mid-turn steering file (`sov run --steer-file`). When set, the turns
+   *  route polls it at agent-loop boundaries and injects pending operator
+   *  messages into the running turn. See src/server/steerFile.ts. */
+  steerFile?: string;
   /** Max tokens per provider call. Defaults to 12000 to match the
    *  src/main.ts CLI default; users override via --max-tokens. */
   maxTokens?: number;
@@ -415,6 +419,8 @@ export type Runtime = {
    *  (events route, /messages route) use this to decide whether to
    *  hydrate prior message history. */
   resumeId: string | undefined;
+  /** Echoed steerFile from RuntimeOptions; undefined when steering is off. */
+  steerFile: string | undefined;
   /** Resolved max tokens per provider call. Always populated — either
    *  the caller-supplied value or DEFAULT_MAX_TOKENS (12000). The turns
    *  route reads this instead of its own local const so --max-tokens
@@ -1924,6 +1930,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     canUseTool,
     permissionMode,
     resumeId: opts.resumeId,
+    steerFile: opts.steerFile,
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     hookRunner,
     approvalQueue,

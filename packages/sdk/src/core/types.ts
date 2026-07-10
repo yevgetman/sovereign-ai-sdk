@@ -136,6 +136,14 @@ export type QueryParams = {
    *  injection and prepends recalled lessons to the latest user message. The host
    *  binds the underlying RecallApi + projectId; query() stays project-agnostic. */
   recall?: RecallTurn;
+  /** Optional mid-turn steering thunk. Polled at agent-loop boundaries (after
+   *  each tool batch, and once when the model finishes without tool calls);
+   *  returns ready-to-inject framed text, or null when nothing is pending.
+   *  The host owns the transport (steer file, queue) and the framing; query()
+   *  only merges the text into the conversation at a legal point: appended to
+   *  the tool batch's user message pre-yield, or as a standalone user message
+   *  at turn end (which CONTINUES the loop instead of finishing). */
+  pollSteering?: () => Promise<string | null>;
   /** Microcompaction config. When enabled, stale tool results are cleared before
    *  they cause full compaction. Omit or set `enabled: false` to disable. */
   microcompactConfig?: import('../compact/microcompact.js').MicrocompactConfig;

@@ -109,6 +109,9 @@ export type AgentConfig = {
   /** Omit → no transcript writes. */
   transcripts?: TranscriptStore;
   recall?: RecallTurn;
+  /** Mid-turn steering thunk — polled at agent-loop boundaries; returns
+   *  ready-to-inject framed text or null. See QueryParams.pollSteering. */
+  pollSteering?: () => Promise<string | null>;
   /** Adapted into a `LearningObserverPort` on the per-turn `ToolContext`. */
   observe?: (i: ObserveInput) => void;
   memoryManager?: MemoryRuntime;
@@ -155,6 +158,7 @@ export type PerTurn = Partial<{
   maxToolCallsBeforeCheckin: number;
   memoryManager: MemoryRuntime;
   recall: RecallTurn;
+  pollSteering: () => Promise<string | null>;
   observe: (i: ObserveInput) => void;
   traceRecorder: (e: TraceEvent) => void;
   microcompactConfig: MicrocompactConfig;
@@ -256,6 +260,7 @@ export function createAgent(config: AgentConfig): Agent {
     const effort = perTurn.effort ?? config.effort;
     const memoryManager = perTurn.memoryManager ?? config.memoryManager;
     const recall = perTurn.recall ?? config.recall;
+    const pollSteering = perTurn.pollSteering ?? config.pollSteering;
     const traceRecorder = perTurn.traceRecorder ?? config.traceRecorder;
     const microcompactConfig = perTurn.microcompactConfig ?? config.microcompactConfig;
     // The remaining per-turn slice of QueryParams. `??` falls back only on
@@ -288,6 +293,7 @@ export function createAgent(config: AgentConfig): Agent {
       ...(perTurn.canUseTool !== undefined ? { canUseTool: perTurn.canUseTool } : {}),
       ...(memoryManager !== undefined ? { memoryManager } : {}),
       ...(recall !== undefined ? { recall } : {}),
+      ...(pollSteering !== undefined ? { pollSteering } : {}),
       ...(config.hookRunner !== undefined ? { hookRunner: config.hookRunner } : {}),
       ...(traceRecorder !== undefined ? { traceRecorder } : {}),
       ...(microcompactConfig !== undefined ? { microcompactConfig } : {}),

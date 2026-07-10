@@ -346,6 +346,21 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
 
     if (toolUseBlocks.length === 0) {
+      // Mid-turn steering, turn-end delivery: the model composed a final
+      // answer, but the operator sent a steer while it worked. Inject it as a
+      // standalone user message (assistant→user alternation is legal here) and
+      // CONTINUE the loop instead of finishing — the sov counterpart of the
+      // claude Stop-hook delivery. maxTurns bounds repeated continuations.
+      const steerText = params.pollSteering ? await params.pollSteering() : null;
+      if (steerText !== null && steerText.length > 0) {
+        const steerMsg: Message = {
+          role: 'user',
+          content: [{ type: 'text', text: steerText }],
+        };
+        history.push(steerMsg);
+        yield steerMsg;
+        continue;
+      }
       if (params.memoryManager && originalUserText !== undefined) {
         await params.memoryManager.syncTurn(originalUserText, assistantText(assistant));
       }
@@ -401,7 +416,18 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         hookRunner,
         recordTrace,
       )) {
-        const out = consumeGuidance(msg);
+        let out = consumeGuidance(msg);
+        // Mid-turn steering, tool-boundary delivery: steers usually arrive
+        // while a long tool runs, so poll after the batch and merge the text
+        // into the batch's single user message PRE-yield — the same mechanism
+        // as the loop-detector guidance. This preserves role alternation and
+        // tool_use→tool_result adjacency, and rides the normal persistence
+        // path (the yielded message IS what hosts persist), so transcripts
+        // stay faithful and --resume reconstructs exact context.
+        const steerText = params.pollSteering ? await params.pollSteering() : null;
+        if (steerText !== null && steerText.length > 0 && out.role === 'user') {
+          out = { role: 'user', content: [...out.content, { type: 'text', text: steerText }] };
+        }
         history.push(out);
         yield out;
       }

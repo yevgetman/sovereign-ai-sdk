@@ -164,6 +164,15 @@ export const StallDetectedEvent = BaseEvent.extend({
   turn: z.number().int().nonnegative(),
 });
 
+// Mid-turn steering (2026-07-09): published when a `--steer-file` poll consumed
+// pending operator message(s) and injected them into the running turn. Additive
+// — adapters that don't know the type ignore it; `count` is the number of
+// steer messages folded into this injection.
+export const SteerInjectedEvent = BaseEvent.extend({
+  type: z.literal('steer_injected'),
+  count: z.number().int().positive(),
+});
+
 export const ServerEventSchema = z.discriminatedUnion('type', [
   TextDeltaEvent,
   ThinkingDeltaEvent,
@@ -179,6 +188,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   CompactionCompleteEvent,
   SessionSummaryEvent,
   StallDetectedEvent,
+  SteerInjectedEvent,
   // Phase 2 T4 — router synthesizes these from the scheduler's delegation
   // lifecycle. See src/router/progressEvents.ts.
   DelegatorPlanEventSchema,

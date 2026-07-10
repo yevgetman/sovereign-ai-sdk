@@ -146,6 +146,15 @@ export interface StallDetectedEvent extends ServerEventBase {
   turn: number;
 }
 
+/** Mid-turn steering (2026-07-09): pending operator message(s) from a
+ *  `--steer-file` were injected into the running turn. `count` is the number
+ *  of steer messages folded into this injection. Additive — consumers that
+ *  don't know the type ignore it. */
+export interface SteerInjectedEvent extends ServerEventBase {
+  type: 'steer_injected';
+  count: number;
+}
+
 // --- Delegator events (Phase 2 T4) ------------------------------------------
 // Authored here as pure types. The proprietary runtime (src/router/progressEvents.ts)
 // synthesizes these from the scheduler's delegation lifecycle; their zod schemas
@@ -199,6 +208,7 @@ export type ServerEvent =
   | CompactionCompleteEvent
   | SessionSummaryEvent
   | StallDetectedEvent
+  | SteerInjectedEvent
   | DelegatorPlanEvent
   | DelegatorAtomStartedEvent
   | DelegatorAtomCompleteEvent

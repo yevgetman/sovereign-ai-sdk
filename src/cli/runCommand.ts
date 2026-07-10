@@ -142,6 +142,8 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
   if (db !== undefined) buildOpts.dbPath = db;
   const resume = pickString(opts.resume);
   if (resume !== undefined) buildOpts.resumeId = resume;
+  const steerFile = pickString(opts.steerFile);
+  if (steerFile !== undefined) buildOpts.steerFile = steerFile;
   const effort = pickEffort(opts.effort);
   if (effort !== undefined) buildOpts.effort = effort;
   if (pickBoolean(opts.cache) === false) buildOpts.cacheEnabled = false;

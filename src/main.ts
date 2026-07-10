@@ -299,6 +299,10 @@ async function main(argv: string[]): Promise<void> {
       DEFAULT_PERMISSION_MODE,
     )
     .option('--resume <id>', 'resume a prior session by its UUID')
+    .option(
+      '--steer-file <path>',
+      'mid-turn steering: poll this JSONL file ({"text": …} per line) at agent-loop boundaries and inject pending operator messages into the running turn',
+    )
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
     .option('--no-cache', 'disable provider prompt-cache markers for this session')
     .option('--no-preflight', 'skip the startup provider health check')

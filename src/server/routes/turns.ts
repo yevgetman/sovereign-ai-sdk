@@ -59,6 +59,7 @@ import { type Runtime, createServerAsk } from '../runtime.js';
 import type { ServerEvent } from '../schema.js';
 import type { SessionContext } from '../sessionContext.js';
 import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
+import { consumeSteerFile, frameSteers } from '../steerFile.js';
 import { loadOwnedSession } from './ownership.js';
 
 /** State captured at `tool_use_start` emission, drained when the matching
@@ -797,6 +798,30 @@ async function runTurnInBackground(
     // retry — the bound serverAsk continues to publish permission_request
     // events under whatever the current sessionId is at the moment of the
     // ask, which is the POST-COMPACTION id post-retry).
+    // Mid-turn steering (`sov run --steer-file`): a host thunk polled by the
+    // SDK's turn loop at agent-loop boundaries. Consumes the file atomically,
+    // frames the operator message(s), and announces the injection on the bus
+    // (additive event — adapters that don't know the type ignore it). Reads
+    // the OUTER `sessionId` let at call time, so a mid-turn injection after a
+    // compaction pivot is published under the id the turn is currently on —
+    // same discipline as every other mid-turn event. A steering failure must
+    // never break the turn: consumeSteerFile swallows IO errors into [].
+    const steerFilePath = runtime.steerFile;
+    const pollSteering =
+      steerFilePath !== undefined
+        ? async (): Promise<string | null> => {
+            const texts = await consumeSteerFile(steerFilePath);
+            if (texts.length === 0) return null;
+            bus.publish({
+              type: 'steer_injected',
+              seq: bus.nextSeq(),
+              sessionId,
+              count: texts.length,
+            });
+            return frameSteers(texts);
+          }
+        : undefined;
+
     const runOnce = async (currentMessages: Message[]): Promise<Terminal | undefined> => {
       // Reads outer `sessionId` let — the recovery branch reassigns it between
       // calls. Do not shadow with a local `const sessionId = …` inside this
@@ -866,6 +891,8 @@ async function runTurnInBackground(
         // when `learning.recall.enabled`; the conditional spread keeps the
         // field absent otherwise (exactOptionalPropertyTypes + default-off).
         ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
+        // Mid-turn steering thunk (`--steer-file`) — see the closure above.
+        ...(pollSteering !== undefined ? { pollSteering } : {}),
         // PER-HOP because it's rebuilt with the pivoted `sessionId` (and the
         // scoped pool sub-agents inherit). buildSessionToolContext re-reads the
         // child SessionContext, so post-compaction tool calls target the child.

@@ -667,3 +667,123 @@ describe('maxToolCallsBeforeCheckin', () => {
     expect(terminal.reason).toBe('completed');
   });
 });
+
+describe('query() — mid-turn steering (pollSteering)', () => {
+  test('tool-boundary steer merges into the tool_result user message pre-yield', async () => {
+    const provider = scriptedTurns(toolUseThenFinishTurns);
+    let polls = 0;
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'work' }] }],
+      systemPrompt: [],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+      pollSteering: async () => {
+        polls++;
+        return polls === 1 ? 'STEER: switch to postgres' : null;
+      },
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('completed');
+    const userMessages = yielded.filter(
+      (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+    ) as Message[];
+    // One tool_result batch message, now carrying the steer as an extra text block.
+    expect(userMessages).toHaveLength(1);
+    const first = userMessages[0];
+    expect(first?.content[0]?.type).toBe('tool_result');
+    const textBlocks = (first?.content ?? []).filter((b) => b.type === 'text');
+    expect(textBlocks.some((b) => 'text' in b && b.text.includes('switch to postgres'))).toBe(true);
+  });
+
+  test('turn-end steer continues the loop with a standalone user message', async () => {
+    // Provider finishes WITHOUT tool calls twice: first final answer gets a
+    // steer (loop continues), second final answer sees none (loop completes).
+    const provider = scriptedTurns([completedEvents, completedEvents]);
+    let polls = 0;
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'answer me' }] }],
+      systemPrompt: [],
+      maxTokens: 256,
+      pollSteering: async () => {
+        polls++;
+        return polls === 1 ? 'STEER: also include totals' : null;
+      },
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('completed');
+    expect(polls).toBeGreaterThanOrEqual(2);
+    const userMessages = yielded.filter(
+      (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+    ) as Message[];
+    expect(userMessages).toHaveLength(1);
+    const first = userMessages[0];
+    expect(first?.content[0]?.type).toBe('text');
+    expect(
+      first?.content.some((b) => b.type === 'text' && b.text.includes('also include totals')),
+    ).toBe(true);
+  });
+
+  test('null steering thunk leaves the turn byte-identical', async () => {
+    const provider = scriptedTurns([completedEvents]);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'plain' }] }],
+      systemPrompt: [],
+      maxTokens: 256,
+      pollSteering: async () => null,
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('completed');
+    expect(yielded.filter((v) => v && typeof v === 'object' && 'role' in v)).toHaveLength(0);
+  });
+
+  test('turn-end steering continuations are bounded by maxTurns', async () => {
+    // Every model call finishes clean; steering ALWAYS has content — the loop
+    // must stop at maxTurns, not spin forever.
+    const provider = scriptedTurns([completedEvents, completedEvents, completedEvents]);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+      systemPrompt: [],
+      maxTokens: 256,
+      maxTurns: 3,
+      pollSteering: async () => 'STEER: keep going',
+    });
+    const terminal = await drainToTerminal(gen);
+    expect(terminal.reason).toBe('max_turns');
+  });
+});
