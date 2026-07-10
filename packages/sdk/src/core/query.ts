@@ -172,12 +172,6 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     yield { type: 'message_stop', stop_reason: 'end_turn' };
     return { reason: 'completed' };
   }
-  async function fireStopHookIfBound(): Promise<void> {
-    if (hookRunner && sessionId && cwd) {
-      await fireStopHook(hookRunner, sessionId, cwd, 'completed', signal);
-    }
-  }
-
   // Conduct seams (1b). preGate runs AFTER the UserPromptSubmit rewrite so it
   // sees the FINAL text — including the injected memory/recall prefix and any
   // hook rewrite; nothing smuggles past it via a rewriting hook (D23). 'user'
@@ -207,16 +201,14 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           });
           if (verdict.refusalText !== undefined) {
             const refusal = yield* yieldConductRefusal(verdict.refusalText);
-            await fireStopHookIfBound();
+            await maybeFireStop('completed');
             return refusal;
           }
           const terminal: Terminal = {
             reason: 'error',
             error: new Error('prompt rejected by conduct preGate'),
           };
-          if (hookRunner && sessionId && cwd) {
-            await fireStopHook(hookRunner, sessionId, cwd, terminal.reason, signal);
-          }
+          await maybeFireStop(terminal.reason);
           return terminal;
         }
       } catch {

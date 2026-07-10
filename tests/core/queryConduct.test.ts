@@ -187,6 +187,44 @@ describe('query() preGate seam', () => {
     expect(audits.find((e) => e.stage === 'pregate')?.verdict).toBe('error');
   });
 
+  test('preGate sees the UserPromptSubmit-rewritten text, not the original (D23 post-rewrite ordering)', async () => {
+    // Behavioral pin for D23: preGate runs AFTER the UserPromptSubmit hook's
+    // rewrite, so a hook that rewrites the prompt must be reflected in what
+    // preGate receives — nothing smuggles past preGate via a rewriting hook.
+    const seen = { requests: [] as Message[][] };
+    const ORIGINAL = 'original prompt';
+    const REWRITTEN = 'rewritten by hook';
+    let gateTextSeen: string | undefined;
+    const conduct: ConductProvider = {
+      preGate: (text) => {
+        gateTextSeen = text;
+        return { action: 'allow' };
+      },
+    };
+    const { terminal } = await drain(
+      query({
+        provider: scriptedProvider('hi', seen),
+        model: 'test-model',
+        messages: [userMsg(ORIGINAL)],
+        systemPrompt: [],
+        maxTokens: 100,
+        conduct,
+        conductCtx: ctx,
+        sessionId: 'hook-rewrite-test',
+        cwd: process.cwd(),
+        hookRunner: async (event) => {
+          if (event === 'UserPromptSubmit') return { block: false, rewrittenPrompt: REWRITTEN };
+          return { block: false };
+        },
+      }),
+    );
+    expect(terminal.reason).toBe('completed');
+    expect(gateTextSeen).toBe(REWRITTEN);
+    expect(gateTextSeen).not.toBe(ORIGINAL);
+    const sent = seen.requests[0]?.[0]?.content[0];
+    expect(sent?.type === 'text' && sent.text).toBe(REWRITTEN);
+  });
+
   test("internal surface: preGate does NOT run (persona/triage/preGate are 'user'-only)", async () => {
     const seen = { requests: [] as Message[][] };
     let called = false;
