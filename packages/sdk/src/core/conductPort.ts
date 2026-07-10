@@ -80,18 +80,31 @@ export type ConductToolVerdict = { behavior: 'allow' } | { behavior: 'deny'; rea
 /** Output-gate verdict for one assistant message. 'replace' / 'block'
  *  substitute the message's TEXT blocks only — tool_use blocks are preserved
  *  verbatim so tool_use/tool_result adjacency in the persisted transcript is
- *  never broken. 'block' without a template uses DEFAULT_CONDUCT_REFUSAL. */
+ *  never broken. 'block' without a template uses DEFAULT_CONDUCT_REFUSAL.
+ *  'regenerate' (1d, output governance round 2) rejects the reply and asks the
+ *  SDK to re-run the turn ONCE with a steering system segment derived from the
+ *  CONTENT-FREE `reason` label; the retry is BOUNDED (CONDUCT_REGENERATE_MAX =
+ *  1) — a second `regenerate` verdict is handled as `block`. The attempt-0
+ *  message is never yielded to consumers nor persisted; usage accumulates
+ *  across both attempts (honest cost). `reason` is a content-free label, never
+ *  message text. */
 export type OutputFinalVerdict =
   | { action: 'pass' }
   | { action: 'replace'; text: string }
-  | { action: 'block'; template?: string };
+  | { action: 'block'; template?: string }
+  | { action: 'regenerate'; reason?: string };
 
 /** The output-delivery gate. onDelta transforms/holds streaming text deltas
  *  (return '' to hold — the ENGINE owns any internal lookahead buffer; the SDK
- *  only routes deltas through). onFinal verdicts each assistant message before
- *  it reaches consumers/persistence. Both optional. */
+ *  only routes deltas through). onStreamEnd (1d) is the held-tail FLUSH seam:
+ *  called once when a provider call's text stream ends — right BEFORE that
+ *  message is gated by onFinal — so an engine holding a lookahead tail via
+ *  onDelta can release it; a non-empty return is emitted as one last
+ *  `text_delta`. onFinal verdicts each assistant message before it reaches
+ *  consumers/persistence. All optional. */
 export type ConductOutputGuard = {
   onDelta?(text: string, ctx: ConductContext): string;
+  onStreamEnd?(ctx: ConductContext): string;
   onFinal?(
     message: AssistantMessage,
     ctx: ConductContext,

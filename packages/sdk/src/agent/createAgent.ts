@@ -87,6 +87,23 @@ import { validateSessionId } from '../util/sessionId.js';
  *  Matches the harness wrapper default (src/main.ts / src/server/runtime.ts). */
 const DEFAULT_MAX_TOKENS = 12000;
 
+/** Bounded retry budget for an output-gate `regenerate` verdict (1d): the turn
+ *  may be re-run AT MOST once. A `regenerate` verdict on the retry attempt is
+ *  handled as `block`. Double-bounded design — decorum only emits `regenerate`
+ *  on the first attempt — so this is a defense-in-depth ceiling, not a loop. */
+const CONDUCT_REGENERATE_MAX = 1;
+
+/** The steering system segment appended when re-running a turn after a
+ *  `regenerate` verdict. Non-cacheable (per-attempt tail) and derived from the
+ *  CONTENT-FREE reason label only — never message text. */
+function regenerateSteeringSegment(reason: string | undefined): SystemSegment {
+  const suffix = reason ? `: ${reason}` : '';
+  return {
+    text: `Your previous reply was rejected by the output governor${suffix}. Produce a corrected reply that does not repeat the violation.`,
+    cacheable: false,
+  };
+}
+
 /** Standing DEFAULTS for an agent. Every per-turn parameter in `PerTurn` falls
  *  back to its counterpart here. The only required fields are `provider` and
  *  `model`; everything else opts into a capability (tools, persistence, ports). */
@@ -342,31 +359,41 @@ export function createAgent(config: AgentConfig): Agent {
     //     provider has no toolPolicy capability.
     const canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
 
-    const gen = query({
-      provider,
-      model,
-      messages: seedMessages,
-      systemPrompt: effectiveSystemPrompt,
-      maxTokens,
-      sessionId,
-      ...(conduct !== undefined ? { conduct, conductCtx } : {}),
-      ...(effort !== undefined ? { effort } : {}),
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
-      ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
-      ...(tools !== undefined ? { tools } : {}),
-      ...(toolContext !== undefined ? { toolContext } : {}),
-      ...(canUseTool !== undefined ? { canUseTool } : {}),
-      ...(memoryManager !== undefined ? { memoryManager } : {}),
-      ...(recall !== undefined ? { recall } : {}),
-      ...(pollSteering !== undefined ? { pollSteering } : {}),
-      ...(config.hookRunner !== undefined ? { hookRunner: config.hookRunner } : {}),
-      ...(traceRecorder !== undefined ? { traceRecorder } : {}),
-      ...(microcompactConfig !== undefined ? { microcompactConfig } : {}),
-      ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
-      ...(perTurn.signal !== undefined ? { signal: perTurn.signal } : {}),
-      ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
-    });
+    // Restartable turn (1d): the query() invocation is hoisted into `startTurn`
+    // so an output-gate `regenerate` verdict can re-run it with an extra
+    // steering system segment. `extraSegments` is EMPTY on the first attempt —
+    // the systemPrompt is then `effectiveSystemPrompt` verbatim, byte-identical
+    // to the pre-1d single call.
+    const startTurn = (extraSegments: SystemSegment[]) =>
+      query({
+        provider,
+        model,
+        messages: seedMessages,
+        systemPrompt:
+          extraSegments.length > 0
+            ? [...effectiveSystemPrompt, ...extraSegments]
+            : effectiveSystemPrompt,
+        maxTokens,
+        sessionId,
+        ...(conduct !== undefined ? { conduct, conductCtx } : {}),
+        ...(effort !== undefined ? { effort } : {}),
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
+        ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
+        ...(tools !== undefined ? { tools } : {}),
+        ...(toolContext !== undefined ? { toolContext } : {}),
+        ...(canUseTool !== undefined ? { canUseTool } : {}),
+        ...(memoryManager !== undefined ? { memoryManager } : {}),
+        ...(recall !== undefined ? { recall } : {}),
+        ...(pollSteering !== undefined ? { pollSteering } : {}),
+        ...(config.hookRunner !== undefined ? { hookRunner: config.hookRunner } : {}),
+        ...(traceRecorder !== undefined ? { traceRecorder } : {}),
+        ...(microcompactConfig !== undefined ? { microcompactConfig } : {}),
+        ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
+        ...(perTurn.signal !== undefined ? { signal: perTurn.signal } : {}),
+        ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
+      });
+    let gen = startTurn([]);
 
     // 8. Drive query(), yielding every event UNCHANGED + in order. Track the
     //    structured result fields exactly as the prior inline turn loop did,
@@ -388,84 +415,147 @@ export function createAgent(config: AgentConfig): Agent {
     const messages: Message[] = [...seedMessages];
 
     try {
-      for (;;) {
-        const step = await gen.next();
-        if (step.done) {
-          terminal = step.value;
-          break;
-        }
-        let ev = step.value;
-        if (ev && typeof ev === 'object') {
-          if ('type' in ev) {
-            // Conduct output gate (1b — floors on every surface). Deltas route
-            // through onDelta ('' = held → event dropped); assistant messages
-            // route through onFinal (pass/replace/block). The SUBSTITUTED
-            // message is what is yielded, counted, and persisted — the
-            // history-scrub-before-persistence guarantee. Throws fail OPEN.
-            // Known caveat (accepted in plan review): the SDK routes deltas
-            // and the final message independently, so an onDelta hold can make
-            // the streamed text diverge from the onFinal-substituted message
-            // until the real governor (which reconciles the two) lands in 1d.
-            const guard = conduct?.outputGuard;
-            if (guard?.onDelta && ev.type === 'text_delta') {
-              let released = ev.text;
-              try {
-                released = guard.onDelta(ev.text, conductCtx);
-              } catch {
-                // fail open — original delta flows
-              }
-              if (released.length === 0) continue;
-              if (released !== ev.text) ev = { type: 'text_delta', text: released };
-            }
-            if (guard?.onFinal && ev.type === 'assistant_message') {
-              const startedAt = Date.now();
-              let verdictLabel = 'pass';
-              try {
-                const verdict = await guard.onFinal(ev.message, conductCtx);
-                verdictLabel = verdict.action;
-                if (verdict.action === 'replace') {
-                  ev = {
-                    type: 'assistant_message',
-                    message: substituteAssistantText(ev.message, verdict.text),
-                  };
-                } else if (verdict.action === 'block') {
-                  ev = {
-                    type: 'assistant_message',
-                    message: substituteAssistantText(
-                      ev.message,
-                      verdict.template ?? DEFAULT_CONDUCT_REFUSAL,
-                    ),
-                  };
-                }
-              } catch {
-                verdictLabel = 'error'; // fail open
-              }
-              emitConductAudit({
-                stage: 'output',
-                sessionId,
-                surface: conductSurface,
-                verdict: verdictLabel,
-                latencyMs: Date.now() - startedAt,
-                iso: new Date().toISOString(),
-              });
-            }
-            usageAcc = accumulateUsage(usageAcc, ev);
-            if (ev.type === 'message_stop') iterationsUsed += 1;
-            if (ev.type === 'assistant_message') {
-              finalAssistant = ev.message;
-              messages.push(ev.message);
-              for (const block of ev.message.content) {
-                if (block.type === 'tool_use') {
-                  toolCallCount += 1;
-                  distinctTools.add(block.name);
-                }
-              }
-            }
-          } else if ('role' in ev && ev.role === 'user') {
-            messages.push(ev);
+      // Attempt loop (1d): the single-pass drive, wrapped in a bounded retry on
+      // an output-gate `regenerate` verdict (CONDUCT_REGENERATE_MAX). Without
+      // an `outputGuard.onFinal` returning `regenerate` (the null provider, or
+      // any pass/replace/block verdict) `regenerated` stays false and this
+      // collapses to ONE pass — byte-identical to the pre-1d single drive.
+      // `usageAcc` and the result-tracking vars persist ACROSS attempts so cost
+      // is honest (both provider calls counted); the discarded attempt-0
+      // message is never pushed to `messages[]`, yielded to the consumer, or
+      // counted toward tools/finalAssistant.
+      for (let attempt = 0; ; attempt += 1) {
+        let regenerated = false;
+        let regenerateReason: string | undefined;
+        for (;;) {
+          const step = await gen.next();
+          if (step.done) {
+            terminal = step.value;
+            break;
           }
+          let ev = step.value;
+          if (ev && typeof ev === 'object') {
+            if ('type' in ev) {
+              // Conduct output gate (1b/1d — floors on every surface). Deltas
+              // route through onDelta ('' = held → event dropped); a provider
+              // call's stream-end fires onStreamEnd (the 1d held-tail flush)
+              // then onFinal (pass/replace/block/regenerate). The SUBSTITUTED
+              // message is what is yielded, counted, and persisted — the
+              // history-scrub-before-persistence guarantee. Throws fail OPEN.
+              // Known caveat (accepted in plan review): the SDK routes deltas
+              // and the final message independently, so an onDelta hold can
+              // make the streamed text diverge from the onFinal-substituted
+              // message until the real governor reconciles the two. The 1d
+              // `regenerate` retry likewise ACCEPTS that a streaming consumer
+              // may have already received attempt-0 deltas (decorum's
+              // hold-by-default keeps that to held/empty text); the SDK does
+              // not retract already-yielded events.
+              const guard = conduct?.outputGuard;
+              if (guard?.onDelta && ev.type === 'text_delta') {
+                let released = ev.text;
+                try {
+                  released = guard.onDelta(ev.text, conductCtx);
+                } catch {
+                  // fail open — original delta flows
+                }
+                if (released.length === 0) continue;
+                if (released !== ev.text) ev = { type: 'text_delta', text: released };
+              }
+              // Held-tail flush (1d): the provider call's text stream has ended
+              // (its assistant_message is here) — give the engine one seam to
+              // release any tail it held via onDelta, emitted as a final
+              // text_delta BEFORE the message is gated. Fail-open (nothing
+              // flushed on a throw). Fires independent of onFinal.
+              if (guard?.onStreamEnd && ev.type === 'assistant_message') {
+                let flushed = '';
+                try {
+                  flushed = guard.onStreamEnd(conductCtx);
+                } catch {
+                  // fail open — nothing flushed
+                }
+                if (flushed.length > 0) yield { type: 'text_delta', text: flushed };
+              }
+              if (guard?.onFinal && ev.type === 'assistant_message') {
+                const startedAt = Date.now();
+                let verdictLabel = 'pass';
+                let doRegenerate = false;
+                try {
+                  const verdict = await guard.onFinal(ev.message, conductCtx);
+                  verdictLabel = verdict.action;
+                  if (verdict.action === 'replace') {
+                    ev = {
+                      type: 'assistant_message',
+                      message: substituteAssistantText(ev.message, verdict.text),
+                    };
+                  } else if (verdict.action === 'block') {
+                    ev = {
+                      type: 'assistant_message',
+                      message: substituteAssistantText(
+                        ev.message,
+                        verdict.template ?? DEFAULT_CONDUCT_REFUSAL,
+                      ),
+                    };
+                  } else if (verdict.action === 'regenerate') {
+                    if (attempt < CONDUCT_REGENERATE_MAX) {
+                      // Attempt 0: reject + re-run. Handled AFTER the audit,
+                      // below — the message is NOT substituted, yielded,
+                      // counted, or persisted.
+                      doRegenerate = true;
+                      regenerateReason = verdict.reason;
+                    } else {
+                      // Bounded (CONDUCT_REGENERATE_MAX): a repeat regenerate is
+                      // handled as `block` — substitute the default refusal.
+                      verdictLabel = 'block';
+                      ev = {
+                        type: 'assistant_message',
+                        message: substituteAssistantText(ev.message, DEFAULT_CONDUCT_REFUSAL),
+                      };
+                    }
+                  }
+                } catch {
+                  verdictLabel = 'error'; // fail open
+                }
+                emitConductAudit({
+                  stage: 'output',
+                  sessionId,
+                  surface: conductSurface,
+                  verdict: verdictLabel,
+                  latencyMs: Date.now() - startedAt,
+                  iso: new Date().toISOString(),
+                });
+                if (doRegenerate) {
+                  // Discard attempt 0 entirely: break the drive loop WITHOUT
+                  // yielding/counting/persisting this message. usageAcc is
+                  // retained; attempt-1's first message_start flushes this
+                  // call's usage into the total (honest cost).
+                  regenerated = true;
+                  break;
+                }
+              }
+              usageAcc = accumulateUsage(usageAcc, ev);
+              if (ev.type === 'message_stop') iterationsUsed += 1;
+              if (ev.type === 'assistant_message') {
+                finalAssistant = ev.message;
+                messages.push(ev.message);
+                for (const block of ev.message.content) {
+                  if (block.type === 'tool_use') {
+                    toolCallCount += 1;
+                    distinctTools.add(block.name);
+                  }
+                }
+              }
+            } else if ('role' in ev && ev.role === 'user') {
+              messages.push(ev);
+            }
+          }
+          yield ev;
         }
-        yield ev;
+        if (!regenerated) break;
+        // Re-run the turn ONCE with the content-free steering segment. Tear
+        // down the discarded attempt's provider stream first (close its socket,
+        // as the finally block does), then restart.
+        await gen.return(undefined as unknown as Terminal);
+        gen = startTurn([regenerateSteeringSegment(regenerateReason)]);
       }
     } catch (err) {
       // `rethrow: true` — do NOT convert the throw to a terminal. Re-throw so it

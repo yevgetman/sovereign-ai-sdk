@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import { DEFAULT_CONDUCT_REFUSAL } from '@yevgetman/sov-sdk/core/conductPort';
-import type { ConductAuditEvent, ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
+import type {
+  ConductAuditEvent,
+  ConductOutputGuard,
+  ConductProvider,
+} from '@yevgetman/sov-sdk/core/conductPort';
 import type {
   AssistantMessage,
   Message,
@@ -237,5 +241,113 @@ describe('createAgent output gate', () => {
     const { result } = await drainRun(agent.run('hello'));
     // biome-ignore lint/suspicious/noExplicitAny: structural check
     expect((result as any).finalAssistant.content[0].text).toBe('ok');
+  });
+});
+
+/** Scripted-guard harness for the 1d regenerate/flush drive-loop tests. Serves
+ *  `replies[callIndex]` one per provider call (each call = message_start,
+ *  text_delta(reply), assistant_message(reply), message_stop), captures the
+ *  per-call system segments (so the steering segment on attempt 1 is
+ *  assertable), and exposes `finalAssistantText` off the RunResult. Mirrors the
+ *  existing scriptedProvider bootstrap. */
+async function driveScripted(opts: { guard: ConductOutputGuard; replies: string[] }) {
+  const systems: SystemSegment[][] = [];
+  let callIndex = 0;
+  const provider: LLMProvider = {
+    name: 'scripted',
+    // biome-ignore lint/suspicious/noExplicitAny: test stub
+    async *stream(req: any): AsyncGenerator<StreamEvent> {
+      systems.push(req.system as SystemSegment[]);
+      const reply = opts.replies[callIndex] ?? opts.replies[opts.replies.length - 1] ?? '';
+      callIndex += 1;
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: reply }],
+      };
+      yield { type: 'message_start' };
+      yield { type: 'text_delta', text: reply };
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+    },
+  } as unknown as LLMProvider;
+  const agent = createAgent({
+    provider,
+    model: 'test-model',
+    conduct: { outputGuard: opts.guard },
+  });
+  const events: (StreamEvent | Message)[] = [];
+  const gen = agent.run('hello');
+  // biome-ignore lint/suspicious/noExplicitAny: structural result capture
+  let runResult: any;
+  for (;;) {
+    const step = await gen.next();
+    if (step.done) {
+      runResult = step.value;
+      break;
+    }
+    events.push(step.value);
+  }
+  const textBlock = runResult?.finalAssistant?.content.find(
+    (b: { type: string }) => b.type === 'text',
+  );
+  const finalAssistantText: string | undefined =
+    textBlock && textBlock.type === 'text' ? textBlock.text : undefined;
+  return { events, systems, result: { ...runResult, finalAssistantText } };
+}
+
+describe('conduct outputGuard — regenerate-once (1d)', () => {
+  test('regenerate verdict re-runs the turn once with a steering segment; second pass passes', async () => {
+    let finals = 0;
+    const guard: ConductOutputGuard = {
+      onFinal: () =>
+        finals++ === 0 ? { action: 'regenerate', reason: 'rule r1' } : { action: 'pass' },
+    };
+    const { events, result, systems } = await driveScripted({
+      guard,
+      replies: ['bad reply', 'good reply'],
+    });
+    expect(finals).toBe(2);
+    expect(result.finalAssistantText).toBe('good reply');
+    // attempt-0 message never yielded or persisted:
+    expect(events.filter((e) => 'type' in e && e.type === 'assistant_message')).toHaveLength(1);
+    // steering segment present on attempt 1 only:
+    expect(systems[0]?.some((s) => s.text.includes('rejected by the output governor'))).toBe(false);
+    expect(systems[1]?.some((s) => s.text.includes('rejected by the output governor'))).toBe(true);
+  });
+
+  test('regenerate reason label is carried into the steering segment text', async () => {
+    let finals = 0;
+    const guard: ConductOutputGuard = {
+      onFinal: () =>
+        finals++ === 0 ? { action: 'regenerate', reason: 'rule r1' } : { action: 'pass' },
+    };
+    const { systems } = await driveScripted({ guard, replies: ['bad', 'good'] });
+    const steering = systems[1]?.find((s) => s.text.includes('rejected by the output governor'));
+    expect(steering?.text).toContain('rule r1');
+    expect(steering?.cacheable).toBe(false);
+  });
+
+  test('second regenerate verdict is treated as block', async () => {
+    const guard: ConductOutputGuard = { onFinal: () => ({ action: 'regenerate' }) };
+    const { result, systems } = await driveScripted({ guard, replies: ['bad', 'still bad'] });
+    expect(result.finalAssistantText).toBe(DEFAULT_CONDUCT_REFUSAL);
+    // exactly TWO attempts, then bounded — no third provider call:
+    expect(systems).toHaveLength(2);
+  });
+
+  test('onStreamEnd flush is emitted as a final text_delta before the assistant message', async () => {
+    const guard: ConductOutputGuard = {
+      onDelta: () => '',
+      onStreamEnd: () => 'held tail released',
+      onFinal: () => ({ action: 'pass' }),
+    };
+    const { events } = await driveScripted({ guard, replies: ['streamed text'] });
+    const deltas = events
+      .filter(
+        (e): e is Extract<StreamEvent, { type: 'text_delta' }> =>
+          'type' in e && e.type === 'text_delta',
+      )
+      .map((e) => e.text);
+    expect(deltas[deltas.length - 1]).toBe('held tail released');
   });
 });
