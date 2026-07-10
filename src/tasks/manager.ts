@@ -28,6 +28,11 @@
 // effort under concurrent delegate() calls — see the file-header note
 // in src/runtime/scheduler.ts. The manager surfaces that as a 'failed'
 // terminal when the cap is breached.
+//
+// Conduct (1b): child `sov drive` subprocesses do NOT inherit the parent's
+// in-process ConductProvider — a provider object cannot cross a process
+// boundary. A child binds its own provider from its own runtime config at
+// boot (src/server/runtime.ts wiring). Named trust boundary, spec D23.
 
 import { randomUUID } from 'node:crypto';
 import type { TaskOutput } from '@yevgetman/sov-sdk/core/taskPort';
