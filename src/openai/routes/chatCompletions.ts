@@ -283,6 +283,13 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       cwd: runtime.cwd,
       hookRunner: runtime.hookRunner,
       microcompactConfig: runtime.microcompactConfig,
+      // Conduct Port (1b) — bind the boot-bound governance provider onto the
+      // per-request agent so an OpenAI-compat turn carries the same
+      // toolPolicy/outputGuard seams as an interactive one. Reads
+      // `runtime.conduct` (the boot-bound ref, mirrors the gateway); the
+      // conditional spread keeps the field ABSENT when unbound → null provider
+      // (byte-identical, exactOptional).
+      ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
     };
     // The per-turn slice — the host-assembled toolContext is used VERBATIM,
     // and `temperature` is spread conditionally exactly as the inline query()

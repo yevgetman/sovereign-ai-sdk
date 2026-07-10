@@ -15,6 +15,7 @@ import { loadBundleIfPresent } from '@yevgetman/sov-sdk/bundle/loader';
 import { buildMicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
+import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
 import type { ContentBlock, Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
@@ -97,6 +98,12 @@ export type MissionWakeOpts = {
   readonly agentName?: string;
   /** Optional max-tokens override. Defaults to 4096. */
   readonly maxTokens?: number;
+  /** Conduct Port (1b) — the boot-bound governance provider. missionRun builds
+   *  its own headless deps (no live `Runtime` object), so the provider rides in
+   *  as an option the same way `maxTokens` does; threaded onto the wake's
+   *  createAgent config below. Absent → null provider (byte-identical), matching
+   *  the exactOptional conditional-spread discipline of the other surfaces. */
+  readonly conduct?: ConductProvider;
 };
 
 export type MissionWakeResult = {
@@ -268,6 +275,13 @@ async function runMissionWakeLocked(
       // settings (it previously inherited query()'s DEFAULT_MICROCOMPACT_CONFIG).
       microcompactConfig: buildMicrocompactConfig(userSettings.microcompaction),
       ...(toolPool.length > 0 ? { tools: toolPool } : {}),
+      // Conduct Port (1b) — bind the boot-bound governance provider onto the
+      // wake's agent so an autonomous mission turn carries the same
+      // toolPolicy/outputGuard seams as an interactive one. missionRun has no
+      // live `Runtime`, so it reads the provider off `opts.conduct`; the
+      // conditional spread keeps the field ABSENT when unbound → null provider
+      // (byte-identical, exactOptional).
+      ...(opts.conduct !== undefined ? { conduct: opts.conduct } : {}),
     });
     const gen = agent.run(history, {
       sessionId: 'mission-wake',

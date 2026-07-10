@@ -31,6 +31,7 @@ import { type AgentConfig, createAgent } from '@yevgetman/sov-sdk/agent/createAg
 import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
 import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
 import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
+import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import type { AssistantMessage, RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
 import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
@@ -218,6 +219,12 @@ export type CronAgentConfigInput = {
    *  AgentRunner path never persisted and cron never called `persistMessage`,
    *  so a cron turn was never transcribed; passing the store closes that gap. */
   transcripts?: TranscriptStore;
+  /** Conduct Port (1b) — the boot-bound governance provider, threaded from
+   *  `runtime.conduct` at the call site so a scheduled turn carries the same
+   *  toolPolicy/outputGuard seams as an interactive one. Conditionally spread
+   *  onto the config so an absent provider stays ABSENT (null provider →
+   *  byte-identical), matching the `recall` discipline. */
+  conduct?: ConductProvider;
 };
 
 /** Assemble the standing `AgentConfig` for one cron turn. Pure (no I/O) so the
@@ -241,6 +248,7 @@ export function buildCronAgentConfig(input: CronAgentConfigInput): AgentConfig {
     ...(input.recall !== undefined ? { recall: input.recall } : {}),
     microcompactConfig: input.microcompactConfig,
     ...(input.transcripts !== undefined ? { transcripts: input.transcripts } : {}),
+    ...(input.conduct !== undefined ? { conduct: input.conduct } : {}),
   };
 }
 
@@ -350,6 +358,13 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
             ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
             microcompactConfig: runtime.microcompactConfig,
             ...(runtime.transcripts !== undefined ? { transcripts: runtime.transcripts } : {}),
+            // Conduct Port (1b) — bind the boot-bound governance provider onto
+            // the cron turn's agent so a scheduled job carries the same
+            // toolPolicy/outputGuard seams as an interactive turn. Reads
+            // `runtime.conduct` (the boot-bound ref, mirrors the gateway); the
+            // conditional spread keeps the field ABSENT when unbound → null
+            // provider (byte-identical, exactOptional).
+            ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
           }),
         );
 
