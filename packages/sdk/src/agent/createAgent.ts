@@ -412,7 +412,7 @@ export function createAgent(config: AgentConfig): Agent {
       reason: 'error',
       error: new Error('createAgent: never terminated'),
     };
-    const messages: Message[] = [...seedMessages];
+    let messages: Message[] = [...seedMessages];
 
     try {
       // Attempt loop (1d): the single-pass drive, wrapped in a bounded retry on
@@ -425,6 +425,22 @@ export function createAgent(config: AgentConfig): Agent {
       // message is never pushed to `messages[]`, yielded to the consumer, or
       // counted toward tools/finalAssistant.
       for (let attempt = 0; ; attempt += 1) {
+        // Per-attempt turn-state reset (1d review fix). A `regenerate` verdict
+        // restarts query() from `seedMessages`, so every accumulator that feeds
+        // persistence/counting MUST be reset before the retry — otherwise a
+        // `regenerate` on the FINAL message of a TOOL-USING turn leaves the
+        // discarded attempt's tool_use assistant + tool_result user messages in
+        // `messages[]` (double-persisted, breaking provenance) and inflates
+        // toolCallCount / distinctTools / iterationsUsed / finalAssistant.
+        // `usageAcc` is the SOLE exception: honest cost sums ALL attempts (the
+        // documented design), so it is deliberately RETAINED across the retry.
+        if (attempt > 0) {
+          messages = [...seedMessages];
+          toolCallCount = 0;
+          distinctTools.clear();
+          iterationsUsed = 0;
+          finalAssistant = undefined;
+        }
         let regenerated = false;
         let regenerateReason: string | undefined;
         for (;;) {
@@ -447,9 +463,14 @@ export function createAgent(config: AgentConfig): Agent {
               // make the streamed text diverge from the onFinal-substituted
               // message until the real governor reconciles the two. The 1d
               // `regenerate` retry likewise ACCEPTS that a streaming consumer
-              // may have already received attempt-0 deltas (decorum's
-              // hold-by-default keeps that to held/empty text); the SDK does
-              // not retract already-yielded events.
+              // may have already received attempt-0 output that the retry does
+              // not retract: both the attempt-0 deltas AND the attempt-0
+              // onStreamEnd held-tail flush (the final text_delta yielded below)
+              // were emitted for the discarded attempt, and the onStreamEnd
+              // flush FIRES AGAIN on the retry attempt — so a streaming consumer
+              // sees the held tail twice (decorum's hold-by-default keeps that to
+              // held/empty text). The SDK does not retract already-yielded
+              // events.
               const guard = conduct?.outputGuard;
               if (guard?.onDelta && ev.type === 'text_delta') {
                 let released = ev.text;

@@ -12,7 +12,11 @@ import type {
   StreamEvent,
   SystemSegment,
 } from '@yevgetman/sov-sdk/core/types';
+import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { z } from 'zod';
 
 /** Scripted provider capturing the system prompt each stream() call receives. */
 function scriptedProvider(seen: { systems: SystemSegment[][] }): LLMProvider {
@@ -349,5 +353,123 @@ describe('conduct outputGuard — regenerate-once (1d)', () => {
       )
       .map((e) => e.text);
     expect(deltas[deltas.length - 1]).toBe('held tail released');
+  });
+
+  // Review fix (1d task 8): a `regenerate` verdict on the FINAL message of a
+  // TOOL-USING turn must reset the discarded attempt's accumulation state.
+  // Before the fix, attempt-0's tool_use assistant + tool_result user messages
+  // stayed in `messages[]` (double-persisted, breaking provenance) and inflated
+  // the counters; only `usageAcc` is retained (honest cross-attempt cost).
+  test('regenerate on a tool-using turn discards the tool call from messages + counters, keeps usage', async () => {
+    const toolUseMsg: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 't1', name: 'Echo', input: { text: 'hi' } }],
+    };
+    const badFinalMsg: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'bad final' }],
+    };
+    const cleanFinalMsg: AssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'clean final' }],
+    };
+    // Three provider calls: attempt-0 tool_use → attempt-0 bad final
+    // (regenerated) → attempt-1 clean final (passes).
+    const turns: StreamEvent[][] = [
+      [
+        { type: 'message_start' },
+        { type: 'tool_use_delta', id: 't1', partial: '{"text":"hi"}' },
+        { type: 'usage_delta', usage: { inputTokens: 10, outputTokens: 5 } },
+        { type: 'message_stop', stop_reason: 'tool_use' },
+        { type: 'assistant_message', message: toolUseMsg },
+      ],
+      [
+        { type: 'message_start' },
+        { type: 'text_delta', text: 'bad final' },
+        { type: 'usage_delta', usage: { inputTokens: 20, outputTokens: 8 } },
+        { type: 'message_stop', stop_reason: 'end_turn' },
+        { type: 'assistant_message', message: badFinalMsg },
+      ],
+      [
+        { type: 'message_start' },
+        { type: 'text_delta', text: 'clean final' },
+        { type: 'usage_delta', usage: { inputTokens: 30, outputTokens: 12 } },
+        { type: 'message_stop', stop_reason: 'end_turn' },
+        { type: 'assistant_message', message: cleanFinalMsg },
+      ],
+    ];
+    const queue = [...turns];
+    const provider: LLMProvider = {
+      name: 'scripted',
+      async *stream(): AsyncGenerator<StreamEvent> {
+        const events = queue.shift();
+        if (!events) throw new Error('scripted queue empty');
+        for (const ev of events) yield ev;
+      },
+    } as unknown as LLMProvider;
+
+    // Regenerate ONLY the attempt-0 final text; the tool_use assistant message
+    // (which must execute the tool) and the attempt-1 clean final both pass.
+    const guard: ConductOutputGuard = {
+      onFinal: (message) => {
+        if (message.content.some((b) => b.type === 'tool_use')) return { action: 'pass' };
+        const block = message.content.find((b) => b.type === 'text');
+        const text = block && block.type === 'text' ? block.text : '';
+        return text === 'bad final' ? { action: 'regenerate', reason: 'r1' } : { action: 'pass' };
+      },
+    };
+
+    const echoTool = buildTool({
+      name: 'Echo',
+      description: () => 'echo input',
+      inputSchema: z.object({ text: z.string() }),
+      async call(input) {
+        return { data: { echoed: (input as { text: string }).text } };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+
+    const store = createInMemorySessionStore();
+    const agent = createAgent({
+      provider,
+      model: 'test-model',
+      conduct: { outputGuard: guard },
+      tools: [echoTool],
+      sessionStore: store,
+    });
+
+    const gen = agent.run('use the tool', { sessionId: 'sess-regen-tool' });
+    // biome-ignore lint/suspicious/noExplicitAny: structural result capture
+    let result: any;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        result = step.value;
+        break;
+      }
+    }
+
+    // Counters reflect attempt 1 only — the discarded tool call is gone.
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.toolCallCount).toBe(0);
+    expect(result.distinctToolNames).toEqual([]);
+    expect(result.iterationsUsed).toBe(1);
+    expect(result.finalAssistant.content[0].text).toBe('clean final');
+
+    // RunResult.messages carry NO tool_use / tool_result from attempt 0:
+    // only the seed user message + the attempt-1 answer.
+    const carriesToolArtifacts = (blocks: { type: string }[]) =>
+      blocks.some((b) => b.type === 'tool_use' || b.type === 'tool_result');
+    // biome-ignore lint/suspicious/noExplicitAny: structural block inspection
+    expect(result.messages.some((m: any) => carriesToolArtifacts(m.content))).toBe(false);
+    expect(result.messages).toHaveLength(2);
+
+    // Persisted history is identically clean (double-persist guarantee).
+    const stored = store.loadMessages('sess-regen-tool');
+    expect(stored).toHaveLength(2);
+    // biome-ignore lint/suspicious/noExplicitAny: structural block inspection
+    expect(stored.some((m: any) => carriesToolArtifacts(m.content))).toBe(false);
+
+    // Usage still sums ALL THREE provider calls (both attempts) — honest cost.
+    expect(result.usage).toEqual({ inputTokens: 60, outputTokens: 25 });
   });
 });
