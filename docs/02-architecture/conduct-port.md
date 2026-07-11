@@ -68,11 +68,26 @@ labels, ids, and latency only. The sink is wrapped no-throw by the SDK.
 - **missionRun's `conduct` opt is dangling by design.** The option is threaded
   (`src/cli/missionRun.ts:284`) but the CLI does not yet feed a provider into
   it; it's the seam for a future caller, kept honest rather than removed.
-- **SSE deltas can diverge from the persisted text.** The SDK routes streaming
-  deltas and the final message through the guard independently, so an `onDelta`
-  hold may let pre-substitution text appear on the live stream while persistence
-  holds the `onFinal`-gated text. Plan-accepted until the 1d governor lands;
-  documented in-code in `createAgent.ts`.
+- **SSE reconciliation — released deltas are a verified prefix (1d, CLOSED BY
+  CONTRACT).** The 1b caveat ("deltas may show pre-substitution text while
+  persistence holds gated text") is reconciled now that a **hold-by-default**
+  governor is bound. decorum's streaming governor never releases a span until
+  the sentence containing it has been screened, so **every released delta is
+  verified text**. On the pass path the concatenation of the released deltas
+  plus the `onStreamEnd` held-tail flush is **exactly the final delivered +
+  persisted message** — what streams is what the governor released, and the two
+  converge. The old divergence only ever existed for a leak-then-check governor;
+  a holding governor has nothing to substitute after the fact on a clean turn.
+  - **The bounded, honest residue (D21):** a `block`/`replace` — or a
+    `regenerate` — that fires **after** text was already released. Streamed
+    bytes cannot be retracted, so the client keeps the released **prefix of the
+    ORIGINAL** model text while the final delivered + persisted message is the
+    substituted refusal (**never a prefix of that refusal** — the client reads
+    it as an explicit correction). decorum's Task-9 policy only emits
+    `regenerate` when nothing was released, narrowing this to
+    block/replace-after-release. Property test:
+    `tests/conduct/streamConvergence.test.ts`; documented in-code in
+    `createAgent.ts` (the output-gate drive loop).
 
 ## Pointers
 

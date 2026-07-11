@@ -458,19 +458,30 @@ export function createAgent(config: AgentConfig): Agent {
               // then onFinal (pass/replace/block/regenerate). The SUBSTITUTED
               // message is what is yielded, counted, and persisted — the
               // history-scrub-before-persistence guarantee. Throws fail OPEN.
-              // Known caveat (accepted in plan review): the SDK routes deltas
-              // and the final message independently, so an onDelta hold can
-              // make the streamed text diverge from the onFinal-substituted
-              // message until the real governor reconciles the two. The 1d
-              // `regenerate` retry likewise ACCEPTS that a streaming consumer
-              // may have already received attempt-0 output that the retry does
-              // not retract: both the attempt-0 deltas AND the attempt-0
-              // onStreamEnd held-tail flush (the final text_delta yielded below)
-              // were emitted for the discarded attempt, and the onStreamEnd
-              // flush FIRES AGAIN on the retry attempt — so a streaming consumer
-              // sees the held tail twice (decorum's hold-by-default keeps that to
-              // held/empty text). The SDK does not retract already-yielded
-              // events.
+              //
+              // SSE reconciliation (1d Task 12 — the 1b caveat, CLOSED BY
+              // CONTRACT). With a HOLD-BY-DEFAULT governor bound (decorum's
+              // streaming contract: never release a span until the sentence
+              // containing it is screened), every released delta is verified
+              // text, so on the PASS path the concatenation of the released
+              // deltas + the onStreamEnd flush is EXACTLY the final delivered
+              // message — the streamed text and the persisted text converge.
+              // The 1b "deltas may show pre-substitution text" divergence only
+              // ever existed for a leak-then-check governor; a holding governor
+              // has nothing to substitute after the fact on a clean turn.
+              //
+              // The BOUNDED, HONEST residue that survives (D21): a block/replace
+              // — or a `regenerate` — that fires AFTER text was already released.
+              // Streamed bytes cannot be retracted, so the client keeps the
+              // released PREFIX OF THE ORIGINAL model text while the final
+              // delivered + persisted message is the substituted refusal (never
+              // a prefix of that refusal). decorum's Task-9 policy only emits
+              // `regenerate` when NOTHING was released, shrinking this window to
+              // block/replace-after-release. Note also the 1d retry re-fires the
+              // onStreamEnd flush on the retry attempt — with hold-by-default
+              // that flush is held/empty text. The SDK does not retract
+              // already-yielded events. Property test:
+              // tests/conduct/streamConvergence.test.ts.
               const guard = conduct?.outputGuard;
               if (guard?.onDelta && ev.type === 'text_delta') {
                 let released = ev.text;
