@@ -1,5 +1,40 @@
 # Changelog
 
+## sdk 0.6.1 — Conduct Port (1d): regenerate-once + onStreamEnd flush + SSE convergence closed - 2026-07-10
+
+Additive extensions to the 1b Conduct Port, driven by decorum's OutputGovernor
+build. Three parts, all opt-in and null-provider byte-identical:
+
+- **`regenerate` output verdict — bounded-once retry.** `outputGuard.onFinal` may
+  now return `{ action: 'regenerate', reason }`; the `createAgent` drive loop
+  re-runs the turn **exactly once**, folding the content-free `reason` into a
+  steering segment, and treats a second `regenerate` as `block` (`CONDUCT_REGENERATE_MAX=1`).
+  Per-attempt turn state is reset before the retry, so a discarded first attempt —
+  including a tool-using one — **never double-persists** its tool calls or double-counts
+  usage (caught in live-verify; `tests/agent/createAgent.conduct.test.ts` — "regenerate
+  on a tool-using turn discards the tool call…", "second regenerate verdict is treated
+  as block").
+- **`onStreamEnd` seam — held-tail flush.** A new optional `outputGuard.onStreamEnd`
+  lets a hold-by-default governor flush its verified held tail as a final `text_delta`
+  before the assistant message is sealed (`createAgent.conduct.test.ts` — "onStreamEnd
+  flush is emitted as a final text_delta before the assistant message"). Absent the
+  capability, nothing changes.
+- **SSE reconciliation — the 1b divergence caveat is CLOSED BY CONTRACT.** With a
+  hold-by-default governor bound, every released delta is verified text, so on the
+  pass path `concat(released deltas + onStreamEnd flush) === the final delivered +
+  persisted message` — proven by a new property test
+  (`tests/conduct/streamConvergence.test.ts`). The only residue is the honest,
+  documented one: a `block`/`replace`/`regenerate` that fires *after* bytes were
+  already streamed leaves the client holding a **prefix of the ORIGINAL** text while
+  the delivered/persisted message is the substitution (never a prefix of the
+  substitution — read as an explicit correction). decorum emits `regenerate` only when
+  nothing was released, narrowing this to block/replace-after-release.
+
+Docs: `docs/02-architecture/conduct-port.md` — "Boundaries & known caveats" rewritten
+(SSE convergence; the Zone-2 depth channel assessed in 1d and **deferred to 1f** with
+full rationale). **Additive only** — every existing lane and the null-provider invariant
+byte-identical (full suite + contract tests); npm publish remains **held**.
+
 ## sdk 0.6.0 / harness 0.6.58 — Conduct Port (1b): vendor-neutral agent-behavior seams - 2026-07-10
 
 The SDK now carries the **Conduct Port** — the choke points for an
