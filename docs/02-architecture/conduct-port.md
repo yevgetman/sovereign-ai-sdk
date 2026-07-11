@@ -68,6 +68,38 @@ labels, ids, and latency only. The sink is wrapped no-throw by the SDK.
 - **missionRun's `conduct` opt is dangling by design.** The option is threaded
   (`src/cli/missionRun.ts:284`) but the CLI does not yet feed a provider into
   it; it's the seam for a future caller, kept honest rather than removed.
+- **Zone-2 depth channel — ASSESSED in 1d, DEFERRED to 1f.** decorum's D29 §5
+  anchored digest wants to sit at *true depth* — roughly four messages from the
+  context end, just before the latest turn — so its identity re-anchoring lands
+  where the model's attention is strongest. The port cannot express that today:
+  a `SystemSegment` carries only `{ text, cacheable }`, and every provider passes
+  the `system` array **separately from and ahead of** `messages`. A segment is
+  structurally at position 0, before all history. Adding an additive
+  `depth?: number` to the segment type is byte-neutral, but *honoring* it means
+  lifting that segment out of the `system` array and splicing it into `messages`
+  at `length - depth` — and that one semantic demand spreads into all three of
+  the areas this task was told to stay out of: **(1) per-provider prompt
+  formatting** — Anthropic (`systemToSdk` vs `messagesToSdk`), OpenAI, Ollama,
+  and the mock each translate `system` and `messages` through separate paths and
+  would each need depth-splicing, and a `SystemSegment` has no `role` to become a
+  message with; **(2) caching** — Anthropic marks a contiguous stable *system*
+  prefix and separately caches the trailing three messages (`cacheFrom =
+  length - 3`); a block spliced into mid-history lands inside that rolling window
+  and shifts the boundary every turn, breaking the "stable content stays
+  contiguous" contract that `insertPersonaSegments` upholds; **(3) history
+  management** — `length - depth` is only meaningful against the finalized,
+  post-compaction/-recall/-steering `messages`, so placement is a per-turn
+  computation, and the injected block then re-enters the next turn's compaction
+  and token-budget math (`budget.ts` / `tokenEstimate.ts` count segments and
+  messages on separate ledgers). `SystemSegment` threads through ~18 source
+  files; this is not "one assembly function + ≤2 call sites." A dead `depth?`
+  field would advertise a capability the port does not honor — the exact
+  anti-pattern the decorum doc's "approximation, made explicit" guards against.
+  **Verdict: the approximation stands** — the digest rides as the final
+  non-cacheable system segment (`core/conductSegments.ts`,
+  `insertPersonaSegments`); a real depth-anchored injection point is a 1f port
+  extension. Decorum-side rationale: `docs/architecture.md`, "Zone → segment
+  mapping."
 - **SSE reconciliation — released deltas are a verified prefix (1d, CLOSED BY
   CONTRACT).** The 1b caveat ("deltas may show pre-substitution text while
   persistence holds gated text") is reconciled now that a **hold-by-default**
