@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { createDecorumAdapter } from '../../src/conduct/decorumAdapter.js';
 
 /** The shipped assistant-core deploy binding (resolved through the package). */
@@ -33,11 +34,52 @@ describe('decorum adapter', () => {
     expect(provider.triage).toBeUndefined();
   });
 
-  test('the audit sink is OMITTED for this release (no sov audit channel wired)', () => {
+  test('no emitExternalTrace ⇒ no auditSink (byte-identical to no-audit)', () => {
     const provider = createDecorumAdapter({ configPath: ASSISTANT_CORE_BINDING });
-    // No `auditSink` is forwarded to decorum, so the returned provider carries
-    // none — the SDK's audit seam is a no-op until the audit seam is wired.
+    // Absent the late-bound `emitExternalTrace` inlet, the adapter forwards NO
+    // `auditSink` to decorum, so the returned provider carries none — the audit
+    // seam is fully inert and the boot path is byte-identical to today.
     expect(provider.auditSink).toBeUndefined();
+  });
+
+  test('forwards decorum rich audit as external/source:decorum, drops bare seam events', () => {
+    const out: Array<[string, TraceEvent]> = [];
+    const provider = createDecorumAdapter({
+      configPath: ASSISTANT_CORE_BINDING,
+      emitExternalTrace: (sid, ev) => out.push([sid, ev]),
+    });
+    const sink = provider.auditSink;
+    expect(sink).toBeDefined();
+    if (sink === undefined) throw new Error('expected an auditSink when emitExternalTrace is set');
+    // decorum's own rich event (carries a schemaVersion) → forwarded, wrapped as
+    // an external/source:decorum trace event routed by its sessionId:
+    sink({
+      schemaVersion: 'decorum.audit/1',
+      stage: 'output',
+      sessionId: 's1',
+      surface: 'user',
+      verdict: 'block',
+      ruleIds: ['r1'],
+      configHash: 'h',
+      iso: 'now',
+      // biome-ignore lint/suspicious/noExplicitAny: hand-built audit event fixture
+    } as any);
+    // a bare SDK-seam re-exposure (no schemaVersion) → dropped (dedup):
+    sink({
+      stage: 'persona',
+      sessionId: 's1',
+      surface: 'user',
+      verdict: 'ok',
+      iso: 'now',
+      // biome-ignore lint/suspicious/noExplicitAny: hand-built audit event fixture
+    } as any);
+    expect(out).toHaveLength(1);
+    const entry = out[0];
+    if (entry === undefined) throw new Error('expected a forwarded event');
+    const [sid, ev] = entry;
+    expect(sid).toBe('s1');
+    expect(ev).toMatchObject({ type: 'external', source: 'decorum', iso: 'now' });
+    expect((ev as { payload: { ruleIds: string[] } }).payload.ruleIds).toEqual(['r1']);
   });
 
   test('FAILS CLOSED on a missing/invalid pack path (throws — no silent null provider)', () => {

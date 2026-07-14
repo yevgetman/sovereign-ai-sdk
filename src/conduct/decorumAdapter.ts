@@ -24,8 +24,10 @@
 // fall back to the null provider.
 
 import { join } from 'node:path';
-import { createDecorumProvider } from '@yevgetman/decorum';
+import { DECORUM_AUDIT_SCHEMA_VERSION, createDecorumProvider } from '@yevgetman/decorum';
+import type { DecorumAuditEvent } from '@yevgetman/decorum';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 
 /** Conventional filename of a deploy-binding conduct.yaml inside a `packDir`. */
 const DEPLOY_BINDING_FILENAME = 'conduct.yaml';
@@ -37,6 +39,12 @@ export type DecorumAdapterOptions = {
    *  `configPath` is unset — the binding is resolved as
    *  `<packDir>/conduct.yaml`. An explicit `configPath` always wins. */
   packDir?: string;
+  /** Late-bound inlet to the SDK's per-session trace (Runtime.recordExternalTrace).
+   *  When provided, decorum's content-free audit events are forwarded as
+   *  `{type:'external', source:'decorum'}` trace events, routed by the event's
+   *  own `sessionId`. Absent ⇒ no audit sink ⇒ byte-identical (no governance
+   *  observability). This is the SOLE decorum→SDK-trace coupling point. */
+  emitExternalTrace?: (sessionId: string, event: TraceEvent) => void;
 };
 
 /**
@@ -74,16 +82,34 @@ function resolveConfigPath(options: DecorumAdapterOptions): string {
  * triage once the gateway exposes a small-model lane for it.
  *
  * AUDIT: decorum emits typed, content-free audit events to an optional
- * `auditSink`. No sov-side audit/turn-log channel is reachable at adapter
- * construction (the adapter is built before `buildRuntime` and holds only the
- * binding paths), so the sink is OMITTED for this release. TODO (audit seam):
- * forward decorum's audit events into a sov turn-log channel when one is made
- * available to the boot path.
+ * `auditSink`. When the caller supplies `emitExternalTrace` (the late-bound
+ * `Runtime.recordExternalTrace` inlet), the adapter builds a sink that forwards
+ * decorum's OWN rich events into the SDK's per-session trace as
+ * `{type:'external', source:'decorum'}`. Absent that inlet, NO sink is passed —
+ * byte-identical to a no-audit boot.
  *
  * FAIL-CLOSED: {@link createDecorumProvider} throws at construction on a
  * missing/invalid pack; that throw propagates to gateway boot (no catch).
  */
 export function createDecorumAdapter(options: DecorumAdapterOptions = {}): ConductProvider {
   const configPath = resolveConfigPath(options);
-  return createDecorumProvider({ configPath });
+  const emitExternalTrace = options.emitExternalTrace;
+  // Forward ONLY decorum's own rich audit events (schemaVersion present) as
+  // external trace events. The provider ALSO re-exposes this sink to catch the
+  // SDK's thin seam-verdict events (decorum provider.ts:1410); those lack a
+  // schemaVersion and are dropped here so the trail carries exactly one rich
+  // record per decision (dedup). Routing is by the event's own `sessionId` via
+  // the late-bound recorder.
+  const auditSink = emitExternalTrace
+    ? (event: DecorumAuditEvent): void => {
+        if (event.schemaVersion !== DECORUM_AUDIT_SCHEMA_VERSION) return;
+        emitExternalTrace(event.sessionId, {
+          type: 'external',
+          source: 'decorum',
+          iso: event.iso,
+          payload: event,
+        });
+      }
+    : undefined;
+  return createDecorumProvider({ configPath, ...(auditSink ? { auditSink } : {}) });
 }
