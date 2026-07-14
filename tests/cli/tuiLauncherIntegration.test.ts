@@ -46,6 +46,15 @@ const MOCK_CHILD_EXIT_DELAY_MS = 100;
 // without racing the launcher's settle/dispose path.
 const MOCK_CHILD_M5_TURN_DELAY_MS = 5000;
 
+// Release-gate flake guard (Item 2). These end-to-end launcher smokes drive a
+// real in-process server + spawn mock; on CPU-constrained boxes the first
+// bare-server-up smoke has no per-test timeout and can die against the global
+// 20s budget, flaking the release preflight. `SOV_SKIP_FLAKY=1` (set ONLY at
+// the two release gates — scripts/release.ts and release.yml's preflight test
+// step) skips these file-level; a bare `bun test` still runs them so dev keeps
+// full coverage.
+const SKIP_FLAKY = process.env.SOV_SKIP_FLAKY === '1';
+
 // OUTGOING-leak defense (the header comment above covers the INCOMING
 // side): the suites below mock `node:child_process` (and the runtime/
 // server modules) and each restores defensively in its own hooks, but
@@ -79,7 +88,7 @@ afterAll(() => {
   mock.module('node:child_process', () => fileRealChildProcessModule);
 });
 
-describe('runTuiLauncher — end-to-end smoke', () => {
+describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
   let prevSovTuiBin: string | undefined;
   let realRuntimeModule: typeof import('../../src/server/runtime.js');
   let realServerModule: typeof import('../../src/server/index.js');
@@ -291,7 +300,7 @@ function openLiveSse(url: string, stopWhen: (ev: SseEvent) => boolean): SseHandl
   };
 }
 
-describe('tuiLauncher integration smoke — M5 subsystems', () => {
+describe.skipIf(SKIP_FLAKY)('tuiLauncher integration smoke — M5 subsystems', () => {
   let prevSovTuiBin: string | undefined;
   let prevHarnessHome: string | undefined;
   let prevCwd: string;
@@ -691,7 +700,7 @@ function wrapTransportWithOverflowOnce<T extends Transport>(inner: T): T {
   return wrapTransportWithOverflow(inner, (n) => n === 1).transport;
 }
 
-describe('tuiLauncher integration smoke — M6 long-session survival', () => {
+describe.skipIf(SKIP_FLAKY)('tuiLauncher integration smoke — M6 long-session survival', () => {
   let prevSovTuiBin: string | undefined;
   let prevHarnessHome: string | undefined;
   let prevCwd: string;

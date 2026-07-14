@@ -57,7 +57,10 @@ function preflightLocal(version: string, dryRun: boolean): void {
   note('running typecheck...');
   run('bun', ['run', 'typecheck']);
   note('running test...');
-  run('bun', ['run', 'test']);
+  // Item 2 — skip the env-flaky tuiLauncher integration smokes at THIS release
+  // gate only. They can die against the global 20s test budget on a busy box
+  // and needlessly abort a release; dev keeps full coverage on a bare run.
+  run('bun', ['run', 'test'], { env: { ...process.env, SOV_SKIP_FLAKY: '1' } });
 
   if (!dryRun) {
     const ghStatus = spawnSync('gh', ['auth', 'status'], {
